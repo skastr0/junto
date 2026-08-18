@@ -1,0 +1,1124 @@
+{
+  "databaseOpeners": [
+    {
+      "path": "src/main/vellum/state/backup.ts",
+      "reason": "State engine: opens the pending backup file it is writing, and the source database read-only to verify it."
+    },
+    {
+      "path": "src/main/vellum/state/engine.ts",
+      "reason": "State engine: THE single read-write opener of the state database. Every other writer in the process receives a StateWriter from here."
+    },
+    {
+      "path": "src/main/vellum/state/migrations.ts",
+      "reason": "State engine: receives the already-open DatabaseSync from engine.ts and imports the type to name it."
+    },
+    {
+      "path": "src/main/vellum/state/recovery.ts",
+      "reason": "State engine: opens a backup file read-only to inventory and restore it."
+    },
+    {
+      "path": "src/main/vellum/state/schema-identity.ts",
+      "reason": "State engine: builds an in-memory reference database to hash the expected schema against the live one."
+    },
+    {
+      "path": "src/main/vellum/state/schema-version-probe.ts",
+      "reason": "State engine: opens the database read-only to read user_version before the engine commits to it."
+    }
+  ],
+  "databaseOpenerExceptions": [
+    {
+      "path": "src/main/vellum/install-ops/engine.ts",
+      "reason": "Opens install-ops.db, a SECOND database in the same process. Deliberately separate so backfill bookkeeping never travels with a product state seed, but it is still a second SQLite opener inside the main process, the same class of defect as a second writer of the state database.",
+      "retire": "Fold backfill_markers into the state engine as install-local rows, or delete install-ops entirely once the inline-media backfill (BACKFILL_INLINE_MEDIA_V1) has run everywhere and the marker is no longer read."
+    },
+    {
+      "path": "scripts/dev-seed-from-prod.ts",
+      "reason": "Developer tool: copies the production database into a dev home. Opens the live product database read-write, outside the app, with no coordination with a running main process.",
+      "retire": "Make seeding a control-socket command served by the running main process, so the state engine stays the only opener."
+    },
+    {
+      "path": "scripts/license-state.ts",
+      "reason": "Developer tool: backs up / clears / restores the license_entitlement row for gate testing. Opens the live product database through bun:sqlite, a DIFFERENT driver from the product's node:sqlite, while the app may be running.",
+      "retire": "Serve entitlement clear and restore over the control socket, so no tool opens the product database directly."
+    },
+    {
+      "path": "scripts/electron-sqlite-smoke.mjs",
+      "reason": "Electron smoke probe: proves node:sqlite is present and WAL-capable inside the packaged Electron runtime. Opens only a throwaway database under mkdtemp, never product state.",
+      "retire": "Prove the packaged runtime from an e2e assertion inside the app, so no probe has to import the driver itself."
+    }
+  ],
+  "mutationSeams": [
+    {
+      "path": "src/main/vellum/state/migrations.ts",
+      "kind": "permanent",
+      "tables": [
+        "canvas_entities",
+        "work_board_posts",
+        "work_events",
+        "work_pending_commands",
+        "work_pending_proposal_commands",
+        "work_proposal_events",
+        "work_task_transitions",
+        "work_tasks"
+      ],
+      "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read."
+    },
+    {
+      "path": "src/main/vellum/state/schema-identity.ts",
+      "kind": "permanent",
+      "tables": [
+        "state_schema_identity"
+      ],
+      "reason": "The state engine's own schema witness row."
+    },
+    {
+      "path": "src/main/vellum/work/state-schema.ts",
+      "kind": "permanent",
+      "tables": [
+        "work_canvas_revisions"
+      ],
+      "reason": "Work-plane DDL. The only INSERTs are inside AFTER INSERT/UPDATE/DELETE triggers that bump the projection revision counter, so the write is SQLite's and local to the row, which is exactly why no call path can bypass it."
+    },
+    {
+      "path": "src/main/vellum/work/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "station_peer_ack_cursors",
+        "station_received_cursors",
+        "work_artifacts",
+        "work_board_posts",
+        "work_board_read_cursors",
+        "work_board_topics",
+        "work_commands",
+        "work_delivery_receipts",
+        "work_dispositions",
+        "work_event_sequences",
+        "work_events",
+        "work_facts",
+        "work_messages",
+        "work_pad_edges",
+        "work_pad_images",
+        "work_pad_inks",
+        "work_pad_meta",
+        "work_pad_pins",
+        "work_pad_posts",
+        "work_pad_read_cursors",
+        "work_pad_shapes",
+        "work_pending_commands",
+        "work_pending_proposal_commands",
+        "work_proposal_events",
+        "work_proposal_planning",
+        "work_requests",
+        "work_task_dependencies",
+        "work_task_finish",
+        "work_task_messages",
+        "work_task_proposals",
+        "work_task_transitions",
+        "work_tasks"
+      ],
+      "dynamicTableSites": [
+        {
+          "statement": "INSERT",
+          "expression": "${table}",
+          "resolvesTo": [
+            "work_tasks",
+            "work_requests"
+          ],
+          "reason": "The task-record writer selects the lane table: `const table = lane === \"task\" ? \"work_tasks\" : \"work_requests\"`."
+        },
+        {
+          "statement": "UPDATE",
+          "expression": "${pendingTable}",
+          "resolvesTo": [
+            "work_pending_commands",
+            "work_pending_proposal_commands"
+          ],
+          "reason": "Disposition resolution selects the pending table by the referenced command's kind."
+        },
+        {
+          "statement": "DELETE",
+          "expression": "${table}",
+          "resolvesTo": [
+            "work_pad_images",
+            "work_pad_shapes",
+            "work_pad_edges",
+            "work_pad_inks",
+            "work_pad_pins"
+          ],
+          "reason": "persistPad's removeMissing() is called once with each pad element table literal."
+        }
+      ],
+      "reason": "THE WORK-PLANE SEAM. Every factory mutation funnels through this one file and it is the sole owner of the work_* tables. Debt rather than permanent because it writes materialized projection rows directly instead of appending to a journal and deriving them. Do not split it: a second work_* writer is the defect this gate exists to prevent.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/canvases.ts",
+      "kind": "debt",
+      "tables": [
+        "canvas_generation_documents",
+        "canvas_generations",
+        "canvas_head"
+      ],
+      "reason": "Canvas authority seam: appends a full canvas generation and moves the head. Operator-authored writes only.",
+      "retire": "Stop copying every document body on every commit (insertFullGeneration) by content-addressing generations; the seam itself stays."
+    },
+    {
+      "path": "src/main/vellum/entities/sync.ts",
+      "kind": "debt",
+      "tables": [
+        "canvas_entities"
+      ],
+      "reason": "Entity reconciliation seam: projects canvas nodes into the durable entity ledger.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/kernel/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "kernel_armed_regions",
+        "kernel_debug_pulses"
+      ],
+      "reason": "Kernel persistence seam: armed regions and the debug pulse ring.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/pause/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "factory_pause_canvases",
+        "factory_pause_scopes"
+      ],
+      "reason": "Pause-plane seam: canvas and scope pause state.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/content/manifest.ts",
+      "kind": "debt",
+      "tables": [
+        "content_objects",
+        "content_receipts",
+        "content_refs",
+        "content_transfers"
+      ],
+      "reason": "Content store seam: the object / receipt / ref ledger for externalized content.",
+      "retire": "Derive content refs from the journal instead of maintaining them as their own mutable ledger."
+    },
+    {
+      "path": "src/main/vellum/content/inline-media-migration.ts",
+      "kind": "debt",
+      "tables": [
+        "work_artifacts",
+        "work_board_posts",
+        "work_board_topics",
+        "work_messages",
+        "work_task_messages",
+        "work_task_proposals"
+      ],
+      "reason": "One-shot backfill that rewrites parts_json in place to externalize inline media. It is a SECOND writer of six work_* tables and mints no work fact; only the schema-20 revision triggers keep the projection cache correct across it.",
+      "retire": "Delete this file once BACKFILL_INLINE_MEDIA_V1 is complete on every install. It is a migration, not a product path, and must not outlive the backfill."
+    },
+    {
+      "path": "src/main/vellum/station/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "canvas_generation_documents",
+        "canvas_generations",
+        "canvas_head",
+        "station_installation",
+        "station_known_installations",
+        "station_pairing",
+        "station_projection_head",
+        "station_projection_versions"
+      ],
+      "reason": "Station seam: installation identity, pairing, and received projection versions. Also clears the local canvas store when a Remote drops its authorial copy.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/station/fleet-target-repository.ts",
+      "kind": "debt",
+      "tables": [
+        "station_fleet_targets",
+        "station_known_installations"
+      ],
+      "reason": "Fleet target seam: the Command Center's per-host propagation targets and cursors.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/station/configuration-state.ts",
+      "kind": "debt",
+      "tables": [
+        "station_configuration"
+      ],
+      "reason": "Station role and topology row.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/station-status-store.ts",
+      "kind": "debt",
+      "tables": [
+        "station_status_facts"
+      ],
+      "reason": "Station status fact store.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/hosts/registry.ts",
+      "kind": "debt",
+      "tables": [
+        "box_resources",
+        "host_registry",
+        "host_registry_state",
+        "station_fleet_targets"
+      ],
+      "reason": "Host registry seam: host rows, per-host state, and the cascade that clears a removed host's boxes and fleet targets.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/box/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "box_resources",
+        "host_registry"
+      ],
+      "reason": "Box ownership seam: provider-backed box rows and the host row a box is bound to.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/browser/profiles.ts",
+      "kind": "debt",
+      "tables": [
+        "browser_profile_canvas_defaults",
+        "browser_profile_pending_wipe",
+        "browser_profile_settings",
+        "browser_profiles"
+      ],
+      "reason": "Browser profile seam: profiles, per-profile settings, canvas defaults, and the pending-wipe queue.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/scheduler/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "scheduler_interval_firings",
+        "scheduler_interval_state"
+      ],
+      "reason": "Scheduler seam: interval timer state and the fired-once ledger.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/settings/service.ts",
+      "kind": "debt",
+      "tables": [
+        "settings_initialization",
+        "settings_preferences"
+      ],
+      "reason": "Settings seam: the operator preferences row and the first-run marker.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/license/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "license_entitlement"
+      ],
+      "reason": "License seam: the local entitlement row.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/usage/usage-cache.ts",
+      "kind": "debt",
+      "tables": [
+        "usage_state"
+      ],
+      "reason": "Usage cache seam: the single cached usage row.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/vellum/install-ops/engine.ts",
+      "kind": "debt",
+      "tables": [
+        "backfill_markers"
+      ],
+      "reason": "Install-ops seam. Writes install-ops.db, not the state database; see the matching databaseOpenerExceptions entry.",
+      "retire": "Retire together with the install-ops database opener exception."
+    },
+    {
+      "path": "scripts/license-state.ts",
+      "kind": "debt",
+      "tables": [
+        "license_activation",
+        "license_entitlement"
+      ],
+      "reason": "Developer tool that clears and restores the license rows the product owns. Listed so the overlap with license/repository.ts is visible rather than silent.",
+      "retire": "Serve entitlement clear and restore over the control socket."
+    },
+    {
+      "path": "scripts/electron-sqlite-smoke.mjs",
+      "kind": "debt",
+      "tables": [
+        "receipt_search",
+        "receipts"
+      ],
+      "reason": "Electron smoke probe writing a throwaway database under mkdtemp. Its tables exist only inside the probe.",
+      "retire": "Prove the packaged runtime from an e2e assertion inside the app, so the probe and its tables go away."
+    }
+  ],
+  "sharedTableExceptions": [
+    {
+      "table": "work_tasks",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_events",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_task_transitions",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_proposal_events",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_pending_commands",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_pending_proposal_commands",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "canvas_entities",
+      "owner": "src/main/vellum/entities/sync.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "The migration seeds canvas_entities when the table is introduced; entities/sync.ts owns it afterwards.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_board_posts",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "THREE writers. The migration backfills the table on a schema advance and the inline-media backfill rewrites parts_json in place. Neither mints a work fact.",
+      "retire": "Delete the inline-media backfill, and express migration rebuilds without naming a product table."
+    },
+    {
+      "table": "work_messages",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "The inline-media backfill rewrites parts_json in place with no work fact.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_task_messages",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_artifacts",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_board_topics",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_task_proposals",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "canvas_generations",
+      "owner": "src/main/vellum/canvases.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/station/repository.ts"
+      ],
+      "reason": "canvases.ts appends generations; station/repository.ts only DELETEs every row when a Remote drops its authorial canvas store.",
+      "retire": "Make dropping the local canvas store an operation on the canvas seam instead of a direct delete from the station seam."
+    },
+    {
+      "table": "canvas_generation_documents",
+      "owner": "src/main/vellum/canvases.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/station/repository.ts"
+      ],
+      "reason": "Same Remote canvas-store clear.",
+      "retire": "Retire with canvas_generations."
+    },
+    {
+      "table": "canvas_head",
+      "owner": "src/main/vellum/canvases.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/station/repository.ts"
+      ],
+      "reason": "Same Remote canvas-store clear.",
+      "retire": "Retire with canvas_generations."
+    },
+    {
+      "table": "host_registry",
+      "owner": "src/main/vellum/hosts/registry.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/box/repository.ts"
+      ],
+      "reason": "The box seam writes the host row a box is bound to and deletes it when the box is released.",
+      "retire": "Have box ownership call the hosts seam instead of writing host_registry directly."
+    },
+    {
+      "table": "box_resources",
+      "owner": "src/main/vellum/box/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/hosts/registry.ts"
+      ],
+      "reason": "The hosts seam clears a removed host's boxes as a cascade.",
+      "retire": "Have host removal call the box seam instead of deleting box_resources directly."
+    },
+    {
+      "table": "station_fleet_targets",
+      "owner": "src/main/vellum/station/fleet-target-repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/hosts/registry.ts"
+      ],
+      "reason": "The hosts seam clears a removed host's fleet targets as a cascade.",
+      "retire": "Have host removal call the fleet-target seam instead of deleting station_fleet_targets directly."
+    },
+    {
+      "table": "station_known_installations",
+      "owner": "src/main/vellum/station/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/station/fleet-target-repository.ts"
+      ],
+      "reason": "Both station seams register a peer installation before referencing it.",
+      "retire": "Put installation registration in one station seam."
+    },
+    {
+      "table": "license_entitlement",
+      "owner": "src/main/vellum/license/repository.ts",
+      "alsoWrittenBy": [
+        "scripts/license-state.ts"
+      ],
+      "reason": "The developer license tool clears and restores the row the product owns.",
+      "retire": "Serve entitlement clear and restore over the control socket."
+    }
+  ],
+  "decodeBoundaries": [
+    {
+      "path": "src/cli/core/batch.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes each item of an operator-supplied batch file against the command's item schema."
+    },
+    {
+      "path": "src/cli/core/json.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes operator-supplied JSON text (argv, @file, stdin) into a command's input type."
+    },
+    {
+      "path": "src/cli/core/pad.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes pad read results and seat capabilities returned over the canvas control socket."
+    },
+    {
+      "path": "src/main/vellum/box/cli.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the box provider CLI's stdout envelopes from a child process."
+    },
+    {
+      "path": "src/main/vellum/box/repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds a BoxResource from the box row this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/box/service.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes the box id the operator supplies before it addresses a provider box."
+    },
+    {
+      "path": "src/main/vellum/browser/control.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes browser control request bodies arriving over the control transport."
+    },
+    {
+      "path": "src/main/vellum/canvas-control/client.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes canvas control responses read off the control socket."
+    },
+    {
+      "path": "src/main/vellum/canvas-control/protocol.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the canvas control request and response decoders for that socket."
+    },
+    {
+      "path": "src/main/vellum/canvas-control/server.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes canvas control requests arriving from a client on the socket."
+    },
+    {
+      "path": "src/main/vellum/canvases.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands installation id and station host id off projected actor seats already held in memory.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/hosts/configure-remote.ts",
+      "kinds": [
+        "wire",
+        "mint"
+      ],
+      "reason": "Decodes responses from the remote host, and brands a registration it assembles locally.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/hosts/host-ops.ts",
+      "kinds": [
+        "constant"
+      ],
+      "reason": "Brands the placeholder installation id literal used by the target-only host ops layers."
+    },
+    {
+      "path": "src/main/vellum/hosts/operator-qualification-work.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes the host id carried on an operator-authored qualification task marker."
+    },
+    {
+      "path": "src/main/vellum/hosts/service.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes a remote host registration the operator entered before it reaches the registry."
+    },
+    {
+      "path": "src/main/vellum/ipc.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands an IntentFactBasis from a literal this handler just assembled from local state.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/kernel/repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds pulse kind and delivered list from the kernel pulse row this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/kernel/service.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands a host id off an already-decoded delivery surface and an IntentFactBasis from local state.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/license/config.ts",
+      "kinds": [
+        "constant"
+      ],
+      "reason": "Validates the provider ids baked into the main bundle at build time; the module refuses runtime input by contract."
+    },
+    {
+      "path": "src/main/vellum/license/dodo-client.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the license provider's HTTP responses."
+    },
+    {
+      "path": "src/main/vellum/license/domain.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the license activation and validation input decoders."
+    },
+    {
+      "path": "src/main/vellum/license/repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds the entitlement from the license row this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/license/service.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes the license key, activation name and installation id the operator supplies."
+    },
+    {
+      "path": "src/main/vellum/observability/ipc.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes observability queries arriving from the renderer over IPC."
+    },
+    {
+      "path": "src/main/vellum/process-signal.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes pids and signal names observed from the operating system before acting on them."
+    },
+    {
+      "path": "src/main/vellum/scheduler/repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds interval timer state from the scheduler row this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/settings/ipc.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the settings section key arriving from the renderer over IPC."
+    },
+    {
+      "path": "src/main/vellum/settings/patch.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes operator settings and settings patches before they are merged."
+    },
+    {
+      "path": "src/main/vellum/settings/service.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands the default station host id and re-validates a configuration it just assembled.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/settings/state-schema.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds preferences and station topology from the settings rows this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/ssh/domain.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes operator-supplied SSH endpoints, identity files, host key policy and socket paths."
+    },
+    {
+      "path": "src/main/vellum/station/actor-seat-compiler.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands seat ids, host ids and canvas refs while compiling the seat registry from canvas nodes in memory.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/api.ts",
+      "kinds": [
+        "wire",
+        "mint"
+      ],
+      "reason": "Decodes report batches arriving from a peer, and brands generation and hash off references already in memory.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/configuration-state.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds the station configuration from the row this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/station/control-server.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes report requests arriving from a peer station."
+    },
+    {
+      "path": "src/main/vellum/station/fleet-propagation.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands a host id off a fleet target row the repository already decoded.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/fleet-target-repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds fleet targets and their cursors from the rows this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/station/openssh-bootstrap.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands a freshly generated randomUUID as a session request id.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/openssh-peer-exchange.ts",
+      "kinds": [
+        "wire",
+        "mint"
+      ],
+      "reason": "Decodes station connection frames off the peer wire, and brands the local app version and schema version.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/peer-session.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands a freshly generated randomUUID as a session request id.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/propagation.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands generation and content hash off a projection snapshot already held in memory.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/station/repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds installation identity, projection bodies and route cursors from the rows this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/supervision/darwin.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the pid launchd reports for the supervised process."
+    },
+    {
+      "path": "src/main/vellum/supervision/systemd-user.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the fields and pid systemd reports for the supervised unit."
+    },
+    {
+      "path": "src/main/vellum/term/actor-seat-occupy-live.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands host id, generation and content hash off an admission reference already in memory.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/main/vellum/term/control-client.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the host directory snapshot returned over the terminal control transport."
+    },
+    {
+      "path": "src/main/vellum/usage/usage-cache.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds the cached usage document from the row this process wrote.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/work/control.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes work control requests arriving over the work control socket."
+    },
+    {
+      "path": "src/main/vellum/work/repository.ts",
+      "kinds": [
+        "row",
+        "mint"
+      ],
+      "reason": "THE work-plane row boundary: rebuilds Task, Message, Artifact, BoardPost, WorkRecord, WorkFact and friends from the rows this process wrote, and brands display timestamps and sequences it just computed. This is the strict-decode cost the perf work measured on the read path.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/main/vellum/work/service.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands an IntentFactBasis from a literal assembled out of the local station configuration.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/renderer/components/InspectorFields.tsx",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands a port name off a canvas node the renderer already decoded from the IPC payload.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/renderer/lib/actor-edges.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands a port name off an already-decoded canvas edge while building the actor edge rows.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/shared/browser-control.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the browser control envelope decoder used at the browser control boundary."
+    },
+    {
+      "path": "src/shared/canvas.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the strict CanvasDoc decoder used wherever a canvas document enters the process."
+    },
+    {
+      "path": "src/shared/content-url.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the decoder for a content URL's query parameters, which arrive as untrusted text."
+    },
+    {
+      "path": "src/shared/content.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the ContentPart / ContentRef decoders used at every content boundary."
+    },
+    {
+      "path": "src/shared/finish-criteria.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the finish-criteria and completion-evidence decoders used by work ingress."
+    },
+    {
+      "path": "src/shared/linux-host-capability-doctor.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the capability facts a remote Linux host prints back over SSH."
+    },
+    {
+      "path": "src/shared/node-insert.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes operator-authored node insert payloads before they become canvas nodes."
+    },
+    {
+      "path": "src/shared/operator-control.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the operator control request and response decoders for that socket."
+    },
+    {
+      "path": "src/shared/pad.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the pad document and pad element decoders used at pad ingress."
+    },
+    {
+      "path": "src/shared/physics/view.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands port names off an already-decoded canvas document while building the capability view.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/shared/remote-update-status.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the decoder for the update status a Remote reports back."
+    },
+    {
+      "path": "src/shared/scheduler-policy.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the interval timer state decoder used by the scheduler seam."
+    },
+    {
+      "path": "src/shared/state-recovery.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the state backup id and inventory decoders used by the recovery boundary."
+    },
+    {
+      "path": "src/shared/station-api-envelope.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the station API request and control envelope decoders."
+    },
+    {
+      "path": "src/shared/station-protocol.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the station protocol preface decoder for the peer handshake."
+    },
+    {
+      "path": "src/shared/station-qualification.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the station qualification report decoder."
+    },
+    {
+      "path": "src/shared/station-session.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the station session frame decoder for the peer wire."
+    },
+    {
+      "path": "src/shared/station-status.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the station status document and deploy record decoders."
+    },
+    {
+      "path": "src/shared/terminal-seat-occupancy.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "Brands binding id, session epoch and placement off an occupancy snapshot the process already holds.",
+      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
+    },
+    {
+      "path": "src/shared/terminal-session-domain.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes inbound herdr control frames off the terminal control stream."
+    },
+    {
+      "path": "src/shared/update.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the update status decoder."
+    },
+    {
+      "path": "src/shared/work-control.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the work control request and response envelope decoders."
+    },
+    {
+      "path": "src/shared/work-protocol.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the work action / result / record decoders used at every work boundary."
+    },
+    {
+      "path": "src/shared/work-reference.ts",
+      "kinds": [
+        "constant"
+      ],
+      "reason": "Brands the one operator planning seat id literal, once at module load."
+    }
+  ]
+}
