@@ -106,6 +106,28 @@ export type CanvasReadWithIntentWitness = {
 };
 
 /**
+ * One authorial node, read WITHOUT building the canvas work projection.
+ *
+ * Some callers only ask structural questions of a single node — which seat
+ * does it bind to (`deliveryTargetOf`), is that seat paused (`seatPaused`,
+ * which needs group geometry). Neither question reads a work lane, so neither
+ * may pay for one: `canvases.read` materializes every sink's tasks, messages,
+ * requests, artifacts, board and pad to answer them, which is the entire
+ * factory for one `nodes.find`.
+ *
+ * `structure` is the AUTHORIAL document. `ether.tasks`, `ether.requests`,
+ * `ether.messages`, `ether.artifacts`, `ether.board` and `ether.pad` are
+ * absent by construction (authorial rows that carry them are rejected at
+ * decode). Never read a work lane off it — take `canvases.read` for that.
+ */
+export type CanvasNodeStructure = {
+  readonly name: string;
+  readonly node: CanvasNode;
+  readonly structure: CanvasDoc;
+  readonly revision: string;
+};
+
+/**
  * Caller identity for one `canvases.read`. Instrumentation only: the
  * `VELLUM_PERF=1` probe rolls read cost up by this tag so the driver of a
  * main-thread block is measured rather than inferred. Closed union so a new
@@ -116,13 +138,22 @@ export type CanvasReadTag =
   | "browser.readCanvas"
   | "control.list"
   | "control.read"
+  // Message delivery, split by call site. One tag per delivery path so the
+  // driver of a retry loop is measured rather than inferred — the single
+  // `ipc.termStore` tag this replaces could not tell a world scan apart from
+  // a per-message re-read.
+  | "delivery.attempt"
+  | "delivery.batch"
+  | "delivery.readStamp"
+  | "delivery.requestResponse"
+  | "delivery.route"
+  | "delivery.scan"
   | "hosts.qualification"
   | "ipc.deliveryAccept"
   | "ipc.exportDigest"
   | "ipc.mergePortfolio"
   | "ipc.readCanvas"
   | "ipc.rendererActor"
-  | "ipc.termStore"
   | "kernel.hydrateDoc"
   | "kernel.resyncDoc"
   | "kernel.wakeManagedSeat"
@@ -149,6 +180,17 @@ export class CanvasesService extends Context.Service<CanvasesService,
       name: string,
       tag?: CanvasReadTag,
     ) => Effect.Effect<CanvasReadWithIntentWitness, CanvasError>;
+    /**
+     * One node's authorial structure from live authority — the work projection
+     * is never built. Same freshness as `read` (same authority snapshot, same
+     * transaction), a fraction of the cost. `undefined` when the canvas holds
+     * no such node; a missing canvas is still an error.
+     */
+    readonly readNodeStructure: (
+      name: string,
+      nodeId: string,
+      tag?: CanvasReadTag,
+    ) => Effect.Effect<CanvasNodeStructure | undefined, CanvasError>;
     readonly write: (
       name: string,
       doc: CanvasDoc,
@@ -960,6 +1002,50 @@ export const CanvasesLive = Layer.effect(
       Effect.map(({ read }) => read),
     );
 
+  const readNodeStructure = (
+    name: string,
+    nodeId: string,
+    tag: CanvasReadTag = "untagged",
+  ): Effect.Effect<CanvasNodeStructure | undefined, CanvasError> =>
+    Effect.gen(function* () {
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
+        catch: toCanvasError,
+      });
+      yield* ensureReady;
+      return yield* state
+        .read("canvas.readNodeStructure", (reader) => {
+          const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
+          // Same authority snapshot `read` resolves against, so a caller that
+          // routes on this node sees exactly the document the last commit
+          // published — never a lagging renderer projection. What is skipped
+          // is only `readCanvasWorkProjection` + `projectWorkSnapshots`, which
+          // add work lanes and touch no structural field.
+          const snapshot = readActivePortfolio(reader);
+          const entry = snapshot.documents.get(canonicalName);
+          if (entry === undefined) {
+            throw new CanvasError({
+              message: `canvas "${canonicalName}" is not in the active portfolio`,
+            });
+          }
+          const node = entry.doc.nodes.find(
+            (candidate) => candidate.id === nodeId,
+          );
+          const result: CanvasNodeStructure | undefined =
+            node === undefined
+              ? undefined
+              : {
+                  name: canonicalName,
+                  node,
+                  structure: entry.doc,
+                  revision: entry.revision,
+                };
+          if (probe !== undefined) perfProbe?.endRead(probe, result?.node);
+          return result;
+        })
+        .pipe(Effect.mapError(toCanvasError));
+    });
+
   const write = (
     name: string,
     doc: CanvasDoc,
@@ -1325,6 +1411,7 @@ export const CanvasesLive = Layer.effect(
     list,
     read,
     readWithIntentWitness,
+    readNodeStructure,
     write,
     mutate,
     create,

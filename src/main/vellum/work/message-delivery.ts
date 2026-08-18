@@ -6,7 +6,7 @@
 // Durable stop condition is work_delivery_receipts (delivery.accepted), not a
 // canvas metadata stamp — work overlays are stripped on authorial write.
 
-import type { CanvasDoc, Message } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode, Message } from "@shared/canvas";
 import {
   composeMessageDeliveryPayload,
   composeMessageDeliverySummary,
@@ -28,6 +28,29 @@ import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
  * Prevents open-to-continue from racing the load/resume paint with a dump.
  */
 export const MESSAGE_DELIVERY_SETTLE_MS = 1_500;
+
+/**
+ * Ceiling for the backed-off gate re-poll. Defense in depth only: the cadence
+ * was never the cost, the per-attempt world read was. Every refusal reason
+ * that backs off here also has a real state-change trigger
+ * (`onManagedTerminalIdle` / `onTerminalAttached` / `onResumed`), so the
+ * ceiling bounds the worst case where NOTHING changes — never the normal case.
+ */
+export const MESSAGE_DELIVERY_GATE_RETRY_MAX_MS = 12_000;
+/** Spread simultaneous seats off one tick so N refusals are not one block. */
+const GATE_RETRY_JITTER_FRACTION = 0.2;
+/** Deadline retries may be spread later, never earlier — the settle is a floor. */
+const GATE_DEADLINE_SPREAD_MS = 150;
+
+/**
+ * Why a gate retry is being armed.
+ *
+ * `deadline` is a wait for a known instant (the settle point). It must fire at
+ * that instant, so it never backs off — only a small forward spread.
+ * `poll` is a re-ask of a condition with no known clearing time (busy seat,
+ * seat not up, operator typing). Repeated polls back off.
+ */
+type GateRetryKind = "deadline" | "poll";
 
 export type SeatDeliveryGateResult =
   | { readonly allow: true }
@@ -85,9 +108,49 @@ export type ManagedTerminalPromptOptions = {
   readonly interruptIfBusy?: boolean;
 };
 
+/**
+ * Which delivery path drove one full-document read. Instrumentation only —
+ * it never reaches SQLite, the document, or a product surface. It exists so
+ * the perf tape attributes a read loop to a call site instead of lumping every
+ * delivery read under one tag.
+ */
+export type MessageDeliveryReadSite = "scan" | "attempt" | "batch";
+
+/**
+ * One node's authorial structure, read without building the work projection.
+ *
+ * `structure` carries NO work lanes (`ether.messages` and friends are absent).
+ * It is here only for the pause geography `seatPaused` needs; anything that
+ * reads a message must take the full document.
+ */
+export type MessageDeliveryNodeStructure = {
+  readonly node: CanvasNode;
+  readonly structure: CanvasDoc;
+};
+
 export type MessageDeliveryStore = {
   readonly listCanvasNames: () => Promise<ReadonlyArray<string>>;
-  readonly readDoc: (canvas: string) => Promise<CanvasDoc | undefined>;
+  readonly readDoc: (
+    canvas: string,
+    site: MessageDeliveryReadSite,
+  ) => Promise<CanvasDoc | undefined>;
+  /**
+   * Node-scoped authority lookup — same freshness as `readDoc`, without the
+   * work projection.
+   *
+   * Delivery ROUTING asks structural questions only: does this node still
+   * exist, which seat does it bind to, is that seat paused. Answering them
+   * through `readDoc` materializes every sink on the canvas, which is what
+   * turned the gate-retry cadence into a full-world read loop.
+   *
+   * Contract: `undefined` means the node is GONE (a durable answer — callers
+   * may retire queued work for it). A failed read must REJECT, never resolve
+   * undefined, so a transient authority error leaves queued work queued.
+   */
+  readonly readNodeStructure: (
+    canvas: string,
+    nodeId: string,
+  ) => Promise<MessageDeliveryNodeStructure | undefined>;
   /**
    * Durable stop: true when delivery.accepted exists for this mailbox message.
    * (work_delivery_receipts — same plane as managed task claim delivery.)
@@ -238,7 +301,15 @@ export class MessageDeliveryService {
    * Keyed by bindingId — one timer per seat.
    */
   private readonly gateRetryTimers = new Map<string, unknown>();
+  /**
+   * Consecutive `poll` refusals per binding. Drives the re-poll backoff and is
+   * cleared by any real state change — a gate that allows, a lifecycle event,
+   * or a seat generation flip. A seat that is simply busy therefore never
+   * accumulates backoff across turns.
+   */
+  private readonly gateRefusalStreak = new Map<string, number>();
   private timers: MessageDeliveryTimers = defaultTimers;
+  private random: () => number = Math.random;
   private readonly pendingRequestResponses = new Map<
     string,
     {
@@ -263,6 +334,8 @@ export class MessageDeliveryService {
     /** Pause plane: a paused target keeps its messages pending (delivered on resume). */
     readonly seatPaused?: (canvas: string, doc: CanvasDoc, nodeId: string) => boolean;
     readonly timers?: MessageDeliveryTimers;
+    /** Jitter seam — injectable so retry spread is deterministic in tests. */
+    readonly random?: () => number;
   }): void {
     if (this.suspended) return;
     this.transport = input.transport;
@@ -270,6 +343,7 @@ export class MessageDeliveryService {
     if (input.now) this.now = input.now;
     this.seatPausedLookup = input.seatPaused;
     if (input.timers) this.timers = input.timers;
+    if (input.random) this.random = input.random;
   }
 
   /** Test seam — drop all in-flight marks and deps. */
@@ -291,6 +365,7 @@ export class MessageDeliveryService {
     this.now = () => Date.now();
     this.seatPausedLookup = undefined;
     this.timers = defaultTimers;
+    this.random = Math.random;
     this.suspended = false;
   }
 
@@ -334,13 +409,46 @@ export class MessageDeliveryService {
       this.timers.clear(handle);
     }
     this.gateRetryTimers.clear();
+    this.gateRefusalStreak.clear();
+  }
+
+  /**
+   * Delay for the next gate re-drive.
+   *
+   * `deadline` — the settle point is a known instant, so it fires on time and
+   * only spreads FORWARD by a sub-tick amount; pulling it earlier would break
+   * the settle guarantee.
+   * `poll` — nothing says when the condition clears, so consecutive refusals
+   * double the wait up to the ceiling. Jitter is symmetric so a floor of seats
+   * refusing together stops landing on one tick (and one block).
+   */
+  private gateRetryDelay(
+    kind: GateRetryKind,
+    bindingId: string,
+    requestedMs: number,
+  ): number {
+    if (kind === "deadline") {
+      return Math.max(10, requestedMs + this.random() * GATE_DEADLINE_SPREAD_MS);
+    }
+    const streak = this.gateRefusalStreak.get(bindingId) ?? 0;
+    this.gateRefusalStreak.set(bindingId, streak + 1);
+    const backedOff = Math.min(
+      MESSAGE_DELIVERY_GATE_RETRY_MAX_MS,
+      requestedMs * 2 ** streak,
+    );
+    const spread = backedOff * GATE_RETRY_JITTER_FRACTION;
+    return Math.max(10, backedOff - spread + this.random() * spread * 2);
   }
 
   /**
    * Re-drive one binding after a gate refusal without waiting for a seat-state
    * transition (already-idle seats never re-fire onManagedTerminalIdle).
    */
-  private scheduleGateRetry(bindingId: string, delayMs: number): void {
+  private scheduleGateRetry(
+    bindingId: string,
+    delayMs: number,
+    kind: GateRetryKind,
+  ): void {
     if (this.gateRetryTimers.has(bindingId)) return;
     const generation = this.lifecycleGeneration;
     const handle = this.timers.set(() => {
@@ -349,7 +457,7 @@ export class MessageDeliveryService {
       void this.scanAndDeliver((target) => target.bindingId === bindingId);
       // Request-response shares the seat gate; re-drive those too.
       void this.retryRequestResponses(bindingId);
-    }, Math.max(10, delayMs));
+    }, this.gateRetryDelay(kind, bindingId, delayMs));
     this.gateRetryTimers.set(bindingId, handle);
   }
 
@@ -384,13 +492,23 @@ export class MessageDeliveryService {
     void this.attemptRequestResponse(key, input);
   }
 
+  /**
+   * One seat had a real state change — re-drive everything queued for it.
+   *
+   * A state change is also the only honest reason to drop the gate's backoff:
+   * the condition the re-poll was waiting on may have just cleared, so the
+   * next refusal starts over from the base delay rather than the ceiling.
+   */
+  private onSeatStateChanged(bindingId: string): void {
+    this.gateRefusalStreak.delete(bindingId);
+    void this.retryRequestResponses(bindingId);
+    void this.scanAndDeliver((target) => target.bindingId === bindingId);
+  }
+
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
   onTerminalAttached(bindingId: string): void {
     if (this.suspended) return;
-    void this.retryRequestResponses(bindingId);
-    void this.scanAndDeliver(
-      (target) => target.bindingId === bindingId,
-    );
+    this.onSeatStateChanged(bindingId);
   }
 
   /**
@@ -400,10 +518,7 @@ export class MessageDeliveryService {
    */
   onManagedTerminalIdle(bindingId: string): void {
     if (this.suspended) return;
-    void this.retryRequestResponses(bindingId);
-    void this.scanAndDeliver(
-      (target) => target.bindingId === bindingId,
-    );
+    this.onSeatStateChanged(bindingId);
   }
 
   /** Pause released — re-drive everything held pending while paused. */
@@ -434,13 +549,52 @@ export class MessageDeliveryService {
     void this.scanAndDeliver(() => true);
   }
 
+  /**
+   * Re-drive queued request responses, optionally narrowed to one seat.
+   *
+   * The `bindingId` narrowing is a PRE-FILTER, not the authority. It used to
+   * read the whole canvas — every sink's tasks, messages, requests, artifacts,
+   * board and pad — once per pending entry, to answer `nodes.find(id)`. Two
+   * things fix that without moving the freshness guarantee:
+   *
+   *  - the lookup is node-scoped, so it never builds the work projection;
+   *  - it is resolved once per distinct target per pass, not once per pending
+   *    item (several queued answers for one seat share one lookup).
+   *
+   * Freshness stays where it belongs: `attemptRequestResponse` re-resolves the
+   * node from live authority immediately before it wakes a seat, so a pass
+   * whose filter went stale can only skip work — it can never mint a process
+   * against a node that has since moved or gone.
+   */
   private async retryRequestResponses(bindingId?: string): Promise<void> {
-    for (const [key, pending] of this.pendingRequestResponses) {
-      if (bindingId !== undefined) {
-        const doc = await this.store?.readDoc(pending.canvas);
-        const node = doc?.nodes.find((candidate) => candidate.id === pending.actorNodeId);
-        if (node === undefined || deliveryTargetOf(node)?.bindingId !== bindingId) continue;
+    const store = this.store;
+    if (bindingId === undefined) {
+      for (const [key, pending] of this.pendingRequestResponses) {
+        await this.attemptRequestResponse(key, pending);
       }
+      return;
+    }
+    if (!store) return;
+    const bindingByTarget = new Map<string, string | undefined>();
+    for (const [key, pending] of this.pendingRequestResponses) {
+      const targetKey = `${pending.canvas}::${pending.actorNodeId}`;
+      if (!bindingByTarget.has(targetKey)) {
+        let resolved: string | undefined;
+        try {
+          const found = await store.readNodeStructure(
+            pending.canvas,
+            pending.actorNodeId,
+          );
+          resolved =
+            found === undefined
+              ? undefined
+              : deliveryTargetOf(found.node)?.bindingId;
+        } catch {
+          resolved = undefined;
+        }
+        bindingByTarget.set(targetKey, resolved);
+      }
+      if (bindingByTarget.get(targetKey) !== bindingId) continue;
       await this.attemptRequestResponse(key, pending);
     }
   }
@@ -461,12 +615,25 @@ export class MessageDeliveryService {
     if (!transport || !store) return;
     this.inFlight.add(key);
     try {
-      const doc = await store.readDoc(pending.canvas);
-      if (!this.active(generation) || !doc) return;
-      if (this.seatPausedLookup?.(pending.canvas, doc, pending.actorNodeId)) return;
-      const node = doc.nodes.find((candidate) => candidate.id === pending.actorNodeId);
-      if (!node) return;
-      const target = deliveryTargetOf(node);
+      // Fresh, node-scoped, immediately before the wake: this is the read that
+      // guarantees a stale view never mints a process. It asks only structural
+      // questions (node exists, seat binding, pause geography), so it must not
+      // pay for the work projection.
+      const found = await store.readNodeStructure(
+        pending.canvas,
+        pending.actorNodeId,
+      );
+      if (!this.active(generation) || !found) return;
+      if (
+        this.seatPausedLookup?.(
+          pending.canvas,
+          found.structure,
+          pending.actorNodeId,
+        )
+      ) {
+        return;
+      }
+      const target = deliveryTargetOf(found.node);
       if (!target) return;
       const woke = await this.wakeManagedSeat(
         transport,
@@ -521,7 +688,7 @@ export class MessageDeliveryService {
       if (!this.active(generation)) return;
       let doc: CanvasDoc | undefined;
       try {
-        doc = await store.readDoc(canvas);
+        doc = await store.readDoc(canvas, "scan");
       } catch {
         continue;
       }
@@ -587,20 +754,20 @@ export class MessageDeliveryService {
     if (!store || this.pendingReadStamps.size === 0) return;
     for (const [key, pending] of [...this.pendingReadStamps]) {
       if (!this.active(generation)) return;
-      let doc: CanvasDoc | undefined;
+      // Routing only — `attemptOne` re-reads the full document behind this and
+      // is what decides anything about the message itself.
+      let found: MessageDeliveryNodeStructure | undefined;
       try {
-        doc = await store.readDoc(pending.canvas);
+        found = await store.readNodeStructure(pending.canvas, pending.nodeId);
       } catch {
         continue;
       }
       if (!this.active(generation)) return;
-      if (!doc) continue;
-      const node = doc.nodes.find((n) => n.id === pending.nodeId);
-      if (!node) {
+      if (!found) {
         this.pendingReadStamps.delete(key);
         continue;
       }
-      const target = deliveryTargetOf(node);
+      const target = deliveryTargetOf(found.node);
       if (!target || !match(target)) continue;
       await this.attemptOne(pending.canvas, pending.nodeId, pending.message);
     }
@@ -625,12 +792,12 @@ export class MessageDeliveryService {
     try {
       snap = await transport.seatDeliverySnapshot(bindingId);
     } catch {
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
       return { allow: false, reason: "unavailable" };
     }
     if (!snap) {
       // Starting/restarting — short retry, not permanent strand.
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
       return { allow: false, reason: "unavailable" };
     }
 
@@ -639,12 +806,14 @@ export class MessageDeliveryService {
       if (prevKey !== undefined) this.idleSinceByGeneration.delete(prevKey);
       this.lastGenerationKey.set(bindingId, snap.generationKey);
       this.idleSinceByGeneration.delete(snap.generationKey);
+      // New generation is a real state change — start polling fresh.
+      this.gateRefusalStreak.delete(bindingId);
     }
 
     if (!snap.idle) {
       this.idleSinceByGeneration.delete(snap.generationKey);
       // Working seat will re-drive on idle transition; also timer as backstop.
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
       return { allow: false, reason: "not-idle" };
     }
 
@@ -659,15 +828,17 @@ export class MessageDeliveryService {
       this.scheduleGateRetry(
         bindingId,
         MESSAGE_DELIVERY_SETTLE_MS - elapsed + 10,
+        "deadline",
       );
       return { allow: false, reason: "not-settled" };
     }
 
     if (snap.operatorDraft) {
       // Operator is typing — retry later; do not paste over their draft.
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS);
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
       return { allow: false, reason: "operator-draft" };
     }
+    this.gateRefusalStreak.delete(bindingId);
     return { allow: true };
   }
 
@@ -755,7 +926,7 @@ export class MessageDeliveryService {
         let live: Message | undefined;
         let loaded = false;
         try {
-          const doc = await store.readDoc(canvas);
+          const doc = await store.readDoc(canvas, "attempt");
           live = doc?.nodes
             .find((n) => n.id === nodeId)
             ?.ether?.messages?.items.find((m) => m.messageId === message.messageId);
@@ -772,7 +943,7 @@ export class MessageDeliveryService {
       if (!this.active(generation)) return;
 
       // Re-read before send: message may have been removed.
-      const doc = await store.readDoc(canvas);
+      const doc = await store.readDoc(canvas, "attempt");
       if (!this.active(generation)) return;
       if (!doc) return;
       const node = doc.nodes.find((n) => n.id === nodeId);
@@ -962,7 +1133,7 @@ export class MessageDeliveryService {
         return;
       }
 
-      const doc = await store.readDoc(canvas);
+      const doc = await store.readDoc(canvas, "batch");
       if (!this.active(generation) || !doc) return;
       if (this.seatPausedLookup?.(canvas, doc, nodeId)) return;
       const node = doc.nodes.find((n) => n.id === nodeId);

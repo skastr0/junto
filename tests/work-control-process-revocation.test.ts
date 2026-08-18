@@ -161,6 +161,8 @@ const canvasesService = CanvasesService.of({
     }),
   readWithIntentWitness: () =>
     Effect.fail(new CanvasError({ message: "not used" })),
+  readNodeStructure: () =>
+    Effect.fail(new CanvasError({ message: "not used" })),
   write: () => Effect.fail(new CanvasError({ message: "not used" })),
   mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
   create: () => Effect.fail(new CanvasError({ message: "not used" })),

@@ -13,7 +13,7 @@ import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
-import { CanvasesService } from "./canvases";
+import { CanvasesService, type CanvasReadTag } from "./canvases";
 import { CanvasEntityRepository } from "./entities/repository";
 import { BoxActivityPolicy } from "./box";
 
@@ -46,7 +46,10 @@ import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
-import { messageDelivery } from "./work/message-delivery";
+import {
+  messageDelivery,
+  type MessageDeliveryReadSite,
+} from "./work/message-delivery";
 import {
   composerBlocksMailInject,
   seatOperatorDraft,
@@ -1531,6 +1534,19 @@ export const registerVellumIpc = (): void => {
 
       // Message nudge channel: ether.messages -> live managed terminal seats.
       // Retry only on session-live / seat-idle (no polling store).
+      // One perf tag per delivery call site — a read loop must name its driver.
+      const deliveryReadTag = (
+        site: MessageDeliveryReadSite,
+      ): CanvasReadTag => {
+        switch (site) {
+          case "scan":
+            return "delivery.scan";
+          case "attempt":
+            return "delivery.attempt";
+          case "batch":
+            return "delivery.batch";
+        }
+      };
       messageDelivery.configure({
         transport: {
           wakeManagedSeat: (canvas, nodeId) =>
@@ -1576,12 +1592,27 @@ export const registerVellumIpc = (): void => {
             AppRuntime.runPromise(
               canvases.list.pipe(Effect.map((entries) => entries.map((e) => e.name))),
             ),
-          readDoc: (name) =>
+          readDoc: (name, site) =>
             AppRuntime.runPromise(
-              canvases.read(name, "ipc.termStore").pipe(
+              canvases.read(name, deliveryReadTag(site)).pipe(
                 Effect.map((r) => r.doc),
                 Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
+            ),
+          // Deliberately NOT error-swallowing: `undefined` here must mean the
+          // node is gone, so delivery can retire queued work for it. A failed
+          // read has to reject and leave that work queued.
+          readNodeStructure: (name, nodeId) =>
+            AppRuntime.runPromise(
+              canvases
+                .readNodeStructure(name, nodeId, "delivery.route")
+                .pipe(
+                  Effect.map((found) =>
+                    found === undefined
+                      ? undefined
+                      : { node: found.node, structure: found.structure },
+                  ),
+                ),
             ),
           hasAcceptedMessageDelivery: (canvas, nodeId, messageId) =>
             AppRuntime.runPromise(

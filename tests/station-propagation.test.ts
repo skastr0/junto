@@ -102,6 +102,8 @@ const canvases = (
     read: () => Effect.fail(new CanvasError({ message: "unused" })),
     readWithIntentWitness: () =>
       Effect.fail(new CanvasError({ message: "unused" })),
+    readNodeStructure: () =>
+      Effect.fail(new CanvasError({ message: "unused" })),
     write: () => Effect.fail(new CanvasError({ message: "unused" })),
     mutate: () => Effect.fail(new CanvasError({ message: "unused" })),
     create: () => Effect.fail(new CanvasError({ message: "unused" })),

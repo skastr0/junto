@@ -169,6 +169,8 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       },
       readWithIntentWitness: () =>
         Effect.fail(new CanvasError({ message: "not used" })),
+      readNodeStructure: () =>
+        Effect.fail(new CanvasError({ message: "not used" })),
       write: () => Effect.succeed({ revision: "written-r1" }),
       mutate: () => Effect.void,
       create: (name: string) => Effect.succeed({

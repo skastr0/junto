@@ -358,6 +358,20 @@ export class ProtoHarness {
             Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
           ),
         ),
+      // Same real service the app wires, so the protocol scenarios exercise
+      // the node-scoped routing read rather than a hand-written stand-in.
+      readNodeStructure: (name: string, nodeId: string) =>
+        runtime.runPromise(
+          this.canvases
+            .readNodeStructure(name, nodeId)
+            .pipe(
+              Effect.map((found) =>
+                found === undefined
+                  ? undefined
+                  : { node: found.node, structure: found.structure },
+              ),
+            ),
+        ),
       hasAcceptedMessageDelivery: (canvas: string, nodeId: string, messageId: string) =>
         runtime.runPromise(
           Effect.gen(function* () {

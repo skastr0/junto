@@ -71,6 +71,14 @@ const makeStore = (
   return {
     listCanvasNames: async () => [...docs.keys()],
     readDoc: async (name) => docs.get(name),
+    // Faithful double: the node-scoped read answers from the same documents
+    // the full read does, minus the work projection this fake never had.
+    readNodeStructure: async (name, nodeId) => {
+      const doc = docs.get(name);
+      if (doc === undefined) throw new Error(`no canvas ${name}`);
+      const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+      return node === undefined ? undefined : { node, structure: doc };
+    },
     hasAcceptedMessageDelivery: async (canvas, nodeId, messageId) =>
       accepted.has(keyOf(canvas, nodeId, messageId)),
     hasAcceptedMessageRead: async (canvas, nodeId, messageId) =>
@@ -225,7 +233,7 @@ describe("MessageDeliveryService", () => {
       store.hasAcceptedMessageDelivery("c", "agent", "m1"),
     );
     expect(payloads).toEqual(["[message - user] ping"]);
-    const live = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+    const live = (await store.readDoc("c", "scan"))?.nodes[0]?.ether?.messages?.items[0];
     expect(live?.metadata?.deliveredAt).toBe(1_111);
   });
 
@@ -316,7 +324,7 @@ describe("MessageDeliveryService", () => {
     expect(sendCount).toBe(1);
     resolveSend(true);
     await waitUntil(async () => {
-      const doc = await store.readDoc("c");
+      const doc = await store.readDoc("c", "scan");
       return isMessageDelivered(doc!.nodes[0]!.ether!.messages!.items[0]!);
     });
     expect(sendCount).toBe(1);
@@ -339,7 +347,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "agent", own);
     await new Promise((r) => setTimeout(r, 30));
     expect(sendCount).toBe(0);
-    const doc = await store.readDoc("c");
+    const doc = await store.readDoc("c", "scan");
     expect(doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
   });
 
@@ -401,7 +409,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "terminal", msg);
     await waitUntil(() => payloads.length >= 1);
     expect(payloads.length).toBe(1);
-    let doc = await store.readDoc("c");
+    let doc = await store.readDoc("c", "scan");
     expect(doc?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt).toBeUndefined();
 
     accepts = true;
@@ -537,7 +545,7 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
     );
-    const afterFactory = await store.readDoc("c");
+    const afterFactory = await store.readDoc("c", "scan");
     const factoryLive = afterFactory?.nodes[0]?.ether?.messages?.items[0];
     expect(factoryLive?.metadata?.readAt).toBeUndefined();
   });
@@ -561,7 +569,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "read-retry"));
     expect(sendCount).toBe(1);
-    const afterFirst = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0];
+    const afterFirst = (await store.readDoc("c", "scan"))?.nodes[0]?.ether?.messages?.items[0];
     expect(afterFirst?.metadata?.deliveredAt).toBe(7);
     expect(afterFirst?.metadata?.readAt).toBeUndefined();
 
@@ -569,7 +577,7 @@ describe("MessageDeliveryService", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(sendCount).toBe(1);
     expect(
-      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
+      (await store.readDoc("c", "scan"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt,
     ).toBeUndefined();
   });
 
@@ -586,7 +594,7 @@ describe("MessageDeliveryService", () => {
     });
     service.notifyAppended("c", "agent", short);
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "short-1"));
-    const after = await store.readDoc("c");
+    const after = await store.readDoc("c", "scan");
     expect(after?.nodes[0]?.ether?.messages?.items[0]?.metadata?.readAt).toBeUndefined();
   });
 
@@ -674,7 +682,7 @@ describe("MessageDeliveryService", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(prompts).toEqual([]);
     expect(
-      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt,
+      (await store.readDoc("c", "scan"))?.nodes[0]?.ether?.messages?.items[0]?.metadata?.deliveredAt,
     ).toBeUndefined();
 
     accept = true;
@@ -740,7 +748,7 @@ describe("MessageDeliveryService", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(sendCount).toBe(0);
     expect(
-      (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items[0]
+      (await store.readDoc("c", "scan"))?.nodes[0]?.ether?.messages?.items[0]
         ?.metadata?.deliveredAt,
     ).toBeUndefined();
   });
@@ -907,7 +915,7 @@ describe("MessageDeliveryService", () => {
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b3")),
     );
-    const batched = (await store.readDoc("c"))?.nodes[0]?.ether?.messages?.items ?? [];
+    const batched = (await store.readDoc("c", "scan"))?.nodes[0]?.ether?.messages?.items ?? [];
     expect(batched.map((m) => m.metadata?.readAt)).toEqual([
       undefined,
       undefined,
@@ -1153,5 +1161,298 @@ describe("MessageDeliveryService", () => {
     // Fire gate retry.
     if (scheduled.length > 0) scheduled[scheduled.length - 1]!.fn();
     await waitUntil(() => sends === 1);
+  });
+
+  // ── Routing reads never build the work projection ────────────────────────
+  //
+  // The retry loop that pinned the main thread paid for the entire factory —
+  // every sink's tasks, messages, requests, artifacts, board and pad — to run
+  // one `nodes.find(id)`. These pin the cost shape, not just the outcome.
+
+  const countingStore = (
+    inner: MessageDeliveryStore,
+  ): {
+    readonly store: MessageDeliveryStore;
+    readonly counts: { docReads: number; nodeReads: number };
+  } => {
+    const counts = { docReads: 0, nodeReads: 0 };
+    return {
+      counts,
+      store: {
+        ...inner,
+        readDoc: async (canvas, site) => {
+          counts.docReads += 1;
+          return inner.readDoc(canvas, site);
+        },
+        readNodeStructure: async (canvas, nodeId) => {
+          counts.nodeReads += 1;
+          return inner.readNodeStructure(canvas, nodeId);
+        },
+      },
+    };
+  };
+
+  const twoAgentDoc = (): CanvasDoc => ({
+    nodes: [
+      ...agentDoc([]).nodes,
+      {
+        id: "agent-2",
+        type: "text",
+        text: "nova",
+        x: 200,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: {
+          entity: { kind: "agent", name: "local:nova" },
+          terminal: { bindingId: "bind-nova", harness: "claude" },
+        },
+      },
+    ],
+    edges: [],
+  });
+
+  it("request-response routing never reads the work projection", async () => {
+    const { store, counts } = countingStore(makeStore({ c: agentDoc([]) }));
+    const writes: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          writes.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "req-cheap",
+      response: "ok",
+    });
+
+    await waitUntil(() => writes.length === 1);
+    expect(counts.nodeReads).toBeGreaterThan(0);
+    // Zero full-document reads: routing asks structural questions only.
+    expect(counts.docReads).toBe(0);
+  });
+
+  it("one binding-filter lookup per distinct target per pass, not per pending", async () => {
+    const { store, counts } = countingStore(makeStore({ c: twoAgentDoc() }));
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    // Refuse the transport so every response stays queued across passes.
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return false;
+        },
+      },
+      store,
+    });
+
+    // Four queued answers across two seats.
+    for (const [index, nodeId] of [
+      "agent",
+      "agent",
+      "agent-2",
+      "agent-2",
+    ].entries()) {
+      service.notifyRequestResolved({
+        canvas: "c",
+        actorNodeId: nodeId,
+        requestId: `req-${String(index)}`,
+        response: "answer",
+      });
+    }
+    // Let the direct attempts finish — an attempt still in flight is deduped
+    // by `inFlight`, which would hide the per-pass cost this test measures.
+    await waitUntil(() => sends === 4);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const before = counts.nodeReads;
+    // One narrowed pass. The filter resolves each distinct (canvas, node) once
+    // — two lookups — then the two matching entries each re-resolve fresh
+    // immediately before their own wake. Four, never one per pending item
+    // times the two it would have been.
+    service.onTerminalAttached("bind-mira");
+    await waitUntil(() => counts.nodeReads > before);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(counts.nodeReads - before).toBe(4);
+    // The only full read in the pass is the mail scan, which genuinely needs
+    // `ether.messages`. It is one per canvas — never one per queued response.
+    expect(counts.docReads).toBe(1);
+  });
+
+  it("a node that vanishes after the filter never mints a wake", async () => {
+    const docs = { c: twoAgentDoc() };
+    const inner = makeStore(docs);
+    let removeAfterFilter = false;
+    let filterPasses = 0;
+    const wakes: Array<string> = [];
+    const store: MessageDeliveryStore = {
+      ...inner,
+      readNodeStructure: async (canvas, nodeId) => {
+        const found = await inner.readNodeStructure(canvas, nodeId);
+        if (!removeAfterFilter) return found;
+        filterPasses += 1;
+        // First call in the pass is the filter; every later call is the
+        // fresh pre-wake read, and by then the node is gone.
+        return filterPasses === 1 ? found : undefined;
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async (_canvas, nodeId) => {
+          wakes.push(nodeId);
+          return true;
+        },
+        sendManagedTerminalPrompt: async () => false,
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "req-gone",
+      response: "answer",
+    });
+    await waitUntil(() => wakes.length === 1);
+
+    removeAfterFilter = true;
+    const wakesBefore = wakes.length;
+    service.onTerminalAttached("bind-mira");
+    await new Promise((r) => setTimeout(r, 40));
+    // The filter matched on the stale view; the fresh pre-wake read refused.
+    expect(filterPasses).toBeGreaterThanOrEqual(2);
+    expect(wakes.length).toBe(wakesBefore);
+  });
+
+  // ── Gate retry backoff ───────────────────────────────────────────────────
+
+  it("repeated poll refusals back off and cap; a real state change resets", async () => {
+    const msg = userMsg("backoff", "hold");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      // Mid-jitter so the delay is the backed-off value exactly.
+      random: () => 0.5,
+      timers: {
+        set: (fn, ms) => {
+          scheduled.push({ fn, ms });
+          return scheduled.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        // Busy forever — the poll condition never clears on its own.
+        seatDeliverySnapshot: () => ({
+          idle: false,
+          generationKey: "ep-busy",
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => scheduled.length === 1);
+    expect(scheduled[0]!.ms).toBe(1_500);
+
+    // Each fired retry re-refuses and arms the next, doubling to the ceiling.
+    const seen: number[] = [scheduled[0]!.ms];
+    for (let i = 0; i < 6; i += 1) {
+      const next = scheduled[scheduled.length - 1]!;
+      next.fn();
+      await waitUntil(() => scheduled.length === seen.length + 1);
+      seen.push(scheduled[scheduled.length - 1]!.ms);
+    }
+    expect(seen).toEqual([1_500, 3_000, 6_000, 12_000, 12_000, 12_000, 12_000]);
+
+    // A seat transition is a real state change — the next poll starts over.
+    // (The idle re-drive finds a timer already armed, so it changes nothing
+    // but the streak; firing that timer is what arms the next one.)
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 20));
+    scheduled[scheduled.length - 1]!.fn();
+    await waitUntil(() => scheduled.length === seen.length + 1);
+    expect(scheduled[scheduled.length - 1]!.ms).toBe(1_500);
+  });
+
+  it("jitter spreads simultaneous poll retries off one tick", async () => {
+    const msg = userMsg("jitter", "hold");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const armed: number[] = [];
+    const draws = [0, 1];
+    let draw = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      random: () => draws[draw++ % draws.length]!,
+      timers: {
+        set: (_fn, ms) => {
+          armed.push(ms);
+          return armed.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: false,
+          generationKey: "ep-jitter",
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => armed.length === 1);
+    // 20% symmetric spread around the base: floor at random() = 0.
+    expect(armed[0]).toBe(1_200);
+  });
+
+  it("the settle deadline never backs off, only spreads forward", async () => {
+    const msg = userMsg("settle-2", "quiet");
+    const store = makeStore({ c: agentDoc([msg]) });
+    const armed: number[] = [];
+    let now = 5_000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      now: () => now,
+      random: () => 1,
+      timers: {
+        set: (_fn, ms) => {
+          armed.push(ms);
+          return armed.length - 1;
+        },
+        clear: () => undefined,
+      },
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: () => ({
+          idle: true,
+          generationKey: "ep-settle-2",
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async () => true,
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => armed.length === 1);
+    // The settle point is a known instant: fire at it, spread only forward.
+    expect(armed[0]).toBeGreaterThanOrEqual(1_500);
+    expect(armed[0]).toBeLessThanOrEqual(1_500 + 10 + 150);
   });
 });
