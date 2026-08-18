@@ -544,7 +544,7 @@ export const WorkLive = Layer.effect(
     );
 
     const readCanvas = (canvasName: string) =>
-      canvases.readWithIntentWitness(canvasName).pipe(
+      canvases.readWithIntentWitness(canvasName, "work.service").pipe(
         Effect.mapError(toWorkServiceError),
         Effect.map(({ read, intentWitness }) => ({
           ...read,

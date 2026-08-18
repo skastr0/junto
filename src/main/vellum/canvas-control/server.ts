@@ -163,7 +163,7 @@ const listEffect = Effect.gen(function* () {
   return yield* Effect.forEach(
     summaries,
     (summary) =>
-      canvases.read(summary.name).pipe(
+      canvases.read(summary.name, "control.list").pipe(
         Effect.map((read) => ({
           name: read.name,
           modifiedAt: summary.modifiedAt,
@@ -180,7 +180,7 @@ const readEffect = (name: string) =>
     const canvases = yield* CanvasesService;
     const snapshots = yield* SnapshotsService;
     const result = yield* Effect.all({
-      read: canvases.read(name),
+      read: canvases.read(name, "control.read"),
       snapshots: snapshots.current,
     });
     return {

@@ -1296,7 +1296,9 @@ const makeKernelService = (
         console.error(`[wake] refused ${canvasName}/${nodeId}: ${reason}`);
         return false;
       };
-      const read = yield* Effect.result(canvases.read(canvasName));
+      const read = yield* Effect.result(
+        canvases.read(canvasName, "kernel.wakeManagedSeat"),
+      );
       if (!generationIsActive(generation)) return false;
       if (read._tag === "Failure") return refuse("canvas read failed");
       const doc = read.success.doc;
@@ -1351,7 +1353,9 @@ const makeKernelService = (
   ): Effect.Effect<void, unknown> =>
     Effect.gen(function* () {
       if (!generationIsActive(generation)) return;
-      const result = yield* Effect.result(canvases.read(name));
+      const result = yield* Effect.result(
+        canvases.read(name, "kernel.hydrateDoc"),
+      );
       if (result._tag === "Success" && generationIsActive(generation)) {
         docs.set(name, result.success.doc);
       }
@@ -1399,7 +1403,9 @@ const makeKernelService = (
         return;
       }
 
-      const result = yield* Effect.result(canvases.read(name));
+      const result = yield* Effect.result(
+        canvases.read(name, "kernel.resyncDoc"),
+      );
       if (result._tag === "Success" && generationIsActive(generation)) {
         docs.set(name, result.success.doc);
         fork(refreshWithIdentityHints());

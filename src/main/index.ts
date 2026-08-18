@@ -40,6 +40,7 @@ import {
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
+  startPerfProbe,
   startTransportJournal,
 } from "./vellum/observability";
 import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
@@ -1261,6 +1262,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Process log ring: main console + Effect logger (layer already on AppRuntime).
     installObservabilityConsoleHook();
     startTransportJournal();
+    // VELLUM_PERF=1 only. Main-thread block monitor plus canvas read tape.
+    startPerfProbe();
     recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"}`,
     );
@@ -1746,7 +1749,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
             try {
               return await AppRuntime.runPromise(
                 Effect.flatMap(CanvasesService, (canvases) =>
-                  Effect.map(canvases.read(name), (result) => result.doc),
+                  Effect.map(canvases.read(name, "browser.readCanvas"), (result) => result.doc),
                 ),
               );
             } catch {

@@ -592,7 +592,10 @@ const readQualificationView = (
 > =>
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
-    const read = yield* canvases.read(qualificationCanvasName(runId));
+    const read = yield* canvases.read(
+      qualificationCanvasName(runId),
+      "hosts.qualification",
+    );
     const marker = yield* requireExactlyOneMarkerTask(read.doc, runId);
     if (!projectionMatchesFixedDocument(read.doc, runId, marker.hostId)) {
       return yield* qualificationFailure(
@@ -648,7 +651,7 @@ export const qualificationWorkPrepareEffect = (
     const work = yield* WorkService;
     const stations = yield* StationRepository;
     const canvasName = qualificationCanvasName(args.runId);
-    let read = yield* canvases.read(canvasName);
+    let read = yield* canvases.read(canvasName, "hosts.qualification");
     const actor = yield* requireActor(
       read.actorRefs,
       canvasName,
@@ -762,7 +765,7 @@ export const qualificationWorkPrepareEffect = (
       args.hostId,
       target.stationInstallationId,
     );
-    read = yield* canvases.read(canvasName);
+    read = yield* canvases.read(canvasName, "hosts.qualification");
     const finalMarker = yield* requireExactlyOneMarkerTask(
       read.doc,
       args.runId,
@@ -964,7 +967,7 @@ export const qualificationWorkVerifyEffect = (
     const work = yield* WorkService;
     const stations = yield* StationRepository;
     const canvasName = qualificationCanvasName(args.runId);
-    const read = yield* canvases.read(canvasName);
+    const read = yield* canvases.read(canvasName, "hosts.qualification");
     const actor = yield* requireActor(
       read.actorRefs,
       canvasName,

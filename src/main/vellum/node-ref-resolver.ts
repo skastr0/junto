@@ -2,11 +2,14 @@ import { Effect } from "effect";
 import type { CanvasNode } from "@shared/canvas";
 import type { CanvasReadResult, CanvasSummary } from "@shared/ipc";
 import { nodeRefKey, type NodeRef, type NodeRefKey } from "@shared/node-ref";
-import type { CanvasError } from "./canvases";
+import type { CanvasError, CanvasReadTag } from "./canvases";
 
 export interface CanvasNodeReader {
   readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
-  readonly read: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
+  readonly read: (
+    name: string,
+    tag?: CanvasReadTag,
+  ) => Effect.Effect<CanvasReadResult, CanvasError>;
 }
 
 export type NodeRefResolutionError =
@@ -81,7 +84,7 @@ export const resolveNodeRef = (
       return yield* Effect.fail({ _tag: "CanvasNotFound" as const, ref });
     }
 
-    const canvas = yield* canvases.read(ref.canvasName).pipe(
+    const canvas = yield* canvases.read(ref.canvasName, "nodeRef.resolve").pipe(
       Effect.mapError(
         (error): NodeRefResolutionError => ({
           _tag: "CanvasReadError",

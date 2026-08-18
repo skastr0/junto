@@ -238,7 +238,7 @@ export const registerTerminalIpc = (
             const read = await AppRuntime.runPromise(
               Effect.gen(function* () {
                 const canvases = yield* CanvasesService;
-                return yield* canvases.read(canvasName).pipe(Effect.result);
+                return yield* canvases.read(canvasName, "term.seatPlan").pipe(Effect.result);
               }),
             );
             if (read._tag === "Success") {

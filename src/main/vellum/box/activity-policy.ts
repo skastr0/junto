@@ -118,7 +118,7 @@ export const BoxActivityPolicyLive = Layer.effect(
         ]);
         const reads = yield* Effect.forEach(
           summaries,
-          (summary) => canvases.read(summary.name),
+          (summary) => canvases.read(summary.name, "box.activityPolicy"),
           { concurrency: 4 },
         );
         const activity = deriveBoxHostActivity(reads);

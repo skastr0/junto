@@ -571,7 +571,7 @@ const dispatchOp = (
       };
     }
 
-    const read = yield* canvases.read(caller.canvasName).pipe(
+    const read = yield* canvases.read(caller.canvasName, "work.control").pipe(
       Effect.mapError(
         (e): WorkErrorBody => ({
           type: "StaleNodeRef",

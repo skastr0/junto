@@ -23,6 +23,7 @@ import {
   type StateRow,
   type StateWriter,
 } from "./service";
+import { perfProbe, perfProbeEnabled } from "../observability/perf-probe";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
 import { createVerifiedStateBackup } from "./backup";
 import {
@@ -183,27 +184,37 @@ const openStateEngine = (
         return statement;
       };
 
+      // One executed statement, counted once. `VELLUM_PERF=1` only: a
+      // disabled build pays one constant boolean test per statement.
+      const countStatement = (): void => {
+        if (perfProbeEnabled) perfProbe?.countStatement();
+      };
+
       const reader: StateReader = {
         get: <Row extends StateRow>(
           sql: string,
           bindings?: StateBindings,
-        ): Row | undefined =>
-          applyBindings(
+        ): Row | undefined => {
+          countStatement();
+          return applyBindings(
             prepare(sql),
             bindings,
             (...values) => prepare(sql).get(...values) as Row | undefined,
             (values) => prepare(sql).get(values) as Row | undefined,
-          ),
+          );
+        },
         all: <Row extends StateRow>(
           sql: string,
           bindings?: StateBindings,
-        ): ReadonlyArray<Row> =>
-          applyBindings(
+        ): ReadonlyArray<Row> => {
+          countStatement();
+          return applyBindings(
             prepare(sql),
             bindings,
             (...values) => prepare(sql).all(...values) as Row[],
             (values) => prepare(sql).all(values) as Row[],
-          ),
+          );
+        },
       };
 
       const writer: StateWriter = {
@@ -211,13 +222,15 @@ const openStateEngine = (
         run: (
           sql: string,
           bindings?: StateBindings,
-        ) =>
-          applyBindings(
+        ) => {
+          countStatement();
+          return applyBindings(
             prepare(sql),
             bindings,
             (...values) => prepare(sql).run(...values),
             (values) => prepare(sql).run(values),
-          ),
+          );
+        },
       };
 
       const read = <A>(

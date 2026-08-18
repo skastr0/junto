@@ -143,7 +143,7 @@ const stampMailboxReceipt = (
           if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
             return true;
           }
-          const read = yield* canvases.read(canvas);
+          const read = yield* canvases.read(canvas, "ipc.deliveryAccept");
           const actor = read.actorRefs.find(
             (ref) => ref.canvasName === canvas && ref.nodeId === nodeId,
           );
@@ -231,7 +231,7 @@ const resolveRendererActor = (
 ): Effect.Effect<RendererActorResolution, never, CanvasesService> =>
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
-    const read = yield* canvases.read(canvasName).pipe(Effect.result);
+    const read = yield* canvases.read(canvasName, "ipc.rendererActor").pipe(Effect.result);
     if (read._tag === "Failure") {
       return {
         ok: false,
@@ -308,7 +308,9 @@ export const registerVellumIpc = (): void => {
   );
 
   privilegedIpc.handle(IPC_CHANNELS.readCanvas, (_event, name: string) =>
-    AppRuntime.runPromise(Effect.flatMap(CanvasesService, (canvases) => canvases.read(name))),
+    AppRuntime.runPromise(
+      Effect.flatMap(CanvasesService, (canvases) => canvases.read(name, "ipc.readCanvas")),
+    ),
   );
 
   // The quit flush lands through these same handlers: the gate keeps
@@ -363,7 +365,7 @@ export const registerVellumIpc = (): void => {
       Effect.gen(function* () {
         const canvases = yield* CanvasesService;
         const snapshots = yield* SnapshotsService;
-        const result = yield* canvases.read(name);
+        const result = yield* canvases.read(name, "ipc.exportDigest");
         const state = yield* snapshots.current;
         const digest = digestCanvas(name, result.doc, state, {
           resolveActorRef: ({ canvasName, nodeId }) =>
@@ -405,7 +407,7 @@ export const registerVellumIpc = (): void => {
                 suppressEntityIds,
               }),
             );
-            return yield* canvases.read(name);
+            return yield* canvases.read(name, "ipc.mergePortfolio");
           }),
         ),
       ),
@@ -1576,7 +1578,7 @@ export const registerVellumIpc = (): void => {
             ),
           readDoc: (name) =>
             AppRuntime.runPromise(
-              canvases.read(name).pipe(
+              canvases.read(name, "ipc.termStore").pipe(
                 Effect.map((r) => r.doc),
                 Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),

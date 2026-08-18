@@ -54,7 +54,7 @@ export const makeRegionRollupLive = (
 
         rollups: (canvasName) =>
           Effect.gen(function* () {
-            const { doc, actorRefs } = yield* canvases.read(canvasName);
+            const { doc, actorRefs } = yield* canvases.read(canvasName, "region.rollup");
             const state = yield* snapshots.current;
 
             const agentActivity = new Map<string, AgentActivity>();

@@ -48,6 +48,7 @@ import {
   removeCanvasProjectionSidecars,
   writeCanvasProjectionSidecar,
 } from "./canvas-control/sidecars";
+import { perfProbe, perfProbeEnabled } from "./observability/perf-probe";
 import {
   archiveAllCanvasEntities,
   syncCanvasEntities,
@@ -104,13 +105,49 @@ export type CanvasReadWithIntentWitness = {
   readonly intentWitness: ActiveIntentWitness;
 };
 
+/**
+ * Caller identity for one `canvases.read`. Instrumentation only: the
+ * `VELLUM_PERF=1` probe rolls read cost up by this tag so the driver of a
+ * main-thread block is measured rather than inferred. Closed union so a new
+ * call site cannot land untagged.
+ */
+export type CanvasReadTag =
+  | "box.activityPolicy"
+  | "browser.readCanvas"
+  | "control.list"
+  | "control.read"
+  | "hosts.qualification"
+  | "ipc.deliveryAccept"
+  | "ipc.exportDigest"
+  | "ipc.mergePortfolio"
+  | "ipc.readCanvas"
+  | "ipc.rendererActor"
+  | "ipc.termStore"
+  | "kernel.hydrateDoc"
+  | "kernel.resyncDoc"
+  | "kernel.wakeManagedSeat"
+  | "nodeRef.resolve"
+  | "region.rollup"
+  | "term.seatPlan"
+  | "untagged"
+  | "work.control"
+  | "work.service";
+
 export class CanvasesService extends Context.Service<CanvasesService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
-    readonly read: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
+    /**
+     * `tag` names the caller for the `VELLUM_PERF=1` probe only. It never
+     * reaches SQLite, the document, or any product surface.
+     */
+    readonly read: (
+      name: string,
+      tag?: CanvasReadTag,
+    ) => Effect.Effect<CanvasReadResult, CanvasError>;
     readonly readWithIntentWitness: (
       name: string,
+      tag?: CanvasReadTag,
     ) => Effect.Effect<CanvasReadWithIntentWitness, CanvasError>;
     readonly write: (
       name: string,
@@ -869,6 +906,7 @@ export const CanvasesLive = Layer.effect(
 
   const readWithIntentWitness = (
     name: string,
+    tag: CanvasReadTag = "untagged",
   ): Effect.Effect<CanvasReadWithIntentWitness, CanvasError> =>
     Effect.gen(function* () {
       const canonicalName = yield* Effect.try({
@@ -878,6 +916,10 @@ export const CanvasesLive = Layer.effect(
       yield* ensureReady;
       return yield* state
         .read("canvas.read", (reader) => {
+          // VELLUM_PERF=1 only. The probe brackets the synchronous body, so
+          // the recorded duration is the real main-thread block. Off, this is
+          // one constant boolean test per read.
+          const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
           const snapshot = readActivePortfolio(reader);
           const entry = snapshot.documents.get(canonicalName);
           if (entry === undefined) {
@@ -889,7 +931,7 @@ export const CanvasesLive = Layer.effect(
             reader,
             canonicalName,
           );
-          return {
+          const result = {
             read: {
               name: canonicalName,
               doc: projectWorkSnapshots(
@@ -904,14 +946,17 @@ export const CanvasesLive = Layer.effect(
             },
             intentWitness: intentWitnessFromSnapshot(snapshot),
           };
+          if (probe !== undefined) perfProbe?.endRead(probe, result.read.doc);
+          return result;
         })
         .pipe(Effect.mapError(toCanvasError));
     });
 
   const read = (
     name: string,
+    tag: CanvasReadTag = "untagged",
   ): Effect.Effect<CanvasReadResult, CanvasError> =>
-    readWithIntentWitness(name).pipe(
+    readWithIntentWitness(name, tag).pipe(
       Effect.map(({ read }) => read),
     );
 
