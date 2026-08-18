@@ -984,6 +984,50 @@ const loadThread = (
     )
     .map((row) => messageFromRow(row, itemId));
 
+/**
+ * Every thread on one sink lane, grouped by item, in one statement.
+ *
+ * `loadThread` is the single-item form the write path still uses when it holds
+ * one task. The lane projection must not pay it per task:
+ * `work_task_messages_thread` indexes (canvas_name, node_id, parent_lane,
+ * item_id, position), so the lane-wide ORDER BY item_id, position walks that
+ * index in order and every group comes out in exactly the per-item order the
+ * single-item query produced.
+ */
+const loadThreadsByItem = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  lane: "task" | "request",
+): ReadonlyMap<string, ReadonlyArray<MessageValue>> => {
+  const rows = reader.all<MessageRow & { readonly item_id: string }>(
+    `
+      SELECT
+        item_id,
+        message_id,
+        role,
+        parts_json,
+        NULL AS task_id,
+        context_id,
+        reference_task_ids_json,
+        metadata_json
+      FROM work_task_messages
+      WHERE canvas_name = ?
+        AND node_id = ?
+        AND parent_lane = ?
+      ORDER BY item_id, position
+    `,
+    [sink.canvasName, sink.nodeId, lane],
+  );
+  const byItem = new Map<string, MessageValue[]>();
+  for (const row of rows) {
+    const message = messageFromRow(row, row.item_id);
+    const thread = byItem.get(row.item_id);
+    if (thread === undefined) byItem.set(row.item_id, [message]);
+    else thread.push(message);
+  }
+  return byItem;
+};
+
 const loadTaskDependsOnMap = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -1300,6 +1344,7 @@ const taskFromRow = (
     readonly finishCriteria?: TaskValue["finishCriteria"];
     readonly completionEvidence?: TaskValue["completionEvidence"];
   },
+  history?: ReadonlyArray<MessageValue>,
 ): TaskValue =>
   Schema.decodeUnknownSync(Task, strictDecode)({
     id: row.item_id,
@@ -1307,7 +1352,7 @@ const taskFromRow = (
     ...(row.actor_seat_id === null
       ? {}
       : { claimedBy: row.actor_seat_id }),
-    history: loadThread(reader, sink, lane, row.item_id),
+    history: history ?? loadThread(reader, sink, lane, row.item_id),
     ...(row.artifact_ids_json === null
       ? {}
       : { artifactIds: parseJson(row.artifact_ids_json) }),
@@ -1338,6 +1383,7 @@ const loadLaneTasks = (
     lane === "task" ? loadTaskDependsOnMap(reader, sink) : undefined;
   const finishMap =
     lane === "task" ? loadTaskFinishMap(reader, sink) : undefined;
+  const threads = loadThreadsByItem(reader, sink, lane);
   // Requests: newest first (operator triage). Tasks keep oldest-first claim order.
   const orderBy =
     lane === "request"
@@ -1375,6 +1421,7 @@ const loadLaneTasks = (
         row,
         dependsMap?.get(row.item_id),
         finishMap?.get(row.item_id),
+        threads.get(row.item_id) ?? [],
       ),
     );
 };
@@ -1547,31 +1594,51 @@ const writeProposalPlanning = (
   );
 };
 
-const receiptAcceptedAtMs = (
+/**
+ * Every mailbox receipt on one sink, indexed by delivery id, in one statement.
+ *
+ * `work_delivery_receipts` is `WITHOUT ROWID` with PRIMARY KEY
+ * (delivered_canvas_name, delivered_node_id, delivery_id), so a sink is one
+ * contiguous key-range scan. The rows this returns are a strict subset of what
+ * the per-message point lookups could have matched: mailbox delivery / read /
+ * react receipts are all minted against `delivered_item_kind = 'message'`
+ * (recordDeliveryReceipt writes `receipt.deliveredItem.kind`), so the kind
+ * filter cannot hide a receipt loadInbox would otherwise stamp, and it keeps
+ * task-claim receipts on the same sink out of the projection's way.
+ */
+const loadMessageReceiptAcceptedAtMap = (
   reader: StateReader,
   sink: SinkRefValue,
-  deliveryId: string,
-): number | undefined => {
-  const row = reader.get<StateRow & { readonly accepted_at: string }>(
+): ReadonlyMap<string, number> => {
+  const rows = reader.all<
+    StateRow & {
+      readonly delivery_id: string;
+      readonly accepted_at: string;
+    }
+  >(
     `
-      SELECT accepted_at
+      SELECT delivery_id, accepted_at
       FROM work_delivery_receipts
       WHERE delivered_canvas_name = ?
         AND delivered_node_id = ?
-        AND delivery_id = ?
+        AND delivered_item_kind = 'message'
     `,
-    [sink.canvasName, sink.nodeId, deliveryId],
+    [sink.canvasName, sink.nodeId],
   );
-  if (row === undefined) return undefined;
-  const ms = Date.parse(row.accepted_at);
-  return Number.isFinite(ms) ? ms : undefined;
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    const ms = Date.parse(row.accepted_at);
+    if (Number.isFinite(ms)) map.set(row.delivery_id, ms);
+  }
+  return map;
 };
 
 const loadInbox = (
   reader: StateReader,
   sink: SinkRefValue,
-): ReadonlyArray<MessageValue> =>
-  reader
+): ReadonlyArray<MessageValue> => {
+  const receipts = loadMessageReceiptAcceptedAtMap(reader, sink);
+  return reader
     .all<MessageRow>(
       `
         SELECT
@@ -1590,19 +1657,13 @@ const loadInbox = (
     )
     .map((row) => {
       const message = messageFromRow(row);
-      const deliveredAt = receiptAcceptedAtMs(
-        reader,
-        sink,
+      const deliveredAt = receipts.get(
         mailboxMessageDeliveryId(sink.canvasName, sink.nodeId, row.message_id),
       );
-      const readAt = receiptAcceptedAtMs(
-        reader,
-        sink,
+      const readAt = receipts.get(
         mailboxMessageReadId(sink.canvasName, sink.nodeId, row.message_id),
       );
-      const ackAt = receiptAcceptedAtMs(
-        reader,
-        sink,
+      const ackAt = receipts.get(
         mailboxMessageReactId(
           sink.canvasName,
           sink.nodeId,
@@ -1629,6 +1690,7 @@ const loadInbox = (
         },
       };
     });
+};
 
 const boardAuthorFromRow = (row: {
   readonly author_kind: string;
@@ -1642,67 +1704,79 @@ const boardAuthorFromRow = (row: {
   ...(row.author_label ? { label: row.author_label } : {}),
 });
 
-const loadBoardPosts = (
+/**
+ * Every board post on one sink, grouped by topic, in one statement.
+ *
+ * `work_board_posts_thread` indexes (canvas_name, node_id, topic_id, position),
+ * so the sink-wide ORDER BY topic_id, position walks the index in order and
+ * each group keeps exactly the per-topic ordering the per-topic query produced.
+ */
+const loadBoardPostsByTopic = (
   reader: StateReader,
   sink: SinkRefValue,
-  topicId: string,
-): ReadonlyArray<BoardPostValue> =>
-  reader
-    .all<
-      StateRow & {
-        readonly post_id: string;
-        readonly topic_id: string;
-        readonly position: number;
-        readonly author_kind: string;
-        readonly author_seat_id: string | null;
-        readonly author_node_id: string | null;
-        readonly author_label: string | null;
-        readonly parts_json: string;
-        readonly tags_json: string | null;
-        readonly created_at: string;
-      }
-    >(
-      `
-        SELECT
-          post_id,
-          topic_id,
-          position,
-          author_kind,
-          author_seat_id,
-          author_node_id,
-          author_label,
-          parts_json,
-          tags_json,
-          created_at
-        FROM work_board_posts
-        WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
-        ORDER BY position
-      `,
-      [sink.canvasName, sink.nodeId, topicId],
-    )
-    .map((row) => {
-      const tagsRaw =
-        typeof row.tags_json === "string" ? parseJson(row.tags_json) : undefined;
-      const tags =
-        Array.isArray(tagsRaw) && tagsRaw.every((t) => typeof t === "string")
-          ? (tagsRaw as string[])
-          : undefined;
-      return Schema.decodeUnknownSync(BoardPost, strictDecode)({
-        postId: row.post_id,
-        topicId: row.topic_id,
-        author: boardAuthorFromRow(row),
-        parts: parseJson(row.parts_json),
-        position: row.position,
-        createdAt: row.created_at,
-        ...(tags && tags.length > 0 ? { tags } : {}),
-      });
-    });
+): ReadonlyMap<string, ReadonlyArray<BoardPostValue>> => {
+  const rows = reader.all<
+    StateRow & {
+      readonly post_id: string;
+      readonly topic_id: string;
+      readonly position: number;
+      readonly author_kind: string;
+      readonly author_seat_id: string | null;
+      readonly author_node_id: string | null;
+      readonly author_label: string | null;
+      readonly parts_json: string;
+      readonly tags_json: string | null;
+      readonly created_at: string;
+    }
+  >(
+    `
+      SELECT
+        post_id,
+        topic_id,
+        position,
+        author_kind,
+        author_seat_id,
+        author_node_id,
+        author_label,
+        parts_json,
+        tags_json,
+        created_at
+      FROM work_board_posts
+      WHERE canvas_name = ? AND node_id = ?
+      ORDER BY topic_id, position
+    `,
+    [sink.canvasName, sink.nodeId],
+  );
+  const byTopic = new Map<string, BoardPostValue[]>();
+  for (const row of rows) {
+    const tagsRaw =
+      typeof row.tags_json === "string" ? parseJson(row.tags_json) : undefined;
+    const tags =
+      Array.isArray(tagsRaw) && tagsRaw.every((t) => typeof t === "string")
+        ? (tagsRaw as string[])
+        : undefined;
+    const post: BoardPostValue = {
+      postId: row.post_id,
+      topicId: row.topic_id,
+      author: boardAuthorFromRow(row),
+      parts: parseJson(row.parts_json) as BoardPostValue["parts"],
+      position: row.position,
+      createdAt: row.created_at,
+      ...(tags && tags.length > 0 ? { tags } : {}),
+    };
+    const group = byTopic.get(row.topic_id);
+    if (group === undefined) byTopic.set(row.topic_id, [post]);
+    else group.push(post);
+  }
+  return byTopic;
+};
 
 const loadBoardTopics = (
   reader: StateReader,
   sink: SinkRefValue,
 ): ReadonlyArray<BoardTopicValue> => {
   try {
+    const postsByTopic = loadBoardPostsByTopic(reader, sink);
     return reader
       .all<
         StateRow & {
@@ -1738,20 +1812,22 @@ const loadBoardTopics = (
         `,
         [sink.canvasName, sink.nodeId],
       )
-      .map((row) => {
+      .map((row): BoardTopicValue => {
         const parts = parseJson(row.parts_json);
-        const posts = loadBoardPosts(reader, sink, row.topic_id);
-        return Schema.decodeUnknownSync(BoardTopic, strictDecode)({
+        const posts = postsByTopic.get(row.topic_id) ?? [];
+        return {
           topicId: row.topic_id,
           title: row.title,
-          state: row.state,
+          state: row.state as BoardTopicValue["state"],
           openedBy: boardAuthorFromRow(row),
           openedAt: row.created_at,
           postCount: row.post_count,
           lastActivityAt: row.last_activity_at,
-          ...(Array.isArray(parts) && parts.length > 0 ? { parts } : {}),
+          ...(Array.isArray(parts) && parts.length > 0
+            ? { parts: parts as BoardTopicValue["parts"] }
+            : {}),
           ...(posts.length > 0 ? { posts } : {}),
-        });
+        };
       });
   } catch {
     // Pre-migration databases or missing table — empty lane.
@@ -2287,12 +2363,26 @@ const persistPad = (
   }
 };
 
+/**
+ * Assemble one sink's read model from already-typed lane values.
+ *
+ * There is deliberately no aggregate `Schema.decodeUnknownSync(WorkSnapshot)`
+ * here. Every lane loader above returns a `*Value` this module constructed from
+ * columns the write path already validated, so an aggregate decode on the read
+ * path is a second full traversal of the same bytes that can only restate what
+ * the loaders' types already say. Validation lives at ingress
+ * (`Schema.decodeUnknownSync` in createTask / appendMessage / publishArtifact /
+ * openTopic / appendPost / proposeTask, plus the SQLite CHECK domains on every
+ * column those writes land in), not on every read of the world.
+ */
 const loadSnapshot = (
   reader: StateReader,
   sink: SinkRefValue,
-): WorkSnapshotValue =>
-  Schema.decodeUnknownSync(WorkSnapshot, strictDecode)({
-    ...sink,
+): WorkSnapshotValue => {
+  const pad = loadPadGlance(reader, sink);
+  return {
+    canvasName: sink.canvasName,
+    nodeId: sink.nodeId,
     tasks: {
       // Soft-deleted tasks stay durable in work_tasks but leave the board /
       // CLI projection entirely (not merely the Closed lane).
@@ -2305,11 +2395,9 @@ const loadSnapshot = (
     messages: { items: loadInbox(reader, sink) },
     artifacts: { items: loadArtifacts(reader, sink) },
     board: { topics: loadBoardTopics(reader, sink) },
-    ...((): { readonly pad?: EtherPadValue } => {
-      const pad = loadPadGlance(reader, sink);
-      return pad === undefined ? {} : { pad };
-    })(),
-  });
+    ...(pad === undefined ? {} : { pad }),
+  };
+};
 
 export type CanvasWorkProjection = {
   readonly snapshots: ReadonlyArray<WorkSnapshotValue>;
