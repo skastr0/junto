@@ -38,6 +38,15 @@
  *      mint     — INTERIOR: branding a value this process just computed
  *    `row` and `mint` are the process re-validating its own output. They are
  *    allowed only with a `retire` condition.
+ * 4. The runtime seam must be installed, and every escape from it declared.
+ *    `work/mutation-seam.ts` refuses a work projection write that no journal
+ *    record in the same transaction explains — rules 1-3 are static and cannot
+ *    see ordering, so that half of the law lives at runtime. This rule pins
+ *    the wiring (`state/engine.ts` must call it) and pins every call site of
+ *    `unjournaledWorkMutation`, the one declared escape, in the register with
+ *    a retirement condition. The reason set is closed at the type level in the
+ *    seam module and this gate proves the register never drifts from it.
+ *    `test.fixture-seed` is forbidden under `src/` outright.
  *
  * THE SEAM DECISION this gate encodes (rule 2, work plane):
  *   `src/main/vellum/work/repository.ts` IS the work-plane mutation seam. It is
@@ -85,6 +94,16 @@ const SQLITE_DRIVER_MODULES = new Set([
   "better-sqlite3",
 ]);
 
+/**
+ * Rule 4 anchors. The runtime seam is only real while the state engine calls
+ * it, so the gate reads the wiring rather than trusting it.
+ */
+const SEAM_MODULE_REL = "src/main/vellum/work/mutation-seam.ts";
+const STATE_ENGINE_REL = "src/main/vellum/state/engine.ts";
+const SEAM_WIRING_CALLS = ["admitWorkStatement(", "beginWorkMutationScope("];
+/** Declared only for tests and fixtures; never admissible under src/. */
+const TEST_ONLY_JOURNAL_FREE_REASON = "test.fixture-seed";
+
 /** Interior decode kinds — allowed only with a retirement condition. */
 const INTERIOR_DECODE_KINDS = new Set(["row", "mint"]);
 const INGRESS_DECODE_KINDS = new Set(["wire", "codec", "operator", "constant"]);
@@ -126,12 +145,20 @@ type DecodeEntry = {
   readonly retire?: string;
 };
 
+type JournalFreeEntry = {
+  readonly path: string;
+  readonly reasons: ReadonlyArray<string>;
+  readonly reason: string;
+  readonly retire: string;
+};
+
 type Register = {
   readonly databaseOpeners: ReadonlyArray<OpenerEntry>;
   readonly databaseOpenerExceptions: ReadonlyArray<OpenerEntry>;
   readonly mutationSeams: ReadonlyArray<SeamEntry>;
   readonly sharedTableExceptions: ReadonlyArray<SharedTableEntry>;
   readonly decodeBoundaries: ReadonlyArray<DecodeEntry>;
+  readonly journalFreeMutations: ReadonlyArray<JournalFreeEntry>;
 };
 
 type Hit = {
@@ -402,6 +429,51 @@ const scanDecodes = (
   return hits;
 };
 
+// ---------------------------------------------------------------- rule 4 ----
+
+const JOURNAL_FREE_CALL = /\bunjournaledWorkMutation\s*\(\s*["']([^"']+)["']/;
+const JOURNAL_FREE_ANY = /\bunjournaledWorkMutation\s*\(/;
+
+type JournalFreeHit = Hit & { readonly reason: string | undefined };
+
+const scanJournalFree = (
+  rel: string,
+  lines: ReadonlyArray<{ readonly n: number; readonly code: string; readonly raw: string }>,
+): ReadonlyArray<JournalFreeHit> => {
+  const hits: JournalFreeHit[] = [];
+  for (const { n, code, raw } of lines) {
+    if (!JOURNAL_FREE_ANY.test(code)) continue;
+    const reason = JOURNAL_FREE_CALL.exec(code)?.[1];
+    hits.push({ file: rel, line: n, text: raw.trim().slice(0, 160), reason });
+  }
+  return hits;
+};
+
+/**
+ * The closed reason set, read from the seam module's own
+ * `UNJOURNALED_WORK_REASONS` object so the register cannot drift from the type
+ * the compiler enforces at every call site.
+ */
+const declaredJournalFreeReasons = async (): Promise<ReadonlySet<string>> => {
+  const text = await readFile(path.join(ROOT, SEAM_MODULE_REL), "utf8");
+  const start = text.indexOf("export const UNJOURNALED_WORK_REASONS");
+  if (start === -1) {
+    throw new Error(`${SEAM_MODULE_REL}: UNJOURNALED_WORK_REASONS is gone`);
+  }
+  const end = text.indexOf("} as const;", start);
+  if (end === -1) {
+    throw new Error(`${SEAM_MODULE_REL}: UNJOURNALED_WORK_REASONS is not closed`);
+  }
+  const reasons = new Set<string>();
+  for (const match of text.slice(start, end).matchAll(/^\s{2}"([^"]+)":\s*\{/gm)) {
+    reasons.add(match[1]);
+  }
+  if (reasons.size === 0) {
+    throw new Error(`${SEAM_MODULE_REL}: UNJOURNALED_WORK_REASONS parsed empty`);
+  }
+  return reasons;
+};
+
 // -------------------------------------------------------------- register ----
 
 const loadRegister = async (): Promise<Register> => {
@@ -413,6 +485,7 @@ const loadRegister = async (): Promise<Register> => {
     "mutationSeams",
     "sharedTableExceptions",
     "decodeBoundaries",
+    "journalFreeMutations",
   ] as const) {
     if (!Array.isArray(raw[key])) {
       throw new Error(`${REGISTER_REL}: expected array at "${key}"`);
@@ -451,7 +524,20 @@ const registerPolicy = (register: Register): ReadonlyArray<string> => {
     ...uniquePaths("databaseOpenerExceptions", register.databaseOpenerExceptions),
     ...uniquePaths("mutationSeams", register.mutationSeams),
     ...uniquePaths("decodeBoundaries", register.decodeBoundaries),
+    ...uniquePaths("journalFreeMutations", register.journalFreeMutations),
   ];
+
+  for (const entry of register.journalFreeMutations) {
+    const reason = requireReason(`journalFreeMutations ${entry.path}`, entry.reason);
+    if (reason !== undefined) problems.push(reason);
+    const retire = requireRetire(`journalFreeMutations ${entry.path}`, entry.retire);
+    if (retire !== undefined) problems.push(retire);
+    if (!Array.isArray(entry.reasons) || entry.reasons.length === 0) {
+      problems.push(
+        `journalFreeMutations ${entry.path} — must declare the journal-free reasons it uses`,
+      );
+    }
+  }
 
   for (const entry of register.databaseOpeners) {
     const problem = requireReason(`databaseOpeners ${entry.path}`, entry.reason);
@@ -606,7 +692,131 @@ const RULE_TEXT = {
     `  Register the file in "decodeBoundaries" with the boundary kind it guards\n` +
     `  (wire | codec | operator | constant, or the interior kinds row | mint, which additionally\n` +
     `  require a "retire" condition naming what removes them).`,
+  journalFree:
+    `RULE 4 — the runtime seam (${SEAM_MODULE_REL}) refuses a work projection write that no\n` +
+    `  journal record in the same transaction explains. unjournaledWorkMutation() is its ONE\n` +
+    `  escape: the reason set is closed at the type level in the seam module, and every call\n` +
+    `  site under src/ must be declared in "journalFreeMutations" with a "retire" condition.\n` +
+    `  "${TEST_ONLY_JOURNAL_FREE_REASON}" is for tests and fixtures, never admissible under src/.`,
 } as const;
+
+/** Rule 4a — the runtime seam is only real while the state engine calls it. */
+const seamWiringViolations = async (): Promise<ReadonlyArray<string>> => {
+  const engine = await readFile(path.join(ROOT, STATE_ENGINE_REL), "utf8");
+  const out: string[] = [];
+  for (const call of SEAM_WIRING_CALLS) {
+    if (engine.includes(call)) continue;
+    out.push(
+      `${STATE_ENGINE_REL}: no longer calls ${call} — the runtime work mutation seam is ` +
+        `not installed, so every static rule below it guards nothing`,
+      RULE_TEXT.journalFree,
+    );
+  }
+  return out;
+};
+
+/** One escape call site, judged against the register and the closed reason set. */
+const journalFreeHitViolations = (
+  file: string,
+  hit: JournalFreeHit,
+  declared: ReadonlySet<string>,
+  closedReasons: ReadonlySet<string>,
+): ReadonlyArray<string> => {
+  if (hit.reason === undefined) {
+    return [
+      `${file}:${hit.line}: unjournaledWorkMutation() without a literal reason — the ` +
+        `reason must be readable at the call site, not computed`,
+      `    L${hit.line}: ${hit.text}`,
+    ];
+  }
+  if (hit.reason === TEST_ONLY_JOURNAL_FREE_REASON) {
+    return [
+      `${file}:${hit.line}: "${TEST_ONLY_JOURNAL_FREE_REASON}" is a test/fixture reason and ` +
+        `must never appear under ${SOURCE_ROOT}/`,
+      `    L${hit.line}: ${hit.text}`,
+    ];
+  }
+  if (!closedReasons.has(hit.reason)) {
+    return [
+      `${file}:${hit.line}: "${hit.reason}" is not declared in ` +
+        `${SEAM_MODULE_REL} UNJOURNALED_WORK_REASONS`,
+    ];
+  }
+  if (declared.has(hit.reason)) return [];
+  return [
+    `${file}:${hit.line}: uses journal-free reason "${hit.reason}", which this entry does ` +
+      `not declare in "reasons"`,
+    RULE_TEXT.journalFree,
+  ];
+};
+
+/** Rule 4b — every escape call site under src/ is declared. */
+const journalFreeViolations = (
+  hits: ReadonlyMap<string, ReadonlyArray<JournalFreeHit>>,
+  register: ReadonlyMap<string, JournalFreeEntry>,
+  closedReasons: ReadonlySet<string>,
+): ReadonlyArray<string> => {
+  const out: string[] = [];
+  for (const [file, fileHits] of [...hits.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    const entry = register.get(file);
+    if (entry === undefined) {
+      out.push(
+        `${file}: ${fileHits.length} undeclared unjournaledWorkMutation() call site(s)`,
+        ...fileHits.map((hit) => `    L${hit.line}: ${hit.text}`),
+        RULE_TEXT.journalFree,
+      );
+      continue;
+    }
+    const declared = new Set(entry.reasons);
+    for (const hit of fileHits) {
+      out.push(
+        ...journalFreeHitViolations(file, hit, declared, closedReasons),
+      );
+    }
+  }
+  return out;
+};
+
+/** Rule 4c — a declared escape that nothing uses is an unlocked door. */
+const staleJournalFreeViolations = (
+  hits: ReadonlyMap<string, ReadonlyArray<JournalFreeHit>>,
+  register: ReadonlyMap<string, JournalFreeEntry>,
+  closedReasons: ReadonlySet<string>,
+): ReadonlyArray<string> => {
+  const out: string[] = [];
+  const usedAnywhere = new Set<string>();
+  for (const [file, entry] of register) {
+    const fileHits = hits.get(file);
+    if (fileHits === undefined) {
+      out.push(
+        `${file}: registered journal-free mutation, but the file calls no ` +
+          `unjournaledWorkMutation() — remove the entry`,
+      );
+      continue;
+    }
+    const used = new Set(fileHits.map((hit) => hit.reason));
+    for (const reason of entry.reasons) {
+      if (!used.has(reason)) {
+        out.push(
+          `${file}: declares journal-free reason "${reason}" but no longer uses it — shrink the entry`,
+        );
+        continue;
+      }
+      usedAnywhere.add(reason);
+    }
+  }
+  for (const reason of closedReasons) {
+    if (reason === TEST_ONLY_JOURNAL_FREE_REASON) continue;
+    if (usedAnywhere.has(reason)) continue;
+    out.push(
+      `${SEAM_MODULE_REL}: declares journal-free reason "${reason}" that no src/ call site ` +
+        `uses — delete the reason and close the escape`,
+    );
+  }
+  return out;
+};
 
 const main = async (): Promise<number> => {
   for (const root of [SOURCE_ROOT, TOOLING_ROOT]) {
@@ -634,10 +844,15 @@ const main = async (): Promise<number> => {
   );
   const seams = new Map(register.mutationSeams.map((entry) => [entry.path, entry] as const));
   const decodes = new Map(register.decodeBoundaries.map((entry) => [entry.path, entry] as const));
+  const journalFree = new Map(
+    register.journalFreeMutations.map((entry) => [entry.path, entry] as const),
+  );
+  const closedReasons = await declaredJournalFreeReasons();
 
   const openerHits = new Map<string, Hit[]>();
   const mutationHits = new Map<string, MutationHit[]>();
   const decodeHits = new Map<string, Hit[]>();
+  const journalFreeHits = new Map<string, JournalFreeHit[]>();
 
   const scanRoots = [
     { root: SOURCE_ROOT, decode: true },
@@ -657,6 +872,13 @@ const main = async (): Promise<number> => {
       if (mutation.length > 0) mutationHits.set(rel, [...mutation]);
 
       if (!decode) continue;
+
+      // The seam module DEFINES the escape and names it in its own error
+      // strings; it never calls it. Excluded by explicit path, never by shape.
+      if (rel === SEAM_MODULE_REL) continue;
+      const escapes = scanJournalFree(rel, lines);
+      if (escapes.length > 0) journalFreeHits.set(rel, [...escapes]);
+
       const decoded = scanDecodes(rel, lines);
       if (decoded.length > 0) decodeHits.set(rel, [...decoded]);
     }
@@ -739,6 +961,11 @@ const main = async (): Promise<number> => {
     violations.push(RULE_TEXT.decode);
   }
 
+  violations.push(
+    ...(await seamWiringViolations()),
+    ...journalFreeViolations(journalFreeHits, journalFree, closedReasons),
+  );
+
   // Stale register entries — an exception that no longer covers anything must go.
   for (const [file] of openers) {
     if (!openerHits.has(file)) {
@@ -775,6 +1002,9 @@ const main = async (): Promise<number> => {
       violations.push(`${file}: registered decode boundary, but the file has no Schema.decodeUnknown* — remove the entry`);
     }
   }
+  violations.push(
+    ...staleJournalFreeViolations(journalFreeHits, journalFree, closedReasons),
+  );
 
   if (violations.length > 0) {
     console.error("SINGLE-WRITE-SEAM GATE FAILED — the factory world has more than one writer.");
@@ -799,7 +1029,8 @@ const main = async (): Promise<number> => {
       `(${register.databaseOpenerExceptions.length} exception), ` +
       `${seams.size} mutation seam(s) over ${seamTables.size} tables ` +
       `(${register.sharedTableExceptions.length} shared-table exception), ` +
-      `${decodes.size} decode boundary(ies) (${interior} still interior)`,
+      `${decodes.size} decode boundary(ies) (${interior} still interior), ` +
+      `${journalFree.size} journal-free file(s) over ${closedReasons.size - 1} declared reason(s)`,
   );
   return 0;
 };

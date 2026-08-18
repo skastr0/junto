@@ -39,6 +39,7 @@ import {
   type ContentOwnerKind,
 } from "./manifest";
 import { ContentStoreError, ingestContentBytes } from "./store";
+import { unjournaledWorkMutation } from "../work/mutation-seam";
 
 export type InlineMediaMigrationReport = {
   readonly status: "complete" | "already-complete";
@@ -493,10 +494,15 @@ const migratePartsTargets = (
         yield* state.transaction(
           `content.inline-media.rewrite.${target.table}`,
           (writer) => {
-            writer.run(
-              target.updateSql,
-              updateBindingsForPartsTarget(target, row, json),
-            );
+            // Declared journal-free: a one-time content move over projection
+            // rows, deliberately minting no work fact (it is not a work
+            // transition and must not replicate as one).
+            unjournaledWorkMutation("content.inline-media.backfill", () => {
+              writer.run(
+                target.updateSql,
+                updateBindingsForPartsTarget(target, row, json),
+              );
+            });
             recordObjectsAndRefs(
               writer,
               rewritten.objects,

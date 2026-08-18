@@ -80,6 +80,22 @@
       "reason": "Work-plane DDL. The only INSERTs are inside AFTER INSERT/UPDATE/DELETE triggers that bump the projection revision counter, so the write is SQLite's and local to the row, which is exactly why no call path can bypass it."
     },
     {
+      "path": "src/main/vellum/work/journal.ts",
+      "kind": "debt",
+      "tables": [
+        "work_commands",
+        "work_dispositions",
+        "work_event_sequences",
+        "work_events",
+        "work_facts",
+        "work_pending_commands",
+        "work_pending_proposal_commands",
+        "work_proposal_events"
+      ],
+      "reason": "THE EVENT JOURNAL APPEND. SQLite is the factory world's append-only journal and this file is the only place a journal record is written: allocateSequence / rememberIncomingSequence number a route, appendWorkRecord writes the record envelope plus its command / fact / disposition variant, appendPendingCommand indexes a command as unresolved. It decides nothing — minting, authority, and materialization stay in repository.ts. The runtime half of the same law is work/mutation-seam.ts, which refuses a projection write that no append here explains.",
+      "retire": "The five record tables plus work_event_sequences are the destination shape and stay. work_pending_commands / work_pending_proposal_commands are the debt: they are a derived index of unresolved commands, so once the in-memory world holds that index they leave this file's table set and the entry becomes permanent."
+    },
+    {
       "path": "src/main/vellum/work/repository.ts",
       "kind": "debt",
       "tables": [
@@ -89,12 +105,7 @@
         "work_board_posts",
         "work_board_read_cursors",
         "work_board_topics",
-        "work_commands",
         "work_delivery_receipts",
-        "work_dispositions",
-        "work_event_sequences",
-        "work_events",
-        "work_facts",
         "work_messages",
         "work_pad_edges",
         "work_pad_images",
@@ -106,7 +117,6 @@
         "work_pad_shapes",
         "work_pending_commands",
         "work_pending_proposal_commands",
-        "work_proposal_events",
         "work_proposal_planning",
         "work_requests",
         "work_task_dependencies",
@@ -365,58 +375,13 @@
   ],
   "sharedTableExceptions": [
     {
-      "table": "work_tasks",
-      "owner": "src/main/vellum/work/repository.ts",
+      "table": "box_resources",
+      "owner": "src/main/vellum/box/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
+        "src/main/vellum/hosts/registry.ts"
       ],
-      "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_events",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_task_transitions",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_proposal_events",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_pending_commands",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_pending_proposal_commands",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+      "reason": "The hosts seam clears a removed host's boxes as a cascade.",
+      "retire": "Have host removal call the box seam instead of deleting box_resources directly."
     },
     {
       "table": "canvas_entities",
@@ -428,59 +393,13 @@
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
-      "table": "work_board_posts",
-      "owner": "src/main/vellum/work/repository.ts",
+      "table": "canvas_generation_documents",
+      "owner": "src/main/vellum/canvases.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts",
-        "src/main/vellum/content/inline-media-migration.ts"
+        "src/main/vellum/station/repository.ts"
       ],
-      "reason": "THREE writers. The migration backfills the table on a schema advance and the inline-media backfill rewrites parts_json in place. Neither mints a work fact.",
-      "retire": "Delete the inline-media backfill, and express migration rebuilds without naming a product table."
-    },
-    {
-      "table": "work_messages",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
-      ],
-      "reason": "The inline-media backfill rewrites parts_json in place with no work fact.",
-      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_task_messages",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_artifacts",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_board_topics",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_task_proposals",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+      "reason": "Same Remote canvas-store clear.",
+      "retire": "Retire with canvas_generations."
     },
     {
       "table": "canvas_generations",
@@ -490,15 +409,6 @@
       ],
       "reason": "canvases.ts appends generations; station/repository.ts only DELETEs every row when a Remote drops its authorial canvas store.",
       "retire": "Make dropping the local canvas store an operation on the canvas seam instead of a direct delete from the station seam."
-    },
-    {
-      "table": "canvas_generation_documents",
-      "owner": "src/main/vellum/canvases.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/station/repository.ts"
-      ],
-      "reason": "Same Remote canvas-store clear.",
-      "retire": "Retire with canvas_generations."
     },
     {
       "table": "canvas_head",
@@ -519,13 +429,13 @@
       "retire": "Have box ownership call the hosts seam instead of writing host_registry directly."
     },
     {
-      "table": "box_resources",
-      "owner": "src/main/vellum/box/repository.ts",
+      "table": "license_entitlement",
+      "owner": "src/main/vellum/license/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/hosts/registry.ts"
+        "scripts/license-state.ts"
       ],
-      "reason": "The hosts seam clears a removed host's boxes as a cascade.",
-      "retire": "Have host removal call the box seam instead of deleting box_resources directly."
+      "reason": "The developer license tool clears and restores the row the product owns.",
+      "retire": "Serve entitlement clear and restore over the control socket."
     },
     {
       "table": "station_fleet_targets",
@@ -546,13 +456,115 @@
       "retire": "Put installation registration in one station seam."
     },
     {
-      "table": "license_entitlement",
-      "owner": "src/main/vellum/license/repository.ts",
+      "table": "work_artifacts",
+      "owner": "src/main/vellum/work/repository.ts",
       "alsoWrittenBy": [
-        "scripts/license-state.ts"
+        "src/main/vellum/content/inline-media-migration.ts"
       ],
-      "reason": "The developer license tool clears and restores the row the product owns.",
-      "retire": "Serve entitlement clear and restore over the control socket."
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_board_posts",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "THREE writers. The migration backfills the table on a schema advance and the inline-media backfill rewrites parts_json in place. Neither mints a work fact.",
+      "retire": "Delete the inline-media backfill, and express migration rebuilds without naming a product table."
+    },
+    {
+      "table": "work_board_topics",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_events",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_messages",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "The inline-media backfill rewrites parts_json in place with no work fact.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_pending_commands",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/work/repository.ts"
+      ],
+      "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry. state/migrations.ts rebuilds the table on a schema step.",
+      "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
+    },
+    {
+      "table": "work_pending_proposal_commands",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/work/repository.ts"
+      ],
+      "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry. state/migrations.ts rebuilds the table on a schema step.",
+      "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
+    },
+    {
+      "table": "work_proposal_events",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_task_messages",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_task_proposals",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/content/inline-media-migration.ts"
+      ],
+      "reason": "Same inline-media backfill.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+    },
+    {
+      "table": "work_task_transitions",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "Same schema-advance table rebuild.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_tasks",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     }
   ],
   "decodeBoundaries": [
@@ -918,6 +930,14 @@
       "reason": "Decodes work control requests arriving over the work control socket."
     },
     {
+      "path": "src/main/vellum/work/journal.ts",
+      "kinds": [
+        "mint"
+      ],
+      "reason": "sequence() brands a decimal string this process just computed (the previous high-water plus one) as a LogicalSequence. Nothing foreign enters here.",
+      "retire": "A total LogicalSequence constructor that increments without a decode."
+    },
+    {
       "path": "src/main/vellum/work/repository.ts",
       "kinds": [
         "row",
@@ -1119,6 +1139,25 @@
         "constant"
       ],
       "reason": "Brands the one operator planning seat id literal, once at module load."
+    }
+  ],
+  "journalFreeMutations": [
+    {
+      "path": "src/main/vellum/work/repository.ts",
+      "reasons": [
+        "work.artifact.delete",
+        "work.artifact.set_archived"
+      ],
+      "reason": "Two operator artifact operations mutate the projection and mint no fact: set_archived rewrites metadata_json in place, delete removes the row with no tombstone. Neither replicates, and a rebuild from the journal loses the archive flag and resurrects the deleted artifact.",
+      "retire": "Mint artifact.archive and artifact.retract facts and materialize them like every other operation, then delete both reasons from UNJOURNALED_WORK_REASONS."
+    },
+    {
+      "path": "src/main/vellum/content/inline-media-migration.ts",
+      "reasons": [
+        "content.inline-media.backfill"
+      ],
+      "reason": "BACKFILL_INLINE_MEDIA_V1 rewrites parts_json across six work_* projection tables to externalize inline media. It is a one-time content move, not a work transition, and must not mint facts that replicate as one.",
+      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once the backfill has run on every install."
     }
   ]
 }

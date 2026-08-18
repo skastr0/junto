@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   runInlineMediaMigration,
 } from "../src/main/vellum/content/inline-media-migration";
+import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
 import {
   contentObjectPath,
   contentStoreRoot,
@@ -76,10 +77,14 @@ describe("inline media migration", () => {
     ]);
 
     // work_board_topics has no FK to events — clean seed surface.
+    // Declared journal-free: this fixture must pin how an OLD projection row
+    // survives the backfill, so it seeds the row shape directly rather than
+    // going through the repository's current write path.
     await Effect.runPromise(
       state.transaction("seed.board-topic", (writer) => {
-        writer.run(
-          `
+        unjournaledWorkMutation("test.fixture-seed", () => {
+          writer.run(
+            `
             INSERT INTO work_board_topics(
               canvas_name,
               node_id,
@@ -94,20 +99,21 @@ describe("inline media migration", () => {
               updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
-          [
-            "main",
-            "board-1",
-            "topic-1",
-            "legacy media",
-            "open",
-            "operator",
-            boardParts,
-            0,
-            "2026-01-01T00:00:00.000Z",
-            "2026-01-01T00:00:00.000Z",
-            "2026-01-01T00:00:00.000Z",
-          ],
-        );
+            [
+              "main",
+              "board-1",
+              "topic-1",
+              "legacy media",
+              "open",
+              "operator",
+              boardParts,
+              0,
+              "2026-01-01T00:00:00.000Z",
+              "2026-01-01T00:00:00.000Z",
+              "2026-01-01T00:00:00.000Z",
+            ],
+          );
+        });
       }),
     );
 

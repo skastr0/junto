@@ -24,6 +24,10 @@ import {
   type StateWriter,
 } from "./service";
 import { perfProbe, perfProbeEnabled } from "../observability/perf-probe";
+import {
+  admitWorkStatement,
+  beginWorkMutationScope,
+} from "../work/mutation-seam";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
 import { createVerifiedStateBackup } from "./backup";
 import {
@@ -223,6 +227,9 @@ const openStateEngine = (
           sql: string,
           bindings?: StateBindings,
         ) => {
+          // The work plane's single mutation seam. Classification is cached by
+          // exact SQL text, so a non-work statement costs one map hit.
+          admitWorkStatement(sql);
           countStatement();
           return applyBindings(
             prepare(sql),
@@ -257,6 +264,9 @@ const openStateEngine = (
                 `nested state transaction is not allowed (${operation})`,
               );
             }
+            // Scope first: if it throws, this engine has not yet claimed its
+            // transaction flag and stays usable.
+            const closeWorkMutationScope = beginWorkMutationScope(operation);
             transactionOpen = true;
             database.exec("BEGIN IMMEDIATE");
             try {
@@ -272,6 +282,7 @@ const openStateEngine = (
               }
               throw error;
             } finally {
+              closeWorkMutationScope();
               transactionOpen = false;
             }
           },

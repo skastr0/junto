@@ -129,6 +129,14 @@ import {
   mailboxMessageReactId,
   mailboxMessageReadId,
 } from "./mailbox-receipts";
+import { unjournaledWorkMutation } from "./mutation-seam";
+import { canonicalJson } from "./canonical-json";
+import {
+  allocateSequence,
+  appendPendingCommand,
+  appendWorkRecord,
+  rememberIncomingSequence,
+} from "./journal";
 
 const DEFAULT_RECORD_LIMIT = 256;
 const MAX_RECORD_LIMIT = 1_024;
@@ -178,22 +186,6 @@ const sha256 = (value: string): WorkSha256Value =>
   Schema.decodeUnknownSync(WorkSha256)(
     createHash("sha256").update(value, "utf8").digest("hex"),
   );
-
-const normalizeJson = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(normalizeJson);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Readonly<Record<string, unknown>>)
-      .filter(([, nested]) => nested !== undefined)
-      .sort(([left], [right]) =>
-        left < right ? -1 : left > right ? 1 : 0,
-      )
-      .map(([key, nested]) => [key, normalizeJson(nested)]),
-  );
-};
-
-const canonicalJson = (value: unknown): string =>
-  JSON.stringify(normalizeJson(value));
 
 /**
  * Hash only the semantic record. `originAt` is display metadata and
@@ -670,10 +662,6 @@ type ProposalIdentityRow = StateRow & {
   readonly fact_entity_home: string;
   readonly fact_seq: string;
   readonly state: TaskProposalValue["state"];
-};
-
-type SequenceRow = StateRow & {
-  readonly last_seq: string;
 };
 
 type CursorRow = StateRow & {
@@ -3072,60 +3060,6 @@ const stateCause = (error: unknown): unknown =>
     ? (error as { readonly cause: unknown }).cause
     : undefined;
 
-const allocateSequence = (
-  writer: StateWriter,
-  eventHome: InstallationId,
-  entityHome: InstallationId,
-): LogicalSequenceValue => {
-  const current = writer.get<SequenceRow>(
-    `
-      SELECT last_seq
-      FROM work_event_sequences
-      WHERE event_home = ? AND entity_home = ?
-    `,
-    [eventHome, entityHome],
-  )?.last_seq;
-  const next = (current === undefined ? 1n : BigInt(current) + 1n).toString();
-  writer.run(
-    `
-      INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
-      VALUES (?, ?, ?)
-      ON CONFLICT(event_home, entity_home) DO UPDATE SET
-        last_seq = excluded.last_seq
-    `,
-    [eventHome, entityHome, next],
-  );
-  return sequence(next);
-};
-
-const rememberIncomingSequence = (
-  writer: StateWriter,
-  identity: WorkRecordId,
-): void => {
-  const current = writer.get<SequenceRow>(
-    `
-      SELECT last_seq
-      FROM work_event_sequences
-      WHERE event_home = ? AND entity_home = ?
-    `,
-    [identity.route.eventHome, identity.route.entityHome],
-  )?.last_seq;
-  if (current !== undefined && BigInt(current) >= BigInt(identity.seq)) return;
-  writer.run(
-    `
-      INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
-      VALUES (?, ?, ?)
-      ON CONFLICT(event_home, entity_home) DO UPDATE SET
-        last_seq = excluded.last_seq
-    `,
-    [
-      identity.route.eventHome,
-      identity.route.entityHome,
-      identity.seq,
-    ],
-  );
-};
-
 const eventRow = (
   reader: StateReader,
   identity: WorkRecordId,
@@ -3375,270 +3309,6 @@ const loadRecord = (
     recordType: "disposition",
     body,
   });
-};
-
-const insertRecord = (
-  writer: StateWriter,
-  record: WorkRecordValue,
-  receivedAt: DisplayTimestampValue,
-): void => {
-  if (record.item.kind === "proposal") {
-    writer.run(
-      `
-        INSERT INTO work_proposal_events(
-          event_home,
-          entity_home,
-          seq,
-          record_type,
-          canvas_name,
-          node_id,
-          proposal_id,
-          operation,
-          content_sha256,
-          record_json,
-          origin_at,
-          received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        record.id.route.eventHome,
-        record.id.route.entityHome,
-        record.id.seq,
-        record.recordType,
-        record.item.sink.canvasName,
-        record.item.sink.nodeId,
-        record.item.itemId,
-        record.operation,
-        record.contentSha256,
-        canonicalJson(record),
-        record.originAt,
-        receivedAt,
-      ],
-    );
-    return;
-  }
-  writer.run(
-    `
-      INSERT INTO work_events(
-        event_home,
-        entity_home,
-        seq,
-        protocol,
-        record_type,
-        item_kind,
-        item_id,
-        item_canvas_name,
-        item_node_id,
-        operation,
-        content_sha256,
-        origin_at,
-        received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      record.id.route.eventHome,
-      record.id.route.entityHome,
-      record.id.seq,
-      record.protocol,
-      record.recordType,
-      record.item.kind,
-      record.item.itemId,
-      record.item.sink.canvasName,
-      record.item.sink.nodeId,
-      record.operation,
-      record.contentSha256,
-      record.originAt,
-      receivedAt,
-    ],
-  );
-  if (record.recordType === "command") {
-    writer.run(
-      `
-        INSERT INTO work_commands(
-          event_home,
-          entity_home,
-          seq,
-          predecessor_event_home,
-          predecessor_entity_home,
-          predecessor_seq,
-          action_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        record.id.route.eventHome,
-        record.id.route.entityHome,
-        record.id.seq,
-        record.predecessor?.route.eventHome ?? null,
-        record.predecessor?.route.entityHome ?? null,
-        record.predecessor?.seq ?? null,
-        canonicalJson(record.body),
-      ],
-    );
-    return;
-  }
-  if (record.recordType === "fact") {
-    writer.run(
-      `
-        INSERT INTO work_facts(
-          event_home,
-          entity_home,
-          seq,
-          predecessor_event_home,
-          predecessor_entity_home,
-          predecessor_seq,
-          basis_kind,
-          basis_authorial_generation,
-          basis_authorial_content_sha256,
-          basis_projected_generation,
-          basis_projected_content_sha256,
-          basis_command_event_home,
-          basis_command_entity_home,
-          basis_command_seq,
-          basis_command_sha256,
-          result_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        record.id.route.eventHome,
-        record.id.route.entityHome,
-        record.id.seq,
-        record.predecessor?.route.eventHome ?? null,
-        record.predecessor?.route.entityHome ?? null,
-        record.predecessor?.seq ?? null,
-        record.basis.kind,
-        record.basis.kind === "authorial-intent"
-          ? record.basis.generation
-          : null,
-        record.basis.kind === "authorial-intent"
-          ? record.basis.contentSha256
-          : null,
-        record.basis.kind === "projected-intent"
-          ? record.basis.generation
-          : null,
-        record.basis.kind === "projected-intent"
-          ? record.basis.contentSha256
-          : null,
-        record.basis.kind === "command"
-          ? record.basis.command.route.eventHome
-          : null,
-        record.basis.kind === "command"
-          ? record.basis.command.route.entityHome
-          : null,
-        record.basis.kind === "command"
-          ? record.basis.command.seq
-          : null,
-        record.basis.kind === "command"
-          ? record.basis.commandSha256
-          : null,
-        canonicalJson(record.body),
-      ],
-    );
-    return;
-  }
-  writer.run(
-    `
-      INSERT INTO work_dispositions(
-        event_home,
-        entity_home,
-        seq,
-        status,
-        command_event_home,
-        command_entity_home,
-        command_seq,
-        command_sha256,
-        fact_event_home,
-        fact_entity_home,
-        fact_seq,
-        fact_sha256,
-        rejection_reason,
-        rejection_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      record.id.route.eventHome,
-      record.id.route.entityHome,
-      record.id.seq,
-      record.body.status,
-      record.body.command.route.eventHome,
-      record.body.command.route.entityHome,
-      record.body.command.seq,
-      record.body.commandSha256,
-      record.body.status === "applied"
-        ? record.body.fact.route.eventHome
-        : null,
-      record.body.status === "applied"
-        ? record.body.fact.route.entityHome
-        : null,
-      record.body.status === "applied" ? record.body.fact.seq : null,
-      record.body.status === "applied" ? record.body.factSha256 : null,
-      record.body.status === "rejected" ? record.body.reason : null,
-      record.body.status === "rejected" ? record.body.message : null,
-    ],
-  );
-};
-
-const insertPending = (
-  writer: StateWriter,
-  command: WorkCommandValue,
-  createdAt: DisplayTimestampValue,
-): void => {
-  if (command.item.kind === "proposal") {
-    writer.run(
-      `
-        INSERT INTO work_pending_proposal_commands(
-          event_home,
-          entity_home,
-          seq,
-          operation,
-          canvas_name,
-          node_id,
-          proposal_id,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        command.id.route.eventHome,
-        command.id.route.entityHome,
-        command.id.seq,
-        command.operation,
-        command.item.sink.canvasName,
-        command.item.sink.nodeId,
-        command.item.itemId,
-        createdAt,
-      ],
-    );
-    return;
-  }
-  writer.run(
-    `
-      INSERT INTO work_pending_commands(
-        event_home,
-        entity_home,
-        seq,
-        operation,
-        item_kind,
-        item_canvas_name,
-        item_node_id,
-        item_id,
-        claim_actor_seat_id,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      command.id.route.eventHome,
-      command.id.route.entityHome,
-      command.id.seq,
-      command.operation,
-      command.item.kind,
-      command.item.sink.canvasName,
-      command.item.sink.nodeId,
-      command.item.itemId,
-      command.body.operation === "task.claim"
-        ? command.body.actor.seatId
-        : null,
-      createdAt,
-    ],
-  );
 };
 
 const writeTaskMessages = (
@@ -4668,7 +4338,7 @@ const commitLocalFact = <A>(
     input.body,
     input.originAt,
   );
-  insertRecord(writer, fact, input.receivedAt);
+  appendWorkRecord(writer, fact, input.receivedAt);
   materializeFact(writer, fact, input.receivedAt);
   return {
     value: input.value,
@@ -6728,7 +6398,7 @@ const rejectCommand = (
     { _tag: "rejected", reason, message },
     observedAt,
   );
-  insertRecord(writer, disposition, observedAt);
+  appendWorkRecord(writer, disposition, observedAt);
   return disposition;
 };
 
@@ -6757,7 +6427,7 @@ const applyCommand = (
     result.body,
     observedAt,
   );
-  insertRecord(writer, fact, observedAt);
+  appendWorkRecord(writer, fact, observedAt);
   materializeFact(writer, fact, observedAt);
   const disposition = makeDisposition(
     writer,
@@ -6766,7 +6436,7 @@ const applyCommand = (
     { _tag: "applied", fact },
     observedAt,
   );
-  insertRecord(writer, disposition, observedAt);
+  appendWorkRecord(writer, disposition, observedAt);
   return [fact, disposition];
 };
 
@@ -8127,19 +7797,22 @@ export const WorkRepositoryLive = Layer.effect(
           Object.keys(metadata).length === 0
             ? null
             : canonicalJson(metadata);
-        writer.run(
-          `
-            UPDATE work_artifacts
-            SET metadata_json = ?
-            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
-          `,
-          [
-            metadataJson,
-            input.sink.canvasName,
-            input.sink.nodeId,
-            input.artifactId,
-          ],
-        );
+        // Declared journal-free: metadata-only operator flag, mints no fact.
+        unjournaledWorkMutation("work.artifact.set_archived", () => {
+          writer.run(
+            `
+              UPDATE work_artifacts
+              SET metadata_json = ?
+              WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+            `,
+            [
+              metadataJson,
+              input.sink.canvasName,
+              input.sink.nodeId,
+              input.artifactId,
+            ],
+          );
+        });
         return Schema.decodeUnknownSync(Artifact, strictDecode)({
           artifactId: row.artifact_id,
           ...(row.name === null ? {} : { name: row.name }),
@@ -8178,13 +7851,16 @@ export const WorkRepositoryLive = Layer.effect(
             `artifact "${input.artifactId}" not found`,
           );
         }
-        writer.run(
-          `
-            DELETE FROM work_artifacts
-            WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
-          `,
-          [input.sink.canvasName, input.sink.nodeId, input.artifactId],
-        );
+        // Declared journal-free: operator delete mints no tombstone record.
+        unjournaledWorkMutation("work.artifact.delete", () => {
+          writer.run(
+            `
+              DELETE FROM work_artifacts
+              WHERE canvas_name = ? AND node_id = ? AND artifact_id = ?
+            `,
+            [input.sink.canvasName, input.sink.nodeId, input.artifactId],
+          );
+        });
         return { artifactId: input.artifactId };
       });
 
@@ -8254,8 +7930,8 @@ export const WorkRepositoryLive = Layer.effect(
             action,
             originAt,
           );
-          insertRecord(writer, command, receivedAt);
-          insertPending(writer, command, receivedAt);
+          appendWorkRecord(writer, command, receivedAt);
+          appendPendingCommand(writer, command, receivedAt);
           return command;
         },
       );
@@ -8322,8 +7998,8 @@ export const WorkRepositoryLive = Layer.effect(
             action,
             originAt,
           );
-          insertRecord(writer, command, receivedAt);
-          insertPending(writer, command, receivedAt);
+          appendWorkRecord(writer, command, receivedAt);
+          appendPendingCommand(writer, command, receivedAt);
           return command;
         },
       );
@@ -8379,8 +8055,8 @@ export const WorkRepositoryLive = Layer.effect(
             action,
             originAt,
           );
-          insertRecord(writer, approval, receivedAt);
-          insertPending(writer, approval, receivedAt);
+          appendWorkRecord(writer, approval, receivedAt);
+          appendPendingCommand(writer, approval, receivedAt);
 
           const creationAction = Schema.decodeUnknownSync(
             WorkAction,
@@ -8395,8 +8071,8 @@ export const WorkRepositoryLive = Layer.effect(
             creationAction,
             originAt,
           );
-          insertRecord(writer, creation, receivedAt);
-          insertPending(writer, creation, receivedAt);
+          appendWorkRecord(writer, creation, receivedAt);
+          appendPendingCommand(writer, creation, receivedAt);
           return approval;
         },
       );
@@ -8687,7 +8363,7 @@ export const WorkRepositoryLive = Layer.effect(
                 validateDisposition(writer, record);
               }
               rememberIncomingSequence(writer, record.id);
-              insertRecord(writer, record, observedAt);
+              appendWorkRecord(writer, record, observedAt);
 
               if (record.recordType === "command") {
                 const admission = input.authorizeCommand(record);
