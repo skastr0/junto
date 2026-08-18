@@ -15,6 +15,8 @@ import {
 } from "@shared/station-api";
 import {
   Artifact,
+  CompletionEvidence,
+  FinishCriteria,
   Message,
   Task,
   TaskProposal,
@@ -935,26 +937,69 @@ const parseJson = (value: string): unknown => JSON.parse(value);
 const optionalJson = <A>(value: string | null): A | undefined =>
   value === null ? undefined : (parseJson(value) as A);
 
+/**
+ * Narrow coercion for the whole-object JSON columns.
+ *
+ * Durable JSON is written with `canonicalJson`, which sorts keys, so parsing a
+ * column back yields sorted key order while a projected value's order is the
+ * schema's declaration order. For the columns that store a whole schema object
+ * — finish criteria, completion evidence, a proposal's brief — that difference
+ * is visible in the projection, so these three restore the schema's order.
+ *
+ * They are per-task and per-proposal, never per-part and never per-message, so
+ * they do not grow with the message volume the retired read-path decode walked.
+ */
+const finishCriteriaFromJson = (value: string): TaskValue["finishCriteria"] =>
+  Schema.decodeUnknownSync(FinishCriteria, strictDecode)(parseJson(value));
+
+const completionEvidenceFromJson = (
+  value: string,
+): TaskValue["completionEvidence"] =>
+  Schema.decodeUnknownSync(CompletionEvidence, strictDecode)(parseJson(value));
+
+const briefFromJson = (value: string): MessageValue =>
+  Schema.decodeUnknownSync(Message, strictDecode)(parseJson(value));
+
+/**
+ * Build one projected message from its durable row.
+ *
+ * Deliberately constructed, not decoded. `work_messages` / `work_task_messages`
+ * only ever receive a `Message` that `appendMessage` (and the fact-ingress
+ * path) already ran through `Schema.decodeUnknownSync(Message, strictDecode)`,
+ * and the columns carry that decision forward as SQL CHECK domains — `role IN
+ * ('user', 'agent')`, `json_valid(parts_json)`, `json_valid(metadata_json)`.
+ * Re-deciding it here costs a full walk of every part of every message on every
+ * read of the world, which at factory scale is the dominant read cost.
+ *
+ * Key order matches the `Message` schema field order, because that is the order
+ * a decode emitted and the projected document is compared and witnessed by
+ * value.
+ */
 const messageFromRow = (
   row: MessageRow,
   parentTaskId?: string,
-): MessageValue =>
-  Schema.decodeUnknownSync(Message, strictDecode)({
+): MessageValue => {
+  const taskId = row.task_id ?? parentTaskId;
+  return {
     messageId: row.message_id,
-    role: row.role,
-    parts: parseJson(row.parts_json),
-    ...((row.task_id ?? parentTaskId) === null ||
-    (row.task_id ?? parentTaskId) === undefined
-      ? {}
-      : { taskId: row.task_id ?? parentTaskId }),
+    role: row.role as MessageValue["role"],
+    parts: parseJson(row.parts_json) as MessageValue["parts"],
+    ...(taskId === null || taskId === undefined ? {} : { taskId }),
     ...(row.context_id === null ? {} : { contextId: row.context_id }),
     ...(row.reference_task_ids_json === null
       ? {}
-      : { referenceTaskIds: parseJson(row.reference_task_ids_json) }),
+      : {
+          referenceTaskIds: parseJson(
+            row.reference_task_ids_json,
+          ) as MessageValue["referenceTaskIds"],
+        }),
     ...(row.metadata_json === null
       ? {}
-      : { metadata: parseJson(row.metadata_json) }),
-  });
+      : {
+          metadata: parseJson(row.metadata_json) as MessageValue["metadata"],
+        }),
+  };
+};
 
 const loadThread = (
   reader: StateReader,
@@ -1098,17 +1143,13 @@ const loadTaskFinish = (
   return {
     ...(row.finish_criteria_json === null
       ? {}
-      : {
-          finishCriteria: parseJson(
-            row.finish_criteria_json,
-          ) as TaskValue["finishCriteria"],
-        }),
+      : { finishCriteria: finishCriteriaFromJson(row.finish_criteria_json) }),
     ...(row.completion_evidence_json === null
       ? {}
       : {
-          completionEvidence: parseJson(
+          completionEvidence: completionEvidenceFromJson(
             row.completion_evidence_json,
-          ) as TaskValue["completionEvidence"],
+          ),
         }),
   };
 };
@@ -1148,17 +1189,13 @@ const loadTaskFinishMap = (
     map.set(row.task_id, {
       ...(row.finish_criteria_json === null
         ? {}
-        : {
-            finishCriteria: parseJson(
-              row.finish_criteria_json,
-            ) as TaskValue["finishCriteria"],
-          }),
+        : { finishCriteria: finishCriteriaFromJson(row.finish_criteria_json) }),
       ...(row.completion_evidence_json === null
         ? {}
         : {
-            completionEvidence: parseJson(
+            completionEvidence: completionEvidenceFromJson(
               row.completion_evidence_json,
-            ) as TaskValue["completionEvidence"],
+            ),
           }),
     });
   }
@@ -1345,32 +1382,41 @@ const taskFromRow = (
     readonly completionEvidence?: TaskValue["completionEvidence"];
   },
   history?: ReadonlyArray<MessageValue>,
-): TaskValue =>
-  Schema.decodeUnknownSync(Task, strictDecode)({
-    id: row.item_id,
-    state: row.state,
-    ...(row.actor_seat_id === null
-      ? {}
-      : { claimedBy: row.actor_seat_id }),
-    history: history ?? loadThread(reader, sink, lane, row.item_id),
-    ...(row.artifact_ids_json === null
-      ? {}
-      : { artifactIds: parseJson(row.artifact_ids_json) }),
-    ...(row.metadata_json === null
-      ? {}
-      : { metadata: parseJson(row.metadata_json) }),
-    ...(row.reason === null ? {} : { reason: row.reason }),
-    ...(row.response === null ? {} : { response: row.response }),
-    ...(lane === "task" && dependsOn !== undefined && dependsOn.length > 0
-      ? { dependsOn: [...dependsOn] }
-      : {}),
-    ...(lane === "task" && finish?.finishCriteria !== undefined
-      ? { finishCriteria: finish.finishCriteria }
-      : {}),
-    ...(lane === "task" && finish?.completionEvidence !== undefined
-      ? { completionEvidence: finish.completionEvidence }
-      : {}),
-  });
+): TaskValue => ({
+  // Constructed, not decoded — see messageFromRow. Every `work_tasks` /
+  // `work_requests` row is the materialization of a `Task` the write path
+  // already strict-decoded (createTask / transitionTask / claimTask /
+  // resolveRequest all decode before commitLocalFact), and state / seat id /
+  // JSON columns carry SQL CHECK domains. Field order is the `Task` schema
+  // order the decode used to emit.
+  id: row.item_id,
+  state: row.state as TaskValue["state"],
+  ...(row.actor_seat_id === null
+    ? {}
+    : { claimedBy: row.actor_seat_id as TaskValue["claimedBy"] }),
+  history: history ?? loadThread(reader, sink, lane, row.item_id),
+  ...(row.artifact_ids_json === null
+    ? {}
+    : {
+        artifactIds: parseJson(
+          row.artifact_ids_json,
+        ) as TaskValue["artifactIds"],
+      }),
+  ...(lane === "task" && dependsOn !== undefined && dependsOn.length > 0
+    ? { dependsOn: [...dependsOn] }
+    : {}),
+  ...(lane === "task" && finish?.finishCriteria !== undefined
+    ? { finishCriteria: finish.finishCriteria }
+    : {}),
+  ...(lane === "task" && finish?.completionEvidence !== undefined
+    ? { completionEvidence: finish.completionEvidence }
+    : {}),
+  ...(row.metadata_json === null
+    ? {}
+    : { metadata: parseJson(row.metadata_json) as TaskValue["metadata"] }),
+  ...(row.reason === null ? {} : { reason: row.reason }),
+  ...(row.response === null ? {} : { response: row.response }),
+});
 
 const loadLaneTasks = (
   reader: StateReader,
@@ -1477,29 +1523,36 @@ const loadProposals = (
       `,
       [sink.canvasName, sink.nodeId],
     )
-    .map((row) => {
+    .map((row): TaskProposalValue => {
       const arms = planning.get(row.proposal_id);
-      return Schema.decodeUnknownSync(TaskProposal, strictDecode)({
+      // Constructed, not decoded — see messageFromRow. proposeTask /
+      // approveProposal / rejectProposal decode the `TaskProposal` before the
+      // row exists. Field order is the `TaskProposal` schema order.
+      return {
         id: row.proposal_id,
-        state: row.state,
-        brief: parseJson(row.brief_json),
+        state: row.state as TaskProposalValue["state"],
+        brief: briefFromJson(row.brief_json),
         proposedBy: {
-          seatId: row.proposer_seat_id,
+          seatId: row.proposer_seat_id as TaskProposalValue["proposedBy"]["seatId"],
           canvasName: row.proposer_canvas_name,
           nodeId: row.proposer_node_id,
         },
         ...(row.approved_task_id === null
           ? {}
           : { approvedTaskId: row.approved_task_id }),
-        ...(row.metadata_json === null
-          ? {}
-          : { metadata: parseJson(row.metadata_json) }),
-        ...(row.reason === null ? {} : { reason: row.reason }),
         ...(arms?.dependsOn !== undefined ? { dependsOn: arms.dependsOn } : {}),
         ...(arms?.finishCriteria !== undefined
           ? { finishCriteria: arms.finishCriteria }
           : {}),
-      });
+        ...(row.metadata_json === null
+          ? {}
+          : {
+              metadata: parseJson(
+                row.metadata_json,
+              ) as TaskProposalValue["metadata"],
+            }),
+        ...(row.reason === null ? {} : { reason: row.reason }),
+      };
     });
 };
 
@@ -1543,11 +1596,7 @@ const loadProposalPlanningMap = (
           }),
       ...(row.finish_criteria_json === null
         ? {}
-        : {
-            finishCriteria: parseJson(
-              row.finish_criteria_json,
-            ) as TaskProposalValue["finishCriteria"],
-          }),
+        : { finishCriteria: finishCriteriaFromJson(row.finish_criteria_json) }),
     });
   }
   return map;
@@ -2403,9 +2452,15 @@ export type CanvasWorkProjection = {
   readonly snapshots: ReadonlyArray<WorkSnapshotValue>;
   /**
    * Opaque monotonic invalidation identity for this canvas's runtime Work
-   * projection. Work events are immutable and every materialized Work change
-   * is backed by a fact event, so the per-canvas event count cannot remain
-   * unchanged when a projected task/request/message/artifact changes.
+   * projection, read as one PRIMARY KEY point lookup on
+   * `work_canvas_revisions`.
+   *
+   * The counter is bumped by AFTER INSERT/UPDATE/DELETE triggers on every
+   * durable table a snapshot projects from, so it cannot stay unchanged when a
+   * projected task/request/message/artifact/topic/post/pad changes — including
+   * the in-place UPDATEs (topic retitle, post_count, pad revision, read cursor)
+   * that the retired per-canvas row count could not see. Its cost does not grow
+   * with factory size, so a projection cache may key on it at any scale.
    */
   readonly workRevision: string;
 };
@@ -2716,22 +2771,8 @@ export const readCanvasWorkProjection = (
   const workRevision =
     reader.get<{ readonly work_revision: string }>(
       `
-        SELECT CAST(count(*) AS TEXT) AS work_revision
-        FROM (
-          SELECT item_canvas_name AS canvas_name FROM work_events
-          UNION ALL
-          SELECT canvas_name FROM work_proposal_events
-          UNION ALL
-          SELECT canvas_name FROM work_board_topics
-          UNION ALL
-          SELECT canvas_name FROM work_board_posts
-          UNION ALL
-          SELECT canvas_name FROM work_board_read_cursors
-          UNION ALL
-          SELECT canvas_name FROM work_pad_meta
-          UNION ALL
-          SELECT canvas_name FROM work_pad_read_cursors
-        )
+        SELECT CAST(revision AS TEXT) AS work_revision
+        FROM work_canvas_revisions
         WHERE canvas_name = ?
       `,
       [canvasName],

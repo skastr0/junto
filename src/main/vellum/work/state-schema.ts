@@ -2128,3 +2128,213 @@ export const WORK_STATE_SCHEMA_PAD_VOCAB_SQL =
           'pad.patch'
         )`,
     );
+
+/**
+ * Per-canvas Work projection revision (expand-only). Applied as migration
+ * 18 → 19.
+ *
+ * The runtime projection needs one opaque monotonic value that changes
+ * whenever anything a snapshot projects from changes, so a projection cache
+ * can key on it. It used to be `count(*)` over a seven-table UNION ALL of every
+ * Work event/board/pad table, scanned on **every** canvas read — O(world), and
+ * growing forever. This replaces that scan with one counter row per canvas,
+ * bumped by AFTER triggers on exactly those seven tables, so the read is a
+ * single PRIMARY KEY point lookup whose cost does not grow with factory size.
+ *
+ * The counter is also strictly better informed than the count it replaces: an
+ * in-place UPDATE (board topic retitle, post_count bump, pad revision, read
+ * cursor advance) moves the revision, where a row count could not see it.
+ *
+ * `work_events` and `work_proposal_events` are insert-only — their own
+ * `*_immutable_update` / `*_immutable_delete` triggers ABORT any UPDATE or
+ * DELETE — so an INSERT trigger is a complete witness for those two.
+ */
+export const WORK_CANVAS_REVISIONS_SQL = `
+  CREATE TABLE IF NOT EXISTS work_canvas_revisions (
+    canvas_name TEXT NOT NULL
+      PRIMARY KEY
+      CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    revision INTEGER NOT NULL CHECK (revision >= 0)
+  ) STRICT, WITHOUT ROWID;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_events_insert
+    AFTER INSERT ON work_events
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.item_canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_proposal_events_insert
+    AFTER INSERT ON work_proposal_events
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_topics_insert
+    AFTER INSERT ON work_board_topics
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_topics_update
+    AFTER UPDATE ON work_board_topics
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_topics_delete
+    AFTER DELETE ON work_board_topics
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_posts_insert
+    AFTER INSERT ON work_board_posts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_posts_update
+    AFTER UPDATE ON work_board_posts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_posts_delete
+    AFTER DELETE ON work_board_posts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_cursors_insert
+    AFTER INSERT ON work_board_read_cursors
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_cursors_update
+    AFTER UPDATE ON work_board_read_cursors
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_board_cursors_delete
+    AFTER DELETE ON work_board_read_cursors
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_meta_insert
+    AFTER INSERT ON work_pad_meta
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_meta_update
+    AFTER UPDATE ON work_pad_meta
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_meta_delete
+    AFTER DELETE ON work_pad_meta
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_cursors_insert
+    AFTER INSERT ON work_pad_read_cursors
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_cursors_update
+    AFTER UPDATE ON work_pad_read_cursors
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_pad_cursors_delete
+    AFTER DELETE ON work_pad_read_cursors
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (OLD.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+`;
+
+/**
+ * One-time seed for databases migrating to 19: start each canvas's counter at
+ * the value the retired UNION ALL count would have returned, so an installed
+ * database's revision never goes backwards across the upgrade.
+ */
+export const WORK_CANVAS_REVISIONS_BACKFILL_SQL = `
+  INSERT INTO work_canvas_revisions(canvas_name, revision)
+  SELECT canvas_name, count(*)
+  FROM (
+    SELECT item_canvas_name AS canvas_name FROM work_events
+    UNION ALL
+    SELECT canvas_name FROM work_proposal_events
+    UNION ALL
+    SELECT canvas_name FROM work_board_topics
+    UNION ALL
+    SELECT canvas_name FROM work_board_posts
+    UNION ALL
+    SELECT canvas_name FROM work_board_read_cursors
+    UNION ALL
+    SELECT canvas_name FROM work_pad_meta
+    UNION ALL
+    SELECT canvas_name FROM work_pad_read_cursors
+  )
+  GROUP BY canvas_name
+  ON CONFLICT(canvas_name) DO UPDATE
+    SET revision = max(work_canvas_revisions.revision, excluded.revision);
+`;

@@ -25,6 +25,8 @@ import {
 } from "../content/state-schema";
 import {
   WORK_BOARD_STATE_SCHEMA_SQL,
+  WORK_CANVAS_REVISIONS_BACKFILL_SQL,
+  WORK_CANVAS_REVISIONS_SQL,
   WORK_PAD_STATE_SCHEMA_SQL,
   WORK_PAD_READ_CURSORS_SQL,
   WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL,
@@ -199,7 +201,16 @@ export const STATE_SCHEMA_V18_IDENTITY = {
     "06411da7eb2843c89a7b170321ca0992e8c72b9da65e3fa702b2fce1197980e1",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 18;
+/**
+ * Exact witness of schema version 19 (per-canvas Work revision counter and the
+ * triggers that maintain it).
+ */
+export const STATE_SCHEMA_V19_IDENTITY = {
+  actualSchemaSha256:
+    "e203c32e409f105a110bfac9a3f98b3eefaba0885d60c0ec3c25d705ec4980ab",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 19;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -535,6 +546,20 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V17_IDENTITY,
       migrate: (database) => {
         database.exec(WORK_PAD_READ_CURSORS_SQL);
+      },
+    },
+    {
+      fromVersion: 18,
+      toVersion: 19,
+      name: "add-work-canvas-revision-counter",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V18_IDENTITY,
+      migrate: (database) => {
+        database.exec(WORK_CANVAS_REVISIONS_SQL);
+        // Seed each canvas at the value the retired UNION ALL count returned,
+        // so an installed database's revision never goes backwards across the
+        // upgrade. This is the only time that scan ever runs again.
+        database.exec(WORK_CANVAS_REVISIONS_BACKFILL_SQL);
       },
     },
 
