@@ -89,6 +89,7 @@ import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
+import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
 import { IconButton, OverlayHeader } from "./ui";
@@ -1249,7 +1250,9 @@ function ConnectPreviewChip() {
 }
 
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
-  if (!import.meta.env.DEV) return children;
+  // Dev always profiles; a packaged build profiles only when VELLUM_PERF armed
+  // the harness, which is also what makes the recorder non-null.
+  if (!import.meta.env.DEV && !PERF_ENABLED) return children;
   return (
     <Profiler
       id="canvas"

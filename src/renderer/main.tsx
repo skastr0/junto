@@ -1,9 +1,15 @@
-import { StrictMode, useEffect } from "react";
-import { createRoot } from "react-dom/client";
+import { Profiler, StrictMode, useEffect } from "react";
+import { createRoot as createStandardRoot } from "react-dom/client";
 import "@xyflow/react/dist/style.css";
 import { App } from "./App";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 import { LicenseGate } from "./components/license";
+import { canvasPerformance } from "./lib/performance/canvas-performance";
+import { PERF_ENABLED } from "./lib/performance/perf-flag";
+import {
+  startCanvasPerformanceHarness,
+  type ReactProfilerBuild,
+} from "./lib/performance/perf-harness";
 import { seedGateThemePreference, startThemeMode } from "./lib/theme-mode";
 import "./styles.css";
 
@@ -63,8 +69,57 @@ function LicensedRoot() {
   );
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <LicensedRoot />
-  </StrictMode>,
-);
+type CreateRoot = typeof createStandardRoot;
+
+/**
+ * React's production build compiles `Profiler.onRender` out — the callback is
+ * not merely skipped, the call site does not exist in
+ * react-dom-client.production.js. A packaged build therefore reports zero
+ * React commits forever unless the tree is mounted by react-dom's profiling
+ * build, which is the same production reconciler plus the profiler timers.
+ *
+ * Loaded only when VELLUM_PERF is on, so it code-splits away from the boot
+ * chunk and the shipped default path is byte-for-byte the standard client.
+ */
+const loadProfilingCreateRoot = async (): Promise<CreateRoot | undefined> => {
+  try {
+    const module = (await import("react-dom/profiling")) as unknown as {
+      readonly createRoot?: CreateRoot;
+      readonly default?: { readonly createRoot?: CreateRoot };
+    };
+    return module.createRoot ?? module.default?.createRoot;
+  } catch {
+    return undefined;
+  }
+};
+
+const mount = (createRoot: CreateRoot, reactBuild: ReactProfilerBuild): void => {
+  startCanvasPerformanceHarness({ reactBuild });
+  const tree = (
+    <StrictMode>
+      <LicensedRoot />
+    </StrictMode>
+  );
+  createRoot(root).render(
+    PERF_ENABLED ? (
+      <Profiler
+        id="root"
+        onRender={(_id, _phase, actualDuration) => {
+          canvasPerformance.recordReactCommit("root", actualDuration);
+        }}
+      >
+        {tree}
+      </Profiler>
+    ) : (
+      tree
+    ),
+  );
+};
+
+if (PERF_ENABLED) {
+  void loadProfilingCreateRoot().then((profilingCreateRoot) => {
+    mount(profilingCreateRoot ?? createStandardRoot, profilingCreateRoot ? "profiling" : "standard");
+  });
+} else {
+  mount(createStandardRoot, "standard");
+}

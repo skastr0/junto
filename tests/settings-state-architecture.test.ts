@@ -124,33 +124,42 @@ describe("settings state architecture", () => {
   });
 
   it("keeps product preferences out of renderer localStorage", async () => {
-    const main = new URL("../src/renderer/main.tsx", import.meta.url);
-    const offenders = (
-      await Promise.all(
-        (await rendererSources())
-          .filter((path) => path.href !== main.href)
-          .map(async (path) => ({
-            path,
-            source: await readFile(path, "utf8"),
-          })),
-      )
-    )
+    // Renderer localStorage is not a preference store: settings live in the
+    // StateEngine behind IPC. The only tolerated references are read-only
+    // diagnostic switches an operator flips by hand (react-scan, VELLUM_PERF),
+    // and even those may never write.
+    const diagnosticSwitches = ["main.tsx", "lib/performance/perf-flag.ts"];
+    const sources = await Promise.all(
+      (await rendererSources()).map(async (path) => ({
+        relativePath: relative(rendererRoot.pathname, path.pathname),
+        source: await readFile(path, "utf8"),
+      })),
+    );
+
+    const offenders = sources
       .filter(({ source }) => /\blocalStorage\b/u.test(source))
-      .map(({ path }) => relative(rendererRoot.pathname, path.pathname))
+      .map(({ relativePath }) => relativePath)
+      .filter((relativePath) => !diagnosticSwitches.includes(relativePath))
       .sort();
 
     expect(offenders).toEqual([]);
 
-    // The sole remaining reference is a DEV-gated render profiler switch,
-    // never a product preference or production write path.
-    const mainSource = await readFile(main, "utf8");
-    const executableMain = mainSource
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("//"))
-      .join("\n");
+    // Every tolerated reference stays a read: no write path anywhere.
+    const executable = (source: string): string =>
+      source
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("*") && !line.trimStart().startsWith("//"))
+        .join("\n");
+    for (const relativePath of diagnosticSwitches) {
+      const entry = sources.find((candidate) => candidate.relativePath === relativePath);
+      expect(entry, `${relativePath} must exist`).toBeDefined();
+      expect(executable(entry?.source ?? "")).not.toContain("localStorage.setItem(");
+      expect(executable(entry?.source ?? "")).not.toContain("localStorage.removeItem(");
+    }
+
+    // The react-scan switch stays DEV-gated.
+    const mainSource = await readFile(new URL("../src/renderer/main.tsx", import.meta.url), "utf8");
     expect(mainSource).toContain("import.meta.env.DEV");
-    expect(mainSource.match(/\blocalStorage\b/gu)).toHaveLength(2);
-    expect(executableMain.match(/\blocalStorage\b/gu)).toHaveLength(1);
-    expect(executableMain).not.toContain("localStorage.setItem(");
+    expect(executable(mainSource).match(/\blocalStorage\b/gu)).toHaveLength(1);
   });
 });
