@@ -170,6 +170,11 @@ type WorkStatement = {
   readonly verb: "INSERT" | "UPDATE" | "DELETE" | "REPLACE";
   readonly table: string;
   readonly role: WorkPlaneTableRole;
+  /**
+   * `unreadable` marks a statement whose shape this parser classified but did
+   * not model well enough to name a sink — it is always announced coarse.
+   */
+  readonly sink: "readable" | "unreadable";
 };
 
 /**
@@ -193,9 +198,71 @@ const DELETE_TARGET = /\bfrom\s+(?:[`"[]?([A-Za-z_][\w$]*)[`"\]]?\s*\.\s*)?[`"[]
  */
 const classified = new Map<string, WorkStatement | null>();
 
+/**
+ * A mutation verb that does not lead the statement.
+ *
+ * SQLite accepts a common table expression in front of INSERT, UPDATE and
+ * DELETE (`WITH x AS (...) DELETE FROM t ...`). Such a statement writes the
+ * work plane exactly like any other, so the seam must see it: a statement it
+ * does not classify skips the admission law AND makes no announcement, which
+ * leaves the in-memory world resident on rows that are gone.
+ *
+ * Single-quoted strings are removed before the scan so a literal cannot be
+ * mistaken for a statement. The verb only counts when a work-plane table name
+ * follows it, so an unrelated CTE write is still invisible, as it should be.
+ */
+const EMBEDDED_MUTATION =
+  /\b(insert\s+(?:or\s+\w+\s+)?into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)\s+(?:[`"[]?([A-Za-z_][\w$]*)[`"\]]?\s*\.\s*)?[`"[]?([A-Za-z_][\w$]*)/gi;
+
+const withoutStringLiterals = (sql: string): string => {
+  let out = "";
+  let inString = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (inString) {
+      out += character === "'" ? "'" : " ";
+      if (character === "'") inString = false;
+      continue;
+    }
+    if (character === "'") {
+      inString = true;
+      out += " ";
+      continue;
+    }
+    out += character;
+  }
+  return out;
+};
+
+const embeddedWorkStatement = (sql: string): WorkStatement | null => {
+  const scanned = withoutStringLiterals(sql);
+  EMBEDDED_MUTATION.lastIndex = 0;
+  for (
+    let match = EMBEDDED_MUTATION.exec(scanned);
+    match !== null;
+    match = EMBEDDED_MUTATION.exec(scanned)
+  ) {
+    const table = (match[3] ?? match[2]).toLowerCase();
+    const role = WORK_PLANE_TABLE_ROLES.get(table);
+    if (role === undefined) continue;
+    const keyword = match[1].toLowerCase();
+    const verb: WorkStatement["verb"] = keyword.startsWith("insert")
+      ? "INSERT"
+      : keyword.startsWith("replace")
+        ? "REPLACE"
+        : keyword.startsWith("update")
+          ? "UPDATE"
+          : "DELETE";
+    // The sink cannot be read out of a shape this parser did not model, so
+    // the statement is admitted and announced COARSE rather than guessed at.
+    return { verb, table, role, sink: "unreadable" };
+  }
+  return null;
+};
+
 const parseWorkStatement = (sql: string): WorkStatement | null => {
   const leading = LEADING_MUTATION.exec(sql);
-  if (leading === null) return null;
+  if (leading === null) return embeddedWorkStatement(sql);
   const verb = leading[1].toUpperCase() as WorkStatement["verb"];
   const target =
     verb === "UPDATE"
@@ -207,7 +274,7 @@ const parseWorkStatement = (sql: string): WorkStatement | null => {
   const table = (target[2] ?? target[1]).toLowerCase();
   const role = WORK_PLANE_TABLE_ROLES.get(table);
   if (role === undefined) return null;
-  return { verb, table, role };
+  return { verb, table, role, sink: "readable" };
 };
 
 /** Classify one statement against the work plane. Cached by exact SQL text. */
@@ -451,6 +518,84 @@ const DEFAULT_SINK_COLUMNS = ["canvas_name", "node_id"] as const;
 /** Which positional parameters carry the sink, for one exact statement. */
 type SinkParams = { readonly canvas: number; readonly node: number };
 
+/**
+ * Does the statement use explicit `?NNN` parameter indices?
+ *
+ * Every ordinal below is "how many `?` precede this one", which is how SQLite
+ * numbers BARE parameters. A numbered parameter breaks that correspondence, so
+ * a statement carrying one cannot be attributed by position at all.
+ */
+const hasNumberedParameter = (sql: string): boolean => {
+  let inString = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (inString) {
+      if (character === "'") inString = false;
+      continue;
+    }
+    if (character === "'") {
+      inString = true;
+      continue;
+    }
+    if (character !== "?") continue;
+    const next = sql[index + 1];
+    if (next !== undefined && next >= "0" && next <= "9") return true;
+  }
+  return false;
+};
+
+/**
+ * Parenthesis depth at every offset, plus where this statement's own WHERE
+ * begins.
+ *
+ * Both are needed to tell the predicate that names THIS statement's rows from
+ * one that names some other statement's rows: a `canvas_name = ?` inside
+ * parentheses belongs to a subquery, and one before the WHERE belongs to a SET
+ * clause. Either would bind a different sink than the rows actually written.
+ */
+type StatementShape = {
+  readonly depth: ReadonlyArray<number>;
+  /** -1 when the statement has no top-level WHERE. */
+  readonly whereAt: number;
+};
+
+const statementShape = (sql: string): StatementShape => {
+  const depth: Array<number> = new Array(sql.length).fill(0);
+  let current = 0;
+  let inString = false;
+  let whereAt = -1;
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    depth[index] = current;
+    if (inString) {
+      if (character === "'") inString = false;
+      continue;
+    }
+    if (character === "'") {
+      inString = true;
+      continue;
+    }
+    if (character === "(") {
+      current += 1;
+      continue;
+    }
+    if (character === ")") {
+      current = Math.max(0, current - 1);
+      continue;
+    }
+    if (
+      whereAt < 0 &&
+      current === 0 &&
+      (character === "w" || character === "W") &&
+      /^where\b/i.test(sql.slice(index, index + 6)) &&
+      (index === 0 || /\s|\)/.test(sql[index - 1] ?? " "))
+    ) {
+      whereAt = index;
+    }
+  }
+  return { depth, whereAt };
+};
+
 /** Every `?` offset in `sql`, skipping single-quoted string literals. */
 const parameterOffsets = (sql: string): ReadonlyArray<number> => {
   const offsets: Array<number> = [];
@@ -551,6 +696,11 @@ const insertSinkParams = (
   const valuesGroup = balancedGroup(sql, valuesOpen);
   if (valuesGroup === null) return null;
 
+  // A second VALUES tuple can land on another sink, and this walk only reads
+  // the first. Refuse the shape rather than announce one of several sinks.
+  const afterValues = sql.slice(valuesGroup.end + 1).replace(/^[\s]+/, "");
+  if (afterValues.startsWith(",")) return null;
+
   const names = splitTopLevel(columnGroup.body).map((name) =>
     name.trim().replace(/^["`[]|["`\]]$/g, "").toLowerCase(),
   );
@@ -584,12 +734,44 @@ const predicateSinkParams = (
   columns: readonly [string, string],
 ): SinkParams | null => {
   const offsets = parameterOffsets(sql);
+  const shape = statementShape(sql);
+  if (shape.whereAt < 0) return null;
+  // A SET clause that assigns a sink column moves the row from one sink to
+  // another. Both ends change and the predicate names only the old one, so
+  // there is no single sink to announce.
+  for (const column of columns) {
+    const assignment = new RegExp(`\\b${column}\\s*=`, "gi");
+    for (
+      let match = assignment.exec(sql);
+      match !== null;
+      match = assignment.exec(sql)
+    ) {
+      if ((shape.depth[match.index] ?? 0) !== 0) continue;
+      if (match.index < shape.whereAt) return null;
+    }
+  }
   const ordinalOf = (column: string): number | undefined => {
-    const match = new RegExp(`\\b${column}\\s*=\\s*\\?`, "i").exec(sql);
-    if (match === null) return undefined;
-    const at = sql.indexOf("?", match.index);
-    const ordinal = offsets.indexOf(at);
-    return ordinal < 0 ? undefined : ordinal;
+    const pattern = new RegExp(`\\b${column}\\s*=\\s*\\?`, "gi");
+    let found: number | undefined;
+    for (
+      let match = pattern.exec(sql);
+      match !== null;
+      match = pattern.exec(sql)
+    ) {
+      // Inside parentheses it filters a subquery's rows, not this
+      // statement's; before the WHERE it is a SET clause assigning the row a
+      // NEW sink while the OLD one goes unannounced.
+      if ((shape.depth[match.index] ?? 0) !== 0) continue;
+      if (match.index < shape.whereAt) continue;
+      // A second top-level occurrence means the predicate is a shape this
+      // parser did not model. Refuse rather than pick one.
+      if (found !== undefined) return undefined;
+      const at = sql.indexOf("?", match.index);
+      const ordinal = offsets.indexOf(at);
+      if (ordinal < 0) return undefined;
+      found = ordinal;
+    }
+    return found;
   };
   const canvas = ordinalOf(columns[0]);
   const node = ordinalOf(columns[1]);
@@ -606,16 +788,22 @@ const sinkParameters = new Map<string, SinkParams | null>();
 
 /** Which positional parameters name the sink, or `null` if unreadable. */
 export const workStatementSinkParams = (
-  statement: { readonly verb: string; readonly table: string },
+  statement: {
+    readonly verb: string;
+    readonly table: string;
+    readonly sink?: "readable" | "unreadable";
+  },
   sql: string,
 ): SinkParams | null => {
   const cached = sinkParameters.get(sql);
   if (cached !== undefined) return cached;
   const columns = SINK_COLUMNS.get(statement.table) ?? DEFAULT_SINK_COLUMNS;
   const parsed =
-    statement.verb === "INSERT" || statement.verb === "REPLACE"
-      ? insertSinkParams(sql, columns)
-      : predicateSinkParams(sql, columns);
+    statement.sink === "unreadable" || hasNumberedParameter(sql)
+      ? null
+      : statement.verb === "INSERT" || statement.verb === "REPLACE"
+        ? insertSinkParams(sql, columns)
+        : predicateSinkParams(sql, columns);
   sinkParameters.set(sql, parsed);
   return parsed;
 };
