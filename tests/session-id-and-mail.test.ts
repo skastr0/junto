@@ -46,6 +46,149 @@ describe("session id parsing + authorial pin", () => {
     ).toBe("3e6433af-b0ea-5718-8d29-27a68c9839fb");
   });
 
+  // Table-driven coverage for every label extractSessionIdFromText accepts,
+  // the quoted/unquoted and colon/equals forms the regex supports, priority
+  // ordering between labels, and negative cases (short ids, label-as-substring
+  // word-boundary rejection, unlabeled PTY noise). Guards the perf hoist: a
+  // module-scope RegExp[] plus a pre-filter must accept and reject byte-for-
+  // byte the same set as the original per-call `new RegExp` construction.
+  const LABEL_CASES: ReadonlyArray<[string, string, string | undefined]> = [
+    // session_id: colon/equals, quoted/unquoted forms.
+    [
+      "session_id quoted-label quoted-value (JSON)",
+      '{"session_id":"a1b2c3d4"}',
+      "a1b2c3d4",
+    ],
+    ["session_id unquoted colon", "session_id: a1b2c3d4", "a1b2c3d4"],
+    ["session_id unquoted equals", "session_id=a1b2c3d4", "a1b2c3d4"],
+    [
+      "session_id quoted-label equals quoted-value",
+      '"session_id"="a1b2c3d4"',
+      "a1b2c3d4",
+    ],
+    [
+      "session_id exactly 8 chars (min length boundary)",
+      "session_id: abcdefgh",
+      "abcdefgh",
+    ],
+
+    // sessionId (camelCase).
+    [
+      "sessionId quoted-label quoted-value (JSON)",
+      '{"sessionId":"b2c3d4e5"}',
+      "b2c3d4e5",
+    ],
+    ["sessionId unquoted equals", "sessionId=b2c3d4e5", "b2c3d4e5"],
+
+    // CODEX_THREAD_ID, including case-insensitivity.
+    [
+      "CODEX_THREAD_ID unquoted equals",
+      "CODEX_THREAD_ID=thread_abc12345",
+      "thread_abc12345",
+    ],
+    [
+      "codex_thread_id lowercase (case-insensitive)",
+      "codex_thread_id=thread_abc12345",
+      "thread_abc12345",
+    ],
+
+    // HERMES_SESSION_ID.
+    [
+      "HERMES_SESSION_ID unquoted equals",
+      "HERMES_SESSION_ID=hs_xyz99999",
+      "hs_xyz99999",
+    ],
+    [
+      "HERMES_SESSION_ID quoted-label colon quoted-value",
+      '"HERMES_SESSION_ID": "hs_xyz99999"',
+      "hs_xyz99999",
+    ],
+
+    // thread-id (hyphen) and thread_id (underscore) are distinct labels.
+    ["thread-id unquoted colon", "thread-id: c3d4e5f6", "c3d4e5f6"],
+    [
+      "thread-id unquoted equals quoted-value",
+      'thread-id="c3d4e5f6"',
+      "c3d4e5f6",
+    ],
+    ["thread_id unquoted colon", "thread_id: d4e5f6g7", "d4e5f6g7"],
+    ["thread_id unquoted equals", "thread_id=d4e5f6g7", "d4e5f6g7"],
+
+    // Display fallback: bare "session" / "session id" / "thread" labels.
+    [
+      "display fallback: session colon uuid",
+      "session: 550e8400-e29b-41d4-a716-446655440000",
+      "550e8400-e29b-41d4-a716-446655440000",
+    ],
+    ["display fallback: session id colon", "session id: e5f6g7h8", "e5f6g7h8"],
+    ["display fallback: thread space", "thread e5f6g7h8", "e5f6g7h8"],
+    ["display fallback: thread equals", "thread=e5f6g7h8", "e5f6g7h8"],
+
+    // Priority ordering: earlier-checked labels win when several are present.
+    [
+      "priority: session_id beats thread_id",
+      "thread_id=zzzzzzzz session_id=aaaaaaaa",
+      "aaaaaaaa",
+    ],
+    [
+      "priority: CODEX_THREAD_ID beats HERMES_SESSION_ID",
+      "HERMES_SESSION_ID=hhhhhhhh CODEX_THREAD_ID=cccccccc",
+      "cccccccc",
+    ],
+    [
+      "priority: thread-id beats thread_id",
+      "thread_id=uuuuuuuu thread-id=hhhhhhhh",
+      "hhhhhhhh",
+    ],
+
+    // Negative: value under the 8-char minimum never matches.
+    [
+      "negative: session_id value one char short of minimum",
+      "session_id: short12",
+      undefined,
+    ],
+
+    // Negative: label is a substring of a larger identifier, so the \b word
+    // boundary must reject it even though "session"/"thread" appears in the
+    // text (proves the pre-filter is a fast reject, not a match shortcut).
+    [
+      "negative: session_id embedded in a larger identifier",
+      "mysession_id: abcdefgh",
+      undefined,
+    ],
+    [
+      "negative: thread_id embedded in a larger identifier",
+      "underthread_id: abcdefgh",
+      undefined,
+    ],
+
+    // Negative: "thread" as an ordinary English word, not a label.
+    [
+      "negative: thread used as a plain word, no id follows",
+      "this thread of conversation continues",
+      undefined,
+    ],
+
+    // Negative: unlabeled UUID, still rejected (terminal output is untrusted).
+    [
+      "negative: bare UUID with no label",
+      "tool emitted 550e8400-e29b-41d4-a716-446655440000",
+      undefined,
+    ],
+
+    // Negative: PTY repaint noise containing neither "session" nor "thread"
+    // anywhere, the exact shape the pre-filter exists to short-circuit.
+    [
+      "negative: ANSI repaint bytes with no session/thread substring",
+      "\x1b[2J\x1b[H$ ls -la\ndrwxr-xr-x  5 user  staff  160 Aug 19 12:00 .\n-rw-r--r--  1 user  staff   42 Aug 19 12:00 file.txt\n",
+      undefined,
+    ],
+  ];
+
+  it.each(LABEL_CASES)("extractSessionIdFromText: %s", (_desc, input, expected) => {
+    expect(extractSessionIdFromText(input)).toBe(expected);
+  });
+
   const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
