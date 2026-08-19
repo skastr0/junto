@@ -24,6 +24,7 @@ import {
   type StateWriter,
 } from "./service";
 import { perfProbe, perfProbeEnabled } from "../observability/perf-probe";
+import { withinBudget } from "../observability/main-thread-budget";
 import {
   admitWorkStatement,
   beginWorkMutationScope,
@@ -257,7 +258,12 @@ const openStateEngine = (
         body: (stateWriter: StateWriter) => A,
       ): Effect.Effect<A, StateEngineError> =>
         Effect.try({
-          try: () => {
+          // Every durable write in the app funnels through here, so this is the
+          // one place that can name a slow one. Reads were already attributed
+          // (perf-probe tags every canvas read); writes were not, which is why
+          // a 286ms block during node creation had no caller on it. Free when
+          // the budget is disarmed: `withinBudget` calls straight through.
+          try: () => withinBudget(`state.${operation}`, () => {
             requireOpen();
             if (transactionOpen) {
               throw new Error(
@@ -285,7 +291,7 @@ const openStateEngine = (
               closeWorkMutationScope();
               transactionOpen = false;
             }
-          },
+          }),
           catch: (error) => stateEngineError(operation, error),
         }).pipe(Effect.withSpan(`state.${operation}`));
 
