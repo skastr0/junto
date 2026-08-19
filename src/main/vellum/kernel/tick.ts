@@ -446,17 +446,33 @@ export const makeKernelTickScheduler = (
       const ms = now() - keyStartedAt;
       state.processed += 1;
       processed += 1;
-      if (ms > state.budgetMs) {
-        state.overruns += 1;
-        onOverrun?.({ lane, key, ms, budgetMs: state.budgetMs });
+      const overran = ms > state.budgetMs;
+      if (overran) state.overruns += 1;
+
+      // Settle the key BEFORE anything observational runs, so no reporter can
+      // leave the lane holding a half-retired key.
+      const suspended = outcome === "suspended";
+      if (suspended && !resumed) state.awaiting = true;
+      else if (!suspended && !threw && !resumed) state.attempts.delete(key);
+
+      // Reporting an overrun must never kill the driver. The default reporter
+      // is `noteSyncSpan`, which THROWS under VELLUM_COMMAND_BUDGET=strict --
+      // exactly the mode a scale gate or regression hunt runs in. An escape
+      // here would skip the trailing wake() in fire() and the kernel would
+      // stop ticking, silently, on the first slow key. The violation is
+      // recorded and reported before that throw, so nothing is lost.
+      if (overran) {
+        try {
+          onOverrun?.({ lane, key, ms, budgetMs: state.budgetMs });
+        } catch {
+          // An observer must never break the operation it is watching.
+        }
       }
 
-      if (outcome === "suspended") {
+      if (suspended) {
         if (resumed) continue;
-        state.awaiting = true;
         break;
       }
-      if (!threw && !resumed) state.attempts.delete(key);
     }
   };
 
@@ -466,19 +482,25 @@ export const makeKernelTickScheduler = (
     if (stopped) return;
     const at = now();
     const lane = pickLane(at);
-    if (lane !== undefined) {
-      for (const other of KERNEL_LANES) {
-        const state = lanes[other];
-        if (other === lane) continue;
-        // Only an ELIGIBLE lane is starving. A lane still inside its floor is
-        // waiting by cadence, and counting that would break its cadence.
-        if (laneReady(state) && eligibleAt(state) <= at) {
-          state.waitedTicks += 1;
+    try {
+      if (lane !== undefined) {
+        for (const other of KERNEL_LANES) {
+          const state = lanes[other];
+          if (other === lane) continue;
+          // Only an ELIGIBLE lane is starving. A lane still inside its floor
+          // is waiting by cadence, and counting that would break its cadence.
+          if (laneReady(state) && eligibleAt(state) <= at) {
+            state.waitedTicks += 1;
+          }
         }
+        runLane(lane);
       }
-      runLane(lane);
+    } finally {
+      // The driver re-arms whatever happened inside the slice. A throw still
+      // escapes to the host -- it is a real bug and must stay loud -- but it
+      // costs one slice, not every slice after it.
+      wake();
     }
-    wake();
   }
 
   return {

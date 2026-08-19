@@ -216,6 +216,47 @@ describe("the budget is respected", () => {
     expect(scheduler.stats().lanes.immediate.overruns).toBe(2);
   });
 
+  it("survives a reporter that throws on the overrun it is reporting", () => {
+    const clock = makeTestClock();
+    const served: Array<string> = [];
+    const scheduler = makeKernelTickScheduler({
+      now: clock.now,
+      setTimer: clock.setTimer,
+      // This is the DEFAULT reporter's behaviour under
+      // VELLUM_COMMAND_BUDGET=strict, which is the mode a scale gate runs in.
+      // The assertion is meant to name a slow key, not to stop the factory.
+      onOverrun: (overrun) => {
+        throw new Error(`budget: ${overrun.key} took ${overrun.ms}ms`);
+      },
+      lanes: {
+        immediate: {
+          process: (key) => {
+            served.push(key);
+            clock.burn(40);
+            return "done";
+          },
+        },
+        simulation: idleLane,
+        housekeeping: idleLane,
+      },
+    });
+
+    scheduler.mark("immediate", "slow-a");
+    scheduler.mark("immediate", "slow-b");
+
+    clock.step();
+    clock.step();
+
+    // The kernel keeps ticking: the second key is served, the lane drains, and
+    // the throwing reporter has not requeued or quarantined anything.
+    expect(served).toEqual(["slow-a", "slow-b"]);
+    const stats = scheduler.stats().lanes.immediate;
+    expect(stats.pending).toBe(0);
+    expect(stats.overruns).toBe(2);
+    expect(stats.requeued).toBe(0);
+    expect(stats.quarantined).toBe(0);
+  });
+
   it("paces a burst with the floor without delaying an idle lane", () => {
     const clock = makeTestClock();
     const served: Array<string> = [];
