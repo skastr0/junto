@@ -18,6 +18,7 @@ import {
 import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
+import { registerTerminalSessionPoll } from "../../lib/terminal-session-poll";
 import {
   sessionChromeUnchanged,
   shouldRefreshSessionFromTerminalEvent,
@@ -113,16 +114,21 @@ export function TerminalCard({
         )
       : () => undefined;
     // Poll only while running — lease-scoped events don't reach cards without
-    // an open surface.
-    if (!running) {
+    // an open surface. The poll is a backstop; `off` above is the primary
+    // signal. Registration, not a per-card interval: one shared timer batch
+    // reads every registered card's host with terminalList, so a 48-terminal
+    // canvas costs one IPC round trip per tick instead of 48.
+    if (!running || !bindingId) {
       return off;
     }
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 2500);
+    const offPoll = registerTerminalSessionPoll(
+      bindingId,
+      native?.hostId,
+      applySession,
+    );
     return () => {
       off();
-      window.clearInterval(timer);
+      offPoll();
     };
   }, [native?.bindingId, native?.hostId, running]);
 
