@@ -2,6 +2,8 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_OBSERVER_WRITE_INTERVAL_MS,
+  OBSERVER_UNWATCHED_SCROLLBACK,
+  OBSERVER_WATCHED_SCROLLBACK,
   SessionObserver,
   TerminalObserverPlane,
   getObserverWriteIntervalMs,
@@ -13,6 +15,7 @@ import {
   promptBoxBody,
   sanitizeTitle,
 } from "../src/main/vellum/term/observer";
+import { evaluate } from "../src/main/vellum/term/agent-state";
 
 const feedAndWait = async (
   obs: SessionObserver,
@@ -631,5 +634,236 @@ describe("SessionObserver sampling floor", () => {
     observer.dispose();
     await delay(DEFAULT_OBSERVER_WRITE_INTERVAL_MS + 150);
     expect(emissions).toBe(afterFeed);
+  });
+});
+
+/**
+ * Retention tiering: a session nobody has open keeps a bounded scrollback; a
+ * session with an attached surface keeps the full one. The seat signal reads
+ * the viewport only, so it must be identical either way.
+ */
+describe("SessionObserver retention tier", () => {
+  const ROWS = 24;
+  const COLS = 80;
+  const ESC = "\u001b";
+  /** OSC string terminator (BEL). */
+  const BEL = "\u0007";
+  const HR = "─".repeat(40);
+
+  const mkObserver = (bindingId: string): SessionObserver =>
+    new SessionObserver({ bindingId, epoch: "e1", cols: COLS, rows: ROWS });
+
+  /** Enough output to overflow the unwatched cap several times over. */
+  const backlog = (lines: number): string => {
+    let out = "";
+    for (let i = 0; i < lines; i++) {
+      out += `${ESC}[38;5;${(i % 200) + 16}m* build step ${i} emitted output${ESC}[0m\r\n`;
+    }
+    return out;
+  };
+
+  /** Blank the viewport by scrolling it away, leaving scrollback intact. */
+  const clearViewport = (): string => "\r\n".repeat(ROWS + 2);
+
+  const CLAUDE_WORKING =
+    `${clearViewport()}${ESC}]0;◐ Puzzling${BEL}` +
+    "  Puzzling… (54s, 2.7k tokens, esc to interrupt)\r\n";
+
+  const CLAUDE_PERMISSION =
+    `${clearViewport()}${HR}\r\n` +
+    "Bash command\r\n" +
+    "  rm -rf build/\r\n" +
+    "Do you want to proceed?\r\n" +
+    "1. Yes\r\n" +
+    "2. No, tell Claude what to do differently\r\n";
+
+  const CLAUDE_IDLE =
+    `${clearViewport()}${ESC}]0;idle${BEL}${HR}\r\n` +
+    "❯ \r\n" +
+    `${HR}\r\n` +
+    "  ? for shortcuts\r\n";
+
+  const drive = async (
+    obs: SessionObserver,
+    phase: string,
+    seq: bigint,
+  ): Promise<ReturnType<SessionObserver["snapshotNow"]>> => {
+    obs.feed(phase, seq);
+    return obs.snapshot();
+  };
+
+  it("keeps the seat signal identical whether or not a surface is attached", async () => {
+    const unwatched = mkObserver("unwatched");
+    const watched = mkObserver("watched");
+    watched.retainSurface();
+
+    // The tier really differs, or this test proves nothing.
+    expect(unwatched.scrollbackLines).toBe(OBSERVER_UNWATCHED_SCROLLBACK);
+    expect(watched.scrollbackLines).toBe(OBSERVER_WATCHED_SCROLLBACK);
+
+    const stream =
+      backlog(OBSERVER_UNWATCHED_SCROLLBACK * 3) +
+      `${ESC}]0;◐ Puzzling${BEL}` +
+      `${ESC}]9;4;3;50${BEL}` +
+      `${HR}\r\n❯ \r\n${HR}\r\n  ? for shortcuts\r\n`;
+
+    unwatched.feed(stream, 7n);
+    watched.feed(stream, 7n);
+    const a = await unwatched.snapshot();
+    const b = await watched.snapshot();
+
+    expect(a.lines).toEqual(b.lines);
+    expect(a.text).toBe(b.text);
+    expect(a.signals).toEqual(b.signals);
+    expect(a.cols).toBe(b.cols);
+    expect(a.rows).toBe(b.rows);
+    expect(a.seq).toBe(b.seq);
+    expect(a.signals.title).toBe("◐ Puzzling");
+    expect(a.signals.osc9).toBe("4;3;50");
+
+    unwatched.dispose();
+    watched.dispose();
+  });
+
+  it("drives the same seat-state transitions with no surface attached", async () => {
+    const unwatched = mkObserver("b-unwatched");
+    const watched = mkObserver("b-watched");
+    watched.retainSurface();
+
+    const preload = backlog(OBSERVER_UNWATCHED_SCROLLBACK * 2);
+    unwatched.feed(preload, 1n);
+    watched.feed(preload, 1n);
+    await unwatched.snapshot();
+    await watched.snapshot();
+
+    const phases: ReadonlyArray<readonly [string, string, string]> = [
+      ["working", CLAUDE_WORKING, "working"],
+      ["permission", CLAUDE_PERMISSION, "attention"],
+      ["idle", CLAUDE_IDLE, "idle"],
+    ];
+
+    let seq = 2n;
+    for (const [label, bytes, expected] of phases) {
+      const a = await drive(unwatched, bytes, seq);
+      const b = await drive(watched, bytes, seq);
+      seq += 1n;
+      const evalA = evaluate(a, { harness: "claude" });
+      const evalB = evaluate(b, { harness: "claude" });
+      expect(`${label}:${evalA.state}`).toBe(`${label}:${expected}`);
+      expect(evalA.state).toBe(evalB.state);
+      expect(evalA.ruleId).toBe(evalB.ruleId);
+      expect(a.lines).toEqual(b.lines);
+    }
+
+    unwatched.dispose();
+    watched.dispose();
+  });
+
+  it("hands a reopened node the same visible screen as a fully retained grid", async () => {
+    const unwatched = mkObserver("c-unwatched");
+    const watched = mkObserver("c-watched");
+    watched.retainSurface();
+
+    const stream = backlog(OBSERVER_UNWATCHED_SCROLLBACK * 2) + CLAUDE_IDLE;
+    unwatched.feed(stream, 3n);
+    watched.feed(stream, 3n);
+
+    const a = await unwatched.attachScreen();
+    const b = await watched.attachScreen();
+    expect(a.cols).toBe(b.cols);
+    expect(a.rows).toBe(b.rows);
+    expect(a.seq).toBe(b.seq);
+
+    // Replay both payloads into fresh grids and compare what the operator sees.
+    const replayRequire = createRequire(import.meta.url);
+    const { Terminal } = replayRequire("@xterm/headless") as {
+      Terminal: new (o?: Record<string, unknown>) => {
+        buffer: {
+          active: {
+            viewportY: number;
+            length: number;
+            getLine: (
+              y: number,
+            ) =>
+              | {
+                  translateToString: (t?: boolean, s?: number, e?: number) => string;
+                }
+              | undefined;
+          };
+        };
+        write: (d: string, cb?: () => void) => void;
+        dispose: () => void;
+      };
+    };
+    const replay = async (serialized: string): Promise<string> => {
+      const term = new Terminal({ cols: COLS, rows: ROWS, allowProposedApi: true });
+      await new Promise<void>((resolve) => {
+        term.write(serialized, resolve);
+      });
+      const buf = term.buffer.active;
+      const out: string[] = [];
+      const from = Math.max(0, Math.min(buf.viewportY, buf.length));
+      for (let y = 0; y < ROWS; y++) {
+        const line = buf.getLine(from + y);
+        out.push(line ? line.translateToString(true, 0, COLS) : "");
+      }
+      term.dispose();
+      return out.join("\n");
+    };
+    expect(await replay(a.serialized)).toBe(await replay(b.serialized));
+
+    // Bounded is not empty: the reopened node still gets scrollback, right up
+    // to the cap. The last backlog line written is well inside the window.
+    const lastBacklogLine = OBSERVER_UNWATCHED_SCROLLBACK * 2 - 1;
+    expect(a.serialized).toContain(`build step ${lastBacklogLine} `);
+    // ...and it stops there, which is the whole win: same screen, a fraction
+    // of the payload a node open must serialize, ship over IPC, and re-parse.
+    expect(a.serialized).not.toContain("build step 0 ");
+    expect(b.serialized).toContain("build step 0 ");
+    expect(a.serialized.length).toBeLessThan(b.serialized.length / 1.5);
+
+    unwatched.dispose();
+    watched.dispose();
+  });
+
+  it("refcounts surfaces so the last viewer restores the bounded window", () => {
+    const obs = mkObserver("d");
+    expect(obs.surfaceCount).toBe(0);
+    obs.retainSurface();
+    obs.retainSurface();
+    expect(obs.surfaceCount).toBe(2);
+    expect(obs.scrollbackLines).toBe(OBSERVER_WATCHED_SCROLLBACK);
+    obs.releaseSurface();
+    expect(obs.scrollbackLines).toBe(OBSERVER_WATCHED_SCROLLBACK);
+    obs.releaseSurface();
+    expect(obs.surfaceCount).toBe(0);
+    expect(obs.scrollbackLines).toBe(OBSERVER_UNWATCHED_SCROLLBACK);
+    // Unbalanced release never underflows into negative retention.
+    obs.releaseSurface();
+    expect(obs.surfaceCount).toBe(0);
+    obs.dispose();
+  });
+
+  it("carries an open node's retention across a replacement generation", () => {
+    const plane = new TerminalObserverPlane();
+    plane.attach({ bindingId: "b1", epoch: "e1", cols: COLS, rows: ROWS });
+    plane.retainSurface("b1");
+    expect(plane.get("b1")?.scrollbackLines).toBe(OBSERVER_WATCHED_SCROLLBACK);
+
+    // Resume / respawn replaces the grid; the lease outlives the epoch.
+    plane.attach({ bindingId: "b1", epoch: "e2", cols: COLS, rows: ROWS });
+    expect(plane.get("b1")?.surfaceCount).toBe(1);
+    expect(plane.get("b1")?.scrollbackLines).toBe(OBSERVER_WATCHED_SCROLLBACK);
+
+    plane.releaseSurface("b1");
+    expect(plane.surfaceCount("b1")).toBe(0);
+    expect(plane.get("b1")?.scrollbackLines).toBe(OBSERVER_UNWATCHED_SCROLLBACK);
+
+    // A binding with no live grid still records the lease for the next one.
+    plane.detach("b1", "e2");
+    plane.retainSurface("b1");
+    plane.attach({ bindingId: "b1", epoch: "e3", cols: COLS, rows: ROWS });
+    expect(plane.get("b1")?.scrollbackLines).toBe(OBSERVER_WATCHED_SCROLLBACK);
+    plane.disposeAll();
   });
 });

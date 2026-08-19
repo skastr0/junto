@@ -679,6 +679,16 @@ export class LocalSessionHost extends EventEmitter {
   private readonly lateExitGraceMs: number;
   private readonly externalMaintenanceFence: () => boolean;
   private readonly observerPlane: TerminalObserverPlane;
+  /**
+   * Live attach leases that are painting a surface, leaseId -> bindingId.
+   *
+   * A lease is what makes a session "one somebody is looking at": the renderer
+   * takes one when a node is opened and `release` runs on close, on renderer
+   * teardown, and on render-process loss. Holding the mapping here keeps the
+   * refcount idempotent — a double `release` for the same lease must not drop
+   * another viewer's retention.
+   */
+  private readonly surfaceLeases = new Map<string, string>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
   private primeDaemonsShutdownState:
     | "idle"
@@ -1284,7 +1294,14 @@ export class LocalSessionHost extends EventEmitter {
       if (rec.controlLeaseId && !input.takeover) {
         return { ok: false, message: "control lease held (pass takeover)" };
       }
+      // Takeover drops the prior control lease without a `release` call on
+      // every path — give its retention back here or the refcount never drains.
+      if (rec.controlLeaseId) this.releaseSurfaceLease(rec.controlLeaseId);
       rec.controlLeaseId = mintLease();
+      // A surface is now painting this session: retain the full scrollback for
+      // as long as the lease lives. `screen` above was already serialized from
+      // the bounded window, so this only changes what accrues from here on.
+      this.retainSurfaceLease(rec.controlLeaseId, rec.bindingId);
       return {
         ok: true,
         lease: {
@@ -1302,10 +1319,12 @@ export class LocalSessionHost extends EventEmitter {
       };
     }
 
+    const observeLeaseId = mintLease();
+    this.retainSurfaceLease(observeLeaseId, rec.bindingId);
     return {
       ok: true,
       lease: {
-        leaseId: mintLease(),
+        leaseId: observeLeaseId,
         bindingId: rec.bindingId,
         epoch: rec.epoch,
         mode: "observe",
@@ -1319,7 +1338,28 @@ export class LocalSessionHost extends EventEmitter {
     };
   }
 
+  /**
+   * Record that this lease is painting the binding and raise the observer's
+   * retention tier. Idempotent per lease id.
+   */
+  private retainSurfaceLease(leaseId: string, bindingId: string): void {
+    if (this.surfaceLeases.has(leaseId)) return;
+    this.surfaceLeases.set(leaseId, bindingId);
+    this.observerPlane.retainSurface(bindingId);
+  }
+
+  /** Give back what `retainSurfaceLease` took. No-op for an unknown lease. */
+  private releaseSurfaceLease(leaseId: string): void {
+    const bindingId = this.surfaceLeases.get(leaseId);
+    if (bindingId === undefined) return;
+    this.surfaceLeases.delete(leaseId);
+    this.observerPlane.releaseSurface(bindingId);
+  }
+
   release(lease: ControlLease): void {
+    // Surface retention is lease-scoped, never record-scoped: a session that
+    // exited while a node was open must still give the scrollback back.
+    this.releaseSurfaceLease(lease.leaseId);
     const rec = this.sessions.get(lease.bindingId);
     if (!rec) return;
     if (lease.mode === "control" && rec.controlLeaseId === lease.leaseId) {

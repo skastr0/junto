@@ -37,6 +37,8 @@ const require = createRequire(import.meta.url);
 type HeadlessTerminal = {
   cols: number;
   rows: number;
+  /** Live-writable option bag. `scrollback` is the retained-history cap. */
+  options: { scrollback: number };
   unicode: { activeVersion: string; versions: string[] };
   buffer: {
     active: {
@@ -105,6 +107,33 @@ const DEFAULT_UNICODE = "6" as const;
  */
 export const DEFAULT_OBSERVER_WRITE_INTERVAL_MS = 200;
 
+/**
+ * Retained scrollback while a surface is attached — the depth an operator can
+ * scroll back through in a node they have open. Unchanged from the value every
+ * session used to carry all the time.
+ */
+export const OBSERVER_WATCHED_SCROLLBACK = 50_000;
+
+/**
+ * Retained scrollback while NO surface is attached.
+ *
+ * The seat signal never reads scrollback: `buildSnapshot` walks the viewport
+ * (`rows` lines from `viewportY`), and every rule region — `whole_recent`,
+ * `bottom_non_empty_lines`, `footer_line`, `prompt_box_body`,
+ * `after_last_horizontal_rule` — is computed from those lines. Scrollback
+ * exists solely so `attachScreen` can hand a reopened node its history.
+ *
+ * Retaining that history for a node nobody has open is what does not scale.
+ * Measured on a 200x50 grid filled to its cap: ~180MB RSS per session at
+ * 50,000 lines versus ~19MB at 2,000 — 48 carrying terminals is the
+ * difference between ~8.6GB and ~0.9GB. Serializing it on attach is the same
+ * curve: 234ms/1.27MB versus 18.5ms/87KB for the identical visible screen.
+ *
+ * 2,000 is `tmux`'s own `history-limit` default, and is three orders of
+ * magnitude above what any rule region reads (largest `regionN` is 16).
+ */
+export const OBSERVER_UNWATCHED_SCROLLBACK = 2_000;
+
 let processWriteIntervalMs: number = DEFAULT_OBSERVER_WRITE_INTERVAL_MS;
 
 const clampInterval = (ms: number): number =>
@@ -171,6 +200,16 @@ export class SessionObserver {
   private pendingSignal = false;
   /** Last time a chunk arrived while the grid was mid-write (producer > parser). */
   private lastBacklogAt: number | undefined;
+  /** Retained scrollback while at least one surface is attached. */
+  private readonly watchedScrollback: number;
+  /** Retained scrollback while nobody is looking at this session. */
+  private readonly unwatchedScrollback: number;
+  /** Cap currently applied to the grid. */
+  private currentScrollback: number;
+  /** Attached surfaces (renderer leases). Zero means nobody is painting this. */
+  private surfaces = 0;
+  /** Set once if the grid refused a live scrollback write — warn once, not per attach. */
+  private scrollbackTierFailed = false;
 
   constructor(opts: SessionObserverOptions) {
     this.bindingId = opts.bindingId;
@@ -178,17 +217,24 @@ export class SessionObserver {
     const cols = Math.max(20, Math.min(300, opts.cols));
     const rows = Math.max(5, Math.min(120, opts.rows));
     // Long sessions: retain a deep scrollback in the headless terminal so the
-    // canonical VT serializer can restore the complete terminal state.
-    const scrollback = Math.max(
-      opts.scrollback ?? 50_000,
+    // canonical VT serializer can restore the complete terminal state — but
+    // only while a surface is actually attached. See
+    // OBSERVER_UNWATCHED_SCROLLBACK for why the unwatched tier is bounded.
+    this.watchedScrollback = Math.max(
+      opts.scrollback ?? OBSERVER_WATCHED_SCROLLBACK,
       rows * 4,
       200,
     );
+    this.unwatchedScrollback = Math.min(
+      this.watchedScrollback,
+      Math.max(OBSERVER_UNWATCHED_SCROLLBACK, rows * 4, 200),
+    );
+    this.currentScrollback = this.unwatchedScrollback;
     this.term = new Terminal({
       cols,
       rows,
       allowProposedApi: true,
-      scrollback,
+      scrollback: this.currentScrollback,
     });
     this.serializer = new SerializeAddon();
     this.term.loadAddon(this.serializer);
@@ -440,6 +486,61 @@ export class SessionObserver {
     this.flushPending();
     this.term.resize(c, r);
     this.emitSnapshot();
+  }
+
+  /**
+   * A surface (renderer lease) started painting this session — retain the full
+   * scrollback from here on. Refcounted: two viewers on one binding do not
+   * fight, and the tier only drops when the last one leaves.
+   *
+   * Raising the cap does not resurrect lines already trimmed; it only stops
+   * trimming from now on. That is the deliberate trade — a node nobody has
+   * open keeps the bounded window, and opening it starts keeping everything.
+   */
+  retainSurface(): void {
+    if (this.disposed) return;
+    this.surfaces += 1;
+    this.applyScrollbackTier();
+  }
+
+  /** A surface stopped painting. At zero, fall back to the bounded window. */
+  releaseSurface(): void {
+    if (this.disposed || this.surfaces === 0) return;
+    this.surfaces -= 1;
+    this.applyScrollbackTier();
+  }
+
+  /** Attached surfaces. Zero means the bounded retention tier is in force. */
+  get surfaceCount(): number {
+    return this.surfaces;
+  }
+
+  /** Scrollback lines the grid is currently retaining. */
+  get scrollbackLines(): number {
+    return this.currentScrollback;
+  }
+
+  private applyScrollbackTier(): void {
+    const want =
+      this.surfaces > 0 ? this.watchedScrollback : this.unwatchedScrollback;
+    if (want === this.currentScrollback) return;
+    try {
+      this.term.options.scrollback = want;
+    } catch (err) {
+      // Never silent, never per-attach spam: a grid that refuses a live
+      // scrollback write keeps the tier it has, which is the pre-tier
+      // behaviour for a watched session and a bounded one otherwise.
+      if (!this.scrollbackTierFailed) {
+        this.scrollbackTierFailed = true;
+        console.warn(
+          `[term-observer] live scrollback write refused for ${this.bindingId}` +
+            `@${this.epoch} (want=${want}, have=${this.currentScrollback}); ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return;
+    }
+    this.currentScrollback = want;
   }
 
   /** Drop retained title/osc evidence (session change / cold wake). */

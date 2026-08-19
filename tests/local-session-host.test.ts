@@ -31,6 +31,11 @@ import type {
   PrimeAgentDaemons,
 } from "../src/main/vellum/term/prime-agent-daemon";
 import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
+import {
+  OBSERVER_UNWATCHED_SCROLLBACK,
+  OBSERVER_WATCHED_SCROLLBACK,
+  TerminalObserverPlane,
+} from "../src/main/vellum/term/observer";
 import { SeatOccupationFailedError } from "../src/shared/terminal-seat-occupancy";
 import type { PrimeAgentReporterReport } from "../src/main/vellum/term/prime-agent-reporter";
 
@@ -1444,6 +1449,55 @@ describe("LocalSessionHost", () => {
     expect(host.resize(takeover.lease, 100, 40)).toBe(true);
     expect(fake.controllers[0]?.writes).toEqual(["yes\n"]);
     expect(fake.controllers[0]?.resizes).toEqual([{ cols: 100, rows: 40 }]);
+  });
+
+  it("retains the observer grid only while a surface lease is painting it", async () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_505),
+      exitOnSignal: "SIGTERM",
+    }));
+    const observerPlane = new TerminalObserverPlane();
+    const host = hostWith(fake, { observerPlane });
+    host.create({ bindingId: "retain-io" });
+
+    const tier = (): number | undefined =>
+      observerPlane.get("retain-io")?.scrollbackLines;
+
+    // Nobody is looking: the grid keeps the bounded window.
+    expect(tier()).toBe(OBSERVER_UNWATCHED_SCROLLBACK);
+
+    const observe = await host.attach({ bindingId: "retain-io", mode: "observe" });
+    expect(observe.ok).toBe(true);
+    if (!observe.ok) return;
+    expect(tier()).toBe(OBSERVER_WATCHED_SCROLLBACK);
+
+    const control = await host.attach({ bindingId: "retain-io", mode: "control" });
+    expect(control.ok).toBe(true);
+    if (!control.ok) return;
+    expect(observerPlane.surfaceCount("retain-io")).toBe(2);
+
+    // Takeover swaps the control lease without a release call on every path.
+    const takeover = await host.attach({
+      bindingId: "retain-io",
+      mode: "control",
+      takeover: true,
+    });
+    expect(takeover.ok).toBe(true);
+    if (!takeover.ok) return;
+    expect(observerPlane.surfaceCount("retain-io")).toBe(2);
+
+    host.release(observe.lease);
+    // A repeated release must not steal the other viewer's retention.
+    host.release(observe.lease);
+    expect(observerPlane.surfaceCount("retain-io")).toBe(1);
+    expect(tier()).toBe(OBSERVER_WATCHED_SCROLLBACK);
+
+    host.release(takeover.lease);
+    expect(observerPlane.surfaceCount("retain-io")).toBe(0);
+    expect(tier()).toBe(OBSERVER_UNWATCHED_SCROLLBACK);
+
+    host.kill("retain-io");
+    await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
   it("delivers factory prompts without taking over the interactive control lease", async () => {

@@ -21,6 +21,8 @@ export type {
 } from "./types";
 export {
   DEFAULT_OBSERVER_WRITE_INTERVAL_MS,
+  OBSERVER_UNWATCHED_SCROLLBACK,
+  OBSERVER_WATCHED_SCROLLBACK,
   SessionObserver,
   getObserverWriteIntervalMs,
   setObserverWriteIntervalMs,
@@ -39,6 +41,12 @@ export {
 export class TerminalObserverPlane {
   private readonly byBinding = new Map<string, SessionObserver>();
   private readonly globalListeners = new Set<ObserverListener>();
+  /**
+   * Attached surfaces per binding, kept on the plane rather than the observer
+   * so a replacement generation (resume, respawn) inherits the tier a lease
+   * already bought. The lease outlives the epoch; the grid does not.
+   */
+  private readonly surfacesByBinding = new Map<string, number>();
 
   attach(opts: SessionObserverOptions): SessionObserver {
     const prior = this.byBinding.get(opts.bindingId);
@@ -48,6 +56,9 @@ export class TerminalObserverPlane {
     }
     const observer = new SessionObserver(opts);
     this.byBinding.set(opts.bindingId, observer);
+    for (let i = this.surfacesByBinding.get(opts.bindingId) ?? 0; i > 0; i--) {
+      observer.retainSurface();
+    }
     // Always bridge — globalListeners may be empty at attach and filled later.
     observer.subscribe((snap) => {
       for (const listener of this.globalListeners) {
@@ -79,6 +90,33 @@ export class TerminalObserverPlane {
 
   get(bindingId: string): SessionObserver | undefined {
     return this.byBinding.get(bindingId);
+  }
+
+  /**
+   * A surface started painting this binding — hold the full scrollback while
+   * it does. Refcounted, and recorded even when no observer is live yet so a
+   * later generation starts in the right tier.
+   */
+  retainSurface(bindingId: string): void {
+    this.surfacesByBinding.set(
+      bindingId,
+      (this.surfacesByBinding.get(bindingId) ?? 0) + 1,
+    );
+    this.byBinding.get(bindingId)?.retainSurface();
+  }
+
+  /** A surface stopped painting. At zero the bounded window comes back. */
+  releaseSurface(bindingId: string): void {
+    const prior = this.surfacesByBinding.get(bindingId) ?? 0;
+    if (prior <= 0) return;
+    if (prior === 1) this.surfacesByBinding.delete(bindingId);
+    else this.surfacesByBinding.set(bindingId, prior - 1);
+    this.byBinding.get(bindingId)?.releaseSurface();
+  }
+
+  /** Attached surfaces for a binding, across generations. */
+  surfaceCount(bindingId: string): number {
+    return this.surfacesByBinding.get(bindingId) ?? 0;
   }
 
   feed(bindingId: string, data: string, seq: bigint): void {
@@ -122,6 +160,7 @@ export class TerminalObserverPlane {
       obs.dispose();
     }
     this.byBinding.clear();
+    this.surfacesByBinding.clear();
     this.globalListeners.clear();
   }
 }
