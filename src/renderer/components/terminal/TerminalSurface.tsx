@@ -7,6 +7,7 @@ import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasNode } from "@shared/canvas";
 import type { VellumCommandTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { terminalSettings, type TerminalSettings } from "@shared/settings";
 import { taskBrief } from "@shared/task";
 import { MONO_CELL } from "../../lib/focus-measure";
 import { use$ } from "@legendapp/state/react";
@@ -18,10 +19,7 @@ import {
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
-import {
-  VELLUM_XTERM_FONT_FAMILY,
-  xtermThemeFor,
-} from "../../lib/terminal-theme";
+import { xtermThemeFor } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
 import {
@@ -39,6 +37,7 @@ import {
   takeTerminalViewport,
 } from "../../lib/terminal-viewport";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
+import { playAlert } from "../../lib/sfx";
 import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
 import {
@@ -100,10 +99,6 @@ type LiveEvent = {
   readonly seq?: bigint;
 };
 
-const FONT_SIZE = MONO_CELL.fontSizePx;
-/** Fallback cell when xterm has not measured fonts yet (13×0.6 / 13×1.2). */
-const FALLBACK_CELL_W = MONO_CELL.fontSizePx * MONO_CELL.ratio;
-const FALLBACK_CELL_H = MONO_CELL.fontSizePx * 1.2;
 /** Must match CSS padding on `.native-terminal-surface__xterm .xterm`. */
 const XTERM_PAD_X = 16; // 8 + 8
 const XTERM_PAD_Y = 12; // 6 + 6
@@ -246,6 +241,17 @@ type XtermCore = {
 };
 
 /**
+ * Alt-held fast scroll, as a multiple of the operator's normal gesture.
+ *
+ * Travel per gesture is a durable preference now (settings.terminal
+ * scrollSensitivity, StateEngine behind IPC — never renderer storage, which is
+ * what tests/settings-state-architecture.test.ts holds). Only the *ratio*
+ * between a normal gesture and an alt-held one stays a constant here: it is a
+ * feel relationship, not a second knob.
+ */
+const SCROLL_FAST_MULTIPLE = 5;
+
+/**
  * Terminal geometry diagnostic.
  *
  * xterm measures the character cell during `open()` and its docs require the
@@ -259,29 +265,6 @@ type XtermCore = {
  * (installObservabilityConsoleHook -> recordRendererConsole), so these lines
  * are queryable. Grep tag: vellum:term-geom
  */
-/**
- * How far one trackpad or wheel gesture travels.
- *
- * xterm defaults scrollSensitivity and fastScrollSensitivity to 1, and the
- * terminal never set either, so one gesture moved noticeably less here than in
- * a native terminal -- the operator's word was "laborious". This is travel per
- * gesture, not latency, and a separate axis from stream cadence.
- *
- * It applies to all three wheel owners, including the alternate-screen path
- * where xterm turns the wheel into cursor keys for a full-screen TUI, which is
- * the case that felt worst.
- *
- * A CONSTANT, deliberately. This is a product preference, and
- * tests/settings-state-architecture.test.ts holds that preferences live in the
- * StateEngine behind IPC, never in renderer storage -- that gate caught an
- * earlier attempt to make this a devtools knob and was right to. Giving it a
- * real home in SettingsService is the change to make when it earns a control
- * surface; until then the number lives here, reviewable in one place.
- */
-const SCROLL_SENSITIVITY = 3;
-/** Alt-held fast scroll, as a multiple of the normal gesture. */
-const SCROLL_SENSITIVITY_FAST = SCROLL_SENSITIVITY * 5;
-
 const logTermGeom = (event: string, data: Record<string, unknown>): void => {
   try {
     console.warn(`[vellum:term-geom] ${event} ${JSON.stringify(data)}`);
@@ -290,12 +273,268 @@ const logTermGeom = (event: string, data: Record<string, unknown>): void => {
   }
 };
 
-const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
+export type CellSize = { readonly cellW: number; readonly cellH: number };
+
+/**
+ * Cell guess for the window where xterm has not measured the font yet.
+ *
+ * It has to track the preference: at fontSize 24 a 13px guess measures the
+ * pane at nearly twice the real column count, and that wrong cols×rows is what
+ * the child PTY would be told first.
+ *
+ * An approximation by construction — the advance-width ratio is the house mono
+ * stack's, and xterm adds letterSpacing in device pixels. Real measurement
+ * replaces it as soon as open() lands.
+ */
+export const fallbackCell = (prefs: TerminalSettings): CellSize => ({
+  cellW: prefs.fontSize * MONO_CELL.ratio + prefs.letterSpacing,
+  cellH: prefs.fontSize * prefs.lineHeight,
+});
+
+const readCellSize = (term: Terminal, fallback: CellSize): CellSize => {
   const core = term as unknown as { _core?: XtermCore };
   const cell = core._core?._renderService?.dimensions?.css?.cell;
-  const cellW = cell?.width && cell.width > 1 ? cell.width : FALLBACK_CELL_W;
-  const cellH = cell?.height && cell.height > 1 ? cell.height : FALLBACK_CELL_H;
+  const cellW = cell?.width && cell.width > 1 ? cell.width : fallback.cellW;
+  const cellH = cell?.height && cell.height > 1 ? cell.height : fallback.cellH;
   return { cellW, cellH };
+};
+
+const isFallbackCell = (measured: CellSize, fallback: CellSize): boolean =>
+  Math.abs(measured.cellW - fallback.cellW) < 0.001 &&
+  Math.abs(measured.cellH - fallback.cellH) < 0.001;
+
+/**
+ * The xterm options this surface drives from durable settings.
+ *
+ * One shape for both moments — the constructor call and every later live
+ * write — so an already-open terminal cannot drift from a freshly opened one.
+ * Everything absent here stays xterm's own default.
+ */
+export type ManagedTerminalOptions = {
+  readonly scrollSensitivity: number;
+  readonly fastScrollSensitivity: number;
+  readonly fontSize: number;
+  readonly fontFamily: string;
+  readonly cursorStyle: TerminalSettings["cursorStyle"];
+  readonly scrollback: number;
+  readonly cursorBlink: boolean;
+  readonly minimumContrastRatio: number;
+  readonly lineHeight: number;
+  readonly letterSpacing: number;
+  readonly screenReaderMode: boolean;
+};
+
+type MutableTerminalOptions = {
+  -readonly [K in keyof ManagedTerminalOptions]: ManagedTerminalOptions[K];
+};
+
+export const MANAGED_TERMINAL_OPTIONS = [
+  "scrollSensitivity",
+  "fastScrollSensitivity",
+  "fontSize",
+  "fontFamily",
+  "cursorStyle",
+  "scrollback",
+  "cursorBlink",
+  "minimumContrastRatio",
+  "lineHeight",
+  "letterSpacing",
+  "screenReaderMode",
+] as const satisfies ReadonlyArray<keyof ManagedTerminalOptions>;
+
+/**
+ * Options that move the measured character cell. xterm re-measures and clears
+ * its renderer on its own for these (CharSizeService, RenderService), but it
+ * keeps the SAME cols×rows — so the pane now fits a different number of cells
+ * and only a re-fit corrects the grid and the child PTY.
+ */
+export const METRIC_TERMINAL_OPTIONS = [
+  "fontSize",
+  "fontFamily",
+  "lineHeight",
+  "letterSpacing",
+] as const satisfies ReadonlyArray<keyof ManagedTerminalOptions>;
+
+/**
+ * Preferences → xterm options.
+ *
+ * cursorBlink is the one composite: the preference GATES the surface's
+ * visibility-driven blink, it does not replace it. False here means never
+ * blink — an operator who turned it off for photosensitivity must not see it
+ * come back when the pane is focused.
+ */
+export const managedTerminalOptions = (
+  prefs: TerminalSettings,
+  surface: { readonly visible: boolean },
+): ManagedTerminalOptions => ({
+  scrollSensitivity: prefs.scrollSensitivity,
+  fastScrollSensitivity: prefs.scrollSensitivity * SCROLL_FAST_MULTIPLE,
+  fontSize: prefs.fontSize,
+  fontFamily: prefs.fontFamily,
+  cursorStyle: prefs.cursorStyle,
+  scrollback: prefs.scrollback,
+  cursorBlink: prefs.cursorBlink && surface.visible,
+  minimumContrastRatio: prefs.minimumContrastRatio,
+  lineHeight: prefs.lineHeight,
+  letterSpacing: prefs.letterSpacing,
+  screenReaderMode: prefs.screenReaderMode,
+});
+
+export type TerminalOptionsWrite = {
+  readonly changed: ReadonlyArray<keyof ManagedTerminalOptions>;
+  readonly metricsChanged: boolean;
+  readonly scrollbackChanged: boolean;
+  readonly scrollbackShrank: boolean;
+};
+
+const assignOption = <K extends keyof ManagedTerminalOptions>(
+  options: Partial<MutableTerminalOptions>,
+  key: K,
+  value: ManagedTerminalOptions[K],
+): void => {
+  options[key] = value;
+};
+
+/**
+ * Write the changed options onto a live terminal, and only those.
+ *
+ * Every write to `term.options` fires xterm's option-change listeners — a
+ * metric write clears the renderer and re-measures, a scrollback write resizes
+ * both buffers. Writing the whole set on every settings broadcast would do all
+ * of that for an unrelated edit to, say, audio volume.
+ */
+export const writeManagedTerminalOptions = (
+  target: { readonly options: Partial<MutableTerminalOptions> },
+  next: ManagedTerminalOptions,
+): TerminalOptionsWrite => {
+  const options = target.options;
+  const previousScrollback = options.scrollback;
+  const changed: Array<keyof ManagedTerminalOptions> = [];
+  for (const key of MANAGED_TERMINAL_OPTIONS) {
+    if (options[key] === next[key]) continue;
+    assignOption(options, key, next[key]);
+    changed.push(key);
+  }
+  const scrollbackChanged = changed.includes("scrollback");
+  return {
+    changed,
+    metricsChanged: changed.some((key) =>
+      (METRIC_TERMINAL_OPTIONS as ReadonlyArray<string>).includes(key),
+    ),
+    scrollbackChanged,
+    scrollbackShrank:
+      scrollbackChanged &&
+      typeof previousScrollback === "number" &&
+      next.scrollback < previousScrollback,
+  };
+};
+
+/**
+ * What a scrollback write costs the viewport.
+ *
+ * Read from xterm's own buffer code, not from the docs: shrinking scrollback
+ * re-resizes the buffer, and the shrink path trims from the TOP
+ * (`lines.trimStart`, then `ybase`/`ydisp` reduced by the same amount, clamped
+ * at 0) — Buffer.resize, @xterm/xterm 6.1.0-beta.302. The live screen and the
+ * newest scrollback therefore always survive; what moves is where the viewport
+ * is pointing. Two consequences the surface has to answer for:
+ *
+ * - ydisp is mutated in place with no scroll event, and cols×rows did not
+ *   change, so nothing schedules a repaint — the rows on screen can be stale.
+ *   Any scrollback write ends in a forced paint.
+ * - a viewport that was following the live output can be clamped off the
+ *   bottom. Re-pin it. A viewport parked up in history is left where xterm put
+ *   it — yanking an operator who is reading back is worse than the drift.
+ */
+export type ScrollbackRepair = "none" | "repaint" | "scroll to bottom";
+
+export const scrollbackRepair = (input: {
+  readonly changed: boolean;
+  readonly shrank: boolean;
+  readonly atBottom: boolean;
+}): ScrollbackRepair =>
+  !input.changed
+    ? "none"
+    : input.shrank && input.atBottom
+      ? "scroll to bottom"
+      : "repaint";
+
+/** How the surface answers xterm's onBell. "off" subscribes to nothing. */
+export type BellResponse = "none" | "flash" | "sound";
+
+export const bellResponse = (bell: TerminalSettings["bell"]): BellResponse => {
+  switch (bell) {
+    case "visual":
+      return "flash";
+    case "sound":
+      return "sound";
+    default:
+      return "none";
+  }
+};
+
+/** The live-terminal surface applyTerminalPreferences drives. */
+export type LiveTerminalTarget = {
+  readonly options: Partial<MutableTerminalOptions>;
+  readonly buffer: {
+    readonly active: { readonly viewportY: number; readonly baseY: number };
+  };
+  readonly scrollToBottom: () => void;
+};
+
+export type TerminalPrefsApplication = {
+  readonly write: TerminalOptionsWrite;
+  readonly repair: ScrollbackRepair;
+  readonly refitted: boolean;
+};
+
+/**
+ * Apply durable preferences to an already-open terminal.
+ *
+ * The whole decision lives here so opening a terminal and editing a preference
+ * on an open one run the same code: write what changed, repair the viewport a
+ * scrollback write disturbed, and re-push geometry when the cell metrics moved.
+ * `refit` and `refitBurst` are the surface's existing resize path — this
+ * function never measures anything itself.
+ */
+export const applyTerminalPreferences = (
+  prefs: TerminalSettings,
+  deps: {
+    readonly term: LiveTerminalTarget;
+    readonly visible: boolean;
+    /** Re-measure the pane and re-push geometry — one immediate pass. */
+    readonly refit: () => void;
+    /** Settle ladder for the layout that follows a cell-metric change. */
+    readonly refitBurst: () => void;
+  },
+): TerminalPrefsApplication => {
+  let atBottom = true;
+  try {
+    const buffer = deps.term.buffer.active;
+    atBottom = buffer.viewportY >= buffer.baseY;
+  } catch {
+    // Buffer can throw mid-dispose; treat it as following the live output.
+  }
+  const write = writeManagedTerminalOptions(
+    deps.term,
+    managedTerminalOptions(prefs, { visible: deps.visible }),
+  );
+  const repair = scrollbackRepair({
+    changed: write.scrollbackChanged,
+    shrank: write.scrollbackShrank,
+    atBottom,
+  });
+  if (repair === "scroll to bottom") {
+    try {
+      deps.term.scrollToBottom();
+    } catch {
+      // Scroll APIs throw mid-dispose; the forced paint below still runs.
+    }
+  }
+  const refitted = write.metricsChanged || repair !== "none";
+  if (refitted) deps.refit();
+  if (write.metricsChanged) deps.refitBurst();
+  return { write, repair, refitted };
 };
 
 /**
@@ -306,9 +545,10 @@ const readCellSize = (term: Terminal): { cellW: number; cellH: number } => {
 const measureHost = (
   host: HTMLElement,
   term: Terminal,
+  fallback: CellSize,
 ): { cols: number; rows: number; w: number; h: number } | null => {
   const hostRect = host.getBoundingClientRect();
-  const { cellW, cellH } = readCellSize(term);
+  const { cellW, cellH } = readCellSize(term, fallback);
   return cellsForPane({
     hostWidth: hostRect.width,
     hostHeight: hostRect.height,
@@ -334,6 +574,21 @@ export function TerminalSurface({
   const appearanceRef = useRef<ReturnType<typeof attachXtermAppearance> | null>(
     null,
   );
+  /**
+   * Durable terminal preferences, as last applied to this surface. Read
+   * through terminalSettings(): an installed settings row written before the
+   * terminal fragment existed has no `terminal` key, and absence means
+   * "today's terminal", not "no terminal".
+   */
+  const prefsRef = useRef<TerminalSettings>(
+    terminalSettings(state$.settings.peek()),
+  );
+  /** Live xterm.onBell subscription, plus the bell mode it was opened for. */
+  const bellRef = useRef<{ readonly dispose: () => void } | null>(null);
+  const bellModeRef = useRef<TerminalSettings["bell"] | null>(null);
+  const bellFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Settle ladder owned by the preference path (the attach path has its own). */
+  const prefFitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const leaseRef = useRef<string | undefined>(undefined);
   const epochRef = useRef<string | undefined>(undefined);
   const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
@@ -413,7 +668,8 @@ export function TerminalSurface({
     const host = hostRef.current;
     if (!term || !host) return;
 
-    const measured = measureHost(host, term);
+    const fallback = fallbackCell(prefsRef.current);
+    const measured = measureHost(host, term, fallback);
     if (!measured) {
       logTermGeom("measure-rejected", {
         hostW: Math.round(host.getBoundingClientRect().width),
@@ -432,7 +688,7 @@ export function TerminalSurface({
       { cols, rows },
     );
     if (geomChanged || opts?.forcePaint) {
-      const { cellW, cellH } = readCellSize(term);
+      const { cellW, cellH } = readCellSize(term, fallback);
       const screen = host.querySelector<HTMLElement>(".xterm-screen");
       const screenW = screen ? Math.round(screen.getBoundingClientRect().width) : -1;
       logTermGeom("resize", {
@@ -440,8 +696,7 @@ export function TerminalSurface({
         measuredH: Math.round(measured.h),
         cellW: Number(cellW.toFixed(3)),
         cellH: Number(cellH.toFixed(3)),
-        cellIsFallback:
-          Math.abs(cellW - FALLBACK_CELL_W) < 0.001 && Math.abs(cellH - FALLBACK_CELL_H) < 0.001,
+        cellIsFallback: isFallbackCell({ cellW, cellH }, fallback),
         cols,
         rows,
         termCols: term.cols,
@@ -565,15 +820,15 @@ export function TerminalSurface({
     const root = rootRef.current;
     if (!host) return;
 
+    // Preferences at construction. The settings bridge hydrates from main
+    // asynchronously, so a terminal opened during boot is built from the
+    // defaults and corrected by the live effect below when the row lands —
+    // the same path an operator edit takes.
+    const prefs = terminalSettings(state$.settings.peek());
+    prefsRef.current = prefs;
     const term = new Terminal({
-      cursorBlink: visibleRef.current,
-      scrollback: 10_000,
+      ...managedTerminalOptions(prefs, { visible: visibleRef.current }),
       allowProposedApi: true,
-      scrollSensitivity: SCROLL_SENSITIVITY,
-      fastScrollSensitivity: SCROLL_SENSITIVITY_FAST,
-      fontFamily: VELLUM_XTERM_FONT_FAMILY,
-      fontSize: FONT_SIZE,
-      lineHeight: 1.2,
       theme: xtermThemeFor(themeMode$.peek()),
     });
     // FitAddon still loaded for xterm internals; host measure is geometry authority.
@@ -608,7 +863,8 @@ export function TerminalSurface({
       report: reportRenderer,
     });
     {
-      const { cellW, cellH } = readCellSize(term);
+      const openFallback = fallbackCell(prefs);
+      const { cellW, cellH } = readCellSize(term, openFallback);
       logTermGeom("open", {
         hostW: Math.round(openRect.width),
         hostH: Math.round(openRect.height),
@@ -617,8 +873,7 @@ export function TerminalSurface({
         cellW: Number(cellW.toFixed(3)),
         cellH: Number(cellH.toFixed(3)),
         // true => xterm's own measurement was unavailable and a guess is in use
-        cellIsFallback:
-          Math.abs(cellW - FALLBACK_CELL_W) < 0.001 && Math.abs(cellH - FALLBACK_CELL_H) < 0.001,
+        cellIsFallback: isFallbackCell({ cellW, cellH }, openFallback),
         termCols: term.cols,
         termRows: term.rows,
       });
@@ -767,13 +1022,117 @@ export function TerminalSurface({
     [],
   );
 
+  /**
+   * Visual bell: a short ring on the surface plate.
+   *
+   * Inline outline rather than a class, so the flash needs nothing from the
+   * stylesheet and cannot be left stuck on by a missed transition end.
+   */
+  const flashBell = (): void => {
+    const root = rootRef.current;
+    if (!root) return;
+    if (bellFlashTimer.current !== undefined) clearTimeout(bellFlashTimer.current);
+    root.style.outline = "2px solid currentColor";
+    root.style.outlineOffset = "-2px";
+    bellFlashTimer.current = setTimeout(() => {
+      bellFlashTimer.current = undefined;
+      root.style.outline = "";
+      root.style.outlineOffset = "";
+    }, 120);
+  };
+
+  const releaseBell = (): void => {
+    try {
+      bellRef.current?.dispose();
+    } catch {
+      // The terminal may already be disposed; teardown must never throw.
+    }
+    bellRef.current = null;
+  };
+
+  /**
+   * xterm 6 has no bell option, only an onBell event, so the response is this
+   * surface's. "off" holds no subscription at all — today's behaviour.
+   */
+  const applyBellPreference = (bell: TerminalSettings["bell"]): void => {
+    if (bellModeRef.current === bell) return;
+    bellModeRef.current = bell;
+    releaseBell();
+    const response = bellResponse(bell);
+    if (response === "none") return;
+    const term = termRef.current;
+    if (!term) return;
+    bellRef.current = term.onBell(() => {
+      if (response === "flash") flashBell();
+      // Mute and per-clip volume are the audio settings' business.
+      else playAlert("attention");
+    });
+  };
+
+  /** Settle ladder after a cell-metric change; a newer change replaces it. */
+  const prefRefitBurst = (): void => {
+    for (const timer of prefFitTimers.current) clearTimeout(timer);
+    prefFitTimers.current = SETTLE_FITS_MS.map((ms) =>
+      setTimeout(() => pushResize({ forcePaint: true }), ms),
+    );
+  };
+
+  const applyTerminalPrefs = (prefs: TerminalSettings): void => {
+    prefsRef.current = prefs;
+    const term = termRef.current;
+    if (!term) return;
+    applyBellPreference(prefs.bell);
+    const applied = applyTerminalPreferences(prefs, {
+      term,
+      visible: visibleRef.current,
+      // The one geometry path. A cell-metric change keeps xterm's cols×rows
+      // while the pane now fits a different number of them, so the grid and
+      // the child PTY are corrected exactly the way a pane resize corrects
+      // them.
+      refit: () => pushResize({ forcePaint: true }),
+      refitBurst: prefRefitBurst,
+    });
+    if (applied.write.changed.length === 0) return;
+    logTermGeom("settings", {
+      changed: [...applied.write.changed],
+      metrics: applied.write.metricsChanged,
+      scrollback: applied.repair,
+    });
+  };
+
+  /**
+   * Live preferences. Terminal settings live in the StateEngine and reach this
+   * window over the settings broadcast (lib/settings-state.ts), so an edit has
+   * to land on an already-open terminal — closing and reopening a seat to pick
+   * up a font size is not a setting taking effect.
+   */
+  useEffect(() => {
+    applyTerminalPrefs(terminalSettings(state$.settings.peek()));
+    const off = state$.settings.onChange(() => {
+      applyTerminalPrefs(terminalSettings(state$.settings.peek()));
+    });
+    return () => {
+      off();
+      for (const timer of prefFitTimers.current) clearTimeout(timer);
+      prefFitTimers.current = [];
+      if (bellFlashTimer.current !== undefined) {
+        clearTimeout(bellFlashTimer.current);
+        bellFlashTimer.current = undefined;
+      }
+      releaseBell();
+      bellModeRef.current = null;
+    };
+  }, []);
+
   // Focus-zone open / unpark: put the xterm textarea under the keyboard so
   // the operator can type immediately. Opening is the opt-in; later retries
   // wait for slot adoption into the shell and stop if they have already
   // chosen another control inside the modal.
   useEffect(() => {
     const term = termRef.current;
-    if (term) term.options.cursorBlink = visible;
+    // Blink is visibility AND preference: a hidden pane stops forcing repaints,
+    // and an operator who turned blinking off never gets it back on focus.
+    if (term) applyTerminalPrefs(prefsRef.current);
     if (!visible) return;
     if (!term) return;
     const claim = (): boolean => {
