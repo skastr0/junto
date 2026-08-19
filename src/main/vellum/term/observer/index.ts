@@ -19,7 +19,12 @@ export type {
   ObserverSignals,
   SessionObserverOptions,
 } from "./types";
-export { SessionObserver } from "./session-observer";
+export {
+  DEFAULT_OBSERVER_WRITE_INTERVAL_MS,
+  SessionObserver,
+  getObserverWriteIntervalMs,
+  setObserverWriteIntervalMs,
+} from "./session-observer";
 export { sanitizeTitle } from "./sanitize";
 export {
   afterLastHorizontalRule,

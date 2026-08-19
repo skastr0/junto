@@ -1,8 +1,11 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_OBSERVER_WRITE_INTERVAL_MS,
   SessionObserver,
   TerminalObserverPlane,
+  getObserverWriteIntervalMs,
+  setObserverWriteIntervalMs,
   afterLastHorizontalRule,
   bottomNonEmptyLines,
   footerLine,
@@ -398,5 +401,235 @@ describe("SessionObserver write cadence", () => {
     expect(screen.serialized).toContain("buffered output");
     expect(screen.seq).toBe(7n);
     observer.dispose();
+  });
+});
+
+/**
+ * Sampling floor: how OFTEN the headless grid is written, on top of the
+ * self-clocking coalescer. Bench (200x50 grid): term.write VT parse is
+ * 1.166 ms/chunk and dominates observer cost; the viewport snapshot that
+ * follows costs 0.085 ms. Batching the writes is therefore the whole win — and
+ * the batch must never drop bytes, because VT is stateful.
+ */
+describe("SessionObserver sampling floor", () => {
+  const delay = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  /** Count real term.write calls by wrapping the observer's headless grid. */
+  const countWrites = (observer: SessionObserver): { readonly n: () => number } => {
+    const inner = observer as unknown as {
+      term: { write: (data: string, cb?: () => void) => void };
+    };
+    const original = inner.term.write.bind(inner.term);
+    let n = 0;
+    inner.term.write = (data: string, cb?: () => void) => {
+      n += 1;
+      original(data, cb);
+    };
+    return { n: () => n };
+  };
+
+  /**
+   * Load the floor exists for: chunks keep arriving while the grid is still
+   * parsing the last batch (node-pty hands over ~50k chunks/sec on dense
+   * output). Each tick queues a group behind the in-flight write.
+   */
+  const streamUnderLoad = async (
+    observer: SessionObserver,
+    opts: { readonly ticks: number; readonly perTick: number; readonly gapMs: number },
+  ): Promise<{ readonly chunks: number; readonly bytes: string }> => {
+    let seq = 0n;
+    let bytes = "";
+    for (let tick = 0; tick < opts.ticks; tick++) {
+      for (let i = 0; i < opts.perTick; i++) {
+        seq += 1n;
+        const chunk = `dense build log line ${seq}\r\n`;
+        bytes += chunk;
+        observer.feed(chunk, seq);
+      }
+      await delay(opts.gapMs);
+    }
+    return { chunks: Number(seq), bytes };
+  };
+
+  it("caps a loaded stream at the sampling floor instead of writing per batch", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    const writes = countWrites(observer);
+
+    // ~600ms of stream, 10 chunks every 20ms. Unfloored, every tick pays an
+    // immediate write plus its coalesced follow-up.
+    const { chunks, bytes } = await streamUnderLoad(observer, {
+      ticks: 30,
+      perTick: 10,
+      gapMs: 20,
+    });
+    const snap = await observer.snapshot();
+
+    // 600ms at a 200ms floor: the leading write, ~3 floor writes, the settle.
+    expect(writes.n()).toBeLessThanOrEqual(8);
+
+    // Batched, never skipped: every byte landed, in order, with its seq.
+    expect(snap.seq).toBe(BigInt(chunks));
+    expect(snap.text).toContain(`dense build log line ${chunks}`);
+
+    const control = new SessionObserver({ bindingId: "c", epoch: "e", cols: 80, rows: 24 });
+    control.feed(bytes, BigInt(chunks));
+    const controlSnap = await control.snapshot();
+    expect(snap.lines).toEqual(controlSnap.lines);
+
+    observer.dispose();
+    control.dispose();
+  });
+
+  it("writes a lone chunk into an idle observer immediately", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    try {
+      const startedAt = Date.now();
+      const emitted = new Promise<number>((resolve) => {
+        observer.subscribe(() => {
+          resolve(Date.now() - startedAt);
+        });
+      });
+      // No snapshot() await — the write must happen on its own, not because a
+      // caller forced a settle.
+      observer.feed("\x1b]0;Claude - working\x07", 1n);
+      expect(await emitted).toBeLessThan(100);
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it("never holds a chunk back when the grid is not mid-write", async () => {
+    // The floor is for load, not for cadence: a seat painting once per tick
+    // still gets a write (and therefore a snapshot) per paint, so the
+    // edge-driven seat state machine sees every transition.
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    const writes = countWrites(observer);
+    try {
+      for (let i = 0; i < 5; i++) {
+        observer.feed(`paint ${i}\r\n`, BigInt(i + 1));
+        await observer.snapshot();
+      }
+      expect(writes.n()).toBe(5);
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it("never holds a seat-signal edge behind the floor", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    try {
+      const titles: string[] = [];
+      observer.subscribe((snap) => {
+        titles.push(snap.signals.title);
+      });
+      // Put the observer under load first, so the floor is engaged.
+      await streamUnderLoad(observer, { ticks: 4, perTick: 10, gapMs: 10 });
+      const startedAt = Date.now();
+      const seen = new Promise<number>((resolve) => {
+        observer.subscribe((snap) => {
+          if (snap.signals.title === "Action Required") resolve(Date.now() - startedAt);
+        });
+      });
+      observer.feed("\x1b]0;Action Required\x07", 999n);
+      // OSC title / OSC 9 / DEC-private bytes are the seat signal — sampling
+      // the grid must not sample them.
+      expect(await seen).toBeLessThan(100);
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it("settles buffered bytes without waiting out the floor", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    try {
+      // Queue bytes behind an in-flight write so the floor is holding them.
+      observer.feed("a".repeat(4_000), 1n);
+      observer.feed("b", 2n);
+      observer.feed("c", 3n);
+      // Let the in-flight write land: the follow-up is now on the floor timer.
+      await delay(40);
+      const startedAt = Date.now();
+      const snap = await observer.snapshot();
+
+      expect(Date.now() - startedAt).toBeLessThan(150);
+      expect(snap.text).toContain("bc");
+      expect(snap.seq).toBe(3n);
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it("releases held bytes on its own when nobody settles", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    try {
+      let lastText = "";
+      observer.subscribe((snap) => {
+        lastText = snap.text;
+      });
+      observer.feed("a".repeat(4_000), 1n);
+      observer.feed("held-tail\r\n", 2n);
+
+      // The floor timer must fire on its own — no snapshot(), no settle.
+      await delay(DEFAULT_OBSERVER_WRITE_INTERVAL_MS + 200);
+      expect(lastText).toContain("held-tail");
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it("honors a per-session interval override", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    const writes = countWrites(observer);
+    try {
+      expect(observer.writeIntervalMs).toBe(DEFAULT_OBSERVER_WRITE_INTERVAL_MS);
+      // Zero floor restores per-batch writes for a session that needs them.
+      observer.setWriteIntervalMs(0);
+      expect(observer.writeIntervalMs).toBe(0);
+
+      await streamUnderLoad(observer, { ticks: 12, perTick: 10, gapMs: 20 });
+      await observer.snapshot();
+      expect(writes.n()).toBeGreaterThan(8);
+
+      observer.setWriteIntervalMs(undefined);
+      expect(observer.writeIntervalMs).toBe(DEFAULT_OBSERVER_WRITE_INTERVAL_MS);
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it("scales the process-wide floor through the setter, clamped", () => {
+    try {
+      setObserverWriteIntervalMs(450);
+      expect(getObserverWriteIntervalMs()).toBe(450);
+      const scaled = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+      expect(scaled.writeIntervalMs).toBe(450);
+      scaled.dispose();
+
+      setObserverWriteIntervalMs(-5);
+      expect(getObserverWriteIntervalMs()).toBe(0);
+      setObserverWriteIntervalMs(99_999);
+      expect(getObserverWriteIntervalMs()).toBe(2_000);
+      setObserverWriteIntervalMs(Number.NaN);
+      expect(getObserverWriteIntervalMs()).toBe(DEFAULT_OBSERVER_WRITE_INTERVAL_MS);
+    } finally {
+      setObserverWriteIntervalMs(DEFAULT_OBSERVER_WRITE_INTERVAL_MS);
+    }
+  });
+
+  it("dispose drops held bytes and their timer", async () => {
+    const observer = new SessionObserver({ bindingId: "b", epoch: "e", cols: 80, rows: 24 });
+    let emissions = 0;
+    observer.subscribe(() => {
+      emissions += 1;
+    });
+    observer.feed("a".repeat(4_000), 1n);
+    observer.feed("held\r\n", 2n);
+    const afterFeed = emissions;
+    observer.dispose();
+    await delay(DEFAULT_OBSERVER_WRITE_INTERVAL_MS + 150);
+    expect(emissions).toBe(afterFeed);
   });
 });

@@ -89,6 +89,60 @@ const { SerializeAddon } = require("@xterm/addon-serialize") as {
  */
 const DEFAULT_UNICODE = "6" as const;
 
+/**
+ * Sampling floor for observer grid writes, in milliseconds.
+ *
+ * A headless `term.write` costs ~1.17ms of VT parse per call on a 200x50 grid
+ * (measured), dominated by per-write overhead rather than byte count, while the
+ * viewport snapshot that follows costs ~0.085ms. Batching the writes is
+ * therefore the whole win: under load the grid is written at most once per
+ * interval, ~5 parses/second/session, no matter how many chunks node-pty
+ * delivers.
+ *
+ * Bytes are never dropped — VT is stateful, so a skipped chunk corrupts the
+ * grid. The floor only decides *when* the queued bytes are written, always in
+ * arrival order and always in full.
+ */
+export const DEFAULT_OBSERVER_WRITE_INTERVAL_MS = 200;
+
+let processWriteIntervalMs: number = DEFAULT_OBSERVER_WRITE_INTERVAL_MS;
+
+const clampInterval = (ms: number): number =>
+  Number.isFinite(ms)
+    ? Math.max(0, Math.min(2_000, Math.floor(ms)))
+    : DEFAULT_OBSERVER_WRITE_INTERVAL_MS;
+
+/** Current process-wide observer sampling floor (ms). */
+export const getObserverWriteIntervalMs = (): number => processWriteIntervalMs;
+
+/**
+ * Set the process-wide observer sampling floor (ms, clamped to 0..2000).
+ * Live observers read this on every flush decision, so raising it as the
+ * session count grows takes effect immediately. Per-session overrides go
+ * through `SessionObserver.setWriteIntervalMs`.
+ */
+export const setObserverWriteIntervalMs = (ms: number): void => {
+  processWriteIntervalMs = clampInterval(ms);
+};
+
+/**
+ * OSC introducer. OSC 0/2 (title) and OSC 9 (progress) are the primary seat
+ * signal on every harness, and the seat state machine is edge-driven: holding
+ * a title flip behind the sampling floor would turn a live factory signal into
+ * a sampled one. Grid churn is sampled; signal bytes are not.
+ */
+const OSC_INTRODUCER = "\u001b]";
+
+/**
+ * DEC private mode set/reset introducer (CSI ? ... h|l). Carries alt-screen,
+ * bracketed paste, and the negotiated mouse encoding — all seat-observation
+ * state, all edge-driven.
+ */
+const DEC_PRIVATE_INTRODUCER = "\u001b[?";
+
+const carriesSignal = (data: string): boolean =>
+  data.includes(OSC_INTRODUCER) || data.includes(DEC_PRIVATE_INTRODUCER);
+
 export class SessionObserver {
   readonly bindingId: string;
   readonly epoch: string;
@@ -107,6 +161,16 @@ export class SessionObserver {
   /** Journal seq of the newest buffered chunk — pinned when that write lands. */
   private pendingSeq: bigint | undefined;
   private writeInFlight = false;
+  /** Per-session override of the sampling floor; falls back to the process value. */
+  private writeIntervalOverride: number | undefined;
+  /** When the last write was handed to the grid. Undefined until the first one. */
+  private lastWriteStartedAt: number | undefined;
+  /** Armed only while buffered bytes are waiting out the sampling floor. */
+  private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Buffered bytes carry an OSC / DEC-private edge — never hold those back. */
+  private pendingSignal = false;
+  /** Last time a chunk arrived while the grid was mid-write (producer > parser). */
+  private lastBacklogAt: number | undefined;
 
   constructor(opts: SessionObserverOptions) {
     this.bindingId = opts.bindingId;
@@ -210,7 +274,22 @@ export class SessionObserver {
    * while a write + snapshot per chunk drains at ~800/sec — so one second of
    * that output took ~65s to absorb and pinned a main-process core long after
    * the child went quiet. Coalescing makes the batch grow with the load
-   * instead, with no added latency on a quiet seat and no timer to tune.
+   * instead, with no added latency on a quiet seat.
+   *
+   * On top of that, a sampling floor (`DEFAULT_OBSERVER_WRITE_INTERVAL_MS`)
+   * bounds how often the grid is written while the producer outruns the
+   * parser. Without it the write-callback loop re-writes the moment the last
+   * parse lands, ~800/sec; with it the follow-up waits out the interval and
+   * absorbs the whole window as one batch, ~5 parses/sec. Held bytes are
+   * always written in full and in order — VT is stateful, so skipping a chunk
+   * would corrupt the grid.
+   *
+   * The floor is deliberately narrow. It engages only while chunks are landing
+   * mid-write; a quiet seat, and the first chunk after a stream stops, are
+   * written immediately, and bytes carrying a seat signal (OSC title / OSC 9 /
+   * DEC private mode) are never held at all. The seat state machine is
+   * edge-driven and is a live factory signal, so grid churn is what gets
+   * sampled — never a state edge.
    *
    * The same bytes are written in the same order, so the grid is
    * byte-identical — only the number of write callbacks and snapshots
@@ -223,9 +302,78 @@ export class SessionObserver {
     if (this.disposed) return;
     this.pending.push(data);
     this.pendingSeq = seq;
-    // Idle seat: write straight through, no added latency. Under load the
-    // in-flight write absorbs everything that arrives behind it.
-    if (!this.writeInFlight) this.flushPending();
+    if (!this.pendingSignal && carriesSignal(data)) this.pendingSignal = true;
+    // Bytes landing mid-write mean the producer is outrunning the parser —
+    // the regime the sampling floor exists for.
+    if (this.writeInFlight) {
+      this.lastBacklogAt = Date.now();
+      return;
+    }
+    // Idle seat: write straight through, no added latency.
+    this.maybeFlush();
+  }
+
+  /** Sampling floor in effect for this session (ms). */
+  get writeIntervalMs(): number {
+    return this.writeIntervalOverride ?? processWriteIntervalMs;
+  }
+
+  /**
+   * Override the sampling floor for this session (ms, clamped to 0..2000).
+   * Pass `undefined` to fall back to the process-wide value. Takes effect on
+   * the bytes already waiting, so lowering it releases them immediately.
+   */
+  setWriteIntervalMs(ms: number | undefined): void {
+    this.writeIntervalOverride = ms === undefined ? undefined : clampInterval(ms);
+    this.clearFlushTimer();
+    this.maybeFlush();
+  }
+
+  /**
+   * Flush now if the sampling floor has elapsed since the last write; otherwise
+   * arm a single timer for the remainder. Bytes only ever wait — they are
+   * never dropped, and they keep their arrival order.
+   */
+  private maybeFlush(): void {
+    if (this.disposed || this.writeInFlight || this.pending.length === 0) return;
+    const wait = this.floorWaitMs();
+    if (wait <= 0) {
+      this.flushPending();
+      return;
+    }
+    if (this.flushTimer !== undefined) return;
+    const timer = setTimeout(() => {
+      this.flushTimer = undefined;
+      this.maybeFlush();
+    }, wait);
+    // Never hold the process (or a test runner) open for a grid write.
+    (timer as unknown as { unref?: () => void }).unref?.();
+    this.flushTimer = timer;
+  }
+
+  /**
+   * How long the buffered bytes must wait, in ms. Zero means write now.
+   *
+   * The floor engages only in the regime it was measured for: a stream dense
+   * enough that chunks land while the grid is still parsing the last batch.
+   * A quiet seat, and the first chunk after a stream stops, never wait — and
+   * seat-signal bytes never wait at all.
+   */
+  private floorWaitMs(): number {
+    if (this.pendingSignal) return 0;
+    if (this.lastWriteStartedAt === undefined) return 0;
+    const now = Date.now();
+    const hot =
+      this.lastBacklogAt !== undefined &&
+      now - this.lastBacklogAt <= this.writeIntervalMs;
+    if (!hot) return 0;
+    return this.writeIntervalMs - (now - this.lastWriteStartedAt);
+  }
+
+  private clearFlushTimer(): void {
+    if (this.flushTimer === undefined) return;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
   }
 
   /**
@@ -234,11 +382,14 @@ export class SessionObserver {
    * has not absorbed.
    */
   private flushPending(): void {
+    this.clearFlushTimer();
     if (this.disposed || this.pending.length === 0) return;
+    this.lastWriteStartedAt = Date.now();
     const data = this.pending.join("");
     const seq = this.pendingSeq;
     this.pending = [];
     this.pendingSeq = undefined;
+    this.pendingSignal = false;
     this.writeInFlight = true;
     this.writeQueue = this.writeQueue
       .then(
@@ -254,8 +405,9 @@ export class SessionObserver {
               this.writeInFlight = false;
               this.emitSnapshot();
               // Everything that arrived during this write goes out as one
-              // follow-up write, so the batch grows with the load.
-              this.flushPending();
+              // follow-up write, so the batch grows with the load — but no
+              // sooner than the sampling floor allows.
+              this.maybeFlush();
               resolve();
             });
           }),
@@ -265,8 +417,16 @@ export class SessionObserver {
       });
   }
 
-  /** Flush buffered bytes and wait for the grid to absorb them. */
+  /**
+   * Flush buffered bytes and wait for the grid to absorb them.
+   *
+   * This deliberately bypasses the sampling floor: a caller awaiting settled
+   * state must observe every byte fed so far, and must never block on a timer
+   * (a settle that waits for its own scheduled write deadlocks under fake
+   * timers).
+   */
   private async settled(): Promise<void> {
+    this.clearFlushTimer();
     this.flushPending();
     await this.writeQueue;
   }
@@ -352,8 +512,10 @@ export class SessionObserver {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearFlushTimer();
     this.pending = [];
     this.pendingSeq = undefined;
+    this.pendingSignal = false;
     this.listeners.clear();
     for (const d of this.disposables.splice(0)) {
       try {
