@@ -9,7 +9,8 @@ export type ClaimedTask = {
   readonly actor: ActorRef;
 };
 
-const isActiveClaim = (task: Task): boolean =>
+/** A claim the operator is meant to see on the seat right now. */
+export const isActiveClaim = (task: Task): boolean =>
   task.state === "working" ||
   task.state === "input-required" ||
   task.state === "auth-required";
