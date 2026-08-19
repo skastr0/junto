@@ -12,6 +12,7 @@ import {
   HARNESS_SETTINGS_ENABLED,
 } from "@shared/features";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
+import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import {
   decodeStateBackupId,
   type StateBackupId,
@@ -48,6 +49,7 @@ type PanelSection = SettingsSectionKey | "license" | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
+  { key: "terminal", label: "Terminal", blurb: "scrolling, font, and accessibility" },
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
     ? [{ key: "station", label: "Machine", blurb: "this installation" } as const]
@@ -1085,6 +1087,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
   switch (section) {
     case "appearance":
       return <AppearanceSection />;
+    case "terminal":
+      return <TerminalSettingsSection />;
     case "station":
       return <StationSection />;
     case "updates":
