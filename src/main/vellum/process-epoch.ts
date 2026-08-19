@@ -16,13 +16,28 @@ export type ProcessEpochCapture = {
   readonly group: ProcessGroupEpoch | undefined;
 };
 export type ProcessEpochReader = {
-  /** The pid hint exists only to make the test reader seam precise. */
+  /**
+   * The pid hint is the requested breadth, not a filter suggestion. A hint asks
+   * only about that one pid, so the system reader answers it with a single-pid
+   * `ps`; no hint asks for the whole table, which only process-group member
+   * enumeration needs. A reader may always answer a hinted read with a wider
+   * table, which is what the test seam does.
+   */
   readonly snapshot: (pidHint?: number) => readonly ProcessEpochRow[] | undefined;
 };
 
+/**
+ * Closed argument shapes. `ps` arguments are product policy, never caller
+ * input: the whole table, or exactly one pid whose digits came from a
+ * validated safe integer.
+ */
+export type ProcessEpochPsArgs =
+  | readonly ["-axo", "pid=,pgid=,sess=,lstart="]
+  | readonly ["-p", string, "-o", "pid=,pgid=,sess=,lstart="];
+
 export type ProcessEpochPsRequest = {
   readonly command: string;
-  readonly args: readonly ["-axo", "pid=,pgid=,sess=,lstart="];
+  readonly args: ProcessEpochPsArgs;
   readonly env: NodeJS.ProcessEnv;
   readonly timeoutMs: number;
   readonly maxBuffer: number;
@@ -57,7 +72,13 @@ export type ProcessGroupObservationRefresh = {
 
 const PS_TIMEOUT_MS = 500;
 const PS_MAX_BUFFER = 16 * 1024 * 1024;
-const PS_ARGS = ["-axo", "pid=,pgid=,sess=,lstart="] as const;
+/** One row cannot approach this; a runaway single-pid read fails closed. */
+const PS_ROW_MAX_BUFFER = 64 * 1024;
+const PS_COLUMNS = "pid=,pgid=,sess=,lstart=" as const;
+const PS_FULL_ARGS = ["-axo", PS_COLUMNS] as const;
+// `lstart` includes wall-clock time. Pin both locale and timezone so an
+// operator timezone change cannot make one live pid look like a new epoch.
+const psEnv = (): NodeJS.ProcessEnv => ({ ...process.env, LC_ALL: "C", TZ: "UTC" });
 const C_LSTART = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s+" +
   "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+" +
   "(?:[1-9]|[12][0-9]|3[01])\\s+" +
@@ -88,40 +109,15 @@ const parseSafeInteger = (value: string, minimum: number): number | undefined =>
 };
 
 /**
- * Read and validate one complete process table. Any ambiguity fails closed:
- * non-zero ps, stderr, one malformed nonblank row, duplicate pids, or a table
- * without Vellum Command's own pid witness all make the snapshot unavailable.
+ * Parse one `ps` body. Every emitted row is fully validated; one malformed
+ * nonblank line or one duplicate pid makes the whole observation unavailable.
  */
-export const readFullProcessEpochSnapshot = (
-  runPs: ProcessEpochPsRunner = systemPsRunner,
-  witnessPid: number = process.pid,
+const parseProcessEpochRows = (
+  stdout: string,
 ): readonly ProcessEpochRow[] | undefined => {
-  const ps = resolveSystemPs();
-  if (ps === undefined) return undefined;
-  let result: ProcessEpochPsResult;
-  try {
-    result = runPs({
-      command: ps,
-      args: PS_ARGS,
-      // `lstart` includes wall-clock time. Pin both locale and timezone so an
-      // operator timezone change cannot make one live pid look like a new epoch.
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
-      timeoutMs: PS_TIMEOUT_MS,
-      maxBuffer: PS_MAX_BUFFER,
-    });
-  } catch {
-    return undefined;
-  }
-  if (
-    result.error !== undefined ||
-    result.status !== 0 ||
-    result.stdout === undefined ||
-    (result.stderr ?? "").trim() !== ""
-  ) return undefined;
-
   const rows: ProcessEpochRow[] = [];
   const seenPids = new Set<number>();
-  for (const line of result.stdout.split(/\r?\n/u)) {
+  for (const line of stdout.split(/\r?\n/u)) {
     if (line.trim() === "") continue;
     const match = PS_ROW.exec(line);
     if (!match) return undefined;
@@ -141,11 +137,106 @@ export const readFullProcessEpochSnapshot = (
     seenPids.add(pid);
     rows.push({ pid, processGroupId, sessionId, startKey: match[4]! });
   }
-  return seenPids.has(witnessPid) ? rows : undefined;
+  return rows;
+};
+
+/**
+ * Read and validate one complete process table. Any ambiguity fails closed:
+ * non-zero ps, stderr, one malformed nonblank row, duplicate pids, or a table
+ * without Vellum Command's own pid witness all make the snapshot unavailable.
+ *
+ * Reserved for the two callers that must enumerate process-group members. Its
+ * cost scales with the machine's process count, so single-pid questions use
+ * `readSingleProcessEpochSnapshot` instead.
+ */
+export const readFullProcessEpochSnapshot = (
+  runPs: ProcessEpochPsRunner = systemPsRunner,
+  witnessPid: number = process.pid,
+): readonly ProcessEpochRow[] | undefined => {
+  const ps = resolveSystemPs();
+  if (ps === undefined) return undefined;
+  let result: ProcessEpochPsResult;
+  try {
+    result = runPs({
+      command: ps,
+      args: PS_FULL_ARGS,
+      env: psEnv(),
+      timeoutMs: PS_TIMEOUT_MS,
+      maxBuffer: PS_MAX_BUFFER,
+    });
+  } catch {
+    return undefined;
+  }
+  if (
+    result.error !== undefined ||
+    result.status !== 0 ||
+    result.stdout === undefined ||
+    (result.stderr ?? "").trim() !== ""
+  ) return undefined;
+
+  const rows = parseProcessEpochRows(result.stdout);
+  if (rows === undefined) return undefined;
+  return rows.some((row) => row.pid === witnessPid) ? rows : undefined;
+};
+
+/**
+ * Answer one pid's epoch question with a single-pid `ps`, so the cost is the
+ * asked-about process rather than the machine's whole process table.
+ *
+ * Three outcomes, and the difference between the last two is the point:
+ * one row (present), `[]` (a clean read proving the pid is absent), and
+ * `undefined` (the observation is unavailable and nothing may be concluded).
+ *
+ * The full table needs Vellum Command's own pid as a witness because `-axo`
+ * has no way to say "this table is complete" — a truncated table would read as
+ * "the process is gone". A single-pid read replaces that witness with direct
+ * evidence and cannot borrow it: macOS `ps` answers a two-pid `-p` list by
+ * walking the table anyway, measured at ~285ms against ~2.4ms for one pid.
+ * Presence is therefore proven by a parsed row for the exact requested pid;
+ * absence is proven only by a run that reported no error, wrote nothing to
+ * stderr, exited with a status `ps` uses for "ran fine" (0) or "no matching
+ * process" (1), and produced no rows at all. Every other shape is unavailable.
+ * A `ps` that reported absence wrongly would still only make callers refuse
+ * authority: no caller in this module reads absence as a completed terminate.
+ */
+export const readSingleProcessEpochSnapshot = (
+  pid: number,
+  runPs: ProcessEpochPsRunner = systemPsRunner,
+): readonly ProcessEpochRow[] | undefined => {
+  if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
+  const ps = resolveSystemPs();
+  if (ps === undefined) return undefined;
+  let result: ProcessEpochPsResult;
+  try {
+    result = runPs({
+      command: ps,
+      args: ["-p", String(pid), "-o", PS_COLUMNS],
+      env: psEnv(),
+      timeoutMs: PS_TIMEOUT_MS,
+      maxBuffer: PS_ROW_MAX_BUFFER,
+    });
+  } catch {
+    return undefined;
+  }
+  if (
+    result.error !== undefined ||
+    result.stdout === undefined ||
+    (result.stderr ?? "").trim() !== "" ||
+    (result.status !== 0 && result.status !== 1)
+  ) return undefined;
+
+  const rows = parseProcessEpochRows(result.stdout);
+  if (rows === undefined) return undefined;
+  if (rows.length === 0) return [];
+  // A single-pid query that answered about anything else is incoherent.
+  return rows.length === 1 && rows[0]!.pid === pid ? rows : undefined;
 };
 
 const systemReader: ProcessEpochReader = {
-  snapshot: () => readFullProcessEpochSnapshot(),
+  snapshot: (pidHint) =>
+    pidHint === undefined
+      ? readFullProcessEpochSnapshot()
+      : readSingleProcessEpochSnapshot(pidHint),
 };
 
 let reader: ProcessEpochReader = systemReader;
@@ -206,7 +297,8 @@ const unionMemberEpochs = (
 export const captureProcessGroupObservation = (
   leaderPid: number,
 ): ProcessGroupObservation | undefined => {
-  const snapshot = reader.snapshot(leaderPid);
+  // Member enumeration is the one question a single-pid read cannot answer.
+  const snapshot = reader.snapshot();
   if (!snapshot) return undefined;
   const leader = snapshot.find((candidate) =>
     candidate.pid === leaderPid && candidate.processGroupId === leaderPid
