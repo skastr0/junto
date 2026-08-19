@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasNode } from "@shared/canvas";
@@ -110,6 +111,113 @@ const XTERM_PAD_Y = 12; // 6 + 6
 const RESIZE_DEBOUNCE_MS = 48;
 /** After open/attach, wait for focus-shell enter + stored size apply. */
 const SETTLE_FITS_MS = [0, 50, 160, 320, 600] as const;
+
+/**
+ * Which renderer is painting this surface. Diagnosis only — never a
+ * user-facing surface and never product copy.
+ */
+export type TerminalRendererKind = "webgl" | "dom";
+
+/**
+ * Written on the surface root and the xterm host so the active renderer is
+ * readable from devtools and from an e2e page query, without a UI affordance.
+ */
+export const TERMINAL_RENDERER_ATTR = "data-vellum-term-renderer";
+
+/** The only two addon members this surface drives. */
+type WebglHandle = {
+  readonly dispose: () => void;
+  readonly onContextLoss: (listener: () => void) => { readonly dispose: () => void };
+};
+
+export type WebglRendererDeps<A extends WebglHandle> = {
+  /** Construct the addon. Throws where WebGL2 is unavailable. */
+  readonly create: () => A;
+  /** Hand it to xterm. Activation is synchronous once the terminal is open, and throws when the GL context cannot be built. */
+  readonly load: (addon: A) => void;
+  /** Renderer actually in effect — at attach, and again if the context is lost. */
+  readonly report: (
+    kind: TerminalRendererKind,
+    detail: Record<string, unknown>,
+  ) => void;
+};
+
+export type WebglRendererAttachment = {
+  /** Renderer in effect immediately after the attach attempt. */
+  readonly kind: TerminalRendererKind;
+  readonly dispose: () => void;
+};
+
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * Guarded GPU attach.
+ *
+ * Renderer paint is the terminal's scrolling bottleneck, so WebGL is the
+ * wanted renderer — but every failure path has to end on a *live* terminal,
+ * never a dead one. Three ways it can fail, all landing on xterm's default
+ * renderer: the constructor throws (unsupported browser), activation throws
+ * (no GL context), or the GL context is lost later. The last one is why
+ * disposing matters: xterm's WebGL addon restores the default renderer inside
+ * its own dispose, so a lost context that is never disposed leaves a surface
+ * that has stopped repainting.
+ *
+ * One shot. A lost context never re-arms WebGL, so a flapping GPU cannot put
+ * the surface in an attach loop.
+ */
+export const attachWebglRenderer = <A extends WebglHandle>(
+  deps: WebglRendererDeps<A>,
+): WebglRendererAttachment => {
+  let addon: A | undefined;
+  let lossSub: { readonly dispose: () => void } | undefined;
+  let released = false;
+
+  const release = (): void => {
+    released = true;
+    try {
+      lossSub?.dispose();
+    } catch {
+      // Teardown must never break the surface.
+    }
+    try {
+      addon?.dispose();
+    } catch {
+      // Teardown must never break the surface.
+    }
+    lossSub = undefined;
+    addon = undefined;
+  };
+
+  const fallBack = (stage: string, error?: unknown): void => {
+    if (released) return;
+    release();
+    deps.report(
+      "dom",
+      error === undefined ? { stage } : { stage, error: describeError(error) },
+    );
+  };
+
+  try {
+    addon = deps.create();
+    // Subscribe before activation: the addon owns the emitter from
+    // construction, and a loss during activation must not be missed.
+    lossSub = addon.onContextLoss(() => fallBack("context-loss"));
+    deps.load(addon);
+  } catch (error) {
+    fallBack("activate", error);
+    return { kind: "dom", dispose: () => {} };
+  }
+
+  deps.report("webgl", { stage: "active" });
+  return {
+    kind: "webgl",
+    dispose: () => {
+      if (released) return;
+      release();
+    },
+  };
+};
 
 const applyViewportBookmark = (
   term: Terminal,
@@ -452,6 +560,28 @@ export function TerminalSurface({
     // for the life of this terminal.
     const openRect = host.getBoundingClientRect();
     term.open(host);
+    // GPU paint. Measured: renderer paint, not the PTY backend, is what costs
+    // during hard scrolling, and the DOM renderer amplifies whatever a TUI
+    // repaints. Attach after open() so activation is synchronous — before
+    // open() the addon defers itself to xterm's onWillOpen, and the guard
+    // never sees the failure it is there to catch.
+    const reportRenderer = (
+      kind: TerminalRendererKind,
+      detail: Record<string, unknown>,
+    ): void => {
+      try {
+        host.setAttribute(TERMINAL_RENDERER_ATTR, kind);
+        root?.setAttribute(TERMINAL_RENDERER_ATTR, kind);
+      } catch {
+        // diagnostics must never break the surface
+      }
+      logTermGeom("renderer", { renderer: kind, ...detail });
+    };
+    const gpu = attachWebglRenderer({
+      create: () => new WebglAddon(),
+      load: (addon) => term.loadAddon(addon),
+      report: reportRenderer,
+    });
     {
       const { cellW, cellH } = readCellSize(term);
       logTermGeom("open", {
@@ -594,6 +724,9 @@ export function TerminalSurface({
       for (const t of settleTimers) clearTimeout(t);
       appearance.dispose();
       appearanceRef.current = null;
+      // Before term.dispose(): the addon's own teardown reaches back into the
+      // terminal's render service.
+      gpu.dispose();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
