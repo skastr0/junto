@@ -797,13 +797,102 @@ const emptyPadGlance = (): EtherPadValue => ({
 /** Factory-card glance is the operator's unread pins. */
 const PAD_GLANCE_PRINCIPAL_KEY = "operator";
 
+/**
+ * Inbound-actor roster for the sinks of ONE version of ONE canvas document.
+ *
+ * `byNode` is filled lazily — a sink nobody patches never costs a lookup —
+ * and `doc` is retained so the second sink in the same document version is a
+ * Map hit rather than a second decode.
+ */
+type InboundActorIndex = {
+  readonly doc: CanvasDoc | undefined;
+  readonly byNode: Map<string, ReadonlySet<string>>;
+};
+
+/**
+ * How many (canvas, document version) pairs keep a hot inbound-actor index.
+ *
+ * A pad edit only ever asks about the head generation of one canvas, so one
+ * live entry is the working set; the slack absorbs a second canvas and the
+ * one commit-straddling version change without evicting the operator's.
+ */
+const INBOUND_ACTOR_INDEX_ENTRIES = 4;
+
+/**
+ * Content-addressed memo of that roster.
+ *
+ * The key is the canvas name plus the sha256 of the exact body the index was
+ * built from — not a generation, not a head pointer. That is what makes it
+ * safe from inside a write transaction, where `canvases.ts`'s own memos are
+ * explicitly forbidden: a rolled-back write cannot leave a wrong answer
+ * behind, because an entry is only ever served to a body that hashes to the
+ * same value, and a body that hashes the same IS the same body. The stored
+ * `sha256` column is used only to probe; the key is rehashed from the bytes
+ * actually read, so a stale or wrong column can only cost a rebuild, never
+ * serve a stale roster.
+ *
+ * Module-level rather than per-service for the same reason: content addressing
+ * makes a second StateEngine in this process (tests, recovery) unable to see a
+ * wrong answer — a colliding key means an identical canvas name AND identical
+ * document bytes, which resolve to the identical roster.
+ */
+const inboundActorIndexes = new Map<string, InboundActorIndex>();
+
+const inboundActorIndexFor = (
+  canvasName: string,
+  probeSha256: string,
+  loadBody: () => string | undefined,
+): InboundActorIndex => {
+  const probeKey = `${canvasName}\u0000${probeSha256}`;
+  const hit = inboundActorIndexes.get(probeKey);
+  if (hit !== undefined) {
+    // Re-insert so Map iteration order is least-recent first.
+    inboundActorIndexes.delete(probeKey);
+    inboundActorIndexes.set(probeKey, hit);
+    return hit;
+  }
+  const body = loadBody();
+  if (body === undefined) return { doc: undefined, byNode: new Map() };
+  let doc: CanvasDoc | undefined;
+  try {
+    const decoded = decodeCanvasDoc(JSON.parse(body) as unknown);
+    if (Result.isSuccess(decoded)) doc = decoded.success;
+  } catch {
+    doc = undefined;
+  }
+  const entry: InboundActorIndex = { doc, byNode: new Map() };
+  // Keyed on the hash of the bytes actually decoded, never on the column that
+  // claimed them. A wrong column can then only cost a rebuild: its probe key
+  // will not match the key this entry was filed under, so the miss repeats.
+  const key = `${canvasName}\u0000${createHash("sha256")
+    .update(body, "utf8")
+    .digest("hex")}`;
+  inboundActorIndexes.set(key, entry);
+  while (inboundActorIndexes.size > INBOUND_ACTOR_INDEX_ENTRIES) {
+    const oldest = inboundActorIndexes.keys().next();
+    if (oldest.done === true) break;
+    inboundActorIndexes.delete(oldest.value);
+  }
+  return entry;
+};
+
+/**
+ * Which actors are wired INTO one sink.
+ *
+ * Answering this used to re-read, re-parse and re-decode the whole canvas
+ * document on every single pad patch — a ~1.4ms whole-document decode to read
+ * one node's inbound edges, paid again for every stroke. The document is now
+ * decoded at most once per version and the answer is a keyed lookup;
+ * `inboundActorNodeIds` stays the one definition of the roster so the memo
+ * cannot drift from the direct path (`service.ts`, `station/api.ts`).
+ */
 const inboundActorsForPad = (
   reader: StateReader,
   sink: SinkRefValue,
 ): ReadonlySet<string> => {
-  const row = reader.get<StateRow & { readonly body: string }>(
+  const head = reader.get<StateRow & { readonly sha256: string }>(
     `
-      SELECT document.body AS body
+      SELECT document.sha256 AS sha256
       FROM canvas_head AS head
       JOIN canvas_generation_documents AS document
         ON document.generation = head.generation
@@ -812,16 +901,29 @@ const inboundActorsForPad = (
     `,
     [sink.canvasName],
   );
-  if (row === undefined) return new Set();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.body) as unknown;
-  } catch {
-    return new Set();
-  }
-  const decoded = decodeCanvasDoc(parsed);
-  if (Result.isFailure(decoded)) return new Set();
-  return inboundActorNodeIds(decoded.success, sink.nodeId);
+  if (head === undefined) return new Set();
+  const index = inboundActorIndexFor(
+    sink.canvasName,
+    head.sha256,
+    () =>
+      reader.get<StateRow & { readonly body: string }>(
+        `
+          SELECT document.body AS body
+          FROM canvas_head AS head
+          JOIN canvas_generation_documents AS document
+            ON document.generation = head.generation
+          WHERE head.singleton = 1
+            AND document.name = ?
+        `,
+        [sink.canvasName],
+      )?.body,
+  );
+  if (index.doc === undefined) return new Set();
+  const cached = index.byNode.get(sink.nodeId);
+  if (cached !== undefined) return cached;
+  const actors = inboundActorNodeIds(index.doc, sink.nodeId);
+  index.byNode.set(sink.nodeId, actors);
+  return actors;
 };
 
 const assertPadPatchRules = (

@@ -1,11 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { decodeCanvasDoc, type CanvasDoc } from "../src/shared/canvas";
 import { makePadNode } from "../src/renderer/lib/node-factories";
 import {
   PadPatch,
@@ -955,5 +955,204 @@ describe("WorkService pad author refusals", () => {
     const node = read.doc.nodes.find((item) => item.id === "pad-titled");
     expect(node && "text" in node ? node.text : "").toMatch(/^Sprint board\n/);
     expect(node && "text" in node ? node.text : "").not.toMatch(/^pad\n/);
+  });
+});
+
+/**
+ * The pad mention roster is answered per patch from the canvas document. It is
+ * now served from a content-keyed index instead of re-decoding the whole
+ * document on every stroke, so these lock the two things a cache can break:
+ * it must give the same answer the canonical resolver gives, and it must
+ * follow the document to a new version.
+ */
+describe("pad inbound-actor roster", () => {
+  const root = join(tmpdir(), `vellum-command-pad-roster-${randomUUID()}`);
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      WorkRepositoryLive,
+      makeStateEngineLive(join(root, "vellum-command.db")),
+    ),
+  );
+  let repository: Context.Service.Shape<typeof WorkRepository>;
+  let state: Context.Service.Shape<typeof StateEngine>;
+
+  const node = (id: string, kind: string, type = "text") => ({
+    id,
+    type,
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+    ...(type === "group" ? { label: id } : { text: `t ${id}` }),
+    ether: { entity: { kind } },
+  });
+
+  /**
+   * Every shape the roster has to get right in one document: a plain inbound
+   * actor, a duplicated id where the FIRST node decides, a non-actor source,
+   * an outbound-only seat, a group carrying an actor kind, an edge from a node
+   * that does not exist, and a self edge.
+   */
+  const trickyDoc = {
+    nodes: [
+      node("actor-in", "agent"),
+      node("actor-out", "agent"),
+      node("task-in", "task"),
+      node("dup", "agent"),
+      node("dup", "task"),
+      node("grp", "agent", "group"),
+      node("pad-1", "pad"),
+    ],
+    edges: [
+      { id: "e1", fromNode: "actor-in", toNode: "pad-1" },
+      { id: "e2", fromNode: "actor-in", toNode: "pad-1" },
+      { id: "e3", fromNode: "pad-1", toNode: "actor-out" },
+      { id: "e4", fromNode: "task-in", toNode: "pad-1" },
+      { id: "e5", fromNode: "dup", toNode: "pad-1" },
+      { id: "e6", fromNode: "ghost", toNode: "pad-1" },
+      { id: "e7", fromNode: "pad-1", toNode: "pad-1" },
+      { id: "e8", fromNode: "grp", toNode: "pad-1" },
+    ],
+  };
+
+  /** Same pad, a different seat wired in — the version the index must follow. */
+  const rewiredDoc = {
+    nodes: [node("actor-in", "agent"), node("actor-out", "agent"), node("pad-1", "pad")],
+    edges: [{ id: "r1", fromNode: "actor-out", toNode: "pad-1" }],
+  };
+
+  const intentOf = (generation: string): string =>
+    createHash("sha256").update(`intent-${generation}`, "utf8").digest("hex");
+
+  const basisFor = (
+    generation: string,
+  ): Schema.Schema.Type<typeof IntentFactBasis> =>
+    Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
+      kind: "authorial-intent",
+      generation,
+      contentSha256: intentOf(generation),
+    });
+
+  const commitCanvas = (generation: string, doc: unknown) => {
+    const body = JSON.stringify(doc);
+    return state.transaction(`test.commit-${generation}`, (writer) => {
+      writer.run(
+        `
+          INSERT INTO canvas_generations(
+            generation, created_at, cause, intent_sha256, document_count
+          ) VALUES (?, ?, 'test intent', ?, 1)
+        `,
+        [generation, observedAt, intentOf(generation)],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_generation_documents(
+            generation, name, body, sha256, modified_at
+          ) VALUES (?, 'factory', ?, ?, ?)
+        `,
+        [
+          generation,
+          body,
+          createHash("sha256").update(body, "utf8").digest("hex"),
+          observedAt,
+        ],
+      );
+      writer.run(
+        `INSERT INTO canvas_head(singleton, generation) VALUES (1, ?)
+         ON CONFLICT(singleton) DO UPDATE SET generation = excluded.generation`,
+        [generation],
+      );
+    });
+  };
+
+  /** Undefined when the mention was admitted; the refusal message otherwise. */
+  const mentionRefusal = async (
+    generation: string,
+    patchId: string,
+    mention: string,
+  ): Promise<string | undefined> => {
+    const outcome = await runtime.runPromise(
+      repository
+        .applyPadPatch({
+          sink: { canvasName: "factory", nodeId: "pad-1" },
+          basis: basisFor(generation),
+          patchId,
+          patches: [pinWithMention(`pin-${patchId}`, mention)],
+          author: { kind: "operator", label: "operator" },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.result),
+    );
+    return outcome._tag === "Failure" ? outcome.failure.message : undefined;
+  };
+
+  beforeAll(async () => {
+    repository = await runtime.runPromise(WorkRepository);
+    state = await runtime.runPromise(StateEngine);
+    await runtime.runPromise(
+      state.transaction("test.seed-roster-installations", (writer) => {
+        writer.run(
+          `INSERT INTO station_known_installations(installation_id, registered_at) VALUES (?, ?)`,
+          [cc, observedAt],
+        );
+        writer.run(
+          `INSERT INTO station_installation(singleton, installation_id, created_at) VALUES (1, ?, ?)`,
+          [cc, observedAt],
+        );
+        writer.run(
+          `
+            INSERT INTO station_configuration(
+              singleton, role, host_id, agent_host_id,
+              command_center_installation_id, supervised_preferred, configured_at
+            ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)
+          `,
+          [observedAt],
+        );
+      }),
+    );
+    await runtime.runPromise(commitCanvas("1", trickyDoc));
+  });
+
+  afterAll(async () => {
+    await runtime.dispose();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("admits exactly the mentions the canonical resolver resolves", async () => {
+    const decoded = decodeCanvasDoc(JSON.parse(JSON.stringify(trickyDoc)));
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isFailure(decoded)) return;
+    const expected = inboundActorNodeIds(decoded.success, "pad-1");
+    expect([...expected].sort()).toEqual(["actor-in", "dup"]);
+
+    const candidates = [
+      "actor-in",
+      "actor-out",
+      "task-in",
+      "dup",
+      "grp",
+      "ghost",
+      "pad-1",
+    ];
+    const admitted: string[] = [];
+    for (const candidate of candidates) {
+      const refusal = await mentionRefusal("1", `tricky-${candidate}`, candidate);
+      if (refusal === undefined) admitted.push(candidate);
+      else expect(refusal).toMatch(/mention/i);
+    }
+    expect(admitted.sort()).toEqual([...expected].sort());
+  });
+
+  it("follows the canvas to a new document version", async () => {
+    // Same pad node, same sink, repeated patches: whatever the roster is
+    // cached under must be the document, not the sink.
+    expect(await mentionRefusal("1", "before-a", "actor-in")).toBeUndefined();
+    expect(await mentionRefusal("1", "before-b", "actor-out")).toMatch(/mention/i);
+
+    await runtime.runPromise(commitCanvas("2", rewiredDoc));
+
+    expect(await mentionRefusal("2", "after-a", "actor-out")).toBeUndefined();
+    expect(await mentionRefusal("2", "after-b", "actor-in")).toMatch(/mention/i);
   });
 });

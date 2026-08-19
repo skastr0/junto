@@ -528,6 +528,58 @@ export const composeEdgeMapChangeNotice = (change: EdgeMapChange): string => {
 };
 
 /**
+ * The complete input this diff reads out of a document: every node's kind by
+ * id, first-occurrence-wins exactly as `Array.prototype.find` resolved it.
+ *
+ * Built once per document instead of re-walked per edge endpoint. The old
+ * shape put `doc.nodes.find` inside the per-edge loop and then again inside
+ * `isSeat`, so one commit cost O(edges x nodes) — on a 96-node board that is
+ * tens of thousands of id comparisons for a diff that is almost always empty.
+ */
+const kindsById = (doc: CanvasDoc): ReadonlyMap<string, string | undefined> => {
+  const out = new Map<string, string | undefined>();
+  for (const node of doc.nodes) {
+    // First occurrence wins: `find` returned the first match, and a document
+    // with a duplicated id must keep resolving to the same node it did.
+    if (out.has(node.id)) continue;
+    out.set(node.id, node.ether?.entity?.kind);
+  }
+  return out;
+};
+
+/**
+ * True when the two documents carry the same adjacency input.
+ *
+ * `planEdgeMapChanges` reads exactly three things: the ordered edge endpoints,
+ * and each node's id and entity kind in order. When all three match position
+ * for position the diff is provably empty, which is why this can short-circuit
+ * rather than merely hint. Positional (not set) comparison keeps it sound in
+ * the other direction too: a reordered document simply falls through to the
+ * full computation and gets the same answer it always did.
+ *
+ * This is the gate the recompute never had. A canvas commit fires the listener
+ * for ANY authorial change, and the overwhelming majority of them are geometry
+ * — a dragged node, a resized region — which cannot move a single edge grant.
+ */
+const sameEdgeMapInput = (a: CanvasDoc, b: CanvasDoc): boolean => {
+  if (a === b) return true;
+  if (a.edges.length !== b.edges.length) return false;
+  if (a.nodes.length !== b.nodes.length) return false;
+  for (let i = 0; i < a.edges.length; i += 1) {
+    const x = a.edges[i];
+    const y = b.edges[i];
+    if (x.fromNode !== y.fromNode || x.toNode !== y.toNode) return false;
+  }
+  for (let i = 0; i < a.nodes.length; i += 1) {
+    const x = a.nodes[i];
+    const y = b.nodes[i];
+    if (x.id !== y.id) return false;
+    if (x.ether?.entity?.kind !== y.ether?.entity?.kind) return false;
+  }
+  return true;
+};
+
+/**
  * Edge-map diff for actor seats: added AND removed slot-bearing neighbors.
  * Pure — no I/O. Callers skip when `previous` is missing (open / first paint).
  */
@@ -535,16 +587,23 @@ export const planEdgeMapChanges = (
   previous: CanvasDoc,
   next: CanvasDoc,
 ): ReadonlyArray<EdgeMapChange> => {
-  const adjacency = (doc: CanvasDoc): Map<string, InjectionConnectedTarget[]> => {
+  if (sameEdgeMapInput(previous, next)) return [];
+
+  const previousKinds = kindsById(previous);
+  const nextKinds = kindsById(next);
+  const adjacency = (
+    doc: CanvasDoc,
+    kinds: ReadonlyMap<string, string | undefined>,
+  ): Map<string, InjectionConnectedTarget[]> => {
     const out = new Map<string, InjectionConnectedTarget[]>();
     for (const edge of doc.edges) {
       for (const [a, b] of [
         [edge.fromNode, edge.toNode],
         [edge.toNode, edge.fromNode],
       ] as const) {
-        const node = doc.nodes.find((n) => n.id === b);
-        if (!node) continue;
-        const kind = node.ether?.entity?.kind;
+        // Absent node and node-without-kind were both `continue` before and
+        // stay both `continue` now: `get` returns undefined for either.
+        const kind = kinds.get(b);
         if (kind === undefined || KIND_TO_SLOT[kind] === undefined) continue;
         const list = out.get(a);
         const target: InjectionConnectedTarget = { id: b, ...(kind !== undefined ? { kind } : {}) };
@@ -555,14 +614,16 @@ export const planEdgeMapChanges = (
     return out;
   };
 
-  const before = adjacency(previous);
-  const after = adjacency(next);
-  const isSeat = (doc: CanvasDoc, id: string): boolean =>
-    doc.nodes.find((n) => n.id === id)?.ether?.entity?.kind === "agent";
+  const before = adjacency(previous, previousKinds);
+  const after = adjacency(next, nextKinds);
+  const isSeat = (
+    kinds: ReadonlyMap<string, string | undefined>,
+    id: string,
+  ): boolean => kinds.get(id) === "agent";
   const key = (t: InjectionConnectedTarget): string => `${t.kind ?? ""}:${t.id}`;
   const changes: EdgeMapChange[] = [];
   for (const seatId of new Set([...before.keys(), ...after.keys()])) {
-    if (!isSeat(next, seatId) && !isSeat(previous, seatId)) continue;
+    if (!isSeat(nextKinds, seatId) && !isSeat(previousKinds, seatId)) continue;
     const prev = new Set((before.get(seatId) ?? []).map(key));
     const nextSet = new Set((after.get(seatId) ?? []).map(key));
     const added = (after.get(seatId) ?? []).filter((t) => !prev.has(key(t)));
