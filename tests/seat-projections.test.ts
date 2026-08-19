@@ -7,6 +7,8 @@ import {
   cardMark,
   digitHue,
   digitLease,
+  attentionAgentKey,
+  attentionReasonsForNode,
   liveAttentionReasons,
   notifyItem,
   seatFactsForNode,
@@ -183,6 +185,41 @@ describe("one facts object drives card, digit, notify, and hue", () => {
     expect(digitLease(f)).toBe(true);
     expect(notifyItem(f)).toBe("blocked");
     expect(digitHue(f)).toBe("blocked");
+  });
+});
+
+describe("attentionReasonsForNode — one node, its own coarse slice", () => {
+  it("permission on the node's own slice, with no map in sight", () => {
+    expect(
+      attentionReasonsForNode(
+        { ether: { entity: { kind: "agent", name: "local:pi" } } },
+        { pendingPermissionId: "p1" },
+      ),
+    ).toEqual(["permission:pending"]);
+  });
+
+  it("no slice -> no permission reason; sink reasons still come from ether", () => {
+    expect(
+      attentionReasonsForNode({
+        ether: { entity: { kind: "agent", name: "local:pi" } },
+      }),
+    ).toEqual([]);
+    expect(
+      attentionReasonsForNode({
+        ether: {
+          entity: { kind: "requests" },
+          requests: { items: [{ state: "auth-required" }] },
+        },
+      }),
+    ).toEqual(["work:auth-required"]);
+  });
+
+  it("attentionAgentKey names the one key a seat depends on", () => {
+    expect(
+      attentionAgentKey({ ether: { entity: { kind: "agent", name: "local:pi" } } }),
+    ).toBe("local:pi");
+    expect(attentionAgentKey({ ether: { entity: { kind: "task" } } })).toBeUndefined();
+    expect(attentionAgentKey({})).toBeUndefined();
   });
 });
 

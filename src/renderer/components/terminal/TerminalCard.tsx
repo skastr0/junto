@@ -11,12 +11,11 @@ import {
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
 import { isActiveProcessLabel } from "../../lib/activity";
-import { chatCoarse$ } from "../../lib/chat-state";
 import {
   cardMark,
-  liveAttentionReasons,
   seatFactsForNode,
 } from "../../lib/seat-projections";
+import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import {
@@ -71,9 +70,7 @@ export function TerminalCard({
       native?.bindingId ?? "__vellum-terminal-no-binding__"
     ],
   );
-  const chatByAgent = use$(chatCoarse$) as
-    | Record<string, { readonly pendingPermissionId?: string } | undefined>
-    | undefined;
+  const attentionReasons = useNodeAttentionReasons(node);
 
   const applySession = (next: TerminalSessionSummary | undefined) => {
     if (!native) return;
@@ -166,7 +163,7 @@ export function TerminalCard({
       needsLook: needsLook === true,
       graphBlocked,
       flags: node.ether?.flags,
-      attentionReasons: liveAttentionReasons(node, chatByAgent),
+      attentionReasons,
       managedSeat,
     }),
   );

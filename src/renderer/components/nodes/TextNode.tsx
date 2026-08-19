@@ -18,12 +18,11 @@ import { NoteMarkdown } from "../../lib/note-markdown";
 import { isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { timerActivity, watcherActivity } from "../../lib/activity";
-import { chatCoarse$ } from "../../lib/chat-state";
 import {
   cardMark,
-  liveAttentionReasons,
   seatFactsForNode,
 } from "../../lib/seat-projections";
+import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
 import { accentColor, HUE, INK, DIM } from "../../lib/theme";
 import { kernel$ } from "../../lib/kernel-view";
 import type { WatcherRuntimeState } from "../../lib/kernel-view";
@@ -296,9 +295,7 @@ function EntityCard({
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);
   const exitReason = session?.exitReason;
   const exitMessage = session?.exitMessage;
-  const chatByAgent = use$(chatCoarse$) as
-    | Record<string, { readonly pendingPermissionId?: string } | undefined>
-    | undefined;
+  const attentionReasons = useNodeAttentionReasons(node);
   const activity = cardMark(
     seatFactsForNode({
       nodeId: node.id,
@@ -307,7 +304,7 @@ function EntityCard({
       needsLook: needsLook === true,
       graphBlocked,
       flags: node.ether?.flags,
-      attentionReasons: liveAttentionReasons(node, chatByAgent),
+      attentionReasons,
       managedSeat: managed,
     }),
   );

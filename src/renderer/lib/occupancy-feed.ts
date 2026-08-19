@@ -24,6 +24,11 @@ import { resolveTerminalBinding } from "@shared/terminal";
 import { chatActivity, type ActivityTone } from "./activity";
 import { agentSeat$, clueFromAgentSeat } from "./agent-seat-state";
 import { chatCoarse$, type AgentChatCoarse } from "./chat-state";
+import {
+  attentionAgentKey,
+  attentionReasonsForNode,
+  type AttentionNode,
+} from "./seat-projections";
 
 const TONE_HARNESS: Record<ActivityTone, "idle" | "working" | "blocked" | "attention"> = {
   crimson: "blocked",
@@ -88,6 +93,31 @@ export function chatActivityFeed(
 
 const NO_AGENT_KEY = "__vellum-occupancy-no-agent__";
 const NO_BINDING = "__vellum-occupancy-no-binding__";
+
+/**
+ * The single observable slice a per-node consumer depends on for live
+ * attention: this node's own agent key, or the no-agent sentinel. Exported
+ * so a test can subscribe to exactly what the hook subscribes to.
+ */
+export function attentionCoarse$(node: AttentionNode) {
+  return chatCoarse$[attentionAgentKey(node) ?? NO_AGENT_KEY];
+}
+
+/**
+ * Node-scoped attention reasons: subscribes to this node's own agent-key
+ * slice of `chatCoarse$`, never the whole map. Whole-map `use$(chatCoarse$)`
+ * in a per-node component makes one agent's permission flip re-render every
+ * node on the canvas, which mounts all of them (no viewport culling).
+ * Batch consumers that project many nodes at once keep `liveAttentionReasons`.
+ */
+export function useNodeAttentionReasons(node: AttentionNode): ReadonlyArray<string> {
+  const coarse = use$(attentionCoarse$(node)) as AgentChatCoarse | undefined;
+  const ether = node.ether;
+  return useMemo(
+    () => attentionReasonsForNode({ ether }, coarse),
+    [ether, coarse],
+  );
+}
 
 /**
  * Node-scoped seam for card chrome: subscribes only to this node's own

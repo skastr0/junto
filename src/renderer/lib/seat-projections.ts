@@ -61,25 +61,32 @@ const attentionElevated = (facts: SeatFacts): boolean =>
   facts.flags?.includes("attention") === true ||
   (facts.attentionReasons?.length ?? 0) > 0;
 
-/**
- * Live attention reasons that are not harness seat-state (ACP permission,
- * sink input-required). Same list for card, digit lease, and notify.
- */
-export function liveAttentionReasons(
-  node: {
-    readonly ether?: {
-      readonly entity?: { readonly kind?: string; readonly name?: string };
-      readonly tasks?: {
-        readonly items?: ReadonlyArray<{ readonly state: string }>;
-      };
-      readonly requests?: {
-        readonly items?: ReadonlyArray<{ readonly state: string }>;
-      };
+/** The node shape live attention reasons are read from. */
+export type AttentionNode = {
+  readonly ether?: {
+    readonly entity?: { readonly kind?: string; readonly name?: string };
+    readonly tasks?: {
+      readonly items?: ReadonlyArray<{ readonly state: string }>;
     };
-  },
-  chatByAgent?: Readonly<
-    Record<string, { readonly pendingPermissionId?: string } | undefined>
-  >,
+    readonly requests?: {
+      readonly items?: ReadonlyArray<{ readonly state: string }>;
+    };
+  };
+};
+
+/** This node's own agent key, or undefined when it is not an agent seat. */
+export function attentionAgentKey(node: AttentionNode): string | undefined {
+  return node.ether?.entity?.kind === "agent" ? node.ether?.entity?.name : undefined;
+}
+
+/**
+ * Live attention reasons from a node plus **its own** coarse chat slice —
+ * never the whole agent map. One agent's permission flip is one key's write,
+ * so a per-node caller keyed to that one slice pays nothing for the other 95.
+ */
+export function attentionReasonsForNode(
+  node: AttentionNode,
+  ownCoarse?: { readonly pendingPermissionId?: string },
 ): ReadonlyArray<string> {
   const reasons: string[] = [];
   const kind = node.ether?.entity?.kind;
@@ -95,11 +102,31 @@ export function liveAttentionReasons(
       }
     }
   }
-  const agentKey = kind === "agent" ? node.ether?.entity?.name : undefined;
-  if (agentKey && chatByAgent?.[agentKey]?.pendingPermissionId) {
+  if (attentionAgentKey(node) && ownCoarse?.pendingPermissionId) {
     reasons.push("permission:pending");
   }
   return reasons;
+}
+
+/**
+ * Live attention reasons that are not harness seat-state (ACP permission,
+ * sink input-required). Same list for card, digit lease, and notify.
+ *
+ * Whole-map form: for callers that already hold the map and project many
+ * nodes at once (RTS rows, peer glances). A component rendered once per node
+ * must use `useNodeAttentionReasons` instead — see occupancy-feed.ts.
+ */
+export function liveAttentionReasons(
+  node: AttentionNode,
+  chatByAgent?: Readonly<
+    Record<string, { readonly pendingPermissionId?: string } | undefined>
+  >,
+): ReadonlyArray<string> {
+  const agentKey = attentionAgentKey(node);
+  return attentionReasonsForNode(
+    node,
+    agentKey ? chatByAgent?.[agentKey] : undefined,
+  );
 }
 
 /** Assemble one SeatFacts from the live planes a call site already holds. */

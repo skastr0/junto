@@ -28,14 +28,15 @@ import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { roleOf } from "@shared/physics";
 import { deriveOccupancy } from "@shared/occupancy";
-import { useNodeOccupancyClue } from "../../lib/occupancy-feed";
+import {
+  useNodeAttentionReasons,
+  useNodeOccupancyClue,
+} from "../../lib/occupancy-feed";
 import { actorOccupancyAttr } from "../../lib/occupancy-chrome";
 import { specOf } from "../../lib/node-spec";
 import { agentSeat$ } from "../../lib/agent-seat-state";
-import { chatCoarse$ } from "../../lib/chat-state";
 import { terminal$ } from "../../lib/terminal-state";
 import {
-  liveAttentionReasons,
   notifyItem,
   seatFactsForNode,
 } from "../../lib/seat-projections";
@@ -367,9 +368,7 @@ export function NodeShell({
   const session = use$(
     terminal$.sessionByBindingId[bindingId ?? "__vellum-shell-no-binding__"],
   );
-  const chatByAgent = use$(chatCoarse$) as
-    | Record<string, { readonly pendingPermissionId?: string } | undefined>
-    | undefined;
+  const attentionReasons = useNodeAttentionReasons(node);
   const harness = node.ether?.terminal?.harness;
   const managedSeat = typeof harness === "string" && isHarnessId(harness);
   const isActorSeat = roleOf(specOf(node)) === "actor" || managedSeat;
@@ -379,7 +378,7 @@ export function NodeShell({
     session,
     graphBlocked: blocked,
     flags,
-    attentionReasons: liveAttentionReasons(node, chatByAgent),
+    attentionReasons,
     managedSeat,
     needsLook: needsLook === true,
   });
