@@ -281,11 +281,16 @@ function EntityCard({
         })
         .catch(() => undefined);
     void refresh();
-    const off = onTerminalEvent((raw) => {
-      if ((raw as { bindingId?: string }).bindingId !== bindingId) return;
-      if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
-      void refresh();
-    });
+    // Routed by binding — the manual bindingId compare is what made every
+    // agent card pay for every other terminal's output. The session/exit cut
+    // below is a separate predicate and stays.
+    const off = onTerminalEvent(
+      (raw) => {
+        if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
+        void refresh();
+      },
+      { bindingId },
+    );
     return off;
   }, [bindingId, hostId]);
   const managed = managedHarness !== undefined && isHarnessId(managedHarness);

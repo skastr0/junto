@@ -102,11 +102,19 @@ export function TerminalCard({
   useEffect(() => {
     subscribeAgentSeatState();
     void refresh();
-    const off = onTerminalEvent((raw) => {
-      if ((raw as { bindingId?: string }).bindingId !== native?.bindingId) return;
-      if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
-      void refresh();
-    });
+    // Routed by binding, so this card is no longer woken by every other
+    // terminal's PTY output. shouldRefreshSessionFromTerminalEvent is a
+    // separate cut: only session/exit change card chrome.
+    const bindingId = native?.bindingId;
+    const off = bindingId
+      ? onTerminalEvent(
+          (raw) => {
+            if (!shouldRefreshSessionFromTerminalEvent(raw)) return;
+            void refresh();
+          },
+          { bindingId },
+        )
+      : () => undefined;
     // Poll only while running — lease-scoped events don't reach cards without
     // an open surface.
     if (!running) {
