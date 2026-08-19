@@ -153,10 +153,11 @@ export const registerTerminalIpc = (
   undefined,
   undefined,
   // A binding under a control lease is the surface the operator is driving:
-  // typing into it, scrolling it, watching it. It gets one frame; every other
-  // stream keeps the long window. `controlByBinding` is already the authority
-  // for who holds control (set at :431, cleared at :114), so this reads the
-  // existing fact rather than inventing a second notion of "visible".
+  // typing into it, scrolling it, watching it. Its output is coalesced per
+  // event loop turn instead of per window, so a batch never waits on a clock;
+  // every other stream keeps the long window. `controlByBinding` is already
+  // the authority for who holds control, so this reads the existing fact
+  // rather than inventing a second notion of "visible".
   (bindingId: string) => controlByBinding.has(bindingId));
   router.on("event", (payload: LocalHostEvent) => {
     if (payload.type === "seat-state") {

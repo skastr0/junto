@@ -3,7 +3,6 @@ import type { LocalHostEvent } from "../src/main/vellum/term/local-host";
 import {
   TERMINAL_STREAM_FLUSH_BYTES,
   TERMINAL_STREAM_FLUSH_MS,
-  TERMINAL_STREAM_INTERACTIVE_FLUSH_MS,
   TerminalStreamCoalescer,
   terminalBindingKey,
 } from "../src/main/vellum/term/stream-coalescer";
@@ -31,6 +30,17 @@ const asOutput = (
   return e;
 };
 
+/**
+ * Waits one real event loop turn.
+ *
+ * Resolving on `setImmediate` puts this continuation behind anything the
+ * coalescer already queued on the immediate queue, so after the await a
+ * same-turn flush has necessarily run.
+ */
+const nextTurn = (): Promise<void> =>
+  new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 
 describe("TerminalStreamCoalescer", () => {
   beforeEach(() => {
@@ -123,13 +133,48 @@ describe("TerminalStreamCoalescer", () => {
 
 describe("cadence follows who is driving the surface", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    // Fake the clock but leave the immediate queue real. Vitest's default
+    // `toFake` includes setImmediate, which would make "flushed on the next
+    // event loop turn" indistinguishable from "flushed on a very short timer":
+    // every assertion below would pass by advancing a clock and would prove
+    // nothing. With setImmediate real, a driven flush can only happen because
+    // a real loop turn ran, and `vi.getTimerCount()` reports exactly how many
+    // flushes are still waiting on the clock.
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    });
   });
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("gives a driven binding one frame and everything else the long window", () => {
+  it("ships a driven binding in the same turn, with no timer advance", async () => {
+    const seen: LocalHostEvent[] = [];
+    const coalescer = new TerminalStreamCoalescer(
+      (payload) => seen.push(payload),
+      TERMINAL_STREAM_FLUSH_MS,
+      TERMINAL_STREAM_FLUSH_BYTES,
+      () => true,
+    );
+
+    for (let i = 1; i <= 40; i++) coalescer.push(output(BigInt(i), `c${i}`));
+    // Still inside the turn: nothing has been posted per chunk.
+    expect(seen).toHaveLength(0);
+    // And nothing is waiting on the clock — this batch never asked for a window.
+    expect(vi.getTimerCount()).toBe(0);
+
+    await nextTurn();
+
+    // 40 chunks, one IPC event: the batching survives, the waiting does not.
+    expect(seen).toHaveLength(1);
+    expect(asOutput(seen[0]!).seq).toBe(40n);
+    expect(asOutput(seen[0]!).data).toBe(
+      Array.from({ length: 40 }, (_, i) => `c${i + 1}`).join(""),
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still makes an undriven binding wait its window", async () => {
     const seen: LocalHostEvent[] = [];
     const driven = new Set(["focused"]);
     const coalescer = new TerminalStreamCoalescer(
@@ -137,41 +182,24 @@ describe("cadence follows who is driving the surface", () => {
       TERMINAL_STREAM_FLUSH_MS,
       TERMINAL_STREAM_FLUSH_BYTES,
       (bindingId) => driven.has(bindingId),
-      TERMINAL_STREAM_INTERACTIVE_FLUSH_MS,
     );
 
     coalescer.push(output(1n, "a", "focused"));
     coalescer.push(output(1n, "a", "background"));
 
-    // One frame: the surface the operator drives has already painted; the
-    // other has not. This is the whole point — a full-screen TUI repaints
-    // through the PTY, so its frame rate is this window.
-    vi.advanceTimersByTime(TERMINAL_STREAM_INTERACTIVE_FLUSH_MS);
+    await nextTurn();
+    expect(seen.map((e) => e.bindingId)).toEqual(["focused"]);
+    // The background stream is on the clock, exactly as before.
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(TERMINAL_STREAM_FLUSH_MS - 1);
     expect(seen.map((e) => e.bindingId)).toEqual(["focused"]);
 
-    vi.advanceTimersByTime(TERMINAL_STREAM_FLUSH_MS);
+    vi.advanceTimersByTime(1);
     expect(seen.map((e) => e.bindingId)).toEqual(["focused", "background"]);
   });
 
-  it("still batches within the frame rather than emitting per chunk", () => {
-    const seen: LocalHostEvent[] = [];
-    const coalescer = new TerminalStreamCoalescer(
-      (payload) => seen.push(payload),
-      TERMINAL_STREAM_FLUSH_MS,
-      TERMINAL_STREAM_FLUSH_BYTES,
-      () => true,
-      TERMINAL_STREAM_INTERACTIVE_FLUSH_MS,
-    );
-
-    for (let i = 1; i <= 40; i++) coalescer.push(output(BigInt(i), `c${i}`));
-    vi.advanceTimersByTime(TERMINAL_STREAM_INTERACTIVE_FLUSH_MS);
-
-    // A repaint storm cannot post more IPC messages than the display can show.
-    expect(seen).toHaveLength(1);
-    expect(asOutput(seen[0]!).seq).toBe(40n);
-  });
-
-  it("falls back to the long window when the ownership probe throws", () => {
+  it("falls back to the long window when the ownership probe throws", async () => {
     const seen: LocalHostEvent[] = [];
     const coalescer = new TerminalStreamCoalescer(
       (payload) => seen.push(payload),
@@ -180,15 +208,77 @@ describe("cadence follows who is driving the surface", () => {
       () => {
         throw new Error("ownership probe is broken");
       },
-      TERMINAL_STREAM_INTERACTIVE_FLUSH_MS,
     );
 
     coalescer.push(output(1n, "a"));
-    vi.advanceTimersByTime(TERMINAL_STREAM_INTERACTIVE_FLUSH_MS);
+    await nextTurn();
     expect(seen).toHaveLength(0);
 
     // Degraded, never dropped.
     vi.advanceTimersByTime(TERMINAL_STREAM_FLUSH_MS);
     expect(seen).toHaveLength(1);
+  });
+
+  it("drop cancels a scheduled same-turn flush", async () => {
+    const seen: LocalHostEvent[] = [];
+    let driven = true;
+    const coalescer = new TerminalStreamCoalescer(
+      (payload) => seen.push(payload),
+      TERMINAL_STREAM_FLUSH_MS,
+      TERMINAL_STREAM_FLUSH_BYTES,
+      () => driven,
+    );
+
+    coalescer.push(output(1n, "dropped"));
+    coalescer.drop("b1", "e1");
+
+    // Re-fill the same key on the slow cadence. A leaked immediate still
+    // holds this key and would fire on the next turn, emitting the new
+    // buffer long before its window — the exact bug clearImmediate prevents.
+    driven = false;
+    coalescer.push(output(2n, "kept"));
+
+    await nextTurn();
+    expect(seen).toHaveLength(0);
+
+    vi.advanceTimersByTime(TERMINAL_STREAM_FLUSH_MS);
+    expect(seen).toHaveLength(1);
+    expect(asOutput(seen[0]!)).toMatchObject({ seq: 2n, data: "kept" });
+  });
+
+  it("byte cap still ships a driven binding synchronously", async () => {
+    const seen: LocalHostEvent[] = [];
+    const coalescer = new TerminalStreamCoalescer(
+      (payload) => seen.push(payload),
+      TERMINAL_STREAM_FLUSH_MS,
+      8,
+      () => true,
+    );
+
+    coalescer.push(output(1n, "1234"));
+    coalescer.push(output(2n, "5678"));
+    expect(seen).toHaveLength(1);
+    expect(asOutput(seen[0]!)).toMatchObject({ seq: 2n, data: "12345678" });
+
+    // The arm from the first chunk was cancelled, not left to double-emit.
+    await nextTurn();
+    expect(seen).toHaveLength(1);
+  });
+
+  it("control events flush a driven binding's pending output first", async () => {
+    const seen: LocalHostEvent[] = [];
+    const coalescer = new TerminalStreamCoalescer(
+      (payload) => seen.push(payload),
+      TERMINAL_STREAM_FLUSH_MS,
+      TERMINAL_STREAM_FLUSH_BYTES,
+      () => true,
+    );
+
+    coalescer.push(output(1n, "tail"));
+    coalescer.push(exit(2n));
+    expect(seen.map((e) => e.type)).toEqual(["output", "exit"]);
+
+    await nextTurn();
+    expect(seen.map((e) => e.type)).toEqual(["output", "exit"]);
   });
 });

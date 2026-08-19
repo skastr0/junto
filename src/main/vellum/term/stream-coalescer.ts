@@ -1,22 +1,16 @@
 import type { LocalHostEvent } from "./local-host";
 
 export const TERMINAL_STREAM_FLUSH_MS = 50;
-/**
- * Flush window for the surface the operator is actually driving.
- *
- * One 120Hz frame. A full-screen TUI (Claude Code and anything else on the
- * alternate screen) has no scrollback for xterm to scroll, so every scroll
- * tick is a repaint that travels PTY -> main -> IPC -> renderer. The 50ms
- * window then caps that whole loop at ~20fps however cheap the paint is, and
- * measurement said paint was no longer the constraint: after the GPU renderer
- * landed the renderer sits at 8.0% busy and main at 8.1% during hard
- * scrolling. Nothing is starved; the cadence was the ceiling.
- *
- * Held at one frame rather than zero so a repaint storm still cannot post more
- * IPC messages than the display can show.
- */
-export const TERMINAL_STREAM_INTERACTIVE_FLUSH_MS = 8;
 export const TERMINAL_STREAM_FLUSH_BYTES = 64 * 1024;
+
+/**
+ * A flush that has been scheduled and not yet run. Cancelling is part of the
+ * contract: `drop()` and every early flush must be able to take a scheduled
+ * batch back, whether it is sitting on a timer or on the immediate queue.
+ */
+type PendingFlush = {
+  readonly cancel: () => void;
+};
 
 type OutputBuffer = {
   readonly bindingId: string;
@@ -24,7 +18,7 @@ type OutputBuffer = {
   chunks: string[];
   bytes: number;
   seq: bigint;
-  timer: ReturnType<typeof setTimeout> | undefined;
+  pending: PendingFlush | undefined;
 };
 
 export const terminalBindingKey = (bindingId: string, epoch: string): string =>
@@ -43,11 +37,31 @@ export const terminalBindingKey = (bindingId: string, epoch: string): string =>
  * output first, so a binding's event order is preserved. The batched event
  * carries the last chunk's `seq` — the renderer's replay dedup keys on seq.
  *
- * Cadence is per binding, not global. A binding the operator holds under a
- * control lease is being painted and gets one frame; every other stream keeps
- * the long window, so cost still scales with driven surfaces rather than with
- * stream volume. `interactive` is asked at arm time only, so a binding that
- * changes hands mid-buffer runs at most one window on the previous cadence.
+ * Cadence is per binding, not global, and the two cadences answer different
+ * questions:
+ *
+ * - **Driven** (the operator holds a control lease) — coalesced per **event
+ *   loop turn** via `setImmediate`. Every chunk that arrived in the same turn
+ *   ships as one event, on that same turn. A fixed window is a throughput
+ *   argument, but the cost the operator feels is latency: a chunk landing just
+ *   after a flush waits the entire window, so any constant is a guess and an
+ *   unlucky chunk pays for the guess. Per-turn coalescing keeps the batching
+ *   and drops the waiting.
+ * - **Undriven** — the unchanged {@link TERMINAL_STREAM_FLUSH_MS} timer.
+ *   Bounding aggregate cost across hundreds of background streams is exactly
+ *   what that window is for, and no operator is watching them.
+ *
+ * Why the immediate cannot starve the event loop: a flush is armed only in
+ * `push()`, only when nothing is pending, and the flush callback arms nothing
+ * — it emits and returns with the buffer already deleted. So the next
+ * immediate requires the next PTY chunk, which requires another trip through
+ * the poll phase. There is no self-feeding chain. Even if one were introduced,
+ * an immediate queued from inside the check phase runs on the *next* loop
+ * iteration, so timers and I/O still get their turn — unlike `process.nextTick`
+ * or a microtask, which drain before the loop can advance at all.
+ *
+ * `interactive` is asked at arm time only, so a binding that changes hands
+ * mid-buffer runs at most one batch on the previous cadence.
  */
 export class TerminalStreamCoalescer {
   private readonly buffers = new Map<string, OutputBuffer>();
@@ -57,19 +71,29 @@ export class TerminalStreamCoalescer {
     private readonly flushMs: number = TERMINAL_STREAM_FLUSH_MS,
     private readonly flushBytes: number = TERMINAL_STREAM_FLUSH_BYTES,
     private readonly interactive: (bindingId: string) => boolean = () => false,
-    private readonly interactiveFlushMs: number =
-      TERMINAL_STREAM_INTERACTIVE_FLUSH_MS,
   ) {}
 
-  /** Window this binding's next batch waits, in ms. */
-  private windowFor(bindingId: string): number {
+  /** Is the operator driving this binding right now? */
+  private isDriven(bindingId: string): boolean {
     try {
-      return this.interactive(bindingId) ? this.interactiveFlushMs : this.flushMs;
+      return this.interactive(bindingId);
     } catch {
       // A broken ownership probe must never stall a stream: fall back to the
       // conservative window rather than dropping the event.
-      return this.flushMs;
+      return false;
     }
+  }
+
+  /** Arm this binding's next batch: same turn if driven, else one window. */
+  private schedule(key: string, bindingId: string): PendingFlush {
+    if (this.isDriven(bindingId)) {
+      const handle = setImmediate(() => this.flush(key));
+      handle.unref?.();
+      return { cancel: () => clearImmediate(handle) };
+    }
+    const handle = setTimeout(() => this.flush(key), this.flushMs);
+    handle.unref?.();
+    return { cancel: () => clearTimeout(handle) };
   }
 
   push(event: LocalHostEvent): void {
@@ -87,7 +111,7 @@ export class TerminalStreamCoalescer {
         chunks: [],
         bytes: 0,
         seq: 0n,
-        timer: undefined,
+        pending: undefined,
       };
       this.buffers.set(key, buf);
     }
@@ -98,9 +122,8 @@ export class TerminalStreamCoalescer {
       this.flush(key);
       return;
     }
-    if (buf.timer === undefined) {
-      buf.timer = setTimeout(() => this.flush(key), this.windowFor(event.bindingId));
-      buf.timer.unref?.();
+    if (buf.pending === undefined) {
+      buf.pending = this.schedule(key, event.bindingId);
     }
   }
 
@@ -108,9 +131,9 @@ export class TerminalStreamCoalescer {
   flush(key: string): void {
     const buf = this.buffers.get(key);
     if (!buf) return;
-    if (buf.timer !== undefined) {
-      clearTimeout(buf.timer);
-      buf.timer = undefined;
+    if (buf.pending !== undefined) {
+      buf.pending.cancel();
+      buf.pending = undefined;
     }
     this.buffers.delete(key);
     if (buf.chunks.length === 0) return;
@@ -128,7 +151,7 @@ export class TerminalStreamCoalescer {
     const key = terminalBindingKey(bindingId, epoch);
     const buf = this.buffers.get(key);
     if (!buf) return;
-    if (buf.timer !== undefined) clearTimeout(buf.timer);
+    buf.pending?.cancel();
     this.buffers.delete(key);
   }
 
