@@ -898,6 +898,159 @@ const insertFullGeneration = (
   );
 };
 
+/**
+ * How many authorial generations keep their document bodies.
+ *
+ * Every content-changing commit appends a full copy of every document and
+ * nothing ever removed one, so the log grew without bound at ~46KB per canvas
+ * write: the operator's live database had reached 1,257 generations holding
+ * 57.5MB of bodies inside a 100.7MB file. This window is what turns that
+ * append-only log into a compacted one.
+ *
+ * 256 because outside the head the window is pure forensics. Every
+ * behavioural read of a document body resolves through canvas_head —
+ * readStoredAuthority here, readCanvasWorkProjection and the pad's
+ * inbound-actor index in work/repository.ts, the v5-to-v6 backfill in
+ * state/migrations.ts — so nothing reads an older body, and the window only
+ * has to outlast a human looking backwards. Against the operator's measured
+ * history (1,257 commits over three weeks, busiest day 309) that is roughly a
+ * day of heavy authoring, and at the measured 46KB average it bounds the
+ * compacted log near 12MB instead of an unbounded 57.5MB and climbing.
+ */
+export const CANVAS_GENERATION_BODY_RETENTION = 256;
+
+/**
+ * Most generations one sweep may compact.
+ *
+ * The cap only governs catch-up on a log that has already overshot; in steady
+ * state the slack below lets at most 64 generations fall out of the window
+ * between sweeps, so it is never reached. Measured at ~0.2ms per generation on
+ * the operator's database, a full batch is ~26ms and the 833 generations that
+ * had accumulated there clear in 7 sweeps.
+ */
+export const CANVAS_GENERATION_COMPACTION_BATCH = 128;
+
+/**
+ * Document rows of growth tolerated before the next sweep.
+ *
+ * The gate that runs on every commit is one `count(*)` (8.5us measured); the
+ * mark scan behind it costs several milliseconds, so it must not run per
+ * commit. Slack turns it into one sweep per 64 rows of growth, which amortizes
+ * to well under the append it rides on.
+ */
+export const CANVAS_GENERATION_COMPACTION_SLACK = 64;
+
+/**
+ * Log compaction for the authorial generation log.
+ *
+ * The ledger itself (`canvas_generations`: when, why, which intent hash) is
+ * never pruned — those rows are ~100 bytes each, they are what `work_facts`
+ * holds a foreign key to, and deleting one costs 5.2ms because
+ * `work_facts.basis_authorial_generation` has no index behind its RESTRICT.
+ * What is compacted is the payload: `canvas_generation_documents` bodies
+ * outside the retention window. Nothing references that table, so a sweep
+ * cannot orphan anything and costs ~0.2ms per generation.
+ *
+ * Mark set, in the shape content/gc.ts uses (build the protected set first,
+ * then sweep what it does not cover):
+ *   - the head generation, which readStoredAuthority reconstructs on every
+ *     read and whose document_count it verifies
+ *   - every generation a work fact is founded on, which the
+ *     `work_fact_authorial_basis_resolves` trigger requires to resolve to a
+ *     document row
+ *
+ * Crash safety: one DELETE inside the caller's transaction. A partial sweep is
+ * impossible — SQLite either applies the statement or does not — and the head
+ * is in the mark set, so no interleaving can leave it without a body.
+ */
+const compactCanvasGenerationBodies = (
+  writer: StateWriter,
+  retention: number,
+  batch: number,
+): number => {
+  // `retention` and `batch` count GENERATIONS; the return counts document rows.
+  const marked = new Set<string>();
+  const head = writer.get<{ readonly generation: string }>(
+    "SELECT generation FROM canvas_head WHERE singleton = 1",
+  );
+  if (head !== undefined) marked.add(head.generation);
+  for (const row of writer.all<{ readonly generation: string }>(
+    `
+      SELECT DISTINCT basis_authorial_generation AS generation
+      FROM work_facts
+      WHERE basis_authorial_generation IS NOT NULL
+    `,
+  )) {
+    marked.add(row.generation);
+  }
+
+  // Generation is canonical decimal TEXT, so age ordering needs the cast.
+  const victims: string[] = [];
+  for (const row of writer.all<{ readonly generation: string }>(
+    `
+      SELECT generation
+      FROM canvas_generation_documents
+      GROUP BY generation
+      ORDER BY CAST(generation AS INTEGER) DESC
+      LIMIT -1 OFFSET ?
+    `,
+    [retention],
+  )) {
+    if (marked.has(row.generation)) continue;
+    victims.push(row.generation);
+    if (victims.length >= batch) break;
+  }
+  if (victims.length === 0) return 0;
+
+  // Rows, not generations: a full map holds one row per canvas, and the gate
+  // above counts rows, so the caller's high-water mark has to be paid in the
+  // same unit it was read in.
+  const swept = writer.run(
+    `
+      DELETE FROM canvas_generation_documents
+      WHERE generation IN (${victims.map(() => "?").join(", ")})
+    `,
+    victims,
+  );
+  return Number(swept.changes ?? 0);
+};
+
+/**
+ * High-water gate in front of the sweep.
+ *
+ * The sweep's mark scan is ~3.5ms, far too much to pay on every commit, so it
+ * hides behind one `count(*)` and a remembered post-sweep level: nothing runs
+ * again until the log has grown SLACK commits past where the last sweep left
+ * it. Process-local by design — a fresh launch starting at "never swept" just
+ * means the first content-changing commit of the session pays one sweep.
+ */
+const makeGenerationCompactor = (options: {
+  readonly retention?: number;
+  readonly batch?: number;
+  readonly slack?: number;
+} = {}) => {
+  const retention = options.retention ?? CANVAS_GENERATION_BODY_RETENTION;
+  const batch = options.batch ?? CANVAS_GENERATION_COMPACTION_BATCH;
+  const slack = options.slack ?? CANVAS_GENERATION_COMPACTION_SLACK;
+  let sweptAt: number | undefined;
+  return {
+    afterCommit: (writer: StateWriter): number => {
+      const bodies = Number(
+        writer.get<{ readonly count: number }>(
+          "SELECT count(*) AS count FROM canvas_generation_documents",
+        )?.count ?? 0,
+      );
+      if (sweptAt !== undefined && bodies < sweptAt + slack) return 0;
+      const sweptRows = compactCanvasGenerationBodies(writer, retention, batch);
+      sweptAt = bodies - sweptRows;
+      return sweptRows;
+    },
+  };
+};
+
+/** The compaction handle a commit carries, so every cause shares one gate. */
+type GenerationCompactor = ReturnType<typeof makeGenerationCompactor>;
+
 const commitFullGeneration = (
   writer: StateWriter,
   previous: StoredAuthoritySnapshot,
@@ -906,6 +1059,7 @@ const commitFullGeneration = (
   options: {
     readonly generation?: string;
     readonly createdAt?: string;
+    readonly compactor?: GenerationCompactor;
   } = {},
 ): CommitOutcome => {
   const intentSha256 = intentSha256Of(documents);
@@ -924,6 +1078,9 @@ const commitFullGeneration = (
     cause,
     documents,
   );
+  // Every append goes through here, so the retention window has exactly one
+  // seam to defend regardless of which cause grew the log.
+  options.compactor?.afterCommit(writer);
   return { generation, changed: true };
 };
 
@@ -1035,6 +1192,9 @@ export const CanvasesLive = Layer.effect(
       yield* Effect.addFinalizer(() => Effect.sync(() => world.close()));
     }
     const workProjections = makeWorkProjectionCache(world);
+    // One retention gate for the whole installation: every canvas commit
+    // appends to the same generation log, so one high-water mark governs it.
+    const generationCompactor = makeGenerationCompactor();
 
   const notifyListeners = (
     name: CanvasName | string,
@@ -1316,6 +1476,7 @@ export const CanvasesLive = Layer.effect(
           current,
           documents,
           "write",
+          { compactor: generationCompactor },
         );
         if (commit.changed || previous === undefined) {
           syncCanvasEntities(
@@ -1373,6 +1534,7 @@ export const CanvasesLive = Layer.effect(
           current,
           documents,
           "mutate",
+          { compactor: generationCompactor },
         );
         if (commit.changed) {
           syncCanvasEntities(
@@ -1415,7 +1577,9 @@ export const CanvasesLive = Layer.effect(
         );
         const documents = new Map(current.documents);
         documents.set(canonicalName, entry);
-        commitFullGeneration(writer, current, documents, "create");
+        commitFullGeneration(writer, current, documents, "create", {
+          compactor: generationCompactor,
+        });
         syncCanvasEntities(
           writer,
           canonicalName,
@@ -1449,7 +1613,9 @@ export const CanvasesLive = Layer.effect(
         }
         const documents = new Map(current.documents);
         documents.delete(canonicalName);
-        commitFullGeneration(writer, current, documents, "remove");
+        commitFullGeneration(writer, current, documents, "remove", {
+          compactor: generationCompactor,
+        });
         archiveAllCanvasEntities(
           writer,
           canonicalName,
@@ -1491,6 +1657,7 @@ export const CanvasesLive = Layer.effect(
         current,
         documents,
         "seed",
+        { compactor: generationCompactor },
       );
       if (commit.changed) {
         syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);

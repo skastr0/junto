@@ -676,6 +676,216 @@ describe("canvas entity registry", () => {
     expect(bindings.filter((b) => b === null)).toHaveLength(1);
   });
 
+  it("writes only the entity rows whose registry identity moved", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-delta-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum-command.db");
+    await mkdir(stateDirectory);
+
+    const runtime = await openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const state = await runtime.runPromise(StateEngine);
+
+    const node = (id: string, text: string) => ({
+      id,
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 40,
+      text,
+      ether: { entity: { kind: "note" as const, name: text } },
+    });
+
+    await runtime.runPromise(canvases.create("board"));
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [node("a", "a"), node("b", "b"), node("c", "c")],
+        edges: [],
+      }),
+    );
+
+    const stamps = () =>
+      runtime.runPromise(
+        state.read("entity.delta", (reader) =>
+          reader.all<{
+            readonly entity_id: string;
+            readonly updated_at: string;
+          }>(
+            `
+              SELECT entity_id, updated_at
+              FROM canvas_entities
+              WHERE canvas_name = 'board'
+              ORDER BY entity_id
+            `,
+          ),
+        ),
+      );
+
+    expect((await stamps()).map((r) => r.entity_id)).toEqual(["a", "b", "c"]);
+
+    // Stamp every row with a value no writer would ever produce, so "was this
+    // row rewritten?" is answered by identity rather than by clock resolution.
+    await runtime.runPromise(
+      state.transaction("entity.delta.mark", (writer) => {
+        writer.run(
+          "UPDATE canvas_entities SET updated_at = 'untouched' WHERE canvas_name = 'board'",
+        );
+      }),
+    );
+
+    // Only node "b" changes registry identity (its kind moves note -> task).
+    // A full-canvas upsert would restamp "a" and "c" too; the delta must not.
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [
+          node("a", "a"),
+          {
+            ...node("b", "b"),
+            ether: { entity: { kind: "task" as const, name: "b" } },
+          },
+          node("c", "c"),
+        ],
+        edges: [],
+      }),
+    );
+
+    const after = await stamps();
+    const stampOf = (id: string) =>
+      after.find((r) => r.entity_id === id)?.updated_at;
+    expect(stampOf("a")).toBe("untouched");
+    expect(stampOf("c")).toBe("untouched");
+    expect(stampOf("b")).not.toBe("untouched");
+
+    const kinds = await runtime.runPromise(
+      state.read("entity.delta.kinds", (reader) =>
+        reader.all<{ readonly entity_id: string; readonly kind: string | null }>(
+          `
+            SELECT entity_id, kind
+            FROM canvas_entities
+            WHERE canvas_name = 'board'
+            ORDER BY entity_id
+          `,
+        ),
+      ),
+    );
+    expect(kinds).toEqual([
+      { entity_id: "a", kind: "note" },
+      { entity_id: "b", kind: "task" },
+      { entity_id: "c", kind: "note" },
+    ]);
+  });
+
+  it("heals a registry row the table lost on the next write", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-heal-gap-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum-command.db");
+    await mkdir(stateDirectory);
+
+    const runtime = await openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const entities = await runtime.runPromise(CanvasEntityRepository);
+    const state = await runtime.runPromise(StateEngine);
+
+    const node = (id: string, text: string) => ({
+      id,
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 40,
+      text,
+    });
+
+    await runtime.runPromise(canvases.create("board"));
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [node("kept", "kept"), node("lost", "lost")],
+        edges: [],
+      }),
+    );
+
+    // A gap the registry can lose to an interrupted backfill or a wiped row.
+    // The document still carries the node, so the next write has to restore it
+    // — a diff taken between two documents would call "lost" unchanged and
+    // leave the canvas permanently missing an entity.
+    await runtime.runPromise(
+      state.transaction("entity.heal.wipe", (writer) => {
+        writer.run(
+          "DELETE FROM canvas_entities WHERE canvas_name = 'board' AND entity_id = 'lost'",
+        );
+      }),
+    );
+    expect(await runtime.runPromise(entities.get("board", "lost"))).toBeUndefined();
+
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [node("kept", "kept moved"), node("lost", "lost")],
+        edges: [],
+      }),
+    );
+
+    const healed = await runtime.runPromise(entities.get("board", "lost"));
+    expect(healed?.lifecycle).toBe("active");
+  });
+
+  it("heals a registry row whose kind drifted from the document", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-entity-heal-kind-"));
+    roots.push(root);
+    const stateDirectory = join(root, "state");
+    const path = join(stateDirectory, "vellum-command.db");
+    await mkdir(stateDirectory);
+
+    const runtime = await openEngine(path);
+    const canvases = await runtime.runPromise(CanvasesService);
+    const state = await runtime.runPromise(StateEngine);
+
+    const node = (id: string, text: string) => ({
+      id,
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 40,
+      text,
+      ether: { entity: { kind: "task" as const, name: text } },
+    });
+
+    await runtime.runPromise(canvases.create("board"));
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [node("drift", "drift"), node("other", "other")],
+        edges: [],
+      }),
+    );
+
+    await runtime.runPromise(
+      state.transaction("entity.heal.drift", (writer) => {
+        writer.run(
+          "UPDATE canvas_entities SET kind = 'wrong' WHERE canvas_name = 'board' AND entity_id = 'drift'",
+        );
+      }),
+    );
+
+    await runtime.runPromise(
+      canvases.write("board", {
+        nodes: [node("drift", "drift"), node("other", "other moved")],
+        edges: [],
+      }),
+    );
+
+    const kind = await runtime.runPromise(
+      state.read("entity.heal.drift.read", (reader) =>
+        reader.get<{ readonly kind: string | null }>(
+          "SELECT kind FROM canvas_entities WHERE canvas_name = 'board' AND entity_id = 'drift'",
+        ),
+      ),
+    );
+    expect(kind?.kind).toBe("task");
+  });
+
   it("lists suppressed entity ids for portfolio merge", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-suppress-"));
     roots.push(root);

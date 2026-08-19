@@ -4,7 +4,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import {
+  CANVAS_GENERATION_BODY_RETENTION,
+  CANVAS_GENERATION_COMPACTION_SLACK,
+  CanvasesLive,
+  CanvasesService,
+} from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StateEngine } from "../src/main/vellum/state/service";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
@@ -348,6 +353,120 @@ describe("CanvasesService SQLite authority", () => {
         "work"
       )?.nodes[0]?.ether?.tasks
     ).toBeUndefined();
+  });
+
+  it("compacts generation bodies to a bounded window and keeps the head", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    const state = await runtime.runPromise(StateEngine);
+
+    const commits =
+      CANVAS_GENERATION_BODY_RETENTION + CANVAS_GENERATION_COMPACTION_SLACK + 8;
+    for (let i = 0; i < commits; i += 1) {
+      await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
+    }
+
+    const counts = await runtime.runPromise(
+      state.read("compaction.counts", (reader) => ({
+        ledger: Number(
+          reader.get<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM canvas_generations",
+          )?.count ?? 0,
+        ),
+        bodies: Number(
+          reader.get<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM canvas_generation_documents",
+          )?.count ?? 0,
+        ),
+      })),
+    );
+
+    // The ledger is append-only forever; only the payload is compacted.
+    expect(counts.ledger).toBe(commits);
+    expect(counts.bodies).toBeLessThanOrEqual(
+      CANVAS_GENERATION_BODY_RETENTION + CANVAS_GENERATION_COMPACTION_SLACK,
+    );
+    expect(counts.bodies).toBeGreaterThanOrEqual(
+      CANVAS_GENERATION_BODY_RETENTION,
+    );
+
+    // The head must always still resolve to a full document set.
+    const head = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(head.generation).toBe(String(commits));
+    expect(head.documents.get("alpha")?.nodes[0]).toMatchObject({
+      text: `rev-${commits - 1}`,
+    });
+    const reread = await runtime.runPromise(canvases.read("alpha"));
+    expect(reread.doc.nodes[0]).toMatchObject({ text: `rev-${commits - 1}` });
+
+    // ... and a restart must be able to rebuild from what survived.
+    await runtime.dispose();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const reopened = await runtime.runPromise(CanvasesService);
+    expect(
+      (await runtime.runPromise(reopened.read("alpha"))).doc.nodes[0],
+    ).toMatchObject({ text: `rev-${commits - 1}` });
+  });
+
+  it("never compacts a generation a work fact is founded on", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const settings = await runtime.runPromise(SettingsService);
+    await runtime.runPromise(
+      settings.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+        supervisedPreferred: true,
+      })
+    );
+    const canvases = await runtime.runPromise(CanvasesService);
+    const work = await runtime.runPromise(WorkService);
+    const state = await runtime.runPromise(StateEngine);
+
+    await runtime.runPromise(canvases.write("work", taskSinkDoc()));
+    await runtime.runPromise(
+      work.workTaskCreate("work", "sink", "founded here", {
+        details: "founded here",
+      })
+    );
+
+    const basis = await runtime.runPromise(
+      state.read("compaction.basis", (reader) =>
+        reader.all<{ readonly generation: string }>(
+          `
+            SELECT DISTINCT basis_authorial_generation AS generation
+            FROM work_facts
+            WHERE basis_authorial_generation IS NOT NULL
+          `,
+        ),
+      ),
+    );
+    expect(basis.length).toBeGreaterThan(0);
+
+    const commits =
+      CANVAS_GENERATION_BODY_RETENTION + CANVAS_GENERATION_COMPACTION_SLACK + 8;
+    for (let i = 0; i < commits; i += 1) {
+      await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
+    }
+
+    const survived = await runtime.runPromise(
+      state.read("compaction.basis.survived", (reader) =>
+        reader.all<{ readonly generation: string; readonly bodies: number }>(
+          `
+            SELECT generation, count(*) AS bodies
+            FROM canvas_generation_documents
+            GROUP BY generation
+          `,
+        ),
+      ),
+    );
+    const held = new Set(survived.map((row) => row.generation));
+    for (const row of basis) {
+      expect(held.has(row.generation)).toBe(true);
+    }
+    // The point of the window: generations nothing pins did lose their bodies.
+    expect(survived.length).toBeLessThan(commits);
   });
 
   it("starts empty when the authority pointer is absent", async () => {
