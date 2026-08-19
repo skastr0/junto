@@ -11,7 +11,9 @@ import {
   SETTINGS_VERSION,
   SettingsError,
   StationSettings,
+  TerminalSettings,
   defaultHarnesses,
+  defaultTerminal,
   type Settings,
 } from "@shared/settings";
 
@@ -48,6 +50,12 @@ export const StoredSettingsPreferences = Schema.Struct({
   fleet: FleetSettings,
   /** Absent on rows written before the Agents settings surface. */
   harnesses: Schema.optionalKey(HarnessesSettings),
+  /**
+   * Absent on rows written before the Terminal settings surface. Decode must
+   * admit those rows — absence resolves to defaultTerminal() on the way out,
+   * and the next persist writes the key.
+   */
+  terminal: Schema.optionalKey(TerminalSettings),
 });
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
@@ -74,6 +82,7 @@ export const preferencesFromSettings = (
   audio: settings.audio,
   fleet: settings.fleet,
   harnesses: settings.harnesses ?? defaultHarnesses(),
+  terminal: settings.terminal ?? defaultTerminal(),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the
@@ -140,6 +149,7 @@ export const decodeStoredSettings = (
     audio: prefs.audio,
     fleet: prefs.fleet,
     harnesses: prefs.harnesses ?? defaultHarnesses(),
+    terminal: prefs.terminal ?? defaultTerminal(),
     station: decodedTopology.success,
   };
 };

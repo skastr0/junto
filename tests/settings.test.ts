@@ -9,9 +9,18 @@ import { Effect, Result, ManagedRuntime, Schema } from "effect";
 import {
   SETTINGS_VERSION,
   StationSettings,
+  TERMINAL_BOUNDS,
+  TerminalSettings,
   applySettingsPatch,
   defaultSettings,
+  defaultTerminal,
+  terminalSettings,
 } from "../src/shared/settings";
+import { MONO_CELL } from "../src/renderer/lib/focus-measure";
+import {
+  VELLUM_XTERM_FONT_FAMILY,
+  VELLUM_XTERM_FONT_SIZE,
+} from "../src/renderer/lib/terminal-theme";
 import {
   applyAndValidatePatch,
   decodePatchInput,
@@ -681,6 +690,74 @@ describe("SQLite settings service", () => {
     }
   });
 
+  it("round-trips a partial terminal patch through the real service", async () => {
+    const first = await openService();
+    // Absent fragment resolves to today's terminal before anything is written.
+    expect(await run(first.service.get).then((s) => s.terminal)).toEqual(
+      defaultTerminal(),
+    );
+
+    const patched = await run(
+      first.service.patch({
+        terminal: { scrollSensitivity: 8, cursorBlink: false, bell: "visual" },
+      }),
+    );
+    // Partial patch: the three named fields move, the other eight do not.
+    expect(patched.terminal).toEqual({
+      ...defaultTerminal(),
+      scrollSensitivity: 8,
+      cursorBlink: false,
+      bell: "visual",
+    });
+
+    const second = await openService();
+    const reloaded = await run(second.service.get);
+    expect(reloaded.terminal).toEqual({
+      ...defaultTerminal(),
+      scrollSensitivity: 8,
+      cursorBlink: false,
+      bell: "visual",
+    });
+
+    // A second partial patch composes onto the persisted row, not onto defaults.
+    const again = await run(
+      second.service.patch({ terminal: { fontSize: 16 } }),
+    );
+    expect(again.terminal).toEqual({
+      ...defaultTerminal(),
+      scrollSensitivity: 8,
+      cursorBlink: false,
+      bell: "visual",
+      fontSize: 16,
+    });
+  });
+
+  it("refuses an out-of-range terminal value at the service boundary", async () => {
+    const { service } = await openService();
+    const result = await runEither(
+      service.patch({ terminal: { scrollback: 0 } }),
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) expect(result.failure.code).toBe("validation");
+    // The refusal left the persisted row alone.
+    expect((await run(service.get)).terminal?.scrollback).toBe(
+      defaultTerminal().scrollback,
+    );
+  });
+
+  it("resets only the terminal section", async () => {
+    const { service } = await openService();
+    await run(
+      service.patch({
+        terminal: { fontSize: 20 },
+        appearance: { reduceMotion: true },
+      }),
+    );
+    const reset = await run(service.reset("terminal"));
+    expect(reset.terminal).toEqual(defaultTerminal());
+    expect(reset.appearance.reduceMotion).toBe(true);
+  });
+
   it("enforces JSON validity in the SQLite schema", async () => {
     const { state } = await openService();
     const result = await runEither(
@@ -692,5 +769,154 @@ describe("SQLite settings service", () => {
       }),
     );
     expect(Result.isFailure(result)).toBe(true);
+  });
+});
+
+describe("terminal settings fragment", () => {
+  const decodeTerminal = Schema.decodeUnknownResult(TerminalSettings, {
+    onExcessProperty: "error",
+  });
+  const accepts = (field: keyof TerminalSettings, value: number): boolean =>
+    Result.isSuccess(decodeTerminal({ ...defaultTerminal(), [field]: value }));
+
+  it("defaults reproduce the terminal the surface already builds", () => {
+    // The literals in shared/settings.ts are a second copy of renderer
+    // constants; pin them so the copies cannot drift apart unnoticed.
+    expect(defaultTerminal().fontSize).toBe(MONO_CELL.fontSizePx);
+    expect(defaultTerminal().fontSize).toBe(VELLUM_XTERM_FONT_SIZE);
+    expect(defaultTerminal().fontFamily).toBe(VELLUM_XTERM_FONT_FAMILY);
+    // The values the surface hardcoded inline.
+    expect(defaultTerminal().lineHeight).toBe(1.2);
+    expect(defaultTerminal().scrollback).toBe(10_000);
+    expect(defaultTerminal().scrollSensitivity).toBe(3);
+    // xterm's own effective defaults, which the surface never overrode.
+    expect(defaultTerminal().cursorStyle).toBe("block");
+    expect(defaultTerminal().minimumContrastRatio).toBe(1);
+    expect(defaultTerminal().letterSpacing).toBe(0);
+    expect(defaultTerminal().screenReaderMode).toBe(false);
+    // Blink is on because the surface blinks whenever the terminal is visible;
+    // the preference gates that behaviour rather than replacing it.
+    expect(defaultTerminal().cursorBlink).toBe(true);
+    // Nothing subscribes to xterm's onBell today.
+    expect(defaultTerminal().bell).toBe("off");
+    expect(defaultSettings().terminal).toEqual(defaultTerminal());
+  });
+
+  it("rejects every numeric field at both ends of its bound", () => {
+    const integers = ["scrollSensitivity", "fontSize", "scrollback"] as const;
+    for (const field of integers) {
+      const { min, max } = TERMINAL_BOUNDS[field];
+      expect([field, "min", accepts(field, min)]).toEqual([field, "min", true]);
+      expect([field, "max", accepts(field, max)]).toEqual([field, "max", true]);
+      expect([field, "under", accepts(field, min - 1)]).toEqual([field, "under", false]);
+      expect([field, "over", accepts(field, max + 1)]).toEqual([field, "over", false]);
+      // Whole lines / whole pixels only.
+      expect([field, "fraction", accepts(field, min + 0.5)]).toEqual([field, "fraction", false]);
+    }
+
+    const fractionals = ["minimumContrastRatio", "lineHeight", "letterSpacing"] as const;
+    for (const field of fractionals) {
+      const { min, max } = TERMINAL_BOUNDS[field];
+      expect([field, "min", accepts(field, min)]).toEqual([field, "min", true]);
+      expect([field, "max", accepts(field, max)]).toEqual([field, "max", true]);
+      expect([field, "under", accepts(field, min - 0.1)]).toEqual([field, "under", false]);
+      expect([field, "over", accepts(field, max + 0.1)]).toEqual([field, "over", false]);
+      // A midpoint is a legitimate value for these, unlike the integer fields.
+      expect([field, "mid", accepts(field, (min + max) / 2)]).toEqual([field, "mid", true]);
+    }
+
+    // The two footguns the operator named, stated directly.
+    expect(accepts("scrollback", 0)).toBe(false);
+    expect(accepts("fontSize", 2000)).toBe(false);
+    // Neither NaN nor Infinity slips past isBetween.
+    expect(accepts("lineHeight", Number.NaN)).toBe(false);
+    expect(accepts("scrollback", Number.POSITIVE_INFINITY)).toBe(false);
+  });
+
+  it("rejects an empty or oversized font stack and unknown enum values", () => {
+    expect(
+      Result.isSuccess(decodeTerminal({ ...defaultTerminal(), fontFamily: "" })),
+    ).toBe(false);
+    expect(
+      Result.isSuccess(
+        decodeTerminal({
+          ...defaultTerminal(),
+          fontFamily: "x".repeat(TERMINAL_BOUNDS.fontFamily.maxLength + 1),
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      Result.isSuccess(
+        decodeTerminal({
+          ...defaultTerminal(),
+          fontFamily: "x".repeat(TERMINAL_BOUNDS.fontFamily.maxLength),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isSuccess(decodeTerminal({ ...defaultTerminal(), cursorStyle: "beam" })),
+    ).toBe(false);
+    expect(
+      Result.isSuccess(decodeTerminal({ ...defaultTerminal(), bell: "loud" })),
+    ).toBe(false);
+  });
+
+  it("holds the same bounds on the patch surface as on the fragment", () => {
+    expect(Result.isFailure(decodePatchInput({ terminal: { scrollback: 0 } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ terminal: { fontSize: 2000 } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ terminal: { lineHeight: 0.5 } }))).toBe(true);
+    expect(Result.isFailure(decodePatchInput({ terminal: { letterSpacing: -1 } }))).toBe(true);
+    expect(Result.isSuccess(decodePatchInput({ terminal: { scrollSensitivity: 8 } }))).toBe(true);
+    // Excess keys are rejected here exactly as they are on every other section.
+    expect(Result.isFailure(decodePatchInput({ terminal: { cursorWidth: 2 } }))).toBe(true);
+  });
+
+  it("decodes a stored row written without the terminal fragment", () => {
+    const {
+      version: _version,
+      station,
+      terminal: _terminal,
+      ...preferencesWithoutTerminal
+    } = defaultSettings();
+    expect("terminal" in preferencesWithoutTerminal).toBe(false);
+
+    const decoded = decodeStoredSettings(
+      SETTINGS_VERSION,
+      preferencesWithoutTerminal,
+      station,
+    );
+    expect(decoded.terminal).toEqual(defaultTerminal());
+    // And the rest of the aggregate is untouched by the fill-in.
+    expect(decoded.appearance).toEqual(defaultSettings().appearance);
+  });
+
+  it("resolves an absent fragment to defaults on read", () => {
+    expect(
+      terminalSettings({ ...defaultSettings(), terminal: undefined }),
+    ).toEqual(defaultTerminal());
+    expect(terminalSettings(undefined)).toEqual(defaultTerminal());
+    expect(terminalSettings(defaultSettings())).toEqual(defaultTerminal());
+  });
+
+  it("merges a partial terminal patch field by field", () => {
+    const next = applySettingsPatch(defaultSettings(), {
+      terminal: { scrollSensitivity: 6, cursorStyle: "bar" },
+    });
+    expect(next.terminal).toEqual({
+      ...defaultTerminal(),
+      scrollSensitivity: 6,
+      cursorStyle: "bar",
+    });
+    // Merging onto an aggregate whose fragment is absent starts from defaults.
+    const fromAbsent = applySettingsPatch(
+      { ...defaultSettings(), terminal: undefined },
+      { terminal: { fontSize: 15 } },
+    );
+    expect(fromAbsent.terminal).toEqual({ ...defaultTerminal(), fontSize: 15 });
+  });
+
+  it("survives a patch that names no terminal keys at all", () => {
+    const next = applySettingsPatch(defaultSettings(), { appearance: { reduceMotion: true } });
+    expect(next.terminal).toEqual(defaultTerminal());
   });
 });

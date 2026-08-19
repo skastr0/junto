@@ -223,6 +223,124 @@ export const AudioSettings = Schema.Struct({
 });
 export type AudioSettings = typeof AudioSettings.Type;
 
+// --- Terminal -------------------------------------------------------------
+//
+// Durable terminal preferences. Before this fragment the surface hardcoded
+// every one of these, so each default below reproduces today's terminal
+// exactly: an operator who never opens the tab sees no change.
+//
+// Panel grouping is presentation, not persistence. The fragment is flat:
+// - Preference    scrollSensitivity, fontSize, fontFamily, cursorStyle, scrollback
+// - Accessibility cursorBlink, minimumContrastRatio, lineHeight, letterSpacing,
+//                 screenReaderMode, bell
+//
+// Every numeric field is range-checked, never merely typed. A preference row is
+// durable and IPC-broadcast to every window, so an out-of-range value would
+// follow the operator across restarts and wreck terminal geometry with no way
+// back except a reset. `scrollback: 0` and `fontSize: 2000` must be
+// unpersistable, not merely discouraged.
+//
+// Adding a field here later: give the new field Schema.optionalKey (the
+// appearance.agentAppearance pattern) or installed rows that predate it stop
+// decoding under onExcessProperty:error.
+
+/** xterm cursor shapes. Mirrors xterm's `cursorStyle` option exactly. */
+export const TerminalCursorStyle = Schema.Literals(["block", "bar", "underline"]);
+export type TerminalCursorStyle = typeof TerminalCursorStyle.Type;
+
+/**
+ * Bell response. xterm 6 exposes no bell option at all -- only an `onBell`
+ * event -- so this is a Vellum Command behaviour the surface wires itself.
+ * "off" is today's behaviour: nothing subscribes to onBell.
+ */
+export const TerminalBell = Schema.Literals(["off", "visual", "sound"]);
+export type TerminalBell = typeof TerminalBell.Type;
+
+/**
+ * Fractional-friendly bound. isBetween alone also rejects NaN and Infinity
+ * (both comparisons are false), so no separate finiteness check is needed.
+ */
+const boundedNumber = (min: number, max: number) =>
+  Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: min, maximum: max })));
+
+/**
+ * The bounds the schema enforces, exported so a control surface clamps to the
+ * same numbers rather than keeping a second, drifting copy.
+ */
+export const TERMINAL_BOUNDS = {
+  /**
+   * Lines per wheel notch. 1 is xterm's own default; 0 would kill the wheel
+   * outright, and past ~20 a single notch throws away a screen of context.
+   */
+  scrollSensitivity: { min: 1, max: 20 },
+  /**
+   * Cell font size in px. Under 6px the measured advance width rounds toward
+   * zero and poisons xterm's cell metrics for the life of the terminal; over
+   * 48px an agent TUI's ~140-column layout no longer fits any laptop display.
+   */
+  fontSize: { min: 6, max: 48 },
+  /**
+   * Retained scrollback lines. 0 disables scrollback entirely, which removes
+   * the normal-buffer wheel path the surface depends on. xterm stores roughly
+   * 12 bytes per cell, so the ceiling is already ~120MB for one 200-column
+   * terminal -- and a canvas holds many at once.
+   */
+  scrollback: { min: 100, max: 50_000 },
+  /**
+   * WCAG contrast ratio xterm enforces per cell. 1 is xterm's "no
+   * enforcement"; 21 is the maximum ratio that exists (pure black on white).
+   */
+  minimumContrastRatio: { min: 1, max: 21 },
+  /**
+   * Multiple of font size. Under 1 the row clips ascenders and desyncs the
+   * cell measure; over 2 half the viewport is empty leading.
+   */
+  lineHeight: { min: 1, max: 2 },
+  /**
+   * Extra px per cell. Negative spacing overlaps glyphs and breaks the
+   * monospace grid the PTY column count is measured from; past 5px the line
+   * stops reading as connected text.
+   */
+  letterSpacing: { min: 0, max: 5 },
+  /** Font stack string. A preference row stays small and is broadcast over IPC. */
+  fontFamily: { minLength: 1, maxLength: 200 },
+} as const;
+
+const TerminalFontFamily = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(TERMINAL_BOUNDS.fontFamily.minLength)),
+  Schema.check(Schema.isMaxLength(TERMINAL_BOUNDS.fontFamily.maxLength)),
+);
+
+export const TerminalSettings = Schema.Struct({
+  scrollSensitivity: positiveInt(
+    TERMINAL_BOUNDS.scrollSensitivity.min,
+    TERMINAL_BOUNDS.scrollSensitivity.max,
+  ),
+  fontSize: positiveInt(TERMINAL_BOUNDS.fontSize.min, TERMINAL_BOUNDS.fontSize.max),
+  fontFamily: TerminalFontFamily,
+  cursorStyle: TerminalCursorStyle,
+  scrollback: positiveInt(TERMINAL_BOUNDS.scrollback.min, TERMINAL_BOUNDS.scrollback.max),
+  /**
+   * Gates blinking; it does not own it. The surface already drives
+   * `cursorBlink` from surface visibility so a hidden terminal stops forcing
+   * repaints. The effective value is this preference AND that visibility --
+   * false here means never blink, true means blink exactly as today.
+   */
+  cursorBlink: Schema.Boolean,
+  minimumContrastRatio: boundedNumber(
+    TERMINAL_BOUNDS.minimumContrastRatio.min,
+    TERMINAL_BOUNDS.minimumContrastRatio.max,
+  ),
+  lineHeight: boundedNumber(TERMINAL_BOUNDS.lineHeight.min, TERMINAL_BOUNDS.lineHeight.max),
+  letterSpacing: boundedNumber(
+    TERMINAL_BOUNDS.letterSpacing.min,
+    TERMINAL_BOUNDS.letterSpacing.max,
+  ),
+  screenReaderMode: Schema.Boolean,
+  bell: TerminalBell,
+});
+export type TerminalSettings = typeof TerminalSettings.Type;
+
 export const Settings = Schema.Struct({
   version: Schema.Literal(SETTINGS_VERSION),
   appearance: AppearanceSettings,
@@ -238,6 +356,12 @@ export const Settings = Schema.Struct({
    * Absent ≡ empty byHarness (product defaults for every seat).
    */
   harnesses: Schema.optionalKey(HarnessesSettings),
+  /**
+   * Optional so rows written before the Terminal settings surface still
+   * decode. Absent ≡ defaultTerminal() — today's terminal, unchanged.
+   * Read it through terminalSettings() rather than reaching for the key.
+   */
+  terminal: Schema.optionalKey(TerminalSettings),
 });
 export type Settings = typeof Settings.Type;
 
@@ -275,6 +399,37 @@ export const AdvancedPatch = Schema.Struct({
   logsExplorer: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
+
+/** Partial terminal update: omitted fields keep their current value. */
+export const TerminalPatch = Schema.Struct({
+  scrollSensitivity: Schema.optionalKey(
+    positiveInt(TERMINAL_BOUNDS.scrollSensitivity.min, TERMINAL_BOUNDS.scrollSensitivity.max),
+  ),
+  fontSize: Schema.optionalKey(
+    positiveInt(TERMINAL_BOUNDS.fontSize.min, TERMINAL_BOUNDS.fontSize.max),
+  ),
+  fontFamily: Schema.optionalKey(TerminalFontFamily),
+  cursorStyle: Schema.optionalKey(TerminalCursorStyle),
+  scrollback: Schema.optionalKey(
+    positiveInt(TERMINAL_BOUNDS.scrollback.min, TERMINAL_BOUNDS.scrollback.max),
+  ),
+  cursorBlink: Schema.optionalKey(Schema.Boolean),
+  minimumContrastRatio: Schema.optionalKey(
+    boundedNumber(
+      TERMINAL_BOUNDS.minimumContrastRatio.min,
+      TERMINAL_BOUNDS.minimumContrastRatio.max,
+    ),
+  ),
+  lineHeight: Schema.optionalKey(
+    boundedNumber(TERMINAL_BOUNDS.lineHeight.min, TERMINAL_BOUNDS.lineHeight.max),
+  ),
+  letterSpacing: Schema.optionalKey(
+    boundedNumber(TERMINAL_BOUNDS.letterSpacing.min, TERMINAL_BOUNDS.letterSpacing.max),
+  ),
+  screenReaderMode: Schema.optionalKey(Schema.Boolean),
+  bell: Schema.optionalKey(TerminalBell),
+});
+export type TerminalPatch = typeof TerminalPatch.Type;
 
 export const HarnessInstancePrefsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
@@ -342,6 +497,7 @@ export const SettingsPatch = Schema.Struct({
   station: Schema.optionalKey(StationPatch),
   fleet: Schema.optionalKey(FleetPatch),
   harnesses: Schema.optionalKey(HarnessesPatch),
+  terminal: Schema.optionalKey(TerminalPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -352,7 +508,8 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "audio",
 "station",
 "fleet",
-"harnesses",]);
+"harnesses",
+"terminal",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
@@ -384,6 +541,37 @@ export const defaultAdvanced = (): AdvancedSettings => ({
 
 export const defaultHarnesses = (): HarnessesSettings => ({
   byHarness: {},
+});
+
+/**
+ * Today's terminal, field for field. These are not taste picks — they mirror
+ * what the surface already builds with, so the fragment landing changes
+ * nothing for an operator who never opens the tab:
+ * - fontSize / fontFamily / lineHeight — the house mono cell (MONO_CELL.fontSizePx,
+ *   VELLUM_XTERM_FONT_FAMILY, and the hardcoded 1.2 in TerminalSurface)
+ * - scrollSensitivity / scrollback — the SCROLL_SENSITIVITY and scrollback
+ *   constants the surface passed to xterm
+ * - cursorStyle / minimumContrastRatio / letterSpacing / screenReaderMode —
+ *   xterm's own effective defaults, which the surface never overrode
+ * - cursorBlink — true, because the surface blinks whenever the terminal is
+ *   visible; the preference gates that, it does not replace it
+ * - bell — "off", because nothing subscribes to xterm's onBell today
+ *
+ * tests/settings.test.ts pins the first bullet against the renderer constants
+ * so the two copies cannot drift apart silently.
+ */
+export const defaultTerminal = (): TerminalSettings => ({
+  scrollSensitivity: 3,
+  fontSize: 13,
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+  cursorStyle: "block",
+  scrollback: 10_000,
+  cursorBlink: true,
+  minimumContrastRatio: 1,
+  lineHeight: 1.2,
+  letterSpacing: 0,
+  screenReaderMode: false,
+  bell: "off",
 });
 
 /** Managed Remote deployment is available by default; the operator may disable it. */
@@ -426,6 +614,7 @@ export const defaultSettings = (): Settings => ({
   station: defaultStation(),
   fleet: defaultFleet(),
   harnesses: defaultHarnesses(),
+  terminal: defaultTerminal(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -448,6 +637,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultFleet();
     case "harnesses":
       return defaultHarnesses();
+    case "terminal":
+      return defaultTerminal();
   }
 };
 
@@ -468,6 +659,16 @@ export const harnessUserEnabled = (
   settings: Settings | undefined,
   harness: string,
 ): boolean => harnessPrefsFor(settings, harness).enabled !== false;
+
+/**
+ * Terminal prefs with the fragment's absence resolved to defaults. Consumers
+ * read through this, never `settings.terminal` directly — an installed row
+ * written before the fragment existed has no key, and absence means "today's
+ * terminal", not "no terminal".
+ */
+export const terminalSettings = (
+  settings: Settings | undefined,
+): TerminalSettings => settings?.terminal ?? defaultTerminal();
 
 /** Shallow field merge: defined patch keys overwrite current. */
 export const mergeSection = <S extends Record<string, unknown>>(
@@ -525,6 +726,12 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       audio = { ...audio, clips };
     }
     next = { ...next, audio };
+  }
+  if (patch.terminal) {
+    next = {
+      ...next,
+      terminal: mergeSection(next.terminal ?? defaultTerminal(), patch.terminal),
+    };
   }
   if (patch.harnesses?.byHarness) {
     const current = next.harnesses ?? defaultHarnesses();
