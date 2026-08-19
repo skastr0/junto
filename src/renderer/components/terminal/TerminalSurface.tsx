@@ -259,6 +259,29 @@ type XtermCore = {
  * (installObservabilityConsoleHook -> recordRendererConsole), so these lines
  * are queryable. Grep tag: vellum:term-geom
  */
+/**
+ * How far one trackpad or wheel gesture travels.
+ *
+ * xterm defaults scrollSensitivity and fastScrollSensitivity to 1, and the
+ * terminal never set either, so one gesture moved noticeably less here than in
+ * a native terminal -- the operator's word was "laborious". This is travel per
+ * gesture, not latency, and a separate axis from stream cadence.
+ *
+ * It applies to all three wheel owners, including the alternate-screen path
+ * where xterm turns the wheel into cursor keys for a full-screen TUI, which is
+ * the case that felt worst.
+ *
+ * A CONSTANT, deliberately. This is a product preference, and
+ * tests/settings-state-architecture.test.ts holds that preferences live in the
+ * StateEngine behind IPC, never in renderer storage -- that gate caught an
+ * earlier attempt to make this a devtools knob and was right to. Giving it a
+ * real home in SettingsService is the change to make when it earns a control
+ * surface; until then the number lives here, reviewable in one place.
+ */
+const SCROLL_SENSITIVITY = 3;
+/** Alt-held fast scroll, as a multiple of the normal gesture. */
+const SCROLL_SENSITIVITY_FAST = SCROLL_SENSITIVITY * 5;
+
 const logTermGeom = (event: string, data: Record<string, unknown>): void => {
   try {
     console.warn(`[vellum:term-geom] ${event} ${JSON.stringify(data)}`);
@@ -546,6 +569,8 @@ export function TerminalSurface({
       cursorBlink: visibleRef.current,
       scrollback: 10_000,
       allowProposedApi: true,
+      scrollSensitivity: SCROLL_SENSITIVITY,
+      fastScrollSensitivity: SCROLL_SENSITIVITY_FAST,
       fontFamily: VELLUM_XTERM_FONT_FAMILY,
       fontSize: FONT_SIZE,
       lineHeight: 1.2,
