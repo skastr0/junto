@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
-import type { CanvasDoc, Message } from "../src/shared/canvas";
+import type { CanvasDoc, CanvasNode, Message } from "../src/shared/canvas";
 import { isMessageDelivered } from "../src/shared/message-delivery";
 import {
+  MESSAGE_DELIVERY_INDEX_RECONCILE_MS,
   MessageDeliveryService,
   type MessageDeliveryStore,
   type MessageDeliveryTransport,
@@ -61,9 +62,15 @@ const makeStore = (
     readonly acceptOk?: () => boolean;
     readonly acceptReadOk?: () => boolean;
     readonly now?: () => number;
+    /**
+     * Hand back the live document map so a test can write to the durable store
+     * the way station fact ingress does — behind the service's back.
+     */
+    readonly onDocs?: (docs: Map<string, CanvasDoc>) => void;
   } = {},
 ): MessageDeliveryStore => {
   const docs = new Map(Object.entries(initial).map(([k, v]) => [k, structuredClone(v)]));
+  options.onDocs?.(docs);
   const accepted = new Set<string>();
   const acceptedRead = new Set<string>();
   const keyOf = (canvas: string, nodeId: string, messageId: string) =>
@@ -1173,13 +1180,17 @@ describe("MessageDeliveryService", () => {
     inner: MessageDeliveryStore,
   ): {
     readonly store: MessageDeliveryStore;
-    readonly counts: { docReads: number; nodeReads: number };
+    readonly counts: { docReads: number; nodeReads: number; canvasLists: number };
   } => {
-    const counts = { docReads: 0, nodeReads: 0 };
+    const counts = { docReads: 0, nodeReads: 0, canvasLists: 0 };
     return {
       counts,
       store: {
         ...inner,
+        listCanvasNames: async () => {
+          counts.canvasLists += 1;
+          return inner.listCanvasNames();
+        },
         readDoc: async (canvas, site) => {
           counts.docReads += 1;
           return inner.readDoc(canvas, site);
@@ -1454,5 +1465,253 @@ describe("MessageDeliveryService", () => {
     // The settle point is a known instant: fire at it, spread only forward.
     expect(armed[0]).toBeGreaterThanOrEqual(1_500);
     expect(armed[0]).toBeLessThanOrEqual(1_500 + 10 + 150);
+  });
+
+  // ── One seat transition costs the delta, not the world ───────────────────
+  //
+  // A transition used to list every canvas, read every document and walk every
+  // node to answer "is there mail for THIS binding?" — then discard all but
+  // one binding's worth. The pending index answers that from memory. The world
+  // read stays as a bounded reconcile floor, never a per-transition tax.
+
+  const seatNode = (index: number): CanvasNode => ({
+    id: `seat-${String(index)}`,
+    type: "text",
+    text: `seat ${String(index)}`,
+    x: index * 10,
+    y: 0,
+    width: 100,
+    height: 80,
+    ether: {
+      entity: { kind: "agent", name: `local:seat-${String(index)}` },
+      terminal: { bindingId: `bind-${String(index)}`, harness: "claude" },
+    },
+  });
+
+  const noteNode = (index: number): CanvasNode => ({
+    id: `note-${String(index)}`,
+    type: "text",
+    text: `note ${String(index)}`,
+    x: index * 10,
+    y: 200,
+    width: 100,
+    height: 80,
+  });
+
+  /** The operator's board shape: 96 nodes, half of them carrying a seat. */
+  const fleetDoc = (seats: number, notes: number): CanvasDoc => ({
+    nodes: [
+      ...Array.from({ length: seats }, (_, i) => seatNode(i)),
+      ...Array.from({ length: notes }, (_, i) => noteNode(i)),
+    ],
+    edges: [],
+  });
+
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+
+  it("a warm seat transition reads nothing when that seat holds no mail", async () => {
+    const { store, counts } = countingStore(makeStore({ c: fleetDoc(48, 48) }));
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: { sendManagedTerminalPrompt: async () => true },
+      store,
+    });
+
+    // Cold index: the first pass reconciles against the world and seeds.
+    service.onBooted();
+    await waitUntil(() => counts.canvasLists === 1);
+    await settle();
+    const warm = { ...counts };
+    expect(warm.docReads).toBe(1);
+
+    for (let i = 0; i < 50; i += 1) {
+      service.onManagedTerminalIdle(`bind-${String(i % 48)}`);
+    }
+    await settle();
+
+    // Fifty transitions, zero reads: nothing is queued, so there is no delta.
+    expect(counts.canvasLists - warm.canvasLists).toBe(0);
+    expect(counts.docReads - warm.docReads).toBe(0);
+    expect(counts.nodeReads - warm.nodeReads).toBe(0);
+  });
+
+  it("a warm transition pays one routing lookup per seat holding mail", async () => {
+    const doc = fleetDoc(48, 48);
+    const held = doc.nodes.slice(0, 3);
+    const withMail: CanvasDoc = {
+      ...doc,
+      nodes: doc.nodes.map((node, index) =>
+        index < 3
+          ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: { items: [userMsg(`held-${String(index)}`, "wait")] },
+              },
+            }
+          : node,
+      ),
+    };
+    const { store, counts } = countingStore(makeStore({ c: withMail }));
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: { sendManagedTerminalPrompt: async () => true },
+      // Paused seats keep their mail pending without burning attempts.
+      seatPaused: () => true,
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => counts.canvasLists === 1);
+    await settle();
+    const warm = { ...counts };
+
+    // A seat with nothing queued: three routing lookups (one per seat that
+    // does hold mail), and not a single document read.
+    service.onManagedTerminalIdle("bind-40");
+    await settle();
+    expect(counts.nodeReads - warm.nodeReads).toBe(held.length);
+    expect(counts.docReads - warm.docReads).toBe(0);
+    expect(counts.canvasLists - warm.canvasLists).toBe(0);
+
+    // The seat that does hold mail reads exactly its own document.
+    const before = { ...counts };
+    service.onManagedTerminalIdle("bind-0");
+    await settle();
+    expect(counts.nodeReads - before.nodeReads).toBe(held.length);
+    expect(counts.docReads - before.docReads).toBe(1);
+  });
+
+  it("a delivered message leaves the index and stops costing lookups", async () => {
+    const msg = userMsg("delivered-once", "hi");
+    let docs!: Map<string, CanvasDoc>;
+    const { store, counts } = countingStore(
+      makeStore({ c: agentDoc([]) }, { onDocs: (map) => { docs = map; } }),
+    );
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => counts.canvasLists === 1);
+    await settle();
+
+    // Durable row first, then the announcement — the real append order.
+    docs.set("c", agentDoc([msg]));
+    service.notifyAppended("c", "agent", msg);
+    await waitUntil(() => sends === 1);
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", msg.messageId));
+    await settle();
+
+    const after = { ...counts };
+    service.onManagedTerminalIdle("bind-mira");
+    await settle();
+    // The receipt landed, so the index holds nothing — no routing lookup, and
+    // certainly no second paste.
+    expect(counts.nodeReads - after.nodeReads).toBe(0);
+    expect(counts.docReads - after.docReads).toBe(0);
+    expect(sends).toBe(1);
+  });
+
+  it("mail held by a paused seat stays indexed and lands on resume", async () => {
+    const msg = userMsg("paused-hold", "later");
+    const store = makeStore({ c: agentDoc([msg]) });
+    let paused = true;
+    let sends = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async () => {
+          sends += 1;
+          return true;
+        },
+      },
+      seatPaused: () => paused,
+      store,
+    });
+
+    service.onBooted();
+    await settle();
+    expect(sends).toBe(0);
+
+    // Two more transitions while paused must not evict the queued message.
+    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-mira");
+    await settle();
+    expect(sends).toBe(0);
+
+    paused = false;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => sends === 1);
+  });
+
+  it("durable mail that never announced itself still lands at the reconcile floor", async () => {
+    // Station fact ingress writes the inbox row through the repository, so no
+    // `notifyAppended` ever fires. The floor is what finds it — bounded
+    // lateness, never a lost message.
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore(
+      { c: agentDoc([]) },
+      { onDocs: (map) => { docs = map; } },
+    );
+    let now = 1_000_000;
+    const writes: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      now: () => now,
+      transport: {
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          writes.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await settle();
+
+    docs.set("c", agentDoc([userMsg("ingress-1", "from the wire")]));
+    service.onManagedTerminalIdle("bind-mira");
+    await settle();
+
+    now += MESSAGE_DELIVERY_INDEX_RECONCILE_MS;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => writes.length === 1);
+    expect(writes[0]).toBe("[message - user] from the wire");
+  });
+
+  it("an unfiltered pass still sweeps every canvas", async () => {
+    const store = makeStore({
+      a: agentDoc([userMsg("multi-a", "canvas a")]),
+      b: terminalDoc([userMsg("multi-b", "canvas b")]),
+    });
+    const writes: Array<{ bindingId: string; text: string }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (bindingId, text) => {
+          writes.push({ bindingId, text });
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => writes.length === 2);
+    expect(writes.map((w) => w.bindingId).sort()).toEqual([
+      "bind-mira",
+      "bind-term",
+    ]);
   });
 });

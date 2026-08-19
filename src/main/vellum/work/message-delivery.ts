@@ -37,6 +37,22 @@ export const MESSAGE_DELIVERY_SETTLE_MS = 1_500;
  * ceiling bounds the worst case where NOTHING changes — never the normal case.
  */
 export const MESSAGE_DELIVERY_GATE_RETRY_MAX_MS = 12_000;
+
+/**
+ * Floor for a full world reconcile of the pending-mail index.
+ *
+ * The index is maintained incrementally — remembered when a message is
+ * appended or seen pending by a document read, forgotten on the durable
+ * receipt, on removal, or once the mailbox marks it read. That makes one seat
+ * transition cost its own delta.
+ *
+ * A durable append that never announced itself is the one thing the index
+ * cannot see (station fact ingress writes the inbox row straight through the
+ * repository, not through `notifyAppended`). So a narrowed pass older than
+ * this floor reconciles against the world first. Staleness is bounded; mail is
+ * never dropped, only late.
+ */
+export const MESSAGE_DELIVERY_INDEX_RECONCILE_MS = 60_000;
 /** Spread simultaneous seats off one tick so N refusals are not one block. */
 const GATE_RETRY_JITTER_FRACTION = 0.2;
 /** Deadline retries may be spread later, never earlier — the settle is a floor. */
@@ -205,6 +221,8 @@ const defaultTimers: MessageDeliveryTimers = {
 const flightKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
+const nodeKey = (canvas: string, nodeId: string): string => `${canvas}::${nodeId}`;
+
 /** Edge-map grant claim carried by a notice (metadata.addedIds), narrowed. */
 const edgeMapAddedIds = (message: Message): ReadonlyArray<string> => {
   const added = message.metadata?.addedIds;
@@ -308,6 +326,29 @@ export class MessageDeliveryService {
    * accumulates backoff across turns.
    */
   private readonly gateRefusalStreak = new Map<string, number>();
+  /**
+   * Live pending-mail index: (canvas, nodeId) -> the messages that still owe a
+   * notify. Incremental view maintenance — this is what lets one seat
+   * transition cost its own delta instead of a read of every canvas.
+   *
+   * `seq` is a monotonic insert stamp. A reconcile prunes only what it can
+   * prove stale: entries indexed BEFORE that world read began. A message
+   * appended mid-read can never be pruned by a document older than it.
+   */
+  private readonly pendingIndex = new Map<
+    string,
+    {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly messages: Map<
+        string,
+        { readonly message: Message; readonly seq: number }
+      >;
+    }
+  >();
+  private indexSeq = 0;
+  /** Clock stamp of the last COMPLETE world reconcile; undefined = never. */
+  private lastReconcileAtMs: number | undefined;
   private timers: MessageDeliveryTimers = defaultTimers;
   private random: () => number = Math.random;
   private readonly pendingRequestResponses = new Map<
@@ -360,6 +401,7 @@ export class MessageDeliveryService {
     this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
     this.clearGateRetries();
+    this.clearPendingIndex();
     this.transport = undefined;
     this.store = undefined;
     this.now = () => Date.now();
@@ -394,6 +436,86 @@ export class MessageDeliveryService {
     this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
     this.clearGateRetries();
+    this.clearPendingIndex();
+  }
+
+  private clearPendingIndex(): void {
+    this.pendingIndex.clear();
+    this.indexSeq = 0;
+    this.lastReconcileAtMs = undefined;
+  }
+
+  /**
+   * Index one pending message. Called where a pending delivery is CREATED
+   * (`notifyAppended`) and wherever a document read observes one still
+   * pending — a cold index therefore rebuilds itself from the first world
+   * read after a restart.
+   */
+  private rememberPending(
+    canvas: string,
+    nodeId: string,
+    message: Message,
+  ): void {
+    if (!isPendingDelivery(message)) return;
+    const key = nodeKey(canvas, nodeId);
+    let entry = this.pendingIndex.get(key);
+    if (!entry) {
+      entry = { canvas, nodeId, messages: new Map() };
+      this.pendingIndex.set(key, entry);
+    }
+    this.indexSeq += 1;
+    entry.messages.set(message.messageId, { message, seq: this.indexSeq });
+  }
+
+  /**
+   * Drop one message from the index. Only ever called on positive evidence
+   * from a fresh authority read: the durable receipt landed, the mailbox
+   * marked it read, or the message is gone from the document.
+   */
+  private forgetPending(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+  ): void {
+    const key = nodeKey(canvas, nodeId);
+    const entry = this.pendingIndex.get(key);
+    if (!entry) return;
+    entry.messages.delete(messageId);
+    if (entry.messages.size === 0) this.pendingIndex.delete(key);
+  }
+
+  /** The node itself is gone from authority — retire everything queued on it. */
+  private forgetNode(canvas: string, nodeId: string): void {
+    this.pendingIndex.delete(nodeKey(canvas, nodeId));
+  }
+
+  /**
+   * Prune this canvas's index against what the world read actually observed.
+   * Entries stamped at or after `startSeq` arrived after the read began, so
+   * the document cannot speak to them and they survive.
+   */
+  private reconcileCanvasIndex(
+    canvas: string,
+    observed: ReadonlyMap<string, ReadonlySet<string>>,
+    startSeq: number,
+  ): void {
+    for (const [key, entry] of [...this.pendingIndex]) {
+      if (entry.canvas !== canvas) continue;
+      const live = observed.get(entry.nodeId);
+      for (const [messageId, held] of [...entry.messages]) {
+        if (held.seq >= startSeq) continue;
+        if (live?.has(messageId) === true) continue;
+        entry.messages.delete(messageId);
+      }
+      if (entry.messages.size === 0) this.pendingIndex.delete(key);
+    }
+  }
+
+  /** True when the index was never built, or the reconcile floor has elapsed. */
+  private reconcileDue(): boolean {
+    const last = this.lastReconcileAtMs;
+    if (last === undefined) return true;
+    return this.now() - last >= MESSAGE_DELIVERY_INDEX_RECONCILE_MS;
   }
 
   private clearWakeRetries(): void {
@@ -454,7 +576,7 @@ export class MessageDeliveryService {
     const handle = this.timers.set(() => {
       this.gateRetryTimers.delete(bindingId);
       if (!this.active(generation)) return;
-      void this.scanAndDeliver((target) => target.bindingId === bindingId);
+      void this.deliverForBinding(bindingId);
       // Request-response shares the seat gate; re-drive those too.
       void this.retryRequestResponses(bindingId);
     }, this.gateRetryDelay(kind, bindingId, delayMs));
@@ -472,6 +594,9 @@ export class MessageDeliveryService {
   notifyAppended(canvas: string, nodeId: string, message: Message): void {
     if (this.suspended) return;
     if (!isPendingDelivery(message)) return;
+    // Index first: if this attempt is refused, the seat's next transition is
+    // what re-drives it, and that pass reads the index, not the world.
+    this.rememberPending(canvas, nodeId, message);
     void this.attemptOne(canvas, nodeId, message);
   }
 
@@ -502,7 +627,7 @@ export class MessageDeliveryService {
   private onSeatStateChanged(bindingId: string): void {
     this.gateRefusalStreak.delete(bindingId);
     void this.retryRequestResponses(bindingId);
-    void this.scanAndDeliver((target) => target.bindingId === bindingId);
+    void this.deliverForBinding(bindingId);
   }
 
   /** Native terminal session attached — offer pending messages as unsubmitted paste. */
@@ -534,7 +659,7 @@ export class MessageDeliveryService {
     this.idleSinceByGeneration.clear();
     this.clearGateRetries();
     void this.retryRequestResponses();
-    void this.scanAndDeliver(() => true);
+    void this.sweepAllCanvases(() => true);
   }
 
   /**
@@ -546,7 +671,7 @@ export class MessageDeliveryService {
   onBooted(): void {
     if (this.suspended) return;
     void this.retryRequestResponses();
-    void this.scanAndDeliver(() => true);
+    void this.sweepAllCanvases(() => true);
   }
 
   /**
@@ -669,13 +794,26 @@ export class MessageDeliveryService {
     }
   }
 
-  private async scanAndDeliver(
+  /**
+   * Full world read: reconcile the pending index against every canvas, and
+   * deliver what `match` selects.
+   *
+   * This is the REBUILD, not the steady state. Boot and resume take it because
+   * a fresh process holds no index at all; a narrowed pass takes it only when
+   * the reconcile floor has elapsed, so a durable append that never announced
+   * itself is still found. Every canvas read here re-seeds the index for that
+   * canvas, which is what makes the next narrowed pass cost the delta.
+   */
+  private async sweepAllCanvases(
     match: (target: SurfaceDeliveryTarget) => boolean,
   ): Promise<void> {
     const generation = this.lifecycleGeneration;
     if (!this.active(generation)) return;
     const store = this.store;
     if (!store) return;
+    // Stamped BEFORE the read: anything indexed from here on is newer than the
+    // documents this pass sees, so the prune must not touch it.
+    const startSeq = this.indexSeq;
     let names: ReadonlyArray<string>;
     try {
       names = await store.listCanvasNames();
@@ -684,16 +822,23 @@ export class MessageDeliveryService {
       return;
     }
     if (!this.active(generation)) return;
+    // Only a read that saw every canvas may reset the floor — a partial world
+    // is not a reconcile, and must not suppress the next one.
+    let reconciled = true;
     for (const canvas of names) {
       if (!this.active(generation)) return;
       let doc: CanvasDoc | undefined;
       try {
         doc = await store.readDoc(canvas, "scan");
       } catch {
+        reconciled = false;
         continue;
       }
       if (!this.active(generation)) return;
-      if (!doc) continue;
+      if (!doc) {
+        reconciled = false;
+        continue;
+      }
       // Group pending by seat so wake can batch into one notify line.
       const groups = new Map<
         string,
@@ -703,7 +848,15 @@ export class MessageDeliveryService {
           readonly messages: Message[];
         }
       >();
+      const observed = new Map<string, Set<string>>();
       for (const pending of listPendingDeliveries(doc)) {
+        let seen = observed.get(pending.nodeId);
+        if (!seen) {
+          seen = new Set<string>();
+          observed.set(pending.nodeId, seen);
+        }
+        seen.add(pending.message.messageId);
+        this.rememberPending(canvas, pending.nodeId, pending.message);
         if (!match(pending.target)) continue;
         const key = `${pending.nodeId}::${pending.target.bindingId}`;
         const existing = groups.get(key);
@@ -717,29 +870,97 @@ export class MessageDeliveryService {
           });
         }
       }
+      this.reconcileCanvasIndex(canvas, observed, startSeq);
       for (const group of groups.values()) {
         if (!this.active(generation)) return;
-        // Edge-map notices keep per-message attemptOne (topology bounds).
-        // Ordinary mail (including factory mail) batches on the same seat.
-        const edgeMap: Message[] = [];
-        const ordinary: Message[] = [];
-        for (const message of group.messages) {
-          if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
-          else ordinary.push(message);
-        }
-        const latestFirst = sortMessagesNewestFirst(ordinary);
-        if (latestFirst.length === 1) {
-          await this.attemptOne(canvas, group.nodeId, latestFirst[0]!);
-        } else if (latestFirst.length > 1) {
-          await this.attemptBatch(canvas, group.nodeId, latestFirst);
-        }
-        for (const message of edgeMap) {
-          if (!this.active(generation)) return;
-          await this.attemptOne(canvas, group.nodeId, message);
-        }
+        await this.deliverGroup(generation, canvas, group.nodeId, group.messages);
       }
     }
+    if (reconciled) this.lastReconcileAtMs = this.now();
     await this.retryPendingReadStamps(generation, match);
+  }
+
+  /**
+   * One seat transition — deliver exactly that seat's queued mail.
+   *
+   * Same shape as the narrowed `retryRequestResponses` pass: the pending set
+   * is held in memory, so the pass costs one node-scoped routing lookup per
+   * seat that actually holds mail (none at all when nothing is queued) instead
+   * of listing every canvas, reading every document, walking every node, and
+   * discarding all but one binding's worth.
+   *
+   * The index is a PRE-FILTER, never the authority. `attemptOne` /
+   * `attemptBatch` re-read the document from authority before they touch a
+   * transport, so a stale index entry can only cost a wasted lookup — it can
+   * never paste a message that is no longer pending.
+   */
+  private async deliverForBinding(bindingId: string): Promise<void> {
+    if (this.reconcileDue()) {
+      await this.sweepAllCanvases((target) => target.bindingId === bindingId);
+      return;
+    }
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return;
+    const store = this.store;
+    if (!store) return;
+    for (const entry of [...this.pendingIndex.values()]) {
+      if (!this.active(generation)) return;
+      if (entry.messages.size === 0) continue;
+      let found: MessageDeliveryNodeStructure | undefined;
+      try {
+        found = await store.readNodeStructure(entry.canvas, entry.nodeId);
+      } catch {
+        // Transient authority error — leave the mail queued for the next pass.
+        continue;
+      }
+      if (!this.active(generation)) return;
+      if (found === undefined) {
+        // `undefined` is the durable "node is gone" answer, never a read error.
+        this.forgetNode(entry.canvas, entry.nodeId);
+        continue;
+      }
+      const target = deliveryTargetOf(found.node);
+      if (!target || target.bindingId !== bindingId) continue;
+      await this.deliverGroup(
+        generation,
+        entry.canvas,
+        entry.nodeId,
+        [...entry.messages.values()].map((held) => held.message),
+      );
+    }
+    await this.retryPendingReadStamps(
+      generation,
+      (target) => target.bindingId === bindingId,
+    );
+  }
+
+  /**
+   * One seat's pending mail. Edge-map notices keep per-message attemptOne
+   * (topology bounds); ordinary mail (including factory mail) batches into one
+   * notify line on the same seat.
+   */
+  private async deliverGroup(
+    generation: number,
+    canvas: string,
+    nodeId: string,
+    messages: ReadonlyArray<Message>,
+  ): Promise<void> {
+    const edgeMap: Message[] = [];
+    const ordinary: Message[] = [];
+    for (const message of messages) {
+      if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
+      else ordinary.push(message);
+    }
+    const latestFirst = sortMessagesNewestFirst(ordinary);
+    if (latestFirst.length === 1) {
+      await this.attemptOne(canvas, nodeId, latestFirst[0]!);
+    } else if (latestFirst.length > 1) {
+      await this.attemptBatch(canvas, nodeId, latestFirst);
+    }
+    for (const message of edgeMap) {
+      if (!this.active(generation)) return;
+      await this.attemptOne(canvas, nodeId, message);
+    }
   }
 
   /**
@@ -765,6 +986,7 @@ export class MessageDeliveryService {
       if (!this.active(generation)) return;
       if (!found) {
         this.pendingReadStamps.delete(key);
+        this.forgetNode(pending.canvas, pending.nodeId);
         continue;
       }
       const target = deliveryTargetOf(found.node);
@@ -938,6 +1160,8 @@ export class MessageDeliveryService {
           await this.stampReadIfNeeded(store, canvas, nodeId, message, live);
         }
         this.clearAttemptBookkeeping(key);
+        // Durable receipt exists — this message owes no further notify.
+        this.forgetPending(canvas, nodeId, message.messageId);
         return;
       }
       if (!this.active(generation)) return;
@@ -947,7 +1171,11 @@ export class MessageDeliveryService {
       if (!this.active(generation)) return;
       if (!doc) return;
       const node = doc.nodes.find((n) => n.id === nodeId);
-      if (!node) return;
+      if (!node) {
+        // The document is authority: the node is gone, so is its queued mail.
+        this.forgetNode(canvas, nodeId);
+        return;
+      }
       // Paused target: leave the message pending; resume re-drives it.
       if (this.seatPausedLookup?.(canvas, doc, nodeId)) return;
       const live = node.ether?.messages?.items.find((m) => m.messageId === message.messageId);
@@ -955,10 +1183,13 @@ export class MessageDeliveryService {
         // Message gone — drop the bounded re-drive mark so a re-appended
         // message with this id starts fresh (at-most-once is moot).
         this.attemptedClaims.delete(key);
+        this.forgetPending(canvas, nodeId, message.messageId);
         return;
       }
       if (isPendingDelivery(live) === false) {
         this.attemptedClaims.delete(key);
+        // Read or already delivered — off the pending index either way.
+        this.forgetPending(canvas, nodeId, message.messageId);
         // Listed = handled. Do not paste, and do not mint a fake notify receipt.
         if (isMessageRead(live) && !isMessageDelivered(live)) return;
         // Projected metadata already shows delivered — still ensure durable receipt.
@@ -1073,6 +1304,7 @@ export class MessageDeliveryService {
       if (accepted) {
         this.pendingReadStamps.delete(key);
         this.clearAttemptBookkeeping(key);
+        this.forgetPending(canvas, nodeId, live.messageId);
       } else {
         if (
           ptyInjectMarksRead(live) &&
@@ -1121,8 +1353,12 @@ export class MessageDeliveryService {
       // Drop already-receipted messages; if nothing left, done.
       const pending: Message[] = [];
       for (const message of messages) {
-        if (!isPendingDelivery(message)) continue;
+        if (!isPendingDelivery(message)) {
+          this.forgetPending(canvas, nodeId, message.messageId);
+          continue;
+        }
         if (await store.hasAcceptedMessageDelivery(canvas, nodeId, message.messageId)) {
+          this.forgetPending(canvas, nodeId, message.messageId);
           continue;
         }
         pending.push(message);
@@ -1137,7 +1373,10 @@ export class MessageDeliveryService {
       if (!this.active(generation) || !doc) return;
       if (this.seatPausedLookup?.(canvas, doc, nodeId)) return;
       const node = doc.nodes.find((n) => n.id === nodeId);
-      if (!node) return;
+      if (!node) {
+        this.forgetNode(canvas, nodeId);
+        return;
+      }
       const target = deliveryTargetOf(node);
       if (!target) return;
 
@@ -1145,7 +1384,10 @@ export class MessageDeliveryService {
       const liveItems = node.ether?.messages?.items ?? [];
       const livePending = pending.filter((m) => {
         const live = liveItems.find((item) => item.messageId === m.messageId);
-        return live !== undefined && isPendingDelivery(live);
+        if (live !== undefined && isPendingDelivery(live)) return true;
+        // Gone or already handled — off the index on document evidence.
+        this.forgetPending(canvas, nodeId, m.messageId);
+        return false;
       });
       if (livePending.length === 0) return;
       if (livePending.length === 1) {
@@ -1180,6 +1422,7 @@ export class MessageDeliveryService {
           if (accepted) {
             this.transportAccepted.delete(key);
             this.transportAttempts.delete(key);
+            this.forgetPending(canvas, nodeId, message.messageId);
           }
         }
         let anyOpen = false;
@@ -1246,6 +1489,7 @@ export class MessageDeliveryService {
           this.transportAttempts.delete(key);
           this.wakeRetryCounts.delete(key);
           this.wakeRefusalLogged.delete(key);
+          this.forgetPending(canvas, nodeId, message.messageId);
         } else {
           console.error(
             `[delivery] receipt stamp FAILED for ${canvas}/${nodeId}/${message.messageId} ` +
