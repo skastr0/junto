@@ -52,6 +52,8 @@ const electron = vi.hoisted(() => {
     closeError: Error | undefined;
     stopCalls = 0;
     destroyed = false;
+    backgroundThrottling = true;
+    readonly setBackgroundThrottlingCalls: boolean[] = [];
 
     constructor(readonly session: FakeSession) {}
 
@@ -130,14 +132,35 @@ const electron = vi.hoisted(() => {
     capturePage(): Promise<{ toPNG(): Uint8Array }> {
       return Promise.resolve({ toPNG: () => new Uint8Array([1]) });
     }
+    setBackgroundThrottling(allowed: boolean): void {
+      this.setBackgroundThrottlingCalls.push(allowed);
+      this.backgroundThrottling = allowed;
+    }
   }
 
   class FakeWebContentsView {
     readonly webContents: FakeWebContents;
+    readonly setBoundsCalls: Array<{
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    }> = [];
+    readonly setVisibleCalls: boolean[] = [];
     constructor(session: FakeSession) {
       this.webContents = new FakeWebContents(session);
     }
-    setBounds(): void {}
+    setBounds(bounds: {
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    }): void {
+      this.setBoundsCalls.push(bounds);
+    }
+    setVisible(visible: boolean): void {
+      this.setVisibleCalls.push(visible);
+    }
   }
 
   return {
@@ -274,6 +297,159 @@ describe("electron browser view generation seam", () => {
     expect(secondChildren).toHaveLength(1);
     handle.detach();
     expect(secondChildren).toEqual([]);
+  });
+
+  it("parks a zero-size view off the host and throttles the page", () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    target.rebind(host as never);
+
+    handle.attach({ x: 10, y: 20, width: 300, height: 200 });
+    expect(children).toHaveLength(1);
+    expect(view.setBoundsCalls.at(-1)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
+
+    handle.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+
+    expect(children).toEqual([]);
+    expect(view.webContents.setBackgroundThrottlingCalls).toEqual([true]);
+    expect(view.setVisibleCalls.at(-1)).toBe(false);
+    expect(view.setBoundsCalls.at(-1)).toEqual({ x: 10, y: 20, width: 300, height: 200 });
+    expect(view.webContents.closeCalls).toBe(0);
+    expect(view.webContents.getURL()).toBe("");
+  });
+
+  it("restores a parked view when bounds become positive", () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    target.rebind(host as never);
+
+    handle.attach({ x: 4, y: 8, width: 100, height: 80 });
+    handle.loadUrl("https://example.com/", "session");
+    view.webContents.currentUrl = "https://example.com/";
+    handle.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    target.rebind(host as never);
+    expect(children).toEqual([]);
+
+    handle.setBounds({ x: 12, y: 16, width: 640, height: 480 });
+
+    expect(children).toHaveLength(1);
+    expect(view.setBoundsCalls.at(-1)).toEqual({ x: 12, y: 16, width: 640, height: 480 });
+    expect(view.setVisibleCalls.at(-1)).toBe(true);
+    expect(view.webContents.closeCalls).toBe(0);
+    expect(view.webContents.getURL()).toBe("https://example.com/");
+  });
+
+  it("never attaches a view opened with zero bounds", () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    target.rebind(host as never);
+
+    handle.attach({ x: 0, y: 0, width: 0.4, height: 200 });
+
+    expect(children).toEqual([]);
+    expect(view.webContents.setBackgroundThrottlingCalls).toEqual([true]);
+    expect(view.setBoundsCalls).toEqual([]);
+  });
+
+  it("fails closed when background throttling is unavailable", () => {
+    const target = makeElectronBrowserViewAttachmentTarget();
+    const children: unknown[] = [];
+    const host = {
+      destroyed: false,
+      isDestroyed() { return this.destroyed; },
+      destroy() { this.destroyed = true; },
+      contentView: {
+        addChildView(view: unknown) { children.push(view); },
+        removeChildView(view: unknown) {
+          const index = children.indexOf(view);
+          if (index >= 0) children.splice(index, 1);
+        },
+      },
+    };
+    const handle = target.adapter("persist:test", {
+      onNavigationStart: () => "session",
+      onNavigationAmbiguous: () => undefined,
+      onNavigationUrl: () => undefined,
+      onLoadOk: () => undefined,
+      onLoadFail: () => undefined,
+      onUnexpectedTermination: () => undefined,
+    });
+    const view = electron.views.at(-1);
+    if (view === undefined) throw new Error("view was not created");
+    Object.defineProperty(view.webContents, "setBackgroundThrottling", {
+      value: undefined,
+    });
+    target.rebind(host as never);
+
+    expect(() => handle.attach({ x: 0, y: 0, width: 0, height: 0 })).not.toThrow();
+    expect(children).toEqual([]);
+    expect(view.webContents.closeCalls).toBe(0);
   });
 
   it("coalesces renderer-loss signals and suppresses intentional destruction", () => {

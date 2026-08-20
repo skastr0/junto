@@ -507,16 +507,53 @@ const makeElectronViewAdapter = (
   // or reopen while the retained session identity stays intact.
   let attachedWindow: ElectronBrowserWindow | undefined;
   let logicallyAttached = false;
+  // Renderer zeros bounds when the surface is hidden. A 0×0 attached
+  // WebContentsView still presents and can run page animation/WebGL at full
+  // rate; park instead of keeping that rect on the composition host.
+  let parked = false;
+  const callOptionalMethod = (
+    target: object,
+    method: string,
+    ...args: ReadonlyArray<unknown>
+  ): void => {
+    const candidate: unknown = Reflect.get(target, method);
+    if (typeof candidate !== "function") return;
+    try {
+      (candidate as (...params: ReadonlyArray<unknown>) => unknown).call(target, ...args);
+    } catch {
+      // Fail closed: missing or throwing stock Electron APIs must not crash.
+    }
+  };
+  const applyParkPresentation = (presenting: boolean): void => {
+    if (!presenting && !view.webContents.isDestroyed()) {
+      callOptionalMethod(view.webContents, "setBackgroundThrottling", true);
+    }
+    callOptionalMethod(view, "setVisible", presenting);
+  };
   const applyBounds = (bounds: BrowserSurfaceBounds): void => {
-    view.setBounds({
+    const applied = {
       x: Math.round(bounds.x),
       y: Math.round(bounds.y),
       width: Math.round(bounds.width),
       height: Math.round(bounds.height),
-    });
+    };
+    if (applied.width < 1 || applied.height < 1) {
+      if (!parked) {
+        parked = true;
+        applyParkPresentation(false);
+      }
+      detachFromHost();
+      return;
+    }
+    const wasParked = parked;
+    parked = false;
+    if (wasParked) applyParkPresentation(true);
+    const host = attachmentTarget?.current();
+    if (host !== undefined) attachTo(host);
+    view.setBounds(applied);
   };
   const attachTo = (host: ElectronBrowserWindow): void => {
-    if (!logicallyAttached || host.isDestroyed() || attachedWindow === host) return;
+    if (!logicallyAttached || parked || host.isDestroyed() || attachedWindow === host) return;
     if (attachedWindow !== undefined && !attachedWindow.isDestroyed()) {
       attachedWindow.contentView.removeChildView(view);
     }
@@ -572,13 +609,9 @@ const makeElectronViewAdapter = (
     },
     attach: (bounds) => {
       logicallyAttached = true;
-      const host = attachmentTarget?.current();
-      if (host !== undefined) attachTo(host);
       applyBounds(bounds);
     },
     setBounds: (bounds: BrowserSurfaceBounds) => {
-      const host = attachmentTarget?.current();
-      if (host !== undefined) attachTo(host);
       applyBounds(bounds);
     },
     detach: () => {
