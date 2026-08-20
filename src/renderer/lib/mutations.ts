@@ -1,21 +1,28 @@
 import type {
   CanvasDoc,
+  CanvasEdge,
   CanvasNode,
+  EtherEdgeFlow,
   EtherFlag,
+  EtherRegionContract,
   EtherRegionDefaults,
   EtherTimer,
   EtherWatch,
   NodeSide,
+  Ruling,
+  TasksSinkContract,
   TextNode,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
+import { FlowCycleError, isFlowEdgeAligned, validateFlowDag } from "@shared/flow-graph";
 import { batch } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
+import { ulid } from "ulid";
 import { noteWorkDocChange } from "./edge-sparks";
 import { licenseCustody } from "./license-custody";
 import {
@@ -1346,3 +1353,158 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
 };
 
 // Checklist mutator deleted — work ops live in main (WorkService).
+
+// --- pipeline claims: authorial contract + flow mutations ------------------
+// Work-row ops (promote, transition, board) go through Work IPC channels
+// (preload) — never through commitDoc. These four are the authorial side:
+// region/sink standing law and the task-flow DAG, all operator-only writes.
+
+/** Collapse an empty claims/rulings bag to `undefined` so the doc stays sparse. */
+const stripEmptyRegionContract = (
+  contract: EtherRegionContract | undefined,
+): EtherRegionContract | undefined => {
+  if (!contract) return undefined;
+  const claims = contract.claims && contract.claims.length > 0 ? contract.claims : undefined;
+  const rulings = contract.rulings && contract.rulings.length > 0 ? contract.rulings : undefined;
+  if (!claims && !rulings) return undefined;
+  return { ...(claims ? { claims } : {}), ...(rulings ? { rulings } : {}) };
+};
+
+/**
+ * Operator-authored region standing law: claims (severity-tagged prompts
+ * checked at task completion, stacked outer -> inner across the region
+ * stack) and pinned rulings (escalation precedents). Group nodes only —
+ * seats have no authorial write path to this contract.
+ */
+export const setRegionContract = (
+  id: string,
+  contract: EtherRegionContract | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  const cleaned = stripEmptyRegionContract(contract);
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id || n.type !== "group") return n;
+      const currentRegion = n.ether?.region ?? {};
+      const nextRegion = cleaned
+        ? { ...currentRegion, contract: cleaned }
+        : without(currentRegion, "contract");
+      if (Object.keys(nextRegion).length > 0) {
+        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "region");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+/**
+ * Operator-authored sink standing law (instruction, sink-local claims,
+ * inbound/outbound admission + checklist config). Task-sink nodes only
+ * (`ether.entity.kind === "task"`); the contract lives beside the runtime
+ * `items`/`proposals` projection in `ether.tasks` and this mutation never
+ * touches that projection — an authorial write carrying non-empty work rows
+ * is rejected at the write boundary (canvases.ts containsWorkProjection).
+ */
+export const setSinkContract = (
+  id: string,
+  contract: TasksSinkContract | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  const cleaned = contract && Object.keys(contract).length > 0 ? contract : undefined;
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id || n.ether?.entity?.kind !== "task") return n;
+      const ether = n.ether ?? {};
+      const currentTasks = ether.tasks ?? { items: [] };
+      const nextTasks = cleaned
+        ? { ...currentTasks, contract: cleaned }
+        : without(currentTasks, "contract");
+      return { ...n, ether: { ...ether, tasks: nextTasks } };
+    }),
+  });
+};
+
+/**
+ * Pin an escalation/request resolution as a standing ruling on a region's
+ * contract (spec §6). Mints `id` + `pinnedAt` here, the same posture as
+ * addNode/addEdge minting their own ids — callers supply only the resolved
+ * text and its optional source. Group nodes only; blank text is a no-op.
+ */
+export const pinRuling = (
+  regionId: string,
+  text: string,
+  sourceRequestId?: string,
+): void => {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const doc = state$.doc.peek();
+  const region = doc.nodes.find((n) => n.id === regionId);
+  if (!region || region.type !== "group") return;
+  const ruling: Ruling = {
+    id: ulid(),
+    text: trimmed,
+    pinnedAt: new Date().toISOString(),
+    ...(sourceRequestId ? { sourceRequestId } : {}),
+  };
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== regionId) return n;
+      const ether = n.ether ?? {};
+      const currentRegion = ether.region ?? {};
+      const currentContract = currentRegion.contract ?? {};
+      const nextContract: EtherRegionContract = {
+        ...currentContract,
+        rulings: [...(currentContract.rulings ?? []), ruling],
+      };
+      return { ...n, ether: { ...ether, region: { ...currentRegion, contract: nextContract } } };
+    }),
+  });
+};
+
+/**
+ * Author (or clear) a task-flow hop on an edge — a pipeline forwarding
+ * choice between task sinks. `flow` must name the edge's own endpoints, in
+ * either orientation; a misaligned config is refused as a no-op (the
+ * invariant the decoder deliberately does not enforce — shared/canvas.ts
+ * EtherEdgeFlow comment). Runs the shared DAG guard (shared/flow-graph.ts)
+ * before ever touching the document: a config that would close a cycle is
+ * rejected and the typed FlowCycleError is returned to the caller instead
+ * of committed, mirroring the act-time guard the work service runs on
+ * `next`. Returns `undefined` on success (including a no-op).
+ */
+export const setEdgeFlow = (
+  edgeId: string,
+  flow: EtherEdgeFlow | undefined,
+): FlowCycleError | undefined => {
+  const doc = state$.doc.peek();
+  const edge = doc.edges.find((e) => e.id === edgeId);
+  if (!edge) return undefined;
+  const nextEdge: CanvasEdge = (() => {
+    if (flow === undefined) {
+      if (!edge.ether || edge.ether.flow === undefined) return edge;
+      const rest = without(edge.ether, "flow");
+      return Object.keys(rest).length > 0
+        ? { ...edge, ether: rest }
+        : (without(edge, "ether") as CanvasEdge);
+    }
+    return { ...edge, ether: { ...(edge.ether ?? {}), flow } };
+  })();
+  if (flow !== undefined && !isFlowEdgeAligned(nextEdge)) return undefined;
+  const nextDoc: CanvasDoc = {
+    ...doc,
+    edges: doc.edges.map((e) => (e.id === edgeId ? nextEdge : e)),
+  };
+  const cycle = validateFlowDag(nextDoc);
+  if (cycle) {
+    state$.error.set(cycle.message);
+    return cycle;
+  }
+  state$.error.set("");
+  commitDoc(nextDoc);
+  return undefined;
+};

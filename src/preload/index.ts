@@ -29,7 +29,9 @@ import {
   type ObservabilityLogEntry,
   type ObservabilityQuery,
   type ObservabilitySnapshot,
+  type WorkOpResult,
 } from "@shared/ipc";
+import type { Task } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -50,6 +52,22 @@ import type {
   StateRecoveryExportResult,
   StateRecoveryListResult,
 } from "@shared/state-recovery";
+
+/**
+ * Pipeline arms of tasks.update (forward / defect-back / hold stamp).
+ * Mirrors `WorkTaskPipelineOptions` (src/main/vellum/work/service.ts)
+ * structurally — kept local until the shared registry (@shared/ipc.ts
+ * VellumCommandApi) grows a typed `pipeline` param on workTaskTransition;
+ * preload never imports main-process types directly.
+ */
+type WorkTaskPipelineOptions = {
+  readonly next?: string;
+  readonly defect?: {
+    readonly summary: string;
+    readonly refs?: ReadonlyArray<string>;
+  };
+  readonly holdForMs?: number;
+};
 
 // Every real handler answers in well under this; only a dead/wedged main
 // process (e.g. killed during a dev restart) never responds. Rejecting then
@@ -460,7 +478,18 @@ const vellumApi: VellumCommandApi = {
     invoke(IPC_CHANNELS.workTaskRejectProposal, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
   workTaskDescribe: (canvas, nodeId, taskId, brief) =>
     invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
-  workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence) =>
+  workTaskTransition: (
+    canvas,
+    nodeId,
+    taskId,
+    state,
+    note,
+    completionEvidence,
+    // Extra trailing optional arg the shared VellumCommandApi signature does
+    // not declare yet — forwarded as-is; the main handler already reads it
+    // as its 8th positional arg (ipc.ts workTaskTransition).
+    pipeline?: WorkTaskPipelineOptions,
+  ) =>
     invoke(
       IPC_CHANNELS.workTaskTransition,
       IPC_TIMEOUT_MS,
@@ -470,6 +499,7 @@ const vellumApi: VellumCommandApi = {
       state,
       note,
       completionEvidence,
+      pipeline,
     ),
   workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
@@ -855,6 +885,30 @@ const demoApi: VellumCommandDemoApi = {
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
 };
 
+/**
+ * Operator pipeline ops not yet on the shared IPC_CHANNELS registry. Channel
+ * name is the same main-side literal ipc.ts uses ("vellum-command:work-task-
+ * promote") — this is the "UI phase" wiring its own comment calls for; once
+ * @shared/ipc.ts grows the constant + a VellumCommandApi member, this local
+ * literal type collapses into that registry like every other op above.
+ */
+const pipelineApi: {
+  /** Operator promotion of an operator-gated pipeline arrival. */
+  readonly workTaskPromote: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+  ) => Promise<WorkOpResult<Task>>;
+} = {
+  workTaskPromote: (canvas, nodeId, taskId) =>
+    invoke(
+      "vellum-command:work-task-promote",
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+    ),
+};
 
 // A preload is attached before Chromium has committed a document. Do not hand
 // a remote page the product API during that interval. Main independently
@@ -876,5 +930,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...terminalApi,
     ...(BROWSER_ENABLED ? browserApi : {}),
     ...demoApi,
+    ...pipelineApi,
   });
 }

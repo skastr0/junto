@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setEdgeFlow, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, setSinkContract, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { FlowCycleError } from "../src/shared/flow-graph";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -1518,5 +1519,177 @@ describe("renderer graph mutations", () => {
     });
     setRegionDefaults("note", { herdr: { host: "local" } });
     expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
+  });
+
+  it("setRegionContract writes claims + rulings and strips an empty bag", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{ id: "region", type: "group", label: "Law", x: 0, y: 0, width: 400, height: 300 }],
+      edges: [],
+    });
+
+    setRegionContract("region", {
+      claims: [{ id: "c1", text: "no secrets in commits", severity: "hard" }],
+      rulings: [{ id: "r1", text: "ship on green CI only", pinnedAt: "2026-08-20T00:00:00.000Z" }],
+    });
+    const withContract = state$.doc.peek().nodes[0];
+    expect(withContract?.ether?.region?.contract?.claims).toEqual([
+      { id: "c1", text: "no secrets in commits", severity: "hard" },
+    ]);
+    expect(withContract?.ether?.region?.contract?.rulings?.[0]?.text).toBe("ship on green CI only");
+
+    setRegionContract("region", { claims: [], rulings: [] });
+    expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether?.region ?? {}, "contract")).toBe(false);
+  });
+
+  it("setRegionContract ignores non-group nodes", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{ id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 }],
+      edges: [],
+    });
+    setRegionContract("note", { claims: [{ id: "c1", text: "x", severity: "soft" }] });
+    expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
+  });
+
+  it("setSinkContract writes and clears a task sink's contract, preserving items", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{
+        id: "sink",
+        type: "text",
+        text: "tasks",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 80,
+        ether: { entity: { kind: "task" }, tasks: { items: [] } },
+      }],
+      edges: [],
+    });
+
+    setSinkContract("sink", {
+      instruction: "review before forwarding",
+      claims: [{ id: "c1", text: "tests pass", severity: "hard" }],
+      inbound: { admission: "operator-gated" },
+    });
+    const withContract = state$.doc.peek().nodes[0];
+    expect(withContract?.ether?.tasks?.contract?.instruction).toBe("review before forwarding");
+    expect(withContract?.ether?.tasks?.contract?.inbound?.admission).toBe("operator-gated");
+    expect(withContract?.ether?.tasks?.items).toEqual([]);
+
+    setSinkContract("sink", undefined);
+    const cleared = state$.doc.peek().nodes[0];
+    expect(Object.hasOwn(cleared?.ether?.tasks ?? {}, "contract")).toBe(false);
+    expect(cleared?.ether?.tasks?.items).toEqual([]);
+  });
+
+  it("setSinkContract ignores nodes that are not a task sink", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{ id: "agent", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80, ether: { entity: { kind: "agent" } } }],
+      edges: [],
+    });
+    setSinkContract("agent", { instruction: "should not land" });
+    expect(state$.doc.peek().nodes[0]?.ether?.tasks).toBeUndefined();
+  });
+
+  it("pinRuling mints id + pinnedAt and appends without disturbing existing claims", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{
+        id: "region",
+        type: "group",
+        label: "Law",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        ether: { region: { contract: { claims: [{ id: "c1", text: "x", severity: "soft" }] } } },
+      }],
+      edges: [],
+    });
+
+    pinRuling("region", "  operator resolved: ship anyway  ", "req-1");
+    const rulings = state$.doc.peek().nodes[0]?.ether?.region?.contract?.rulings;
+    expect(rulings).toHaveLength(1);
+    expect(rulings?.[0]?.text).toBe("operator resolved: ship anyway");
+    expect(rulings?.[0]?.sourceRequestId).toBe("req-1");
+    expect(typeof rulings?.[0]?.id).toBe("string");
+    expect(rulings?.[0]?.id.length).toBeGreaterThan(0);
+    expect(typeof rulings?.[0]?.pinnedAt).toBe("string");
+    expect(state$.doc.peek().nodes[0]?.ether?.region?.contract?.claims).toEqual([
+      { id: "c1", text: "x", severity: "soft" },
+    ]);
+  });
+
+  it("pinRuling is a no-op for blank text or a non-group target", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{ id: "region", type: "group", label: "Law", x: 0, y: 0, width: 400, height: 300 }],
+      edges: [],
+    });
+    pinRuling("region", "   ");
+    expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
+
+    loadDoc({
+      nodes: [{ id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 }],
+      edges: [],
+    });
+    pinRuling("note", "not a region");
+    expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
+  });
+
+  it("setEdgeFlow writes an aligned flow config and clears it", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80 },
+        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 100, height: 80 },
+      ],
+      edges: [{ id: "e1", fromNode: "a", toNode: "b" }],
+    });
+
+    const result = setEdgeFlow("e1", { source: "a", destination: "b" });
+    expect(result).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether?.flow).toEqual({ source: "a", destination: "b" });
+
+    const cleared = setEdgeFlow("e1", undefined);
+    expect(cleared).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
+  });
+
+  it("setEdgeFlow refuses a config naming nodes other than the edge's own endpoints", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80 },
+        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 100, height: 80 },
+        { id: "c", type: "text", text: "c", x: 600, y: 0, width: 100, height: 80 },
+      ],
+      edges: [{ id: "e1", fromNode: "a", toNode: "b" }],
+    });
+
+    const result = setEdgeFlow("e1", { source: "a", destination: "c" });
+    expect(result).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
+  });
+
+  it("setEdgeFlow rejects a config that would close a cycle and leaves the doc untouched", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80 },
+        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 100, height: 80 },
+      ],
+      edges: [
+        { id: "ab", fromNode: "a", toNode: "b", ether: { flow: { source: "a", destination: "b" } } },
+        { id: "ba", fromNode: "b", toNode: "a" },
+      ],
+    });
+
+    const result = setEdgeFlow("ba", { source: "b", destination: "a" });
+    expect(result).toBeInstanceOf(FlowCycleError);
+    expect(state$.doc.peek().edges[1]?.ether?.flow).toBeUndefined();
   });
 });
