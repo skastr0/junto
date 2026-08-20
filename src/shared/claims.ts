@@ -130,6 +130,43 @@ export const evaluateClaimCompletion = (params: {
 export const taskEpoch = (task: Task): number => task.epoch ?? 0;
 
 /**
+ * Re-attach trimmed claim responses/waivers onto normalized completion
+ * evidence. The legacy normalizer predates the claims layer and rebuilds only
+ * artifacts/git; receipts must survive normalization because they live in the
+ * completed row (the passage record) for later-epoch accounting.
+ */
+export const carryClaimEvidence = (
+  normalized: CompletionEvidence | undefined,
+  raw: CompletionEvidence | undefined,
+): CompletionEvidence | undefined => {
+  if (raw === undefined) return normalized;
+  const responses = (raw.responses ?? [])
+    .map((entry) => {
+      const refs = (entry.refs ?? [])
+        .map((ref) => ref.trim())
+        .filter((ref) => ref.length > 0);
+      return {
+        claimId: entry.claimId.trim(),
+        response: entry.response.trim(),
+        ...(refs.length > 0 ? { refs } : {}),
+      };
+    })
+    .filter((entry) => entry.claimId.length > 0 && entry.response.length > 0);
+  const claimWaivers = (raw.claimWaivers ?? [])
+    .map((entry) => ({
+      claimId: entry.claimId.trim(),
+      reason: entry.reason.trim(),
+    }))
+    .filter((entry) => entry.claimId.length > 0 && entry.reason.length > 0);
+  if (responses.length === 0 && claimWaivers.length === 0) return normalized;
+  return {
+    ...(normalized ?? { artifacts: [] }),
+    ...(responses.length > 0 ? { responses } : {}),
+    ...(claimWaivers.length > 0 ? { claimWaivers } : {}),
+  };
+};
+
+/**
  * Receipts recorded at stations along the CURRENT epoch of the journey.
  * A response/waiver lives in the station row's completionEvidence at that
  * station (the passage record); a defect-back epoch bump stales prior epochs
