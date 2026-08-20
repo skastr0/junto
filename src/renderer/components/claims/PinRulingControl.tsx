@@ -54,7 +54,7 @@ export function PinRulingControl({
         }}
       >
         <Pin size={11} />
-        {pinned ? "pinned" : "pin as ruling"}
+        {pinned ? "Pinned" : "Pin as ruling"}
       </Button>
       {regions.length > 1 ? (
         <div className="w-40">

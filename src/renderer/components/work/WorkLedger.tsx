@@ -37,6 +37,7 @@ import {
 } from "./artifact-reference";
 import { ArtifactMarkdown } from "./ArtifactMarkdown";
 import { ContentMedia } from "./ContentMedia";
+import { PinRulingControl } from "../claims";
 import "./work-ledger.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";
@@ -327,11 +328,14 @@ function PartView({
 
 function RequestDetail({
   request,
+  nodeId,
   pending,
   onClose,
   onResolve,
 }: {
   readonly request: Task;
+  /** Sink node the request lives at — the ruling pin reads its region stack from here. */
+  readonly nodeId: string;
   readonly pending: boolean;
   readonly onClose: () => void;
   readonly onResolve: (request: Task, response: string, disposition: "completed" | "rejected") => void;
@@ -414,6 +418,8 @@ function RequestDetail({
               {" "}
               send response
             </p>
+            {/* Pin before sending: resolving the request closes this section. */}
+            <PinRulingControl nodeId={nodeId} text={response} sourceRequestId={request.id} />
           </section>
         ) : null}
       </div>
@@ -601,6 +607,7 @@ export function RequestInbox({
           <RequestDetail
             key={selected.id}
             request={selected}
+            nodeId={node.id}
             pending={pendingId === selected.id}
             onClose={() => setSelectedId(null)}
             onResolve={(request, response, disposition) =>

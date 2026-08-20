@@ -64,6 +64,7 @@ import { ContentMedia } from "./ContentMedia";
 import { TaskJourney } from "./TaskJourney";
 import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
 import { TaskCreationMetroMap } from "../claims/creation";
+import { PinRulingControl } from "../claims";
 import {
   TaskStationConsole,
   type StationSubmission,
@@ -1933,6 +1934,9 @@ function TaskDetailPanel({
               </Button>
             </div>
 
+            {/* Pin before sending: the answer resumes the task, and with it
+                this whole section goes away. */}
+            <PinRulingControl nodeId={nodeId} text={response} sourceRequestId={task.id} />
           </section>
         ) : null}
 
