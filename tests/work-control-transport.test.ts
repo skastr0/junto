@@ -1361,6 +1361,50 @@ describe("work control transport", () => {
     });
   });
 
+  it("denies boarding submissions from a connected actor that does not own the claim", async () => {
+    const runtime = runtimes.at(-1);
+    if (runtime === undefined) throw new Error("missing work-control runtime");
+    const caller = await projectedProcessActor();
+    const other = actorRefFixture("other-agent", "work-cli");
+    const repository = await runtime.runPromise(WorkRepository);
+    await runtime.runPromise(
+      repository.claimLocalTask({
+        sink: { canvasName: "work-cli", nodeId: "tasks" },
+        basis: await authorialBasis(runtime),
+        taskId: "t1",
+        actor: other,
+      }),
+    );
+
+    const response = (await call(servers[0]!.socketPath, {
+      token: token(),
+      op: "tasks.board",
+      args: { target: "tasks", task: "t1", results: [] },
+    })) as {
+      ok: false;
+      error: {
+        type: string;
+        details?: { holder?: string; caller?: string; retryable?: boolean };
+      };
+    };
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toMatchObject({
+      type: "ClaimConflict",
+      details: {
+        holder: other.seatId,
+        caller: caller.seatId,
+        retryable: false,
+      },
+    });
+    const snapshot = await runtime.runPromise(
+      repository.readSnapshot("work-cli", "tasks"),
+    );
+    const stored = snapshot.tasks.items.find((task) => task.id === "t1");
+    expect(stored).toMatchObject({ state: "working", claimedBy: other.seatId });
+    expect(stored?.boarding).toBeUndefined();
+  });
+
   it("rejects client-supplied actor identity", async () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {

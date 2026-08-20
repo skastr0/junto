@@ -1101,6 +1101,27 @@ const dispatchOp = (
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
+      const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
+      const task = gate.node?.ether?.tasks?.items.find(
+        (candidate) => candidate.id === decoded.success.task,
+      );
+      if (
+        task?.claimedBy !== undefined &&
+        task.claimedBy !== actor.success.seatId
+      ) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "ClaimConflict",
+          message:
+            `task "${decoded.success.task}" is claimed by another agent`,
+          details: {
+            holder: task.claimedBy,
+            caller: actor.success.seatId,
+            retryable: false,
+            next_step: "pick another task; only the agent that claimed this one can board it",
+          },
+        });
+      }
       const result = yield* work.workTaskBoard(
         caller.canvasName,
         decoded.success.target,

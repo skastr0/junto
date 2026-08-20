@@ -417,8 +417,15 @@ export type PromoteTaskInput = LocalWorkInput & {
 };
 
 export type StampBoardingInput = LocalWorkInput & {
-  /** Full current-epoch ticket set (service-merged; replaces the bag field). */
   readonly taskId: string;
+  /** Epoch the newly stamped tickets below carry. */
+  readonly epoch: number;
+  /**
+   * Newly stamped tickets from this call only. Merged against the live row
+   * inside stampBoarding's own transaction — never a caller-held snapshot —
+   * so two concurrent boards (e.g. for two different destinations) can't
+   * silently drop one set of tickets.
+   */
   readonly tickets: NonNullable<TaskValue["boarding"]>;
 };
 
@@ -7735,7 +7742,14 @@ export const WorkRepositoryLive = Layer.effect(
               "local installation does not own the destination row",
             );
           }
-          if (!canTransitionTaskState(existing.task.state, "submitted")) {
+          // "rejected" stays terminal in the generic matrix so no other
+          // caller can resurrect a rejected task in place; the pipeline's
+          // own defect-back re-open of a passage row is authorized here,
+          // locally, on a later forward back through the same station.
+          if (
+            existing.task.state !== "rejected" &&
+            !canTransitionTaskState(existing.task.state, "submitted")
+          ) {
             throw authorityError(
               "invalid-transition",
               `cannot re-open destination row from ${existing.task.state}`,
@@ -7965,11 +7979,28 @@ export const WorkRepositoryLive = Layer.effect(
             `cannot stamp boarding tickets on terminal task "${input.taskId}"`,
           );
         }
+        // Merge against the row just loaded in this transaction — never a
+        // pre-transaction snapshot — so two concurrent boards (e.g. for two
+        // different destinations) can't clobber each other's tickets:
+        // current-epoch tickets for other checks survive; stale epochs drop
+        // (defect-back staled them for closure accounting).
+        const merged = [
+          ...(current.task.boarding ?? []).filter(
+            (ticket) =>
+              ticket.epoch === input.epoch &&
+              !input.tickets.some(
+                (candidate) =>
+                  candidate.checkId === ticket.checkId &&
+                  candidate.side === ticket.side,
+              ),
+          ),
+          ...input.tickets,
+        ];
         // Same-state 'task.transition' fact, like promotion — tickets are a
         // system stamp, not a state change.
         const task = Schema.decodeUnknownSync(Task, strictDecode)(
           applyPipelinePatch(current.task, {
-            boarding: input.tickets.length > 0 ? input.tickets : null,
+            boarding: merged.length > 0 ? merged : null,
           }),
         );
         return commitLocalFact(writer, {

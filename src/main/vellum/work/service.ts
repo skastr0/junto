@@ -1811,26 +1811,16 @@ export const WorkLive = Layer.effect(
                 };
               })
             );
-            // Merge: current-epoch tickets for other checks survive; stale
-            // epochs drop (defect-back staled them for closure accounting).
-            const merged = [
-              ...(task.boarding ?? []).filter(
-                (ticket) =>
-                  ticket.epoch === epoch &&
-                  !stamped.some(
-                    (candidate) =>
-                      candidate.checkId === ticket.checkId &&
-                      candidate.side === ticket.side,
-                  ),
-              ),
-              ...stamped,
-            ];
+            // stampBoarding merges these against the live row inside its own
+            // transaction, not this pre-transaction snapshot — pass only the
+            // newly stamped tickets.
             const outcome = yield* local(
               repository.stampBoarding({
                 sink: sinkRef(canvas, nodeId),
                 basis: intentBasis(context, read.intentWitness),
                 taskId,
-                tickets: merged,
+                epoch,
+                tickets: stamped,
               }),
             );
             return yield* complete(canvas, outcome);
