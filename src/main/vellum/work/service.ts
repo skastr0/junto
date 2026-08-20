@@ -311,7 +311,8 @@ export type WorkTaskClaimsView = {
         readonly label: string;
         /** Authored command the seat runs locally to earn this ticket. */
         readonly command: string;
-        readonly status: "green" | "red" | "missing";
+        /** "stale" — the check's command changed after this ticket was stamped; re-run tasks board. */
+        readonly status: "green" | "red" | "missing" | "stale";
       }>;
     }>;
   };
@@ -1721,9 +1722,11 @@ export const WorkLive = Layer.effect(
                     command: check.command,
                     status: ticket === undefined
                       ? ("missing" as const)
-                      : ticket.exitCode === 0
-                        ? ("green" as const)
-                        : ("red" as const),
+                      : ticket.command !== check.command
+                        ? ("stale" as const)
+                        : ticket.exitCode === 0
+                          ? ("green" as const)
+                          : ("red" as const),
                   };
                 }),
             }),
