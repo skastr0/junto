@@ -2,6 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import { use$ } from "@legendapp/state/react";
 import {
   Activity,
+  ArrowDownToLine,
+  ArrowUpRight,
   CheckCircle2,
   CircleDot,
   CircleHelp,
@@ -52,6 +54,15 @@ import {
   validateTaskMediaParts,
 } from "@shared/task";
 import { ContentMedia } from "./ContentMedia";
+import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
+import {
+  arrivalGlance,
+  groupOutboundPassages,
+  hasPendingHold,
+  pipelineShape,
+  type OutboundGroupKind,
+  type PipelineShape,
+} from "./task-flow-columns";
 import { dependencyScopeTasks } from "@shared/task-dep-scope";
 import {
   taskDepStatus,
@@ -67,6 +78,7 @@ import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
+import { nodeTitle } from "../../lib/presentation";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
   extractHerdrClipboardImage,
@@ -193,7 +205,14 @@ export const proposalAsDisplayTask = (proposal: WorkProposal): WorkTask => ({
   ...(proposal.finishCriteria ? { finishCriteria: proposal.finishCriteria } : {}),
 });
 
-type LaneId = "proposal" | "queue" | "working" | "input" | "closed";
+type LaneId =
+  | "proposal"
+  | "queue"
+  | "inbound"
+  | "working"
+  | "input"
+  | "outbound"
+  | "closed";
 
 type TaskDragData = {
   readonly kind: "task";
@@ -214,6 +233,19 @@ type DescribeApi = {
     nodeId: string,
     taskId: string,
     brief: string,
+  ) => Promise<WorkOpResult<unknown>>;
+};
+
+/**
+ * Operator promotion of an operator-gated arrival. The op ships on the preload
+ * bridge ahead of the shared VellumCommandApi registry, so it is read the same
+ * way `workTaskDescribe` is — present or the surface stays quiet.
+ */
+type PromoteApi = {
+  readonly workTaskPromote?: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
   ) => Promise<WorkOpResult<unknown>>;
 };
 
@@ -273,6 +305,52 @@ const LANES: ReadonlyArray<LaneDefinition> = [
   },
 ];
 
+/**
+ * Pipeline columns. They stand in for the plain lanes when the sink sits on
+ * flow edges: Inbound replaces Proposals + Queue on the arrival side, Outbound
+ * replaces Closed on the departure side. A sink with no flow edges never sees
+ * them and renders exactly as before.
+ */
+const INBOUND_LANE: LaneDefinition = {
+  id: "inbound",
+  label: "Inbound",
+  state: "submitted",
+  tone: "amber",
+  chipTone: "amber",
+  icon: ArrowDownToLine,
+  hint: "Arrivals from upstream stations, waiting to be admitted",
+};
+
+const OUTBOUND_LANE: LaneDefinition = {
+  id: "outbound",
+  label: "Outbound",
+  tone: "green",
+  chipTone: "green",
+  icon: ArrowUpRight,
+  hint: "Passages grouped by where the work went next",
+};
+
+const ALL_LANES: ReadonlyArray<LaneDefinition> = [
+  ...LANES,
+  INBOUND_LANE,
+  OUTBOUND_LANE,
+];
+
+const laneById = (id: LaneId): LaneDefinition =>
+  ALL_LANES.find((lane) => lane.id === id)!;
+
+/** The columns this sink shows, in board order. */
+export const visibleLanes = (
+  shape: PipelineShape,
+): ReadonlyArray<LaneDefinition> => [
+  ...(shape.hasInbound
+    ? [INBOUND_LANE]
+    : [laneById("proposal"), laneById("queue")]),
+  laneById("working"),
+  laneById("input"),
+  shape.hasOutbound ? OUTBOUND_LANE : laneById("closed"),
+];
+
 const TERMINAL_STATES = new Set<TaskState>([
   "completed",
   "canceled",
@@ -290,13 +368,12 @@ export const isTaskClaimantRetired = (
   && !TERMINAL_STATES.has(state)
   && !activeActorSeatIds.has(claimedBy);
 
-const laneForTask = (task: WorkTask): LaneId => {
-  if (TERMINAL_STATES.has(task.state)) return "closed";
-  if (task.state === "submitted") return "queue";
+const laneForTask = (task: WorkTask, shape: PipelineShape): LaneId => {
+  if (TERMINAL_STATES.has(task.state)) return shape.hasOutbound ? "outbound" : "closed";
   if (task.state === "working") return "working";
   // input-required and residual durable auth-required share one attention lane
   if (task.state === "input-required" || task.state === "auth-required") return "input";
-  return "queue";
+  return shape.hasInbound ? "inbound" : "queue";
 };
 
 const stateLabel = (state: TaskState): string => {
@@ -397,11 +474,23 @@ const runWorkCanvasMutation = <T,>(
   runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
 
 const destinationState = (laneId: LaneId): TaskState | undefined =>
-  LANES.find((lane) => lane.id === laneId)?.state;
+  ALL_LANES.find((lane) => lane.id === laneId)?.state;
+
+/** One destination bucket inside the Outbound column. */
+type TaskLaneGroup = {
+  readonly key: string;
+  readonly kind: OutboundGroupKind;
+  /** Station name for forwarded/returned buckets. */
+  readonly station?: string;
+  readonly tasks: ReadonlyArray<WorkTask>;
+};
 
 function TaskLane({
   lane,
+  lanes,
   tasks,
+  groups,
+  markFor,
   allTasks,
   searchActive,
   activeLane,
@@ -423,7 +512,13 @@ function TaskLane({
   onSaveEdit,
 }: {
   readonly lane: LaneDefinition;
+  /** The columns this sink shows — the move menu offers only these. */
+  readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly tasks: ReadonlyArray<WorkTask>;
+  /** Outbound only: the same tasks, bucketed by where each passage went. */
+  readonly groups?: ReadonlyArray<TaskLaneGroup>;
+  /** Inbound only: the admission mark for an arrival. */
+  readonly markFor?: (task: WorkTask) => ReactNode;
   readonly allTasks: ReadonlyArray<WorkTask>;
   readonly searchActive: boolean;
   readonly activeLane: LaneId | null;
@@ -458,6 +553,42 @@ function TaskLane({
     selectState === "all"
       ? `Deselect all ${lane.label.toLowerCase()}`
       : `Select all ${tasks.length} in ${lane.label}`;
+  // Add Task keeps its column entry wherever arrivals land — Queue on a plain
+  // sink, Inbound on a pipeline sink.
+  const createsTasks =
+    lane.id === "queue" || lane.id === "proposal" || lane.id === "inbound";
+  // Cards carry a lane-wide sortable index; the Outbound groups render the
+  // same sequence, so the counter runs across buckets.
+  let cardIndex = 0;
+  const renderCard = (task: WorkTask) => {
+    const index = cardIndex;
+    cardIndex += 1;
+    return (
+      <TaskCard
+        key={task.id}
+        task={task}
+        allTasks={allTasks}
+        lane={lane}
+        lanes={lanes}
+        index={index}
+        mark={markFor?.(task)}
+        pending={pendingTaskId === task.id}
+        editing={editingTaskId === task.id}
+        selected={selectedTaskId === task.id}
+        checked={selectedTaskIds.has(task.id)}
+        activeActorSeatIds={activeActorSeatIds}
+        proposalBy={proposalById.get(task.id)}
+        onSelect={onSelect}
+        onToggleSelect={onToggleSelect}
+        onMove={onMove}
+        onApprove={onApprove}
+        onRejectProposal={onRejectProposal}
+        onEdit={onEdit}
+        onCancelEdit={onCancelEdit}
+        onSaveEdit={onSaveEdit}
+      />
+    );
+  };
 
   return (
     <section
@@ -502,12 +633,14 @@ function TaskLane({
             {tasks.length}
           </span>
         </div>
-        {lane.id === "queue" || lane.id === "proposal" ? (
+        {createsTasks ? (
           <IconButton
             size="sm"
             tone="accent"
             aria-label={
-              lane.id === "proposal" ? "Create proposal" : "Create task in Queue"
+              lane.id === "proposal"
+                ? "Create proposal"
+                : `Create task in ${lane.label}`
             }
             title={lane.id === "proposal" ? "Create proposal" : "Create task"}
             onClick={onCreate}
@@ -519,29 +652,18 @@ function TaskLane({
       <p className="task-board-lane__hint">{lane.hint}</p>
 
       <div className="task-board-lane__list" role="list">
-        {tasks.map((task, index) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            allTasks={allTasks}
-            lane={lane}
-            index={index}
-            pending={pendingTaskId === task.id}
-            editing={editingTaskId === task.id}
-            selected={selectedTaskId === task.id}
-            checked={selectedTaskIds.has(task.id)}
-            activeActorSeatIds={activeActorSeatIds}
-            proposalBy={proposalById.get(task.id)}
-            onSelect={onSelect}
-            onToggleSelect={onToggleSelect}
-            onMove={onMove}
-            onApprove={onApprove}
-            onRejectProposal={onRejectProposal}
-            onEdit={onEdit}
-            onCancelEdit={onCancelEdit}
-            onSaveEdit={onSaveEdit}
-          />
-        ))}
+        {groups
+          ? groups.map((group) => (
+              <section key={group.key} className="task-flow-group">
+                <OutboundGroupHeader
+                  kind={group.kind}
+                  station={group.station}
+                  count={group.tasks.length}
+                />
+                {group.tasks.map((task) => renderCard(task))}
+              </section>
+            ))
+          : tasks.map((task) => renderCard(task))}
         {tasks.length === 0 ? (
           <div className="task-board-lane__empty">
             <span>
@@ -551,7 +673,7 @@ function TaskLane({
                   ? "No proposals yet"
                   : `No ${lane.label.toLowerCase()}`}
             </span>
-            {(lane.id === "queue" || lane.id === "proposal") && !searchActive ? (
+            {createsTasks && !searchActive ? (
               <button type="button" onClick={onCreate}>
                 {lane.id === "proposal"
                   ? "Create the first proposal"
@@ -568,6 +690,7 @@ function TaskLane({
 function TaskActionsMenu({
   task,
   lane,
+  lanes,
   pending,
   isProposal,
   onEdit,
@@ -577,6 +700,7 @@ function TaskActionsMenu({
 }: {
   readonly task: WorkTask;
   readonly lane: LaneDefinition;
+  readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
   readonly isProposal: boolean;
   readonly onEdit: (task: WorkTask) => void;
@@ -588,7 +712,7 @@ function TaskActionsMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const brief = taskTitle(task);
-  const availableMoves = LANES.filter(
+  const availableMoves = lanes.filter(
     (destination) =>
       destination.state &&
       destination.id !== lane.id &&
@@ -697,8 +821,8 @@ function TaskActionsMenu({
                   })
                 }
               >
-                {destination.id === "queue"
-                  ? "Unclaim to Queue"
+                {destination.id === "queue" || destination.id === "inbound"
+                  ? `Unclaim to ${destination.label}`
                   : `Move to ${destination.label}`}
               </button>
             ))
@@ -732,7 +856,9 @@ function TaskCard({
   task,
   allTasks,
   lane,
+  lanes,
   index,
+  mark,
   pending,
   editing,
   selected,
@@ -751,7 +877,10 @@ function TaskCard({
   readonly task: WorkTask;
   readonly allTasks: ReadonlyArray<WorkTask>;
   readonly lane: LaneDefinition;
+  readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly index: number;
+  /** Inbound admission mark, rendered beside the state chip. */
+  readonly mark?: ReactNode;
   readonly pending: boolean;
   readonly editing: boolean;
   readonly selected: boolean;
@@ -937,6 +1066,7 @@ function TaskCard({
           <TaskActionsMenu
             task={task}
             lane={lane}
+            lanes={lanes}
             pending={pending}
             isProposal={proposalBy !== undefined}
             onEdit={onEdit}
@@ -957,6 +1087,7 @@ function TaskCard({
             >
               {proposalBy !== undefined ? "Proposed" : stateLabel(task.state)}
             </Chip>
+            {mark}
             {depChip ? (
               <Chip
                 tone={depChip.tone}
@@ -1554,10 +1685,12 @@ export { resolveArtifactsNodeId };
 
 function TaskDetailPanel({
   task,
+  lanes,
   pending,
   claimantRetired,
   isProposal,
   proposedBy,
+  station,
   onClose,
   onSaveTitle,
   onRespond,
@@ -1567,10 +1700,13 @@ function TaskDetailPanel({
   onRejectProposal,
 }: {
   readonly task: WorkTask;
+  readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
   readonly claimantRetired: boolean;
   readonly isProposal: boolean;
   readonly proposedBy?: string;
+  /** Operator station console for an operator-owned sink; absent elsewhere. */
+  readonly station?: ReactNode;
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
   readonly onRespond: (
@@ -1606,7 +1742,7 @@ function TaskDetailPanel({
   const transitionOptions = isProposal
     ? []
     : [
-        ...LANES.flatMap((lane) =>
+        ...lanes.flatMap((lane) =>
           lane.state &&
           !(task.state === "completed" && lane.state === "submitted") &&
           canTransitionTaskState(task.state, lane.state)
@@ -1623,12 +1759,14 @@ function TaskDetailPanel({
           ] as const
         ).flatMap(([state, label]) =>
           canTransitionTaskState(task.state, state) &&
-          !LANES.some((lane) => lane.state === state) &&
+          !lanes.some((lane) => lane.state === state) &&
           !(state === "completed" && hardFinishGate)
             ? [{ value: state, label }]
             : [],
         ),
       ];
+  const arrivalLaneLabel =
+    lanes.find((lane) => lane.state === "submitted")?.label ?? "Queue";
   const proposedByLabel =
     proposedBy === undefined
       ? undefined
@@ -1697,11 +1835,11 @@ function TaskDetailPanel({
                 size="xs"
                 variant="subtle"
                 disabled={pending}
-                title="Clear this claim and return the task to Queue"
+                title={`Clear this claim and return the task to ${arrivalLaneLabel}`}
                 onClick={() => onMove(task, "submitted")}
               >
                 <RotateCcw size={12} />
-                Unclaim to Queue
+                Unclaim to {arrivalLaneLabel}
               </Button>
             ) : null}
           </div>
@@ -1726,6 +1864,7 @@ function TaskDetailPanel({
       </div>
 
       <div className="task-detail-panel__scroll">
+        {station}
         {attentionRequired ? (
           <section
             className="task-detail-panel__attention is-input"
@@ -2125,6 +2264,7 @@ export function TaskBoard({
   const [bulkPending, setBulkPending] = useState(false);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const api = getVellumCommandApi();
   const name = canvasName();
   const actorRefs = use$(state$.actorRefs);
@@ -2132,6 +2272,20 @@ export function TaskBoard({
     () => new Set<string>(actorRefs.map((actor) => actor.seatId)),
     [actorRefs],
   );
+  const doc = use$(state$.doc);
+  const sinkContract = node.ether?.tasks?.contract;
+  // Columns follow the flow edges: incoming flow turns Proposals + Queue into
+  // Inbound, outgoing flow turns Closed into Outbound (spec §7).
+  const shape = useMemo(() => pipelineShape(doc, node.id), [doc, node.id]);
+  const stationName = useMemo(() => {
+    const names = new Map(
+      doc.nodes.map((entry) => [
+        entry.id,
+        entry.ether?.entity?.name?.trim() || nodeTitle(entry),
+      ]),
+    );
+    return (nodeId: string): string => names.get(nodeId) ?? nodeId;
+  }, [doc]);
 
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -2150,11 +2304,13 @@ export function TaskBoard({
     const grouped: Record<LaneId, WorkTask[]> = {
       proposal: [],
       queue: [],
+      inbound: [],
       working: [],
       input: [],
+      outbound: [],
       closed: [],
     };
-    grouped.proposal.push(
+    grouped[shape.hasInbound ? "inbound" : "proposal"].push(
       ...proposalTasks.filter((task) => {
         const normalized = query.trim().toLowerCase();
         return !normalized ||
@@ -2162,13 +2318,29 @@ export function TaskBoard({
           Boolean(taskDetails(task)?.toLowerCase().includes(normalized));
       }),
     );
-    for (const task of visibleItems) grouped[laneForTask(task)].push(task);
+    for (const task of visibleItems) grouped[laneForTask(task, shape)].push(task);
     // Latest activity first in every lane (Closed especially: complete by latest).
     for (const laneId of Object.keys(grouped) as LaneId[]) {
       grouped[laneId].sort(compareTasksByLatestActivityDesc);
     }
     return grouped;
-  }, [proposalTasks, query, visibleItems]);
+  }, [proposalTasks, query, shape, visibleItems]);
+
+  const outboundGroups = useMemo((): ReadonlyArray<TaskLaneGroup> | undefined => {
+    if (!shape.hasOutbound) return undefined;
+    return groupOutboundPassages(
+      tasksByLane.outbound,
+      node.id,
+      shape.destinations,
+    ).map((group) => ({
+      key: group.key,
+      kind: group.kind,
+      ...(group.stationId !== undefined
+        ? { station: stationName(group.stationId) }
+        : {}),
+      tasks: group.tasks,
+    }));
+  }, [node.id, shape, stationName, tasksByLane]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
   // Proposals are display-mapped WorkTasks (not in items) — resolve both lists so
@@ -2208,12 +2380,23 @@ export function TaskBoard({
       ),
     [selectedBulkItems],
   );
-  const doc = use$(state$.doc);
   /** Region-scoped tasks for dep glance (cross-sink prereqs in the same region). */
   const scopeTasks = useMemo(
     () => dependencyScopeTasks(doc, node.id),
     [doc, node.id],
   );
+
+  // Arrival bake countdowns tick only while some arrival is still held.
+  const inboundTasks = tasksByLane.inbound;
+  useEffect(() => {
+    if (!shape.hasInbound || !hasPendingHold(inboundTasks, Date.now())) return;
+    const timer = window.setInterval(() => {
+      const next = Date.now();
+      setNowMs(next);
+      if (!hasPendingHold(inboundTasks, next)) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [inboundTasks, shape.hasInbound]);
 
   const createTask = async (
     title: string,
@@ -2440,6 +2623,46 @@ export function TaskBoard({
     return transitionTask(task, "submitted", comment.trim());
   };
 
+  const promoteTask = async (task: WorkTask) => {
+    const promote = (api as (typeof api & PromoteApi) | undefined)?.workTaskPromote;
+    if (!api || !promote) {
+      setError("Promotion is not available until the current work service is ready.");
+      return;
+    }
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        promote(name, node.id, task.id),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not promote ${taskTitle(task)}. ${result.message}`);
+        return;
+      }
+      setAnnouncement(`Promoted ${taskTitle(task)} into ${INBOUND_LANE.label}.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not promote ${taskTitle(task)}. ${message}`);
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
+  const arrivalMarkFor = (task: WorkTask): ReactNode => {
+    if (task.state !== "submitted" || proposalById.has(task.id)) return null;
+    const glance = arrivalGlance(task, sinkContract, nowMs);
+    return (
+      <ArrivalMark
+        glance={glance}
+        pending={pendingTaskId === task.id}
+        onPromote={glance.promotable ? () => void promoteTask(task) : undefined}
+      />
+    );
+  };
+
   const approveProposal = async (task: WorkTask) => {
     if (!api) return;
     setError("");
@@ -2557,7 +2780,7 @@ export function TaskBoard({
     const task = items.find((item) => item.id === data.taskId);
     if (task) {
       setAnnouncement(
-        `Picked up ${taskTitle(task)} from ${LANES.find((lane) => lane.id === data.laneId)?.label}.`,
+        `Picked up ${taskTitle(task)} from ${ALL_LANES.find((lane) => lane.id === data.laneId)?.label}.`,
       );
     }
   };
@@ -2580,7 +2803,10 @@ export function TaskBoard({
     void transitionTask(task, state);
   };
 
-  const shownLanes = hideClosed ? LANES.filter((lane) => lane.id !== "closed") : LANES;
+  const boardLanes = visibleLanes(shape);
+  const shownLanes = hideClosed
+    ? boardLanes.filter((lane) => lane.id !== "closed" && lane.id !== "outbound")
+    : boardLanes;
 
   return (
     <FocusSurface
@@ -2776,7 +3002,10 @@ export function TaskBoard({
               <TaskLane
                 key={lane.id}
                 lane={lane}
+                lanes={boardLanes}
                 tasks={tasksByLane[lane.id]}
+                groups={lane.id === "outbound" ? outboundGroups : undefined}
+                markFor={lane.id === "inbound" ? arrivalMarkFor : undefined}
                 allTasks={scopeTasks}
                 searchActive={Boolean(query.trim())}
                 activeLane={activeLane}
@@ -2810,6 +3039,7 @@ export function TaskBoard({
             <TaskDetailPanel
               key={selectedTask.id}
               task={selectedTask}
+              lanes={boardLanes}
               pending={pendingTaskId === selectedTask.id}
               claimantRetired={
                 selectedIsProposal

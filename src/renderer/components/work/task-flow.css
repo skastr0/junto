@@ -1,0 +1,190 @@
+/* Pipeline surfaces inside the task flow modal: the Inbound admission marks,
+   the Outbound destination groups, and the operator station console. Same
+   language as task-board.css — hairline strokes, raise fills, tiny caps. */
+
+.task-flow-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.task-board-lane[data-lane="inbound"] .task-board-lane__title-wrap {
+  color: var(--color-amber);
+}
+
+.task-board-lane[data-lane="outbound"] .task-board-lane__title-wrap {
+  color: var(--color-green);
+}
+
+.task-flow-group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.task-flow-group__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 3px 5px;
+  background: var(--color-ground);
+  color: var(--color-dim);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.task-flow-group__header[data-kind="returned"] {
+  color: var(--color-crimson);
+}
+
+.task-flow-group__header[data-kind="closed"] {
+  color: var(--color-faint);
+}
+
+.task-flow-group__label {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-flow-group__count {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- operator station console (task detail) ------------------------------ */
+
+.task-station-console {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-second) 5%, var(--color-raise-2));
+}
+
+.task-station-console__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-cyan);
+}
+
+.task-station-console__heading h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-station-console__heading p {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.task-station-console__claims {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-station-claim {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 7px;
+  background: var(--color-raise);
+}
+
+.task-station-claim[data-answered="true"] {
+  border-color: color-mix(in oklab, var(--color-green) 34%, var(--color-stroke));
+}
+
+.task-station-claim__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.task-station-claim__text {
+  margin: 0;
+  flex: 1 1 auto;
+  color: var(--color-ink);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.task-station-claim__provenance {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.task-station-claim__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-station-claim__field > span,
+.task-station-console__field > span {
+  color: var(--color-dim);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.task-station-claim__waive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-dim);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.task-station-claim__waive input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--color-cyan);
+}
+
+.task-station-console__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-station-console__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.task-station-console__destination {
+  min-width: 148px;
+}
+
+.task-station-console__empty {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
