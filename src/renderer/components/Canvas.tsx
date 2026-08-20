@@ -545,13 +545,11 @@ function useCanvasInteractions(
     const from = doc.nodes.find((n) => n.id === sourceId);
     const to = doc.nodes.find((n) => n.id === targetId);
     if (!from || !to || from.type === "group" || to.type === "group") return false;
-    const fromRole = roleOf(
-      resolveSpec({ isGroup: false, kind: from.ether?.entity?.kind }),
-    );
-    const toRole = roleOf(
-      resolveSpec({ isGroup: false, kind: to.ether?.entity?.kind }),
-    );
-    return connectCheck(fromRole, toRole).ok;
+    const fromKind = from.ether?.entity?.kind;
+    const toKind = to.ether?.entity?.kind;
+    const fromRole = roleOf(resolveSpec({ isGroup: false, kind: fromKind }));
+    const toRole = roleOf(resolveSpec({ isGroup: false, kind: toKind }));
+    return connectCheck(fromRole, toRole, { fromKind, toKind }).ok;
   }, []);
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
   // Dropping a connection on a card body (not a handle) still creates the

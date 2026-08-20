@@ -4,7 +4,6 @@
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type {
-  CanvasDoc,
   CanvasEdge,
   CanvasNode,
   EdgeEffect,
@@ -12,7 +11,6 @@ import type {
   WatchWhen,
   WatchWhenAtom,
 } from "@shared/canvas";
-import { isTaskFlowPair, type FlowCycleError } from "@shared/flow-graph";
 import {
   defaultEffectBoardCreateTopic,
   defaultEffectTasksCreate,
@@ -55,6 +53,7 @@ import {
 } from "../InspectorFields";
 import { Input, Select } from "../ui";
 import {
+  friendlyCycleMessage,
   setAgentRelayMode,
   setEdgeEffect,
   setEdgeWhen,
@@ -65,6 +64,11 @@ import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { HUE, withAlpha } from "../../lib/theme";
 import { productNodeKindEnabled } from "@shared/features";
+
+// The cycle wording lives with the mutations that produce the error so the
+// connect-time refusal and this sheet cannot drift; re-exported here because
+// the sheet is where operators meet it.
+export { friendlyCycleMessage };
 
 /** Plain consequence line for one outbound does edge (gold: "adds a task on Review"). */
 const describeEffectBinding = (binding: EffectEdgeBinding): string => {
@@ -100,19 +104,23 @@ export const resolveEdgeFamily = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
 ): WireFamily | undefined => {
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const toKind = toNode?.ether?.entity?.kind;
   const fromSpec = resolveSpec({
     isGroup: fromNode?.type === "group",
-    kind: fromNode?.ether?.entity?.kind,
+    kind: fromKind,
   });
   const toSpec = resolveSpec({
     isGroup: toNode?.type === "group",
-    kind: toNode?.ether?.entity?.kind,
+    kind: toKind,
   });
   const fromRole = roleOf(fromSpec);
   const toRole = roleOf(toSpec);
   return (
-    familyFromSlot(edge.ether?.slot, wireRolePair(fromRole, toRole)) ??
-    (fromRole === "actor" || toRole === "actor" ? "access" : undefined)
+    familyFromSlot(
+      edge.ether?.slot,
+      wireRolePair(fromRole, toRole, { fromKind, toKind }),
+    ) ?? (fromRole === "actor" || toRole === "actor" ? "access" : undefined)
   );
 };
 
@@ -132,6 +140,9 @@ export const edgeSheetSentence = (
 ): string | undefined => {
   const family = resolveEdgeFamily(edge, fromNode, toNode);
   if (!family) return undefined;
+  // A hop has no lexicon word, so its sentence would be the bare family name.
+  // Fall back to the sheet title ("Task flow") instead of showing "flow".
+  if (family === "flow") return undefined;
   return wirePresentation({
     family,
     ether: edge.ether,
@@ -747,26 +758,15 @@ function AgentRelayModeSection({
   );
 }
 
-/** Translate a raw FlowCycleError (station ids) into a titled, readable line. */
-export const friendlyCycleMessage = (error: FlowCycleError, doc: CanvasDoc): string => {
-  const titleOf = (id: string): string => {
-    const node = doc.nodes.find((candidate) => candidate.id === id);
-    return node ? nodeTitle(node) : "that station";
-  };
-  const names = error.cycle.map(titleOf);
-  const loop = names.length > 0 ? `${names.join(" → ")} → ${names[0]}` : "a loop";
-  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different destination.`;
-};
-
 /**
  * Task-sink→task-sink pipeline hop: a task-flow toggle plus authored direction
  * (source → destination, independent of draw direction — setEdgeFlow accepts
- * either orientation of the edge's own endpoints). Only a pair of `task`
- * sinks reaches this section (`isTaskFlowPair`); any other sink kind cannot
- * project a forwarded row, so it takes the ports attenuator instead. A
- * rejected direction (would close a DAG cycle) leaves the toggle off and
- * explains why inline; the shared mutation guard (shared/flow-graph.ts) is
- * the source of truth.
+ * either orientation of the edge's own endpoints). Only the `flow` family
+ * reaches this section; any other sink pair cannot project a forwarded row and
+ * refuses at connect. Drawing the wire already authored the hop, so the toggle
+ * exists to flip direction or clear it. A rejected direction (would close a
+ * DAG cycle) leaves the toggle off and explains why inline; the shared
+ * mutation guard (shared/flow-graph.ts) is the source of truth.
  */
 function TaskFlowSection({
   edgeId,
@@ -874,25 +874,39 @@ export function WireSheetBody({
   const agentRelay =
     fromKind === "agent" && toKind === "relay";
 
+  const deleteAction =
+    showDelete && onDelete ? (
+      <div className="inspector-actions">
+        <button
+          type="button"
+          className="inspector-action--danger"
+          onClick={onDelete}
+        >
+          Delete link
+        </button>
+      </div>
+    ) : null;
+
+  // A hop grants no port, so it has no attenuator — only its direction.
+  if (family === "flow") {
+    return (
+      <>
+        <TaskFlowSection
+          edgeId={edge.id}
+          edge={edge}
+          fromNode={fromNode}
+          toNode={toNode}
+        />
+        {deleteAction}
+      </>
+    );
+  }
+
   if (!family && !agentRelay) {
     return (
       <>
-        {isTaskFlowPair(fromNode, toNode) ? (
-          <TaskFlowSection edgeId={edge.id} edge={edge} fromNode={fromNode} toNode={toNode} />
-        ) : (
-          <EdgePortsAttenuator edge={edge} />
-        )}
-        {showDelete && onDelete ? (
-          <div className="inspector-actions">
-            <button
-              type="button"
-              className="inspector-action--danger"
-              onClick={onDelete}
-            >
-              Delete link
-            </button>
-          </div>
-        ) : null}
+        <EdgePortsAttenuator edge={edge} />
+        {deleteAction}
       </>
     );
   }

@@ -1,4 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { Result } from "effect";
+import type { CanvasDoc } from "../../src/shared/canvas";
+import {
+  ALL_PORTS,
+  admitPure,
+  asNodeId,
+  canvasDocToCapabilityView,
+} from "../../src/shared/physics";
+import { KIND_TO_SLOT } from "../../src/shared/managed-terminal-injection";
 import {
   connectCheck,
   connectable,
@@ -59,6 +68,38 @@ describe("wires grammar", () => {
     }
   });
 
+  it("opens exactly the task↔task pair as the flow family", () => {
+    const hop = { fromKind: "task", toKind: "task" };
+    expect(wireRolePair("sink", "sink", hop)._tag).toBe("TaskFlow");
+    expect(familiesForPair(wireRolePair("sink", "sink", hop))).toEqual(["flow"]);
+    expect(connectable("sink", "sink", hop)).toBe(true);
+    const check = connectCheck("sink", "sink", hop);
+    expect(check.ok).toBe(true);
+    if (check.ok) expect(check.families).toEqual(["flow"]);
+    // No slot is ever stamped on a hop, so the sole family resolves it.
+    expect(familyFromSlot(undefined, wireRolePair("sink", "sink", hop))).toBe(
+      "flow",
+    );
+  });
+
+  it("keeps every other sink pair on the existing refusal", () => {
+    const others = ["pad", "board", "page", "artifacts", "requests", "terminal"];
+    for (const kind of others) {
+      for (const pair of [
+        { fromKind: "task", toKind: kind },
+        { fromKind: kind, toKind: "task" },
+        { fromKind: kind, toKind: kind },
+      ]) {
+        expect(wireRolePair("sink", "sink", pair)._tag).toBe("SinkSink");
+        const refused = connectCheck("sink", "sink", pair);
+        expect(refused.ok).toBe(false);
+        if (refused.ok === false) expect(refused.reason).toMatch(/relay/i);
+      }
+    }
+    // Kinds omitted → the role matrix alone, which still refuses.
+    expect(connectable("sink", "sink")).toBe(false);
+  });
+
   it("maps slots to families", () => {
     const pair = wireRolePair("sink", "scheduler");
     expect(familyFromSlot("input", pair)).toBe("watch");
@@ -112,11 +153,31 @@ describe("wires grammar", () => {
     expect(familyColorToken("access")).toBe("steel");
   });
 
-  it("family stroke lay is solid / long-dash / dotted / solid", () => {
+  it("family stroke lay is solid / long-dash / dotted / solid / conveyor", () => {
     expect(familyStroke("access").dasharray).toBe("none");
     expect(familyStroke("watch").dasharray).toBe("12 6");
     expect(familyStroke("trigger").dasharray).toBe("3 6");
     expect(familyStroke("effect").dasharray).toBe("none");
+    expect(familyStroke("flow").dasharray).toBe("10 4 2 4");
+  });
+
+  it("paints a hop with the flow lay and no word halo", () => {
+    const hop = wirePresentation({
+      family: "flow",
+      ether: {},
+      fromKind: "task",
+      toKind: "task",
+      // What offerPortsForAccessWire yields for a sink pair: nothing.
+      offeredChipCount: 0,
+    });
+    expect(hop.colorToken).toBe("amber");
+    expect(hop.strokeDasharray).toBe("10 4 2 4");
+    expect(hop.words).toEqual([]);
+    // Direction is config, never edge vocabulary — no halo, never dimmed.
+    expect(hop.worded).toBe(false);
+    expect(hop.disabled).toBe(false);
+    expect(isWorded("flow", [])).toBe(false);
+    expect(sheetTitleFor("flow")).toBe("Task flow");
   });
 
   it("derives words and worded/disabled presentation", () => {
@@ -232,5 +293,76 @@ describe("wires grammar", () => {
       toKind: "relay",
     });
     expect(trigger.map((s) => s._tag)).toEqual(["trigger_readout", "delete"]);
+  });
+});
+
+describe("a task-flow hop grants nothing", () => {
+  const node = (
+    id: string,
+    kind: string,
+    x: number,
+  ): CanvasDoc["nodes"][number] => ({
+    id,
+    type: "text",
+    text: id,
+    x,
+    y: 0,
+    width: 120,
+    height: 48,
+    ether: { entity: { kind } },
+  });
+
+  // seat —access— intake —hop— review. The hop is plumbing between stations:
+  // it must add no port anywhere, and must not extend the seat's reach.
+  const doc: CanvasDoc = {
+    nodes: [
+      node("seat", "agent", 0),
+      node("intake", "task", 200),
+      node("review", "task", 400),
+    ],
+    edges: [
+      { id: "access", fromNode: "seat", toNode: "intake" },
+      {
+        id: "hop",
+        fromNode: "intake",
+        toNode: "review",
+        ether: { flow: { source: "intake", destination: "review" } },
+      },
+    ],
+  };
+
+  const held = (caller: string, target: string): ReadonlyArray<string> => {
+    const view = canvasDocToCapabilityView(doc);
+    return ALL_PORTS.filter((port) =>
+      Result.isSuccess(
+        admitPure(view, asNodeId(caller), asNodeId(target), port),
+      ),
+    );
+  };
+
+  it("still grants the seat its access wire (the contrast case)", () => {
+    expect(held("seat", "intake")).toEqual([
+      "tasks.list",
+      "tasks.create",
+      "tasks.claim",
+      "tasks.update",
+      "msg.list",
+      "msg.send",
+    ]);
+  });
+
+  it("gives the seat no reach past the hop", () => {
+    expect(held("seat", "review")).toEqual([]);
+  });
+
+  it("gives the hop's own endpoints nothing in either direction", () => {
+    expect(held("intake", "review")).toEqual([]);
+    expect(held("review", "intake")).toEqual([]);
+  });
+
+  it("leaves the injection slot tables untouched — a hop is not a capability", () => {
+    // Slots are keyed by kind, so a hop cannot mint one; task stays "tasks".
+    expect(KIND_TO_SLOT["task"]).toBe("tasks");
+    expect(Object.keys(KIND_TO_SLOT)).not.toContain("flow");
   });
 });

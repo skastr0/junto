@@ -295,6 +295,8 @@ export type SheetSection =
  * - watch  → when events from the source sink's contract
  * - effect → does inputs from the target's contract
  * - trigger → readout only (no settings)
+ * - flow → no contract options; the sheet renders the hop's direction toggle
+ *   directly, since direction is document state rather than a kind contract
  * Always ends with delete.
  *
  * Task stoppage is derived (access + task|requests + claimed attention) —
@@ -340,6 +342,8 @@ export const sheetTitleFor = (family: WireFamily): string => {
       return "Trigger";
     case "effect":
       return "When this fires";
+    case "flow":
+      return "Task flow";
     default: {
       const _exhaustive: never = family;
       return _exhaustive;

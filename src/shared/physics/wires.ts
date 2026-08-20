@@ -1,15 +1,21 @@
 /**
  * Wires grammar — edges as configuration, never runtime state.
  *
- * Closed families: access | watch | trigger | effect.
+ * Families: access | watch | trigger | effect | flow.
  * Words come from kind-areas (open lexicon). Sentence = family - word*.
- * Connect refused when no family exists for the role pair.
+ * Connect refused when no family exists for the pair.
  *
  * Law: only schedulers push; actors pull. Automation families require a
  * scheduler on exactly one end (or two for scheduler–scheduler chains).
+ *
+ * `flow` is the one family with no automation end and no grant: the pipeline
+ * hop between two task sinks. It is plumbing between stations, so it offers
+ * no port to any seat — see `familiesForPair` and `offerPortsForAccessWire`.
+ * Layering holds: role decides the matrix row, kind configuration refines it
+ * (task↔task is the only sink pair that carries a wire).
  */
 import { HashSet, Match } from "effect";
-import type { FactoryRole, Port } from "./schema";
+import type { FactoryRole, Port, SinkKind } from "./schema";
 
 /**
  * Ports that exist on the schema for future ops but must not appear in access
@@ -22,7 +28,7 @@ export const PORTS_HIDDEN_FROM_CHIPS: ReadonlySet<Port> = new Set([]);
  * Which port set an access wire attenuates. Direction-agnostic:
  * - actor–actor → union of both inboxes
  * - actor–non-actor → the non-actor's offers (sink/scheduler)
- * - else empty (no access family ports)
+ * - else empty (no access family ports — a task-flow hop grants nothing)
  */
 export const offerPortsForAccessWire = (
   fromRole: FactoryRole,
@@ -44,14 +50,15 @@ export const chipPortsFromOffers = (
 ): ReadonlyArray<Port> =>
   [...offers].filter((port) => !PORTS_HIDDEN_FROM_CHIPS.has(port));
 
-/** Closed forever — four families. */
-export type WireFamily = "access" | "watch" | "trigger" | "effect";
+/** Closed set — four capability families plus the task-flow hop. */
+export type WireFamily = "access" | "watch" | "trigger" | "effect" | "flow";
 
 export const WIRE_FAMILIES: ReadonlyArray<WireFamily> = [
   "access",
   "watch",
   "trigger",
   "effect",
+  "flow",
 ] as const;
 
 /** Scheduler-assigned role of this wire end at the scheduler. */
@@ -92,7 +99,10 @@ export type WireSentence = {
   readonly words: ReadonlyArray<WireWord>;
 };
 
-/** Role pair for connectability (undirected for matrix A). */
+/**
+ * Role pair for connectability (undirected for matrix A), with one kind-level
+ * refinement: `TaskFlow` is the sink–sink row narrowed to two `task` sinks.
+ */
 export type WireRolePair =
   | { readonly _tag: "ActorActor" }
   | { readonly _tag: "ActorSink" }
@@ -100,12 +110,23 @@ export type WireRolePair =
   | { readonly _tag: "SinkScheduler" }
   | { readonly _tag: "SchedulerScheduler" }
   | { readonly _tag: "SinkSink" }
+  | { readonly _tag: "TaskFlow" }
   | { readonly _tag: "GeographyAny" }
   | { readonly _tag: "Denied" };
+
+/** The only sink kind a pipeline hop may join — task sinks project rows. */
+const TASK_SINK: SinkKind = "task";
+
+/** Endpoint kinds, when the caller has them — refines sink–sink to TaskFlow. */
+export type WirePairKinds = {
+  readonly fromKind?: string;
+  readonly toKind?: string;
+};
 
 export const wireRolePair = (
   a: FactoryRole,
   b: FactoryRole,
+  kinds?: WirePairKinds,
 ): WireRolePair => {
   if (a === "geography" || b === "geography") {
     return { _tag: "GeographyAny" };
@@ -127,15 +148,21 @@ export const wireRolePair = (
     return { _tag: "SchedulerScheduler" };
   }
   if (HashSet.has(set, "sink") && HashSet.size(set) === 1) {
-    return { _tag: "SinkSink" };
+    // Task↔task is the single sink pair that carries a wire — the pipeline
+    // hop. Kind configuration decides; every other sink pair still refuses.
+    return kinds?.fromKind === TASK_SINK && kinds.toKind === TASK_SINK
+      ? { _tag: "TaskFlow" }
+      : { _tag: "SinkSink" };
   }
   return { _tag: "Denied" };
 };
 
 /**
- * Families legal for a role pair. Empty = refuse at connect.
+ * Families legal for a pair. Empty = refuse at connect.
  * Actor–scheduler: trigger XOR effect (exclusive per edge, chosen by slot).
  * Sink–scheduler: watch XOR effect (input vs output slot).
+ * Task sink–task sink: flow only — a hop grants nothing, so `access` (the
+ * grant family) is never legal there.
  */
 export const familiesForPair = (
   pair: WireRolePair,
@@ -147,6 +174,7 @@ export const familiesForPair = (
       ActorScheduler: () => ["trigger", "effect"] as const,
       SinkScheduler: () => ["watch", "effect"] as const,
       SchedulerScheduler: () => ["trigger", "effect"] as const,
+      TaskFlow: () => ["flow"] as const,
       SinkSink: () => [] as const,
       GeographyAny: () => [] as const,
       Denied: () => [] as const,
@@ -156,7 +184,8 @@ export const familiesForPair = (
 export const connectable = (
   roleA: FactoryRole,
   roleB: FactoryRole,
-): boolean => familiesForPair(wireRolePair(roleA, roleB)).length > 0;
+  kinds?: WirePairKinds,
+): boolean => familiesForPair(wireRolePair(roleA, roleB, kinds)).length > 0;
 
 export type ConnectRefusal = {
   readonly ok: false;
@@ -171,8 +200,9 @@ export type ConnectOk = {
 export const connectCheck = (
   roleA: FactoryRole,
   roleB: FactoryRole,
+  kinds?: WirePairKinds,
 ): ConnectOk | ConnectRefusal => {
-  const pair = wireRolePair(roleA, roleB);
+  const pair = wireRolePair(roleA, roleB, kinds);
   const families = familiesForPair(pair);
   if (families.length === 0) {
     return {
@@ -194,6 +224,7 @@ const refusalReason = (pair: WireRolePair): string =>
       ActorScheduler: () => "unreachable",
       SinkScheduler: () => "unreachable",
       SchedulerScheduler: () => "unreachable",
+      TaskFlow: () => "unreachable",
     }),
   );
 
@@ -245,6 +276,9 @@ export const defaultSlotForDraw = (input: {
 
 /**
  * Family color tokens (fixed forever). Renderers map these to theme hues.
+ * Flow shares amber with effect — both move inventory downstream, and the two
+ * can never meet on one pair (effect needs a scheduler end, flow forbids one),
+ * so the shared hue costs no glance ambiguity and adds no visual language.
  */
 export const familyColorToken = (
   family: WireFamily,
@@ -257,6 +291,8 @@ export const familyColorToken = (
     case "trigger":
       return "violet";
     case "effect":
+      return "amber";
+    case "flow":
       return "amber";
     default: {
       const _exhaustive: never = family;
@@ -284,7 +320,7 @@ export const sentenceOf = (input: {
  * solid → explicit "none" so CSS soft-relation dots cannot win.
  */
 export type FamilyStroke = {
-  readonly dasharray: "none" | "12 6" | "3 6";
+  readonly dasharray: "none" | "12 6" | "3 6" | "10 4 2 4";
 };
 
 export const familyStroke = (family: WireFamily): FamilyStroke => {
@@ -297,6 +333,10 @@ export const familyStroke = (family: WireFamily): FamilyStroke => {
       return { dasharray: "3 6" };
     case "effect":
       return { dasharray: "none" };
+    // Conveyor lay: long run, short beat. Reads as carriage along the wire
+    // without inventing a marker — direction itself stays in `ether.flow`.
+    case "flow":
+      return { dasharray: "10 4 2 4" };
     default: {
       const _exhaustive: never = family;
       return _exhaustive;
@@ -330,6 +370,9 @@ export const wordsOfEdge = (input: {
 }): ReadonlyArray<WireWord> => {
   const { family, ether, fromKind, toKind, hasMessages } = input;
   const words: WireWord[] = [];
+  // Flow carries no lexicon word: the hop's only content is its authored
+  // direction (`ether.flow`), which the edge sheet states in full.
+  if (family === "flow") return words;
   if (family === "access") {
     // No authorial "stops" word. Seat stoppage is derived from work attention
     // on the actor, not painted as edge vocabulary. Access words are wake
@@ -380,6 +423,7 @@ export const wordsOfEdge = (input: {
  * - watch → always worded (completes/flagged default)
  * - effect → worded only when `does` is authored (no false enqueues)
  * - trigger → bare (no live words)
+ * - flow → bare (direction is config, never edge vocabulary)
  * - access → worded only when wakes / messages present (never stops)
  */
 export const isWorded = (
@@ -388,6 +432,7 @@ export const isWorded = (
 ): boolean => {
   if (family === "watch") return true;
   if (family === "trigger") return false;
+  if (family === "flow") return false;
   if (family === "effect") return words.length > 0;
   return words.length > 0;
 };

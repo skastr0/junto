@@ -146,6 +146,7 @@ export type {
   FamilyStroke,
   WireEtherView,
   WireFamily,
+  WirePairKinds,
   WirePresentation,
   WireRolePair,
   WireSentence,

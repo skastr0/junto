@@ -92,7 +92,10 @@ export function edgePresentationFacts(
   const fromRole = roleOf(fromSpec);
   const toRole = roleOf(toSpec);
   const family =
-    familyFromSlot(edge.ether?.slot, wireRolePair(fromRole, toRole)) ??
+    familyFromSlot(
+      edge.ether?.slot,
+      wireRolePair(fromRole, toRole, { fromKind, toKind }),
+    ) ??
     (fromRole === "actor" || toRole === "actor" ? ("access" as const) : undefined);
   if (!family) {
     return { fromKind, toKind };

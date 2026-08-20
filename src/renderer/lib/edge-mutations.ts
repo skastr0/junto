@@ -1,9 +1,11 @@
 import { ulid } from "ulid";
 import type {
+  CanvasDoc,
   CanvasEdge,
   CanvasNode,
   EdgeEffect,
   EdgeEnd,
+  EtherEdgeFlow,
   WatchWhen,
   WireSlot,
 } from "@shared/canvas";
@@ -15,10 +17,15 @@ import {
   type Port,
 } from "@shared/physics";
 import {
+  isTaskFlowPair,
+  validateFlowDag,
+  type FlowCycleError,
+} from "@shared/flow-graph";
+import {
   defaultWatchWhenForSource,
   inferSchedulerEdgeEffect,
 } from "@shared/scheduler-effects";
-import { isLabelNode } from "./presentation";
+import { isLabelNode, nodeTitle } from "./presentation";
 import { noteEdgeCreated } from "./edge-sparks";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
@@ -52,6 +59,34 @@ const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T,
   const { [key]: _removed, ...rest } = value;
   return rest;
 };
+
+/**
+ * Translate a raw FlowCycleError (station ids) into a titled, readable line.
+ * One wording for one rejection: the connect-time refusal below and the edge
+ * sheet's direction toggle both speak it.
+ */
+export const friendlyCycleMessage = (error: FlowCycleError, doc: CanvasDoc): string => {
+  const titleOf = (id: string): string => {
+    const node = doc.nodes.find((candidate) => candidate.id === id);
+    return node ? nodeTitle(node) : "that station";
+  };
+  const names = error.cycle.map(titleOf);
+  const loop = names.length > 0 ? `${names.join(" → ")} → ${names[0]}` : "a loop";
+  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different destination.`;
+};
+
+/**
+ * The hop a fresh task↔task edge carries. Drawing the wire IS the authoring
+ * act, so the flow config lands at connect in draw direction; the sheet toggle
+ * only flips or clears it afterwards.
+ */
+const hopForDraw = (
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+  source: string,
+  destination: string,
+): EtherEdgeFlow | undefined =>
+  isTaskFlowPair(fromNode, toNode) ? { source, destination } : undefined;
 
 export const deleteEdges = (ids: ReadonlyArray<string>): void => {
   const removed = new Set(ids);
@@ -288,7 +323,9 @@ export const addEdge = (params: {
   }
   const fromRole = roleOfNode(fromNode);
   const toRole = roleOfNode(toNode);
-  const check = connectCheck(fromRole, toRole);
+  const fromKind = fromNode?.ether?.entity?.kind;
+  const toKind = toNode?.ether?.entity?.kind;
+  const check = connectCheck(fromRole, toRole, { fromKind, toKind });
   if (!check.ok) {
     state$.error.set(check.reason);
     return;
@@ -296,8 +333,8 @@ export const addEdge = (params: {
   const slot = defaultSlotForDraw({
     fromRole,
     toRole,
-    fromKind: fromNode?.ether?.entity?.kind,
-    toKind: toNode?.ether?.entity?.kind,
+    fromKind,
+    toKind,
   });
   const does = inferSchedulerEdgeEffect(fromNode, toNode);
   const when = inferWatchWhen(fromNode, toNode);
@@ -307,6 +344,7 @@ export const addEdge = (params: {
     slot === "trigger" && toNode?.ether?.entity?.kind === "relay"
       ? (["relay.trigger"] as const)
       : undefined;
+  const flow = hopForDraw(fromNode, toNode, params.source, params.target);
   const fromSide = parseSide(params.sourceHandle);
   const toSide = parseSide(params.targetHandle);
   const etherParts: NonNullable<CanvasEdge["ether"]> = {
@@ -314,6 +352,7 @@ export const addEdge = (params: {
     ...(does ? { does } : {}),
     ...(when ? { when } : {}),
     ...(ports ? { ports: [...ports] } : {}),
+    ...(flow ? { flow } : {}),
   };
   const ether =
     Object.keys(etherParts).length > 0 ? etherParts : undefined;
@@ -325,9 +364,19 @@ export const addEdge = (params: {
     ...(toSide ? { toSide } : {}),
     ...(ether ? { ether } : {}),
   };
+  const nextDoc: CanvasDoc = { ...doc, edges: [...doc.edges, edge] };
+  // DAG guard at connect: a hop that would close a loop refuses the wire
+  // outright — the same guard setEdgeFlow runs, just one step earlier.
+  if (flow) {
+    const cycle = validateFlowDag(nextDoc);
+    if (cycle) {
+      state$.error.set(friendlyCycleMessage(cycle, doc));
+      return;
+    }
+  }
   selectEdge(edge.id);
   state$.error.set("");
-  commitDoc({ ...doc, edges: [...doc.edges, edge] });
+  commitDoc(nextDoc);
   noteEdgeCreated(edge);
 };
 
@@ -342,9 +391,10 @@ export type EdgeBatchSkipReason =
   | "group-source"
   | "label-source"
   | "invalid-target"
-  | "refused-pair";
+  | "refused-pair"
+  | "flow-cycle";
 
-/** Plan payload uses document words: does / when / slot / ports. */
+/** Plan payload uses document words: does / when / slot / ports / flow. */
 export type EdgeBatchCandidate = {
   readonly fromNode: string;
   readonly toNode: string;
@@ -352,11 +402,19 @@ export type EdgeBatchCandidate = {
   readonly slot?: WireSlot;
   readonly when?: WatchWhen;
   readonly ports?: ReadonlyArray<Port>;
+  readonly flow?: EtherEdgeFlow;
+};
+
+export type EdgeBatchSkip = {
+  readonly source: string;
+  readonly reason: EdgeBatchSkipReason;
+  /** Present only on `flow-cycle` — the loop the refused hop would close. */
+  readonly cycle?: FlowCycleError;
 };
 
 export type EdgeBatchPlan = {
   readonly toAdd: ReadonlyArray<EdgeBatchCandidate>;
-  readonly skipped: ReadonlyArray<{ readonly source: string; readonly reason: EdgeBatchSkipReason }>;
+  readonly skipped: ReadonlyArray<EdgeBatchSkip>;
 };
 
 /**
@@ -365,6 +423,9 @@ export type EdgeBatchPlan = {
  * - Skips self, groups-as-sources, missing sources, duplicates (existing or
  *   within the batch).
  * - Invalid target (missing / group) skips every source with `invalid-target`.
+ * - Task↔task sources author a pipeline hop; one that would close a cycle
+ *   (against the document AND the hops already planned in this batch) skips
+ *   with `flow-cycle` rather than landing a loop.
  * - Never stamps ether.stops (derived stoppage at eval).
  */
 export const planConnectToTarget = (
@@ -385,7 +446,9 @@ export const planConnectToTarget = (
   const existing = new Set(edges.map((edge) => `${edge.fromNode}->${edge.toNode}`));
   const planned = new Set<string>();
   const toAdd: EdgeBatchCandidate[] = [];
-  const skipped: Array<{ source: string; reason: EdgeBatchSkipReason }> = [];
+  const skipped: EdgeBatchSkip[] = [];
+  // Grows with each accepted hop so the batch is guarded as one document.
+  const prospective: CanvasEdge[] = [...edges];
 
   for (const sourceId of sourceIds) {
     if (sourceId === targetId) {
@@ -407,7 +470,9 @@ export const planConnectToTarget = (
     }
     const fromRole = roleOfNode(source);
     const toRole = roleOfNode(target);
-    if (!connectCheck(fromRole, toRole).ok) {
+    const fromKind = source.ether?.entity?.kind;
+    const toKind = target.ether?.entity?.kind;
+    if (!connectCheck(fromRole, toRole, { fromKind, toKind }).ok) {
       skipped.push({ source: sourceId, reason: "refused-pair" });
       continue;
     }
@@ -416,13 +481,28 @@ export const planConnectToTarget = (
       skipped.push({ source: sourceId, reason: "duplicate" });
       continue;
     }
+    const flow = hopForDraw(source, target, sourceId, targetId);
+    if (flow) {
+      const probe: CanvasEdge = {
+        id: `probe-${sourceId}`,
+        fromNode: sourceId,
+        toNode: targetId,
+        ether: { flow },
+      };
+      const cycle = validateFlowDag({ nodes, edges: [...prospective, probe] });
+      if (cycle) {
+        skipped.push({ source: sourceId, reason: "flow-cycle", cycle });
+        continue;
+      }
+      prospective.push(probe);
+    }
     planned.add(key);
     const does = inferSchedulerEdgeEffect(source, target);
     const slot = defaultSlotForDraw({
       fromRole,
       toRole,
-      fromKind: source.ether?.entity?.kind,
-      toKind: target.ether?.entity?.kind,
+      fromKind,
+      toKind,
     });
     const when = inferWatchWhen(source, target);
     const ports =
@@ -436,6 +516,7 @@ export const planConnectToTarget = (
       ...(slot ? { slot } : {}),
       ...(when ? { when } : {}),
       ...(ports ? { ports: [...ports] } : {}),
+      ...(flow ? { flow } : {}),
     });
   }
 
@@ -456,7 +537,10 @@ export const connectAllToTarget = (
   const plan = planConnectToTarget(sourceIds, targetId, doc.nodes, doc.edges);
   if (plan.toAdd.length === 0) {
     const reasons = new Set(plan.skipped.map((item) => item.reason));
-    if (reasons.has("invalid-target")) {
+    const refusedHop = plan.skipped.find((item) => item.cycle !== undefined);
+    if (refusedHop?.cycle) {
+      state$.error.set(friendlyCycleMessage(refusedHop.cycle, doc));
+    } else if (reasons.has("invalid-target")) {
       state$.error.set("Cannot connect to that target.");
     } else if (reasons.size === 1 && reasons.has("self")) {
       state$.error.set("A node cannot connect to itself.");
@@ -476,6 +560,7 @@ export const connectAllToTarget = (
       ...(candidate.ports && candidate.ports.length > 0
         ? { ports: [...candidate.ports] }
         : {}),
+      ...(candidate.flow ? { flow: candidate.flow } : {}),
     };
     const ether =
       Object.keys(etherParts).length > 0 ? etherParts : undefined;

@@ -844,13 +844,17 @@ describe("renderer graph mutations", () => {
       expect(planConnectToTarget(["a"], "gone", batchNodes, []).toAdd).toEqual([]);
     });
 
-    it("plans agent→task and refuses sink-sink", () => {
+    it("plans agent→task as access and task→task as an authored hop", () => {
       const plan = planConnectToTarget(["tasks", "a"], "c", batchNodes, []);
-      expect(plan.toAdd).toEqual([{ fromNode: "a", toNode: "c" }]);
-      expect(plan.skipped).toContainEqual({
-        source: "tasks",
-        reason: "refused-pair",
-      });
+      expect(plan.toAdd).toEqual([
+        {
+          fromNode: "tasks",
+          toNode: "c",
+          flow: { source: "tasks", destination: "c" },
+        },
+        { fromNode: "a", toNode: "c" },
+      ]);
+      expect(plan.skipped).toEqual([]);
     });
 
     it("plans tasks → agent", () => {
@@ -1713,5 +1717,96 @@ describe("renderer graph mutations", () => {
     const result = setEdgeFlow("ba", { source: "b", destination: "a" });
     expect(result).toBeInstanceOf(FlowCycleError);
     expect(state$.doc.peek().edges[1]?.ether?.flow).toBeUndefined();
+  });
+});
+
+describe("drawing a pipeline hop", () => {
+  const padSink = (id: string, x: number): CanvasDoc["nodes"][number] => ({
+    id,
+    type: "text",
+    text: id,
+    x,
+    y: 0,
+    width: 100,
+    height: 80,
+    ether: { entity: { kind: "pad", name: id } },
+  });
+
+  it("authors the flow config at connect, in draw direction", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [taskSink("a", 0), taskSink("b", 300)], edges: [] });
+
+    addEdge({ source: "a", target: "b" });
+
+    const edges = state$.doc.peek().edges;
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.ether?.flow).toEqual({ source: "a", destination: "b" });
+    expect(state$.error.peek()).toBe("");
+  });
+
+  it("grants no ports on the hop — flow is the whole ether", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [taskSink("a", 0), taskSink("b", 300)], edges: [] });
+
+    addEdge({ source: "a", target: "b" });
+
+    const ether = state$.doc.peek().edges[0]?.ether;
+    expect(ether && Object.keys(ether)).toEqual(["flow"]);
+  });
+
+  it("refuses a hop that would close a loop, and draws nothing", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [taskSink("a", 0), taskSink("b", 300)],
+      edges: [
+        {
+          id: "ab",
+          fromNode: "a",
+          toNode: "b",
+          ether: { flow: { source: "a", destination: "b" } },
+        },
+      ],
+    });
+
+    addEdge({ source: "b", target: "a" });
+
+    expect(state$.doc.peek().edges).toHaveLength(1);
+    expect(state$.error.peek()).toContain("send tasks in a loop");
+    expect(state$.error.peek()).toContain("a → b → a");
+  });
+
+  it("keeps refusing every other sink pair with the relay wording", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({ nodes: [taskSink("a", 0), padSink("notes", 300)], edges: [] });
+
+    addEdge({ source: "a", target: "notes" });
+
+    expect(state$.doc.peek().edges).toEqual([]);
+    expect(state$.error.peek()).toMatch(/relay/i);
+  });
+
+  it("guards the batch connect path against a loop across the whole batch", () => {
+    const nodes = [taskSink("a", 0), taskSink("b", 300), taskSink("c", 600)];
+    const plan = planConnectToTarget(["b"], "a", nodes, [
+      {
+        id: "ab",
+        fromNode: "a",
+        toNode: "b",
+        ether: { flow: { source: "a", destination: "b" } },
+      },
+    ]);
+    expect(plan.toAdd).toEqual([]);
+    expect(plan.skipped[0]?.reason).toBe("flow-cycle");
+    expect(plan.skipped[0]?.cycle).toBeInstanceOf(FlowCycleError);
+  });
+
+  it("plans independent hops in one batch", () => {
+    const nodes = [taskSink("a", 0), taskSink("b", 300), taskSink("c", 600)];
+    const plan = planConnectToTarget(["a", "b"], "c", nodes, []);
+    expect(plan.toAdd).toEqual([
+      { fromNode: "a", toNode: "c", flow: { source: "a", destination: "c" } },
+      { fromNode: "b", toNode: "c", flow: { source: "b", destination: "c" } },
+    ]);
+    expect(plan.skipped).toEqual([]);
   });
 });
