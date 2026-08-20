@@ -505,6 +505,79 @@ describe("defect-back", () => {
   });
 });
 
+describe("exited passage rows stay closed", () => {
+  it("refuses to re-open a forwarded row via the generic QA requeue", () => {
+    const doc = docWith([sinkNode("s1"), sinkNode("s2")], [flowEdge("e1", "s1", "s2")]);
+    const created = createTask(doc, "s1");
+    const forwarded = workTaskTransition(
+      created.doc,
+      "alpha",
+      "s1",
+      created.task.id,
+      "completed",
+      "first pass done",
+      ids,
+      { artifacts: [] },
+      { nowMs: NOW },
+    );
+    expect(() =>
+      workTaskTransition(
+        forwarded.doc,
+        "alpha",
+        "s1",
+        created.task.id,
+        "submitted",
+        "requeue anyway",
+        ids,
+      ),
+    ).toThrow(/closed passage record/);
+    // The live successor at s2 stays untouched — no second live row minted.
+    expect(itemsAt(forwarded.doc, "s2")[0]?.state).toBe("submitted");
+  });
+
+  it("refuses to re-open a defect-back source row via a plain rejected -> submitted transition", () => {
+    const doc = docWith([sinkNode("s1"), sinkNode("s2")], [flowEdge("e1", "s1", "s2")]);
+    const created = createTask(doc, "s1");
+    const forwarded = workTaskTransition(
+      created.doc,
+      "alpha",
+      "s1",
+      created.task.id,
+      "completed",
+      "first pass done",
+      ids,
+      { artifacts: [] },
+      { nowMs: NOW },
+    );
+    const rejected = workTaskTransition(
+      forwarded.doc,
+      "alpha",
+      "s2",
+      created.task.id,
+      "rejected",
+      undefined,
+      ids,
+      undefined,
+      { defect: { summary: "misses the edge case" }, nowMs: NOW + 60_000 },
+    );
+    // Whether blocked by the closed-passage guard or by the transition table,
+    // the source row must never re-open into a second live copy of the task.
+    expect(() =>
+      workTaskTransition(
+        rejected.doc,
+        "alpha",
+        "s2",
+        created.task.id,
+        "submitted",
+        undefined,
+        ids,
+      ),
+    ).toThrow(WorkError);
+    // The live successor at s1 (re-homed by defect-back) stays untouched.
+    expect(itemsAt(rejected.doc, "s1")[0]?.state).toBe("submitted");
+  });
+});
+
 describe("claim admission", () => {
   const worker = actorRef("1", "worker-1");
 

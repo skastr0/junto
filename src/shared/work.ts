@@ -715,6 +715,23 @@ const claimGateError = (failure: ClaimCheckFailure): WorkError =>
   );
 
 /**
+ * True when `task`'s current-epoch journey tail closed here with an exit
+ * that already re-homed the live successor to another station (forward or
+ * defect-back). Such a row is a passage record, not live work — re-opening
+ * it via the generic submitted-entry path would mint a second live row for
+ * the same task id (invariant: no split/rejoin).
+ */
+const isExitedPassageRow = (task: Task, nodeId: string): boolean => {
+  const last = (task.journey ?? []).at(-1);
+  return (
+    last !== undefined &&
+    last.nodeId === nodeId &&
+    last.epoch === taskEpoch(task) &&
+    (last.exit === "forwarded" || last.exit === "rejected-back")
+  );
+};
+
+/**
  * The passage the task is currently living: the last journey entry when it
  * names this station and has not exited; otherwise a fresh entry synthesized
  * at exit time (tasks born before the pipeline have no arrival passage).
@@ -869,6 +886,12 @@ export const workTaskTransition = (
       throw new WorkError(
         "illegal_transition",
         `cannot transition task "${taskId}" from ${current.state} to ${state}`,
+      );
+    }
+    if (state === "submitted" && isExitedPassageRow(current, nodeId)) {
+      throw new WorkError(
+        "illegal_transition",
+        `task "${taskId}" at "${nodeId}" is a closed passage record (exit: ${current.journey?.at(-1)?.exit}) — re-opening it here would create a second live row for this task; forward/defect-back already re-homed the live copy`,
       );
     }
     if (current.state === "completed" && state === "submitted" && !note?.trim()) {
