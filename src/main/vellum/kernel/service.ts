@@ -1287,6 +1287,7 @@ const makeKernelService = (
                 buildFactoryClaimPrompt({
                   sinkNodeId: sink.id,
                   task,
+                  doc,
                 }),
               ),
             );
