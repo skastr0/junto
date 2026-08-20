@@ -7,6 +7,7 @@ import {
   type ActivitySpec,
   type ActivityTone,
 } from "../lib/activity";
+import { retainAttentionClock } from "../lib/attention-clock";
 import { surfaceMotionLive$ } from "../lib/surface-motion";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 
@@ -81,8 +82,9 @@ export function ActivityMarkFromSpec({
  * wave  → deterministic clockwise perimeter trail (work / block / attention)
  * pulse → full grid soft breath (ready/complete — never clockwise)
  * static → single filled dot of the same tone
- * No visible text — label is aria-only. Keyframes touch transform/opacity
- * only; surface-motion gating unmounts animated cells entirely.
+ * No visible text — label is aria-only. Cell opacity/scale is discrete via
+ * the 90 ms attention clock (html[data-attention-phase]); no CSS interpolation.
+ * Surface-motion gating unmounts animated cells entirely.
  */
 export function ActivityMark({
   mode,
@@ -106,7 +108,11 @@ export function ActivityMark({
   useEffect(() => {
     const animated = renderedMode !== "static";
     canvasPerformance.recordActivityMount(animated, renderedMode);
-    return () => canvasPerformance.recordActivityUnmount(animated, renderedMode);
+    const release = animated ? retainAttentionClock() : undefined;
+    return () => {
+      release?.();
+      canvasPerformance.recordActivityUnmount(animated, renderedMode);
+    };
   }, [renderedMode]);
 
   // Footprint matches the historical 3×3 grid so mode flips don't shift chrome.
@@ -132,7 +138,7 @@ export function ActivityMark({
         role="status"
         aria-label={label}
         title={label}
-        className={className}
+        className={["vellum-activity-mark", className].filter(Boolean).join(" ")}
         data-activity-mode="static"
         data-activity-tone={tone}
         data-activity-size={size}
@@ -162,7 +168,7 @@ export function ActivityMark({
         role="status"
         aria-label={label}
         title={label}
-        className={className}
+        className={["vellum-activity-mark", className].filter(Boolean).join(" ")}
         data-activity-mode="pulse"
         data-activity-tone={tone}
         data-activity-size={size}
@@ -201,7 +207,7 @@ export function ActivityMark({
       role="status"
       aria-label={label}
       title={label}
-      className={className}
+      className={["vellum-activity-mark", className].filter(Boolean).join(" ")}
       data-activity-mode="wave"
       data-activity-tone={tone}
       data-activity-size={size}

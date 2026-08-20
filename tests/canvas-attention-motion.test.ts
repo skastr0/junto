@@ -1,8 +1,9 @@
 /**
- * PERF-P1 — continuous canvas attention CSS must stay compositor-safe.
+ * PERF-P1 — continuous canvas attention must not use interpolating CSS.
  *
- * Reads styles.css selector blocks and asserts paint-heavy properties are not
- * keyframed for blocker / seat-attention / edge ripple / ActivityMark motion.
+ * Factory motion is a 90 ms discrete clock (html[data-attention-phase]) plus
+ * static rings. Interpolating infinite keyframes keep Chromium presenting
+ * every vsync and are forbidden on the canvas attention path.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -13,68 +14,61 @@ const css = readFileSync(
   "utf8",
 );
 
-/** Extract @keyframes body by name. */
-const keyframesBody = (name: string): string => {
+const ruleBody = (selector: string): string => {
   const re = new RegExp(
-    `@keyframes\\s+${name}\\s*\\{([\\s\\S]*?)\\n\\}`,
-    "m",
+    `${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`,
   );
   const m = css.match(re);
-  if (!m) throw new Error(`missing @keyframes ${name}`);
+  if (!m) throw new Error(`missing rule ${selector}`);
   return m[1] ?? "";
 };
 
-const FORBIDDEN_IN_KEYFRAMES =
-  /\b(box-shadow|filter|mask|mask-image|-webkit-mask|background|background-color|background-image|stroke-dashoffset)\s*:/i;
-
-describe("canvas continuous motion keyframes (compositor-safe)", () => {
-  it.each([
-    "vellumActivityClock",
-    "vellumActivityPulse",
-    "vellumBlockerHalo",
-    "vellumSeatAttentionHalo",
-    "vellumEdgeRippleOpacity",
-    "vellumBlockerFlagPulse",
-    "vellumStatusDotPulse",
-  ])("%s only uses transform/opacity (no paint-heavy props)", (name) => {
-    const body = keyframesBody(name);
-    expect(body).not.toMatch(FORBIDDEN_IN_KEYFRAMES);
-    // Must still animate something.
-    expect(body).toMatch(/\b(opacity|transform)\s*:/);
+describe("canvas continuous motion (discrete clock, no interpolating CSS)", () => {
+  it("retired interpolating factory keyframes are gone", () => {
+    expect(css).not.toMatch(/@keyframes\s+vellumActivityClock\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumActivityPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumBlockerHalo\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionHalo\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumEdgeRippleOpacity\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumBlockerFlagPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumStatusDotPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellum-dot-pulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellum-herdr-working-pulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumDash\b/);
+    expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionPulse\b/);
   });
 
-  it("ActivityMark cells carry the staggered clock and shared breath", () => {
-    // Wave cells stagger the clock cycle per step (bright head, fading trail).
+  it("ActivityMark cells have no CSS animation and key off the clock", () => {
+    expect(ruleBody(".vellum-activity-clock-cell")).not.toMatch(/animation\s*:/);
+    expect(ruleBody(".vellum-activity-pulse-cell")).not.toMatch(/animation\s*:/);
     expect(css).toMatch(
-      /\.vellum-activity-clock-cell\s*\{[^}]*animation-delay:\s*calc\(var\(--activity-clock-step\)\s*\*\s*90ms\)/s,
+      /html\[data-attention-phase="0"\]\s+\.vellum-activity-clock-cell:nth-child\(1\)/,
     );
-    // Pulse cells breathe together on the shared keyframes.
     expect(css).toMatch(
-      /\.vellum-activity-pulse-cell\s*\{[^}]*animation:\s*vellumActivityPulse/s,
+      /html\[data-attention-phase="7"\]\s+\.vellum-activity-clock-cell:nth-child\(8\)/,
+    );
+    expect(css).toMatch(
+      /html\[data-attention-beat="1"\]\s+\.vellum-activity-pulse-cell/,
     );
   });
 
-  it("blocker base card does not animate; halo lives on ::after", () => {
-    // Static shadow on .vellum-blocker, animation only on ::after
-    expect(css).toMatch(
-      /\.vellum-blocker\s*\{[^}]*box-shadow:[^}]*\}/s,
-    );
-    expect(css).toMatch(
-      /\.vellum-blocker::after\s*\{[^}]*animation:\s*vellumBlockerHalo/s,
-    );
-    // No animation property on .vellum-blocker itself (between selector and next rule)
-    const blockerBlock = css.match(
-      /\.vellum-blocker\s*\{([^}]*)\}/,
-    )?.[1];
+  it("blocker halo is a static ::after ring, not an animation", () => {
+    expect(css).toMatch(/\.vellum-blocker\s*\{[^}]*box-shadow:[^}]*\}/s);
+    const halo = ruleBody(".vellum-blocker::after");
+    expect(halo).not.toMatch(/animation\s*:/);
+    expect(halo).not.toMatch(/will-change\s*:/);
+    const blockerBlock = css.match(/\.vellum-blocker\s*\{([^}]*)\}/)?.[1];
     expect(blockerBlock).toBeDefined();
     expect(blockerBlock).not.toMatch(/animation\s*:/);
   });
 
-  it("seat-attention uses static box-shadow + ::after halo animation", () => {
-    expect(css).toMatch(
-      /\.vellum-node\[data-seat-attention="true"\]::after\s*\{[^}]*animation:\s*vellumSeatAttentionHalo/s,
+  it("seat-attention uses static box-shadow + static ::after ring", () => {
+    const halo = ruleBody(
+      '.vellum-node[data-seat-attention="true"]::after',
     );
-    // Parent attention rule must not animate box-shadow via keyframes assignment
+    expect(halo).not.toMatch(/animation\s*:/);
+    expect(halo).not.toMatch(/will-change\s*:/);
     const parent = css.match(
       /\.vellum-node\[data-attention="fire"\],\s*\n\.vellum-node\[data-seat-attention="true"\]\s*\{([^}]*)\}/,
     )?.[1];
@@ -83,19 +77,15 @@ describe("canvas continuous motion keyframes (compositor-safe)", () => {
     expect(parent).toMatch(/box-shadow\s*:/);
   });
 
-  it("blocked-edge ripple does not animate stroke-dashoffset", () => {
-    const body = keyframesBody("vellumEdgeRippleOpacity");
-    expect(body).not.toMatch(/stroke-dashoffset/);
-    expect(body).toMatch(/opacity\s*:/);
-    // Dash pattern may remain static for interrupted-flow direction.
+  it("blocked-edge ripple keeps a static dash and does not animate", () => {
     expect(css).toMatch(
       /\.vellum-edge-ripple[\s\S]*?stroke-dasharray:\s*5 6/,
     );
-  });
-
-  it("legacy paint-heavy keyframe names are gone", () => {
-    expect(css).not.toMatch(/@keyframes\s+vellumPulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumDash\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionPulse\b/);
+    const ripple = css.match(
+      /\.vellum-edge-ripple \.react-flow__edge-path,\s*\npath\.vellum-edge-ripple\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(ripple).toBeDefined();
+    expect(ripple).not.toMatch(/animation\s*:/);
+    expect(ripple).not.toMatch(/stroke-dashoffset/);
   });
 });

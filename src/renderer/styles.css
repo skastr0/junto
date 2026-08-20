@@ -1201,22 +1201,10 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   .vellum-node__preamble { animation: none; }
 }
 
-@keyframes vellum-dot-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-.vellum-dot--pulse { animation: vellum-dot-pulse 1.1s ease-in-out infinite; }
+.vellum-dot--pulse { opacity: 1; }
 
-/* herdr "working" status dot: a soft breathe (slower than the generic card
-   pulse) marking an agent mid-turn on the herdr node card. */
-@keyframes vellum-herdr-working-pulse {
-  from { opacity: 1; }
-  to   { opacity: 0.35; }
-}
-.vellum-herdr-working-dot { animation: vellum-herdr-working-pulse 1.6s ease-in-out infinite alternate; }
-@media (prefers-reduced-motion: reduce) {
-  .vellum-herdr-working-dot { animation: none; }
-}
+/* herdr "working" status dot: static — interpolating opacity kept the GPU live. */
+.vellum-herdr-working-dot { opacity: 1; }
 
 /* Every card advertises its dots while a connection drag is live. */
 .react-flow.is-connecting .vellum-handle--source { opacity: 1; }
@@ -1750,9 +1738,9 @@ html[data-surface-motion="paused"] *::after {
   border-color: var(--color-stroke-hi);
 }
 
-/* --- Blocker pulse: static card shadow + one composited halo layer -------
+/* --- Blocker: static card shadow + static ring ---------------------------
    Base card must not repaint every frame — never animate box-shadow/filter
-   on .vellum-blocker itself. Halo is transform+opacity only on ::after. */
+   on .vellum-blocker itself. Ring is a static ::after (no compositor timeline). */
 .vellum-blocker {
   position: relative;
   box-shadow:
@@ -1766,92 +1754,52 @@ html[data-surface-motion="paused"] *::after {
   border-radius: inherit;
   pointer-events: none;
   border: 2px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
-  opacity: 0.35;
-  transform: scale(0.98);
-  animation: vellumBlockerHalo 1.6s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-@keyframes vellumBlockerHalo {
-  0%,
-  100% {
-    opacity: 0.22;
-    transform: scale(0.98);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(1.03);
-  }
+  opacity: 0.55;
+  transform: scale(1);
 }
 
-/* Live blocked flag chip — soft opacity pulse so the rail isn't static text. */
-.vellum-node__flag--blocked-live {
-  animation: vellumBlockerFlagPulse 1.2s ease-in-out infinite;
+/* --- ActivityMark: discrete 90 ms clock (see attention-clock.ts) ------------
+   No CSS animation — interpolating keyframes keep Chromium presenting every
+   vsync. html[data-attention-phase] selects the bright head + one-cell tail.
+   Pulse uses data-attention-beat. Between ticks the compositor can idle. */
+.vellum-activity-mark {
+  contain: layout style paint;
+  isolation: isolate;
 }
-@keyframes vellumBlockerFlagPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
-
-/* --- ActivityMark: original staggered cell grammar --------------------------
-   Keyframes touch transform/opacity only. Wave: each perimeter cell runs the
-   clock cycle offset by its step — a bright head with a fading clockwise
-   trail. Pulse: all cells breathe together — never the clockwise trail. */
 .vellum-activity-clock-cell {
   opacity: 0.1;
   transform: scale(0.82);
-  animation: vellumActivityClock 720ms linear infinite;
-  animation-delay: calc(var(--activity-clock-step) * 90ms);
 }
-@keyframes vellumActivityClock {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  14% {
-    opacity: 0.48;
-    transform: scale(0.94);
-  }
-  42%,
-  100% {
-    opacity: 0.1;
-    transform: scale(0.82);
-  }
+html[data-attention-phase="0"] .vellum-activity-clock-cell:nth-child(1),
+html[data-attention-phase="1"] .vellum-activity-clock-cell:nth-child(2),
+html[data-attention-phase="2"] .vellum-activity-clock-cell:nth-child(3),
+html[data-attention-phase="3"] .vellum-activity-clock-cell:nth-child(4),
+html[data-attention-phase="4"] .vellum-activity-clock-cell:nth-child(5),
+html[data-attention-phase="5"] .vellum-activity-clock-cell:nth-child(6),
+html[data-attention-phase="6"] .vellum-activity-clock-cell:nth-child(7),
+html[data-attention-phase="7"] .vellum-activity-clock-cell:nth-child(8) {
+  opacity: 1;
+  transform: scale(1);
+}
+html[data-attention-phase="0"] .vellum-activity-clock-cell:nth-child(8),
+html[data-attention-phase="1"] .vellum-activity-clock-cell:nth-child(1),
+html[data-attention-phase="2"] .vellum-activity-clock-cell:nth-child(2),
+html[data-attention-phase="3"] .vellum-activity-clock-cell:nth-child(3),
+html[data-attention-phase="4"] .vellum-activity-clock-cell:nth-child(4),
+html[data-attention-phase="5"] .vellum-activity-clock-cell:nth-child(5),
+html[data-attention-phase="6"] .vellum-activity-clock-cell:nth-child(6),
+html[data-attention-phase="7"] .vellum-activity-clock-cell:nth-child(7) {
+  opacity: 0.48;
+  transform: scale(0.94);
 }
 
-/* Ready/complete: soft breath on every cell. */
 .vellum-activity-pulse-cell {
-  opacity: 0.28;
-  transform: scale(0.9);
-  animation: vellumActivityPulse 1.6s ease-in-out infinite;
+  opacity: 0.22;
+  transform: scale(0.88);
 }
-@keyframes vellumActivityPulse {
-  0%,
-  100% {
-    opacity: 0.22;
-    transform: scale(0.88);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.vellum-status-dot-pulse {
-  animation: vellumStatusDotPulse 2.4s ease-in-out infinite;
-}
-@keyframes vellumStatusDotPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
+html[data-attention-beat="1"] .vellum-activity-pulse-cell {
+  opacity: 1;
+  transform: scale(1);
 }
 
 /* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
@@ -1884,22 +1832,13 @@ html[data-surface-motion="paused"] .vellum-herdr-working-dot {
   }
 }
 
-/* --- Blocked ripple: static dash pattern + opacity breath -----------------
-   stroke-dashoffset forces recurring paint on the edge path. Keep dashes
-   for “interrupted flow” direction along the edge; pulse opacity only. */
+/* --- Blocked ripple: static dash pattern ---------------------------------
+   stroke-dashoffset and opacity animations both keep the compositor live.
+   Dashes stay for “interrupted flow” direction; no continuous paint. */
 .vellum-edge-ripple .react-flow__edge-path,
 path.vellum-edge-ripple {
   stroke-dasharray: 5 6;
-  animation: vellumEdgeRippleOpacity 1.8s ease-in-out infinite;
-}
-@keyframes vellumEdgeRippleOpacity {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
+  opacity: 0.78;
 }
 
 /* --- Fire / ice attention (glance language) ---------------------------
@@ -1921,21 +1860,8 @@ path.vellum-edge-ripple {
   border-radius: inherit;
   pointer-events: none;
   border: 2px solid color-mix(in oklab, var(--color-main) 70%, transparent);
-  opacity: 0.4;
-  transform: scale(0.99);
-  animation: vellumSeatAttentionHalo 1.5s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-@keyframes vellumSeatAttentionHalo {
-  0%,
-  100% {
-    opacity: 0.28;
-    transform: scale(0.99);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(1.04);
-  }
+  opacity: 0.55;
+  transform: scale(1);
 }
 @media (prefers-reduced-motion: reduce) {
   .vellum-node[data-attention="fire"]::after,

@@ -1,10 +1,10 @@
 /**
  * ActivityMark structure + a11y/size/tone.
  *
- * Original staggered-cell grammar: wave = 8 perimeter clock cells offset by
- * --activity-clock-step (bright head, fading clockwise trail); pulse = 9
- * cells breathing together; static = single dot. Keyframes live in CSS and
- * touch transform/opacity only (see canvas-attention-motion.test.ts).
+ * Original staggered-cell grammar: wave = 8 perimeter clock cells (bright
+ * head, fading clockwise trail); pulse = 9 cells; static = single dot.
+ * Discrete 90 ms clock lives in attention-clock.ts; CSS selects cells via
+ * html[data-attention-phase] (see canvas-attention-motion.test.ts).
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
