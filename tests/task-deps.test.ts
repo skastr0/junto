@@ -159,4 +159,27 @@ describe("task-deps", () => {
       missing: ["ghost"],
     });
   });
+
+  it("a forward's completed source row stays satisfied for dependents regardless of document order", () => {
+    // Forward leaves two live rows sharing a task id: the closed source
+    // passage (completed) and the re-homed successor (submitted). Either
+    // document order must resolve the dependency as satisfied.
+    const completedSource = taskItem("t", "t", "completed");
+    const submittedDestination = taskItem("t", "t", "submitted");
+    const dependent = withDeps(taskItem("x", "x"), ["t"]);
+
+    const sourceFirst = taskIndexById([
+      completedSource,
+      submittedDestination,
+      dependent,
+    ]);
+    expect(taskIsClaimReady(dependent, sourceFirst)).toBe(true);
+
+    const destinationFirst = taskIndexById([
+      submittedDestination,
+      completedSource,
+      dependent,
+    ]);
+    expect(taskIsClaimReady(dependent, destinationFirst)).toBe(true);
+  });
 });

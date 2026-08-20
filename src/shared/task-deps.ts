@@ -161,12 +161,24 @@ export const taskDepStatus = (
   return { kind: "ready" };
 };
 
-/** Index sink items by id (last wins if duplicates — claim path already fails those). */
+/**
+ * Index sink items by id. A forward leaves two live rows sharing a task id
+ * (the closed source passage + the re-homed successor) — completed is
+ * sticky over a duplicate: local passage completion satisfies dependsOn
+ * regardless of the task's downstream fate, so a `completed` row is never
+ * displaced by a later same-id row in another state. Otherwise last wins.
+ */
 export const taskIndexById = (
   items: ReadonlyArray<Task>,
 ): Map<string, Task> => {
   const map = new Map<string, Task>();
-  for (const item of items) map.set(item.id, item);
+  for (const item of items) {
+    const existing = map.get(item.id);
+    if (existing?.state === "completed" && item.state !== "completed") {
+      continue;
+    }
+    map.set(item.id, item);
+  }
   return map;
 };
 
