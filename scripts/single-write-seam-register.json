@@ -569,6 +569,13 @@
   ],
   "decodeBoundaries": [
     {
+      "path": "src/cli/commands/board.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the tasks.claims boarding plan returned over the work control socket before the CLI executes any checklist command."
+    },
+    {
       "path": "src/cli/core/batch.ts",
       "kinds": [
         "operator"
