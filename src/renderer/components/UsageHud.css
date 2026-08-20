@@ -52,8 +52,6 @@
     var(--color-overlay-3) 50%,
     var(--color-overlay-1) 100%
   );
-  background-size: 200% 100%;
-  animation: usage-hud-shimmer 1.2s ease-in-out infinite;
 }
 
 .usage-hud__rail--error {
@@ -86,21 +84,6 @@
   background: var(--color-amber);
   box-shadow: 0 0 6px color-mix(in oklab, var(--color-main) 55%, transparent);
   opacity: 0.9;
-}
-
-@keyframes usage-hud-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: -100% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .usage-hud__rail--loading {
-    animation: none;
-  }
 }
 
 /* [glyph / bar] vertical split — icon above meter, not side-by-side */

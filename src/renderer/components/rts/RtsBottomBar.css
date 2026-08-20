@@ -1058,14 +1058,14 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
   cursor: pointer;
-  animation: rts-notify-attention-pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-main) 35%, transparent);
 }
 
 .rts-notify-attention__pill--blocked {
   border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
   background: color-mix(in oklab, var(--color-accent) 16%, transparent);
   color: var(--color-accent-fg);
-  animation-name: rts-notify-blocked-pulse;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent) 38%, transparent);
 }
 
 .rts-notify-attention__pill:hover,
@@ -1085,32 +1085,6 @@
   font-weight: 700;
   color: color-mix(in oklab, var(--color-main) 90%, transparent);
   letter-spacing: 0.06em;
-}
-
-@keyframes rts-notify-attention-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-main) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-main) 35%, transparent);
-  }
-}
-
-@keyframes rts-notify-blocked-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent) 38%, transparent);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rts-notify-attention__pill {
-    animation: none;
-  }
 }
 
 .rts-notify-strip__group {

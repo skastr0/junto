@@ -739,3 +739,7 @@
     animation: none;
   }
 }
+
+html[data-surface-motion="paused"] .chat-plan__status.is-active svg {
+  animation: none !important;
+}

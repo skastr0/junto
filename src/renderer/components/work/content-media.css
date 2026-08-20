@@ -264,3 +264,7 @@
     transition: none;
   }
 }
+
+html[data-surface-motion="paused"] .content-media--loading .content-media__spin {
+  animation: none !important;
+}
