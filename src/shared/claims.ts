@@ -1,0 +1,347 @@
+import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import type {
+  CheckDef,
+  ClaimDef,
+  CompletionEvidence,
+  Task,
+  TaskClaim,
+  TasksSinkContract,
+  TicketSide,
+} from "./work-model";
+import { resolveSinkAdmission } from "./work-model";
+import { regionStack } from "./graph";
+import { reachableStations } from "./flow-graph";
+
+// Pipeline claims enforcement — pure structural checks only. The work service
+// verifies presence/shape of responses, waivers, and tickets; it never
+// executes claim verification and never judges truth (claims are prompts
+// checked by minds — seats or the operator).
+
+/** Where an effective claim came from — retained for briefing and errors. */
+export type ClaimProvenance =
+  | { readonly kind: "region"; readonly regionId: string; readonly label: string }
+  | { readonly kind: "sink"; readonly nodeId: string }
+  | { readonly kind: "task"; readonly station: string };
+
+export type EffectiveClaim = {
+  readonly claim: ClaimDef;
+  readonly provenance: ClaimProvenance;
+};
+
+/** FinishCriteriaFailure-shaped, so callers format one error family. */
+export type ClaimCheckFailure = {
+  readonly missing: string;
+  readonly message: string;
+  readonly next_step: string;
+  readonly claimId?: string;
+};
+
+const nodeById = (doc: CanvasDoc, nodeId: string): CanvasNode | undefined =>
+  doc.nodes.find((node) => node.id === nodeId);
+
+export const sinkContractOf = (
+  node: CanvasNode | undefined,
+): TasksSinkContract | undefined => node?.ether?.tasks?.contract;
+
+const regionLabel = (group: GroupNode): string =>
+  group.label?.trim() || group.id;
+
+/**
+ * Effective claims stack for a task at sink S: region stack claims
+ * (outer → inner) ++ S sink-contract claims ++ task claims addressed to S.
+ * Provenance is retained on every entry. No dedupe: reuse is copy-on-reuse,
+ * so each authored claim is its own law.
+ */
+export const effectiveClaimsStack = (
+  doc: CanvasDoc,
+  sinkNodeId: string,
+  task?: Task,
+): ReadonlyArray<EffectiveClaim> => {
+  const out: EffectiveClaim[] = [];
+  for (const group of regionStack(doc, sinkNodeId)) {
+    for (const claim of group.ether?.region?.contract?.claims ?? []) {
+      out.push({
+        claim,
+        provenance: {
+          kind: "region",
+          regionId: group.id,
+          label: regionLabel(group),
+        },
+      });
+    }
+  }
+  for (const claim of sinkContractOf(nodeById(doc, sinkNodeId))?.claims ?? []) {
+    out.push({ claim, provenance: { kind: "sink", nodeId: sinkNodeId } });
+  }
+  for (const claim of task?.claims ?? []) {
+    if (claim.station !== sinkNodeId) continue;
+    out.push({ claim, provenance: { kind: "task", station: claim.station } });
+  }
+  return out;
+};
+
+const provenanceLabel = (provenance: ClaimProvenance): string => {
+  switch (provenance.kind) {
+    case "region":
+      return `region "${provenance.label}"`;
+    case "sink":
+      return `sink "${provenance.nodeId}"`;
+    case "task":
+      return `task claim addressed to "${provenance.station}"`;
+  }
+};
+
+/**
+ * Structural completion check: every effective HARD claim needs a response;
+ * every SOFT claim needs a response or a waiver. Names the innermost unmet
+ * claim (the stack is outer → inner, so the scan runs inner → outer).
+ */
+export const evaluateClaimCompletion = (params: {
+  readonly stack: ReadonlyArray<EffectiveClaim>;
+  readonly evidence: CompletionEvidence | undefined;
+}): ClaimCheckFailure | undefined => {
+  const responded = new Set(
+    (params.evidence?.responses ?? []).map((entry) => entry.claimId),
+  );
+  const waived = new Set(
+    (params.evidence?.claimWaivers ?? []).map((entry) => entry.claimId),
+  );
+  for (let index = params.stack.length - 1; index >= 0; index -= 1) {
+    const { claim, provenance } = params.stack[index]!;
+    if (responded.has(claim.id)) continue;
+    if (claim.severity === "soft" && waived.has(claim.id)) continue;
+    const where = provenanceLabel(provenance);
+    return {
+      missing: "claims",
+      claimId: claim.id,
+      message:
+        claim.severity === "hard"
+          ? `hard claim "${claim.text}" (${where}) has no response`
+          : `soft claim "${claim.text}" (${where}) has no response or waiver`,
+      next_step:
+        claim.severity === "hard"
+          ? `answer claim ${claim.id} via completionEvidence.responses`
+          : `answer claim ${claim.id} via completionEvidence.responses, or waive it with completionEvidence.claimWaivers (non-empty reason)`,
+    };
+  }
+  return undefined;
+};
+
+export const taskEpoch = (task: Task): number => task.epoch ?? 0;
+
+/**
+ * Receipts recorded at stations along the CURRENT epoch of the journey.
+ * A response/waiver lives in the station row's completionEvidence at that
+ * station (the passage record); a defect-back epoch bump stales prior epochs
+ * for closure accounting while history stays retained.
+ */
+export const stationReceipts = (
+  doc: CanvasDoc,
+  task: Task,
+): { readonly responded: ReadonlySet<string>; readonly waived: ReadonlySet<string> } => {
+  const epoch = taskEpoch(task);
+  const responded = new Set<string>();
+  const waived = new Set<string>();
+  const seen = new Set<string>();
+  for (const passage of task.journey ?? []) {
+    if (passage.epoch !== epoch) continue;
+    if (seen.has(passage.nodeId)) continue;
+    seen.add(passage.nodeId);
+    const row = nodeById(doc, passage.nodeId)?.ether?.tasks?.items.find(
+      (item) => item.id === task.id,
+    );
+    for (const entry of row?.completionEvidence?.responses ?? []) {
+      responded.add(entry.claimId);
+    }
+    for (const entry of row?.completionEvidence?.claimWaivers ?? []) {
+      waived.add(entry.claimId);
+    }
+  }
+  return { responded, waived };
+};
+
+/**
+ * Fork-waiver rule at forward time: forwarding is choose-one, so any task
+ * station-addressed claim whose station falls off the chosen branch
+ * (not in reachableStations from `next`) must be already checked in the
+ * current epoch or explicitly waived now.
+ */
+export const evaluateForkWaivers = (params: {
+  readonly doc: CanvasDoc;
+  readonly sinkNodeId: string;
+  readonly task: Task;
+  readonly next: string;
+  readonly evidence: CompletionEvidence | undefined;
+}): ClaimCheckFailure | undefined => {
+  const claims = params.task.claims ?? [];
+  if (claims.length === 0) return undefined;
+  const reachable = reachableStations(params.doc, params.next);
+  const receipts = stationReceipts(params.doc, params.task);
+  const responded = new Set([
+    ...receipts.responded,
+    ...(params.evidence?.responses ?? []).map((entry) => entry.claimId),
+  ]);
+  const waived = new Set([
+    ...receipts.waived,
+    ...(params.evidence?.claimWaivers ?? []).map((entry) => entry.claimId),
+  ]);
+  for (const claim of claims) {
+    if (reachable.has(claim.station)) continue;
+    if (responded.has(claim.id) || waived.has(claim.id)) continue;
+    return {
+      missing: "claims.forkWaiver",
+      claimId: claim.id,
+      message: `forwarding to "${params.next}" abandons station "${claim.station}" with unchecked claim "${claim.text}"`,
+      next_step: `waive claim ${claim.id} with completionEvidence.claimWaivers (non-empty reason), or forward along a branch that reaches "${claim.station}"`,
+    };
+  }
+  return undefined;
+};
+
+/**
+ * Terminal-close check (completed at a sink with no flow destinations):
+ * every task station-addressed claim was checked at its station in the
+ * current epoch — receipts live in passage records — or waived.
+ */
+export const evaluateTerminalClose = (params: {
+  readonly doc: CanvasDoc;
+  readonly sinkNodeId: string;
+  readonly task: Task;
+  readonly evidence: CompletionEvidence | undefined;
+}): ClaimCheckFailure | undefined => {
+  const claims = params.task.claims ?? [];
+  if (claims.length === 0) return undefined;
+  const receipts = stationReceipts(params.doc, params.task);
+  const localResponses = new Set(
+    (params.evidence?.responses ?? []).map((entry) => entry.claimId),
+  );
+  const waived = new Set([
+    ...receipts.waived,
+    ...(params.evidence?.claimWaivers ?? []).map((entry) => entry.claimId),
+  ]);
+  for (const claim of claims) {
+    const respondedHere =
+      claim.station === params.sinkNodeId && localResponses.has(claim.id);
+    if (respondedHere || receipts.responded.has(claim.id) || waived.has(claim.id)) {
+      continue;
+    }
+    return {
+      missing: "claims.terminal",
+      claimId: claim.id,
+      message: `cannot close: claim "${claim.text}" addressed to station "${claim.station}" was never checked in epoch ${taskEpoch(params.task)}`,
+      next_step: `answer claim ${claim.id} at station "${claim.station}", or waive it with completionEvidence.claimWaivers`,
+    };
+  }
+  return undefined;
+};
+
+// ---------------------------------------------------------------------------
+// Boarding checks (tickets are system-stamped by the tasks.board op handler;
+// checklist EXECUTION is the seat CLI's job — never the kernel's).
+
+export type RequiredBoardingCheck = {
+  readonly check: CheckDef;
+  readonly side: TicketSide;
+};
+
+/** S.outbound checks + chosen destination's inbound checks, in that order. */
+export const requiredBoardingChecks = (
+  doc: CanvasDoc,
+  fromNodeId: string,
+  next: string,
+): ReadonlyArray<RequiredBoardingCheck> => {
+  const outbound =
+    sinkContractOf(nodeById(doc, fromNodeId))?.outbound?.checklist ?? [];
+  const inbound =
+    sinkContractOf(nodeById(doc, next))?.inbound?.checklist ?? [];
+  return [
+    ...outbound.map((check) => ({ check, side: "outbound" as const })),
+    ...inbound.map((check) => ({ check, side: "inbound" as const })),
+  ];
+};
+
+/**
+ * Every required check needs a green (exit 0) current-epoch ticket. A red or
+ * missing ticket names the first blocked check.
+ */
+export const evaluateBoarding = (params: {
+  readonly task: Task;
+  readonly checks: ReadonlyArray<RequiredBoardingCheck>;
+}): ClaimCheckFailure | undefined => {
+  const epoch = taskEpoch(params.task);
+  const tickets = (params.task.boarding ?? []).filter(
+    (ticket) => ticket.epoch === epoch,
+  );
+  for (const { check, side } of params.checks) {
+    const ticket = tickets.find(
+      (candidate) => candidate.checkId === check.id && candidate.side === side,
+    );
+    if (ticket === undefined) {
+      return {
+        missing: "boarding",
+        message: `${side} boarding check "${check.label}" has no ticket for epoch ${epoch}`,
+        next_step: `run the boarding checks (tasks board) so the work service can stamp a green ticket for check ${check.id}`,
+      };
+    }
+    if (ticket.exitCode !== 0) {
+      return {
+        missing: "boarding.red",
+        message: `${side} boarding check "${check.label}" is red (exit ${ticket.exitCode})`,
+        next_step: `fix the failure and re-run the boarding checks (tasks board) for check ${check.id}`,
+      };
+    }
+  }
+  return undefined;
+};
+
+// ---------------------------------------------------------------------------
+// Admission (kernel auto-claim + seat claim gate).
+
+export type TaskAdmissionState =
+  | "claimable"
+  | "held"
+  | "operator-gated"
+  | "operator-owned";
+
+/**
+ * Operator promotion marker for operator-gated arrivals. Lives in the task
+ * metadata bag (epoch-scoped) because Passage is a closed schema and the
+ * marker must stay additive; only the operator promote op writes it.
+ */
+export const PIPELINE_ADMITTED_METADATA_KEY = "vellum.pipeline.admittedEpoch";
+
+export const taskPromoted = (task: Task): boolean =>
+  task.metadata?.[PIPELINE_ADMITTED_METADATA_KEY] === taskEpoch(task);
+
+/**
+ * Admission state of a submitted arrival at a sink. Operator-owned dominates
+ * (no seat claim ever); then bake hold; then the operator gate.
+ */
+export const taskAdmissionState = (
+  task: Task,
+  contract: TasksSinkContract | undefined,
+  nowMs: number,
+): TaskAdmissionState => {
+  const admission = resolveSinkAdmission(contract);
+  if (admission === "operator-owned") return "operator-owned";
+  const holdUntil = task.holdUntil === undefined ? NaN : Date.parse(task.holdUntil);
+  if (Number.isFinite(holdUntil) && holdUntil > nowMs) return "held";
+  if (admission === "operator-gated" && !taskPromoted(task)) {
+    return "operator-gated";
+  }
+  return "claimable";
+};
+
+/**
+ * holdUntil stamped at arrival: an explicit per-task holdFor stamp wins over
+ * the station's claimableAfterMs default. Undefined when neither applies.
+ */
+export const computeHoldUntil = (
+  nowMs: number,
+  claimableAfterMs: number | undefined,
+  holdForMs: number | undefined,
+): string | undefined => {
+  const delay = holdForMs ?? claimableAfterMs;
+  if (delay === undefined || delay <= 0) return undefined;
+  return new Date(nowMs + delay).toISOString();
+};
