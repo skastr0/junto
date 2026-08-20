@@ -153,9 +153,11 @@ import {
   findNode,
   nodeKind,
   nodeTitle,
+  regionStackFor,
   regionVisibility,
   summarizeNode,
 } from "./authz";
+import { resolveSinkAdmission } from "@shared/work-model";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
@@ -722,7 +724,29 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const items = gate.node?.ether?.tasks?.items ?? [];
       const proposals = gate.node?.ether?.tasks?.proposals ?? [];
-      return { target: decoded.success.target, items, proposals };
+      // Onion visibility holds by construction: rows at this sink carry only
+      // the current passage's thread; prior interiors live on prior stations'
+      // rows. Ambient law (station purpose + region stack briefings) is
+      // additive so seats can compose against the standing contract.
+      const contract = gate.node?.ether?.tasks?.contract;
+      const ambient = regionStackFor(board, decoded.success.target);
+      return {
+        target: decoded.success.target,
+        items,
+        proposals,
+        ...(contract !== undefined
+          ? {
+              contract: {
+                ...(contract.instruction !== undefined
+                  ? { instruction: contract.instruction }
+                  : {}),
+                claims: contract.claims ?? [],
+                admission: resolveSinkAdmission(contract),
+              },
+            }
+          : {}),
+        ...(ambient.length > 0 ? { ambient } : {}),
+      };
     }
 
     if (
