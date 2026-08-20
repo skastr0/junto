@@ -69,7 +69,7 @@ import {
   type StationSubmission,
 } from "./TaskStationConsole";
 import { effectiveClaimsStack } from "@shared/claims";
-import { resolveSinkAdmission } from "@shared/work-model";
+import { resolveSinkAdmission, type TaskClaim } from "@shared/work-model";
 import {
   arrivalGlance,
   groupOutboundPassages,
@@ -2253,6 +2253,9 @@ export function TaskBoard({
   const [hideClosed, setHideClosed] = useState(false);
   const [creating, setCreating] = useState<CreateDialogMode | null>(null);
   const [creatingPending, setCreatingPending] = useState(false);
+  // Station pins from the creation metro map, cleared each time the composer
+  // opens or closes so a stale pin never survives across creation sessions.
+  const [creationPins, setCreationPins] = useState<ReadonlyArray<TaskClaim>>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
@@ -2419,6 +2422,7 @@ export function TaskBoard({
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
+    claims: ReadonlyArray<TaskClaim> = [],
   ) => {
     if (!api || !title.trim() || !details.trim()) return;
     setError("");
@@ -2438,6 +2442,7 @@ export function TaskBoard({
           media.length > 0 ? media : undefined,
           dependsOn.length > 0 ? dependsOn : undefined,
           finishCriteria,
+          claims.length > 0 ? claims : undefined,
         ),
       );
       if (result === undefined) return;
@@ -2447,6 +2452,7 @@ export function TaskBoard({
       }
       setAnnouncement(`Created ${title.trim()} in Queue.`);
       setCreating(null);
+      setCreationPins([]);
       setSelectedTaskId(result.data.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -2461,6 +2467,7 @@ export function TaskBoard({
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
+    claims: ReadonlyArray<TaskClaim> = [],
   ) => {
     if (!api || !title.trim() || !details.trim()) return;
     setError("");
@@ -2480,6 +2487,7 @@ export function TaskBoard({
           media.length > 0 ? media : undefined,
           dependsOn.length > 0 ? dependsOn : undefined,
           finishCriteria,
+          claims.length > 0 ? claims : undefined,
         ),
       );
       if (result === undefined) return;
@@ -2489,6 +2497,7 @@ export function TaskBoard({
       }
       setAnnouncement(`Proposed ${title.trim()} for planning.`);
       setCreating(null);
+      setCreationPins([]);
       setSelectedTaskId(result.data.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -3036,10 +3045,19 @@ export function TaskBoard({
             pending={creatingPending}
             artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
             preamble={
-              creating === "task" ? <TaskCreationMetroMap nodeId={node.id} /> : undefined
+              creating === "task" ? (
+                <TaskCreationMetroMap
+                  nodeId={node.id}
+                  pins={creationPins}
+                  onPinsChange={setCreationPins}
+                />
+              ) : undefined
             }
             onClose={() => {
-              if (!creatingPending) setCreating(null);
+              if (!creatingPending) {
+                setCreating(null);
+                setCreationPins([]);
+              }
             }}
             onCreate={(title, details, media, dependsOn, finishCriteria) => {
               if (creating === "proposal") {
@@ -3049,10 +3067,18 @@ export function TaskBoard({
                   media,
                   dependsOn,
                   finishCriteria,
+                  creationPins,
                 );
                 return;
               }
-              void createTask(title, details, media, dependsOn, finishCriteria);
+              void createTask(
+                title,
+                details,
+                media,
+                dependsOn,
+                finishCriteria,
+                creationPins,
+              );
             }}
           />
         ) : null}

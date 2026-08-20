@@ -5,6 +5,7 @@ import {
   ContentPart,
   FinishCriteria,
   RawPart,
+  TaskClaim,
 } from "./work-model";
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
@@ -213,6 +214,8 @@ export const TasksCreateArgs = Schema.Struct({
   dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Operator done-definition; carried onto minted Task on approve. */
   finishCriteria: Schema.optionalKey(FinishCriteria),
+  /** Station-addressed claims; set at creation, carried onto minted Task on approve. */
+  claims: Schema.optionalKey(Schema.Array(TaskClaim)),
 }).pipe(
   Schema.check(Schema.makeFilter((args) => {
     const details = args.metadata?.details;

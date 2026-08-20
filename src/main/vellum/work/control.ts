@@ -959,6 +959,7 @@ const dispatchOp = (
         decoded.success.media,
         decoded.success.dependsOn,
         decoded.success.finishCriteria,
+        decoded.success.claims,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);

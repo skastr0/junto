@@ -14,6 +14,7 @@ import type {
   TaskState,
   FinishCriteria,
   CompletionEvidence,
+  TaskClaim,
 } from "./work-model";
 import type { ActorRef } from "./work-protocol";
 import {
@@ -372,6 +373,8 @@ export const workTaskCreate = (
   /** Same-region hard prerequisites (task ids; cross-sink ok). Empty / omitted = free. */
   dependsOn?: ReadonlyArray<string>,
   finishCriteria?: FinishCriteria,
+  /** Station-addressed claims; set at creation, immutable on generic transitions. */
+  claims?: ReadonlyArray<TaskClaim>,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
@@ -409,6 +412,7 @@ export const workTaskCreate = (
     ...(media && media.length > 0 ? { extraParts: media } : {}),
   });
   const why = reason?.trim();
+  const normalizedClaims = claims && claims.length > 0 ? claims : undefined;
   const task: Task = {
     id: taskId,
     state: "submitted",
@@ -417,6 +421,7 @@ export const workTaskCreate = (
     ...(why ? { reason: why } : {}),
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
+    ...(normalizedClaims ? { claims: normalizedClaims } : {}),
   };
   const items = [...existing, task];
   return { doc: withTasks(doc, nodeId, items), task };
@@ -478,6 +483,8 @@ export const workTaskPropose = (
   /** Same-region hard prerequisites (task ids; cross-sink ok). Empty / omitted = free. */
   dependsOn?: ReadonlyArray<string>,
   finishCriteria?: FinishCriteria,
+  /** Station-addressed claims; set at creation, carried onto the minted Task on approve. */
+  claims?: ReadonlyArray<TaskClaim>,
 ): WorkProposalResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
@@ -522,6 +529,7 @@ export const workTaskPropose = (
     ...(reason?.trim() ? { reason: reason.trim() } : {}),
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
+    ...(claims && claims.length > 0 ? { claims } : {}),
   };
   return {
     doc: withTasks(
@@ -585,6 +593,9 @@ export const workTaskApproveProposal = (
       : {}),
     ...(current.finishCriteria !== undefined
       ? { finishCriteria: current.finishCriteria }
+      : {}),
+    ...(current.claims && current.claims.length > 0
+      ? { claims: current.claims }
       : {}),
   };
   const proposal: TaskProposal = {

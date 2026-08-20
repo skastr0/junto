@@ -30,6 +30,7 @@ import { softBoardTagNotify } from "./board-delivery";
 import type {
   CompletionEvidence,
   FinishCriteria,
+  TaskClaim,
   TaskPipelineArm,
   TaskProposal,
 } from "@shared/work-model";
@@ -376,6 +377,7 @@ export interface WorkServiceShape {
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: FinishCriteria,
+      claims?: ReadonlyArray<TaskClaim>,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskPropose: (
       canvas: string,
@@ -387,6 +389,7 @@ export interface WorkServiceShape {
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: FinishCriteria,
+      claims?: ReadonlyArray<TaskClaim>,
     ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     /**
      * Command Center operator planning: mint a pending proposal without an
@@ -402,6 +405,7 @@ export interface WorkServiceShape {
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: FinishCriteria,
+      claims?: ReadonlyArray<TaskClaim>,
     ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     readonly workTaskApproveProposal: (
       canvas: string,
@@ -1099,7 +1103,7 @@ export const WorkLive = Layer.effect(
     return WorkService.of({
       workTaskHome: (canvas, nodeId, taskId) =>
         itemHome("task", canvas, nodeId, taskId),
-      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria) =>
+      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -1119,6 +1123,7 @@ export const WorkLive = Layer.effect(
                 media,
                 dependsOn,
                 finishCriteria,
+                claims,
               )
             );
             const task = yield* externalizeTask(policy.task, {
@@ -1157,6 +1162,7 @@ export const WorkLive = Layer.effect(
         media,
         dependsOn,
         finishCriteria,
+        claims,
       ) =>
         asResult(
           Effect.gen(function* () {
@@ -1185,6 +1191,7 @@ export const WorkLive = Layer.effect(
                 media,
                 dependsOn,
                 finishCriteria,
+                claims,
               )
             );
             const proposal = yield* externalizeProposal(policy.proposal);
@@ -1217,6 +1224,7 @@ export const WorkLive = Layer.effect(
         media,
         dependsOn,
         finishCriteria,
+        claims,
       ) =>
         asResult(
           Effect.gen(function* () {
@@ -1248,6 +1256,7 @@ export const WorkLive = Layer.effect(
                 media,
                 dependsOn,
                 finishCriteria,
+                claims,
               )
             );
             const proposal = yield* externalizeProposal(policy.proposal);

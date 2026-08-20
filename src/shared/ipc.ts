@@ -20,6 +20,7 @@ import type {
   FinishCriteria,
   CompletionEvidence,
   TaskProposal,
+  TaskClaim,
   EtherFlag,
 } from "./canvas";
 import type { TaskPipelineArm } from "./work-model";
@@ -653,6 +654,8 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     /** Same-sink hard prerequisites (task ids). */
     dependsOn?: ReadonlyArray<string>,
     finishCriteria?: FinishCriteria,
+    /** Station-addressed claims; set at creation. */
+    claims?: ReadonlyArray<TaskClaim>,
   ) => Promise<WorkOpResult<Task>>;
   /**
    * Operator planning proposal — same authoring contract as workTaskCreate;
@@ -667,6 +670,7 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     media?: ReadonlyArray<Part>,
     dependsOn?: ReadonlyArray<string>,
     finishCriteria?: FinishCriteria,
+    claims?: ReadonlyArray<TaskClaim>,
   ) => Promise<WorkOpResult<TaskProposal>>;
   readonly workTaskApproveProposal: (
     canvas: string,

@@ -251,6 +251,56 @@ describe("work pure transforms", () => {
     );
   });
 
+  it("carries station-addressed claims at creation, direct and via propose → approve", () => {
+    const worker = actorRef("1", "worker-1");
+    const claim = {
+      id: "claim-1",
+      text: "Ship notes filed",
+      severity: "hard" as const,
+      station: "tasks",
+    };
+
+    const created = workTaskCreate(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "direct create",
+      { details: "direct create" },
+      ids,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [claim],
+    );
+    expect(created.task.claims).toEqual([claim]);
+
+    const proposed = workTaskPropose(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "propose then approve",
+      { details: "propose then approve" },
+      ids,
+      worker,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [claim],
+    );
+    expect(proposed.proposal.claims).toEqual([claim]);
+
+    const approved = workTaskApproveProposal(
+      proposed.doc,
+      "alpha",
+      "tasks",
+      proposed.proposal.id,
+      ids,
+    );
+    expect(approved.task.claims).toEqual([claim]);
+  });
+
   it("rejects create and propose without a non-empty description", () => {
     const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     expect(() =>

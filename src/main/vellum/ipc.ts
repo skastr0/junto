@@ -674,6 +674,7 @@ export const registerVellumIpc = (): void => {
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: import("@shared/work-model").FinishCriteria,
+      claims?: ReadonlyArray<import("@shared/work-model").TaskClaim>,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
@@ -691,6 +692,7 @@ export const registerVellumIpc = (): void => {
               media,
               dependsOn,
               finishCriteria,
+              claims,
             );
           }),
         ),
@@ -708,6 +710,7 @@ export const registerVellumIpc = (): void => {
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: import("@shared/work-model").FinishCriteria,
+      claims?: ReadonlyArray<import("@shared/work-model").TaskClaim>,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-propose",
@@ -725,6 +728,7 @@ export const registerVellumIpc = (): void => {
               media,
               dependsOn,
               finishCriteria,
+              claims,
             );
           }),
         ),
