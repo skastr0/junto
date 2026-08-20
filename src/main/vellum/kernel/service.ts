@@ -40,6 +40,7 @@ import {
   makeUserMessage,
   taskReleaseBoundary,
 } from "@shared/task";
+import { sinkContractOf, taskAdmissionState } from "@shared/claims";
 import { ulid } from "ulid";
 import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
@@ -1162,6 +1163,14 @@ const makeKernelService = (
               );
             },
             claimEligible: (task, actor, sink) =>
+              // Pipeline admission: the auto-claim loop skips arrivals whose
+              // holdUntil is still in the future, unpromoted operator-gated
+              // arrivals, and every task at an operator-owned sink.
+              taskAdmissionState(
+                task,
+                sinkContractOf(doc.nodes.find((n) => n.id === sink.id)),
+                Date.now(),
+              ) === "claimable" &&
               claimEligibleAfterRelease(
                 canvasName,
                 sink.id,

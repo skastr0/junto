@@ -785,6 +785,7 @@ export const registerVellumIpc = (): void => {
       state: TaskState,
       note?: string,
       completionEvidence?: import("@shared/work-model").CompletionEvidence,
+      pipeline?: import("./work/service").WorkTaskPipelineOptions,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-transition",
@@ -800,7 +801,27 @@ export const registerVellumIpc = (): void => {
               state,
               note,
               completionEvidence,
+              pipeline,
             );
+          }),
+        ),
+      ),
+  );
+  // Operator promotion of an operator-gated pipeline arrival. Channel name is
+  // main-side literal until the UI phase wires the shared registry + preload.
+  privilegedIpc.handle(
+    "vellum-command:work-task-promote",
+    (_event, canvas: string, nodeId: string, taskId: string) =>
+      runRendererWorkAuthoring(
+        // Promotion records as a same-state transition fact; it shares the
+        // transition authoring label (the gate union is owned elsewhere).
+        "ipc.work.task-transition",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskPromote(canvas, nodeId, taskId);
           }),
         ),
       ),

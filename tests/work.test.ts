@@ -1924,3 +1924,338 @@ describe("WorkService — concurrent ops", () => {
     }
   });
 });
+
+describe("WorkService — pipeline", () => {
+  // NOTE: sink contracts (`ether.tasks.contract`) are currently erased by the
+  // authorial write path (canvases stripRuntimeWorkProjection drops the whole
+  // tasks bag) — restoring them on write belongs to the contract-editor
+  // mutations phase. These service tests therefore author law through REGION
+  // contracts, which survive writes; sink-contract enforcement is covered at
+  // the pure layer (tests/work-pipeline.test.ts, tests/claims-stack.test.ts).
+  it("forwards a completed task along the flow edge and re-homes it submitted", async () => {
+    const name = "pipeline-forward";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          {
+            id: "law-region",
+            type: "group",
+            label: "Law",
+            x: -50,
+            y: -50,
+            width: 300,
+            height: 200,
+            ether: {
+              region: {
+                contract: {
+                  claims: [
+                    { id: "c-hard", text: "prove the change", severity: "hard" },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "s1",
+            type: "text",
+            text: "tasks",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+          {
+            id: "s2",
+            type: "text",
+            text: "tasks",
+            x: 400,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+        ],
+        edges: [
+          {
+            id: "flow-1",
+            fromNode: "s1",
+            toNode: "s2",
+            ether: { flow: { source: "s1", destination: "s2" } },
+          },
+        ],
+      })
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "s1", "walk the line", { details: "walk the line" })
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const taskId = created.data.id;
+
+    // Claims gate: an unanswered hard claim blocks the completion.
+    const blocked = await workRuntime.runPromise(
+      work.workTaskTransition(name, "s1", taskId, "completed", undefined, {
+        artifacts: [],
+      })
+    );
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.message).toContain("claims unsatisfied");
+    }
+
+    const forwarded = await workRuntime.runPromise(
+      work.workTaskTransition(
+        name,
+        "s1",
+        taskId,
+        "completed",
+        "checked and packaged",
+        {
+          artifacts: [],
+          responses: [{ claimId: "c-hard", response: "verified by rerun" }],
+        }
+      )
+    );
+    expect(forwarded.ok).toBe(true);
+    if (!forwarded.ok) return;
+    expect(forwarded.data.state).toBe("completed");
+    expect(forwarded.data.journey?.at(-1)?.exit).toBe("forwarded");
+
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const s1Item = read.doc.nodes
+      .find((n) => n.id === "s1")
+      ?.ether?.tasks?.items.find((t) => t.id === taskId);
+    const s2Item = read.doc.nodes
+      .find((n) => n.id === "s2")
+      ?.ether?.tasks?.items.find((t) => t.id === taskId);
+    expect(s1Item?.state).toBe("completed");
+    expect(s1Item?.completionEvidence?.responses?.[0]?.claimId).toBe("c-hard");
+    expect(s2Item?.state).toBe("submitted");
+    expect(s2Item?.claimedBy).toBeUndefined();
+    expect(s2Item?.journey?.at(-1)?.nodeId).toBe("s2");
+
+    // Defect-back: rejecting at s2 with a defect re-opens the s1 row, epoch 1.
+    const defected = await workRuntime.runPromise(
+      work.workTaskTransition(
+        name,
+        "s2",
+        taskId,
+        "rejected",
+        undefined,
+        undefined,
+        { defect: { summary: "misses the acceptance case" } }
+      )
+    );
+    expect(defected.ok).toBe(true);
+    if (!defected.ok) return;
+    expect(defected.data.state).toBe("rejected");
+
+    const after = await workRuntime.runPromise(canvases.read(name));
+    const returned = after.doc.nodes
+      .find((n) => n.id === "s1")
+      ?.ether?.tasks?.items.find((t) => t.id === taskId);
+    const rejectedRow = after.doc.nodes
+      .find((n) => n.id === "s2")
+      ?.ether?.tasks?.items.find((t) => t.id === taskId);
+    expect(returned?.state).toBe("submitted");
+    expect(returned?.epoch).toBe(1);
+    expect(returned?.completionEvidence).toBeUndefined();
+    expect(rejectedRow?.state).toBe("rejected");
+    expect(rejectedRow?.journey?.at(-1)?.exit).toBe("rejected-back");
+  });
+
+  it("holds a forwarded task from seat claims until its holdUntil passes", async () => {
+    const name = "pipeline-hold";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          {
+            id: "h1",
+            type: "text",
+            text: "tasks",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+          {
+            id: "h2",
+            type: "text",
+            text: "tasks",
+            x: 400,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+          agentNode("worker-1"),
+        ],
+        edges: [
+          {
+            id: "flow-h",
+            fromNode: "h1",
+            toNode: "h2",
+            ether: { flow: { source: "h1", destination: "h2" } },
+          },
+          { id: "e-w", fromNode: "worker-1", toNode: "h2" },
+        ],
+      })
+    );
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const actor = read.actorRefs.find((ref) => ref.nodeId === "worker-1");
+    if (actor === undefined) throw new Error("missing actor ref");
+
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "h1", "bake me", { details: "bake me" })
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const forwarded = await workRuntime.runPromise(
+      work.workTaskTransition(
+        name,
+        "h1",
+        created.data.id,
+        "completed",
+        undefined,
+        { artifacts: [] },
+        { holdForMs: 60 * 60_000 }
+      )
+    );
+    expect(forwarded.ok).toBe(true);
+
+    const refused = await workRuntime.runPromise(
+      work.workTaskClaim(name, "h2", created.data.id, actor)
+    );
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.message).toContain("not claimable before");
+    }
+
+    // Promotion applies only to operator-gated sinks.
+    const misPromoted = await workRuntime.runPromise(
+      work.workTaskPromote(name, "h2", created.data.id)
+    );
+    expect(misPromoted.ok).toBe(false);
+    if (!misPromoted.ok) {
+      expect(misPromoted.message).toContain("operator-gated");
+    }
+  });
+
+  it("serves show/claims/rulings views with onion-scoped journeys", async () => {
+    const name = "pipeline-views";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          {
+            id: "region-1",
+            type: "group",
+            label: "Quality",
+            x: -50,
+            y: -50,
+            width: 800,
+            height: 400,
+            ether: {
+              region: {
+                contract: {
+                  claims: [
+                    { id: "r-claim", text: "law of the land", severity: "soft" },
+                  ],
+                  rulings: [
+                    {
+                      id: "ruling-1",
+                      text: "always cite the rerun",
+                      pinnedAt: "2026-08-20T00:00:00.000Z",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "v1",
+            type: "text",
+            text: "tasks",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+          {
+            id: "v2",
+            type: "text",
+            text: "tasks",
+            x: 400,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+        ],
+        edges: [
+          {
+            id: "flow-v",
+            fromNode: "v1",
+            toNode: "v2",
+            ether: { flow: { source: "v1", destination: "v2" } },
+          },
+        ],
+      })
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "v1", "onion test", { details: "onion test" })
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const taskId = created.data.id;
+    const forwarded = await workRuntime.runPromise(
+      work.workTaskTransition(name, "v1", taskId, "completed", "the emission", {
+        artifacts: [],
+        responses: [
+          {
+            claimId: "r-claim",
+            response: "region law satisfied",
+            refs: ["docs/receipt.md"],
+          },
+        ],
+      })
+    );
+    expect(forwarded.ok).toBe(true);
+
+    const seatView = await workRuntime.runPromise(
+      work.workTaskShow(name, "v2", taskId, "seat")
+    );
+    const priorPassage = seatView.journey.find((p) => p.nodeId === "v1");
+    expect(priorPassage?.emissionNote).toBe("the emission");
+    expect(priorPassage?.refs).toEqual(["docs/receipt.md"]);
+    // Onion: seat view never carries prior interiors.
+    expect(priorPassage?.evidence).toBeUndefined();
+    // The seat's task thread is brief + arrival marker, not the v1 interior.
+    expect(seatView.task.history.some((m) =>
+      m.parts.some((p) => p.kind === "text" && p.text.includes("region law satisfied"))
+    )).toBe(false);
+
+    const operatorView = await workRuntime.runPromise(
+      work.workTaskShow(name, "v2", taskId, "operator")
+    );
+    expect(
+      operatorView.journey.find((p) => p.nodeId === "v1")?.evidence?.responses?.[0]
+        ?.response
+    ).toBe("region law satisfied");
+
+    const claimsView = await workRuntime.runPromise(
+      work.workTaskClaims(name, "v2", taskId)
+    );
+    expect(claimsView.stack.map((entry) => entry.claim.id)).toEqual(["r-claim"]);
+    expect(
+      claimsView.readiness?.unanswered.map((entry) => entry.claimId)
+    ).toEqual([]);
+
+    const rulings = await workRuntime.runPromise(
+      work.workRulingsList(name, "v2")
+    );
+    expect(rulings.regions[0]?.rulings[0]?.id).toBe("ruling-1");
+  });
+});

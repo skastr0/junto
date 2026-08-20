@@ -92,6 +92,7 @@ import {
 } from "@shared/work-protocol";
 import {
   canTransitionTaskState,
+  isTerminalTaskState,
   mirrorArtifactsText,
   mirrorBoardText,
   mirrorPadText,
@@ -413,6 +414,12 @@ export type DefectBackTaskInput = LocalWorkInput & {
 
 export type PromoteTaskInput = LocalWorkInput & {
   readonly taskId: string;
+};
+
+export type StampBoardingInput = LocalWorkInput & {
+  /** Full current-epoch ticket set (service-merged; replaces the bag field). */
+  readonly taskId: string;
+  readonly tickets: NonNullable<TaskValue["boarding"]>;
 };
 
 export type ForwardTaskValue = {
@@ -1034,7 +1041,15 @@ export const projectWorkSnapshots = (
       delete ether.artifacts;
       delete ether.board;
       delete ether.pad;
-      if (kind === "task") ether.tasks = snapshot.tasks;
+      if (kind === "task") {
+        // The sink contract is operator-authored document truth, not a work
+        // row — the projection overlay must carry it through.
+        const contract = source.ether?.tasks?.contract;
+        ether.tasks =
+          contract === undefined
+            ? snapshot.tasks
+            : { ...snapshot.tasks, contract };
+      }
       if (kind === "requests") ether.requests = snapshot.requests;
       if (kind === "artifacts") ether.artifacts = snapshot.artifacts;
       if (kind === "board") {
@@ -6896,6 +6911,10 @@ export interface WorkRepositoryShape {
     readonly promoteTask: (
       input: PromoteTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    /** Stamp boarding tickets from seat-submitted check runs (system-only). */
+    readonly stampBoarding: (
+      input: StampBoardingInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
     readonly createRequest: (
       input: CreateRequestInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -7136,6 +7155,13 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         assertNoReservedPipelineMetadata(task.metadata);
+        if (task.boarding !== undefined) {
+          // Tickets are stamped only by the boarding verb, never authored.
+          throw authorityError(
+            "invalid-transition",
+            "task.create must not carry boarding tickets",
+          );
+        }
         if (
           selectTaskIdentity(
             writer,
@@ -7899,6 +7925,55 @@ export const WorkRepositoryLive = Layer.effect(
         );
         return commitLocalFact(writer, {
           localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("task", input.taskId, input.sink),
+          operation: "task.transition",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "task.transition", task },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const stampBoarding = (
+      input: StampBoardingInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction("work.task.board", input.sink, (writer) => {
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
+        const current = loadTask(writer, "task", input.sink, input.taskId);
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task",
+          );
+        }
+        if (isTerminalTaskState(current.task.state)) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot stamp boarding tickets on terminal task "${input.taskId}"`,
+          );
+        }
+        // Same-state 'task.transition' fact, like promotion — tickets are a
+        // system stamp, not a state change.
+        const task = Schema.decodeUnknownSync(Task, strictDecode)(
+          applyPipelinePatch(current.task, {
+            boarding: input.tickets.length > 0 ? input.tickets : null,
+          }),
+        );
+        return commitLocalFact(writer, {
+          localInstallationId,
           sink: input.sink,
           basis: input.basis,
           item: item("task", input.taskId, input.sink),
@@ -9259,6 +9334,7 @@ export const WorkRepositoryLive = Layer.effect(
       forwardTask,
       defectBackTask,
       promoteTask,
+      stampBoarding,
       createRequest,
       resolveRequest,
       appendMessage,

@@ -68,6 +68,23 @@ import {
 } from "@shared/content";
 import { dependencyScopeIndex } from "@shared/task-dep-scope";
 import { taskIsClaimReady } from "@shared/task-deps";
+import {
+  effectiveClaimsStack,
+  requiredBoardingChecks,
+  sinkContractOf,
+  stationReceipts,
+  taskAdmissionState,
+  taskEpoch,
+  type EffectiveClaim,
+} from "@shared/claims";
+import { flowDestinations } from "@shared/flow-graph";
+import { regionStack } from "@shared/graph";
+import {
+  resolveSinkAdmission,
+  TICKET_OUTPUT_TAIL_MAX_BYTES,
+  type Ruling,
+  type Ticket,
+} from "@shared/work-model";
 import { operatorPlanningActorRef } from "@shared/work-reference";
 import type {
   ActorRef,
@@ -90,7 +107,7 @@ import {
 } from "../station/session-registry";
 import { ContentService } from "../content/service";
 import type { ContentOwner } from "../content/manifest";
-import { admitWorkTarget } from "./authz";
+import { admitWorkTarget, regionStackFor } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
 import {
   mailboxMessageReactId,
@@ -229,6 +246,83 @@ type StationContext = {
   readonly configuration: StationConfigurationValue;
 };
 
+/** Pipeline arms of tasks.update: forward choice, defect-back, hold stamp. */
+export type WorkTaskPipelineOptions = {
+  readonly next?: string;
+  readonly defect?: {
+    readonly summary: string;
+    readonly refs?: ReadonlyArray<string>;
+  };
+  readonly holdForMs?: number;
+};
+
+/** One seat-run boarding check result (CLI-executed; service stamps tickets). */
+export type WorkBoardCheckResult = {
+  readonly checkId: string;
+  readonly side: "outbound" | "inbound";
+  readonly exitCode: number;
+  readonly outputTail: string;
+};
+
+export type WorkTaskPassageView = {
+  readonly nodeId: string;
+  readonly enteredAt: string;
+  readonly epoch: number;
+  readonly exitedAt?: string;
+  readonly exit?: "forwarded" | "closed" | "rejected-back";
+  readonly next?: string;
+  readonly emissionNote?: string;
+  /** Refs cited by that station's claim responses (onion-visible). */
+  readonly refs: ReadonlyArray<string>;
+  /** Operator view only: the station row's full completion evidence. */
+  readonly evidence?: CompletionEvidence;
+};
+
+export type WorkTaskShowView = {
+  readonly task: Task;
+  readonly journey: ReadonlyArray<WorkTaskPassageView>;
+  /** Effective claims at this station (seat) — full task claims for operator. */
+  readonly claims: ReadonlyArray<EffectiveClaim>;
+  readonly ambient: {
+    readonly regions: ReadonlyArray<{
+      readonly id: string;
+      readonly label: string;
+      readonly instruction?: string;
+    }>;
+    readonly sinkInstruction?: string;
+  };
+};
+
+export type WorkTaskClaimsView = {
+  readonly stack: ReadonlyArray<EffectiveClaim>;
+  readonly readiness?: {
+    /** Claims still lacking a response (hard) or response/waiver (soft). */
+    readonly unanswered: ReadonlyArray<{
+      readonly claimId: string;
+      readonly severity: "hard" | "soft";
+      readonly text: string;
+    }>;
+    /** Ticket status per destination's applicable boarding checks. */
+    readonly boarding: ReadonlyArray<{
+      readonly destination: string;
+      readonly checks: ReadonlyArray<{
+        readonly checkId: string;
+        readonly side: "outbound" | "inbound";
+        readonly label: string;
+        readonly status: "green" | "red" | "missing";
+      }>;
+    }>;
+  };
+};
+
+export type WorkRulingsView = {
+  readonly regions: ReadonlyArray<{
+    readonly id: string;
+    readonly label: string;
+    readonly rulings: ReadonlyArray<Ruling>;
+  }>;
+};
+
 const sinkRef = (
   canvasName: string,
   nodeId: string,
@@ -332,6 +426,48 @@ export interface WorkServiceShape {
       state: TaskState,
       note?: string,
       completionEvidence?: CompletionEvidence,
+      pipeline?: WorkTaskPipelineOptions,
+    ) => Effect.Effect<WorkOpResult<Task>>;
+    /** Operator promotion of an operator-gated arrival (epoch-scoped stamp). */
+    readonly workTaskPromote: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+    ) => Effect.Effect<WorkOpResult<Task>>;
+    /**
+     * Task record with journey. Seat view is onion-scoped: prior passages
+     * expose emission notes and cited refs, never their interiors; the
+     * operator view exposes everything.
+     */
+    readonly workTaskShow: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      view: "seat" | "operator",
+    ) => Effect.Effect<WorkTaskShowView, WorkServiceError>;
+    /** Effective claims stack with provenance; readiness when a task is named. */
+    readonly workTaskClaims: (
+      canvas: string,
+      nodeId: string,
+      taskId?: string,
+    ) => Effect.Effect<WorkTaskClaimsView, WorkServiceError>;
+    /** Pinned rulings across the node's region stack, outer to inner. */
+    readonly workRulingsList: (
+      canvas: string,
+      nodeId: string,
+    ) => Effect.Effect<WorkRulingsView, WorkServiceError>;
+    /**
+     * Stamp boarding tickets from seat-submitted check runs. The CLI executes
+     * the checklist commands in the seat's own environment; this service only
+     * validates results against the applicable checklists and stamps
+     * epoch-tagged tickets. Boarding is never accepted through any other op.
+     */
+    readonly workTaskBoard: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      results: ReadonlyArray<WorkBoardCheckResult>,
+      next?: string,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskRespond: (
       canvas: string,
@@ -1280,7 +1416,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence) =>
+      workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence, pipeline) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -1292,6 +1428,7 @@ export const WorkLive = Layer.effect(
               .find((task) => task.id === taskId);
             // Finish-criteria gate is home-local only. Off-home callers enqueue
             // a command; the executor re-runs the gate against its SQLite shelf.
+            // Claims/boarding gates are doc-derived and run in policy always.
             const evaluateFinish =
               home === context.localInstallationId;
             const policy = yield* runPolicy(() =>
@@ -1304,7 +1441,18 @@ export const WorkLive = Layer.effect(
                 note,
                 ids,
                 completionEvidence,
-                { evaluateFinishCriteria: evaluateFinish },
+                {
+                  evaluateFinishCriteria: evaluateFinish,
+                  ...(pipeline?.next !== undefined
+                    ? { next: pipeline.next }
+                    : {}),
+                  ...(pipeline?.defect !== undefined
+                    ? { defect: pipeline.defect }
+                    : {}),
+                  ...(pipeline?.holdForMs !== undefined
+                    ? { holdForMs: pipeline.holdForMs }
+                    : {}),
+                },
               )
             );
             const message =
@@ -1312,6 +1460,62 @@ export const WorkLive = Layer.effect(
                 policy.task.history.length > before.history.length
                 ? policy.task.history.at(-1)
                 : undefined;
+            if (policy.forwarded !== undefined || policy.defectBack !== undefined) {
+              // Re-homing writes two rows atomically; it executes only at the
+              // task home installation (the pipeline is Command Center law).
+              if (home !== context.localInstallationId) {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    "pipeline forward and defect-back execute on the task home installation",
+                });
+              }
+            }
+            if (policy.forwarded !== undefined) {
+              const forwarded = policy.forwarded;
+              const moved = yield* local(
+                repository.forwardTask({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  taskId,
+                  ...(message === undefined ? {} : { message }),
+                  ...(completionEvidence !== undefined
+                    ? { completionEvidence }
+                    : {}),
+                  journey: policy.task.journey ?? [],
+                  destination: sinkRef(canvas, forwarded.nodeId),
+                  destinationTask: forwarded.task,
+                }),
+              );
+              return yield* complete(canvas, {
+                ...moved,
+                value: moved.value.source,
+              });
+            }
+            if (policy.defectBack !== undefined) {
+              const defectBack = policy.defectBack;
+              const returned = yield* local(
+                repository.defectBackTask({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  taskId,
+                  ...(message === undefined ? {} : { message }),
+                  journey: policy.task.journey ?? [],
+                  previous: sinkRef(canvas, defectBack.nodeId),
+                  returnedTask: defectBack.task,
+                }),
+              );
+              return yield* complete(canvas, {
+                ...returned,
+                value: returned.value.rejected,
+              });
+            }
+            // Terminal close of a pipeline task stamps the passage exit on
+            // the same row; the durable write carries the journey patch.
+            const journeyPatch =
+              state === "completed" && policy.task.journey !== undefined
+                ? { pipeline: { journey: policy.task.journey } }
+                : {};
             const action = {
               operation: "task.transition" as const,
               taskId,
@@ -1332,6 +1536,7 @@ export const WorkLive = Layer.effect(
                   ...(completionEvidence !== undefined
                     ? { completionEvidence }
                     : {}),
+                  ...journeyPatch,
                 }),
               )
               : yield* enqueue(
@@ -1341,6 +1546,292 @@ export const WorkLive = Layer.effect(
                 action,
                 policy.task,
               );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskPromote: (canvas, nodeId, taskId) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            if (context.configuration.role !== "command-center") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  "only the Command Center operator may promote arrivals",
+              });
+            }
+            if (home !== context.localInstallationId) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message: "promotion executes on the task home installation",
+              });
+            }
+            const node = yield* requireNode(read.doc, nodeId);
+            const admission = resolveSinkAdmission(sinkContractOf(node));
+            if (admission !== "operator-gated") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  `sink "${nodeId}" admission is ${admission}; promotion applies to operator-gated sinks`,
+              });
+            }
+            const outcome = yield* local(
+              repository.promoteTask({
+                sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
+                taskId,
+              }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskShow: (canvas, nodeId, taskId, view) =>
+        Effect.gen(function* () {
+          const read = yield* readCanvas(canvas);
+          const node = yield* requireNode(read.doc, nodeId);
+          const task = node.ether?.tasks?.items.find(
+            (candidate) => candidate.id === taskId,
+          );
+          if (task === undefined) {
+            return yield* new WorkServiceError({
+              code: "task_not_found",
+              message: `task "${taskId}" not found`,
+            });
+          }
+          // Onion visibility: prior passages surface their emission note and
+          // the refs their responses cited; full interiors (responses,
+          // waivers) travel only on the operator view. The current row is
+          // onion-correct by construction — re-homing starts a fresh thread.
+          const journey = (task.journey ?? []).map((passage) => {
+            const row = nodeById(read.doc, passage.nodeId)
+              ?.ether?.tasks?.items.find(
+                (candidate) => candidate.id === taskId,
+              );
+            const evidence = row?.completionEvidence;
+            const refs = [
+              ...new Set(
+                (evidence?.responses ?? []).flatMap(
+                  (response) => response.refs ?? [],
+                ),
+              ),
+            ];
+            return {
+              nodeId: passage.nodeId,
+              enteredAt: passage.enteredAt,
+              epoch: passage.epoch,
+              ...(passage.exitedAt !== undefined
+                ? { exitedAt: passage.exitedAt }
+                : {}),
+              ...(passage.exit !== undefined ? { exit: passage.exit } : {}),
+              ...(passage.next !== undefined ? { next: passage.next } : {}),
+              ...(passage.emissionNote !== undefined
+                ? { emissionNote: passage.emissionNote }
+                : {}),
+              refs,
+              ...(view === "operator" && evidence !== undefined
+                ? { evidence }
+                : {}),
+            };
+          });
+          const regions = regionStackFor(read.doc, nodeId);
+          const sinkInstruction = sinkContractOf(node)?.instruction;
+          return {
+            task,
+            journey,
+            claims: effectiveClaimsStack(read.doc, nodeId, task),
+            ambient: {
+              regions,
+              ...(sinkInstruction !== undefined ? { sinkInstruction } : {}),
+            },
+          };
+        }),
+
+      workTaskClaims: (canvas, nodeId, taskId) =>
+        Effect.gen(function* () {
+          const read = yield* readCanvas(canvas);
+          const node = yield* requireNode(read.doc, nodeId);
+          const task = taskId === undefined
+            ? undefined
+            : node.ether?.tasks?.items.find(
+              (candidate) => candidate.id === taskId,
+            );
+          if (taskId !== undefined && task === undefined) {
+            return yield* new WorkServiceError({
+              code: "task_not_found",
+              message: `task "${taskId}" not found`,
+            });
+          }
+          const stack = effectiveClaimsStack(read.doc, nodeId, task);
+          if (task === undefined) return { stack };
+          const receipts = stationReceipts(read.doc, task);
+          const unanswered = stack
+            .filter(({ claim }) =>
+              !receipts.responded.has(claim.id) &&
+              !(claim.severity === "soft" && receipts.waived.has(claim.id)),
+            )
+            .map(({ claim }) => ({
+              claimId: claim.id,
+              severity: claim.severity,
+              text: claim.text,
+            }));
+          const epoch = taskEpoch(task);
+          const tickets = (task.boarding ?? []).filter(
+            (ticket) => ticket.epoch === epoch,
+          );
+          const boarding = flowDestinations(read.doc, nodeId).map(
+            (destination) => ({
+              destination,
+              checks: requiredBoardingChecks(read.doc, nodeId, destination)
+                .map(({ check, side }) => {
+                  const ticket = tickets.find(
+                    (candidate) =>
+                      candidate.checkId === check.id &&
+                      candidate.side === side,
+                  );
+                  return {
+                    checkId: check.id,
+                    side,
+                    label: check.label,
+                    status: ticket === undefined
+                      ? ("missing" as const)
+                      : ticket.exitCode === 0
+                        ? ("green" as const)
+                        : ("red" as const),
+                  };
+                }),
+            }),
+          );
+          return { stack, readiness: { unanswered, boarding } };
+        }),
+
+      workRulingsList: (canvas, nodeId) =>
+        Effect.gen(function* () {
+          const read = yield* readCanvas(canvas);
+          yield* requireNode(read.doc, nodeId);
+          return {
+            regions: regionStack(read.doc, nodeId).map((group) => ({
+              id: group.id,
+              label: group.label?.trim() || group.id,
+              rulings: [
+                ...(group.ether?.region?.contract?.rulings ?? []),
+              ],
+            })),
+          };
+        }),
+
+      workTaskBoard: (canvas, nodeId, taskId, results, next) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            if (home !== context.localInstallationId) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  "boarding tickets stamp on the task home installation",
+              });
+            }
+            const node = yield* requireNode(read.doc, nodeId);
+            const task = node.ether?.tasks?.items.find(
+              (candidate) => candidate.id === taskId,
+            );
+            if (task === undefined) {
+              return yield* new WorkServiceError({
+                code: "task_not_found",
+                message: `task "${taskId}" not found`,
+              });
+            }
+            const destinations = flowDestinations(read.doc, nodeId);
+            if (destinations.length === 0) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  `sink "${nodeId}" has no flow destinations; boarding applies to forward moves`,
+              });
+            }
+            const chosen = next ??
+              (destinations.length === 1 ? destinations[0] : undefined);
+            if (chosen === undefined) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  `sink "${nodeId}" forwards to more than one station; pick next from [${destinations.join(", ")}]`,
+              });
+            }
+            if (!destinations.includes(chosen)) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  `"${chosen}" is not a live flow destination of sink "${nodeId}" [${destinations.join(", ")}]`,
+              });
+            }
+            const applicable = requiredBoardingChecks(
+              read.doc,
+              nodeId,
+              chosen,
+            );
+            const nowIso = new Date().toISOString();
+            const epoch = taskEpoch(task);
+            const stamped = yield* runPolicy(() =>
+              results.map((result): Ticket => {
+                const match = applicable.find(
+                  (entry) =>
+                    entry.check.id === result.checkId &&
+                    entry.side === result.side,
+                );
+                if (match === undefined) {
+                  throw new WorkError(
+                    "invalid",
+                    `check "${result.checkId}" (${result.side}) is not on the applicable checklists for "${chosen}"`,
+                  );
+                }
+                return {
+                  checkId: match.check.id,
+                  side: result.side,
+                  // Label/command come from the authored CheckDef, never from
+                  // the seat submission.
+                  label: match.check.label,
+                  command: match.check.command,
+                  exitCode: result.exitCode,
+                  outputTail: result.outputTail.slice(
+                    -TICKET_OUTPUT_TAIL_MAX_BYTES,
+                  ),
+                  at: nowIso,
+                  epoch,
+                };
+              })
+            );
+            // Merge: current-epoch tickets for other checks survive; stale
+            // epochs drop (defect-back staled them for closure accounting).
+            const merged = [
+              ...(task.boarding ?? []).filter(
+                (ticket) =>
+                  ticket.epoch === epoch &&
+                  !stamped.some(
+                    (candidate) =>
+                      candidate.checkId === ticket.checkId &&
+                      candidate.side === ticket.side,
+                  ),
+              ),
+              ...stamped,
+            ];
+            const outcome = yield* local(
+              repository.stampBoarding({
+                sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
+                taskId,
+                tickets: merged,
+              }),
+            );
             return yield* complete(canvas, outcome);
           }),
         ),
@@ -1465,6 +1956,37 @@ export const WorkLive = Layer.effect(
                     "Task " +
                     JSON.stringify(taskId) +
                     " already has your claim queued; continue when it is delivered.",
+                });
+              }
+            }
+            // Pipeline admission for every first-claim arm: seats never claim
+            // at operator-owned sinks; baking and unpromoted operator-gated
+            // arrivals are not claimable yet.
+            if (sourceTask.state === "submitted") {
+              const admission = taskAdmissionState(
+                sourceTask,
+                sinkContractOf(nodeById(read.doc, nodeId)),
+                Date.now(),
+              );
+              if (admission === "operator-owned") {
+                return yield* new WorkServiceError({
+                  code: "claim_contention",
+                  message:
+                    `sink "${nodeId}" is operator-owned; the operator works tasks here — no seat claim`,
+                });
+              }
+              if (admission === "held") {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    `task "${taskId}" is not claimable before ${sourceTask.holdUntil} (station bake)`,
+                });
+              }
+              if (admission === "operator-gated") {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    `task "${taskId}" awaits operator promotion at sink "${nodeId}"`,
                 });
               }
             }
