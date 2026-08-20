@@ -13,6 +13,7 @@ import {
   managedTerminalOptions,
   METRIC_TERMINAL_OPTIONS,
   scrollbackRepair,
+  wheelReportFanout,
   writeManagedTerminalOptions,
   type LiveTerminalTarget,
 } from "../src/renderer/components/terminal/TerminalSurface";
@@ -401,5 +402,54 @@ describe("fallbackCell", () => {
     });
     expect(big.cellW).toBeCloseTo(24 * 0.6 + 2, 6);
     expect(big.cellH).toBeCloseTo(36, 6);
+  });
+});
+
+describe("wheelReportFanout", () => {
+  const notch = (over: Partial<Parameters<typeof wheelReportFanout>[0]> = {}) =>
+    wheelReportFanout({
+      deltaY: 120,
+      deltaMode: 0,
+      altFast: false,
+      sensitivity: 3,
+      cellHeight: 16,
+      partial: 0,
+      ...over,
+    });
+
+  it("means reports-per-notch for a discrete wheel", () => {
+    // The settings hint reads "lines per wheel notch" — a notch at
+    // sensitivity 3 is three reports, not xterm's magnitude-discarded one.
+    expect(notch().reports).toBe(3);
+    expect(notch().partial).toBeCloseTo(0, 9);
+    expect(notch({ deltaY: -120 }).reports).toBe(-3);
+    expect(notch({ sensitivity: 20 }).reports).toBe(20);
+  });
+
+  it("multiplies by the fast-scroll ratio when alt is held", () => {
+    expect(notch({ altFast: true }).reports).toBe(15);
+  });
+
+  it("accumulates trackpad pixels across events until a whole report", () => {
+    // 10px on a 16px cell at damping 0.3 and sensitivity 3: 0.5625 per event.
+    const first = notch({ deltaY: 10 });
+    expect(first.reports).toBe(0);
+    expect(first.partial).toBeCloseTo(0.5625, 6);
+
+    const second = notch({ deltaY: 10, partial: first.partial });
+    expect(second.reports).toBe(1);
+    expect(second.partial).toBeCloseTo(0.125, 6);
+  });
+
+  it("drops the carried fraction on a direction flip", () => {
+    // A reversed gesture must not spend the tail of the previous one.
+    const flipped = notch({ deltaY: -10, partial: 0.9 });
+    expect(flipped.reports).toBe(0);
+    expect(flipped.partial).toBeCloseTo(-0.5625, 6);
+  });
+
+  it("caps a momentum burst so the PTY is not flooded", () => {
+    const burst = notch({ deltaY: 3000, sensitivity: 20, altFast: true });
+    expect(burst.reports).toBe(60);
   });
 });

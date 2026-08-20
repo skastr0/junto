@@ -252,6 +252,73 @@ type XtermCore = {
 const SCROLL_FAST_MULTIPLE = 5;
 
 /**
+ * Wheel fan-out for TUIs that own the wheel (mouse tracking on — Claude Code).
+ *
+ * xterm's CoreMouseService emits exactly ONE wheel-button report per DOM wheel
+ * event no matter what scrollSensitivity says: MouseService._sendEvent runs the
+ * sensitivity-scaled line math and then discards the magnitude, keeping only
+ * the direction. The TUI scrolls its fixed per-report amount, so the
+ * preference is dead precisely on the surface the operator scrolls most.
+ * Normal-buffer agents feel the option because the viewport scroller applies
+ * it natively — that asymmetry is the bug this closes.
+ *
+ * The cure is the one the old herdr control stream used: fan the gesture out
+ * into N whole notches. Each notch re-enters xterm as its own wheel event and
+ * produces one report through xterm's own protocol encoder — CoreMouseService
+ * stays the only writer of mouse bytes.
+ *
+ * Sensitivity means "reports per wheel notch". Trackpads accumulate
+ * cell-height steps with xterm's own 0.3 damping so sensitivity 1 matches the
+ * native feel at the handoff, and the fraction carries between events so slow
+ * gestures still move. A direction flip drops the carried fraction — a
+ * reversed gesture must not spend the tail of the previous one.
+ */
+const WHEEL_NOTCH_PX = 120;
+/** xterm's isLikelyTrackpad discriminator: per-event |deltaY| under this. */
+const WHEEL_TRACKPAD_DELTA_MAX = 50;
+const WHEEL_TRACKPAD_DAMP = 0.3;
+/** Momentum bursts at max sensitivity must not flood the PTY. */
+const WHEEL_MAX_REPORTS_PER_EVENT = 60;
+
+export type WheelFanout = {
+  /** Signed whole reports to synthesize for this event. */
+  readonly reports: number;
+  /** Fraction carried into the next event. */
+  readonly partial: number;
+};
+
+export const wheelReportFanout = (input: {
+  readonly deltaY: number;
+  readonly deltaMode: number;
+  readonly altFast: boolean;
+  readonly sensitivity: number;
+  readonly cellHeight: number;
+  readonly partial: number;
+}): WheelFanout => {
+  const speed = input.sensitivity * (input.altFast ? SCROLL_FAST_MULTIPLE : 1);
+  let steps: number;
+  if (input.deltaMode === 1) {
+    // DOM_DELTA_LINE — already whole lines.
+    steps = input.deltaY;
+  } else if (Math.abs(input.deltaY) < WHEEL_TRACKPAD_DELTA_MAX) {
+    steps =
+      (input.deltaY / Math.max(input.cellHeight, 1)) * WHEEL_TRACKPAD_DAMP;
+  } else {
+    steps = input.deltaY / WHEEL_NOTCH_PX;
+  }
+  const carried =
+    Math.sign(input.partial) === -Math.sign(steps) ? 0 : input.partial;
+  const total = carried + steps * speed;
+  // + 0 folds Math.trunc's -0 away so callers compare against plain 0.
+  const whole = Math.trunc(total) + 0;
+  const reports = Math.max(
+    -WHEEL_MAX_REPORTS_PER_EVENT,
+    Math.min(WHEEL_MAX_REPORTS_PER_EVENT, whole),
+  );
+  return { reports, partial: total - whole };
+};
+
+/**
  * Terminal geometry diagnostic.
  *
  * xterm measures the character cell during `open()` and its docs require the
@@ -903,6 +970,50 @@ export function TerminalSurface({
       if (!ev.defaultPrevented) ev.preventDefault();
     };
     host.addEventListener("wheel", onWheelBubble, { passive: false });
+
+    /**
+     * Sensitivity for mouse-reporting TUIs — see wheelReportFanout. Only
+     * active when the app owns the wheel AND the operator raised the knob;
+     * everywhere else xterm's native handling stands (return true). Synthetic
+     * notches are marked so their re-entry passes straight through — each one
+     * becomes exactly one report via xterm's own encoder.
+     */
+    const syntheticWheel = new WeakSet<Event>();
+    let wheelPartial = 0;
+    term.attachCustomWheelEventHandler((ev) => {
+      if (syntheticWheel.has(ev)) return true;
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return true;
+      if (ev.deltaY === 0) return true;
+      if (term.modes.mouseTrackingMode === "none") {
+        wheelPartial = 0;
+        return true;
+      }
+      const sensitivity = term.options.scrollSensitivity ?? 1;
+      if (sensitivity <= 1) return true;
+      const { reports, partial } = wheelReportFanout({
+        deltaY: ev.deltaY,
+        deltaMode: ev.deltaMode,
+        altFast: ev.altKey,
+        sensitivity,
+        cellHeight: readCellSize(term, fallbackCell(prefs)).cellH,
+        partial: wheelPartial,
+      });
+      wheelPartial = partial;
+      const direction = reports > 0 ? 1 : -1;
+      for (let i = Math.abs(reports); i > 0; i--) {
+        const notch = new WheelEvent("wheel", {
+          bubbles: true,
+          cancelable: true,
+          clientX: ev.clientX,
+          clientY: ev.clientY,
+          deltaY: direction * WHEEL_NOTCH_PX,
+          deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+        });
+        syntheticWheel.add(notch);
+        ev.target?.dispatchEvent(notch);
+      }
+      return false;
+    });
 
     // Keep the xterm textarea focused so key + mouse protocol stay live.
     const onPointerDownCapture = (): void => {
