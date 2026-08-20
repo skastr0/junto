@@ -63,6 +63,7 @@ import {
 import { ContentMedia } from "./ContentMedia";
 import { TaskJourney } from "./TaskJourney";
 import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
+import { TaskCreationMetroMap } from "../claims/creation";
 import {
   TaskStationConsole,
   type StationSubmission,
@@ -1196,6 +1197,7 @@ export function TaskCreateDialog({
   stayOpen = false,
   resetToken = 0,
   headerActions,
+  preamble,
 }: {
   readonly mode: CreateDialogMode;
   readonly pending: boolean;
@@ -1221,6 +1223,8 @@ export function TaskCreateDialog({
    * close button so the shell does not double up identical dismiss controls.
    */
   readonly headerActions?: ReactNode;
+  /** Sits between the header and the form — the creation metro map goes here. */
+  readonly preamble?: ReactNode;
 }) {
   const isProposal = mode === "proposal";
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1627,6 +1631,7 @@ export function TaskCreateDialog({
     return (
       <div className="task-create-dialog task-create-dialog--inline" data-testid="task-enqueue-form">
         {header}
+        {preamble}
         {formBody}
         {descriptionOpen ? (
           <div className="task-description-focus task-description-focus--inline">
@@ -1676,6 +1681,7 @@ export function TaskCreateDialog({
         panelClassName="task-create-dialog"
       >
         {header}
+        {preamble}
         {formBody}
       </FocusSurface>
 
@@ -3059,18 +3065,19 @@ export function TaskBoard({
         ) : null}
 
         {/*
-          CREATION METRO MAP MOUNT POINT (spec §7, owned by the creation phase).
-          On a sink with flow destinations, the reachable-station map with its
-          standing law and per-station claim pinning mounts here, in front of
-          (or wrapping) TaskCreateDialog. Until it lands, Add Task opens the
-          plain quick-create path below for every sink, flow or no flow —
-          `shape.destinations` already names the stations it will walk.
+          The creation metro map rides above the form: on a sink with flow
+          destinations it draws the line the work will travel and the law
+          standing at every stop. It returns null for a flowless sink, so Add
+          Task there stays the plain quick-create path it always was.
         */}
         {creating ? (
           <TaskCreateDialog
             mode={creating}
             pending={creatingPending}
             artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
+            preamble={
+              creating === "task" ? <TaskCreationMetroMap nodeId={node.id} /> : undefined
+            }
             onClose={() => {
               if (!creatingPending) setCreating(null);
             }}
