@@ -1,0 +1,204 @@
+/* The creation metro map: the line a task raised here will travel, origin on
+   the left, one card per stop. Same language as task-flow.css — hairline
+   strokes, raise fills, tiny caps — with a rail drawn through the markers. */
+
+.task-metro {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 14px 13px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-cyan) 4%, var(--color-raise-2));
+}
+
+.task-metro__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.task-metro__profile {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+
+.task-metro__line {
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: 0 0 3px;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.task-metro__stop {
+  display: flex;
+  min-width: 214px;
+  max-width: 260px;
+  flex: 1 1 214px;
+  flex-direction: column;
+  gap: 7px;
+  padding-right: 9px;
+}
+
+.task-metro__stop:last-child {
+  padding-right: 0;
+}
+
+/* --- rail ---------------------------------------------------------------- */
+
+.task-metro__rail {
+  display: flex;
+  height: 11px;
+  align-items: center;
+}
+
+.task-metro__track {
+  height: 1px;
+  flex: 1 1 auto;
+  background: var(--color-stroke);
+}
+
+.task-metro__track[data-open="false"] {
+  background: transparent;
+}
+
+.task-metro__track[data-linked="false"] {
+  background: repeating-linear-gradient(
+    to right,
+    var(--color-stroke) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+.task-metro__dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-dim);
+  border-radius: 50%;
+  background: var(--color-ground);
+}
+
+.task-metro__dot[data-tone="origin"] {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
+.task-metro__dot[data-tone="terminal"] {
+  border-color: var(--color-green);
+}
+
+/* --- stop head + card ---------------------------------------------------- */
+
+.task-metro__where {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.task-metro__name {
+  overflow: hidden;
+  margin: 1px 0 0;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-metro__card {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 7px;
+  background: var(--color-raise);
+}
+
+.task-metro__stop[data-origin="true"] .task-metro__card {
+  border-color: color-mix(in oklab, var(--color-amber) 30%, var(--color-stroke));
+}
+
+.task-metro__marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-metro__prose {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.task-metro__prose[data-kind="instruction"] {
+  color: var(--color-ink);
+}
+
+.task-metro__law {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-metro-claim {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 5px;
+  background: var(--color-inset);
+}
+
+.task-metro-claim[data-severity="hard"] {
+  border-left: 2px solid color-mix(in oklab, var(--color-amber) 55%, var(--color-stroke));
+}
+
+.task-metro-claim__text {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.task-metro-claim__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-metro__empty {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.task-metro__pins {
+  margin-top: 1px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-stroke);
+}
+
+.task-metro__stranded {
+  margin: 0;
+  color: var(--color-crimson);
+  font-size: 10px;
+  line-height: 1.45;
+}
