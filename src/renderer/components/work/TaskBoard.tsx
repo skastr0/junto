@@ -251,45 +251,6 @@ type DescribeApi = {
   ) => Promise<WorkOpResult<unknown>>;
 };
 
-/**
- * Operator promotion of an operator-gated arrival. The op ships on the preload
- * bridge ahead of the shared VellumCommandApi registry, so it is read the same
- * way `workTaskDescribe` is — present or the surface stays quiet.
- */
-type PromoteApi = {
-  readonly workTaskPromote?: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-  ) => Promise<WorkOpResult<unknown>>;
-};
-
-/**
- * The transition op carries a trailing pipeline arm (forward destination /
- * defect payload / hold stamp) that the shared VellumCommandApi signature does
- * not declare yet; the preload bridge and the main handler already read it.
- */
-type PipelineTransitionApi = {
-  readonly workTaskTransition: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    state: TaskState,
-    note: string | undefined,
-    completionEvidence: CompletionEvidence | undefined,
-    pipeline:
-      | {
-          readonly next?: string;
-          readonly defect?: {
-            readonly summary: string;
-            readonly refs?: ReadonlyArray<string>;
-          };
-          readonly holdForMs?: number;
-        }
-      | undefined,
-  ) => Promise<WorkOpResult<unknown>>;
-};
-
 type LaneDefinition = {
   readonly id: LaneId;
   readonly label: string;
@@ -2678,8 +2639,7 @@ export function TaskBoard({
   };
 
   const promoteTask = async (task: WorkTask) => {
-    const promote = (api as (typeof api & PromoteApi) | undefined)?.workTaskPromote;
-    if (!api || !promote) {
+    if (!api) {
       setError("Promotion is not available until the current work service is ready.");
       return;
     }
@@ -2687,7 +2647,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkCanvasMutation(name, () =>
-        promote(name, node.id, task.id),
+        api.workTaskPromote(name, node.id, task.id),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -2733,7 +2693,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkCanvasMutation(name, () =>
-        (api as unknown as PipelineTransitionApi).workTaskTransition(
+        api.workTaskTransition(
           name,
           node.id,
           task.id,
@@ -2785,7 +2745,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkCanvasMutation(name, () =>
-        (api as unknown as PipelineTransitionApi).workTaskTransition(
+        api.workTaskTransition(
           name,
           node.id,
           task.id,

@@ -807,15 +807,12 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  // Operator promotion of an operator-gated pipeline arrival. Channel name is
-  // main-side literal until the UI phase wires the shared registry + preload.
+  // Operator promotion of an operator-gated pipeline arrival.
   privilegedIpc.handle(
-    "vellum-command:work-task-promote",
+    IPC_CHANNELS.workTaskPromote,
     (_event, canvas: string, nodeId: string, taskId: string) =>
       runRendererWorkAuthoring(
-        // Promotion records as a same-state transition fact; it shares the
-        // transition authoring label (the gate union is owned elsewhere).
-        "ipc.work.task-transition",
+        "ipc.work.task-promote",
         () => AppRuntime.runPromise(
           Effect.gen(function* () {
             const denied = yield* denyRemoteWork;

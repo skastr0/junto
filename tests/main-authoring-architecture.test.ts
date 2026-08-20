@@ -68,6 +68,7 @@ describe("main authoring architecture", () => {
       "ipc.work.task-create",
       "ipc.work.task-describe",
       "ipc.work.task-propose",
+      "ipc.work.task-promote",
       "ipc.work.task-reject-proposal",
       "ipc.work.task-respond",
       "ipc.work.task-transition",

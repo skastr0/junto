@@ -53,22 +53,6 @@ import type {
   StateRecoveryListResult,
 } from "@shared/state-recovery";
 
-/**
- * Pipeline arms of tasks.update (forward / defect-back / hold stamp).
- * Mirrors `WorkTaskPipelineOptions` (src/main/vellum/work/service.ts)
- * structurally — kept local until the shared registry (@shared/ipc.ts
- * VellumCommandApi) grows a typed `pipeline` param on workTaskTransition;
- * preload never imports main-process types directly.
- */
-type WorkTaskPipelineOptions = {
-  readonly next?: string;
-  readonly defect?: {
-    readonly summary: string;
-    readonly refs?: ReadonlyArray<string>;
-  };
-  readonly holdForMs?: number;
-};
-
 // Every real handler answers in well under this; only a dead/wedged main
 // process (e.g. killed during a dev restart) never responds. Rejecting then
 // surfaces the renderer's existing error banner instead of a silent freeze —
@@ -485,10 +469,7 @@ const vellumApi: VellumCommandApi = {
     state,
     note,
     completionEvidence,
-    // Extra trailing optional arg the shared VellumCommandApi signature does
-    // not declare yet — forwarded as-is; the main handler already reads it
-    // as its 8th positional arg (ipc.ts workTaskTransition).
-    pipeline?: WorkTaskPipelineOptions,
+    pipeline,
   ) =>
     invoke(
       IPC_CHANNELS.workTaskTransition,
@@ -501,6 +482,8 @@ const vellumApi: VellumCommandApi = {
       completionEvidence,
       pipeline,
     ),
+  workTaskPromote: (canvas, nodeId, taskId) =>
+    invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
   workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workTaskRespond,
@@ -885,31 +868,6 @@ const demoApi: VellumCommandDemoApi = {
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
 };
 
-/**
- * Operator pipeline ops not yet on the shared IPC_CHANNELS registry. Channel
- * name is the same main-side literal ipc.ts uses ("vellum-command:work-task-
- * promote") — this is the "UI phase" wiring its own comment calls for; once
- * @shared/ipc.ts grows the constant + a VellumCommandApi member, this local
- * literal type collapses into that registry like every other op above.
- */
-const pipelineApi: {
-  /** Operator promotion of an operator-gated pipeline arrival. */
-  readonly workTaskPromote: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-  ) => Promise<WorkOpResult<Task>>;
-} = {
-  workTaskPromote: (canvas, nodeId, taskId) =>
-    invoke(
-      "vellum-command:work-task-promote",
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-    ),
-};
-
 // A preload is attached before Chromium has committed a document. Do not hand
 // a remote page the product API during that interval. Main independently
 // checks the exact WebContents + committed authority, which is what protects
@@ -930,6 +888,5 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...terminalApi,
     ...(BROWSER_ENABLED ? browserApi : {}),
     ...demoApi,
-    ...pipelineApi,
   });
 }

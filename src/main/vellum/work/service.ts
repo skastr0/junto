@@ -30,6 +30,7 @@ import { softBoardTagNotify } from "./board-delivery";
 import type {
   CompletionEvidence,
   FinishCriteria,
+  TaskPipelineArm,
   TaskProposal,
 } from "@shared/work-model";
 import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
@@ -246,15 +247,12 @@ type StationContext = {
   readonly configuration: StationConfigurationValue;
 };
 
-/** Pipeline arms of tasks.update: forward choice, defect-back, hold stamp. */
-export type WorkTaskPipelineOptions = {
-  readonly next?: string;
-  readonly defect?: {
-    readonly summary: string;
-    readonly refs?: ReadonlyArray<string>;
-  };
-  readonly holdForMs?: number;
-};
+/**
+ * Pipeline arms of tasks.update: forward choice, defect-back, hold stamp.
+ * The shape is shared with the renderer bridge, so it lives in work-model
+ * beside the rest of the pipeline vocabulary.
+ */
+export type WorkTaskPipelineOptions = TaskPipelineArm;
 
 /** One seat-run boarding check result (CLI-executed; service stamps tickets). */
 export type WorkBoardCheckResult = {

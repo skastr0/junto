@@ -318,6 +318,20 @@ export const Ticket = Schema.Struct({
 export type Ticket = typeof Ticket.Type;
 
 /**
+ * Pipeline arm of a task transition: forward choice, defect-back, hold stamp.
+ * An op argument rather than document data, so it stays a plain type — the
+ * main work service and the renderer bridge both spell it from here.
+ */
+export type TaskPipelineArm = {
+  readonly next?: string;
+  readonly defect?: {
+    readonly summary: string;
+    readonly refs?: ReadonlyArray<string>;
+  };
+  readonly holdForMs?: number;
+};
+
+/**
  * Shared authoring fields on Task and TaskProposal.
  *
  * Brief/media live on Task.history[0].parts vs TaskProposal.brief.parts;

@@ -22,6 +22,7 @@ import type {
   TaskProposal,
   EtherFlag,
 } from "./canvas";
+import type { TaskPipelineArm } from "./work-model";
 import type { ContentRef } from "./content";
 import type {
   DemoCommand,
@@ -117,6 +118,7 @@ export const IPC_CHANNELS = {
   workTaskRejectProposal: "vellum-command:work-task-reject-proposal",
   workTaskDescribe: "vellum-command:work-task-describe",
   workTaskTransition: "vellum-command:work-task-transition",
+  workTaskPromote: "vellum-command:work-task-promote",
   workTaskRespond: "vellum-command:work-task-respond",
   workTaskClaim: "vellum-command:work-task-claim",
   workRequestResolve: "vellum-command:work-request-resolve",
@@ -689,6 +691,13 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     state: TaskState,
     note?: string,
     completionEvidence?: CompletionEvidence,
+    pipeline?: TaskPipelineArm,
+  ) => Promise<WorkOpResult<Task>>;
+  /** Operator promotion of an operator-gated pipeline arrival. */
+  readonly workTaskPromote: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskRespond: (
     canvas: string,
