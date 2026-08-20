@@ -115,7 +115,8 @@ A **seat** is your identity on the factory floor: the node you occupy, bound to 
 
 - **Grants** come from edges: each edge hands you the ports that node offers (a tasks edge grants \`tasks.list\` / \`tasks.claim\` / \`tasks.update\`; a requests edge grants \`request.escalate\`; an artifacts edge grants \`artifact.publish\`). No edge, no grant — \`ScopeError\` is the factory saying so.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
-- **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets with grants, and co-members. Re-run it whenever your view may be stale.\n\n**Map-change notices are informational.** \`[factory - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
+- **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets with grants and their station contracts, and co-members. Re-run it whenever your view may be stale.
+- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`vellum-command rulings\`.\n\n**Map-change notices are informational.** \`[factory - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
@@ -191,8 +192,9 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 
 | intent | command |
 |---|---|
-| orient (always first) | \`vellum-command onboard\` |
+| orient (always first) | \`vellum-command onboard\` — seat, region briefing, connected targets with what each station is for, how it admits arrivals, where it forwards, and the rulings pinned over you |
 | live contract / grants | \`vellum-command capabilities\` |
+| pinned rulings for your regions | \`vellum-command rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
 | thought bubble | \`vellum-command preamble '{"text":"..."}'\` |
 | schemas / examples | \`vellum-command schema show <command>\` - \`vellum-command examples show <command>\` |
 | full documentation | \`vellum-command docs\` - \`vellum-command docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
@@ -226,14 +228,38 @@ const tasksSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 | intent | command |
 |---|---|
 | list queue | \`vellum-command tasks list '{"target":"${t}"}'\` |
+| read one task + its journey | \`vellum-command tasks show '{"target":"${t}","task":"<taskId>"}'\` |
 | propose work | \`vellum-command tasks create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'\` |
 | claim | \`vellum-command tasks claim '{"target":"${t}","task":"<taskId>"}'\` |
+| standing claims + readiness | \`vellum-command tasks claims '{"target":"${t}","task":"<taskId>"}'\` |
+| run this move's boarding checks | \`vellum-command tasks board '{"target":"${t}","task":"<taskId>"}'\` — add \`"next":"<station>"\` when the station forwards to more than one |
 | progress / settle / block task | \`vellum-command tasks update '{"target":"${t}","task":"<taskId>","state":"<state>"}'\` — states: \`working\`, \`completed\`, \`failed\`, \`canceled\`, \`input-required\` |
 | task content | \`vellum-command content path|stat|materialize\` (ContentRefs attached to your tasks) |
 
 Batch: \`tasks create/claim/update\` accept a JSON array; add \`--concurrency <n>\`.
 
-Finish criteria are **hard gates**: \`completed\` is rejected unless evidence is attached (artifacts linked to the task, real git SHAs). A rejection names the missing pieces — read it, fix, retry.`;
+Finish criteria are **hard gates**: \`completed\` is rejected unless evidence is attached (artifacts linked to the task, real git SHAs). A rejection names the missing pieces — read it, fix, retry.
+
+### Claims — the station's standing law
+
+A station carries **claims**: operator-authored statements the work must satisfy, inherited from the regions it sits in, from the station itself, and from claims the raiser addressed to it. They are prompts for you to check, never something the server evaluates.
+
+- Read them with \`tasks claims\` — each one names its severity and where it came from.
+- Answer every **hard** claim on completion: \`completionEvidence.responses: [{"claimId":"<id>","response":"how you satisfied it","refs":["<sha>"]}]\`.
+- A **soft** claim takes a response or a waiver: \`completionEvidence.claimWaivers: [{"claimId":"<id>","reason":"why it does not apply"}]\`.
+- \`completed\` is refused while a claim is unanswered; the rejection names the innermost one.
+
+### Forwarding — one station at a time
+
+Where the operator drew task flow, completing does not close the task: it hands it to the next station.
+
+- One destination forwards automatically; more than one means you pick: \`"next":"<station>"\` on the update.
+- **Boarding checks** are the operator's deterministic gates for that move. Run them with \`tasks board\` — the commands execute in your own shell and the tickets are stamped from what they returned. Every applicable check must be green before the forward is accepted.
+- Say what you are publishing forward in the update \`note\`: the next station sees that and your cited refs, never your interior work.
+- Sending work back is \`state: "rejected"\` with \`"defect":{"summary":"what is wrong","refs":["..."]}\` — it returns the task to the station before yours.
+- \`"holdFor":"12h"\` (or \`"7d"\`, or milliseconds) bakes the arrival so the next station cannot claim it immediately.
+
+A task that arrives back with an epoch bump was sent back to you: prior answers and tickets are stale, so answer again and re-run boarding.`;
 };
 
 const escalateSlot = (targets: readonly InjectionConnectedTarget[]): string => {
