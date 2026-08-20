@@ -112,6 +112,7 @@ import {
   evaluateFinishCriteria,
   normalizeCompletionEvidence,
 } from "@shared/finish-criteria";
+import { carryClaimEvidence } from "@shared/claims";
 import {
   StateEngine,
   type StateReader,
@@ -370,6 +371,58 @@ export type TransitionTaskInput = LocalWorkInput & {
   readonly state: TaskState;
   readonly message?: MessageValue;
   readonly completionEvidence?: TaskValue["completionEvidence"];
+  /**
+   * Pipeline patch computed by the pure policy (journey exits, epoch bumps).
+   * Omitted fields keep the durable row's bag; null clears a field.
+   */
+  readonly pipeline?: TaskPipelinePatch;
+};
+
+export type TaskPipelinePatch = {
+  readonly epoch?: number;
+  readonly journey?: TaskValue["journey"];
+  readonly holdUntil?: string | null;
+  readonly boarding?: TaskValue["boarding"] | null;
+  readonly claims?: TaskValue["claims"];
+  /** Operator promotion marker for the given epoch (metadata bag key). */
+  readonly admittedEpoch?: number | null;
+};
+
+export type ForwardTaskInput = LocalWorkInput & {
+  readonly taskId: string;
+  /** Emission note appended at the source before completion. */
+  readonly message?: MessageValue;
+  readonly completionEvidence?: TaskValue["completionEvidence"];
+  /** Closed journey including the source passage exit (policy-computed). */
+  readonly journey: NonNullable<TaskValue["journey"]>;
+  readonly destination: SinkRefValue;
+  /** Policy-built submitted successor at the destination (same task id). */
+  readonly destinationTask: TaskValue;
+};
+
+export type DefectBackTaskInput = LocalWorkInput & {
+  readonly taskId: string;
+  /** Defect note appended at the rejecting station. */
+  readonly message?: MessageValue;
+  /** Closed journey including the rejected-back exit (policy-computed). */
+  readonly journey: NonNullable<TaskValue["journey"]>;
+  readonly previous: SinkRefValue;
+  /** Policy-built submitted epoch-bumped task re-homed at `previous`. */
+  readonly returnedTask: TaskValue;
+};
+
+export type PromoteTaskInput = LocalWorkInput & {
+  readonly taskId: string;
+};
+
+export type ForwardTaskValue = {
+  readonly source: TaskValue;
+  readonly destination: TaskValue;
+};
+
+export type DefectBackTaskValue = {
+  readonly rejected: TaskValue;
+  readonly returned: TaskValue;
 };
 
 export type ClaimLocalTaskInput = LocalWorkInput & {
@@ -1470,6 +1523,150 @@ const writeTaskDependsOn = (
   }
 };
 
+/**
+ * Pipeline persistence — the representation choice (documented per spec §4).
+ *
+ * Re-homing keeps the (canvas_name, node_id, task_id) key untouched: a
+ * forward inserts a SUCCESSOR row sharing task_id at the destination node
+ * while the source row stays behind as the passage record (state completed,
+ * journey exit "forwarded"). A defect-back transitions the current row to
+ * rejected and re-opens the previous station's existing row
+ * (completed → submitted, epoch++). Both moves are expressed purely with the
+ * existing immutable-log vocabulary ('task.transition' / 'task.create'), so
+ * no schema migration, no row moves, no orphaned child rows (messages,
+ * finish, dependencies all stay keyed to their station's row).
+ *
+ * The pipeline task fields (claims / epoch / journey / holdUntil / boarding)
+ * persist as one reserved bag under metadata_json["vellum.pipeline"]:
+ * shipped migrations are immutable and work_tasks gains no column, while
+ * metadata_json is an existing open JSON column (CHECK: json_valid, no
+ * $.claimedBy). writeTask folds the first-class Task fields into the bag on
+ * write; taskFromRow lifts them back out, so the bag never leaks into the
+ * exposed Task.metadata. Old rows have no bag and decode exactly as before
+ * (decode-admits-history). Authoring paths reject the reserved keys so seats
+ * cannot forge journeys, tickets, or promotions.
+ *
+ * The requirements this satisfies: stable task id across the whole journey
+ * (same task_id at every station row); `tasks show` reconstructs the journey
+ * from the live row's append-only journey field; ClaimConflict stays
+ * per-passage (claimedBy is a per-row column); same-sink dependsOn is
+ * satisfied by local passage completion (the source row completes on
+ * forward); no orphan facts (nothing is deleted or renumbered).
+ */
+const PIPELINE_METADATA_BAG_KEY = "vellum.pipeline";
+
+/** Operator promotion marker — also reserved (see @shared/claims). */
+const PIPELINE_ADMITTED_KEY = "vellum.pipeline.admittedEpoch";
+
+/** Authoring input must never smuggle system-stamped pipeline state. */
+const assertNoReservedPipelineMetadata = (
+  metadata: TaskValue["metadata"] | undefined,
+): void => {
+  if (metadata === undefined) return;
+  if (
+    Object.prototype.hasOwnProperty.call(metadata, PIPELINE_METADATA_BAG_KEY) ||
+    Object.prototype.hasOwnProperty.call(metadata, PIPELINE_ADMITTED_KEY)
+  ) {
+    throw authorityError(
+      "invalid-transition",
+      "metadata keys under vellum.pipeline are reserved for the work service",
+    );
+  }
+};
+
+type PipelineBag = {
+  readonly claims?: TaskValue["claims"];
+  readonly epoch?: TaskValue["epoch"];
+  readonly journey?: TaskValue["journey"];
+  readonly holdUntil?: TaskValue["holdUntil"];
+  readonly boarding?: TaskValue["boarding"];
+};
+
+const foldPipelineMetadata = (
+  task: TaskValue,
+): TaskValue["metadata"] | undefined => {
+  const bag: PipelineBag = {
+    ...(task.claims !== undefined && task.claims.length > 0
+      ? { claims: task.claims }
+      : {}),
+    ...(task.epoch !== undefined ? { epoch: task.epoch } : {}),
+    ...(task.journey !== undefined && task.journey.length > 0
+      ? { journey: task.journey }
+      : {}),
+    ...(task.holdUntil !== undefined ? { holdUntil: task.holdUntil } : {}),
+    ...(task.boarding !== undefined && task.boarding.length > 0
+      ? { boarding: task.boarding }
+      : {}),
+  };
+  if (Object.keys(bag).length === 0) return task.metadata;
+  return { ...(task.metadata ?? {}), [PIPELINE_METADATA_BAG_KEY]: bag };
+};
+
+const liftPipelineMetadata = (
+  metadataJson: string | null,
+): {
+  readonly metadata?: TaskValue["metadata"];
+  readonly pipeline?: PipelineBag;
+} => {
+  if (metadataJson === null) return {};
+  const parsed = parseJson(metadataJson) as Record<string, unknown>;
+  if (!(PIPELINE_METADATA_BAG_KEY in parsed)) {
+    return { metadata: parsed as TaskValue["metadata"] };
+  }
+  const { [PIPELINE_METADATA_BAG_KEY]: bag, ...rest } = parsed;
+  return {
+    ...(Object.keys(rest).length > 0
+      ? { metadata: rest as TaskValue["metadata"] }
+      : {}),
+    // Constructed, not decoded — the bag was folded from fields the write
+    // path strict-decoded on the same row (see messageFromRow doctrine).
+    pipeline: bag as PipelineBag,
+  };
+};
+
+/** Apply a policy-computed pipeline patch onto a durable task (see TransitionTaskInput). */
+const applyPipelinePatch = (
+  task: TaskValue,
+  patch: TaskPipelinePatch | undefined,
+): TaskValue => {
+  if (patch === undefined) return task;
+  let next: TaskValue = { ...task };
+  if (patch.epoch !== undefined) next = { ...next, epoch: patch.epoch };
+  if (patch.journey !== undefined) next = { ...next, journey: patch.journey };
+  if (patch.claims !== undefined) next = { ...next, claims: patch.claims };
+  if (patch.holdUntil !== undefined) {
+    if (patch.holdUntil === null) {
+      const { holdUntil: _hold, ...rest } = next;
+      next = rest;
+    } else {
+      next = { ...next, holdUntil: patch.holdUntil };
+    }
+  }
+  if (patch.boarding !== undefined) {
+    if (patch.boarding === null) {
+      const { boarding: _boarding, ...rest } = next;
+      next = rest;
+    } else {
+      next = { ...next, boarding: patch.boarding };
+    }
+  }
+  if (patch.admittedEpoch !== undefined) {
+    const metadata: Record<string, unknown> = { ...(next.metadata ?? {}) };
+    if (patch.admittedEpoch === null) {
+      delete metadata[PIPELINE_ADMITTED_KEY];
+    } else {
+      metadata[PIPELINE_ADMITTED_KEY] = patch.admittedEpoch;
+    }
+    if (Object.keys(metadata).length > 0) {
+      next = { ...next, metadata: metadata as TaskValue["metadata"] };
+    } else {
+      const { metadata: _metadata, ...rest } = next;
+      next = rest;
+    }
+  }
+  return next;
+};
+
 const taskFromRow = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -1481,41 +1678,52 @@ const taskFromRow = (
     readonly completionEvidence?: TaskValue["completionEvidence"];
   },
   history?: ReadonlyArray<MessageValue>,
-): TaskValue => ({
+): TaskValue => {
   // Constructed, not decoded — see messageFromRow. Every `work_tasks` /
   // `work_requests` row is the materialization of a `Task` the write path
   // already strict-decoded (createTask / transitionTask / claimTask /
   // resolveRequest all decode before commitLocalFact), and state / seat id /
   // JSON columns carry SQL CHECK domains. Field order is the `Task` schema
   // order the decode used to emit.
-  id: row.item_id,
-  state: row.state as TaskValue["state"],
-  ...(row.actor_seat_id === null
-    ? {}
-    : { claimedBy: row.actor_seat_id as TaskValue["claimedBy"] }),
-  history: history ?? loadThread(reader, sink, lane, row.item_id),
-  ...(row.artifact_ids_json === null
-    ? {}
-    : {
-        artifactIds: parseJson(
-          row.artifact_ids_json,
-        ) as TaskValue["artifactIds"],
-      }),
-  ...(lane === "task" && dependsOn !== undefined && dependsOn.length > 0
-    ? { dependsOn: [...dependsOn] }
-    : {}),
-  ...(lane === "task" && finish?.finishCriteria !== undefined
-    ? { finishCriteria: finish.finishCriteria }
-    : {}),
-  ...(lane === "task" && finish?.completionEvidence !== undefined
-    ? { completionEvidence: finish.completionEvidence }
-    : {}),
-  ...(row.metadata_json === null
-    ? {}
-    : { metadata: parseJson(row.metadata_json) as TaskValue["metadata"] }),
-  ...(row.reason === null ? {} : { reason: row.reason }),
-  ...(row.response === null ? {} : { response: row.response }),
-});
+  const lifted = liftPipelineMetadata(row.metadata_json);
+  const pipeline = lane === "task" ? lifted.pipeline : undefined;
+  return {
+    id: row.item_id,
+    state: row.state as TaskValue["state"],
+    ...(row.actor_seat_id === null
+      ? {}
+      : { claimedBy: row.actor_seat_id as TaskValue["claimedBy"] }),
+    history: history ?? loadThread(reader, sink, lane, row.item_id),
+    ...(row.artifact_ids_json === null
+      ? {}
+      : {
+          artifactIds: parseJson(
+            row.artifact_ids_json,
+          ) as TaskValue["artifactIds"],
+        }),
+    ...(lane === "task" && dependsOn !== undefined && dependsOn.length > 0
+      ? { dependsOn: [...dependsOn] }
+      : {}),
+    ...(lane === "task" && finish?.finishCriteria !== undefined
+      ? { finishCriteria: finish.finishCriteria }
+      : {}),
+    ...(pipeline?.claims !== undefined ? { claims: pipeline.claims } : {}),
+    ...(lane === "task" && finish?.completionEvidence !== undefined
+      ? { completionEvidence: finish.completionEvidence }
+      : {}),
+    ...(pipeline?.epoch !== undefined ? { epoch: pipeline.epoch } : {}),
+    ...(pipeline?.journey !== undefined ? { journey: pipeline.journey } : {}),
+    ...(pipeline?.holdUntil !== undefined
+      ? { holdUntil: pipeline.holdUntil }
+      : {}),
+    ...(pipeline?.boarding !== undefined
+      ? { boarding: pipeline.boarding }
+      : {}),
+    ...(lifted.metadata !== undefined ? { metadata: lifted.metadata } : {}),
+    ...(row.reason === null ? {} : { reason: row.reason }),
+    ...(row.response === null ? {} : { response: row.response }),
+  };
+};
 
 const loadLaneTasks = (
   reader: StateReader,
@@ -3622,6 +3830,9 @@ const writeTask = (
       `,
       [sink.canvasName, sink.nodeId, task.id],
     )?.created_at ?? fact.originAt;
+  // Pipeline fields fold into the metadata bag on write; taskFromRow lifts
+  // them back into first-class Task fields (see PIPELINE_METADATA_BAG_KEY).
+  const metadata = foldPipelineMetadata(task);
   const common = [
     sink.canvasName,
     sink.nodeId,
@@ -3636,7 +3847,7 @@ const writeTask = (
     task.artifactIds === undefined
       ? null
       : canonicalJson(task.artifactIds),
-    task.metadata === undefined ? null : canonicalJson(task.metadata),
+    metadata === undefined ? null : canonicalJson(metadata),
     task.reason ?? null,
     task.response ?? null,
     createdAt,
@@ -6670,6 +6881,21 @@ export interface WorkRepositoryShape {
     readonly claimLocalTask: (
       input: ClaimLocalTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    /** Pipeline forward: complete here + re-home submitted at the destination. */
+    readonly forwardTask: (
+      input: ForwardTaskInput,
+    ) => Effect.Effect<LocalFactResult<ForwardTaskValue>, RepositoryFailure>;
+    /** Pipeline defect-back: reject here + re-open the previous passage row. */
+    readonly defectBackTask: (
+      input: DefectBackTaskInput,
+    ) => Effect.Effect<
+      LocalFactResult<DefectBackTaskValue>,
+      RepositoryFailure
+    >;
+    /** Operator promotion of an operator-gated arrival (epoch-scoped stamp). */
+    readonly promoteTask: (
+      input: PromoteTaskInput,
+    ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
     readonly createRequest: (
       input: CreateRequestInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -6909,6 +7135,7 @@ export const WorkRepositoryLive = Layer.effect(
             "task.create requires a submitted unclaimed task",
           );
         }
+        assertNoReservedPipelineMetadata(task.metadata);
         if (
           selectTaskIdentity(
             writer,
@@ -6970,6 +7197,7 @@ export const WorkRepositoryLive = Layer.effect(
             "proposal.create requires a pending proposal",
           );
         }
+        assertNoReservedPipelineMetadata(proposal.metadata);
         if (
           selectProposalIdentity(writer, input.sink, proposal.id) !==
             undefined
@@ -7237,7 +7465,10 @@ export const WorkRepositoryLive = Layer.effect(
         }
         const evidence =
           input.state === "completed"
-            ? normalizeCompletionEvidence(input.completionEvidence)
+            ? carryClaimEvidence(
+                normalizeCompletionEvidence(input.completionEvidence),
+                input.completionEvidence,
+              )
             : undefined;
         if (input.state === "completed") {
           const artifactsByNode = loadAllArtifactsByNode(
@@ -7258,7 +7489,10 @@ export const WorkRepositoryLive = Layer.effect(
             );
           }
         }
-        const base = taskWithTransitionState(current.task, input.state);
+        const base = applyPipelinePatch(
+          taskWithTransitionState(current.task, input.state),
+          input.pipeline,
+        );
         const withoutEvidence =
           input.state === "completed"
             ? base
@@ -7348,6 +7582,329 @@ export const WorkRepositoryLive = Layer.effect(
             claimedBy: input.actor,
             previousHome: localInstallationId,
           },
+          value: task,
+          originAt,
+          receivedAt,
+        });
+      });
+    };
+
+    const forwardTask = (
+      input: ForwardTaskInput,
+    ): Effect.Effect<LocalFactResult<ForwardTaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const message =
+        input.message === undefined
+          ? undefined
+          : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
+      const destinationTask = Schema.decodeUnknownSync(Task, strictDecode)(
+        input.destinationTask,
+      );
+      return transaction("work.task.forward", input.sink, (writer) => {
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
+        if (input.destination.canvasName !== input.sink.canvasName) {
+          throw authorityError(
+            "invalid-transition",
+            "task forward stays on one canvas",
+          );
+        }
+        if (
+          destinationTask.id !== input.taskId ||
+          destinationTask.state !== "submitted" ||
+          destinationTask.claimedBy !== undefined
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            "forward must re-home the same task as submitted and unclaimed",
+          );
+        }
+        const current = loadTask(writer, "task", input.sink, input.taskId);
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task",
+          );
+        }
+        if (!canTransitionTaskState(current.task.state, "completed")) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot forward task "${input.taskId}" from ${current.task.state}`,
+          );
+        }
+        const evidence = carryClaimEvidence(
+          normalizeCompletionEvidence(input.completionEvidence),
+          input.completionEvidence,
+        );
+        const gate = evaluateFinishCriteria({
+          task: current.task,
+          taskNodeId: input.sink.nodeId,
+          canvasName: input.sink.canvasName,
+          evidence,
+          artifactsByNode: loadAllArtifactsByNode(
+            writer,
+            input.sink.canvasName,
+          ),
+        });
+        if (gate !== undefined) {
+          throw authorityError(
+            "invalid-transition",
+            `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
+          );
+        }
+        const source = Schema.decodeUnknownSync(Task, strictDecode)({
+          ...taskWithTransitionState(current.task, "completed"),
+          history:
+            message === undefined
+              ? current.task.history
+              : [...current.task.history, message],
+          journey: input.journey,
+          ...(evidence !== undefined ? { completionEvidence: evidence } : {}),
+        });
+        const sourceFact = commitLocalFact(writer, {
+          localInstallationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("task", input.taskId, input.sink),
+          operation: "task.transition",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "task.transition", task: source },
+          value: source,
+          originAt,
+          receivedAt,
+        });
+        // Successor row keyed (canvas, destination node, same task id): fresh
+        // create on a first visit, re-open (rejected → submitted) after a
+        // defect-back cycle. Both use existing immutable-log vocabulary.
+        const existing = loadTask(
+          writer,
+          "task",
+          input.destination,
+          input.taskId,
+        );
+        if (existing === undefined) {
+          commitLocalFact(writer, {
+            localInstallationId,
+            sink: input.destination,
+            basis: input.basis,
+            item: item("task", input.taskId, input.destination),
+            operation: "task.create",
+            predecessor: null,
+            body: { operation: "task.create", task: destinationTask },
+            value: destinationTask,
+            originAt,
+            receivedAt,
+          });
+        } else {
+          if (existing.row.entity_home !== localInstallationId) {
+            throw authorityError(
+              "authority-mismatch",
+              "local installation does not own the destination row",
+            );
+          }
+          if (!canTransitionTaskState(existing.task.state, "submitted")) {
+            throw authorityError(
+              "invalid-transition",
+              `cannot re-open destination row from ${existing.task.state}`,
+            );
+          }
+          commitLocalFact(writer, {
+            localInstallationId,
+            sink: input.destination,
+            basis: input.basis,
+            item: item("task", input.taskId, input.destination),
+            operation: "task.transition",
+            predecessor: currentIdentity(existing.row),
+            body: { operation: "task.transition", task: destinationTask },
+            value: destinationTask,
+            originAt,
+            receivedAt,
+          });
+        }
+        return {
+          value: { source, destination: destinationTask },
+          record: sourceFact.record,
+          snapshot: loadSnapshot(writer, input.sink),
+        };
+      });
+    };
+
+    const defectBackTask = (
+      input: DefectBackTaskInput,
+    ): Effect.Effect<
+      LocalFactResult<DefectBackTaskValue>,
+      RepositoryFailure
+    > => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      const message =
+        input.message === undefined
+          ? undefined
+          : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
+      const returnedTask = Schema.decodeUnknownSync(Task, strictDecode)(
+        input.returnedTask,
+      );
+      return transaction("work.task.defect-back", input.sink, (writer) => {
+        const { installationId: localInstallationId } =
+          canonicalLocalWorkAuthority(writer);
+        if (input.previous.canvasName !== input.sink.canvasName) {
+          throw authorityError(
+            "invalid-transition",
+            "defect-back stays on one canvas",
+          );
+        }
+        if (
+          returnedTask.id !== input.taskId ||
+          returnedTask.state !== "submitted" ||
+          returnedTask.claimedBy !== undefined
+        ) {
+          throw authorityError(
+            "invalid-transition",
+            "defect-back must re-home the same task as submitted and unclaimed",
+          );
+        }
+        const current = loadTask(writer, "task", input.sink, input.taskId);
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task",
+          );
+        }
+        if (!canTransitionTaskState(current.task.state, "rejected")) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot defect-back task "${input.taskId}" from ${current.task.state}`,
+          );
+        }
+        const previousRow = loadTask(
+          writer,
+          "task",
+          input.previous,
+          input.taskId,
+        );
+        if (previousRow === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" has no passage row at "${input.previous.nodeId}"`,
+          );
+        }
+        if (previousRow.row.entity_home !== localInstallationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own the previous passage row",
+          );
+        }
+        if (!canTransitionTaskState(previousRow.task.state, "submitted")) {
+          throw authorityError(
+            "invalid-transition",
+            `cannot re-open previous passage row from ${previousRow.task.state}`,
+          );
+        }
+        const rejected = Schema.decodeUnknownSync(Task, strictDecode)({
+          ...(() => {
+            const { completionEvidence: _evidence, ...rest } =
+              taskWithTransitionState(current.task, "rejected");
+            return rest;
+          })(),
+          history:
+            message === undefined
+              ? current.task.history
+              : [...current.task.history, message],
+          journey: input.journey,
+        });
+        const rejectedFact = commitLocalFact(writer, {
+          localInstallationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("task", input.taskId, input.sink),
+          operation: "task.transition",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "task.transition", task: rejected },
+          value: rejected,
+          originAt,
+          receivedAt,
+        });
+        commitLocalFact(writer, {
+          localInstallationId,
+          sink: input.previous,
+          basis: input.basis,
+          item: item("task", input.taskId, input.previous),
+          operation: "task.transition",
+          predecessor: currentIdentity(previousRow.row),
+          body: { operation: "task.transition", task: returnedTask },
+          value: returnedTask,
+          originAt,
+          receivedAt,
+        });
+        return {
+          value: { rejected, returned: returnedTask },
+          record: rejectedFact.record,
+          snapshot: loadSnapshot(writer, input.sink),
+        };
+      });
+    };
+
+    const promoteTask = (
+      input: PromoteTaskInput,
+    ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
+      const originAt = timestamp(input.originAt);
+      const receivedAt = timestamp(input.receivedAt);
+      return transaction("work.task.promote", input.sink, (writer) => {
+        const authority = canonicalLocalWorkAuthority(writer);
+        if (authority.role !== "command-center") {
+          throw authorityError(
+            "authority-mismatch",
+            "only the Command Center operator may promote arrivals",
+          );
+        }
+        const current = loadTask(writer, "task", input.sink, input.taskId);
+        if (current === undefined) {
+          throw authorityError(
+            "missing-entity",
+            `task "${input.taskId}" does not exist`,
+          );
+        }
+        if (current.row.entity_home !== authority.installationId) {
+          throw authorityError(
+            "authority-mismatch",
+            "local installation does not own this task",
+          );
+        }
+        if (current.task.state !== "submitted") {
+          throw authorityError(
+            "invalid-transition",
+            `cannot promote task "${input.taskId}" in state ${current.task.state}`,
+          );
+        }
+        // Promotion is a metadata stamp on the arrival, not a state change;
+        // it records as a same-state 'task.transition' fact (the closed
+        // immutable-log vocabulary has no dedicated word for it).
+        const task = Schema.decodeUnknownSync(Task, strictDecode)(
+          applyPipelinePatch(current.task, {
+            admittedEpoch: current.task.epoch ?? 0,
+          }),
+        );
+        return commitLocalFact(writer, {
+          localInstallationId: authority.installationId,
+          sink: input.sink,
+          basis: input.basis,
+          item: item("task", input.taskId, input.sink),
+          operation: "task.transition",
+          predecessor: currentIdentity(current.row),
+          body: { operation: "task.transition", task },
           value: task,
           originAt,
           receivedAt,
@@ -8699,6 +9256,9 @@ export const WorkRepositoryLive = Layer.effect(
       describeTask,
       transitionTask,
       claimLocalTask,
+      forwardTask,
+      defectBackTask,
+      promoteTask,
       createRequest,
       resolveRequest,
       appendMessage,

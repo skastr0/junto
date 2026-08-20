@@ -294,6 +294,30 @@ const rejectRetiredClaimMetadata = (
 };
 
 /**
+ * Authoring-input-only guard (create/propose): pipeline state is
+ * system-stamped — journeys, tickets, and the operator promotion marker are
+ * never accepted from caller metadata. Existing durable rows legitimately
+ * carry the promotion marker, so this never runs on patched tasks.
+ */
+const rejectReservedPipelineMetadata = (
+  metadata: WorkMetadata | undefined,
+): void => {
+  if (
+    metadata !== undefined &&
+    (Object.prototype.hasOwnProperty.call(metadata, "vellum.pipeline") ||
+      Object.prototype.hasOwnProperty.call(
+        metadata,
+        PIPELINE_ADMITTED_METADATA_KEY,
+      ))
+  ) {
+    throw new WorkError(
+      "invalid",
+      "metadata keys under vellum.pipeline are reserved for the work service",
+    );
+  }
+};
+
+/**
  * Tasks and proposals always carry a non-empty description (`metadata.details`).
  * Title/brief alone is not enough — create and propose both reject empty/missing
  * description. Historical rows without details still decode (create-only gate).
@@ -354,6 +378,7 @@ export const workTaskCreate = (
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
+  rejectReservedPipelineMetadata(metadata);
   const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
@@ -459,6 +484,7 @@ export const workTaskPropose = (
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
+  rejectReservedPipelineMetadata(metadata);
   const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
@@ -732,8 +758,7 @@ const rehomedTask = (
   epoch: number,
   enteredAt: string,
   holdUntil: string | undefined,
-  brief: Message,
-  arrivalNote: Message,
+  history: ReadonlyArray<Message>,
 ): Task => {
   const {
     claimedBy: _claimedBy,
@@ -749,12 +774,33 @@ const rehomedTask = (
   return {
     ...rest,
     state: "submitted",
-    history: [brief, arrivalNote],
+    history: [...history],
     epoch,
     journey: [...closedJourney, { nodeId: destination, enteredAt, epoch }],
     ...(holdUntil !== undefined ? { holdUntil } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
   };
+};
+
+/**
+ * The successor thread at `destination`: extend the station's existing row
+ * thread when the journey has been here before (defect-back cycles), else
+ * start from a fresh copy of the brief. Onion law holds by construction —
+ * prior passages' interiors stay on their own station rows.
+ */
+const rehomedHistory = (
+  doc: CanvasDoc,
+  destination: string,
+  task: Task,
+  brief: Message,
+  note: Message,
+): ReadonlyArray<Message> => {
+  const existing = doc.nodes
+    .find((n) => n.id === destination)
+    ?.ether?.tasks?.items.find((item) => item.id === task.id);
+  return existing === undefined
+    ? [brief, note]
+    : [...existing.history, note];
 };
 
 const replaceOrAppendTask = (
@@ -963,8 +1009,7 @@ export const workTaskTransition = (
           taskEpoch(current),
           nowIso,
           holdUntil,
-          brief,
-          arrival,
+          rehomedHistory(doc, forwardTo, current, brief, arrival),
         ),
       };
     } else if (state === "completed" && (current.journey?.length ?? 0) > 0) {
@@ -1037,8 +1082,7 @@ export const workTaskTransition = (
             bumpedEpoch,
             nowIso,
             holdUntil,
-            brief,
-            defectNote,
+            rehomedHistory(doc, previous.nodeId, current, brief, defectNote),
           ),
         };
       }
@@ -1289,6 +1333,7 @@ export const workRequestCreate = (
     );
   }
   rejectRetiredClaimMetadata(metadata);
+  rejectReservedPipelineMetadata(metadata);
   // A request is actor-originated and claimed by its raiser at birth. The
   // raiser is the worker waiting on the answer, so stoppage lands on it.
   const taskId = ids.id();
