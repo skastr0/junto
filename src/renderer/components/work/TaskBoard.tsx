@@ -40,7 +40,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
-import type { CanvasDoc, CanvasNode, Part, TaskState, WorkMetadata } from "@shared/canvas";
+import type {
+  CanvasDoc,
+  CanvasNode,
+  CompletionEvidence,
+  Part,
+  TaskState,
+  WorkMetadata,
+} from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import { sinkGlance } from "@shared/attention";
 import {
@@ -56,6 +63,12 @@ import {
 import { ContentMedia } from "./ContentMedia";
 import { TaskJourney } from "./TaskJourney";
 import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
+import {
+  TaskStationConsole,
+  type StationSubmission,
+} from "./TaskStationConsole";
+import { effectiveClaimsStack } from "@shared/claims";
+import { resolveSinkAdmission } from "@shared/work-model";
 import {
   arrivalGlance,
   groupOutboundPassages,
@@ -247,6 +260,32 @@ type PromoteApi = {
     canvas: string,
     nodeId: string,
     taskId: string,
+  ) => Promise<WorkOpResult<unknown>>;
+};
+
+/**
+ * The transition op carries a trailing pipeline arm (forward destination /
+ * defect payload / hold stamp) that the shared VellumCommandApi signature does
+ * not declare yet; the preload bridge and the main handler already read it.
+ */
+type PipelineTransitionApi = {
+  readonly workTaskTransition: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    state: TaskState,
+    note: string | undefined,
+    completionEvidence: CompletionEvidence | undefined,
+    pipeline:
+      | {
+          readonly next?: string;
+          readonly defect?: {
+            readonly summary: string;
+            readonly refs?: ReadonlyArray<string>;
+          };
+          readonly holdForMs?: number;
+        }
+      | undefined,
   ) => Promise<WorkOpResult<unknown>>;
 };
 
@@ -2283,6 +2322,9 @@ export function TaskBoard({
   // Columns follow the flow edges: incoming flow turns Proposals + Queue into
   // Inbound, outgoing flow turns Closed into Outbound (spec §7).
   const shape = useMemo(() => pipelineShape(doc, node.id), [doc, node.id]);
+  // An operator-owned station never hands work to a seat: the operator answers
+  // the claims and routes the work from the detail panel.
+  const operatorOwned = resolveSinkAdmission(sinkContract) === "operator-owned";
   const stationName = useMemo(() => {
     const names = new Map(
       doc.nodes.map((entry) => [
@@ -2669,6 +2711,106 @@ export function TaskBoard({
     );
   };
 
+  /**
+   * Operator completion at a station: the claim answers ride in the completion
+   * evidence, `next` names the forward station (absent = terminal close). The
+   * work service checks the shape of the submission and re-homes the row.
+   */
+  const completeAtStation = async (
+    task: WorkTask,
+    submission: StationSubmission,
+    next: string | undefined,
+  ): Promise<boolean> => {
+    if (!api) return false;
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        (api as unknown as PipelineTransitionApi).workTaskTransition(
+          name,
+          node.id,
+          task.id,
+          "completed",
+          submission.note,
+          {
+            artifacts: [],
+            ...(submission.responses.length > 0
+              ? { responses: submission.responses }
+              : {}),
+            ...(submission.waivers.length > 0
+              ? { claimWaivers: submission.waivers }
+              : {}),
+          },
+          next !== undefined ? { next } : undefined,
+        ),
+      );
+      if (result === undefined) return false;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not route ${taskTitle(task)}. ${result.message}`);
+        return false;
+      }
+      setAnnouncement(
+        next === undefined
+          ? `Closed ${taskTitle(task)}.`
+          : `Forwarded ${taskTitle(task)} to ${stationName(next)}.`,
+      );
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not route ${taskTitle(task)}. ${message}`);
+      return false;
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
+  /** Defect back: the row returns to the station it came from, one epoch later. */
+  const sendBackDefect = async (
+    task: WorkTask,
+    summary: string,
+    refs: ReadonlyArray<string>,
+    defectNote: string,
+  ): Promise<boolean> => {
+    if (!api || !summary.trim()) return false;
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        (api as unknown as PipelineTransitionApi).workTaskTransition(
+          name,
+          node.id,
+          task.id,
+          "rejected",
+          defectNote.trim() ? defectNote.trim() : undefined,
+          undefined,
+          {
+            defect: {
+              summary: summary.trim(),
+              ...(refs.length > 0 ? { refs } : {}),
+            },
+          },
+        ),
+      );
+      if (result === undefined) return false;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not send ${taskTitle(task)} back. ${result.message}`);
+        return false;
+      }
+      setAnnouncement(`Sent ${taskTitle(task)} back as a defect.`);
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not send ${taskTitle(task)} back. ${message}`);
+      return false;
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
   const approveProposal = async (task: WorkTask) => {
     if (!api) return;
     setError("");
@@ -2911,6 +3053,14 @@ export function TaskBoard({
           </div>
         ) : null}
 
+        {/*
+          CREATION METRO MAP MOUNT POINT (spec §7, owned by the creation phase).
+          On a sink with flow destinations, the reachable-station map with its
+          standing law and per-station claim pinning mounts here, in front of
+          (or wrapping) TaskCreateDialog. Until it lands, Add Task opens the
+          plain quick-create path below for every sink, flow or no flow —
+          `shape.destinations` already names the stations it will walk.
+        */}
         {creating ? (
           <TaskCreateDialog
             mode={creating}
@@ -3059,6 +3209,27 @@ export function TaskBoard({
               }
               isProposal={selectedIsProposal}
               proposedBy={proposalById.get(selectedTask.id)}
+              station={
+                operatorOwned &&
+                !selectedIsProposal &&
+                !TERMINAL_STATES.has(selectedTask.state) ? (
+                  <TaskStationConsole
+                    claims={effectiveClaimsStack(doc, node.id, selectedTask)}
+                    destinations={shape.destinations.map((destination) => ({
+                      id: destination,
+                      label: stationName(destination),
+                    }))}
+                    canSendBack={(selectedTask.journey?.length ?? 0) > 1}
+                    pending={pendingTaskId === selectedTask.id}
+                    onComplete={(submission, next) =>
+                      completeAtStation(selectedTask, submission, next)
+                    }
+                    onSendBack={(summary, refs, stationNote) =>
+                      sendBackDefect(selectedTask, summary, refs, stationNote)
+                    }
+                  />
+                ) : undefined
+              }
               onClose={() => setSelectedTaskId(null)}
               onSaveTitle={(task, title) => void saveTaskTitle(task, title)}
               onRespond={respondToTask}
