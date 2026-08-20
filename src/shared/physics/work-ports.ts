@@ -19,6 +19,12 @@ export const PortForWorkOp = {
   "tasks.create": "tasks.create",
   "tasks.claim": "tasks.claim",
   "tasks.update": "tasks.update",
+  // Pipeline reads ride the sink's existing read grant; boarding submits
+  // through the same grant that moves the task, so no new capability appears.
+  "tasks.show": "tasks.list",
+  "tasks.claims": "tasks.list",
+  "rulings": "tasks.list",
+  "tasks.board": "tasks.update",
   // Content access is task-scoped read/materialization and reuses the task
   // sink's existing read grant; it never creates a second storage capability.
   "content.path": "tasks.list",
@@ -55,6 +61,10 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "tasks.create",
   "tasks.claim",
   "tasks.update",
+  "tasks.show",
+  "tasks.claims",
+  "tasks.board",
+  "rulings",
   "content.path",
   "content.stat",
   "content.materialize",
@@ -92,6 +102,10 @@ export const OPS_BY_SINK = {
     "tasks.create",
     "tasks.claim",
     "tasks.update",
+    "tasks.show",
+    "tasks.claims",
+    "tasks.board",
+    "rulings",
     "content.path",
     "content.stat",
     "content.materialize",

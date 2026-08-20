@@ -47,6 +47,10 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "tasks.create",
 "tasks.claim",
 "tasks.update",
+"tasks.show",
+"tasks.claims",
+"tasks.board",
+"rulings",
 "content.path",
 "content.stat",
 "content.materialize",
@@ -230,21 +234,95 @@ export const TasksClaimArgs = Schema.Struct({
 });
 export type TasksClaimArgs = typeof TasksClaimArgs.Type;
 
+/** Defect filed with a send-back — the reason the upstream station must fix. */
+export const TaskDefectArgs = Schema.Struct({
+  summary: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  refs: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+export type TaskDefectArgs = typeof TaskDefectArgs.Type;
+
 export const TasksUpdateArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
   state: TaskState,
   note: Schema.optionalKey(Schema.String),
   completionEvidence: Schema.optionalKey(CompletionEvidence),
+  /** Forward destination sink id — required when the station forks. */
+  next: Schema.optionalKey(Schema.String),
+  /** Send the task back to the previous station with a defect on record. */
+  defect: Schema.optionalKey(TaskDefectArgs),
+  /** Bake time stamped on arrival at `next` (CLI parses "7d" / "12h" to ms). */
+  holdForMs: Schema.optionalKey(
+    Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  ),
 }).pipe(
   Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
     completionEvidence === undefined ||
     state === "completed" ||
     "completionEvidence is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, next }) =>
+    next === undefined ||
+    state === "completed" ||
+    "next is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, holdForMs }) =>
+    holdForMs === undefined ||
+    state === "completed" ||
+    "holdForMs is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, defect }) =>
+    defect === undefined ||
+    state === "rejected" ||
+    "defect is only allowed when state is rejected",)),
 ).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
+
+export const TasksShowArgs = Schema.Struct({
+  target: Schema.String,
+  task: Schema.String,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksShowArgs = typeof TasksShowArgs.Type;
+
+export const TasksClaimsArgs = Schema.Struct({
+  target: Schema.String,
+  /** Omitted: the station's standing law. Named: readiness for that task. */
+  task: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksClaimsArgs = typeof TasksClaimsArgs.Type;
+
+/**
+ * Boarding submission. The seat's CLI executes each checklist command in its
+ * own environment; this payload carries only what it observed. The work
+ * service validates the results against the authored checklists and stamps
+ * the tickets — Vellum Command never runs a check itself.
+ */
+export const TasksBoardArgs = Schema.Struct({
+  target: Schema.String,
+  task: Schema.String,
+  /** Destination whose inbound checklist applies — required when it forks. */
+  next: Schema.optionalKey(Schema.String),
+  results: Schema.Array(Schema.Struct({
+    checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    side: Schema.Literals(["outbound", "inbound"]),
+    exitCode: Schema.Number,
+    outputTail: Schema.String,
+  })),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksBoardArgs = typeof TasksBoardArgs.Type;
+
+export const RulingsArgs = Schema.Struct({
+  /** Omitted: the seat's own region stack. */
+  target: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type RulingsArgs = typeof RulingsArgs.Type;
 
 /** Process-bound content access always names the connected task sink. */
 const StrictContentRef = ContentRef.annotate({

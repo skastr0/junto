@@ -58,9 +58,13 @@ import {
   PreambleArgs,
   RelayTriggerArgs,
   RequestEscalateArgs,
+  RulingsArgs,
+  TasksBoardArgs,
   TasksClaimArgs,
+  TasksClaimsArgs,
   TasksCreateArgs,
   TasksListArgs,
+  TasksShowArgs,
   TasksUpdateArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
@@ -103,6 +107,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
+  "tasks.board",
   "content.materialize",
   "preamble",
   "msg.list",
@@ -129,6 +134,9 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
+  "tasks.show",
+  "tasks.claims",
+  "tasks.board",
   "content.path",
   "content.stat",
   "content.materialize",
@@ -158,6 +166,9 @@ import {
   summarizeNode,
 } from "./authz";
 import { resolveSinkAdmission } from "@shared/work-model";
+import { effectiveClaimsStack, sinkContractOf } from "@shared/claims";
+import { regionStack } from "@shared/graph";
+import { flowDestinations, reachableStations } from "@shared/flow-graph";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
@@ -433,6 +444,80 @@ const decodeArgs = <S extends Schema.Top>(
   return Result.succeed(decoded.success as never);
 };
 
+/**
+ * Standing law per station a task raised here can still reach: the region
+ * stack claims plus the sink's own, with provenance, and how arrivals are
+ * admitted. Pure projection of the document — no work rows involved.
+ */
+const stationLawMap = (doc: CanvasDoc, fromNodeId: string) =>
+  [...reachableStations(doc, fromNodeId)].map((station) => {
+    const contract = sinkContractOf(
+      doc.nodes.find((node) => node.id === station),
+    );
+    const inbound = contract?.inbound;
+    return {
+      station,
+      claims: effectiveClaimsStack(doc, station).map((entry) => ({
+        id: entry.claim.id,
+        text: entry.claim.text,
+        severity: entry.claim.severity,
+        provenance: entry.provenance,
+      })),
+      admission: resolveSinkAdmission(contract),
+      ...(contract?.instruction !== undefined
+        ? { instruction: contract.instruction }
+        : {}),
+      ...(inbound?.description !== undefined
+        ? { description: inbound.description }
+        : {}),
+    };
+  });
+
+/**
+ * Onboard's per-sink pipeline summary: what this station stands for, how much
+ * standing law it carries, and where work goes next. Undefined for nodes that
+ * carry no sink contract and no flow edges, so plain sinks stay quiet.
+ */
+const sinkPipelineBriefing = (doc: CanvasDoc, nodeId: string) => {
+  const contract = sinkContractOf(doc.nodes.find((node) => node.id === nodeId));
+  const destinations = flowDestinations(doc, nodeId).map((destination) => {
+    const inbound = sinkContractOf(
+      doc.nodes.find((node) => node.id === destination),
+    )?.inbound;
+    return {
+      station: destination,
+      ...(inbound?.description !== undefined
+        ? { description: inbound.description }
+        : {}),
+      admission: resolveSinkAdmission(
+        sinkContractOf(doc.nodes.find((node) => node.id === destination)),
+      ),
+    };
+  });
+  if (contract === undefined && destinations.length === 0) return undefined;
+  return {
+    contract: {
+      ...(contract?.instruction !== undefined
+        ? { instruction: contract.instruction }
+        : {}),
+      claims: effectiveClaimsStack(doc, nodeId).length,
+      admission: resolveSinkAdmission(contract),
+    },
+    destinations,
+  };
+};
+
+const rulingsForRegionStack = (doc: CanvasDoc, nodeId: string) =>
+  regionStack(doc, nodeId).flatMap((group) => {
+    const rulings = group.ether?.region?.contract?.rulings ?? [];
+    if (rulings.length === 0) return [];
+    return [{
+      region: group.id,
+      label: group.label?.trim() || group.id,
+      rulings,
+    }];
+  });
+
 // ---------------------------------------------------------------------------
 // Dispatch
 
@@ -673,7 +758,10 @@ const dispatchOp = (
           summary: c.summary,
           role: c.role,
           grants: c.grants,
+          ...(sinkPipelineBriefing(board, c.id) ?? {}),
         })),
+        // Operator-pinned precedent from the seat's own region stack.
+        rulings: rulingsForRegionStack(board, caller.nodeId),
         co_members: regionVisibility(board, caller.nodeId),
         // Pause surface: a paused seat must distinguish pause from a broken
         // grant. Reads stay open; mutating ops still refuse with Paused.
@@ -874,7 +962,13 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
+      // The standing law the proposal will have to answer, station by station,
+      // so the raiser can address claims before the journey starts.
+      const law = stationLawMap(board, decoded.success.target);
+      return {
+        ...exposeWorkMutation(mapped.success),
+        ...(law.length > 0 ? { law } : {}),
+      };
     }
 
     if (op === "tasks.claim") {
@@ -928,6 +1022,91 @@ const dispatchOp = (
         decoded.success.state,
         decoded.success.note,
         decoded.success.completionEvidence,
+        {
+          ...(decoded.success.next !== undefined
+            ? { next: decoded.success.next }
+            : {}),
+          ...(decoded.success.defect !== undefined
+            ? { defect: decoded.success.defect }
+            : {}),
+          ...(decoded.success.holdForMs !== undefined
+            ? { holdForMs: decoded.success.holdForMs }
+            : {}),
+        },
+      );
+      const mapped = fromWorkResult(result);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
+    }
+
+    if (op === "tasks.show") {
+      const decoded = decodeArgs(TasksShowArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      // Seats always read the onion view; operator surfaces go through IPC.
+      return yield* work
+        .workTaskShow(
+          caller.canvasName,
+          decoded.success.target,
+          decoded.success.task,
+          "seat",
+        )
+        .pipe(
+          Effect.catch((error) =>
+            Effect.fail(mapWorkCode(error.code, error.message)),
+          ),
+        );
+    }
+
+    if (op === "tasks.claims") {
+      const decoded = decodeArgs(TasksClaimsArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      return yield* work
+        .workTaskClaims(
+          caller.canvasName,
+          decoded.success.target,
+          decoded.success.task,
+        )
+        .pipe(
+          Effect.catch((error) =>
+            Effect.fail(mapWorkCode(error.code, error.message)),
+          ),
+        );
+    }
+
+    if (op === "rulings") {
+      const decoded = decodeArgs(RulingsArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      // No target: the seat's own region stack — ambient law it already lives
+      // under, so no edge is involved. A named target is edge-gated as usual.
+      const target = decoded.success.target;
+      if (target !== undefined) {
+        const gate = requireTarget(board, caller.nodeId, target, op);
+        if ("type" in gate) return yield* Effect.fail(gate);
+      }
+      return yield* work
+        .workRulingsList(caller.canvasName, target ?? caller.nodeId)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.fail(mapWorkCode(error.code, error.message)),
+          ),
+        );
+    }
+
+    if (op === "tasks.board") {
+      const decoded = decodeArgs(TasksBoardArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const result = yield* work.workTaskBoard(
+        caller.canvasName,
+        decoded.success.target,
+        decoded.success.task,
+        decoded.success.results,
+        decoded.success.next,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);

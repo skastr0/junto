@@ -89,6 +89,10 @@ const WORK_OPERATION_CLASSIFICATION = {
   "tasks.create": "authorial",
   "tasks.claim": "authorial",
   "tasks.update": "authorial",
+  "tasks.show": "read",
+  "tasks.claims": "read",
+  rulings: "read",
+  "tasks.board": "authorial",
   "content.path": "read",
   "content.stat": "read",
   "content.materialize": "read",
@@ -117,6 +121,9 @@ const WORK_AUTHORING_LABELS = {
   "tasks.create": "control.work.tasks-create",
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
+  // Boarding stamps tickets on the task row — same authorial family as an
+  // update, so it carries the same label rather than minting a new one.
+  "tasks.board": "control.work.tasks-update",
   "msg.list": "control.work.msg-send",
   "msg.send": "control.work.msg-send",
   "msg.read": "control.work.msg-send",
@@ -135,6 +142,7 @@ const WORK_AUTHORING_LABELS = {
     | "tasks.create"
     | "tasks.claim"
     | "tasks.update"
+    | "tasks.board"
     | "msg.list"
     | "msg.send"
     | "msg.read"
