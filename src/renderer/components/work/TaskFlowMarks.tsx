@@ -10,14 +10,24 @@ import "./task-flow.css";
  */
 export function ArrivalMark({
   glance,
+  gatedStation,
   pending,
   onPromote,
 }: {
   readonly glance: ArrivalGlance;
+  /** Admission is a live question at this station, so admitted rows say so. */
+  readonly gatedStation: boolean;
   readonly pending: boolean;
   readonly onPromote?: () => void;
 }) {
-  if (glance.admission === "claimable") return null;
+  if (glance.admission === "claimable") {
+    if (!gatedStation) return null;
+    return (
+      <span className="task-flow-mark" title="Admitted, workers can claim it">
+        <Chip tone="green">Admitted</Chip>
+      </span>
+    );
+  }
   if (glance.admission === "held") {
     return (
       <span className="task-flow-mark" title="Baking before workers can claim it">

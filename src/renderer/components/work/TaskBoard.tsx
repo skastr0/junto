@@ -2705,6 +2705,7 @@ export function TaskBoard({
     return (
       <ArrivalMark
         glance={glance}
+        gatedStation={resolveSinkAdmission(sinkContract) === "operator-gated"}
         pending={pendingTaskId === task.id}
         onPromote={glance.promotable ? () => void promoteTask(task) : undefined}
       />
@@ -2952,6 +2953,10 @@ export function TaskBoard({
   };
 
   const boardLanes = visibleLanes(shape);
+  // The closing column is Closed on a plain sink, Outbound on a pipeline sink.
+  const closingLaneLabel = (
+    shape.hasOutbound ? OUTBOUND_LANE.label : laneById("closed").label
+  ).toLowerCase();
   const shownLanes = hideClosed
     ? boardLanes.filter((lane) => lane.id !== "closed" && lane.id !== "outbound")
     : boardLanes;
@@ -2999,8 +3004,8 @@ export function TaskBoard({
               </IconButton>
               <IconButton
                 tone={hideClosed ? "accent" : "default"}
-                aria-label={hideClosed ? "Show closed tasks" : "Hide closed tasks"}
-                title={hideClosed ? "Show closed tasks" : "Hide closed tasks"}
+                aria-label={`${hideClosed ? "Show" : "Hide"} the ${closingLaneLabel} column`}
+                title={`${hideClosed ? "Show" : "Hide"} the ${closingLaneLabel} column`}
                 onClick={() => setHideClosed((hidden) => !hidden)}
               >
                 <Filter size={14} />
