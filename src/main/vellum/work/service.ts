@@ -309,6 +309,8 @@ export type WorkTaskClaimsView = {
         readonly checkId: string;
         readonly side: "outbound" | "inbound";
         readonly label: string;
+        /** Authored command the seat runs locally to earn this ticket. */
+        readonly command: string;
         readonly status: "green" | "red" | "missing";
       }>;
     }>;
@@ -1698,6 +1700,7 @@ export const WorkLive = Layer.effect(
                     checkId: check.id,
                     side,
                     label: check.label,
+                    command: check.command,
                     status: ticket === undefined
                       ? ("missing" as const)
                       : ticket.exitCode === 0
