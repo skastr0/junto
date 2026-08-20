@@ -4,7 +4,7 @@ import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@
 import type { NodeProps } from "@xyflow/react";
 import { AlertTriangle, Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
-import { MAX_REGION_DEPTH, regionStack } from "@shared/graph";
+import { MAX_REGION_DEPTH } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$, toggleConnectionFocus } from "../../lib/state";
@@ -155,10 +155,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
   );
   const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
-  // Authoring-time-only warning (never a data rejection) — recomputed off the
-  // live doc so a resize (NodeResizer.onResizeEnd -> resizeNode) that pushes
-  // this region past MAX_REGION_DEPTH ancestors shows up immediately.
-  const nestingDepth = use$(() => regionStack(state$.doc.get(), node.id).length);
+  // Authoring-time-only warning (never a data rejection). Depth arrives with
+  // the projection (convert.ts), so a resize (NodeResizer.onResizeEnd ->
+  // resizeNode) repaints it without this card watching the whole document.
+  const nestingDepth = data.regionDepth ?? 0;
   const nestedTooDeep = nestingDepth > MAX_REGION_DEPTH;
 
   useEffect(() => {

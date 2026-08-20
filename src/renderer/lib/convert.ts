@@ -35,6 +35,12 @@ const FURNITURE_Z = 32;
 export type NodeData = {
   node: CanvasNode;
   blocked: boolean;
+  /**
+   * Regions only: how many regions contain this one. Derived here so GroupNode
+   * reads nesting off its own props instead of subscribing to the whole
+   * document. Undefined for furniture.
+   */
+  regionDepth?: number;
 };
 
 /** Flow edge data — durable meaning stays on CanvasEdge; paint uses wire family. */
@@ -160,6 +166,26 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
 const entityKind = (node: CanvasNode | undefined): string | undefined =>
   node?.ether?.entity?.kind;
 
+/**
+ * Nesting depth for every region, in one pass per projection.
+ *
+ * Only groups can contain, so regionStack over a groups-only document is the
+ * identical stack at O(groups²) — the per-node call re-scanned every document
+ * node for every region, on every structural rebuild including quiet kernel
+ * ticks.
+ */
+const regionDepths = (doc: CanvasDoc): ReadonlyMap<string, number> => {
+  const groupsOnly: CanvasDoc = {
+    nodes: doc.nodes.filter((node) => node.type === "group"),
+    edges: [],
+  };
+  const depths = new Map<string, number>();
+  for (const group of groupsOnly.nodes) {
+    depths.set(group.id, regionStack(groupsOnly, group.id).length);
+  }
+  return depths;
+};
+
 /** True when the effective edge mask leaves msg.send available. */
 export const edgeHasMsgSend = (edge: CanvasEdge): boolean =>
   edgeMaskAllows(edge, "msg.send");
@@ -200,18 +226,21 @@ export const toFlow = (
     execution?.detailByEdgeId[edgeId] ?? getFallback().detailByEdgeId.get(edgeId) ?? "";
 
   const nextNodeIds = new Set<string>();
+  const depthByRegionId = regionDepths(doc);
   const nodes: FlowNode[] = doc.nodes.map((node) => {
     nextNodeIds.add(node.id);
     const isBlocked = blocked.has(node.id);
     const isGroup = node.type === "group";
-    const zIndex = isGroup
-      ? GROUP_Z_BASE + regionStack(doc, node.id).length
-      : FURNITURE_Z;
+    const regionDepth = isGroup ? (depthByRegionId.get(node.id) ?? 0) : undefined;
+    const zIndex = isGroup ? GROUP_Z_BASE + (regionDepth ?? 0) : FURNITURE_Z;
     const cached = cache?.nodes.get(node.id);
+    // Depth is part of the key: resizing one region changes the nesting of
+    // regions whose own node object never moved.
     if (
       cached &&
       cached.data?.node === node &&
       cached.data.blocked === isBlocked &&
+      cached.data.regionDepth === regionDepth &&
       cached.zIndex === zIndex
     ) {
       return cached;
@@ -224,7 +253,7 @@ export const toFlow = (
       id: node.id,
       type: node.type,
       position: { x: node.x, y: node.y },
-      data: { node, blocked: isBlocked },
+      data: { node, blocked: isBlocked, regionDepth },
       style: visualSize,
       // Group band (base + nesting depth) behind wires; furniture above edges.
       zIndex,
