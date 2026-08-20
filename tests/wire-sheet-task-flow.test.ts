@@ -38,8 +38,8 @@ describe("isTaskFlowPair", () => {
   });
 
   it("is false when either endpoint is an actor", () => {
-    expect(isTaskFlowPair(node("worker", "agent"), sink("review"))).toBe(false);
-    expect(isTaskFlowPair(sink("review"), node("worker", "agent"))).toBe(false);
+    expect(isTaskFlowPair(node("seat-a", "agent"), sink("review"))).toBe(false);
+    expect(isTaskFlowPair(sink("review"), node("seat-a", "agent"))).toBe(false);
   });
 
   it("is false for a missing endpoint (reads as geography, never sink)", () => {
