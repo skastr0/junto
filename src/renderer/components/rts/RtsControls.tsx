@@ -18,6 +18,7 @@ import {
   Play,
   Plus,
   Radio,
+  ScrollText,
   Server,
   SlidersHorizontal,
   SquareX,
@@ -68,6 +69,7 @@ import {
   PageBindingControl,
   PageUrlControl,
   RelayEditor,
+  SinkContractControl,
   TaskQueueHomeControl,
   TimerEditor,
   WatcherEditor,
@@ -387,13 +389,20 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
 }
 
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [homeOpen, setHomeOpen] = useState(false);
+  const [pop, setPop] = useState<"home" | "contract" | null>(null);
   const fleetUi =
     FLEET_UI_ENABLED &&
     isCommandCenterAuthoring(use$(state$.settings.station.role));
+  const contract = node.ether?.tasks?.contract;
+  const authored = Boolean(
+    contract?.instruction?.trim() ||
+      (contract?.claims?.length ?? 0) > 0 ||
+      contract?.inbound ||
+      contract?.outbound,
+  );
 
   useEffect(() => {
-    setHomeOpen(false);
+    setPop(null);
   }, [node.id]);
 
   return (
@@ -419,18 +428,32 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       >
         <Pencil size={ICON} />
       </KindKey>
+      <KindKey
+        label={pop === "contract" ? "Close contract" : "Sink contract"}
+        title="Standing law for this station"
+        active={pop === "contract" || authored}
+        style={pop === "contract" || authored ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "contract" ? null : "contract"))}
+      >
+        <ScrollText size={ICON} />
+      </KindKey>
       {/* Queue home is pure host choice — a fleet surface. */}
       {fleetUi ? (
         <KindKey
-          label={homeOpen ? "Close queue home" : "Queue home"}
+          label={pop === "home" ? "Close queue home" : "Queue home"}
           title="Host for new tasks"
-          active={homeOpen}
-          onClick={() => setHomeOpen((open) => !open)}
+          active={pop === "home"}
+          onClick={() => setPop((current) => (current === "home" ? null : "home"))}
         >
           <Server size={ICON} />
         </KindKey>
       ) : null}
-      {fleetUi && homeOpen ? (
+      {pop === "contract" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <SinkContractControl node={node} />
+        </div>
+      ) : null}
+      {fleetUi && pop === "home" ? (
         <div className="rts-kind-pop rts-kind-pop--queue-home">
           <TaskQueueHomeControl node={node} />
         </div>
