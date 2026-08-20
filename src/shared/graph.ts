@@ -71,22 +71,64 @@ export const blockedEdgeIds = (
 
 export const isGroup = (node: CanvasNode): node is GroupNode => node.type === "group";
 
-// The single membership predicate (I9): a node is a region member only when
-// its FULL bounding rect lies inside the region's rect — a node partially
+// The single membership predicate (I9): a target is inside a region only when
+// its FULL bounding rect lies inside the region's rect — a rect partially
 // overlapping a region is out. Promoted from the kernel's stricter rule
 // (formerly duplicated center-point rules in kernel/cycle.ts and
-// renderer/lib/geometry.ts); every membership consumer — kernel pulse
-// delivery, region rollups, digest, work, and renderer displays — derives
-// from this one function. Renderer keeps a separate, explicitly non-membership
-// helper for drag-hold interaction (center-point, includes nested regions).
-const isFullyContained = (group: GroupNode, node: CanvasNode): boolean =>
-  node.x >= group.x &&
-  node.y >= group.y &&
-  node.x + node.width <= group.x + group.width &&
-  node.y + node.height <= group.y + group.height;
+// renderer/lib/geometry.ts); every membership consumer — region rollups,
+// digest, work, authz, and renderer displays — derives from this one
+// predicate. Renderer keeps a separate, explicitly non-membership helper for
+// drag-hold interaction (center-point, includes nested regions).
+export type RegionRect = {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+};
 
-// Named geography: membership is full-rect containment inside the group
-// rect. Groups never contain groups (flat, POC rule).
+const isFullyContained = (group: GroupNode, rect: RegionRect): boolean =>
+  rect.x >= group.x &&
+  rect.y >= group.y &&
+  rect.x + rect.width <= group.x + group.width &&
+  rect.y + rect.height <= group.y + group.height;
+
+/**
+ * Region nesting is authoring-time-warned past this depth (UI only) — never a
+ * hard data rejection. Renderer z bands rely on typical depths staying below
+ * the edge band.
+ */
+export const MAX_REGION_DEPTH = 8;
+
+/**
+ * Every group whose rect fully contains the target rect, sorted
+ * area-descending (outer → inner; equal area ties break on node id).
+ * Overlapping regions are allowed: the stack is ALL containers, not a tree
+ * path. Works for plain nodes and for groups (region-in-region nesting); a
+ * group is never in its own stack.
+ */
+export const regionStack = (
+  doc: CanvasDoc,
+  target: string | RegionRect,
+): ReadonlyArray<GroupNode> => {
+  const selfId = typeof target === "string" ? target : undefined;
+  const rect =
+    typeof target === "string"
+      ? doc.nodes.find((node) => node.id === target)
+      : target;
+  if (!rect) return [];
+  return doc.nodes
+    .filter(isGroup)
+    .filter((group) => group.id !== selfId && isFullyContained(group, rect))
+    .sort(
+      (a, b) =>
+        b.width * b.height - a.width * a.height || a.id.localeCompare(b.id),
+    );
+};
+
+// Named geography: membership is full-rect containment inside the group rect.
+// Members are non-group nodes only; with nesting, a node inside an inner
+// region is a member of EVERY containing region. Region-in-region structure
+// is exposed via regionStack / childRegions, not via members.
 export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> => {
   const groups = doc.nodes.filter(isGroup);
   const members = new Map<string, string[]>();
@@ -99,4 +141,16 @@ export const groupMembers = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<
     );
   }
   return members;
+};
+
+/** Groups fully contained inside `groupId`'s rect (all descendants, document order). */
+export const childRegions = (
+  doc: CanvasDoc,
+  groupId: string,
+): ReadonlyArray<GroupNode> => {
+  const group = doc.nodes.find((node) => node.id === groupId);
+  if (!group || !isGroup(group)) return [];
+  return doc.nodes
+    .filter(isGroup)
+    .filter((candidate) => candidate.id !== groupId && isFullyContained(group, candidate));
 };

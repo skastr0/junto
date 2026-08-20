@@ -1,5 +1,5 @@
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
-import { groupMembers, isGroup } from "@shared/graph";
+import { groupMembers, isGroup, regionStack } from "@shared/graph";
 import {
   ALL_PORTS,
   admitPure,
@@ -52,7 +52,11 @@ export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
   );
 };
 
-/** Node ids that share a group with `nodeId` (excluding self). */
+/**
+ * Node ids that share a group with `nodeId` (excluding self). Nesting-correct
+ * as-is: a node inside an inner region is a member of every container, so
+ * co-members already span the whole region stack.
+ */
 export const regionCoMemberIds = (
   doc: CanvasDoc,
   nodeId: string,
@@ -68,29 +72,54 @@ export const regionCoMemberIds = (
   return [...out];
 };
 
+export type RegionBriefing = {
+  readonly id: string;
+  readonly label: string;
+  readonly instruction?: string;
+};
+
 /**
- * The first group containing nodeId, if any.
- * Includes optional `instruction` (region briefing) for work-control onboard.
+ * Every region containing nodeId, outer → inner (regionStack order), each
+ * with its own briefing instruction. Briefing consumers concatenate
+ * instructions outer → inner so nested seats inherit every layer's law.
+ */
+export const regionStackFor = (
+  doc: CanvasDoc,
+  nodeId: string,
+): ReadonlyArray<RegionBriefing> =>
+  regionStack(doc, nodeId).map((group) => {
+    const instruction = group.ether?.region?.instruction?.trim();
+    return {
+      id: group.id,
+      label: group.label?.trim() || group.id,
+      ...(instruction !== undefined && instruction.length > 0
+        ? { instruction }
+        : {}),
+    };
+  });
+
+/**
+ * One-region briefing view over the stack. Identity is the INNERMOST
+ * containing region (innermost wins where a single region is semantically
+ * needed — onboard's region field, spawn injection); the instruction
+ * concatenates every layer's briefing outer → inner so nested seats still
+ * inherit ambient law from all containers.
  */
 export const containingRegion = (
   doc: CanvasDoc,
   nodeId: string,
-): { readonly id: string; readonly label: string; readonly instruction?: string } | undefined => {
-  const members = groupMembers(doc);
-  for (const [groupId, ids] of members) {
-    if (!ids.includes(nodeId)) continue;
-    const group = doc.nodes.find((n) => n.id === groupId);
-    if (!group || !isGroup(group)) continue;
-    const instruction = group.ether?.region?.instruction;
-    return {
-      id: group.id,
-      label: group.label?.trim() || group.id,
-      ...(instruction !== undefined && instruction.trim().length > 0
-        ? { instruction: instruction.trim() }
-        : {}),
-    };
-  }
-  return undefined;
+): RegionBriefing | undefined => {
+  const stack = regionStackFor(doc, nodeId);
+  const innermost = stack[stack.length - 1];
+  if (!innermost) return undefined;
+  const instructions = stack
+    .map((region) => region.instruction)
+    .filter((instruction): instruction is string => instruction !== undefined);
+  return {
+    id: innermost.id,
+    label: innermost.label,
+    ...(instructions.length > 0 ? { instruction: instructions.join("\n\n") } : {}),
+  };
 };
 
 export const visibilityOf = (

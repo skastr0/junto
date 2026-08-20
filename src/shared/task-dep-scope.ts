@@ -1,5 +1,5 @@
 import type { CanvasDoc } from "./canvas";
-import { groupMembers } from "./graph";
+import { groupMembers, regionStack } from "./graph";
 import type { Task } from "./work-model";
 import { taskIndexById } from "./task-deps";
 
@@ -17,9 +17,12 @@ export const dependencyScopeNodeIds = (
   doc: CanvasDoc,
   sinkNodeId: string,
 ): ReadonlySet<string> => {
-  const members = groupMembers(doc);
-  for (const [, ids] of members) {
-    if (ids.includes(sinkNodeId)) return new Set(ids);
+  // One region is semantically needed here — innermost wins: the tightest
+  // containing region is the sink's dependency neighborhood.
+  const stack = regionStack(doc, sinkNodeId);
+  const innermost = stack[stack.length - 1];
+  if (innermost !== undefined) {
+    return new Set(groupMembers(doc).get(innermost.id) ?? []);
   }
   // Ungrouped: canvas-wide (no region boundary exists for this sink).
   return new Set(doc.nodes.map((node) => node.id));

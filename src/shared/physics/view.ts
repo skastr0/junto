@@ -132,6 +132,9 @@ export const canvasDocToCapabilityView = (
   }
 
   let regionPeers = HashMap.empty<NodeId, HashSet.HashSet<NodeId>>();
+  // Nesting-correct as-is: a node inside an inner region is a member of every
+  // container, so peers already span the whole region stack; groups stay out
+  // (geography holds no seat, so a region is never a peer).
   for (const [, ids] of groupMembers(doc)) {
     for (const id of ids) {
       const nid = asNodeId(id);

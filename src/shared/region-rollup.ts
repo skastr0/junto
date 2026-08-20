@@ -247,8 +247,10 @@ const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["co
 };
 
 // One rollup per group node, in document order. Only members per
-// groupMembers(doc) participate — groups never contain groups, and nodes
-// outside every region are ignored.
+// groupMembers(doc) participate — members are non-group nodes, and nodes
+// outside every region are ignored. Nesting-correct as-is: a node inside an
+// inner region is a member of every container, so severity aggregates up the
+// whole region stack without walking region-in-region structure.
 export const deriveRegionRollups = (input: RegionRollupInput): ReadonlyArray<RegionRollup> => {
   const {
     doc,

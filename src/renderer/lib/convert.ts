@@ -19,8 +19,18 @@ import {
   type WireFamily,
   type WirePresentation,
 } from "@shared/physics";
+import { regionStack } from "@shared/graph";
 import { AGENT_NODE_SIZE } from "./node-geometry";
 import { isLabelNode, nodeTitle, searchText } from "./presentation";
+
+// Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
+// paints above the region containing it (depth is authoring-warned at
+// MAX_REGION_DEPTH = 8, safely below the edge band); every edge sits above
+// every group, and furniture (non-group nodes) sits above edges so strokes
+// never cover faces.
+const GROUP_Z_BASE = 0;
+const EDGE_Z = 16;
+const FURNITURE_Z = 32;
 
 export type NodeData = {
   node: CanvasNode;
@@ -193,11 +203,19 @@ export const toFlow = (
   const nodes: FlowNode[] = doc.nodes.map((node) => {
     nextNodeIds.add(node.id);
     const isBlocked = blocked.has(node.id);
+    const isGroup = node.type === "group";
+    const zIndex = isGroup
+      ? GROUP_Z_BASE + regionStack(doc, node.id).length
+      : FURNITURE_Z;
     const cached = cache?.nodes.get(node.id);
-    if (cached && cached.data?.node === node && cached.data.blocked === isBlocked) {
+    if (
+      cached &&
+      cached.data?.node === node &&
+      cached.data.blocked === isBlocked &&
+      cached.zIndex === zIndex
+    ) {
       return cached;
     }
-    const isGroup = node.type === "group";
     const label = isLabelNode(node);
     const visualSize = entityKind(node) === "agent"
       ? AGENT_NODE_SIZE
@@ -208,8 +226,8 @@ export const toFlow = (
       position: { x: node.x, y: node.y },
       data: { node, blocked: isBlocked },
       style: visualSize,
-      // Groups behind wires; furniture above edges so strokes never cover faces.
-      zIndex: isGroup ? 0 : 2,
+      // Group band (base + nesting depth) behind wires; furniture above edges.
+      zIndex,
       // Regions are map furniture: they never grow connectors or participate
       // in React Flow's marquee hit-test. Region chrome still selects them
       // explicitly through GroupNode's label gesture, while the transparent
@@ -286,8 +304,9 @@ export const toFlow = (
         detail,
         ...facts,
       },
-      // Below non-group nodes (z=2). Selected edges may elevate via React Flow.
-      zIndex: 1,
+      // Above every group band, below furniture. Selected edges may elevate
+      // via React Flow.
+      zIndex: EDGE_Z,
     };
     cache?.edges.set(edge.id, { source: edge, flow: flowEdge });
     return flowEdge;

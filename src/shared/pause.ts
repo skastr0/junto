@@ -31,7 +31,11 @@ export type PauseScope =
   | { readonly kind: "node"; readonly id: string }
   | { readonly kind: "region"; readonly id: string };
 
-/** Region ids (group nodes) whose membership contains `nodeId`. */
+/**
+ * Region ids (group nodes) whose membership contains `nodeId`. Nesting-correct
+ * as-is: a seat inside an inner region is a member of every container, so
+ * pausing any region in the stack pauses the seat.
+ */
 export const regionsContaining = (
   doc: CanvasDoc,
   nodeId: string,

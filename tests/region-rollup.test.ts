@@ -421,6 +421,64 @@ describe("deriveRegionRollups — region shape", () => {
   });
 });
 
+describe("deriveRegionRollups — region nesting", () => {
+  it("three-deep nesting: a blocked seat in the innermost region bubbles into every ancestor rollup", () => {
+    const seat = actorSeat("hot", 120, 120, "hot");
+    const doc: CanvasDoc = {
+      nodes: [
+        group("outer", 0, 0, 1000, 1000, "outer"),
+        group("mid", 50, 50, 500, 500, "mid"),
+        group("inner", 100, 100, 200, 200, "inner"),
+        { ...seat, ether: { ...seat.ether, flags: ["blocker" as const] } },
+      ],
+      edges: [],
+    };
+    const rollups = deriveRegionRollups({ doc });
+    expect(rollups.map((rollup) => rollup.regionId)).toEqual(["outer", "mid", "inner"]);
+    for (const rollup of rollups) {
+      expect(rollup.severity).toBe("blocked");
+      expect(rollup.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 });
+      expect(rollup.members.map((member) => member.nodeId)).toEqual(["hot"]);
+    }
+  });
+
+  it("nesting aggregation: an inner member and an outer-only member both roll up to the outer region", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        group("outer", 0, 0, 1000, 1000, "outer"),
+        group("inner", 100, 100, 300, 300, "inner"),
+        node("deep", 120, 120, "deep", { flags: ["attention"] }),
+        node("shallow", 600, 600, "shallow"),
+      ],
+      edges: [],
+    };
+    const rollups = deriveRegionRollups({ doc });
+    const outer = rollups.find((rollup) => rollup.regionId === "outer");
+    const inner = rollups.find((rollup) => rollup.regionId === "inner");
+    expect(outer?.severity).toBe("attention");
+    expect(outer?.counts).toEqual({ total: 2, blocked: 0, attention: 1, working: 0 });
+    expect(inner?.severity).toBe("attention");
+    expect(inner?.members.map((member) => member.nodeId)).toEqual(["deep"]);
+  });
+
+  it("overlapping regions: a node inside both counts in both rollups", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        group("gA", 0, 0, 400, 300, "left"),
+        group("gB", 100, 0, 400, 300, "right"),
+        node("both", 150, 50, "shared", { flags: ["attention"] }),
+      ],
+      edges: [],
+    };
+    const rollups = deriveRegionRollups({ doc });
+    for (const rollup of rollups) {
+      expect(rollup.severity).toBe("attention");
+      expect(rollup.members.map((member) => member.nodeId)).toEqual(["both"]);
+    }
+    expect(rollups).toHaveLength(2);
+  });
+});
+
 describe("deriveRegionRollups — member ordering", () => {
   it("sorts by severity, then kind (agent, task/requests, rest), then document order", () => {
     const blockedSeat = actorSeat("blocked-seat", 10, 300, "on fire");

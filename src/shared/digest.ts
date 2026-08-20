@@ -138,7 +138,8 @@ export const digestCanvas = (
 
   const sections: string[][] = [];
 
-  // regions
+  // regions — nesting-correct as-is: a node inside an inner region is a
+  // member of every container, so each ancestor region lists it too.
   const groups = doc.nodes.filter(isGroup);
   if (groups.length > 0) {
     const members = groupMembers(doc);
