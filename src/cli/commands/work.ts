@@ -21,6 +21,7 @@ import {
   TasksUpdateArgs,
   type WorkOpName,
 } from "../../shared/work-control";
+import { tasksBoardCommand } from "./board";
 import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
@@ -125,6 +126,7 @@ export const tasksCommand = Command.make("tasks").pipe(
     tasksCreateCommand,
     tasksClaimCommand,
     tasksUpdateCommand,
+    tasksBoardCommand,
   ]),
 );
 
