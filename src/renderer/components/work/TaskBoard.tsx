@@ -54,6 +54,7 @@ import {
   validateTaskMediaParts,
 } from "@shared/task";
 import { ContentMedia } from "./ContentMedia";
+import { TaskJourney } from "./TaskJourney";
 import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
 import {
   arrivalGlance,
@@ -1685,6 +1686,7 @@ export { resolveArtifactsNodeId };
 
 function TaskDetailPanel({
   task,
+  nodeId,
   lanes,
   pending,
   claimantRetired,
@@ -1700,6 +1702,8 @@ function TaskDetailPanel({
   onRejectProposal,
 }: {
   readonly task: WorkTask;
+  /** Sink node the open row lives at — the journey reads its interiors from here. */
+  readonly nodeId: string;
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
   readonly claimantRetired: boolean;
@@ -1966,6 +1970,8 @@ function TaskDetailPanel({
             <p className="task-detail-panel__description">{task.reason}</p>
           </section>
         ) : null}
+
+        {isProposal ? null : <TaskJourney task={task} nodeId={nodeId} />}
 
         {task.dependsOn && task.dependsOn.length > 0 ? (
           <section className="task-detail-panel__section">
@@ -3039,6 +3045,7 @@ export function TaskBoard({
             <TaskDetailPanel
               key={selectedTask.id}
               task={selectedTask}
+              nodeId={node.id}
               lanes={boardLanes}
               pending={pendingTaskId === selectedTask.id}
               claimantRetired={
