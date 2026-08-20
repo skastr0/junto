@@ -78,7 +78,13 @@ const actorDoc = (
 });
 
 const workProjectionCases = [
-  ["tasks", { tasks: { items: [] } }],
+  // The tasks lane reads projected rows, not the bag: an authorial sink may
+  // legally carry `tasks: { items: [], contract }` (the contract is document
+  // truth), so this case names an actual projected task.
+  [
+    "tasks",
+    { tasks: { items: [{ id: "task-1", state: "submitted", history: [] }] } },
+  ],
   ["requests", { requests: { items: [] } }],
   ["messages", { messages: { items: [] } }],
   ["artifacts", { artifacts: { items: [] } }],

@@ -63,7 +63,14 @@ const taskSinkDoc = (): CanvasDoc =>
         height: 120,
         ether: {
           entity: { kind: "task" },
-          tasks: { items: [] },
+          // A projected row, not an empty shell: an authorial sink may legally
+          // carry `tasks: { items: [], contract }` (the contract is document
+          // truth), so the guard reads projected rows, not the bag's presence.
+          tasks: {
+            items: [
+              { id: "task-1", state: "submitted" as const, history: [] },
+            ],
+          },
         },
       },
     ],
@@ -353,6 +360,42 @@ describe("CanvasesService SQLite authority", () => {
         "work"
       )?.nodes[0]?.ether?.tasks
     ).toBeUndefined();
+  });
+
+  it("keeps the authored sink contract while stripping projected rows", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    const authored = taskSinkDoc();
+    await runtime.runPromise(
+      canvases.write("work", {
+        ...authored,
+        nodes: authored.nodes.map((node) => ({
+          ...node,
+          ether: {
+            ...node.ether,
+            tasks: {
+              ...node.ether?.tasks,
+              items: node.ether?.tasks?.items ?? [],
+              contract: {
+                instruction: "review before forwarding",
+                claims: [
+                  { id: "claim-1", text: "cite the source", severity: "hard" as const },
+                ],
+              },
+            },
+          },
+        })),
+      }),
+    );
+
+    const authority = await runtime.runPromise(canvases.authoritySnapshot());
+    const tasks = authority.documents.get("work")?.nodes[0]?.ether?.tasks;
+    expect(tasks?.items).toEqual([]);
+    expect(tasks?.contract).toEqual({
+      instruction: "review before forwarding",
+      claims: [{ id: "claim-1", text: "cite the source", severity: "hard" }],
+    });
   });
 
   it("compacts generation bodies to a bounded window and keeps the head", async () => {

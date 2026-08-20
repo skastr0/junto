@@ -1090,6 +1090,11 @@ const commitFullGeneration = (
  * WorkRepository owns the overlay mechanism; Canvases owns the inverse
  * boundary because no repository-private document transform may be required
  * to make authorial persistence safe.
+ *
+ * `ether.tasks.contract` is the one exception: the sink contract is
+ * operator-authored document truth, so it survives the strip while the
+ * projected rows beside it do not. `items` stays present-and-empty because
+ * WorkTasks requires it.
  */
 const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
   ...doc,
@@ -1110,14 +1115,18 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
     }
 
     const {
-      tasks: _tasks,
+      tasks: strippedTasks,
       requests: _requests,
       messages: _messages,
       artifacts: _artifacts,
       board: _board,
       pad: _pad,
-      ...ether
+      ...rest
     } = etherIn;
+    const contract = strippedTasks?.contract;
+    const ether = contract === undefined
+      ? rest
+      : { ...rest, tasks: { items: [], contract } };
     const kind = ether.entity?.kind;
     const text =
       node.type !== "text"
