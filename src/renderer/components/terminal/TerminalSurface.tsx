@@ -22,6 +22,7 @@ import { getVellumCommandApi } from "../../lib/vellum-api";
 import { xtermThemeFor } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
+import { shouldPresentTerminalFrames } from "../../lib/terminal-paint-lease";
 import {
   cellsForPane,
   ptyNotifyDelayMs,
@@ -641,6 +642,9 @@ export function TerminalSurface({
   const appearanceRef = useRef<ReturnType<typeof attachXtermAppearance> | null>(
     null,
   );
+  const gpuRef = useRef<WebglRendererAttachment | null>(null);
+  /** Activate / context-loss never re-arm, including after a visibility lease. */
+  const webglBlockedRef = useRef(false);
   /**
    * Durable terminal preferences, as last applied to this surface. Read
    * through terminalSettings(): an installed settings row written before the
@@ -882,6 +886,58 @@ export function TerminalSurface({
     if (shouldNotifyPtyResize(lastAcked.current, nextGeom)) scheduleChildNotify();
   };
 
+  const reportRenderer = (
+    kind: TerminalRendererKind,
+    detail: Record<string, unknown>,
+  ): void => {
+    try {
+      hostRef.current?.setAttribute(TERMINAL_RENDERER_ATTR, kind);
+      rootRef.current?.setAttribute(TERMINAL_RENDERER_ATTR, kind);
+    } catch {
+      // diagnostics must never break the surface
+    }
+    logTermGeom("renderer", { renderer: kind, ...detail });
+  };
+
+  /**
+   * Presenting is leased to on-screen seats. Dispose the WebGL addon when the
+   * pane is hidden so a keep-alive xterm cannot composite GPU frames; the
+   * default renderer keeps the buffer live for PTY writes. Reattach uses the
+   * same guarded path as first open. A failed GPU never re-arms.
+   */
+  const applyWebglLease = (present: boolean): void => {
+    const term = termRef.current;
+    if (!term) return;
+    if (!present) {
+      gpuRef.current?.dispose();
+      gpuRef.current = null;
+      reportRenderer("dom", { stage: "lease-paused" });
+      return;
+    }
+    if (gpuRef.current?.kind === "webgl") return;
+    if (webglBlockedRef.current) return;
+    const gpu = attachWebglRenderer({
+      create: () => new WebglAddon(),
+      load: (addon) => term.loadAddon(addon),
+      report: (kind, detail) => {
+        if (kind === "dom") {
+          gpuRef.current = null;
+          if (detail.stage === "activate" || detail.stage === "context-loss") {
+            webglBlockedRef.current = true;
+          }
+        }
+        reportRenderer(kind, detail);
+      },
+    });
+    gpuRef.current = gpu.kind === "webgl" ? gpu : null;
+    if (gpu.kind !== "webgl") return;
+    try {
+      term.refresh(0, Math.max(0, term.rows - 1));
+    } catch {
+      // Buffer is still live; the next write paints.
+    }
+  };
+
   useLayoutEffect(() => {
     const host = hostRef.current;
     const root = rootRef.current;
@@ -907,28 +963,17 @@ export function TerminalSurface({
     // for the life of this terminal.
     const openRect = host.getBoundingClientRect();
     term.open(host);
+    termRef.current = term;
+    fitRef.current = fit;
     // GPU paint. Measured: renderer paint, not the PTY backend, is what costs
     // during hard scrolling, and the DOM renderer amplifies whatever a TUI
     // repaints. Attach after open() so activation is synchronous — before
     // open() the addon defers itself to xterm's onWillOpen, and the guard
-    // never sees the failure it is there to catch.
-    const reportRenderer = (
-      kind: TerminalRendererKind,
-      detail: Record<string, unknown>,
-    ): void => {
-      try {
-        host.setAttribute(TERMINAL_RENDERER_ATTR, kind);
-        root?.setAttribute(TERMINAL_RENDERER_ATTR, kind);
-      } catch {
-        // diagnostics must never break the surface
-      }
-      logTermGeom("renderer", { renderer: kind, ...detail });
-    };
-    const gpu = attachWebglRenderer({
-      create: () => new WebglAddon(),
-      load: (addon) => term.loadAddon(addon),
-      report: reportRenderer,
-    });
+    // never sees the failure it is there to catch. Hidden keep-alive seats
+    // skip attach; applyWebglLease reattaches when the pane is visible.
+    applyWebglLease(
+      shouldPresentTerminalFrames({ visible: visibleRef.current }),
+    );
     {
       const openFallback = fallbackCell(prefs);
       const { cellW, cellH } = readCellSize(term, openFallback);
@@ -945,8 +990,6 @@ export function TerminalSurface({
         termRows: term.rows,
       });
     }
-    termRef.current = term;
-    fitRef.current = fit;
 
     /**
      * Wheel: do NOT capture-phase preventDefault.
@@ -1117,7 +1160,9 @@ export function TerminalSurface({
       appearanceRef.current = null;
       // Before term.dispose(): the addon's own teardown reaches back into the
       // terminal's render service.
-      gpu.dispose();
+      gpuRef.current?.dispose();
+      gpuRef.current = null;
+      webglBlockedRef.current = false;
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -1244,6 +1289,7 @@ export function TerminalSurface({
     // Blink is visibility AND preference: a hidden pane stops forcing repaints,
     // and an operator who turned blinking off never gets it back on focus.
     if (term) applyTerminalPrefs(prefsRef.current);
+    applyWebglLease(shouldPresentTerminalFrames({ visible }));
     if (!visible) return;
     if (!term) return;
     const claim = (): boolean => {
