@@ -12,7 +12,7 @@ import type {
   WatchWhen,
   WatchWhenAtom,
 } from "@shared/canvas";
-import type { FlowCycleError } from "@shared/flow-graph";
+import { isTaskFlowPair, type FlowCycleError } from "@shared/flow-graph";
 import {
   defaultEffectBoardCreateTopic,
   defaultEffectTasksCreate,
@@ -40,7 +40,6 @@ import {
   wirePresentation,
   wireRolePair,
   type ContractEvent,
-  type FactoryRoleName,
   type SheetSection,
   type WireFamily,
 } from "@shared/physics";
@@ -95,16 +94,6 @@ const describeEffectBinding = (binding: EffectEdgeBinding): string => {
       return `acts on ${target}`;
   }
 };
-
-/** Same resolution `resolveEdgeFamily` uses per side — a missing node reads geography, never sink. */
-const roleOfNode = (node: CanvasNode | undefined): FactoryRoleName =>
-  roleOf(resolveSpec({ isGroup: node?.type === "group", kind: node?.ether?.entity?.kind }));
-
-/** True only for a sink↔sink pair — the one pair no wire family covers (`SinkSink` refuses at connect); task-flow hops live here instead. */
-export const isSinkToSinkEdge = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): boolean => roleOfNode(fromNode) === "sink" && roleOfNode(toNode) === "sink";
 
 export const resolveEdgeFamily = (
   edge: CanvasEdge,
@@ -770,11 +759,14 @@ export const friendlyCycleMessage = (error: FlowCycleError, doc: CanvasDoc): str
 };
 
 /**
- * Sink→sink pipeline hop: a task-flow toggle plus authored direction
+ * Task-sink→task-sink pipeline hop: a task-flow toggle plus authored direction
  * (source → destination, independent of draw direction — setEdgeFlow accepts
- * either orientation of the edge's own endpoints). A rejected direction
- * (would close a DAG cycle) leaves the toggle off and explains why inline;
- * the shared mutation guard (shared/flow-graph.ts) is the source of truth.
+ * either orientation of the edge's own endpoints). Only a pair of `task`
+ * sinks reaches this section (`isTaskFlowPair`); any other sink kind cannot
+ * project a forwarded row, so it takes the ports attenuator instead. A
+ * rejected direction (would close a DAG cycle) leaves the toggle off and
+ * explains why inline; the shared mutation guard (shared/flow-graph.ts) is
+ * the source of truth.
  */
 function TaskFlowSection({
   edgeId,
@@ -885,7 +877,7 @@ export function WireSheetBody({
   if (!family && !agentRelay) {
     return (
       <>
-        {isSinkToSinkEdge(fromNode, toNode) ? (
+        {isTaskFlowPair(fromNode, toNode) ? (
           <TaskFlowSection edgeId={edge.id} edge={edge} fromNode={fromNode} toNode={toNode} />
         ) : (
           <EdgePortsAttenuator edge={edge} />

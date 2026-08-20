@@ -80,6 +80,18 @@ const runtimeWindow = {
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
 /** Access wires require factory roles — geography (plain notes) cannot connect. */
+/** A task sink — the only station a flow hop may name. */
+const taskSink = (id: string, x: number): CanvasDoc["nodes"][number] => ({
+  id,
+  type: "text",
+  text: id,
+  x,
+  y: 0,
+  width: 100,
+  height: 80,
+  ether: { entity: { kind: "task", name: id } },
+});
+
 const doc: CanvasDoc = {
   nodes: [
     {
@@ -1643,10 +1655,7 @@ describe("renderer graph mutations", () => {
   it("setEdgeFlow writes an aligned flow config and clears it", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
-      nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80 },
-        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 100, height: 80 },
-      ],
+      nodes: [taskSink("a", 0), taskSink("b", 300)],
       edges: [{ id: "e1", fromNode: "a", toNode: "b" }],
     });
 
@@ -1662,11 +1671,7 @@ describe("renderer graph mutations", () => {
   it("setEdgeFlow refuses a config naming nodes other than the edge's own endpoints", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
-      nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80 },
-        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 100, height: 80 },
-        { id: "c", type: "text", text: "c", x: 600, y: 0, width: 100, height: 80 },
-      ],
+      nodes: [taskSink("a", 0), taskSink("b", 300), taskSink("c", 600)],
       edges: [{ id: "e1", fromNode: "a", toNode: "b" }],
     });
 
@@ -1675,13 +1680,30 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
   });
 
-  it("setEdgeFlow rejects a config that would close a cycle and leaves the doc untouched", () => {
+  it("setEdgeFlow refuses a hop whose endpoint is not a task sink, and still clears one", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80 },
-        { id: "b", type: "text", text: "b", x: 300, y: 0, width: 100, height: 80 },
+        taskSink("a", 0),
+        { id: "pad", type: "text", text: "pad", x: 300, y: 0, width: 100, height: 80, ether: { entity: { kind: "pad", name: "Pad" } } },
       ],
+      edges: [
+        { id: "e1", fromNode: "a", toNode: "pad", ether: { flow: { source: "a", destination: "pad" } } },
+      ],
+    });
+
+    const result = setEdgeFlow("e1", { source: "pad", destination: "a" });
+    expect(result).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether?.flow).toEqual({ source: "a", destination: "pad" });
+
+    expect(setEdgeFlow("e1", undefined)).toBeUndefined();
+    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
+  });
+
+  it("setEdgeFlow rejects a config that would close a cycle and leaves the doc untouched", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [taskSink("a", 0), taskSink("b", 300)],
       edges: [
         { id: "ab", fromNode: "a", toNode: "b", ether: { flow: { source: "a", destination: "b" } } },
         { id: "ba", fromNode: "b", toNode: "a" },

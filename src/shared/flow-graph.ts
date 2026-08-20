@@ -1,5 +1,6 @@
 import { Schema } from "effect";
-import type { CanvasDoc, CanvasEdge } from "./canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "./canvas";
+import { NodeSpec, resolveSpec } from "./physics/kinds";
 
 // Task-flow graph derived from edge `ether.flow` configs. Pure — no I/O.
 // The flow graph must be a DAG: a flow config that would close a cycle is
@@ -21,6 +22,28 @@ export class FlowCycleError extends Schema.TaggedErrorClass<FlowCycleError>()(
     message: Schema.String,
   },
 ) {}
+
+const isSinkSpec = NodeSpec.$is("Sink");
+
+/**
+ * A task sink — the only station a hop may name. Forwarding writes the row
+ * into the destination's `ether.tasks` (`workTaskTransition`), and no other
+ * sink kind projects that: a pad/board/page/requests destination would take
+ * delivery of work it can never show, claim, or close.
+ */
+export const isTaskSinkNode = (node: CanvasNode | undefined): boolean => {
+  const spec = resolveSpec({
+    isGroup: node?.type === "group",
+    kind: node?.ether?.entity?.kind,
+  });
+  return isSinkSpec(spec) && spec.kind === "task";
+};
+
+/** Both endpoints of a hop must be task sinks — the pair a flow config needs. */
+export const isTaskFlowPair = (
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+): boolean => isTaskSinkNode(fromNode) && isTaskSinkNode(toNode);
 
 /**
  * A flow config must name the edge's own endpoints (either orientation) —
