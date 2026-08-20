@@ -16,6 +16,7 @@ import {
   evaluateForkWaivers,
   evaluateTerminalClose,
   requiredBoardingChecks,
+  respondedAtStation,
   stationReceipts,
   taskAdmissionState,
   taskEpoch,
@@ -203,13 +204,48 @@ describe("station receipts and fork waivers", () => {
       ],
     });
     const receipts = stationReceipts(journeyDoc(passedTask), live);
-    expect([...receipts.responded]).toEqual(["c-s1"]);
+    expect([...receipts.responded.keys()]).toEqual(["c-s1"]);
+    expect([...receipts.responded.get("c-s1") ?? []]).toEqual(["s1"]);
     expect([...receipts.waived]).toEqual(["c-waived"]);
 
     const bumped = { ...live, epoch: 1 };
     const stale = stationReceipts(journeyDoc(passedTask), bumped);
     expect(stale.responded.size).toBe(0);
     expect(stale.waived.size).toBe(0);
+  });
+
+  it("never lets a response recorded at one station satisfy a claim addressed to another", () => {
+    // A claim addressed to s4 is answered (illegitimately) at s1's own
+    // completion row, then the task travels s1 -> s2. Forwarding from s2
+    // down a branch that abandons s4 must still demand a waiver — the s1
+    // response must not leak across the station boundary.
+    const leakedAtS1 = baseTask("t1", {
+      state: "completed",
+      completionEvidence: {
+        artifacts: [],
+        responses: [{ claimId: "c-s4", response: "answered at the wrong station" }],
+      },
+    });
+    const task = baseTask("t1", {
+      claims: [taskClaim("c-s4", "s4")],
+      journey: [
+        { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "forwarded", next: "s2" },
+        { nodeId: "s2", enteredAt: "2026-08-20T01:00:00.000Z", epoch: 0 },
+      ],
+    });
+    const receipts = stationReceipts(journeyDoc(leakedAtS1), task);
+    expect(respondedAtStation(receipts.responded, "s4", "c-s4")).toBe(false);
+    expect(respondedAtStation(receipts.responded, "s1", "c-s4")).toBe(true);
+
+    const failure = evaluateForkWaivers({
+      doc: journeyDoc(leakedAtS1),
+      sinkNodeId: "s2",
+      task,
+      next: "s3",
+      evidence: { artifacts: [] },
+    });
+    expect(failure?.missing).toBe("claims.forkWaiver");
+    expect(failure?.claimId).toBe("c-s4");
   });
 
   it("requires a waiver for claims addressed off the chosen branch", () => {
@@ -310,6 +346,43 @@ describe("evaluateTerminalClose", () => {
         responses: [{ claimId: "c-s1", response: "answered at the wrong station" }],
       },
     });
+    expect(failure?.claimId).toBe("c-s1");
+  });
+
+  it("refuses to close on a receipt recorded at a station other than the one the claim addresses", () => {
+    // c-s1 is addressed to s1, but the response landed on s2's own passage
+    // row (e.g. a stray entry from an earlier evidence submission there).
+    // Terminal close at s2 must still demand it be checked at s1.
+    const task = baseTask("t1", {
+      claims: [taskClaim("c-s1", "s1")],
+      journey: [
+        { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "forwarded", next: "s2" },
+        { nodeId: "s2", enteredAt: "2026-08-20T01:00:00.000Z", epoch: 0 },
+      ],
+    });
+    const leakedDoc: CanvasDoc = {
+      nodes: [
+        sink("s1"),
+        sink("s2", undefined, [
+          {
+            ...task,
+            state: "completed",
+            completionEvidence: {
+              artifacts: [],
+              responses: [{ claimId: "c-s1", response: "leaked from s2's own row" }],
+            },
+          },
+        ]),
+      ],
+      edges: [flowEdge("e1", "s1", "s2")],
+    };
+    const failure = evaluateTerminalClose({
+      doc: leakedDoc,
+      sinkNodeId: "s2",
+      task,
+      evidence: { artifacts: [] },
+    });
+    expect(failure?.missing).toBe("claims.terminal");
     expect(failure?.claimId).toBe("c-s1");
   });
 });

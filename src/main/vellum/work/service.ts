@@ -73,6 +73,7 @@ import { taskIsClaimReady } from "@shared/task-deps";
 import {
   effectiveClaimsStack,
   requiredBoardingChecks,
+  respondedAtStation,
   sinkContractOf,
   stationReceipts,
   taskAdmissionState,
@@ -1680,10 +1681,20 @@ export const WorkLive = Layer.effect(
           if (task === undefined) return { stack };
           const receipts = stationReceipts(read.doc, task);
           const unanswered = stack
-            .filter(({ claim }) =>
-              !receipts.responded.has(claim.id) &&
-              !(claim.severity === "soft" && receipts.waived.has(claim.id)),
-            )
+            .filter(({ claim, provenance }) => {
+              // Task claims are station-addressed: only a response recorded
+              // at their own station counts. Region/sink claims are ambient
+              // law in force at every station they cover, so any response
+              // for the same claimId settles it journey-wide.
+              const responded =
+                provenance.kind === "task"
+                  ? respondedAtStation(receipts.responded, provenance.station, claim.id)
+                  : receipts.responded.has(claim.id);
+              return (
+                !responded &&
+                !(claim.severity === "soft" && receipts.waived.has(claim.id))
+              );
+            })
             .map(({ claim }) => ({
               claimId: claim.id,
               severity: claim.severity,

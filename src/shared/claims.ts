@@ -171,13 +171,27 @@ export const carryClaimEvidence = (
  * A response/waiver lives in the station row's completionEvidence at that
  * station (the passage record); a defect-back epoch bump stales prior epochs
  * for closure accounting while history stays retained.
+ *
+ * `responded` maps claimId -> the set of stations that recorded a response
+ * for it. Region/sink (ambient) claims are read "answered anywhere" — the
+ * same law is in force at every station it covers, so one response settles
+ * it for the whole journey. Task claims are station-addressed and must be
+ * read with `respondedAtStation`, which checks the claim's OWN station only
+ * — a response recorded at station A must never be read as satisfying a
+ * task claim addressed to a different station Z (see evaluateForkWaivers /
+ * evaluateTerminalClose). `waived` stays flat/journey-wide: a fork-waiver is
+ * exercised at whichever forwarding station's choice abandons the claim's
+ * station — rarely the claim's own station, that is the point of waiving it.
  */
 export const stationReceipts = (
   doc: CanvasDoc,
   task: Task,
-): { readonly responded: ReadonlySet<string>; readonly waived: ReadonlySet<string> } => {
+): {
+  readonly responded: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly waived: ReadonlySet<string>;
+} => {
   const epoch = taskEpoch(task);
-  const responded = new Set<string>();
+  const responded = new Map<string, Set<string>>();
   const waived = new Set<string>();
   const seen = new Set<string>();
   for (const passage of task.journey ?? []) {
@@ -188,7 +202,9 @@ export const stationReceipts = (
       (item) => item.id === task.id,
     );
     for (const entry of row?.completionEvidence?.responses ?? []) {
-      responded.add(entry.claimId);
+      const stations = responded.get(entry.claimId) ?? new Set<string>();
+      stations.add(passage.nodeId);
+      responded.set(entry.claimId, stations);
     }
     for (const entry of row?.completionEvidence?.claimWaivers ?? []) {
       waived.add(entry.claimId);
@@ -196,6 +212,13 @@ export const stationReceipts = (
   }
   return { responded, waived };
 };
+
+/** True only when `claimId` was answered exactly at `station` — never elsewhere. */
+export const respondedAtStation = (
+  responded: ReadonlyMap<string, ReadonlySet<string>>,
+  station: string,
+  claimId: string,
+): boolean => responded.get(claimId)?.has(station) ?? false;
 
 /**
  * Fork-waiver rule at forward time: forwarding is choose-one, so any task
@@ -214,17 +237,19 @@ export const evaluateForkWaivers = (params: {
   if (claims.length === 0) return undefined;
   const reachable = reachableStations(params.doc, params.next);
   const receipts = stationReceipts(params.doc, params.task);
-  const responded = new Set([
-    ...receipts.responded,
-    ...(params.evidence?.responses ?? []).map((entry) => entry.claimId),
-  ]);
+  const localResponded = new Set(
+    (params.evidence?.responses ?? []).map((entry) => entry.claimId),
+  );
   const waived = new Set([
     ...receipts.waived,
     ...(params.evidence?.claimWaivers ?? []).map((entry) => entry.claimId),
   ]);
   for (const claim of claims) {
     if (reachable.has(claim.station)) continue;
-    if (responded.has(claim.id) || waived.has(claim.id)) continue;
+    const respondedAtOwnStation =
+      respondedAtStation(receipts.responded, claim.station, claim.id) ||
+      (claim.station === params.sinkNodeId && localResponded.has(claim.id));
+    if (respondedAtOwnStation || waived.has(claim.id)) continue;
     return {
       missing: "claims.forkWaiver",
       claimId: claim.id,
@@ -249,7 +274,7 @@ export const evaluateTerminalClose = (params: {
   const claims = params.task.claims ?? [];
   if (claims.length === 0) return undefined;
   const receipts = stationReceipts(params.doc, params.task);
-  const localResponses = new Set(
+  const localResponded = new Set(
     (params.evidence?.responses ?? []).map((entry) => entry.claimId),
   );
   const waived = new Set([
@@ -257,11 +282,10 @@ export const evaluateTerminalClose = (params: {
     ...(params.evidence?.claimWaivers ?? []).map((entry) => entry.claimId),
   ]);
   for (const claim of claims) {
-    const respondedHere =
-      claim.station === params.sinkNodeId && localResponses.has(claim.id);
-    if (respondedHere || receipts.responded.has(claim.id) || waived.has(claim.id)) {
-      continue;
-    }
+    const respondedAtOwnStation =
+      respondedAtStation(receipts.responded, claim.station, claim.id) ||
+      (claim.station === params.sinkNodeId && localResponded.has(claim.id));
+    if (respondedAtOwnStation || waived.has(claim.id)) continue;
     return {
       missing: "claims.terminal",
       claimId: claim.id,
