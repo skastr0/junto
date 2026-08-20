@@ -54,6 +54,7 @@ import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 import { Chip, Select, type ChipTone } from "./ui";
+import { RegionContractEditor, SinkContractEditor } from "./claims";
 import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 
 // ---------------------------------------------------------------------------
@@ -502,6 +503,19 @@ export function TaskQueueHomeControl({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+/**
+ * Sink standing law — purpose, claims, arrivals, departures. Used from the
+ * RTS kind-strip pop, the same shape as the queue-home control above.
+ */
+export function SinkContractControl({ node }: { readonly node: CanvasNode }) {
+  return (
+    <div className="inspector-section" style={{ marginTop: 0 }}>
+      <div className="inspector-section__label">contract</div>
+      <SinkContractEditor node={node} />
+    </div>
+  );
+}
+
 /** Host + profile for a page — used from RTS kind-strip pop. */
 export function PageBindingControl({ node }: { readonly node: CanvasNode }) {
   const storedProfile = node.ether?.browser?.profile ?? "personal";
@@ -597,6 +611,7 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   return <>
     {node.type === "group" ? <RegionBriefingEditor node={node} /> : null}
+    {kind === "task" ? <SinkContractEditor node={node} /> : null}
     {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor node={node} /> : null}
     {CRON_ENABLED && (kind === "timer" || kind === "cron") ? <TimerEditor node={node} /> : null}
     {RELAY_ENABLED && kind === "relay" ? <RelayEditor node={node} /> : null}
@@ -935,7 +950,10 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
 };
 
 /**
- * Region briefing — context agents receive on onboard.
+ * Region briefing — context agents receive on onboard — plus the region's
+ * standing law (claims + pinned rulings) beneath it. Briefing is prose a seat
+ * reads; claims are prompts a closing task must answer. Both are the same
+ * operator-authored region contract, so they are authored in one place.
  * Single copy line; large editor; CLI refs use first-class amber mono.
  */
 export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
@@ -973,6 +991,7 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
           }
         }}
       />
+      <RegionContractEditor node={node} />
     </div>
   );
 }
