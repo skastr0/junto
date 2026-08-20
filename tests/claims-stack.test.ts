@@ -21,6 +21,7 @@ import {
   taskAdmissionState,
   taskEpoch,
 } from "../src/shared/claims";
+import { HOLD_FOR_MAX_MS } from "../src/shared/work-control";
 
 const claim = (id: string, severity: "hard" | "soft" = "hard"): ClaimDef => ({
   id,
@@ -448,6 +449,49 @@ describe("boarding", () => {
       }),
     ).toBeUndefined();
   });
+
+  it("flags a ticket as stale when the check's authored command changed since it was stamped", () => {
+    const checks = requiredBoardingChecks(doc, "s1", "s2");
+    const ticket = (checkId: string, side: "outbound" | "inbound", command: string) => ({
+      checkId,
+      side,
+      label: checkId,
+      command,
+      exitCode: 0,
+      outputTail: "",
+      at: "2026-08-20T02:00:00.000Z",
+      epoch: 0,
+    });
+
+    // Both tickets green, but the outbound one was stamped against a command
+    // the operator has since edited — the doc's check now reads "true --edited".
+    const editedDoc: CanvasDoc = {
+      nodes: [
+        sink("s1", { outbound: { checklist: [{ id: "out-1", label: "check out-1", command: "true --edited" }] } }),
+        sink("s2", { inbound: { checklist: [check("in-1")] } }),
+      ],
+      edges: [flowEdge("e1", "s1", "s2")],
+    };
+    const editedChecks = requiredBoardingChecks(editedDoc, "s1", "s2");
+    const failure = evaluateBoarding({
+      task: baseTask("t1", {
+        boarding: [ticket("out-1", "outbound", "true"), ticket("in-1", "inbound", "true")],
+      }),
+      checks: editedChecks,
+    });
+    expect(failure?.missing).toBe("boarding.stale");
+    expect(failure?.next_step).toContain("re-run the boarding checks");
+
+    // Unedited commands stay green.
+    expect(
+      evaluateBoarding({
+        task: baseTask("t1", {
+          boarding: [ticket("out-1", "outbound", "true"), ticket("in-1", "inbound", "true")],
+        }),
+        checks,
+      }),
+    ).toBeUndefined();
+  });
 });
 
 describe("admission", () => {
@@ -507,5 +551,20 @@ describe("computeHoldUntil", () => {
     );
     expect(computeHoldUntil(now, undefined, undefined)).toBeUndefined();
     expect(computeHoldUntil(now, 0, undefined)).toBeUndefined();
+  });
+
+  it("clamps any delay to HOLD_FOR_MAX_MS, whichever source supplied it", () => {
+    const overMaxHoldFor = HOLD_FOR_MAX_MS + 24 * 60 * 60 * 1000;
+    expect(computeHoldUntil(now, undefined, overMaxHoldFor)).toBe(
+      new Date(now + HOLD_FOR_MAX_MS).toISOString(),
+    );
+    const overMaxStationDefault = HOLD_FOR_MAX_MS * 10;
+    expect(computeHoldUntil(now, overMaxStationDefault, undefined)).toBe(
+      new Date(now + HOLD_FOR_MAX_MS).toISOString(),
+    );
+    // Within bound stays untouched.
+    expect(computeHoldUntil(now, undefined, 60_000)).toBe(
+      "2026-08-20T12:01:00.000Z",
+    );
   });
 });

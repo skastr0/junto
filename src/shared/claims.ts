@@ -11,6 +11,7 @@ import type {
 import { resolveSinkAdmission } from "./work-model";
 import { regionStack } from "./graph";
 import { reachableStations } from "./flow-graph";
+import { HOLD_FOR_MAX_MS } from "./work-control";
 
 // Pipeline claims enforcement — pure structural checks only. The work service
 // verifies presence/shape of responses, waivers, and tickets; it never
@@ -322,8 +323,11 @@ export const requiredBoardingChecks = (
 };
 
 /**
- * Every required check needs a green (exit 0) current-epoch ticket. A red or
- * missing ticket names the first blocked check.
+ * Every required check needs a green (exit 0) current-epoch ticket stamped
+ * against the check's CURRENT authored command. A ticket carries the command
+ * it ran (see Ticket.command); if the operator edits the check afterward, the
+ * ticket no longer speaks to what the check now demands and is stale — a red,
+ * missing, or stale ticket names the first blocked check.
  */
 export const evaluateBoarding = (params: {
   readonly task: Task;
@@ -342,6 +346,13 @@ export const evaluateBoarding = (params: {
         missing: "boarding",
         message: `${side} boarding check "${check.label}" has no ticket for epoch ${epoch}`,
         next_step: `run the boarding checks (tasks board) so the work service can stamp a green ticket for check ${check.id}`,
+      };
+    }
+    if (ticket.command !== check.command) {
+      return {
+        missing: "boarding.stale",
+        message: `${side} boarding check "${check.label}" ticket is stale — the authored command changed since it was stamped`,
+        next_step: `re-run the boarding checks (tasks board) so the work service can stamp a fresh ticket for check ${check.id}`,
       };
     }
     if (ticket.exitCode !== 0) {
@@ -396,6 +407,9 @@ export const taskAdmissionState = (
 /**
  * holdUntil stamped at arrival: an explicit per-task holdFor stamp wins over
  * the station's claimableAfterMs default. Undefined when neither applies.
+ * Clamped to HOLD_FOR_MAX_MS regardless of source — a stale or unvalidated
+ * station default must never park a task past the same outer bound the wire
+ * schema enforces on holdForMs.
  */
 export const computeHoldUntil = (
   nowMs: number,
@@ -404,5 +418,5 @@ export const computeHoldUntil = (
 ): string | undefined => {
   const delay = holdForMs ?? claimableAfterMs;
   if (delay === undefined || delay <= 0) return undefined;
-  return new Date(nowMs + delay).toISOString();
+  return new Date(nowMs + Math.min(delay, HOLD_FOR_MAX_MS)).toISOString();
 };
