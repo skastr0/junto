@@ -4,7 +4,9 @@ import {
   TasksClaimArgs,
   TasksCreateArgs,
   TasksUpdateArgs,
+  TasksUpdateCliArgs,
   ArtifactPublishCliArgs,
+  HOLD_FOR_MAX_MS,
   PreambleArgs,
   RequestEscalateArgs,
 } from "../src/shared/work-control";
@@ -254,6 +256,82 @@ describe("work CLI batch outcomes", () => {
   });
 });
 
+describe("tasks update state-conditional filters", () => {
+  const decode = (schema: typeof TasksUpdateArgs | typeof TasksUpdateCliArgs, item: unknown) =>
+    Result.isSuccess(Schema.decodeUnknownResult(schema as never)(item));
+
+  it.each([
+    ["completionEvidence", { target: "n7", task: "t1", state: "working", completionEvidence: { artifacts: [] } }],
+    ["next", { target: "n7", task: "t1", state: "working", next: "n8" }],
+    ["defect", { target: "n7", task: "t1", state: "completed", defect: { summary: "no" } }],
+  ] as const)("rejects %s off its required state on the wire schema", (_name, item) => {
+    expect(decode(TasksUpdateArgs, item)).toBe(false);
+  });
+
+  it("rejects holdForMs off completed on the wire schema", () => {
+    expect(
+      decode(TasksUpdateArgs, {
+        target: "n7",
+        task: "t1",
+        state: "working",
+        holdForMs: 1000,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a holdForMs stamp past HOLD_FOR_MAX_MS on the wire schema", () => {
+    expect(
+      decode(TasksUpdateArgs, {
+        target: "n7",
+        task: "t1",
+        state: "completed",
+        holdForMs: HOLD_FOR_MAX_MS + 1,
+      }),
+    ).toBe(false);
+    expect(
+      decode(TasksUpdateArgs, {
+        target: "n7",
+        task: "t1",
+        state: "completed",
+        holdForMs: HOLD_FOR_MAX_MS,
+      }),
+    ).toBe(true);
+  });
+
+  // TasksUpdateCliArgs is the CLI-facing twin of TasksUpdateArgs (holdFor vs
+  // holdForMs); it must carry the same state-conditional guards or the CLI
+  // accepts combinations the daemon would reject.
+  it.each([
+    ["completionEvidence", { target: "n7", task: "t1", state: "working", completionEvidence: { artifacts: [] } }],
+    ["next", { target: "n7", task: "t1", state: "working", next: "n8" }],
+    ["defect", { target: "n7", task: "t1", state: "completed", defect: { summary: "no" } }],
+    ["holdFor", { target: "n7", task: "t1", state: "working", holdFor: "12h" }],
+  ] as const)("rejects %s off its required state on the CLI schema", (_name, item) => {
+    expect(decode(TasksUpdateCliArgs, item)).toBe(false);
+  });
+
+  it("accepts the matching state for each conditional field on the CLI schema", () => {
+    expect(
+      decode(TasksUpdateCliArgs, {
+        target: "n7",
+        task: "t1",
+        state: "completed",
+        completionEvidence: { artifacts: [] },
+        next: "n8",
+        holdFor: "12h",
+      }),
+    ).toBe(true);
+    expect(
+      decode(TasksUpdateCliArgs, {
+        target: "n7",
+        task: "t1",
+        state: "rejected",
+        defect: { summary: "sent back" },
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("schema/examples from validating schemas", () => {
   it("every schema contract produces JSON Schema", () => {
     for (const contract of allSchemas) {
@@ -345,6 +423,22 @@ describe("schema/examples from validating schemas", () => {
     expect(
       allExamples.some((example) => example.command_id === "request.create"),
     ).toBe(false);
+  });
+
+  it("discovers tasks board with schema, example, and capability", () => {
+    const schemaIds = allSchemas.map((contract) => contract.command_id);
+    const capabilityIds = commandCapabilities.map(
+      (capability) => capability.command_id,
+    );
+    const exampleIds = allExamples.map((example) => example.command_id);
+    expect(schemaIds).toContain("tasks.board");
+    expect(capabilityIds).toContain("tasks.board");
+    expect(exampleIds).toContain("tasks.board");
+    const schema = allSchemas.find(
+      (contract) => contract.command_id === "tasks.board",
+    );
+    expect(schema?.schema_id).toBe("tasks.board.input/v1");
+    expect(schema?.command).toBe("tasks board");
   });
 
   it("discovers the seat-local preamble command", () => {

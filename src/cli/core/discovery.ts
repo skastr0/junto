@@ -31,6 +31,7 @@ import {
   PreambleArgs,
   RequestEscalateArgs,
   RulingsArgs,
+  TasksBoardCliArgs,
   TasksClaimArgs,
   TasksClaimsArgs,
   TasksCreateArgs,
@@ -242,6 +243,16 @@ export const tasksClaimsSchema: CommandSchemaContract = {
   description:
     "Effective claims at a station (region stack, sink contract, station-addressed task claims) with provenance. Name a task to also get readiness: unanswered claims and per-destination ticket status.",
   schema: TasksClaimsArgs,
+  input_modes: inputModes,
+};
+
+export const tasksBoardSchema: CommandSchemaContract = {
+  command_id: "tasks.board",
+  command: "tasks board",
+  schema_id: "tasks.board.input/v1",
+  description:
+    "Run this move's boarding checks (station outbound + chosen destination inbound) in the seat's own environment and submit what happened; the work service stamps tickets from these results. Name next when the station forks.",
+  schema: TasksBoardCliArgs,
   input_modes: inputModes,
 };
 
@@ -534,6 +545,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksUpdateSchema,
   tasksShowSchema,
   tasksClaimsSchema,
+  tasksBoardSchema,
   rulingsSchema,
   msgListSchema,
   msgSendSchema,
@@ -727,6 +739,24 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     description: "What is still unanswered, and which boarding tickets are green.",
     input: { target: "n7", task: "t1" },
     args: ["tasks", "claims", '{"target":"n7","task":"t1"}'],
+  },
+  {
+    command_id: "tasks.board",
+    command: "tasks board",
+    name: "run boarding checks",
+    description:
+      "Resolve and run the applicable checklists locally, then submit results; tickets are stamped from what the checks returned.",
+    input: { target: "n7", task: "t1" },
+    args: ["tasks", "board", '{"target":"n7","task":"t1"}'],
+  },
+  {
+    command_id: "tasks.board",
+    command: "tasks board",
+    name: "run boarding checks toward a destination",
+    description:
+      "Name the destination when the station forks; its inbound checklist joins the station's outbound checks.",
+    input: { target: "n7", task: "t1", next: "n8" },
+    args: ["tasks", "board", '{"target":"n7","task":"t1","next":"n8"}'],
   },
   {
     command_id: "rulings",
@@ -1139,6 +1169,15 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     description: "Effective claims at a station, plus readiness for a named task.",
     schemas: [tasksClaimsSchema],
     examples: allExamples.filter((e) => e.command_id === "tasks.claims"),
+  },
+  {
+    command_id: "tasks.board",
+    command: "tasks board",
+    category: "workflow",
+    description:
+      "Run this move's boarding checks in the seat's environment and submit the results; tickets are stamped from what came back.",
+    schemas: [tasksBoardSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.board"),
   },
   {
     command_id: "rulings",

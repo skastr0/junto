@@ -256,8 +256,14 @@ const tasksUpdateFields = {
   defect: Schema.optionalKey(TaskDefectArgs),
 } as const;
 
+/** Outer bound on a completion-time hold/park stamp — no operator recourse beyond this. */
+export const HOLD_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+
 const holdForMsField = Schema.optionalKey(
-  Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  Schema.Number.pipe(
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+    Schema.check(Schema.isLessThanOrEqualTo(HOLD_FOR_MAX_MS)),
+  ),
 );
 
 export const TasksUpdateArgs = Schema.Struct({
@@ -294,7 +300,24 @@ export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
 export const TasksUpdateCliArgs = Schema.Struct({
   ...tasksUpdateFields,
   holdFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
-}).annotate({
+}).pipe(
+  Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
+    completionEvidence === undefined ||
+    state === "completed" ||
+    "completionEvidence is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, next }) =>
+    next === undefined ||
+    state === "completed" ||
+    "next is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, holdFor }) =>
+    holdFor === undefined ||
+    state === "completed" ||
+    "holdFor is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, defect }) =>
+    defect === undefined ||
+    state === "rejected" ||
+    "defect is only allowed when state is rejected",)),
+).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateCliArgs = typeof TasksUpdateCliArgs.Type;
@@ -337,6 +360,22 @@ export const TasksBoardArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksBoardArgs = typeof TasksBoardArgs.Type;
+
+/**
+ * CLI-facing `tasks board` input. The CLI resolves the applicable
+ * checklists, runs each command in the seat's own environment, and submits
+ * what it observed as `TasksBoardArgs` — the caller only ever supplies
+ * target/task/next, never `results`.
+ */
+export const TasksBoardCliArgs = Schema.Struct({
+  target: Schema.String,
+  task: Schema.String,
+  /** Destination whose inbound checklist applies — required when it forks. */
+  next: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksBoardCliArgs = typeof TasksBoardCliArgs.Type;
 
 export const RulingsArgs = Schema.Struct({
   /** Omitted: the seat's own region stack. */
