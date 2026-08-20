@@ -104,9 +104,11 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
   completed: new Set(["submitted", "archived"]),
   canceled: new Set(["archived"]),
   failed: new Set(["archived"]),
-  // Defect-back: a rejected task with a prior passage re-homes to the previous
-  // journey sink as submitted (epoch bump); pipeline-head rejects stay terminal.
-  rejected: new Set(["submitted", "archived"]),
+  // Rejected stays terminal in this generic matrix — defect-back re-homing
+  // (rejected passage row -> submitted at the destination on a later forward)
+  // is authorized locally by repository.forwardTask, not opened here, so no
+  // other caller can resurrect a rejected task in place.
+  rejected: new Set(["archived"]),
   archived: new Set(),
 };
 

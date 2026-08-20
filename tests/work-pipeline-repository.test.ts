@@ -312,6 +312,86 @@ describe("pipeline persistence", () => {
     expect(returned?.completionEvidence).toBeUndefined();
   });
 
+  it("forwards again: re-opens the previously-rejected destination row as submitted", async () => {
+    // Second visit to stage-2 after the defect-back cycle above: stage-2's
+    // row is currently "rejected" (a closed passage record, not archived).
+    // The generic transition matrix keeps rejected terminal for every other
+    // caller, so this re-open must be authorized locally by forwardTask.
+    const priorJourney = [
+      {
+        nodeId: "stage-1",
+        enteredAt: observedAt,
+        epoch: 0,
+        exitedAt: "2026-08-20T11:00:00.000Z",
+        exit: "forwarded" as const,
+        next: "stage-2",
+        emissionNote: "packaged for review",
+      },
+      {
+        nodeId: "stage-2",
+        enteredAt: "2026-08-20T11:00:00.000Z",
+        epoch: 0,
+        exitedAt: "2026-08-20T12:00:00.000Z",
+        exit: "rejected-back" as const,
+        next: "stage-1",
+      },
+    ];
+    const journeyExit = [
+      ...priorJourney,
+      {
+        nodeId: "stage-1",
+        enteredAt: "2026-08-20T12:00:00.000Z",
+        epoch: 1,
+        exitedAt: "2026-08-20T13:00:00.000Z",
+        exit: "forwarded" as const,
+        next: "stage-2",
+        emissionNote: "fixed the acceptance case",
+      },
+    ];
+    const destinationTask: Task = {
+      id: "task-bag",
+      state: "submitted",
+      history: [
+        {
+          messageId: "m-bag-4",
+          role: "user",
+          parts: [{ kind: "text", text: "carry the pipeline" }],
+        },
+      ],
+      claims: [
+        { id: "c-1", text: "prove the build", severity: "hard", station: "stage-2" },
+      ],
+      epoch: 2,
+      journey: [
+        ...journeyExit,
+        { nodeId: "stage-2", enteredAt: "2026-08-20T13:00:00.000Z", epoch: 2 },
+      ],
+      metadata: { origin: "test" },
+    };
+    const result = await runtime.runPromise(
+      repository.forwardTask({
+        sink: s1,
+        basis,
+        taskId: "task-bag",
+        completionEvidence: {
+          artifacts: [],
+          responses: [{ claimId: "c-other", response: "fixed and re-checked" }],
+        },
+        journey: journeyExit,
+        destination: s2,
+        destinationTask,
+        originAt: "2026-08-20T13:00:00.000Z",
+        receivedAt: "2026-08-20T13:00:00.000Z",
+      }),
+    );
+    expect(result.value.source.state).toBe("completed");
+
+    const reopened = await taskAt(s2, "task-bag");
+    expect(reopened?.state).toBe("submitted");
+    expect(reopened?.claimedBy).toBeUndefined();
+    expect(reopened?.epoch).toBe(2);
+  });
+
   it("promotes an operator-gated arrival with an epoch-scoped stamp", async () => {
     await runtime.runPromise(
       repository.createTask({
