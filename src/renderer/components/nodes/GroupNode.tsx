@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "lucide-react";
+import { AlertTriangle, Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
+import { MAX_REGION_DEPTH, regionStack } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$, toggleConnectionFocus } from "../../lib/state";
@@ -154,6 +155,11 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
   );
   const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
+  // Authoring-time-only warning (never a data rejection) — recomputed off the
+  // live doc so a resize (NodeResizer.onResizeEnd -> resizeNode) that pushes
+  // this region past MAX_REGION_DEPTH ancestors shows up immediately.
+  const nestingDepth = use$(() => regionStack(state$.doc.get(), node.id).length);
+  const nestedTooDeep = nestingDepth > MAX_REGION_DEPTH;
 
   useEffect(() => {
     if (!editing) return;
@@ -300,6 +306,14 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
       {hasPaths ? <span title="Region has host folder paths" style={{ display: "inline-flex", flexShrink: 0 }}><FolderOpen aria-label="Region has folder paths" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
       {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
+      {nestedTooDeep ? (
+        <span
+          title={`Nested ${nestingDepth} regions deep, past ${MAX_REGION_DEPTH} — still works, but consider flattening`}
+          style={{ display: "inline-flex", flexShrink: 0 }}
+        >
+          <AlertTriangle aria-label="Region nesting is very deep" size={10} style={{ opacity: 0.8, color: HUE.amber }} />
+        </span>
+      ) : null}
     </div>
     {pathsOpen ? <div style={{ pointerEvents: "auto" }}><RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /></div> : null}
   </div>;

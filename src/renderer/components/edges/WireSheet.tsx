@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type {
+  CanvasDoc,
   CanvasEdge,
   CanvasNode,
   EdgeEffect,
@@ -11,6 +12,7 @@ import type {
   WatchWhen,
   WatchWhenAtom,
 } from "@shared/canvas";
+import type { FlowCycleError } from "@shared/flow-graph";
 import {
   defaultEffectBoardCreateTopic,
   defaultEffectTasksCreate,
@@ -38,6 +40,7 @@ import {
   wirePresentation,
   wireRolePair,
   type ContractEvent,
+  type FactoryRoleName,
   type SheetSection,
   type WireFamily,
 } from "@shared/physics";
@@ -57,6 +60,7 @@ import {
   setEdgeEffect,
   setEdgeWhen,
 } from "../../lib/edge-mutations";
+import { setEdgeFlow } from "../../lib/mutations";
 import { noteSchedulerFire } from "../../lib/edge-sparks";
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
@@ -91,6 +95,16 @@ const describeEffectBinding = (binding: EffectEdgeBinding): string => {
       return `acts on ${target}`;
   }
 };
+
+/** Same resolution `resolveEdgeFamily` uses per side — a missing node reads geography, never sink. */
+const roleOfNode = (node: CanvasNode | undefined): FactoryRoleName =>
+  roleOf(resolveSpec({ isGroup: node?.type === "group", kind: node?.ether?.entity?.kind }));
+
+/** True only for a sink↔sink pair — the one pair no wire family covers (`SinkSink` refuses at connect); task-flow hops live here instead. */
+export const isSinkToSinkEdge = (
+  fromNode: CanvasNode | undefined,
+  toNode: CanvasNode | undefined,
+): boolean => roleOfNode(fromNode) === "sink" && roleOfNode(toNode) === "sink";
 
 export const resolveEdgeFamily = (
   edge: CanvasEdge,
@@ -744,6 +758,95 @@ function AgentRelayModeSection({
   );
 }
 
+/** Translate a raw FlowCycleError (station ids) into a titled, readable line. */
+export const friendlyCycleMessage = (error: FlowCycleError, doc: CanvasDoc): string => {
+  const titleOf = (id: string): string => {
+    const node = doc.nodes.find((candidate) => candidate.id === id);
+    return node ? nodeTitle(node) : "that station";
+  };
+  const names = error.cycle.map(titleOf);
+  const loop = names.length > 0 ? `${names.join(" → ")} → ${names[0]}` : "a loop";
+  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different destination.`;
+};
+
+/**
+ * Sink→sink pipeline hop: a task-flow toggle plus authored direction
+ * (source → destination, independent of draw direction — setEdgeFlow accepts
+ * either orientation of the edge's own endpoints). A rejected direction
+ * (would close a DAG cycle) leaves the toggle off and explains why inline;
+ * the shared mutation guard (shared/flow-graph.ts) is the source of truth.
+ */
+function TaskFlowSection({
+  edgeId,
+  edge,
+  fromNode,
+  toNode,
+}: {
+  readonly edgeId: string;
+  readonly edge: CanvasEdge;
+  readonly fromNode: CanvasNode | undefined;
+  readonly toNode: CanvasNode | undefined;
+}) {
+  const doc = use$(state$.doc);
+  const flow = edge.ether?.flow;
+  const enabled = flow !== undefined;
+  const reversed = enabled && flow.source === edge.toNode;
+  const [cycleMessage, setCycleMessage] = useState("");
+  const fromLabel = fromNode ? nodeTitle(fromNode) : "this station";
+  const toLabel = toNode ? nodeTitle(toNode) : "the other station";
+
+  const applyDirection = (source: string, destination: string): void => {
+    const rejection = setEdgeFlow(edgeId, { source, destination });
+    setCycleMessage(rejection ? friendlyCycleMessage(rejection, doc) : "");
+  };
+
+  return (
+    <div className="inspector-section">
+      <div className="inspector-section__label">Task flow</div>
+      <label className="inspector-check" htmlFor={`flow-${edgeId}`}>
+        <input
+          id={`flow-${edgeId}`}
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => {
+            if (event.target.checked) {
+              applyDirection(edge.fromNode, edge.toNode);
+            } else {
+              setEdgeFlow(edgeId, undefined);
+              setCycleMessage("");
+            }
+          }}
+        />
+        <span className="inspector-check__label">Forward tasks along this link</span>
+      </label>
+      {enabled ? (
+        <label className="inspector-editor">
+          <span>Direction</span>
+          <Select
+            dense
+            aria-label="Task flow direction"
+            value={reversed ? "reverse" : "forward"}
+            options={[
+              { value: "forward", label: `${fromLabel} → ${toLabel}` },
+              { value: "reverse", label: `${toLabel} → ${fromLabel}` },
+            ]}
+            onChange={(value) =>
+              value === "reverse"
+                ? applyDirection(edge.toNode, edge.fromNode)
+                : applyDirection(edge.fromNode, edge.toNode)
+            }
+          />
+        </label>
+      ) : null}
+      {cycleMessage ? (
+        <div role="alert" className="inspector-detail" style={{ color: HUE.crimson, marginTop: 8 }}>
+          {cycleMessage}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function WireSheetBody({
   edge,
   fromNode,
@@ -782,7 +885,11 @@ export function WireSheetBody({
   if (!family && !agentRelay) {
     return (
       <>
-        <EdgePortsAttenuator edge={edge} />
+        {isSinkToSinkEdge(fromNode, toNode) ? (
+          <TaskFlowSection edgeId={edge.id} edge={edge} fromNode={fromNode} toNode={toNode} />
+        ) : (
+          <EdgePortsAttenuator edge={edge} />
+        )}
         {showDelete && onDelete ? (
           <div className="inspector-actions">
             <button
