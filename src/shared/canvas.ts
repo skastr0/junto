@@ -2,12 +2,14 @@ import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
 import { Port } from "./physics/schema";
 import {
+  ClaimDef,
   EtherArtifacts,
   EtherBoard,
   EtherMessages,
   EtherPad,
   EtherRequests,
   EtherTasks,
+  Ruling,
 } from "./work-model";
 import { scrubDoesEffect } from "./node-insert";
 
@@ -17,6 +19,11 @@ export {
   BoardGlanceTopic,
   BoardPost,
   BoardTopic,
+  CheckDef,
+  ClaimDef,
+  ClaimResponse,
+  ClaimSeverity,
+  ClaimWaiver,
   ContentAvailability,
   ContentByteLength,
   ContentCorrupt,
@@ -46,11 +53,23 @@ export {
   Message,
   MessageRole,
   Part,
+  Passage,
+  PassageExit,
   RawPart,
+  resolveSinkAdmission,
+  Ruling,
+  SinkAdmission,
   Task,
+  TaskClaim,
   TaskProposal,
   TaskState,
+  TasksInboundContract,
+  TasksOutboundContract,
+  TasksSinkContract,
   TextPart,
+  Ticket,
+  TicketSide,
+  TICKET_OUTPUT_TAIL_MAX_BYTES,
   UrlPart,
   isContentPart,
   WorkArtifacts,
@@ -258,6 +277,16 @@ export const EtherRegionDefaults = Schema.Struct({
 });
 export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 
+// Operator-authored region standing law. Claims stack onto every task closing
+// at a sink inside the region (outer → inner across the region stack);
+// rulings are pinned escalation precedents served via onboard / claim packet.
+// Seats have no authorial write path to this contract.
+export const EtherRegionContract = Schema.Struct({
+  claims: Schema.optionalKey(Schema.Array(ClaimDef)),
+  rulings: Schema.optionalKey(Schema.Array(Ruling)),
+});
+export type EtherRegionContract = typeof EtherRegionContract.Type;
+
 // Region behavior (group nodes only). `hold: true` makes the region a
 // structural container: nodes spatially inside it travel with it when it
 // moves. `instruction` is optional operator briefing text for agents inside
@@ -272,6 +301,7 @@ export const EtherRegion = Schema.Struct({
   hold: Schema.optionalKey(Schema.Boolean),
   instruction: Schema.optionalKey(Schema.String),
   defaults: Schema.optionalKey(EtherRegionDefaults),
+  contract: Schema.optionalKey(EtherRegionContract),
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
@@ -460,10 +490,21 @@ export const EtherNodeExtension = Schema.Struct({
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
+// Task-flow wire (pipeline hop between task sinks). Direction is authored via
+// source/destination, which must equal the edge's own endpoints in either
+// orientation — enforced by the mutation guard and shared/flow-graph.ts, not
+// by this decoder. The flow graph over these edges is a DAG (no split/rejoin
+// at act time; forwarding is choose-one).
+export const EtherEdgeFlow = Schema.Struct({
+  source: Schema.String,
+  destination: Schema.String,
+});
+export type EtherEdgeFlow = typeof EtherEdgeFlow.Type;
+
 /**
  * Wire areas on edges. Derived (not authorial): sentence, family color, badges.
  * Phase mirror may stamp `kind` for offline JSON Canvas readers only.
- * Canonical words: stops, wake, does, when, slot, ports.
+ * Canonical words: stops, wake, does, when, slot, ports, flow.
  */
 export const EtherEdgeExtension = Schema.Struct({
   ports: Schema.optionalKey(Schema.Array(Port)),
@@ -473,6 +514,8 @@ export const EtherEdgeExtension = Schema.Struct({
   slot: Schema.optionalKey(WireSlot),
   when: Schema.optionalKey(WatchWhen),
   does: Schema.optionalKey(EdgeEffect),
+  /** Task-flow hop config (operator-authored, DAG-guarded). */
+  flow: Schema.optionalKey(EtherEdgeFlow),
   /** Derived phase mirror for offline readers — never authoring input. */
   kind: Schema.optionalKey(EdgePhase),
 });
@@ -489,6 +532,10 @@ export const edgeWake = (
 export const edgeDoes = (
   ether: EtherEdgeExtension | undefined,
 ): EdgeEffect | undefined => ether?.does;
+
+export const edgeFlow = (
+  ether: EtherEdgeExtension | undefined,
+): EtherEdgeFlow | undefined => ether?.flow;
 
 const nodeBase = {
   id: Schema.String,
@@ -560,7 +607,6 @@ const decodeCanvasDocStrict = Schema.decodeUnknownResult(CanvasDoc, {
 export const encodeCanvasDoc = Schema.encodeResult(CanvasDoc);
 
 const WORK_PROJECTION_KEYS = [
-  "tasks",
   "requests",
   "messages",
   "artifacts",
@@ -568,10 +614,20 @@ const WORK_PROJECTION_KEYS = [
   "pad",
 ] as const;
 
+const isNonEmptyArrayField = (value: unknown, key: string): boolean => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return Array.isArray(field) && field.length > 0;
+};
+
 /**
  * Runtime work projections share CanvasDoc with authorial intent so composed
  * readers have one shape. Persistence boundaries use this detector before
  * decode because a valid projected store must never become durable intent.
+ * `ether.tasks` is special: its `contract` is operator-authored document
+ * truth, so only projected rows (items/proposals) make it a work projection.
  */
 export const containsWorkProjection = (input: unknown): boolean => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
@@ -587,8 +643,17 @@ export const containsWorkProjection = (input: unknown): boolean => {
     if (ether === null || typeof ether !== "object" || Array.isArray(ether)) {
       return false;
     }
-    return WORK_PROJECTION_KEYS.some((key) =>
-      Object.prototype.hasOwnProperty.call(ether, key),
+    if (
+      WORK_PROJECTION_KEYS.some((key) =>
+        Object.prototype.hasOwnProperty.call(ether, key),
+      )
+    ) {
+      return true;
+    }
+    const tasks = (ether as { readonly tasks?: unknown }).tasks;
+    return (
+      isNonEmptyArrayField(tasks, "items") ||
+      isNonEmptyArrayField(tasks, "proposals")
     );
   });
 };
@@ -668,6 +733,7 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         if (eth.slot !== undefined) next.slot = eth.slot;
         if (eth.when !== undefined) next.when = eth.when;
         if (does !== undefined) next.does = does;
+        if (eth.flow !== undefined) next.flow = eth.flow;
         if (eth.kind !== undefined) next.kind = eth.kind;
         // Drop: criteria, effect, notify, relayState, proof/approval stops, dual keys.
         if (Object.keys(next).length === 0) {

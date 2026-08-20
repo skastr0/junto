@@ -104,7 +104,9 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
   completed: new Set(["submitted", "archived"]),
   canceled: new Set(["archived"]),
   failed: new Set(["archived"]),
-  rejected: new Set(["archived"]),
+  // Defect-back: a rejected task with a prior passage re-homes to the previous
+  // journey sink as submitted (epoch bump); pipeline-head rejects stay terminal.
+  rejected: new Set(["submitted", "archived"]),
   archived: new Set(),
 };
 
