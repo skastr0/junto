@@ -20,6 +20,7 @@ import {
   escalateCommand,
   msgCommand,
   preambleCommand,
+  rulingsCommand,
   tasksCommand,
 } from "./commands/work";
 import { contentCommand } from "./commands/content";
@@ -64,6 +65,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     examplesCommand,
     preambleCommand,
     tasksCommand,
+    rulingsCommand,
     msgCommand,
     escalateCommand,
     artifactCommand,

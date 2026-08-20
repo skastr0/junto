@@ -241,7 +241,7 @@ export const TaskDefectArgs = Schema.Struct({
 });
 export type TaskDefectArgs = typeof TaskDefectArgs.Type;
 
-export const TasksUpdateArgs = Schema.Struct({
+const tasksUpdateFields = {
   target: Schema.String,
   task: Schema.String,
   state: TaskState,
@@ -251,10 +251,16 @@ export const TasksUpdateArgs = Schema.Struct({
   next: Schema.optionalKey(Schema.String),
   /** Send the task back to the previous station with a defect on record. */
   defect: Schema.optionalKey(TaskDefectArgs),
-  /** Bake time stamped on arrival at `next` (CLI parses "7d" / "12h" to ms). */
-  holdForMs: Schema.optionalKey(
-    Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
-  ),
+} as const;
+
+const holdForMsField = Schema.optionalKey(
+  Schema.Number.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+);
+
+export const TasksUpdateArgs = Schema.Struct({
+  ...tasksUpdateFields,
+  /** Bake time stamped on arrival at `next`, in milliseconds. */
+  holdForMs: holdForMsField,
 }).pipe(
   Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
     completionEvidence === undefined ||
@@ -276,6 +282,19 @@ export const TasksUpdateArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
+
+/**
+ * CLI-side update input. Identical to the wire shape except `holdFor`, which
+ * accepts a duration the operator would speak ("7d", "12h", "90m") or plain
+ * milliseconds; the CLI parses it to `holdForMs` before the call.
+ */
+export const TasksUpdateCliArgs = Schema.Struct({
+  ...tasksUpdateFields,
+  holdFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksUpdateCliArgs = typeof TasksUpdateCliArgs.Type;
 
 export const TasksShowArgs = Schema.Struct({
   target: Schema.String,

@@ -15,13 +15,18 @@ import {
   MsgSendArgs,
   PreambleArgs,
   RequestEscalateArgs,
+  RulingsArgs,
   TasksClaimArgs,
+  TasksClaimsArgs,
   TasksCreateArgs,
   TasksListArgs,
-  TasksUpdateArgs,
+  TasksShowArgs,
+  TasksUpdateCliArgs,
   type WorkOpName,
 } from "../../shared/work-control";
 import { tasksBoardCommand } from "./board";
+import { toTasksUpdateArgs } from "../core/duration";
+import { InputError } from "../core/errors";
 import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
@@ -35,6 +40,8 @@ const toUndefined = <A>(value: Option.Option<A>) =>
 const jsonInputArg = Argument.string("input").pipe(
   Argument.withDescription("JSON object, @file path, raw JSON string, or - for stdin"),
 );
+
+const optionalJsonInputArg = jsonInputArg.pipe(Argument.optional);
 
 const concurrencyOption = Flag.integer("concurrency").pipe(
   Flag.optional,
@@ -113,21 +120,100 @@ const tasksUpdateCommand = Command.make(
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: TasksUpdateArgs,
-        run: (item) => callDomain("tasks.update", item, toUndefined(timeout)),
+        itemSchema: TasksUpdateCliArgs,
+        run: (item) =>
+          Effect.gen(function* () {
+            const lowered = toTasksUpdateArgs(item);
+            if (!lowered.ok) {
+              return yield* Effect.fail(
+                new InputError({
+                  message: lowered.message,
+                  path: "holdFor",
+                  received: item.holdFor,
+                }),
+              );
+            }
+            return yield* callDomain(
+              "tasks.update",
+              lowered.args,
+              toUndefined(timeout),
+            );
+          }),
       }),
     ),
-).pipe(Command.withDescription("Update task state (batch-capable)"));
+).pipe(
+  Command.withDescription(
+    "Update task state — claim responses and waivers on completionEvidence, forward with next, send back with defect (batch-capable)",
+  ),
+);
+
+const tasksShowCommand = Command.make(
+  "show",
+  { input: jsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "tasks show",
+      Effect.gen(function* () {
+        const item = yield* loadJsonInput(TasksShowArgs, input);
+        return yield* callDomain("tasks.show", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Show one task with its journey — prior stations appear as what they published, never their interiors",
+  ),
+);
+
+const tasksClaimsCommand = Command.make(
+  "claims",
+  { input: jsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "tasks claims",
+      Effect.gen(function* () {
+        const item = yield* loadJsonInput(TasksClaimsArgs, input);
+        return yield* callDomain("tasks.claims", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Effective claims at a station with provenance; name a task for readiness (unanswered claims, ticket status)",
+  ),
+);
 
 export const tasksCommand = Command.make("tasks").pipe(
   Command.withDescription("Task work-plane ops"),
   Command.withSubcommands([
     tasksListCommand,
+    tasksShowCommand,
     tasksCreateCommand,
     tasksClaimCommand,
+    tasksClaimsCommand,
     tasksUpdateCommand,
     tasksBoardCommand,
   ]),
+);
+
+/** Operator-pinned precedent over the seat's (or a target's) region stack. */
+export const rulingsCommand = Command.make(
+  "rulings",
+  { input: optionalJsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) =>
+    executeJsonCommand(
+      "rulings",
+      Effect.gen(function* () {
+        const raw = Option.match(input, {
+          onNone: () => "{}",
+          onSome: (value) => (value.trim().length === 0 ? "{}" : value),
+        });
+        const item = yield* loadJsonInput(RulingsArgs, raw);
+        return yield* callDomain("rulings", item, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Pinned rulings for this seat's region stack, or a connected target's",
+  ),
 );
 
 // --- seat-local preamble --------------------------------------------------
@@ -150,8 +236,6 @@ export const preambleCommand = Command.make(
 );
 
 // --- msg ---
-
-const optionalJsonInputArg = jsonInputArg.pipe(Argument.optional);
 
 const msgListCommand = Command.make(
   "list",

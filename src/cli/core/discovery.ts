@@ -30,10 +30,13 @@ import {
   MsgSendArgs,
   PreambleArgs,
   RequestEscalateArgs,
+  RulingsArgs,
   TasksClaimArgs,
+  TasksClaimsArgs,
   TasksCreateArgs,
   TasksListArgs,
-  TasksUpdateArgs,
+  TasksShowArgs,
+  TasksUpdateCliArgs,
 } from "../../shared/work-control";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
@@ -214,11 +217,41 @@ export const tasksCreateSchema: CommandSchemaContract = {
 export const tasksUpdateSchema: CommandSchemaContract = {
   command_id: "tasks.update",
   command: "tasks update",
-  schema_id: "tasks.update.input/v2",
+  schema_id: "tasks.update.input/v3",
   description:
-    "Transition a task to a new task state. On completed, optional completionEvidence supplies artifacts + git commits for finish-criteria gates.",
-  schema: TasksUpdateArgs,
+    "Transition a task to a new task state. On completed, completionEvidence supplies artifacts + git commits for finish-criteria gates and responses + claimWaivers for the station's claims; next names the forward destination and holdFor (\"7d\", \"12h\", or ms) bakes the arrival. On rejected, defect sends the task back to the previous station.",
+  schema: TasksUpdateCliArgs,
   accepts_batch: true,
+  input_modes: inputModes,
+};
+
+export const tasksShowSchema: CommandSchemaContract = {
+  command_id: "tasks.show",
+  command: "tasks show",
+  schema_id: "tasks.show.input/v1",
+  description:
+    "Show one task with its journey. Prior stations appear as what they published (emission note + cited refs), never their interiors.",
+  schema: TasksShowArgs,
+  input_modes: inputModes,
+};
+
+export const tasksClaimsSchema: CommandSchemaContract = {
+  command_id: "tasks.claims",
+  command: "tasks claims",
+  schema_id: "tasks.claims.input/v1",
+  description:
+    "Effective claims at a station (region stack, sink contract, station-addressed task claims) with provenance. Name a task to also get readiness: unanswered claims and per-destination ticket status.",
+  schema: TasksClaimsArgs,
+  input_modes: inputModes,
+};
+
+export const rulingsSchema: CommandSchemaContract = {
+  command_id: "rulings",
+  command: "rulings",
+  schema_id: "rulings.input/v1",
+  description:
+    "Operator-pinned rulings across a region stack, outer to inner. No target: this seat's own stack.",
+  schema: RulingsArgs,
   input_modes: inputModes,
 };
 
@@ -499,6 +532,9 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksCreateSchema,
   tasksClaimSchema,
   tasksUpdateSchema,
+  tasksShowSchema,
+  tasksClaimsSchema,
+  rulingsSchema,
   msgListSchema,
   msgSendSchema,
   msgReadSchema,
@@ -624,6 +660,80 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       },
     },
     args: FEW_SHOT_COMPLETE_EVIDENCE.args,
+  },
+  {
+    command_id: "tasks.update",
+    command: "tasks update",
+    name: "answer claims and forward",
+    description:
+      "Complete at this station with a response per claim, then forward to the named destination.",
+    input: {
+      target: "n7",
+      task: "t1",
+      state: "completed",
+      note: "review passed",
+      completionEvidence: {
+        artifacts: [],
+        responses: [
+          { claimId: "c1", response: "ran the suite; all green", refs: ["abc123"] },
+        ],
+        claimWaivers: [{ claimId: "c2", reason: "no schema changed in this task" }],
+      },
+      next: "n8",
+      holdFor: "12h",
+    },
+    args: [
+      "tasks",
+      "update",
+      '{"target":"n7","task":"t1","state":"completed","note":"review passed","completionEvidence":{"artifacts":[],"responses":[{"claimId":"c1","response":"ran the suite; all green","refs":["abc123"]}],"claimWaivers":[{"claimId":"c2","reason":"no schema changed in this task"}]},"next":"n8","holdFor":"12h"}',
+    ],
+  },
+  {
+    command_id: "tasks.update",
+    command: "tasks update",
+    name: "send back with a defect",
+    description: "Return the task to the previous station with the reason on record.",
+    input: {
+      target: "n7",
+      task: "t1",
+      state: "rejected",
+      defect: { summary: "the brief names an endpoint that does not exist", refs: ["abc123"] },
+    },
+    args: [
+      "tasks",
+      "update",
+      '{"target":"n7","task":"t1","state":"rejected","defect":{"summary":"the brief names an endpoint that does not exist","refs":["abc123"]}}',
+    ],
+  },
+  {
+    command_id: "tasks.show",
+    command: "tasks show",
+    name: "show",
+    input: { target: "n7", task: "t1" },
+    args: ["tasks", "show", '{"target":"n7","task":"t1"}'],
+  },
+  {
+    command_id: "tasks.claims",
+    command: "tasks claims",
+    name: "station law",
+    description: "The standing claims at this station, with provenance.",
+    input: { target: "n7" },
+    args: ["tasks", "claims", '{"target":"n7"}'],
+  },
+  {
+    command_id: "tasks.claims",
+    command: "tasks claims",
+    name: "readiness for a task",
+    description: "What is still unanswered, and which boarding tickets are green.",
+    input: { target: "n7", task: "t1" },
+    args: ["tasks", "claims", '{"target":"n7","task":"t1"}'],
+  },
+  {
+    command_id: "rulings",
+    command: "rulings",
+    name: "own region stack",
+    input: {},
+    args: ["rulings"],
   },
   {
     command_id: "msg.send",
@@ -1013,6 +1123,30 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
       supports_concurrency_option: true,
     },
+  },
+  {
+    command_id: "tasks.show",
+    command: "tasks show",
+    category: "workflow",
+    description: "Show one task with its journey (onion-scoped for seats).",
+    schemas: [tasksShowSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.show"),
+  },
+  {
+    command_id: "tasks.claims",
+    command: "tasks claims",
+    category: "workflow",
+    description: "Effective claims at a station, plus readiness for a named task.",
+    schemas: [tasksClaimsSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.claims"),
+  },
+  {
+    command_id: "rulings",
+    command: "rulings",
+    category: "workflow",
+    description: "Operator-pinned rulings over a region stack.",
+    schemas: [rulingsSchema],
+    examples: allExamples.filter((e) => e.command_id === "rulings"),
   },
   {
     command_id: "msg.list",
