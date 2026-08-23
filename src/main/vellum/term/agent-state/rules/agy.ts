@@ -9,7 +9,7 @@ import type { SeatRulePack } from "../types";
 
 export const agyRules: SeatRulePack = {
   harness: "agy",
-  version: "2026.08.17.1",
+  version: "2026.08.23.1",
   rules: [
     {
       id: "modal_allow_action",
@@ -52,6 +52,41 @@ export const agyRules: SeatRulePack = {
           { regex: ["^\\s*[\\u2800-\\u28FF]+\\s+\\p{Alphabetic}+\\w*ing\\b"] },
           { contains: ["esc to cancel"] },
         ],
+      },
+    },
+    {
+      /**
+       * Live activity line above the footer rule:
+       *   `● Agent(self)  Read TerminalSurface session load logic · 4m30s`
+       * Present for both self-work and subagent turns; absent when idle.
+       */
+      id: "activity_line_working",
+      state: "working",
+      priority: 95,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: [
+          "\\u25CF\\s+Agent\\([^)]*\\).*\\u00B7\\s*(?:\\d+h)?(?:\\d+m)?\\d+s\\s*$",
+        ],
+      },
+    },
+    {
+      /**
+       * Footer subagent counter: `Gemini 3.7 Flash · high · 1 subagent(s)`.
+       * The counter is dropped entirely when no subagent is running, so any
+       * non-zero count means the seat is working even if the activity line
+       * scrolled out of the region.
+       */
+      id: "subagents_working",
+      state: "working",
+      priority: 94,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleWorking: true,
+      matchers: {
+        lineRegex: ["[1-9][0-9]*\\s+[Ss]ubagent"],
       },
     },
     {

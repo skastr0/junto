@@ -882,4 +882,57 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.state).toBe("idle");
     expect(result.ruleId).toBe("welcome_idle");
   });
+
+  // Lines below are transcribed from a live `agy` seat screen captured over
+  // the term control plane while a subagent turn was running.
+  it("agy: activity line with elapsed timer is working", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          HR,
+          ">",
+          HR,
+          "  ● Agent(self)  Read TerminalSurface session load logic · 4m30s",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("activity_line_working");
+    expect(result.visibleWorking).toBe(true);
+  });
+
+  it("agy: footer subagent counter is working", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high · 1 subagent(s)",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("subagents_working");
+  });
+
+  it("agy: idle footer without activity line or subagents is not working", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  • Status: Idle — standing by for task edges or work assignments.",
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).not.toBe("working");
+  });
 });
