@@ -18,7 +18,7 @@
 import type { CanvasDoc } from "./canvas";
 import type { Task } from "./work-model";
 import { isTerminalTaskState } from "./task";
-import { flowDestinations } from "./flow-graph";
+import { flowDestinations, isTaskSinkNode } from "./flow-graph";
 import { taskDefects } from "./claims";
 
 /** How a task references a station. */
@@ -158,7 +158,11 @@ export const flowEdgeRemovalImpact = (
 
 export type DefectTargetOption = {
   readonly station: string;
-  /** False when the station left the canvas — the action renders disabled with this reason. */
+  /**
+   * False when the station is no longer a live task sink — deleted, or the
+   * node still exists but its kind changed. Act-time defect requires a task
+   * sink, so anything else renders disabled with this reason.
+   */
   readonly present: boolean;
 };
 
@@ -181,7 +185,9 @@ export const defectTargetOptions = (
     seen.add(passage.nodeId);
     out.push({
       station: passage.nodeId,
-      present: doc.nodes.some((node) => node.id === passage.nodeId),
+      present: isTaskSinkNode(
+        doc.nodes.find((node) => node.id === passage.nodeId),
+      ),
     });
   }
   return out;

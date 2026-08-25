@@ -156,6 +156,29 @@ describe("flowEdgeRemovalImpact", () => {
 });
 
 describe("defectTargetOptions", () => {
+  it("treats a kind-changed node as absent — present means still a task sink", () => {
+    const doc: CanvasDoc = {
+      nodes: [
+        sink("s1"),
+        // s2 still exists on the canvas but is no longer a task sink.
+        { id: "s2", type: "text", text: "note", x: 0, y: 0, width: 80, height: 40 },
+        sink("s3"),
+      ],
+      edges: [],
+    };
+    const traveled = task("t1", {
+      journey: [
+        { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "forwarded", next: "s2" },
+        { nodeId: "s2", enteredAt: "2026-08-20T01:00:00.000Z", epoch: 0, exit: "forwarded", next: "s3" },
+        { nodeId: "s3", enteredAt: "2026-08-20T02:00:00.000Z", epoch: 0 },
+      ],
+    });
+    expect(defectTargetOptions(doc, traveled, "s3")).toEqual([
+      { station: "s1", present: true },
+      { station: "s2", present: false },
+    ]);
+  });
+
   it("lists visited stations except the current one, flagging absentees", () => {
     const doc: CanvasDoc = {
       nodes: [sink("s1"), sink("s3", [])],
