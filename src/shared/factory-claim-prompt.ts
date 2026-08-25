@@ -58,9 +58,15 @@ const stationSections = (
 ): readonly string[] => {
   const lines: string[] = [];
 
-  const instruction = sinkContractOf(nodeById(doc, sinkNodeId))?.instruction;
+  const contract = sinkContractOf(nodeById(doc, sinkNodeId));
+  const instruction = contract?.instruction;
   if (instruction !== undefined && instruction.trim().length > 0) {
     lines.push("", "What this station is for:", instruction.trim());
+  }
+
+  const triage = contract?.inbound?.instruction;
+  if (triage !== undefined && triage.trim().length > 0) {
+    lines.push("", "How work arriving here is handled:", triage.trim());
   }
 
   const regions = regionStack(doc, sinkNodeId);
@@ -103,6 +109,12 @@ const stationSections = (
         ? `Forward: completing here sends the task to "${destinations[0]}".`
         : `Forward: this station forks — name one of [${destinations.join(", ")}] as next when you complete.`,
     );
+    const emission = contract?.outbound?.emission;
+    if (emission !== undefined && emission.trim().length > 0) {
+      lines.push(
+        `What this station publishes forward (put this in your completion note): ${emission.trim()}`,
+      );
+    }
     for (const destination of destinations) {
       const checks = requiredBoardingChecks(doc, sinkNodeId, destination);
       if (checks.length === 0) continue;

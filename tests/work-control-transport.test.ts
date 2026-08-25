@@ -1660,6 +1660,102 @@ describe("work control transport", () => {
     expect(res.error.type).toBe("ScopeError");
     expect(res.error.message).toMatch(/own mailbox/i);
   });
+
+  it("tasks.list and onboard carry the station triage and emission guidance", async () => {
+    const server = servers[0]!;
+    const runtime = runtimes.at(-1)!;
+    const canvases = await runtime.runPromise(CanvasesService);
+    const current = await runtime.runPromise(canvases.read("work-cli"));
+    await runtime.runPromise(
+      canvases.write("work-cli", {
+        ...current.doc,
+        nodes: [
+          ...current.doc.nodes.map((node) =>
+            node.id === "tasks"
+              ? {
+                  ...node,
+                  ether: {
+                    ...node.ether,
+                    tasks: {
+                      ...node.ether?.tasks,
+                      items: node.ether?.tasks?.items ?? [],
+                      contract: {
+                        instruction: "implement and gate the change",
+                        inbound: {
+                          instruction: "reproduce the defect before touching code",
+                        },
+                        outbound: {
+                          emission: "name the verified fix and cite the failing test",
+                        },
+                      },
+                    },
+                  },
+                }
+              : node,
+          ),
+          {
+            id: "review",
+            type: "text",
+            x: 700,
+            y: 0,
+            width: 120,
+            height: 48,
+            text: "tasks",
+            ether: { entity: { kind: "task" }, tasks: { items: [] } },
+          },
+        ],
+        edges: [
+          ...current.doc.edges,
+          {
+            id: "e-flow-tasks-review",
+            fromNode: "tasks",
+            toNode: "review",
+            ether: { flow: { source: "tasks", destination: "review" } },
+          },
+        ],
+      }),
+    );
+
+    const list = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.list",
+      args: { target: "tasks" },
+    })) as {
+      ok: true;
+      data: {
+        contract?: { instruction?: string; triage?: string; emission?: string };
+      };
+    };
+    expect(list.ok).toBe(true);
+    expect(list.data.contract).toMatchObject({
+      instruction: "implement and gate the change",
+      triage: "reproduce the defect before touching code",
+      emission: "name the verified fix and cite the failing test",
+    });
+
+    const onboard = (await call(server.socketPath, {
+      token: token(),
+      op: "onboard",
+    })) as {
+      ok: true;
+      data: {
+        connected: Array<{
+          id: string;
+          contract?: { triage?: string; emission?: string };
+          destinations?: Array<{ station: string }>;
+        }>;
+      };
+    };
+    expect(onboard.ok).toBe(true);
+    const sinkEntry = onboard.data.connected.find((c) => c.id === "tasks");
+    expect(sinkEntry?.contract).toMatchObject({
+      triage: "reproduce the defect before touching code",
+      emission: "name the verified fix and cite the failing test",
+    });
+    expect(sinkEntry?.destinations).toEqual([
+      expect.objectContaining({ station: "review" }),
+    ]);
+  });
 });
 
 // Ensure chmod pattern matches browser control

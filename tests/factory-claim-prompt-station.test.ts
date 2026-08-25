@@ -65,7 +65,11 @@ const board: CanvasDoc = {
     sink("build", {
       instruction: "implement and gate the change",
       claims: [{ id: "c-sink", text: "typecheck is clean", severity: "soft" }],
-      outbound: { checklist: [{ id: "k1", label: "typecheck", command: "bun run typecheck" }] },
+      inbound: { instruction: "reproduce the defect before touching code" },
+      outbound: {
+        emission: "name the verified fix and cite the failing test it closes",
+        checklist: [{ id: "k1", label: "typecheck", command: "bun run typecheck" }],
+      },
     }),
     sink("review"),
   ],
@@ -82,6 +86,11 @@ describe("claim packet station law", () => {
 
     expect(text).toContain("What this station is for:");
     expect(text).toContain("implement and gate the change");
+    expect(text).toContain("How work arriving here is handled:");
+    expect(text).toContain("reproduce the defect before touching code");
+    expect(text).toContain(
+      "What this station publishes forward (put this in your completion note): name the verified fix and cite the failing test it closes",
+    );
     expect(text).toContain("ship only what the operator asked for");
     expect(text).toContain("[hard] no middle dots in copy");
     expect(text).toContain("from region Delivery");

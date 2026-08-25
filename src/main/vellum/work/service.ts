@@ -1651,7 +1651,10 @@ export const WorkLive = Layer.effect(
             };
           });
           const regions = regionStackFor(read.doc, nodeId);
-          const sinkInstruction = sinkContractOf(node)?.instruction;
+          const sinkContract = sinkContractOf(node);
+          const sinkInstruction = sinkContract?.instruction;
+          const sinkTriage = sinkContract?.inbound?.instruction;
+          const sinkEmission = sinkContract?.outbound?.emission;
           return {
             task,
             journey,
@@ -1659,6 +1662,8 @@ export const WorkLive = Layer.effect(
             ambient: {
               regions,
               ...(sinkInstruction !== undefined ? { sinkInstruction } : {}),
+              ...(sinkTriage !== undefined ? { sinkTriage } : {}),
+              ...(sinkEmission !== undefined ? { sinkEmission } : {}),
             },
           };
         }),

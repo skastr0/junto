@@ -470,6 +470,12 @@ const stationLawMap = (doc: CanvasDoc, fromNodeId: string) =>
       ...(inbound?.description !== undefined
         ? { description: inbound.description }
         : {}),
+      ...(inbound?.instruction !== undefined
+        ? { triage: inbound.instruction }
+        : {}),
+      ...(contract?.outbound?.emission !== undefined
+        ? { emission: contract.outbound.emission }
+        : {}),
     };
   });
 
@@ -499,6 +505,12 @@ const sinkPipelineBriefing = (doc: CanvasDoc, nodeId: string) => {
     contract: {
       ...(contract?.instruction !== undefined
         ? { instruction: contract.instruction }
+        : {}),
+      ...(contract?.inbound?.instruction !== undefined
+        ? { triage: contract.inbound.instruction }
+        : {}),
+      ...(contract?.outbound?.emission !== undefined
+        ? { emission: contract.outbound.emission }
         : {}),
       claims: effectiveClaimsStack(doc, nodeId).length,
       admission: resolveSinkAdmission(contract),
@@ -827,6 +839,12 @@ const dispatchOp = (
               contract: {
                 ...(contract.instruction !== undefined
                   ? { instruction: contract.instruction }
+                  : {}),
+                ...(contract.inbound?.instruction !== undefined
+                  ? { triage: contract.inbound.instruction }
+                  : {}),
+                ...(contract.outbound?.emission !== undefined
+                  ? { emission: contract.outbound.emission }
                   : {}),
                 claims: contract.claims ?? [],
                 admission: resolveSinkAdmission(contract),
