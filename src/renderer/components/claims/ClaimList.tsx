@@ -24,9 +24,11 @@ const severityHue = (severity: ClaimSeverity): string =>
 
 function SeverityToggle({
   severity,
+  noun,
   onChange,
 }: {
   readonly severity: ClaimSeverity;
+  readonly noun: "claim" | "check";
   readonly onChange: (next: ClaimSeverity) => void;
 }) {
   const hue = severityHue(severity);
@@ -34,7 +36,11 @@ function SeverityToggle({
     <button
       type="button"
       className="inspector-flag-toggle shrink-0"
-      aria-label={severity === "hard" ? "Hard claim, switch to soft" : "Soft claim, switch to hard"}
+      aria-label={
+        severity === "hard"
+          ? `Hard ${noun}, switch to soft`
+          : `Soft ${noun}, switch to hard`
+      }
       title={
         severity === "hard"
           ? "Hard — must be answered before the task closes"
@@ -54,10 +60,12 @@ function SeverityToggle({
 
 function ClaimRow({
   claim,
+  noun,
   onChange,
   onRemove,
 }: {
   readonly claim: ClaimDef;
+  readonly noun: "claim" | "check";
   readonly onChange: (next: ClaimDef) => void;
   readonly onRemove: () => void;
 }) {
@@ -79,11 +87,12 @@ function ClaimRow({
     <div className="flex items-center gap-1.5">
       <SeverityToggle
         severity={claim.severity}
+        noun={noun}
         onChange={(severity) => onChange({ ...claim, severity })}
       />
       <Input
         data-focus-owner="canvas-draft"
-        aria-label="Claim text"
+        aria-label={`${noun === "check" ? "Check" : "Claim"} text`}
         className="min-h-[28px] py-1 text-[11px]"
         value={draft}
         placeholder="what must be true before this closes?"
@@ -104,8 +113,8 @@ function ClaimRow({
       <IconButton
         size="sm"
         tone="danger"
-        aria-label="Remove claim"
-        title="Remove claim"
+        aria-label={`Remove ${noun}`}
+        title={`Remove ${noun}`}
         onClick={onRemove}
       >
         <X size={12} />
@@ -119,9 +128,11 @@ function ClaimRow({
  * here until it has text — the document never sees an empty one.
  */
 function ClaimDraftRow({
+  noun,
   onAdd,
   onCancel,
 }: {
+  readonly noun: "claim" | "check";
   readonly onAdd: (claim: ClaimDef) => void;
   readonly onCancel: () => void;
 }) {
@@ -139,10 +150,10 @@ function ClaimDraftRow({
 
   return (
     <div className="mt-2 flex items-center gap-1.5">
-      <SeverityToggle severity={severity} onChange={setSeverity} />
+      <SeverityToggle severity={severity} noun={noun} onChange={setSeverity} />
       <Input
         data-focus-owner="canvas-draft"
-        aria-label="New claim text"
+        aria-label={`New ${noun} text`}
         className="min-h-[28px] py-1 text-[11px]"
         autoFocus
         value={text}
@@ -162,7 +173,7 @@ function ClaimDraftRow({
       />
       <IconButton
         size="sm"
-        aria-label="Discard new claim"
+        aria-label={`Discard new ${noun}`}
         title="Discard"
         // Keep focus on the input: a blur here would commit the very draft
         // this button exists to throw away.
@@ -176,37 +187,71 @@ function ClaimDraftRow({
 }
 
 function ClaimReusePicker({
-  candidates,
+  lineCandidates,
+  canvasCandidates,
+  scoped,
+  noun,
   onPick,
   onClose,
 }: {
-  readonly candidates: ReadonlyArray<ReusableClaim>;
+  readonly lineCandidates: ReadonlyArray<ReusableClaim>;
+  readonly canvasCandidates: ReadonlyArray<ReusableClaim>;
+  readonly scoped: boolean;
+  readonly noun: "claim" | "check";
   readonly onPick: (entry: ReusableClaim) => void;
   readonly onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [showCanvas, setShowCanvas] = useState(false);
+  const candidates = scoped && !showCanvas ? lineCandidates : canvasCandidates;
   const filtered = candidates.filter((entry) => matchesClaimQuery(entry, query));
+  const plural = noun === "check" ? "checks" : "claims";
 
   return (
     <div className="mt-2 rounded-[5px] border border-stroke bg-inset/60 p-2">
       <div className="flex items-center gap-1.5">
         <Input
           data-focus-owner="canvas-draft"
-          aria-label="Find a claim to reuse"
+          aria-label={`Find an existing ${noun}`}
           className="min-h-[28px] py-1 text-[11px]"
           value={query}
-          placeholder="find a claim already on the canvas"
+          placeholder={`find an existing ${noun}`}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <IconButton size="sm" aria-label="Close claim reuse" title="Close" onClick={onClose}>
+        <IconButton size="sm" aria-label={`Close existing ${noun} picker`} title="Close" onClick={onClose}>
           <X size={12} />
         </IconButton>
+      </div>
+      {scoped ? (
+        <div className="mt-2 flex items-center gap-1" aria-label="Copy scope">
+          <Button
+            size="xs"
+            variant={!showCanvas ? "primary" : "subtle"}
+            aria-pressed={!showCanvas}
+            onClick={() => setShowCanvas(false)}
+          >
+            this line {lineCandidates.length}
+          </Button>
+          <Button
+            size="xs"
+            variant={showCanvas ? "primary" : "subtle"}
+            aria-pressed={showCanvas}
+            onClick={() => setShowCanvas(true)}
+          >
+            entire canvas {canvasCandidates.length}
+          </Button>
+        </div>
+      ) : null}
+      <div className="inspector-detail mt-2">
+        {scoped && !showCanvas
+          ? `Showing ${plural} from stations and regions on this line.`
+          : `Showing ${plural} from the entire canvas.`}
       </div>
       {filtered.length === 0 ? (
         <div className="inspector-detail mt-2">
           {candidates.length === 0
-            ? "No other claims are authored on this canvas yet."
-            : "No claim matches this filter."}
+            ? `No other ${plural} are available in this scope.`
+            : `No ${noun} matches this filter.`}
         </div>
       ) : (
         <div className="mt-2 grid max-h-48 gap-1 overflow-auto" role="list">
@@ -233,7 +278,9 @@ function ClaimReusePicker({
         </div>
       )}
       <div className="inspector-detail mt-2">
-        Reuse copies the words. The copy is this contract's own law from then on.
+        {noun === "check"
+          ? "Copying creates a separate check at this stop."
+          : "Copying creates separate law in this contract."}
       </div>
     </div>
   );
@@ -249,12 +296,17 @@ export function ClaimList({
   claims,
   label,
   hint,
+  scopeNodeIds,
+  vocabulary = "claim",
   onChange,
 }: {
   readonly ownerNodeId: string;
   readonly claims: ReadonlyArray<ClaimDef>;
   readonly label: string;
   readonly hint?: string;
+  /** Creation-line stations. Their region stacks join the default copy scope. */
+  readonly scopeNodeIds?: ReadonlyArray<string>;
+  readonly vocabulary?: "claim" | "check";
   readonly onChange: (next: ReadonlyArray<ClaimDef>) => void;
 }) {
   const doc = use$(state$.doc);
@@ -265,10 +317,15 @@ export function ClaimList({
     setAdding(false);
   }, [ownerNodeId]);
 
-  const candidates = useMemo(
+  const canvasCandidates = useMemo(
     () => reusableClaims(doc, ownerNodeId, claims),
     [claims, doc, ownerNodeId],
   );
+  const lineCandidates = useMemo(
+    () => reusableClaims(doc, ownerNodeId, claims, scopeNodeIds),
+    [claims, doc, ownerNodeId, scopeNodeIds],
+  );
+  const candidates = scopeNodeIds === undefined ? canvasCandidates : lineCandidates;
 
   const replaceAt = (index: number, next: ClaimDef) =>
     onChange(claims.map((claim, i) => (i === index ? next : claim)));
@@ -283,6 +340,7 @@ export function ClaimList({
             <ClaimRow
               key={claim.id}
               claim={claim}
+              noun={vocabulary}
               onChange={(next) => replaceAt(index, next)}
               onRemove={() => onChange(claims.filter((_, i) => i !== index))}
             />
@@ -291,6 +349,7 @@ export function ClaimList({
       ) : null}
       {adding ? (
         <ClaimDraftRow
+          noun={vocabulary}
           onAdd={(claim) => {
             onChange([...claims, claim]);
             setAdding(false);
@@ -301,20 +360,20 @@ export function ClaimList({
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <Button
           size="xs"
-          aria-label="Add claim"
+          aria-label={`Add ${vocabulary}`}
           onClick={() => {
             setPicking(false);
             setAdding(true);
           }}
         >
           <Plus size={11} />
-          claim
+          {`add ${vocabulary}`}
         </Button>
-        {candidates.length > 0 ? (
+        {canvasCandidates.length > 0 ? (
           <Button
             size="xs"
             variant="subtle"
-            aria-label="Reuse a claim from the canvas"
+            aria-label={`Copy an existing ${vocabulary}`}
             aria-pressed={picking}
             onClick={() => {
               setAdding(false);
@@ -322,13 +381,16 @@ export function ClaimList({
             }}
           >
             <Copy size={11} />
-            reuse {candidates.length}
+            copy existing {candidates.length}
           </Button>
         ) : null}
       </div>
       {picking ? (
         <ClaimReusePicker
-          candidates={candidates}
+          lineCandidates={lineCandidates}
+          canvasCandidates={canvasCandidates}
+          scoped={scopeNodeIds !== undefined}
+          noun={vocabulary}
           onPick={(entry) => {
             onChange([...claims, copyClaim(entry.claim, ulid())]);
             setPicking(false);

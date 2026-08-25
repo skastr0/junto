@@ -1,6 +1,6 @@
 import type { CanvasDoc } from "@shared/canvas";
 import type { ClaimDef } from "@shared/work-model";
-import { isGroup } from "@shared/graph";
+import { isGroup, regionStack } from "@shared/graph";
 import { nodeTitle } from "../../lib/presentation";
 
 // Claims library v1 is an aggregation view, not storage: the composer reads
@@ -44,19 +44,28 @@ export const collectCanvasClaims = (
 };
 
 /**
- * Reuse candidates for one owner: everything on the canvas except the owner's
- * own claims (already standing law there) and anything whose text the owner
- * already carries verbatim — reusing a claim you already hold is a duplicate
- * law, not composition.
+ * Reuse candidates for one owner. When `stationNodeIds` is present, candidates
+ * are limited to those stations and every region containing one of them. This
+ * is the creation-line scope: same stations, same ambient region stacks.
  */
 export const reusableClaims = (
   doc: CanvasDoc,
   ownerNodeId: string,
   ownerClaims: ReadonlyArray<ClaimDef>,
+  stationNodeIds?: ReadonlyArray<string>,
 ): ReadonlyArray<ReusableClaim> => {
   const held = new Set(ownerClaims.map((claim) => claim.text.trim().toLowerCase()));
+  const scopedOrigins = stationNodeIds === undefined
+    ? undefined
+    : new Set([
+        ...stationNodeIds,
+        ...stationNodeIds.flatMap((nodeId) =>
+          regionStack(doc, nodeId).map((region) => region.id)
+        ),
+      ]);
   return collectCanvasClaims(doc).filter(
     (entry) =>
+      (scopedOrigins === undefined || scopedOrigins.has(entry.origin.nodeId)) &&
       entry.origin.nodeId !== ownerNodeId &&
       !held.has(entry.claim.text.trim().toLowerCase()),
   );

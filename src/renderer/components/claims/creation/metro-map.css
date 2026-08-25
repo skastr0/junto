@@ -271,6 +271,35 @@
 .task-metro__pin-primer { color: var(--color-faint); }
 .task-metro__stranded { color: var(--color-crimson); }
 
+.task-metro__authoring-guide {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.task-metro__severity-legend {
+  display: flex;
+  margin-left: auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  color: var(--color-dim);
+  font-size: 9px;
+}
+
+.task-metro__severity-legend strong {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-metro__severity-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .task-metro__stop-detail {
   padding: 8px 9px;
   border: 1px solid color-mix(in oklab, var(--color-amber) 26%, var(--color-stroke));

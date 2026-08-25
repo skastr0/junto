@@ -106,6 +106,21 @@ describe("reusableClaims", () => {
     const entries = reusableClaims(doc, "s2", [claim("local", "  Has A Rollback ")]);
     expect(entries.map((entry) => entry.claim.id)).toEqual(["c1"]);
   });
+
+  it("scopes a creation line to its stations and containing regions", () => {
+    const scopedDoc: CanvasDoc = {
+      nodes: [
+        region("r-line", "Delivery", [claim("r1", "ships behind a flag")]),
+        { ...sink("s1", { claims: [claim("s1c", "has a rollback")] }), x: 40, y: 40 },
+        { ...sink("s2", { claims: [claim("s2c", "names an owner")] }), x: 180, y: 40 },
+        { ...sink("outside", { claims: [claim("out", "unrelated canvas law")] }), x: 900, y: 40 },
+      ],
+      edges: [],
+    };
+
+    const entries = reusableClaims(scopedDoc, "s1", [], ["s1", "s2"]);
+    expect(entries.map((entry) => entry.claim.id)).toEqual(["r1", "s2c"]);
+  });
 });
 
 describe("matchesClaimQuery", () => {

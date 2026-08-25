@@ -41,6 +41,7 @@ export function TaskMetroMap({
   const profile = useMemo(() => lineProfile(line, pinned), [line, pinned]);
   const standingLaw = useMemo(() => lineLaw(line), [line]);
   const stages = useMemo(() => groupStopsByHop(line), [line]);
+  const lineNodeIds = useMemo(() => line.map((stop) => stop.nodeId), [line]);
   const stranded = useMemo(() => strandedPins(pinned, line), [line, pinned]);
   const [activeStopId, setActiveStopId] = useState<string | null>(null);
   const activeStop = line.find((stop) => stop.nodeId === activeStopId);
@@ -127,9 +128,16 @@ export function TaskMetroMap({
       </ol>
 
       {onPinsChange ? (
-        <p className="task-metro__pin-primer">
-          Open a stop to pin a claim there. A skipped branch waives only its own pins.
-        </p>
+        <div className="task-metro__authoring-guide">
+          <p className="task-metro__pin-primer">
+            Open a stop to add a check there. A skipped branch waives only its own checks.
+          </p>
+          <div className="task-metro__severity-legend" aria-label="Check strength">
+            <strong>Check strength</strong>
+            <span><Chip tone="amber">hard</Chip> must be answered</span>
+            <span><Chip tone="steel">soft</Chip> may be waived</span>
+          </div>
+        </div>
       ) : null}
 
       {activeStop ? (
@@ -142,7 +150,9 @@ export function TaskMetroMap({
             <ClaimList
               ownerNodeId={activeStop.nodeId}
               claims={claimsAt(pinned, activeStop.nodeId)}
-              label={`Pinned at ${activeStop.label}`}
+              label={`Checks at ${activeStop.label}`}
+              scopeNodeIds={lineNodeIds}
+              vocabulary="check"
               onChange={(claims: ReadonlyArray<ClaimDef>) =>
                 onPinsChange(replacePinsAt(pinned, activeStop.nodeId, claims))
               }
