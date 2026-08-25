@@ -88,6 +88,7 @@ import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
+import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
@@ -1558,6 +1559,7 @@ function CanvasGraph() {
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(fieldTheme.ink!, 0.07)} />
       <CanvasLoom edges={edges} />
       <CanvasMagnifier />
+      <CanvasKeyboardPan />
       <RegionGlanceGate />
       <ImpactSeedChip />
       <ConnectPreviewChip />
