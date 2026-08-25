@@ -113,9 +113,16 @@ test("task detail renders the attributed thread and operator comments notify its
     const thread = detail.getByRole("region", { name: "Task thread" });
     await expect(thread).toBeVisible();
     await expect(thread.locator('[data-kind="brief"]')).toContainText("Operator");
-    await expect(thread.locator('[data-kind="update"]')).toContainText("Builder Alpha");
+    await expect(thread.locator('[data-kind="update"]').first()).toContainText("Builder Alpha");
     await expect(thread.locator('[data-kind="defect"]')).toContainText("defect");
     await expect(thread.locator('[data-kind="comment"]')).toContainText("Operator");
+
+    const threadShot = join(SHOTS, "thread-detail.png");
+    await board.screenshot({ path: threadShot });
+    await testInfo.attach("task-thread-detail", {
+      path: threadShot,
+      contentType: "image/png",
+    });
 
     const comment = "Operator confirms the owner attribution.";
     await thread.getByRole("textbox", { name: "Add a task comment" }).fill(comment);
@@ -140,10 +147,10 @@ test("task detail renders the attributed thread and operator comments notify its
       )
       .toBe(true);
 
-    const threadShot = join(SHOTS, "thread-detail.png");
-    await board.screenshot({ path: threadShot });
-    await testInfo.attach("task-thread-detail", {
-      path: threadShot,
+    const commentShot = join(SHOTS, "thread-comment.png");
+    await board.screenshot({ path: commentShot });
+    await testInfo.attach("task-thread-comment", {
+      path: commentShot,
       contentType: "image/png",
     });
   } finally {
