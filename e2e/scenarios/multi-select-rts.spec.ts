@@ -186,10 +186,12 @@ test("rubber-band marquee selects inside a region's interior", async ({ vellumCo
   const regionBox = await stableBox(page, region);
   expect(regionBox).not.toBeNull();
   if (!regionBox) return;
-  await page.mouse.move(regionBox.x + 12, regionBox.y + 40);
+  // Start (and end) inside the frame: the window-frame strips own the outer
+  // ~12px and the title bar owns the top ~24px, everything inside is pane.
+  await page.mouse.move(regionBox.x + 40, regionBox.y + 56);
   await page.mouse.down();
   await page.waitForTimeout(200);
-  await page.mouse.move(regionBox.x + regionBox.width - 12, regionBox.y + regionBox.height - 12, {
+  await page.mouse.move(regionBox.x + regionBox.width - 40, regionBox.y + regionBox.height - 40, {
     steps: 12,
   });
   await page.waitForTimeout(200);

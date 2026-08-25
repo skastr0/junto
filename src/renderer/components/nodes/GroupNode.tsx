@@ -266,16 +266,32 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     window.addEventListener("pointercancel", onUp);
   };
 
+  // Non-Shift chrome click is exclusive: RF's addSelectedNodes replaces the
+  // selection whenever multiSelectionActive is false, so a leftover card
+  // selection never leaves the operator in a mixed set. Shift is handled
+  // upstream (isMultiSelectGesture + useShiftMultiSelectDominance).
   const selectRegionOnClick = (event: React.MouseEvent): void => {
     if (isMultiSelectGesture(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    const state = rfStore.getState();
-    if (state.nodeLookup.get(node.id)?.selected !== true) {
-      state.addSelectedNodes([node.id]);
-    }
+    rfStore.getState().addSelectedNodes([node.id]);
   };
-  const plateBorder = selected ? withAlpha(HUE.amber, 0.6) : stroke;
+  const [frameHover, setFrameHover] = useState(false);
+  // Window-frame grab: the perimeter and the title bar are the only chrome that
+  // selects/moves an unselected region. The interior stays pane (marquee,
+  // pane-click deselect, right-click add). Once selected the strips step aside
+  // so NodeResizer owns the edges — one gesture per pixel, never two.
+  const frameGrab = {
+    onPointerDown: beginRegionDrag,
+    onClick: selectRegionOnClick,
+    onPointerDownCapture: multiSelectCapture.onPointerDownCapture,
+    onClickCapture: multiSelectCapture.onClickCapture,
+  } as const;
+  const plateBorder = selected
+    ? withAlpha(HUE.amber, 0.6)
+    : frameHover
+      ? withAlpha(HUE.amber, 0.42)
+      : stroke;
   return <div
     className="vellum-group relative h-full w-full rounded-[14px]"
     style={{
@@ -313,14 +329,28 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
         onToggleFocus={() => toggleConnectionFocus(node.id)}
       />
     </div>
+    {selected ? null : (
+      <div className="vellum-region-frame" aria-hidden>
+        {(["left", "right", "bottom"] as const).map((side) => (
+          <div
+            key={side}
+            className={`vellum-region-frame__strip vellum-region-frame__strip--${side}`}
+            data-testid={`region-frame-${side}`}
+            title="Drag region"
+            onPointerEnter={() => setFrameHover(true)}
+            onPointerLeave={() => setFrameHover(false)}
+            {...frameGrab}
+          />
+        ))}
+      </div>
+    )}
     <div
-      className="region-drag-handle absolute left-2 top-2 flex cursor-grab items-center gap-1 active:cursor-grabbing"
-      style={{ pointerEvents: "auto" }}
+      className="region-drag-handle vellum-region-titlebar"
+      data-testid="region-titlebar"
       title="Drag region"
-      onPointerDown={beginRegionDrag}
-      onClick={selectRegionOnClick}
-      onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
-      onClickCapture={multiSelectCapture.onClickCapture}
+      onPointerEnter={() => setFrameHover(true)}
+      onPointerLeave={() => setFrameHover(false)}
+      {...frameGrab}
     >
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={node.color ? tint : undefined} />
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}

@@ -56,6 +56,18 @@ describe("label geography node", () => {
     expect(nodes[0]?.selectable).toBe(false);
   });
 
+  // The window-frame grab lives entirely in GroupNode chrome: React Flow must
+  // never drag a region itself, and the wrapper must stay pointer-transparent
+  // so the interior keeps working as pane (marquee / deselect / add item).
+  it("toFlow leaves region drag to chrome and keeps the wrapper pointer-transparent", () => {
+    const region = makeGroupNode(0, 0);
+    const { nodes } = toFlow({ nodes: [region], edges: [] }, emptyContext);
+
+    expect(nodes[0]?.draggable).toBe(false);
+    expect(nodes[0]?.connectable).toBe(false);
+    expect(nodes[0]?.style?.pointerEvents).toBe("none");
+  });
+
   it("planConnectToTarget refuses labels as source or target", () => {
     const label = makeLabelNode(0, 0);
     const a = { ...makeTextNode(10, 10), id: "a" };

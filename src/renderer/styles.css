@@ -1123,8 +1123,58 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .field-empty__copy { margin-top: 10px; color: var(--color-faint); font-size: 10px; letter-spacing: .06em; line-height: 1.7; }
 .field-empty__clear { margin: 14px auto 0; border: 1px solid color-mix(in oklab, var(--color-second) 30%, transparent); border-radius: 5px; color: var(--color-cyan); padding: 6px 9px; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; transition: background .18s ease, border-color .18s ease; }
 .field-empty__clear:hover { border-color: color-mix(in oklab, var(--color-second) 68%, transparent); background: color-mix(in oklab, var(--color-second) 8%, transparent); }
-.vellum-group__label { display: inline-flex; align-items: center; gap: 6px; color: color-mix(in oklab, var(--color-ink) 60%, transparent) !important; background: transparent !important; border-color: transparent !important; }
-.vellum-group__label:hover { color: color-mix(in oklab, var(--color-ink) 85%, transparent) !important; }
+/* Region window frame — the only chrome that grabs an unselected region.
+   The plate and the React Flow wrapper stay pointer-transparent, so the
+   interior remains pane (marquee, deselect, right-click add). Strips unmount
+   while the region is selected: NodeResizer owns the edges then. */
+:root { --vellum-region-frame: 12px; --vellum-region-titlebar: 24px; }
+.vellum-region-frame { position: absolute; inset: 0; pointer-events: none; }
+.vellum-region-frame__strip {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  border-radius: 12px;
+  background: transparent;
+  transition: background .16s ease;
+}
+.vellum-region-frame__strip:hover { background: color-mix(in oklab, var(--color-amber) 7%, transparent); }
+.vellum-region-frame__strip:active { cursor: grabbing; }
+.vellum-region-frame__strip--left { left: 0; top: var(--vellum-region-titlebar); bottom: 0; width: var(--vellum-region-frame); }
+.vellum-region-frame__strip--right { right: 0; top: var(--vellum-region-titlebar); bottom: 0; width: var(--vellum-region-frame); }
+.vellum-region-frame__strip--bottom { left: 0; right: 0; bottom: 0; height: var(--vellum-region-frame); }
+.vellum-region-titlebar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--vellum-region-titlebar);
+  padding: 0 8px;
+  border-radius: 13px 13px 0 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  pointer-events: auto;
+  cursor: grab;
+  transition: background .16s ease, border-color .16s ease;
+}
+.vellum-region-titlebar:hover {
+  background: color-mix(in oklab, var(--color-amber) 6%, transparent);
+  border-bottom-color: color-mix(in oklab, var(--color-amber) 22%, transparent);
+}
+.vellum-region-titlebar:active { cursor: grabbing; }
+.vellum-group__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-ink) 12%, transparent) !important;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-raise) 55%, transparent) !important;
+  color: color-mix(in oklab, var(--color-ink) 68%, transparent) !important;
+}
+.vellum-group__label:hover { color: color-mix(in oklab, var(--color-ink) 90%, transparent) !important; border-color: color-mix(in oklab, var(--color-ink) 22%, transparent) !important; }
 .vellum-group__label-prefix { color: var(--color-faint); }
 /* Region glance — pulled-back camera prints the region name across its body.
    Opacity rides --vellum-region-glance, written on the ReactFlow root per zoom
