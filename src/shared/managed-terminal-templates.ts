@@ -766,18 +766,27 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Devin CLI (Cognition) — Tier B v1, capture session, grid feed.
+ * Devin CLI (Cognition) — Tier B, capture session, grid feed.
  * Verified 3000.3.27: positional prompt REQUIRES `--` separator; --model;
  * --permission-mode enum (normal|accept-edits|smart|dangerous|autonomous);
- * resume `-r <id>` exact / `-c`; no pin (capture via hook payload session_id,
- * `devin list --format json`, sessions.db, session_locks); --agent-config
- * (system instructions + tool visibility + permissions, strict parse) is the
- * Tier-A upgrade path — deferred until a per-harness config builder exists.
+ * resume `-r <id>` exact / `-c`; no pin.
+ *
+ * Tier B is now a fact, not a deferral. `--agent-config` — the documented
+ * Tier-A slot, verified live on 2026-08-06 — is GONE from 3000.4.16, which
+ * answers `error: unexpected argument '--agent-config' found` and exits 2. No
+ * DEVIN_* env carries instructions either, so doctrine is the first typed
+ * message until upstream offers a replacement.
+ *
+ * Session capture is a lookup, not a scrape: Devin prints its slug id nowhere,
+ * and writes `session_locks/<slug>.lock` from a DESCENDANT of the spawned
+ * process (`~/.local/bin/devin` is a shim). `devin-session-capture` matches the
+ * lock's PID against the spawn's process tree; the id becomes durable only once
+ * Devin's own `sessions` row exists, which is what `-r <id>` reads.
  */
 export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
   harness: "devin",
   displayName: "Devin",
-  probedVersion: "3000.3.27",
+  probedVersion: "3000.4.16",
   argvSpec: {
     binary: "devin",
     prefix: [],

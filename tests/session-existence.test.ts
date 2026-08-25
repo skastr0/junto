@@ -346,17 +346,17 @@ describe("harness session existence (external proof)", () => {
       harnessSessionExists({ harness: "devin", sessionId: sid, home }),
     ).toBe(true);
 
-    // Lock-only layout: session_locks/<session-id>.lock.
+    // A lock is NOT proof. Locks are written at startup and never removed, and
+    // devin 3000.4.16 refuses to resume a lock-only slug:
+    // "Error: No session found matching 'sample-bird'". Storing it would pin
+    // the seat to a session that cannot be reopened.
     const locks = join(home, ".local", "share", "devin", "cli", "session_locks");
     const lockId = "sample-bird";
-    expect(
-      harnessSessionExists({ harness: "devin", sessionId: lockId, home }),
-    ).toBe(false);
     mkdirSync(locks, { recursive: true });
     writeFileSync(join(locks, `${lockId}.lock`), "60753");
     expect(
       harnessSessionExists({ harness: "devin", sessionId: lockId, home }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("proves agy session when ~/.gemini/antigravity-cli/brain/<id> exists with transcript.jsonl or entries", () => {

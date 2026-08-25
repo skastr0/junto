@@ -415,16 +415,53 @@ const dirExactlyNamed = (
 };
 
 /**
- * Devin sessions: ~/.local/share/devin/cli/transcripts/<id>.json and
- * session_locks/<id>.lock; ids are adjective-noun (sample-session). File name
- * equals the id (with extension) — exact match, not contains.
+ * Devin sessions: `~/.local/share/devin/cli/sessions.db`, table `sessions`,
+ * keyed by the adjective-noun slug (`sample-session`). Ids are exact.
+ *
+ * The database is the proof because it is exactly what `-r` reads. Probed on
+ * 3000.4.16:
+ *
+ * - `session_locks/<id>.lock` is NOT proof. Locks are written at startup and
+ *   never removed, so they outlive their sessions — and `devin -r <slug>` on a
+ *   lock-only slug answers `No session found matching '<slug>'`. Treating a
+ *   lock as proof pins a seat to a session that cannot be resumed.
+ * - `transcripts/<id>.json` is a legacy fallback: recent sessions (including
+ *   ones resumable right now) have no transcript file at all, so it can prove
+ *   an id but never disprove one.
+ *
+ * Opened read-only: never created, never migrated, never write-locked while
+ * the operator's own Devin is running. Any failure is not-proven, which fails
+ * open to a fresh session rather than a dead resume.
  */
 const devinSessionExists = (sessionId: string, home: string): boolean => {
   const root = join(home, ".local", "share", "devin", "cli");
   if (!isDir(root)) return false;
   if (isFile(join(root, "transcripts", `${sessionId}.json`))) return true;
-  if (isFile(join(root, "session_locks", `${sessionId}.lock`))) return true;
-  return false;
+
+  const path = join(root, "sessions.db");
+  if (!isFile(path)) return false;
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(path, {
+      open: true,
+      readOnly: true,
+      allowExtension: false,
+      enableDoubleQuotedStringLiterals: false,
+      timeout: 2_000,
+    });
+    const row = database
+      .prepare("SELECT 1 AS present FROM sessions WHERE id = ? LIMIT 1")
+      .get(sessionId);
+    return row !== undefined;
+  } catch {
+    return false;
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // best-effort
+    }
+  }
 };
 
 /**
@@ -533,6 +570,8 @@ export const isHarnessResumeFailureText = (text: string): boolean => {
   if (t.includes("session not found") && (t.includes("resume") || t.includes("restore"))) {
     return true;
   }
+  // Devin: "Error: No session found matching 'ionized-pluto'" (3000.4.16).
+  if (t.includes("no session found matching")) return true;
   // Grok: "fetching session record: session get failed: 404 Not Found"
   if (t.includes("fetching session record") && t.includes("404")) return true;
   if (t.includes("resume") && t.includes("404") && t.includes("not found")) return true;

@@ -74,6 +74,10 @@ import {
   usesCapturedSession,
 } from "./session-capture-persist";
 import {
+  DEVIN_PROOF_RETRY_DELAYS_MS,
+  discoverDevinSessionId,
+} from "./devin-session-capture";
+import {
   isHarnessResumeFailureText,
   isPinSessionHarness,
   launchArgvUsesResume,
@@ -1103,6 +1107,9 @@ export class LocalSessionHost extends EventEmitter {
       if (firstTyped) {
         armFirstTypedMessage(bindingId, firstTyped);
       }
+      // Devin announces its session id nowhere on the PTY — the id lives in a
+      // lockfile written by a descendant of the process we just spawned.
+      this.scheduleDevinSessionDiscovery(rec);
       if (!this.liveRecords.has(rec)) {
         this.observerPlane.detach(bindingId, epoch);
         if (seat.kind === "agent") {
@@ -1865,19 +1872,67 @@ export class LocalSessionHost extends EventEmitter {
    * probe or a canvas write, and a seat whose id cannot be proven simply keeps
    * running with the id held for this generation only.
    */
-  private persistCapturedSession(rec: SessionRec, sessionId: string): void {
+  /**
+   * Devin's cold-resume loop, opened at spawn.
+   *
+   * Every other capture harness prints its id, so `observeData` sees it. Devin
+   * prints nothing and writes `session_locks/<slug>.lock` from a descendant of
+   * the process this host spawned, so the id has to be looked up rather than
+   * read. Discovery is bounded and fire-and-forget: it never gates the spawn,
+   * and a seat whose id is never found simply keeps running without one.
+   *
+   * The id found here is a candidate, not proof — `persistCapturedSession`
+   * still refuses to store it until Devin's own `sessions` row exists, which
+   * is what makes `-r <id>` work.
+   */
+  private scheduleDevinSessionDiscovery(rec: SessionRec): void {
+    if (rec.harness !== "devin") return;
+    const pid = rec.pid;
+    if (pid === undefined) return;
+    if (getCapturedSessionId(rec.bindingId)) return;
+    const epoch = rec.epoch;
+    void discoverDevinSessionId({
+      pid,
+      stillRunning: () =>
+        this.sessions.get(rec.bindingId) === rec &&
+        rec.epoch === epoch &&
+        !rec.killed &&
+        this.liveRecords.has(rec),
+    })
+      .then((sessionId) => {
+        if (!sessionId) return;
+        if (this.sessions.get(rec.bindingId) !== rec || rec.epoch !== epoch) {
+          return;
+        }
+        recordCapturedSessionId(rec.bindingId, sessionId);
+        this.persistCapturedSession(rec, sessionId, DEVIN_PROOF_RETRY_DELAYS_MS);
+      })
+      .catch(() => {
+        // Recovery, never a gate.
+      });
+  }
+
+  private persistCapturedSession(
+    rec: SessionRec,
+    sessionId: string,
+    delays?: readonly number[],
+  ): void {
     const canvasName = rec.canvasName;
     const nodeId = rec.nodeId;
     const harness = rec.harness;
     if (!canvasName || !nodeId || !harness) return;
     if (!usesCapturedSession(harness)) return;
-    void scheduleCapturedSessionPersist(`${rec.bindingId}@${rec.epoch}`, {
-      canvasName,
-      nodeId,
-      harness,
-      sessionId,
-      ...(rec.cwd ? { cwd: rec.cwd } : {}),
-    }).catch(() => {
+    void scheduleCapturedSessionPersist(
+      `${rec.bindingId}@${rec.epoch}`,
+      {
+        canvasName,
+        nodeId,
+        harness,
+        sessionId,
+        ...(rec.cwd ? { cwd: rec.cwd } : {}),
+      },
+      ...(delays ? ([delays] as const) : ([] as const)),
+    ).catch(() => {
       // Recovery, never a gate: a failed persist leaves the seat untouched.
     });
   }
