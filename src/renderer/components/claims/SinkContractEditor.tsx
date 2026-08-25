@@ -35,6 +35,11 @@ const ADMISSION_SHORT: Record<SinkAdmission, string> = {
   "operator-owned": "operator owned",
 };
 
+const openFoldsFor = (focusSide: "inbound" | "outbound" | undefined) => ({
+  inbound: focusSide !== "outbound",
+  outbound: focusSide !== "inbound",
+});
+
 function ContractText({
   label,
   hint,
@@ -224,13 +229,9 @@ export function SinkContractEditor({
   /** Board-side entry opens only the matching half of the station contract. */
   readonly focusSide?: "inbound" | "outbound";
 }) {
-  const initialFolds = () => ({
-    inbound: focusSide !== "outbound",
-    outbound: focusSide !== "inbound",
-  });
-  const [openFolds, setOpenFolds] = useState(initialFolds);
+  const [openFolds, setOpenFolds] = useState(() => openFoldsFor(focusSide));
   useEffect(() => {
-    setOpenFolds(initialFolds());
+    setOpenFolds(openFoldsFor(focusSide));
   }, [focusSide, node.id]);
 
   if (node.ether?.entity?.kind !== "task") return null;
