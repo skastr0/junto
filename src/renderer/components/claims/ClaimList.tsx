@@ -381,7 +381,7 @@ export function ClaimList({
             }}
           >
             <Copy size={11} />
-            copy existing {candidates.length}
+            copy existing {canvasCandidates.length}
           </Button>
         ) : null}
       </div>

@@ -570,9 +570,9 @@ export function ActorLedgerPane({
             </section>
           ) : null}
           {proposals.length > 0 ? (
-            <section className="actor-ledger__section" aria-label="Proposals">
+            <section className="actor-ledger__section" aria-label="Awaiting approval">
               <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">proposals</span>
+                <span className="actor-ledger__section-title">awaiting approval</span>
                 <span className="actor-ledger__section-meta">
                   {proposals.length}
                 </span>

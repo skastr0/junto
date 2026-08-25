@@ -685,7 +685,8 @@ const deleteNodesInternal = async (
     ...stationDeletionWarnings(doc, removed),
     ...flowEdgeRemovalWarnings(doc, removedEdges, removed),
   ];
-  const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
+  const impactCopy =
+    impactWarnings.length === 0 ? "" : `\n${impactWarnings.join("\n")}`;
   if (
     confirmedPageStops === undefined &&
     !confirmDestructive(`Delete ${nodeLabel}?${impactCopy}${relationLabel}`)

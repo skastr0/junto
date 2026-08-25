@@ -1603,6 +1603,13 @@ export const WorkLive = Layer.effect(
               });
             }
             if (taskPromoted(task)) {
+              if (note?.trim()) {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    `task "${taskId}" is already promoted; the supplied note was not recorded`,
+                });
+              }
               return yield* complete(canvas, {
                 value: task,
                 disposition: "applied" as const,

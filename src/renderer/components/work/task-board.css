@@ -911,6 +911,10 @@
   box-shadow: inset 2px 0 0 var(--color-amber);
 }
 
+.task-create-dialog__admission-option[data-selected="true"] strong::before {
+  content: "✓ ";
+}
+
 .task-create-dialog__admission-option:disabled {
   color: var(--color-faint);
   cursor: not-allowed;
