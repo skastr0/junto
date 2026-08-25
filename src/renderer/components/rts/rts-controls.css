@@ -214,6 +214,35 @@
   overflow: auto;
 }
 
+.rts-kind-pop--quick {
+  display: grid;
+  gap: 7px;
+  width: max-content;
+  right: auto;
+  min-width: 196px;
+}
+
+.rts-kind-pop__title {
+  color: var(--color-ink);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rts-kind-pop__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.rts-kind-pop__hint {
+  max-width: 260px;
+  color: var(--color-dim);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
 .rts-kind-pop__field {
   display: flex;
   flex-direction: column;

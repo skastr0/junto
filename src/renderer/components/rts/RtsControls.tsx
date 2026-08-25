@@ -18,7 +18,6 @@ import {
   Play,
   Plus,
   Radio,
-  ScrollText,
   Server,
   SlidersHorizontal,
   SquareX,
@@ -27,6 +26,8 @@ import {
   Trash2,
 } from "lucide-react";
 import type { CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { SinkAdmission, TasksSinkContract } from "@shared/work-model";
+import { resolveSinkAdmission } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -69,11 +70,13 @@ import {
   PageBindingControl,
   PageUrlControl,
   RelayEditor,
-  SinkContractControl,
   TaskQueueHomeControl,
   TimerEditor,
   WatcherEditor,
 } from "../InspectorFields";
+import { formatBakeTime, normalizeSinkContract } from "../claims";
+import { setSinkContract } from "../../lib/mutations";
+import { Button } from "../ui";
 import { edgeSheetSentence, edgeSheetTitle } from "../edges/WireSheet";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
@@ -389,17 +392,25 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
 }
 
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [pop, setPop] = useState<"home" | "contract" | null>(null);
+  const [pop, setPop] = useState<"home" | "admission" | "bake" | null>(null);
   const fleetUi =
     FLEET_UI_ENABLED &&
     isCommandCenterAuthoring(use$(state$.settings.station.role));
   const contract = node.ether?.tasks?.contract;
-  const authored = Boolean(
-    contract?.instruction?.trim() ||
-      (contract?.claims?.length ?? 0) > 0 ||
-      contract?.inbound ||
-      contract?.outbound,
-  );
+  const admission = resolveSinkAdmission(contract);
+  const bakeMs = contract?.inbound?.claimableAfterMs;
+
+  const writeInbound = (
+    patch: Partial<NonNullable<TasksSinkContract["inbound"]>>,
+  ) => {
+    setSinkContract(
+      node.id,
+      normalizeSinkContract({
+        ...contract,
+        inbound: { ...contract?.inbound, ...patch },
+      }),
+    );
+  };
 
   useEffect(() => {
     setPop(null);
@@ -429,13 +440,22 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
         <Pencil size={ICON} />
       </KindKey>
       <KindKey
-        label={pop === "contract" ? "Close contract" : "Sink contract"}
-        title="Standing law for this station"
-        active={pop === "contract" || authored}
-        style={pop === "contract" || authored ? { color: HUE.amber } : undefined}
-        onClick={() => setPop((current) => (current === "contract" ? null : "contract"))}
+        label="Admission"
+        title={`Admission: ${admission.replaceAll("-", " ")}`}
+        active={pop === "admission" || admission !== "auto"}
+        style={pop === "admission" || admission !== "auto" ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "admission" ? null : "admission"))}
       >
-        <ScrollText size={ICON} />
+        <Gauge size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Bake"
+        title={`Bake: ${formatBakeTime(bakeMs) || "none"}`}
+        active={pop === "bake" || bakeMs !== undefined}
+        style={pop === "bake" || bakeMs !== undefined ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "bake" ? null : "bake"))}
+      >
+        <Timer size={ICON} />
       </KindKey>
       {/* Queue home is pure host choice — a fleet surface. */}
       {fleetUi ? (
@@ -448,9 +468,60 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
           <Server size={ICON} />
         </KindKey>
       ) : null}
-      {pop === "contract" ? (
-        <div className="rts-kind-pop rts-kind-pop--editor">
-          <SinkContractControl node={node} />
+      {pop === "admission" ? (
+        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
+          <span className="rts-kind-pop__title">Admission</span>
+          <div className="rts-kind-pop__choices">
+            {([
+              ["auto", "Auto"],
+              ["operator-gated", "Gated"],
+              ["operator-owned", "Owned"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                size="xs"
+                variant={admission === value ? "primary" : "chrome"}
+                aria-pressed={admission === value}
+                onClick={() => {
+                  writeInbound({ admission: value as SinkAdmission });
+                  setPop(null);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <span className="rts-kind-pop__hint">Choose how arrivals become claimable.</span>
+        </div>
+      ) : null}
+      {pop === "bake" ? (
+        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Bake quick set">
+          <span className="rts-kind-pop__title">Bake</span>
+          <div className="rts-kind-pop__choices">
+            {([
+              [undefined, "None"],
+              [15 * 60_000, "15m"],
+              [60 * 60_000, "1h"],
+              [12 * 60 * 60_000, "12h"],
+              [24 * 60 * 60_000, "1d"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={label}
+                size="xs"
+                variant={bakeMs === value ? "primary" : "chrome"}
+                aria-pressed={bakeMs === value}
+                onClick={() => {
+                  writeInbound({ claimableAfterMs: value });
+                  setPop(null);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <span className="rts-kind-pop__hint">
+            Current: {formatBakeTime(bakeMs) || "none"}. Use the board editor for a custom duration.
+          </span>
         </div>
       ) : null}
       {fleetUi && pop === "home" ? (
