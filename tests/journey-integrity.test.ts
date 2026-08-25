@@ -72,6 +72,37 @@ describe("stationsReferencedByLiveJourneys", () => {
     };
     expect(stationsReferencedByLiveJourneys(doc).size).toBe(0);
   });
+
+  it("reads the LIVE row, not the first row in document order", () => {
+    // s1 comes first in the document and holds the COMPLETED passage record
+    // with a truncated journey; the live row sits at s2 with the full record.
+    const passageRecord = task("t1", {
+      state: "completed",
+      journey: [
+        { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "forwarded", next: "s2" },
+      ],
+    });
+    const liveRow = task("t1", {
+      state: "working",
+      journey: [
+        { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "forwarded", next: "s2" },
+        { nodeId: "s2", enteredAt: "2026-08-20T01:00:00.000Z", epoch: 0 },
+      ],
+    });
+    const doc: CanvasDoc = {
+      nodes: [sink("s1", [passageRecord]), sink("s2", [liveRow])],
+      edges: [flowEdge("e1", "s1", "s2")],
+    };
+    const refs = stationsReferencedByLiveJourneys(doc);
+    const homeRow = (refs.get("s2") ?? []).find((r) => r.kind === "home-row");
+    expect(homeRow).toEqual({ taskId: "t1", rowStation: "s2", kind: "home-row" });
+    expect((refs.get("s1") ?? []).map((r) => r.kind).sort()).toEqual(["passage"]);
+    // s2 carries both the live home row and its own passage.
+    expect((refs.get("s2") ?? []).map((r) => r.kind).sort()).toEqual([
+      "home-row",
+      "passage",
+    ]);
+  });
 });
 
 describe("stationDeletionImpact", () => {

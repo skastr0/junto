@@ -42,15 +42,6 @@ const taskRows = (
     })),
   );
 
-/** A task is live while any of its station rows is non-terminal. */
-const liveTaskIds = (doc: CanvasDoc): ReadonlySet<string> => {
-  const live = new Set<string>();
-  for (const { task } of taskRows(doc)) {
-    if (!isTerminalTaskState(task.state)) live.add(task.id);
-  }
-  return live;
-};
-
 /**
  * Stations referenced by LIVE journeys, station id -> references. Terminal
  * tasks are history — their references never block a mutation, they only
@@ -59,7 +50,6 @@ const liveTaskIds = (doc: CanvasDoc): ReadonlySet<string> => {
 export const stationsReferencedByLiveJourneys = (
   doc: CanvasDoc,
 ): ReadonlyMap<string, ReadonlyArray<StationReference>> => {
-  const live = liveTaskIds(doc);
   const out = new Map<string, StationReference[]>();
   // One reference per (task, kind) per station — a station revisited across
   // epochs is still one passage dependency, not two.
@@ -77,13 +67,11 @@ export const stationsReferencedByLiveJourneys = (
     refs.push(reference);
     out.set(station, refs);
   };
-  const seen = new Set<string>();
+  // The LIVE row is the authority: passage-record rows carry the journey only
+  // as of their exit, and document order says nothing about which row is
+  // live. One live row per task holds by the no-split invariant.
   for (const { station, task } of taskRows(doc)) {
-    if (!live.has(task.id)) continue;
-    // One walk per task: every row carries the same journey/defect record,
-    // so read it from the first row encountered.
-    if (seen.has(task.id)) continue;
-    seen.add(task.id);
+    if (isTerminalTaskState(task.state)) continue;
     add(station, { taskId: task.id, rowStation: station, kind: "home-row" });
     for (const passage of task.journey ?? []) {
       add(passage.nodeId, {
