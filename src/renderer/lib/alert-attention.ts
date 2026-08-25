@@ -82,6 +82,9 @@ const severityToCycleKind = (
   if (severity === "blocked") return "blocked";
   if (severity === "attention") return "attention";
   if (severity === "working") return "working";
+  // Region members now carry the same ready tier freestanding seats already
+  // cycled on: finished work still waiting to be read.
+  if (severity === "ready") return "ready";
   return undefined;
 };
 

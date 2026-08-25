@@ -25,7 +25,17 @@ import type { WorkSurfaceActivity } from "./terminal";
 
 // The severity ladder, worst first. A member lands in the WORST tier it
 // matches; its reasons collect every match, in ladder order.
-export const MemberSeverity = Schema.Literals(["blocked", "attention", "working", "parked", "idle"]);
+// `ready` is finished work nobody has read yet (seat idle + needsLook, herdr
+// "done"). It sits below working on purpose: it asks for a glance, never for
+// input, so notify pills and attention alerts must keep ignoring it.
+export const MemberSeverity = Schema.Literals([
+  "blocked",
+  "attention",
+  "working",
+  "ready",
+  "parked",
+  "idle",
+]);
 export type MemberSeverity = typeof MemberSeverity.Type;
 
 // Live per-agent runtime signal, keyed by ether.entity.name (the hermes
@@ -65,6 +75,7 @@ export const RegionRollup = Schema.Struct({
     blocked: Schema.Number,
     attention: Schema.Number,
     working: Schema.Number,
+    ready: Schema.Number,
   }),
   // Sorted: severity rank (blocked -> idle), then kind rank (agent, task/
   // requests, rest), then document order.
@@ -92,8 +103,9 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   blocked: 0,
   attention: 1,
   working: 2,
-  parked: 3,
-  idle: 4,
+  ready: 3,
+  parked: 4,
+  idle: 5,
 };
 
 // Rollcall ordering: message-bearing actor seats first, then the two work
@@ -112,14 +124,25 @@ const kindRank = (kind: string): number =>
 
 const workSurfaceContribution = (
   activity: WorkSurfaceActivity | undefined,
-): { readonly blocked: boolean; readonly attention: boolean; readonly working: boolean; readonly reason?: string } => {
+): {
+  readonly blocked: boolean;
+  readonly attention: boolean;
+  readonly working: boolean;
+  readonly ready: boolean;
+  readonly reason?: string;
+} => {
   const state = activity?.harness;
+  // Finished-but-unread rides alongside the harness state: the surface reports
+  // `idle` and marks `ready`, so nothing downstream reads it as needs-input.
+  const ready = activity?.ready === true;
   if (state === undefined || state === "unknown" || state === "idle") {
-    return { blocked: false, attention: false, working: false };
+    return ready
+      ? { blocked: false, attention: false, working: false, ready, reason: "activity:ready" }
+      : { blocked: false, attention: false, working: false, ready: false };
   }
-  if (state === "blocked") return { blocked: true, attention: false, working: false, reason: "activity:blocked" };
-  if (state === "attention") return { blocked: false, attention: true, working: false, reason: "activity:attention" };
-  return { blocked: false, attention: false, working: true, reason: "activity:working" };
+  if (state === "blocked") return { blocked: true, attention: false, working: false, ready: false, reason: "activity:blocked" };
+  if (state === "attention") return { blocked: false, attention: true, working: false, ready: false, reason: "activity:attention" };
+  return { blocked: false, attention: false, working: true, ready: false, reason: "activity:working" };
 };
 
 // Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
@@ -191,6 +214,9 @@ const deriveMember = (
   if (surface.reason === "activity:working") reasons.push(surface.reason);
   const working = surface.working;
 
+  // ready: the seat finished a turn and nobody has looked yet.
+  if (surface.reason === "activity:ready") reasons.push(surface.reason);
+
   // parked: manual flag only.
   if (flags.includes("parked")) reasons.push("flag:parked");
 
@@ -200,9 +226,11 @@ const deriveMember = (
       ? "attention"
       : working
         ? "working"
-        : flags.includes("parked")
-          ? "parked"
-          : "idle";
+        : surface.ready
+          ? "ready"
+          : flags.includes("parked")
+            ? "parked"
+            : "idle";
 
   return { nodeId: node.id, label: titleOf(node), kind, severity, reasons };
 };
@@ -237,11 +265,12 @@ const regionMembers = (
     .map((entry) => entry.status);
 
 const countBySeverity = (members: ReadonlyArray<MemberStatus>): RegionRollup["counts"] => {
-  const counts = { total: members.length, blocked: 0, attention: 0, working: 0 };
+  const counts = { total: members.length, blocked: 0, attention: 0, working: 0, ready: 0 };
   for (const member of members) {
     if (member.severity === "blocked") counts.blocked += 1;
     else if (member.severity === "attention") counts.attention += 1;
     else if (member.severity === "working") counts.working += 1;
+    else if (member.severity === "ready") counts.ready += 1;
   }
   return counts;
 };

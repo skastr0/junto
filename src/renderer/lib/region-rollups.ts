@@ -21,8 +21,9 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   blocked: 0,
   attention: 1,
   working: 2,
-  parked: 3,
-  idle: 4,
+  ready: 3,
+  parked: 4,
+  idle: 5,
 };
 
 const chatCoarseKey = (
@@ -87,7 +88,7 @@ export const fuseRegionRollups = (
       // lose to a lagging main rollup still carrying attention/working — that
       // desync paints "needs input" / hotkeys amber while the seat is idle.
       if (
-        (am.severity === "idle" || am.severity === "parked") &&
+        (am.severity === "idle" || am.severity === "parked" || am.severity === "ready") &&
         (bm.severity === "attention" || bm.severity === "working")
       ) {
         return am;
@@ -104,11 +105,12 @@ export const fuseRegionRollups = (
         SEVERITY_RANK[x.severity] - SEVERITY_RANK[y.severity] ||
         x.label.localeCompare(y.label),
     );
-    const counts = { total: members.length, blocked: 0, attention: 0, working: 0 };
+    const counts = { total: members.length, blocked: 0, attention: 0, working: 0, ready: 0 };
     for (const m of members) {
       if (m.severity === "blocked") counts.blocked += 1;
       else if (m.severity === "attention") counts.attention += 1;
       else if (m.severity === "working") counts.working += 1;
+      else if (m.severity === "ready") counts.ready += 1;
     }
     out.push({
       regionId: a.regionId,
@@ -190,15 +192,27 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     [needsLookByBinding],
   );
   const terminalStatusByNodeId = useMemo(
-    () =>
-      terminalStatusByNodeIdFromSeats(
+    () => {
+      const map = terminalStatusByNodeIdFromSeats(
         doc?.nodes ?? [],
         agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>,
         agentSeat$.needsLookByBindingId.peek() as Record<string, boolean | undefined>,
-      ),
+      );
+      // Herdr "done" (Idle + !seen) is the same fact as a seat's needsLook:
+      // finished work nobody has read. The main adapter maps it too, but only
+      // for hosts with a live mirror — the renderer already holds the per-node
+      // meta, so the ready tier does not wait on a mirror sync. Only the ready
+      // fact is read here; every other herdr state stays main's to report.
+      for (const [nodeId, slot] of Object.entries(herdrMeta ?? {})) {
+        if (map.has(nodeId)) continue;
+        if ((slot?.meta?.agentStatus ?? "").toLowerCase() !== "done") continue;
+        map.set(nodeId, { session: "running", harness: "idle", ready: true, source: "herdr" });
+      }
+      return map;
+    },
     // seatKey captures state changes; docVersion/docEpoch capture node binds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, seatKey, needsLookKey],
+    [docVersion, docEpoch, seatKey, needsLookKey, herdrKey],
   );
   const vacantSeatNodeIds = useMemo(
     () =>

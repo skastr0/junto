@@ -126,7 +126,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const target = rollup?.members.find((member) => member.nodeId === "p");
     expect(target?.severity).toBe("blocked");
     expect(target?.reasons).toEqual(["edge:1 need input - ship"]);
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 , ready: 0 });
   });
 
   it("blocked via seed: a manual blocker marks that actor only (no outbound cascade)", () => {
@@ -219,7 +219,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const agent = rollup?.members.find((member) => member.nodeId === "a");
     expect(flagged).toMatchObject({ severity: "attention", reasons: ["flag:attention"] });
     expect(agent).toMatchObject({ severity: "attention", reasons: ["permission:pending"] });
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 2, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 2, working: 0 , ready: 0 });
   });
 
   it("session liveness alone does not imply harness work", () => {
@@ -232,7 +232,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
       agentActivity: activityOf(["remote-a:mira", { sessionLive: true }]),
     });
     expect(rollup?.members[0]).toMatchObject({ severity: "idle", reasons: [] });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 0 });
   });
 
   it("maps backend-neutral harness activity without knowing terminal backend", () => {
@@ -241,6 +241,25 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const activity: WorkSurfaceActivity = { session: "running", harness: "working", source: "native" };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["term", activity]]) });
     expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
+  });
+
+  it("ready: finished turn nobody has read yet, below working, above parked", () => {
+    const seat = node("seat", 10, 10, "mira", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
+    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
+    const activity: WorkSurfaceActivity = { session: "running", harness: "idle", ready: true, source: "native" };
+    const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", activity]]) });
+    expect(rollup?.severity).toBe("ready");
+    expect(rollup?.members[0]).toMatchObject({ severity: "ready", reasons: ["activity:ready"] });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 1 });
+  });
+
+  it("ready never outranks a live harness state on the same seat", () => {
+    const seat = node("seat", 10, 10, "mira", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
+    const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
+    const working: WorkSurfaceActivity = { session: "running", harness: "working", ready: true };
+    const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", working]]) });
+    expect(rollup?.members[0]).toMatchObject({ severity: "working" });
+    expect(rollup?.counts.ready).toBe(0);
   });
 
   it("parked via flag", () => {
@@ -252,7 +271,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.severity).toBe("parked");
     expect(rollup?.members[0]).toMatchObject({ severity: "parked", reasons: ["flag:parked"] });
     // parked is not a bucketed count
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 0 });
   });
 
   it("idle by default: unbound node with no flags and no live data", () => {
@@ -291,7 +310,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
       "seed:blocker flag on MIRA",
       "flag:attention",
     ]);
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 , ready: 0 });
   });
 });
 
@@ -309,7 +328,7 @@ describe("deriveRegionRollups — absent activity inputs", () => {
   it("missing activity invents nothing: every member idle, edge stays relates", () => {
     const [rollup] = deriveRegionRollups({ doc });
     expect(rollup?.severity).toBe("idle");
-    expect(rollup?.counts).toEqual({ total: 3, blocked: 0, attention: 0, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 3, blocked: 0, attention: 0, working: 0 , ready: 0 });
     expect(rollup?.members.every((member) => member.severity === "idle" && member.reasons.length === 0)).toBe(true);
   });
 
@@ -437,7 +456,7 @@ describe("deriveRegionRollups — region nesting", () => {
     expect(rollups.map((rollup) => rollup.regionId)).toEqual(["outer", "mid", "inner"]);
     for (const rollup of rollups) {
       expect(rollup.severity).toBe("blocked");
-      expect(rollup.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 });
+      expect(rollup.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 , ready: 0 });
       expect(rollup.members.map((member) => member.nodeId)).toEqual(["hot"]);
     }
   });
@@ -456,7 +475,7 @@ describe("deriveRegionRollups — region nesting", () => {
     const outer = rollups.find((rollup) => rollup.regionId === "outer");
     const inner = rollups.find((rollup) => rollup.regionId === "inner");
     expect(outer?.severity).toBe("attention");
-    expect(outer?.counts).toEqual({ total: 2, blocked: 0, attention: 1, working: 0 });
+    expect(outer?.counts).toEqual({ total: 2, blocked: 0, attention: 1, working: 0 , ready: 0 });
     expect(inner?.severity).toBe("attention");
     expect(inner?.members.map((member) => member.nodeId)).toEqual(["deep"]);
   });
@@ -550,7 +569,7 @@ describe("deriveRegionRollups — derivation edges", () => {
     const agent = rollup?.members[0];
     expect(agent?.severity).toBe("attention");
     expect(agent?.reasons).toEqual(["permission:pending"]);
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 , ready: 0 });
   });
 
   it("unknown entity kinds remain inert without explicit activity", () => {
@@ -602,7 +621,7 @@ describe("deriveRegionRollups — backend-neutral terminal status", () => {
       kind: "herdr",
       reasons: ["activity:working"],
     });
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 1 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 1 , ready: 0 });
   });
 
   it("herdr blocked and attention map to blocked / attention; idle (done) invents nothing", () => {
@@ -626,7 +645,7 @@ describe("deriveRegionRollups — backend-neutral terminal status", () => {
     });
     expect(rollup?.severity).toBe("blocked");
     expect(rollup?.members.map((m) => m.severity)).toEqual(["blocked", "attention", "idle"]);
-    expect(rollup?.counts).toEqual({ total: 3, blocked: 1, attention: 1, working: 0 });
+    expect(rollup?.counts).toEqual({ total: 3, blocked: 1, attention: 1, working: 0 , ready: 0 });
   });
 
   it("missing herdr status invents nothing; idle herdr is not elevated", () => {

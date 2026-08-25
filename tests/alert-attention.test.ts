@@ -20,7 +20,7 @@ const rollup = (members: RegionRollup["members"]): RegionRollup => ({
   regionId: "r1",
   label: "forge",
   severity: "attention",
-  counts: { total: members.length, blocked: 0, attention: 0, working: 0 },
+  counts: { total: members.length, blocked: 0, attention: 0, working: 0, ready: 0 },
   members,
 });
 

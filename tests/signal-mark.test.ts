@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasNode } from "../src/shared/canvas";
 import { identityHue, minimapFill, signalMark, signalMarkForMember } from "../src/renderer/lib/signal-mark";
-import { HUE } from "../src/renderer/lib/theme";
+import { GREEN, HUE } from "../src/renderer/lib/theme";
 
 describe("signalMark", () => {
   it("maps the severity ladder to distinct hues and symbols", () => {
@@ -9,9 +9,18 @@ describe("signalMark", () => {
     expect(signalMark("blocked").symbol).toBe("⊗");
     expect(signalMark("attention").hue).toBe(HUE.amber);
     expect(signalMark("working").hue).toBe(HUE.cyan);
+    expect(signalMark("ready").hue).toBe(GREEN);
+    expect(signalMark("ready").symbol).toBe("✓");
+    expect(signalMark("ready").mode).toBe("pulse");
     expect(signalMark("parked").hue).toBe(HUE.violet);
     expect(signalMark("idle").kind).toBe("idle");
     expect(signalMark("idle").symbol).toBe("○");
+  });
+
+  it("labels a ready member as finished work waiting to be read", () => {
+    const mark = signalMarkForMember({ severity: "ready", reasons: ["activity:ready"] });
+    expect(mark.kind).toBe("ready");
+    expect(mark.label).toBe("ready to read");
   });
 
   it("refines labels from rollup reasons without changing severity", () => {
@@ -41,6 +50,7 @@ describe("minimapFill", () => {
     expect(minimapFill(agent, "idle")).toBe(HUE.orange); // agent kind
     expect(minimapFill(agent, "blocked")).toBe(HUE.crimson);
     expect(minimapFill(agent, "working")).toBe(HUE.cyan);
+    expect(minimapFill(agent, "ready")).toBe(GREEN);
   });
 
   it("prefers node accent over kind for identity", () => {

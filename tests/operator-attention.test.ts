@@ -20,6 +20,7 @@ const rollup = (
     blocked: members.filter((m) => m.severity === "blocked").length,
     attention: members.filter((m) => m.severity === "attention").length,
     working: members.filter((m) => m.severity === "working").length,
+    ready: members.filter((m) => m.severity === "ready").length,
   },
   members,
 });

@@ -56,6 +56,15 @@ const MARK: Readonly<Record<SignalKind, SignalMark>> = {
     label: "working",
     mode: "wave",
   },
+  ready: {
+    kind: "ready",
+    tone: "green",
+    hue: ACTIVITY_TONE_HEX.green,
+    // Filled check — finished work waiting to be read, never a warning.
+    symbol: "✓",
+    label: "ready",
+    mode: "pulse",
+  },
   parked: {
     kind: "parked",
     tone: "violet",
@@ -90,6 +99,7 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   if (reason === "herdr:working") return { ...base, label: "herdr working" };
   if (reason === "herdr:blocked") return { ...base, label: "herdr blocked" };
   if (reason === "herdr:done") return { ...base, label: "herdr done" };
+  if (reason === "activity:ready") return { ...base, label: "ready to read" };
   if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
   if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };
   if (reason === "relay") return { ...base, label: "relayed block" };

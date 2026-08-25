@@ -5,7 +5,7 @@
 import type { MemberSeverity, MemberStatus, RegionRollup } from "@shared/region-rollup";
 
 /** Hot ladder for roll call. Idle never surfaces as its own bucket. */
-export const ROLL_CALL_BUCKETS = ["blocked", "attention", "working", "parked"] as const;
+export const ROLL_CALL_BUCKETS = ["blocked", "attention", "working", "ready", "parked"] as const;
 export type RollCallSeverity = (typeof ROLL_CALL_BUCKETS)[number];
 
 export type RollCallBucket = {
@@ -24,8 +24,10 @@ export type RollCallModel =
 
 const NAME_LIMIT = 2;
 
-const countParked = (members: ReadonlyArray<MemberStatus>): number =>
-  members.reduce((n, m) => (m.severity === "parked" ? n + 1 : n), 0);
+const countSeverity = (
+  members: ReadonlyArray<MemberStatus>,
+  severity: MemberSeverity,
+): number => members.reduce((n, m) => (m.severity === severity ? n + 1 : n), 0);
 
 const namesFor = (
   members: ReadonlyArray<MemberStatus>,
@@ -40,7 +42,7 @@ const namesFor = (
 /**
  * Build the roll-call model for a region rollup.
  * - empty region → empty
- * - all idle (no blocked/attention/working/parked) → quiet
+ * - all idle (no blocked/attention/working/ready/parked) → quiet
  * - otherwise → hot buckets with counts + sample names
  */
 export function buildRollCall(
@@ -50,12 +52,13 @@ export function buildRollCall(
   const total = rollup.counts.total;
   if (total === 0) return { kind: "empty" };
 
-  const parked = countParked(rollup.members);
   const counts: Record<RollCallSeverity, number> = {
     blocked: rollup.counts.blocked,
     attention: rollup.counts.attention,
     working: rollup.counts.working,
-    parked,
+    // `ready` predates this field on cached rollups — recount when it is absent.
+    ready: rollup.counts.ready ?? countSeverity(rollup.members, "ready"),
+    parked: countSeverity(rollup.members, "parked"),
   };
 
   const buckets: RollCallBucket[] = [];
@@ -80,6 +83,8 @@ export function rollCallBucketLabel(severity: RollCallSeverity, count: number): 
         return "1 attention";
       case "working":
         return "1 working";
+      case "ready":
+        return "1 ready";
       case "parked":
         return "1 parked";
     }
@@ -91,6 +96,8 @@ export function rollCallBucketLabel(severity: RollCallSeverity, count: number): 
       return `${count} attention`;
     case "working":
       return `${count} working`;
+    case "ready":
+      return `${count} ready`;
     case "parked":
       return `${count} parked`;
   }

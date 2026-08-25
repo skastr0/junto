@@ -30,6 +30,13 @@ export type TerminalHarnessState = typeof TerminalHarnessState.Type;
 export const WorkSurfaceActivity = Schema.Struct({
   session: TerminalSessionStatus,
   harness: Schema.optionalKey(TerminalHarnessState),
+  /**
+   * Finished a turn, operator has not looked yet (seat idle + needsLook, herdr
+   * "done"). Rides beside `harness: "idle"` rather than becoming a harness
+   * state: ready asks for a glance, never for input, so needs-input surfaces
+   * keep ignoring it while the region ladder can still show it.
+   */
+  ready: Schema.optionalKey(Schema.Boolean),
   source: Schema.optionalKey(Schema.Literals(["vellum-command", "herdr", "native"])),
 });
 export type WorkSurfaceActivity = typeof WorkSurfaceActivity.Type;

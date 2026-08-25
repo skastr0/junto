@@ -13,11 +13,12 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   blocked: 0,
   attention: 1,
   working: 2,
-  parked: 3,
-  idle: 4,
+  ready: 3,
+  parked: 4,
+  idle: 5,
 };
 
-/** Worse operational tier wins (blocked > attention > working > parked > idle). */
+/** Worse operational tier wins (blocked > attention > working > ready > parked > idle). */
 export const worseMemberSeverity = (
   a: MemberSeverity,
   b: MemberSeverity,
@@ -28,19 +29,24 @@ export const worseMemberSeverity = (
  *
  * Idle is an **authoritative quiet** for harness activity — return "idle" so
  * hotbar can demote lagging rollup attention/working (seat is truth for that
- * plane). Herdr done is ready/complete green on the card, not chip attention.
+ * plane). A seat that finished a turn nobody has read (seat idle + needsLook,
+ * herdr "done") is "ready": green on the chip, never chip attention.
  */
 export function liveActivitySeverity(input: {
   readonly seatState?: AgentSeatState;
+  /** Seat settled after work and the operator has not looked yet. */
+  readonly seatNeedsLook?: boolean;
   readonly herdrAgentStatus?: string | null;
 }): MemberSeverity | undefined {
   if (input.seatState === "attention") return "attention";
   if (input.seatState === "working") return "working";
-  if (input.seatState === "idle" || input.seatState === "gone") return "idle";
+  if (input.seatState === "idle") return input.seatNeedsLook === true ? "ready" : "idle";
+  if (input.seatState === "gone") return "idle";
   const herdr = input.herdrAgentStatus ?? undefined;
   if (herdr === "blocked") return "blocked";
   if (herdr === "working") return "working";
-  if (herdr === "idle" || herdr === "done") return "idle";
+  if (herdr === "done") return "ready";
+  if (herdr === "idle") return "idle";
   return undefined;
 }
 
@@ -104,6 +110,7 @@ export function hotbarNodeSeverity(
         severity === undefined ||
         severity === "attention" ||
         severity === "working" ||
+        severity === "ready" ||
         severity === "idle"
       ) {
         severity = "idle";

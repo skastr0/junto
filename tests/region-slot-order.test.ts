@@ -85,6 +85,7 @@ describe("fuseRegionRollups", () => {
       blocked: 0,
       attention: severity === "attention" ? 1 : 0,
       working: 0,
+      ready: 0,
     },
     members: [{
       nodeId: "actor",
@@ -126,7 +127,7 @@ describe("fuseRegionRollups", () => {
     const client: RegionRollup = {
       ...rollup("idle"),
       severity: "working",
-      counts: { total: 1, blocked: 0, attention: 0, working: 1 },
+      counts: { total: 1, blocked: 0, attention: 0, working: 1, ready: 0 },
       members: [{
         nodeId: "actor",
         label: "Actor",
@@ -138,7 +139,7 @@ describe("fuseRegionRollups", () => {
     const live: RegionRollup = {
       ...rollup("idle"),
       severity: "blocked",
-      counts: { total: 1, blocked: 1, attention: 0, working: 0 },
+      counts: { total: 1, blocked: 1, attention: 0, working: 0, ready: 0 },
       members: [{
         nodeId: "actor",
         label: "Actor",

@@ -85,7 +85,23 @@ describe("liveActivitySeverity", () => {
   it("maps herdr working and blocked", () => {
     expect(liveActivitySeverity({ herdrAgentStatus: "working" })).toBe("working");
     expect(liveActivitySeverity({ herdrAgentStatus: "blocked" })).toBe("blocked");
-    expect(liveActivitySeverity({ herdrAgentStatus: "done" })).toBe("idle");
+    expect(liveActivitySeverity({ herdrAgentStatus: "idle" })).toBe("idle");
+  });
+
+  it("reads a finished-but-unread seat as ready, not idle or attention", () => {
+    expect(liveActivitySeverity({ seatState: "idle", seatNeedsLook: true })).toBe("ready");
+    expect(liveActivitySeverity({ seatState: "idle", seatNeedsLook: false })).toBe("idle");
+    expect(liveActivitySeverity({ herdrAgentStatus: "done" })).toBe("ready");
+    // A dead seat has nothing to read.
+    expect(liveActivitySeverity({ seatState: "gone", seatNeedsLook: true })).toBe("idle");
+  });
+
+  it("keeps ready under a live working seat and over a quiet rollup", () => {
+    const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
+    expect(hotbarNodeSeverity(node, { memberSeverity: "idle", liveSeverity: "ready" })).toBe("ready");
+    expect(hotbarNodeSeverity(node, { memberSeverity: "working", liveSeverity: "ready" })).toBe("working");
+    // A seat that went quiet again drops a stale ready from the rollup.
+    expect(hotbarNodeSeverity(node, { memberSeverity: "ready", liveSeverity: "idle" })).toBe("idle");
   });
 });
 

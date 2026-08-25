@@ -174,9 +174,14 @@ export const workSurfaceFromSeat = (
   needsLook = false,
 ): WorkSurfaceActivity | undefined => {
   if (!event) return undefined;
+  // needsLook stays out of the harness state (see harnessFromSeatState) and
+  // travels as `ready`, so the region ladder can show finished seats without
+  // any needs-input surface mistaking them for attention.
+  const ready = event.state === "idle" && needsLook;
   return {
     session: event.state === "gone" ? "exited" : "running",
     harness: harnessFromSeatState(event.state, needsLook),
+    ...(ready ? { ready: true } : {}),
     source: "native",
   };
 };

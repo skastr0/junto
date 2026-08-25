@@ -119,6 +119,21 @@ describe("harnessFromSeatState / clueFromAgentSeat", () => {
       source: "native",
     });
   });
+
+  it("workSurfaceFromSeat carries needsLook as ready, never as a harness state", () => {
+    expect(workSurfaceFromSeat(event({ bindingId: "b1", state: "idle" }), true)).toEqual({
+      session: "running",
+      harness: "idle",
+      ready: true,
+      source: "native",
+    });
+    // Still mid-turn: nothing to read yet.
+    expect(workSurfaceFromSeat(event({ bindingId: "b1", state: "working" }), true)).toEqual({
+      session: "running",
+      harness: "working",
+      source: "native",
+    });
+  });
 });
 
 describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
@@ -151,10 +166,11 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     applyAgentSeatStateEvent(event({ bindingId: "b1", state: "idle", at: 2 }));
     expect(agentSeat$.needsLookByBindingId.b1.peek()).toBe(true);
     expect(presentationForSeat("idle", true)).toBe("done");
-    // needsLook arms green-pulse presentation only; rollup harness stays idle.
+    // needsLook never becomes a harness state; it travels as `ready`.
     expect(workSurfaceFromSeat(event({ bindingId: "b1", state: "idle" }), true)).toEqual({
       session: "running",
       harness: "idle",
+      ready: true,
       source: "native",
     });
 
@@ -217,13 +233,27 @@ describe("applyAgentSeatStateEvent + terminalStatusByNodeIdFromSeats", () => {
     expect(map.has("n3")).toBe(false);
   });
 
-  it("projects idle unseen seats as idle (ready/complete is not rollup attention)", () => {
+  it("projects idle unseen seats as harness idle + ready (never attention)", () => {
     const map = terminalStatusByNodeIdFromSeats(
       [terminalNode("n-ready", "bind-ready")],
       { "bind-ready": event({ bindingId: "bind-ready", state: "idle" }) },
       { "bind-ready": true },
     );
     expect(map.get("n-ready")).toEqual({
+      session: "running",
+      harness: "idle",
+      ready: true,
+      source: "native",
+    });
+  });
+
+  it("drops ready once the operator has looked", () => {
+    const map = terminalStatusByNodeIdFromSeats(
+      [terminalNode("n-seen", "bind-seen")],
+      { "bind-seen": event({ bindingId: "bind-seen", state: "idle" }) },
+      { "bind-seen": false },
+    );
+    expect(map.get("n-seen")).toEqual({
       session: "running",
       harness: "idle",
       source: "native",

@@ -12,9 +12,9 @@ import { liveSeatBlocksForCanvas } from "./work/blocked-seat";
 /**
  * Herdr vocabulary stops at this adapter boundary.
  *
- * Ready/complete (`done` = Idle+!seen) is presentation-only: green pulse on the
- * card and the idle-herdr Space queue. It must not elevate rollup severity or
- * the notify-strip attention pills (those are needs-input / blocked only).
+ * Ready/complete (`done` = Idle+!seen) rides as `ready` beside `harness: idle`:
+ * it earns the green ready tier on cards and region chips, and it still must
+ * not reach the notify-strip attention pills (needs-input / blocked only).
  */
 export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity => {
   const normalized = status.toLowerCase();
@@ -23,7 +23,12 @@ export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity =>
     : normalized === "done" || normalized === "idle"
       ? "idle"
       : "unknown";
-  return { session: "running", harness, source: "herdr" };
+  return {
+    session: "running",
+    harness,
+    ...(normalized === "done" ? { ready: true } : {}),
+    source: "herdr",
+  };
 };
 
 // Region severity rollups for the RTS bottom bar. Derived per request from

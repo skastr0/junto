@@ -38,6 +38,7 @@ const validSeverity = (value: string | undefined): value is MemberSeverity =>
   value === "blocked"
   || value === "attention"
   || value === "working"
+  || value === "ready"
   || value === "parked"
   || value === "idle";
 
