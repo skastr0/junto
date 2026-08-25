@@ -59,6 +59,7 @@ import {
   workTaskTransition,
   type WorkIds,
   type WorkTaskCreateOptions,
+  type WorkTaskTransitionResult,
 } from "@shared/work";
 import {
   collectContentRefsFromTask,
@@ -123,6 +124,7 @@ import {
   WorkRepository,
   WorkRepositoryError,
   type PendingCommand,
+  type TaskPipelinePatch,
 } from "./repository";
 
 export class WorkServiceError extends Schema.TaggedErrorClass<WorkServiceError>()(
@@ -1404,7 +1406,7 @@ export const WorkLive = Layer.effect(
             // Claims/boarding gates are doc-derived and run in policy always.
             const evaluateFinish =
               home === context.localInstallationId;
-            const policy = yield* runPolicy(() =>
+            const policy: WorkTaskTransitionResult = yield* runPolicy(() =>
               workTaskTransition(
                 read.doc,
                 canvas,
@@ -1488,7 +1490,9 @@ export const WorkLive = Layer.effect(
             }
             // Terminal close of a pipeline task stamps the passage exit on
             // the same row; the durable write carries the journey patch.
-            const pipeline = {
+            // Named apart from the `pipeline` option — a same-block const of
+            // that name shadows the parameter and the policy thunk hits TDZ.
+            const pipelinePatch: TaskPipelinePatch = {
               ...(policy.task.journey !== undefined
                 ? { journey: policy.task.journey }
                 : {}),
@@ -1497,7 +1501,9 @@ export const WorkLive = Layer.effect(
                 : {}),
             };
             const journeyPatch =
-              Object.keys(pipeline).length > 0 ? { pipeline } : {};
+              Object.keys(pipelinePatch).length > 0
+                ? { pipeline: pipelinePatch }
+                : {};
             const action = {
               operation: "task.transition" as const,
               taskId,
