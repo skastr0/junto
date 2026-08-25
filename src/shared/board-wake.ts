@@ -2,6 +2,7 @@
 // Operator megaphone only — agent posts never mint wakes.
 
 import type { CanvasDoc, CanvasNode } from "./canvas";
+import { compileEdgeGrant, edgeKindIndex } from "./canvas";
 import { isGroup } from "./graph";
 import {
   actorDeliverySurfaceOf,
@@ -36,20 +37,24 @@ export type BoardWakeSeat = {
 };
 
 /**
- * Edge is eligible for board megaphone wakes.
- * Default ON when connected — only explicit `wake: false` opts out.
+ * Seat is eligible for board megaphone wakes.
+ *
+ * The verb decides: a seat that `participates` in a board is reachable by the
+ * operator megaphone; one that only `messages` it reads and posts without ever
+ * being called into the room.
  */
 export const edgeNotifyOn = (
   doc: CanvasDoc,
   a: string,
   b: string,
 ): boolean => {
+  const kinds = edgeKindIndex(doc);
   for (const edge of doc.edges) {
     const pair =
       (edge.fromNode === a && edge.toNode === b) ||
       (edge.fromNode === b && edge.toNode === a);
     if (!pair) continue;
-    if (edge.ether?.wake !== false) return true;
+    if (compileEdgeGrant(edge, kinds)?.wake === true) return true;
   }
   return false;
 };

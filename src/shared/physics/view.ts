@@ -1,5 +1,10 @@
-import { HashMap, HashSet, Option, Schema } from "effect";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../canvas";
+import { HashMap, HashSet, Option } from "effect";
+import {
+  compileEdgeGrant,
+  edgeKindIndex,
+  type CanvasDoc,
+  type CanvasNode,
+} from "../canvas";
 import { groupMembers, isGroup } from "../graph";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { undirectedEdgeKey } from "./admit";
@@ -9,45 +14,19 @@ import {
   type NodePlacement,
   type PlacementTopology,
 } from "./placement";
-import { Port, asNodeId, type NodeId } from "./schema";
+import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
-
-const decodePort = Schema.decodeUnknownOption(Port);
+//
+// Ports are not read off the document: the edge's verb plus the two endpoint
+// kinds compile them (`physics/verbs.ts`). An edge with no verb — one that
+// never went through the document scrub — grants nothing, the same fail-closed
+// answer an empty mask has always given.
 
 const nodeMetaOf = (node: CanvasNode): NodeMeta => ({
   kind: node.ether?.entity?.kind,
   isGroup: isGroup(node),
 });
-
-/**
- * Read edge.ether.ports into a Port set.
- * Invalid / unknown strings are skipped (fail-closed for those tokens only).
- * Absent field → no mask (full offers). Explicit `[]` → empty mask (nothing).
- */
-const readEdgePorts = (
-  edge: CanvasEdge,
-): HashSet.HashSet<Port> | undefined => {
-  const ports = edge.ether?.ports;
-  if (ports === undefined) return undefined;
-  let set = HashSet.empty<Port>();
-  for (const p of ports) {
-    const decoded = decodePort(p);
-    if (Option.isSome(decoded)) {
-      set = HashSet.add(set, decoded.value);
-    }
-  }
-  return set;
-};
-
-/**
- * Whether an authored edge mask leaves a port available.
- * Absent mask = unattenuated (full offers). Empty mask = nothing allowed.
- */
-export const edgeMaskAllows = (edge: CanvasEdge, port: Port): boolean => {
-  const mask = readEdgePorts(edge);
-  return mask === undefined || HashSet.has(mask, port);
-};
 
 export type CapabilityViewOptions = {
   /**
@@ -64,17 +43,29 @@ export type CapabilityViewOptions = {
 };
 
 /**
+ * The capability view plus the facts a verb grants that are not ports.
+ *
+ * `assignable` holds the undirected pair keys whose relationship lets the
+ * factory tick hand work to the actor seat — the `works` verb says so
+ * explicitly, where a port only ever said the seat *may* claim.
+ */
+export type VerbCapabilityView = CapabilityView & {
+  readonly assignable: HashSet.HashSet<string>;
+};
+
+/**
  * Build an undirected capability view from a canvas document.
  * - connected: adjacency from edges (undirected)
  * - regionPeers: group co-members (excluding self), geometry-derived
  * - nodeMeta: kind + isGroup
- * - edgePortMask: only when ether.ports is present and yields ≥1 valid Port
+ * - edgePortMask: union of the compiled grants on that undirected pair
+ * - assignable: pairs whose verb marks the actor seat assignable
  * - placement: from topology resolve or explicit map (I18)
  */
 export const canvasDocToCapabilityView = (
   doc: CanvasDoc,
   options?: CapabilityViewOptions,
-): CapabilityView => {
+): VerbCapabilityView => {
   let nodeMeta = HashMap.empty<NodeId, NodeMeta>();
   for (const node of doc.nodes) {
     nodeMeta = HashMap.set(nodeMeta, asNodeId(node.id), nodeMetaOf(node));
@@ -89,15 +80,13 @@ export const canvasDocToCapabilityView = (
     connected = HashMap.set(connected, from, next);
   };
 
-  // Per undirected pair: any edge without ports ⇒ no mask (full offers).
-  // When every declaring edge has ports: union masks (I7 — each edge is an
+  // Per undirected pair: union the compiled grants (I7 — each edge is an
   // independent capability; possession is additive, ocap-style). `allows()`
   // in admit.ts still intersects the resulting grant with target offers, so
   // the union can never smuggle a port the target does not offer.
-  const pairState = new Map<
-    string,
-    { unmasked: boolean; mask: HashSet.HashSet<Port> | undefined }
-  >();
+  const kinds = edgeKindIndex(doc);
+  const pairPorts = new Map<string, HashSet.HashSet<Port>>();
+  let assignable = HashSet.empty<string>();
 
   for (const edge of doc.edges) {
     const a = asNodeId(edge.fromNode);
@@ -106,29 +95,18 @@ export const canvasDocToCapabilityView = (
     addAdj(b, a);
 
     const key = undirectedEdgeKey(edge.fromNode, edge.toNode);
-    const ports = readEdgePorts(edge);
-    const prev = pairState.get(key);
-    if (ports === undefined) {
-      pairState.set(key, { unmasked: true, mask: undefined });
-      continue;
-    }
-    if (prev?.unmasked) continue;
-    // Explicit mask including empty set — closed allow-list.
-    if (prev === undefined || prev.mask === undefined) {
-      pairState.set(key, { unmasked: false, mask: ports });
-    } else {
-      pairState.set(key, {
-        unmasked: false,
-        mask: HashSet.union(prev.mask, ports),
-      });
+    const grant = compileEdgeGrant(edge, kinds);
+    const ports = HashSet.fromIterable(grant?.ports ?? []);
+    const prev = pairPorts.get(key);
+    pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
+    if (grant?.assignable === true) {
+      assignable = HashSet.add(assignable, key);
     }
   }
 
   let edgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
-  for (const [key, state] of pairState) {
-    if (!state.unmasked && state.mask !== undefined) {
-      edgePortMask = HashMap.set(edgePortMask, key, state.mask);
-    }
+  for (const [key, ports] of pairPorts) {
+    edgePortMask = HashMap.set(edgePortMask, key, ports);
   }
 
   let regionPeers = HashMap.empty<NodeId, HashSet.HashSet<NodeId>>();
@@ -154,5 +132,12 @@ export const canvasDocToCapabilityView = (
     options?.placement ??
     placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY);
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, placement };
+  return { nodeMeta, connected, regionPeers, edgePortMask, assignable, placement };
 };
+
+/** Whether the relationship between two nodes lets the tick assign work. */
+export const pairIsAssignable = (
+  view: VerbCapabilityView,
+  a: string,
+  b: string,
+): boolean => HashSet.has(view.assignable, undirectedEdgeKey(a, b));

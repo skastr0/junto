@@ -1,4 +1,13 @@
 /**
+ * DYING IN SURFACE BATCH.
+ *
+ * Families, slots, and the lexicon words below are the pre-verb grammar. The
+ * document no longer carries any of it: an edge states one verb and every
+ * grant is compiled (`physics/verbs.ts`). Nothing under `src/shared` or
+ * `src/main` reads this module any more — only renderer surfaces still do
+ * (edge paint, the wire sheet, connect preview, the inspector), so it stands
+ * as a shim until those are cut over, then it goes.
+ *
  * Wires grammar — edges as configuration, never runtime state.
  *
  * Families: access | watch | trigger | effect | flow.

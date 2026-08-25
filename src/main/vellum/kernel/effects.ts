@@ -247,7 +247,7 @@ const schedulerNodeEnabled = (node: CanvasNode | undefined): boolean => {
   return kind !== undefined && schedulerFeatureEnabled(kind);
 };
 
-/** Downstream schedulers reached by slot=trigger (or bare scheduler→scheduler). */
+/** Downstream schedulers this one chains into (`chains`, upstream → downstream). */
 export const collectTriggerCascadeTargets = (
   doc: CanvasDoc,
   sourceNodeId: string,
@@ -258,17 +258,10 @@ export const collectTriggerCascadeTargets = (
   const out: string[] = [];
   for (const edge of doc.edges) {
     if (edge.fromNode !== sourceNodeId) continue;
+    if (edge.ether?.verb !== "chains") continue;
     const target = doc.nodes.find((n) => n.id === edge.toNode);
     if (!schedulerNodeEnabled(target)) continue;
-    const slot = edge.ether?.slot;
-    if (slot === "trigger") {
-      out.push(edge.toNode);
-      continue;
-    }
-    // Bare edge: cascade only when both ends are schedulers (chain).
-    if (slot === undefined) {
-      out.push(edge.toNode);
-    }
+    out.push(edge.toNode);
   }
   return out;
 };
@@ -296,7 +289,7 @@ export const applySchedulerFire = async (
   }
   visited.add(fire.sourceNodeId);
 
-  // Scope law: only edges with fromNode === sourceNodeId and ether.does.
+  // Scope law: only edges leaving this scheduler whose verb is a fire action.
   const bindings = collectEffectEdgesFrom(doc, fire.sourceNodeId);
   let applied = 0;
   for (const binding of bindings) {

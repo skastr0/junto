@@ -105,7 +105,6 @@ import {
   setStationScope,
   __setAutomationGateForTest,
   __setFlagWriterForTest,
-  __setPhaseMirrorForTest,
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
   setPageLoadDeps,
@@ -986,7 +985,6 @@ const makeKernelService = (
     },
   });
   // Edge phase mirror remains projection-only (no authorial writeback).
-  __setPhaseMirrorForTest(undefined);
 
   // --- evaluation cycle --------------------------------------------------------
 

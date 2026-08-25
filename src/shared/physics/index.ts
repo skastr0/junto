@@ -115,8 +115,30 @@ export {
 } from "./work-ports";
 export type { TargetWorkOpName } from "./work-ports";
 
-export { canvasDocToCapabilityView, edgeMaskAllows } from "./view";
-export type { CapabilityViewOptions } from "./view";
+export { canvasDocToCapabilityView, pairIsAssignable } from "./view";
+export type { CapabilityViewOptions, VerbCapabilityView } from "./view";
+
+export {
+  VERBS,
+  VERB_COLOR_TOKEN,
+  VERB_TABLE,
+  Verb,
+  compileVerb,
+  defaultVerbForPair,
+  inferVerb,
+  verbSideOf,
+  verbsForPair,
+  EdgeEffect,
+  WatchWhen,
+} from "./verbs";
+export type {
+  ClockKind,
+  EdgeFlag,
+  LegacyEdgeEther,
+  VerbGrant,
+  VerbSide,
+  WatchWhenAtom,
+} from "./verbs";
 
 export {
   PORTS_HIDDEN_FROM_CHIPS,

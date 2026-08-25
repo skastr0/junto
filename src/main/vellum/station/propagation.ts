@@ -16,6 +16,7 @@ import {
 import { resolveNodeHostId } from "@shared/station";
 import type { StationTopologyObservation } from "@shared/station-status";
 import { resolveSpec, roleOf } from "@shared/physics/kinds";
+import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
 import {
   CanvasesService,
   type CanvasAuthoritySnapshot,
@@ -174,6 +175,7 @@ export const summarizeStationProjectionTopology = (
       }
     }
 
+    const edgeKinds = edgeKindIndex(document);
     for (const edge of document.edges) {
       const from = nodes.get(edge.fromNode);
       const to = nodes.get(edge.toNode);
@@ -200,10 +202,11 @@ export const summarizeStationProjectionTopology = (
       }));
       const actor = fromRole === "actor" ? from : toRole === "actor" ? to : undefined;
       const sink = fromRole === "sink" ? from : toRole === "sink" ? to : undefined;
+      // An access relationship is one whose verb opens at least one port.
       if (
         actor === undefined ||
         sink === undefined ||
-        (edge.ether?.ports?.length ?? 0) === 0
+        (compileEdgeGrant(edge, edgeKinds)?.ports.length ?? 0) === 0
       ) continue;
       const actorHost = resolveNodeHostId(actor);
       const sinkHost = resolveNodeHostId(sink);

@@ -1,7 +1,9 @@
 // The kernel evaluation cycle. Gauge/relay status, cron claim/nextFire,
-// scheduler edge effects, execution graph, flagOnUnsatisfied, and phase-mirror
-// hooks live here. Region pulse inject is retired — effects are edge-authored
-// only (enqueue / set_flag), never geometry fan-out.
+// scheduler edge effects, execution graph, and flagOnUnsatisfied live here.
+// Region pulse inject is retired — effects are compiled from the edge's verb
+// (enqueues / wakes / flags), never geometry fan-out. Edge phase is derived on
+// every read and never mirrored back into the document, so the cycle has no
+// phase to write.
 
 import type { CanvasDoc, EdgePhase, EtherFlag } from "@shared/canvas";
 import {
@@ -95,15 +97,6 @@ export interface FlagWriterDeps {
   ) => void;
 }
 
-// Level-driven mirror of derived edge phase into ether.kind for criteria
-// edges so document projections expose the last live phase.
-export interface PhaseMirrorDeps {
-  readonly mirrorPhases: (
-    canvasName: string,
-    phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
-  ) => void;
-}
-
 export interface TimerSchedulerDeps {
   readonly claimInterval: (
     input: SchedulerClaimInput,
@@ -154,7 +147,6 @@ export interface PageLoadDeps {
 let docs: Map<string, CanvasDoc> = new Map();
 let snapshots: SnapshotState = { bundles: [] };
 let flagWriterDeps: FlagWriterDeps | undefined = undefined;
-let phaseMirrorDeps: PhaseMirrorDeps | undefined = undefined;
 let timerSchedulerDeps: TimerSchedulerDeps | undefined = undefined;
 let automationGateDeps: AutomationGateDeps | undefined = undefined;
 let pageLoadDeps: PageLoadDeps | undefined = undefined;
@@ -187,10 +179,6 @@ export const __setFlagWriterForTest = (deps: FlagWriterDeps | undefined): void =
   flagWriterDeps = deps;
 };
 
-export const __setPhaseMirrorForTest = (deps: PhaseMirrorDeps | undefined): void => {
-  phaseMirrorDeps = deps;
-};
-
 export const __setTimerSchedulerForTest = (
   deps: TimerSchedulerDeps | undefined,
 ): void => {
@@ -216,7 +204,6 @@ export const __resetKernelMemoryForTest = (): void => {
   docs = new Map();
   snapshots = { bundles: [] };
   flagWriterDeps = undefined;
-  phaseMirrorDeps = undefined;
   timerSchedulerDeps = undefined;
   automationGateDeps = undefined;
   pageLoadDeps = undefined;
@@ -364,23 +351,6 @@ const reconcileRuntimeFlagOverrides = (
   }
 };
 
-/** True when any criteria edge's mirrored kind/color differs from derived phase. */
-export const criteriaPhasesNeedMirror = (
-  doc: CanvasDoc,
-  phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
-): boolean => {
-  for (const edge of doc.edges) {
-    if (!edge.ether?.stops) continue;
-    const phase = phaseByEdgeId.get(edge.id);
-    if (phase === undefined) continue;
-    if (edge.ether.kind !== phase) return true;
-    // Stuck blocks crimson after demotion.
-    if (phase !== "blocks" && edge.color === "1") return true;
-    if (phase === "blocks" && edge.color !== "1") return true;
-  }
-  return false;
-};
-
 export const getKernelSnapshot = (): KernelSnapshot => {
   const canvases: Record<
     string,
@@ -511,17 +481,6 @@ export const runEvaluationCycle = async (): Promise<void> => {
       const effectiveDoc = projectRuntimeFlags(canvasName, doc);
       const execution = snapshotFromGraph(canvasName, effectiveDoc);
       executionByCanvas.set(canvasName, execution);
-
-      // Mirror derived phase into stored kind for criteria edges (offline
-      // readability). Level-driven + idempotent — only writes when kind drifts.
-      if (phaseMirrorDeps) {
-        const phaseMap = new Map(
-          Object.entries(execution.phaseByEdgeId) as Array<[string, EdgePhase]>,
-        );
-        if (criteriaPhasesNeedMirror(effectiveDoc, phaseMap)) {
-          phaseMirrorDeps.mirrorPhases(canvasName, phaseMap);
-        }
-      }
 
       const automate = canAutomateCanvas(canvasName);
       if (RELAY_ENABLED) for (const { nodeId, watch, result } of detectPulses(canvasName, effectiveDoc, snapshots, {

@@ -323,17 +323,17 @@ export const digestCanvas = (
     sections.push(entityLines);
   }
 
-  // edges — live phase (derived). Free-text labels win only for plain relates
-  // without criteria (authorial annotation). Criteria edges always show phase.
+  // edges — live phase (derived). A blocking edge always shows its phase and
+  // reason; an idle one shows the operator's free-text label when there is one.
   if (doc.edges.length > 0) {
     const edgeLines = ["edges"];
     for (const edge of doc.edges) {
       const phase = graph.phaseByEdgeId.get(edge.id) ?? "relates";
       const detail = graph.detailByEdgeId.get(edge.id);
       let token: string;
-      if (edge.ether?.stops && detail && phase !== "relates") {
+      if (phase !== "relates" && detail) {
         token = `${phase}(${detail})`;
-      } else if (phase === "relates" && edge.label && !edge.ether?.kind && !edge.ether?.stops) {
+      } else if (phase === "relates" && edge.label) {
         token = edge.label;
       } else {
         token = phase;

@@ -1041,14 +1041,6 @@
       "reason": "Defines the pad document and pad element decoders used at pad ingress."
     },
     {
-      "path": "src/shared/physics/view.ts",
-      "kinds": [
-        "mint"
-      ],
-      "reason": "Brands port names off an already-decoded canvas document while building the capability view.",
-      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
-    },
-    {
       "path": "src/shared/remote-update-status.ts",
       "kinds": [
         "codec"

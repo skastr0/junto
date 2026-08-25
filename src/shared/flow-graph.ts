@@ -2,11 +2,13 @@ import { Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "./canvas";
 import { NodeSpec, resolveSpec } from "./physics/kinds";
 
-// Task-flow graph derived from edge `ether.flow` configs. Pure — no I/O.
-// The flow graph must be a DAG: a flow config that would close a cycle is
-// rejected with FlowCycleError at mutation time and at act time.
+// Task-flow graph derived from the `feeds` verb. Pure — no I/O.
+// A `feeds` edge is stored in its own direction (fromNode is the upstream
+// station), so the hop needs no separate direction config. The flow graph must
+// be a DAG: a hop that would close a cycle is rejected with FlowCycleError at
+// mutation time and at act time.
 
-/** One configured task-flow hop (authored direction, not draw direction). */
+/** One configured task-flow hop. */
 export type FlowHop = {
   readonly edgeId: string;
   readonly source: string;
@@ -46,25 +48,21 @@ export const isTaskFlowPair = (
 ): boolean => isTaskSinkNode(fromNode) && isTaskSinkNode(toNode);
 
 /**
- * A flow config must name the edge's own endpoints (either orientation) —
- * the config picks direction; it never points at unrelated nodes.
+ * DYING IN SURFACE BATCH.
+ *
+ * A hop's direction *is* the edge's direction now, so alignment cannot fail —
+ * there is no second place to state it and therefore nothing to disagree with.
+ * Kept while the renderer mutation guard still calls it.
  */
-export const isFlowEdgeAligned = (edge: CanvasEdge): boolean => {
-  const flow = edge.ether?.flow;
-  if (flow === undefined) return true;
-  return (
-    (flow.source === edge.fromNode && flow.destination === edge.toNode) ||
-    (flow.source === edge.toNode && flow.destination === edge.fromNode)
-  );
-};
+export const isFlowEdgeAligned = (_edge: CanvasEdge): boolean => true;
 
 /** All configured hops in document edge order. */
 export const flowHops = (doc: CanvasDoc): ReadonlyArray<FlowHop> =>
-  doc.edges.flatMap((edge) => {
-    const flow = edge.ether?.flow;
-    if (flow === undefined) return [];
-    return [{ edgeId: edge.id, source: flow.source, destination: flow.destination }];
-  });
+  doc.edges.flatMap((edge) =>
+    edge.ether?.verb === "feeds"
+      ? [{ edgeId: edge.id, source: edge.fromNode, destination: edge.toNode }]
+      : [],
+  );
 
 const adjacency = (doc: CanvasDoc): ReadonlyMap<string, ReadonlyArray<string>> => {
   const next = new Map<string, string[]>();

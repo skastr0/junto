@@ -23,15 +23,14 @@ import {
 // Live execution graph: pure function of (document + live views).
 // Derived state is never stored in the authored canvas document.
 //
-// Stoppage model (derived, not authorable Hold):
-//   - access edge with either end task|requests → evaluate tasks stoppage:
+// Stoppage model (derived, never authored — the edge states a relationship,
+// not a gate):
+//   - an edge with either end task|requests → evaluate tasks stoppage:
 //     a CLAIMED attention item (input-required; residual auth-required)
 //     generates blocks on the claimant actor only. Tasks are claimed by the
 //     pulling actor; requests are claimed by their raiser at creation.
 //     An unresolved actor identity never substitutes its canvas node ID.
-//   - other access pairs → soft "relates" (capability only; never stoppage)
-//   - ether.stops is decode-history optional; product does not write it
-//   - proof/approval authoring is retired (scrubbed on load)
+//   - every other pair → soft "relates" (capability only; never stoppage)
 //
 // Evaluation:
 //   - phase "blocks" + generates → mark actor blocked (actors only)
@@ -141,14 +140,9 @@ const softRelates = (detail = "relates"): EdgeEval => ({
 const evalTasksStoppage = (
   fromNode: CanvasNode | undefined,
   toActorSeatId: ActorSeatId | undefined,
-  itemIds?: ReadonlyArray<string>,
 ): EdgeEval => {
   const fromKind = fromNode?.ether?.entity?.kind;
-  const items = workItemsOn(fromNode);
-  const scoped =
-    itemIds && itemIds.length > 0
-      ? items.filter((item) => itemIds.includes(item.id))
-      : items;
+  const scoped = workItemsOn(fromNode);
   if (scoped.length === 0) {
     return softRelates(fromKind === "requests" ? "no pending requests" : "no open tasks");
   }
@@ -211,23 +205,18 @@ export const stoppageActorOf = (
 };
 
 export const evaluateEdge = (
-  edge: CanvasEdge,
+  _edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
   context: ExecutionGraphContext,
 ): EdgeEval => {
-  // Work-lane stoppage is derived from endpoints (task|requests), not Hold.
+  // Work-lane stoppage is derived from the endpoints (task|requests) and live
+  // work state. The edge itself carries nothing to read.
   if (!isWorkSinkKind(fromNode) && !isWorkSinkKind(toNode)) {
     return softRelates();
   }
   const sink = workSinkOf(fromNode, toNode);
   const actor = stoppageActorOf(fromNode, toNode);
-  // Optional legacy itemIds from decode-history ether.stops.
-  const legacy = edge.ether?.stops;
-  const itemIds =
-    legacy?.mode === "tasks" && legacy.itemIds && legacy.itemIds.length > 0
-      ? legacy.itemIds
-      : undefined;
   return evalTasksStoppage(
     sink,
     resolveCompiledActorRef(
@@ -235,7 +224,6 @@ export const evaluateEdge = (
       context.canvasName,
       actor,
     )?.seatId,
-    itemIds,
   );
 };
 

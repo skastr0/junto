@@ -1,6 +1,14 @@
 import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
-import { Port } from "./physics/schema";
+import {
+  compileVerb,
+  inferVerb,
+  VERBS,
+  Verb,
+  verbsForPair,
+  type LegacyEdgeEther,
+  type VerbGrant,
+} from "./physics/verbs";
 import {
   ClaimDef,
   EtherArtifacts,
@@ -11,7 +19,6 @@ import {
   EtherTasks,
   Ruling,
 } from "./work-model";
-import { scrubDoesEffect } from "./node-insert";
 
 export {
   Artifact,
@@ -94,9 +101,9 @@ export type NodeSide = typeof NodeSide.Type;
 export const EdgeEnd = Schema.Literals(["none", "arrow"]);
 export type EdgeEnd = typeof EdgeEnd.Type;
 
-// Live edge phase — DERIVED from criteria (+ live task/trust state).
-// Never authorial: document stores criteria; evaluation produces phase.
-// `depends` is retired (no cascade); clear criteria → relates.
+// Live edge phase — DERIVED from work state (claimed attention on a task or
+// requests sink). Never authorial and never stored: the document carries the
+// relationship (`ether.verb`); evaluation produces phase.
 export const EdgePhase = Schema.Literals(["blocks", "relates"]);
 export type EdgePhase = typeof EdgePhase.Type;
 /** Alias used by theme/svg color maps. */
@@ -351,120 +358,14 @@ export const EtherTimer = Schema.Struct({
 });
 export type EtherTimer = typeof EtherTimer.Type;
 
-/** Scheduler slot on a wire (assigned by draw direction / config). */
-export const WireSlot = Schema.Literals([
-  "input",
-  "output",
-  "trigger",
-  "recipient",
-]);
-export type WireSlot = typeof WireSlot.Type;
-
-/** Watch predicate on input wires (sink→relay). */
-export const WatchWhenCompletes = Schema.Struct({
-  word: Schema.Literal("completes"),
-  /** Task item state; default completed. */
-  equals: Schema.optionalKey(Schema.String),
-  itemId: Schema.optionalKey(Schema.String),
-});
-export type WatchWhenCompletes = typeof WatchWhenCompletes.Type;
-
-export const WatchWhenFlagged = Schema.Struct({
-  word: Schema.Literal("flagged"),
-  flag: EtherFlag,
-});
-export type WatchWhenFlagged = typeof WatchWhenFlagged.Type;
-
-/** Atomic watch atoms — multi-select OR nests these under `any`. */
-export const WatchWhenAtom = Schema.Union([WatchWhenCompletes, WatchWhenFlagged]);
-export type WatchWhenAtom = typeof WatchWhenAtom.Type;
-
-/** Multi-select OR within one watch wire. Single atoms still decode alone. */
-export const WatchWhenAny = Schema.Struct({
-  word: Schema.Literal("any"),
-  any: Schema.Array(WatchWhenAtom).pipe(Schema.check(Schema.isMinLength(1))),
-});
-export type WatchWhenAny = typeof WatchWhenAny.Type;
-
-export const WatchWhen = Schema.Union([
-  WatchWhenCompletes,
-  WatchWhenFlagged,
-  WatchWhenAny,
-]);
-export type WatchWhen = typeof WatchWhen.Type;
-
-// Automation effect plane (sibling of criteria/ports/notify). Kernel-home fire
-// applies these; never process-bind ocap. Claim assignment stays factory tick.
-// `data` is opaque on the wire; the target sink's closed create schema is
-// decoded fail-closed at apply (EffectTasksCreate / EffectBoard*).
-export const EdgeEffectEnqueueTask = Schema.Struct({
-  mode: Schema.Literal("enqueue_task"),
-  data: Schema.Unknown,
-});
-export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type & {
-  readonly data: import("./node-insert").EffectTasksCreate | Record<string, unknown>;
-};
-
-export const EdgeEffectBoardCreateTopic = Schema.Struct({
-  mode: Schema.Literal("board_create_topic"),
-  data: Schema.Unknown,
-});
-export type EdgeEffectBoardCreateTopic = typeof EdgeEffectBoardCreateTopic.Type & {
-  readonly data: import("./node-insert").EffectBoardCreateTopic | Record<string, unknown>;
-};
-
-export const EdgeEffectBoardPost = Schema.Struct({
-  mode: Schema.Literal("board_post"),
-  data: Schema.Unknown,
-});
-export type EdgeEffectBoardPost = typeof EdgeEffectBoardPost.Type & {
-  readonly data: import("./node-insert").EffectBoardPost | Record<string, unknown>;
-};
-
-export const EdgeEffectSetFlag = Schema.Struct({
-  mode: Schema.Literal("set_flag"),
-  flag: EtherFlag,
-  /** true = enable, false = clear. "mirror" = pending→on / satisfied→off for level sensors. */
-  enabled: Schema.Union([Schema.Boolean, Schema.Literal("mirror")]),
-});
-export type EdgeEffectSetFlag = typeof EdgeEffectSetFlag.Type;
-
-/** Inject a prompt into an agent seat. Text optional — kernel fills from fire provenance. */
-export const EdgeEffectInjectPrompt = Schema.Struct({
-  mode: Schema.Literal("inject_prompt"),
-  text: Schema.optionalKey(Schema.String),
-});
-export type EdgeEffectInjectPrompt = typeof EdgeEffectInjectPrompt.Type;
-
-export const EdgeEffect = Schema.Union([
-  EdgeEffectEnqueueTask,
-  EdgeEffectBoardCreateTopic,
-  EdgeEffectBoardPost,
-  EdgeEffectSetFlag,
-  EdgeEffectInjectPrompt,
-]);
-export type EdgeEffect = typeof EdgeEffect.Type;
+// Watch predicates (`WatchWhen`) and fire actions (`EdgeEffect`) are compiled
+// facets of a verb and live in physics/verbs.ts. The document never carries
+// them, so they are not part of this schema.
 
 // Work read plane — normalized WorkService rows are projected into these
 // fields for renderer/kernel consumers. They remain part of the composed
 // CanvasDoc shape, but authorial persistence and Station portfolio boundaries
 // reject them. Old checklist {id,text,done} is dead and fails decode.
-
-// Edge criteria (decode-history only for tasks stops). Product stoppage for
-// actor ↔ task|requests is derived from the access relationship + claimed
-// attention — not authored via Hold. proof/approval are retired: scrub drops
-// them on load; they fail strict decode if reintroduced.
-// Retired modes (glyphs/wip criteria, depends phase, proof, approval) fail
-// decode. No dependency cascade.
-export const EdgeCriteriaTasks = Schema.Struct({
-  mode: Schema.Literal("tasks"),
-  // empty/absent itemIds = every item on the fromNode tasks/requests list
-  itemIds: Schema.optionalKey(Schema.Array(Schema.String)),
-});
-export type EdgeCriteriaTasks = typeof EdgeCriteriaTasks.Type;
-
-export const EdgeCriteria = EdgeCriteriaTasks;
-export type EdgeCriteria = typeof EdgeCriteria.Type;
 
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalKey(EtherEntity),
@@ -501,52 +402,22 @@ export const EtherNodeExtension = Schema.Struct({
 });
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
-// Task-flow wire (pipeline hop between task sinks). Direction is authored via
-// source/destination, which must equal the edge's own endpoints in either
-// orientation — enforced by the mutation guard and shared/flow-graph.ts, not
-// by this decoder. The flow graph over these edges is a DAG (no split/rejoin
-// at act time; forwarding is choose-one).
-export const EtherEdgeFlow = Schema.Struct({
-  source: Schema.String,
-  destination: Schema.String,
-});
-export type EtherEdgeFlow = typeof EtherEdgeFlow.Type;
-
 /**
- * Wire areas on edges. Derived (not authorial): sentence, family color, badges.
- * Phase mirror may stamp `kind` for offline JSON Canvas readers only.
- * Canonical words: stops, wake, does, when, slot, ports, flow.
+ * The one authored fact on an edge: what the relationship **is**.
+ *
+ * Ports, assignability, board wake, watch predicates, fire actions, pipeline
+ * flow, and scheduler chaining are compiled from the verb plus the two endpoint
+ * kinds (`physics/verbs.ts`) — never stored, never mirrored. `fromNode` is
+ * always the verb's source end, whichever way the operator dragged.
  */
 export const EtherEdgeExtension = Schema.Struct({
-  ports: Schema.optionalKey(Schema.Array(Port)),
-  stops: Schema.optionalKey(EdgeCriteria),
-  /** Board links: absent/true = ON; explicit false = OFF. */
-  wake: Schema.optionalKey(Schema.Boolean),
-  slot: Schema.optionalKey(WireSlot),
-  when: Schema.optionalKey(WatchWhen),
-  does: Schema.optionalKey(EdgeEffect),
-  /** Task-flow hop config (operator-authored, DAG-guarded). */
-  flow: Schema.optionalKey(EtherEdgeFlow),
-  /** Derived phase mirror for offline readers — never authoring input. */
-  kind: Schema.optionalKey(EdgePhase),
+  verb: Verb,
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
-export const edgeStops = (
+export const edgeVerb = (
   ether: EtherEdgeExtension | undefined,
-): EdgeCriteria | undefined => ether?.stops;
-
-export const edgeWake = (
-  ether: EtherEdgeExtension | undefined,
-): boolean | undefined => ether?.wake;
-
-export const edgeDoes = (
-  ether: EtherEdgeExtension | undefined,
-): EdgeEffect | undefined => ether?.does;
-
-export const edgeFlow = (
-  ether: EtherEdgeExtension | undefined,
-): EtherEdgeFlow | undefined => ether?.flow;
+): Verb | undefined => ether?.verb;
 
 const nodeBase = {
   id: Schema.String,
@@ -612,6 +483,42 @@ export const CanvasDoc = Schema.Struct({
 });
 export type CanvasDoc = typeof CanvasDoc.Type;
 
+/**
+ * Node id → authored entity kind. Groups are omitted: a region is geography
+ * whatever kind word it carries, and geography holds no verb.
+ *
+ * Build once per pass and hand it to `compileEdgeGrant` — compiling a verb
+ * needs both endpoint kinds, and rescanning `doc.nodes` per edge is quadratic.
+ */
+export const edgeKindIndex = (doc: CanvasDoc): ReadonlyMap<string, string> => {
+  const kinds = new Map<string, string>();
+  for (const node of doc.nodes) {
+    if (node.type === "group") continue;
+    const kind = node.ether?.entity?.kind;
+    if (kind !== undefined) kinds.set(node.id, kind);
+  }
+  return kinds;
+};
+
+/**
+ * What this edge grants, compiled from its verb and the two endpoint kinds.
+ * `undefined` when the edge carries no verb or the pair cannot hold it.
+ */
+export const compileEdgeGrant = (
+  edge: CanvasEdge,
+  kinds: ReadonlyMap<string, string>,
+): VerbGrant | undefined => {
+  const verb = edge.ether?.verb;
+  if (verb === undefined) return undefined;
+  return compileVerb(verb, kinds.get(edge.fromNode), kinds.get(edge.toNode));
+};
+
+/** One-off compile. Loops over edges should hoist `edgeKindIndex` instead. */
+export const edgeGrant = (
+  doc: CanvasDoc,
+  edge: CanvasEdge,
+): VerbGrant | undefined => compileEdgeGrant(edge, edgeKindIndex(doc));
+
 const decodeCanvasDocStrict = Schema.decodeUnknownResult(CanvasDoc, {
   onExcessProperty: "error",
 });
@@ -669,10 +576,93 @@ export const containsWorkProjection = (input: unknown): boolean => {
   });
 };
 
+/** Node id → entity kind, read straight off raw input (pre-decode). */
+const rawKindIndex = (nodes: unknown): ReadonlyMap<string, string> => {
+  const kinds = new Map<string, string>();
+  if (!Array.isArray(nodes)) return kinds;
+  for (const node of nodes) {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) {
+      continue;
+    }
+    const n = node as Record<string, unknown>;
+    const id = n.id;
+    // A group is geography whatever kind it names, so it never indexes.
+    if (typeof id !== "string" || n.type === "group") continue;
+    const ether = n.ether;
+    if (ether === null || typeof ether !== "object" || Array.isArray(ether)) {
+      continue;
+    }
+    const entity = (ether as Record<string, unknown>).entity;
+    if (entity === null || typeof entity !== "object" || Array.isArray(entity)) {
+      continue;
+    }
+    const kind = (entity as Record<string, unknown>).kind;
+    if (typeof kind === "string") kinds.set(id, kind);
+  }
+  return kinds;
+};
+
+const asStringArray = (value: unknown): ReadonlyArray<string> | undefined =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : undefined;
+
+const asFlowConfig = (
+  value: unknown,
+): { readonly source?: string; readonly destination?: string } | undefined => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const flow = value as Record<string, unknown>;
+  const source = flow.source;
+  const destination = flow.destination;
+  return {
+    ...(typeof source === "string" ? { source } : {}),
+    ...(typeof destination === "string" ? { destination } : {}),
+  };
+};
+
+/** The wire areas an edge used to carry, with the old dual keys collapsed. */
+const readLegacyEdgeEther = (eth: Record<string, unknown>): LegacyEdgeEther => {
+  const wake = eth.wake ?? eth.notify;
+  return {
+    ports: asStringArray(eth.ports),
+    wake: typeof wake === "boolean" ? wake : undefined,
+    slot: typeof eth.slot === "string" ? eth.slot : undefined,
+    when: eth.when,
+    does: eth.does ?? eth.effect,
+    flow: asFlowConfig(eth.flow),
+  };
+};
+
+const isVerb = (value: unknown): value is Verb =>
+  typeof value === "string" && (VERBS as ReadonlyArray<string>).includes(value);
+
+const pairHolds = (
+  verb: Verb,
+  fromKind: string | undefined,
+  toKind: string | undefined,
+): boolean =>
+  verbsForPair(fromKind, toKind).includes(verb) ||
+  verbsForPair(toKind, fromKind).includes(verb);
+
 /**
- * Collapse old dual-keys and delete dead node bodies before strict decode.
- * Product shape is one word per area: stops / does / wake / when. Node-body
- * `ether.relay` is not a product surface — watch lives on the wire.
+ * Collapse old dual-keys, delete dead node bodies, and convert every edge to
+ * its semantic verb before strict decode.
+ *
+ * The edge conversion is one-shot and terminal: legacy wire areas (ports,
+ * stops, wake, slot, when, does, flow, and the phase mirror) are read once to
+ * name the verb the edge always meant, then dropped forever. An already-verbed
+ * edge keeps its authored verb — re-inference would silently widen a narrow
+ * choice (`messages` back into `participates`) on every load. An edge whose
+ * endpoints cannot hold a verb — geography, an unknown kind, a missing node,
+ * a pairing the grammar never admitted — does not survive the pass.
+ *
+ * Surviving edges are stored in the verb's own order: `fromNode` is the verb's
+ * source end, with side and end metadata carried across the swap.
+ *
+ * Node-body `ether.relay` is not a product surface — watch is a compiled facet
+ * of a verb, never a node field.
  */
 export const scrubCanvasDocInput = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
@@ -708,50 +698,64 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         return { ...n, ether };
       })
     : raw.nodes;
+  const kindById = rawKindIndex(raw.nodes);
   const edges = Array.isArray(raw.edges)
-    ? raw.edges.map((edge) => {
+    ? raw.edges.flatMap((edge) => {
         if (edge === null || typeof edge !== "object" || Array.isArray(edge)) {
-          return edge;
+          // Not an edge shape at all — leave it for strict decode to reject.
+          return [edge];
         }
-        const e = edge as { readonly ether?: unknown; readonly [k: string]: unknown };
-        const etherIn = e.ether;
-        if (
-          etherIn === null ||
-          typeof etherIn !== "object" ||
-          Array.isArray(etherIn)
-        ) {
-          return edge;
+        const {
+          ether: etherIn,
+          fromNode,
+          toNode,
+          fromSide,
+          toSide,
+          fromEnd,
+          toEnd,
+          ...rest
+        } = edge as Record<string, unknown>;
+        if (typeof fromNode !== "string" || typeof toNode !== "string") {
+          return [edge];
         }
-        const eth = etherIn as Record<string, unknown>;
-        const rawStops = eth.stops ?? eth.criteria;
-        // Retire authorable proof/approval gates — product stoppage is derived.
-        const stops =
-          rawStops !== null &&
-          typeof rawStops === "object" &&
-          !Array.isArray(rawStops) &&
-          ((rawStops as { readonly mode?: unknown }).mode === "proof" ||
-            (rawStops as { readonly mode?: unknown }).mode === "approval")
-            ? undefined
-            : rawStops;
-        const doesRaw = eth.does ?? eth.effect;
-        const does =
-          doesRaw !== undefined ? scrubDoesEffect(doesRaw) : undefined;
-        const wake = eth.wake ?? eth.notify;
-        const next: Record<string, unknown> = {};
-        if (eth.ports !== undefined) next.ports = eth.ports;
-        if (stops !== undefined) next.stops = stops;
-        if (wake !== undefined) next.wake = wake;
-        if (eth.slot !== undefined) next.slot = eth.slot;
-        if (eth.when !== undefined) next.when = eth.when;
-        if (does !== undefined) next.does = does;
-        if (eth.flow !== undefined) next.flow = eth.flow;
-        if (eth.kind !== undefined) next.kind = eth.kind;
-        // Drop: criteria, effect, notify, relayState, proof/approval stops, dual keys.
-        if (Object.keys(next).length === 0) {
-          const { ether: _e, ...rest } = e;
-          return rest;
-        }
-        return { ...e, ether: next };
+        const fromKind = kindById.get(fromNode);
+        const toKind = kindById.get(toNode);
+        const eth =
+          etherIn !== null &&
+          typeof etherIn === "object" &&
+          !Array.isArray(etherIn)
+            ? (etherIn as Record<string, unknown>)
+            : undefined;
+        const authored = eth?.verb;
+        const verb =
+          isVerb(authored) && pairHolds(authored, fromKind, toKind)
+            ? authored
+            : inferVerb(
+                eth === undefined ? undefined : readLegacyEdgeEther(eth),
+                fromKind,
+                toKind,
+              );
+        if (verb === undefined) return [];
+        // Store in the verb's own order. A pair that reads both ways keeps the
+        // drawn order, except a legacy flow config, which named its direction.
+        const legacyFlow = eth === undefined ? undefined : asFlowConfig(eth.flow);
+        const swap =
+          verb === "feeds" && legacyFlow?.source === toNode
+            ? true
+            : !verbsForPair(fromKind, toKind).includes(verb);
+        const next: Record<string, unknown> = { ...rest };
+        next.fromNode = swap ? toNode : fromNode;
+        next.toNode = swap ? fromNode : toNode;
+        const nextFromSide = swap ? toSide : fromSide;
+        const nextToSide = swap ? fromSide : toSide;
+        const nextFromEnd = swap ? toEnd : fromEnd;
+        const nextToEnd = swap ? fromEnd : toEnd;
+        if (nextFromSide !== undefined) next.fromSide = nextFromSide;
+        if (nextToSide !== undefined) next.toSide = nextToSide;
+        if (nextFromEnd !== undefined) next.fromEnd = nextFromEnd;
+        if (nextToEnd !== undefined) next.toEnd = nextToEnd;
+        next.ether = { verb };
+        return [next];
       })
     : raw.edges;
   return { ...raw, nodes, edges };
@@ -816,51 +820,13 @@ export const serializeCanvas = (doc: CanvasDoc): string => {
 };
 
 // Mirror law: extension semantics must remain visible to plain JSON Canvas
-// readers. Applied on every save. Edge ether.kind is the machine-readable
-// phase mirror and color "1" its visual projection; `label` stays authorial.
+// readers. Applied on every save. Nodes only: a blocker flag mirrors to crimson
+// `color`. Edges carry no derived phase — an edge says what the relationship
+// is, and phase is recomputed from live work state at read time, so there is
+// nothing on an edge left to mirror.
 export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
   nodes: doc.nodes.map((node) =>
     node.ether?.flags?.includes("blocker") ? { ...node, color: "1" } : node,
   ),
-  edges: doc.edges.map((edge) => {
-    const kind = edge.ether?.kind;
-    if (kind === undefined) return edge;
-    if (kind === "blocks") {
-      return { ...edge, color: "1" as CanvasColor };
-    }
-    // Leaving blocks: drop mirror crimson "1" so demotion is visible offline.
-    if (edge.color === "1") {
-      const { color: _c, ...rest } = edge;
-      return rest;
-    }
-    return edge;
-  }),
-});
-
-// Project derived phase onto stops edges only. Never stamp labels (product:
-// no phase words on the canvas). Blocks demotion clears mirror color "1".
-export const applyPhaseMirror = (
-  doc: CanvasDoc,
-  phaseByEdgeId: ReadonlyMap<string, EdgePhase>,
-): CanvasDoc => ({
-  nodes: doc.nodes,
-  edges: doc.edges.map((edge) => {
-    const ether = edge.ether;
-    if (ether === undefined || !edgeStops(ether)) return edge;
-    const phase = phaseByEdgeId.get(edge.id);
-    if (phase === undefined) return edge;
-    const base = {
-      ...edge,
-      ether: {
-        ...ether,
-        kind: phase,
-      },
-    };
-    if (phase === "blocks") return { ...base, color: "1" as CanvasColor };
-    if (edge.color === "1") {
-      const { color: _c, ...rest } = base;
-      return rest;
-    }
-    return base;
-  }),
+  edges: doc.edges,
 });

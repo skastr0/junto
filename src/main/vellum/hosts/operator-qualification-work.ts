@@ -145,7 +145,9 @@ export const qualificationWorkDocument = (
         fromNode: QUALIFICATION_WORK_ACTOR_NODE_ID,
         toNode: QUALIFICATION_WORK_SINK_NODE_ID,
         ether: {
-          ports: ["tasks.claim"],
+          // The qualification seat contributes to the sink: it claims and
+          // updates work there, which is exactly what the probe exercises.
+          verb: "contributes",
         },
       },
     ],

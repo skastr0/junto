@@ -6,20 +6,15 @@
  * present on a board, but not a palette product and not “the external sensor.”
  * Hermes adapters = agent fleet join; do not invent a hermes-gauge product story.
  *
- * Effects ride `edge.ether.does` (not ports, not stops). The kernel
- * applies them on home-local fire; claim assignment stays the factory tick.
- * Product words only: stops / does / wake / when / slot / ports.
+ * Watch predicates and fire actions are **compiled from the edge's verb**, not
+ * read off the document: `announces` names the predicate the source publishes,
+ * and `enqueues` / `wakes` / `flags` name the action the target accepts. The
+ * kernel applies them on home-local fire; claim assignment stays the factory
+ * tick.
  */
 
-import type {
-  CanvasDoc,
-  CanvasEdge,
-  CanvasNode,
-  EdgeEffect,
-  EtherFlag,
-  WatchWhen,
-} from "./canvas";
-import { edgeDoes } from "./canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
+import { compileEdgeGrant, edgeKindIndex } from "./canvas";
 import {
   defaultEffectBoardCreateTopic,
   defaultEffectTasksCreate,
@@ -28,6 +23,7 @@ import {
   effectTasksCreateValid,
 } from "./node-insert";
 import { resolveSpec, roleOf } from "./physics/kinds";
+import type { EdgeEffect, WatchWhen } from "./physics/verbs";
 
 export const SCHEDULER_ENTITY_KINDS = [
   "watcher",
@@ -58,17 +54,22 @@ export type EffectEdgeBinding = {
   readonly target: CanvasNode;
 };
 
-/** Directed scheduler → target edges that carry an authored effect (`does`). */
+/**
+ * Scheduler → target edges whose verb is a fire action (`enqueues` / `wakes` /
+ * `flags`). The verb's own order puts the scheduler on `fromNode`, so a
+ * downstream edge is exactly one whose source is this scheduler.
+ */
 export const collectEffectEdgesFrom = (
   doc: CanvasDoc,
   sourceNodeId: string,
 ): ReadonlyArray<EffectEdgeBinding> => {
   const source = doc.nodes.find((node) => node.id === sourceNodeId);
   if (!isSchedulerNode(source)) return [];
+  const kinds = edgeKindIndex(doc);
   const out: EffectEdgeBinding[] = [];
   for (const edge of doc.edges) {
     if (edge.fromNode !== sourceNodeId) continue;
-    const effect = edgeDoes(edge.ether);
+    const effect = compileEdgeGrant(edge, kinds)?.does;
     if (!effect) continue;
     const target = doc.nodes.find((node) => node.id === edge.toNode);
     if (!target) continue;
@@ -86,8 +87,11 @@ export type WatchEdgeBinding = {
 };
 
 /**
- * Default `when` for a sink → relay edge with no authored predicate yet.
- * Single table for authoring + kernel evaluation defaults.
+ * DYING IN SURFACE BATCH — authoring-side default only.
+ *
+ * The kernel reads the predicate off the compiled verb (`announces`), which is
+ * the single table now. This one survives for the renderer draw path until that
+ * is cut over.
  */
 export const defaultWatchWhenForSource = (
   source: CanvasNode,
@@ -103,21 +107,14 @@ export const defaultWatchWhenForSource = (
 export const NO_WATCH_YET_DETAIL =
   "no watch yet — draw a sink in and set fires-when";
 
-const sourceRole = (source: CanvasNode) =>
-  roleOf(
-    resolveSpec({
-      isGroup: source.type === "group",
-      kind: source.ether?.entity?.kind,
-    }),
-  );
-
 /**
- * Watch inputs into a scheduler (product: sink → relay).
- * Counts an edge when:
- * - `toNode` is the scheduler
- * - slot is absent or `"input"` (skip effect/trigger/recipient wires)
- * - source is a sink **or** the edge has an authored `when`
- * Authored `when` wins; else default from `defaultWatchWhenForSource` on relay.
+ * Watch inputs into a scheduler: the `announces` edges pointing at it.
+ *
+ * The verb names both the subscription and the predicate — a source announces
+ * its own headline event — so there is nothing on the edge to read and nothing
+ * to default. Scheduler chaining is not a watch: it rides the trigger cascade
+ * (`chains`), and is filtered out here.
+ *
  * Multiple matching edges remain OR-combined by the caller.
  */
 export const collectWatchEdgesInto = (
@@ -126,22 +123,15 @@ export const collectWatchEdgesInto = (
 ): ReadonlyArray<WatchEdgeBinding> => {
   const scheduler = doc.nodes.find((node) => node.id === schedulerNodeId);
   if (!isSchedulerNode(scheduler)) return [];
+  const kinds = edgeKindIndex(doc);
   const out: WatchEdgeBinding[] = [];
   for (const edge of doc.edges) {
     if (edge.toNode !== schedulerNodeId) continue;
     const source = doc.nodes.find((node) => node.id === edge.fromNode);
     if (!source) continue;
-    const slot = edge.ether?.slot;
-    if (slot !== undefined && slot !== "input") continue;
-    const authored = edge.ether?.when;
-    const isSink = sourceRole(source) === "sink";
-    if (!authored && !isSink) continue;
-    // Authored `when` wins; else default for sink → relay.
-    const when =
-      authored ??
-      (scheduler!.ether?.entity?.kind === "relay"
-        ? defaultWatchWhenForSource(source)
-        : undefined);
+    const grant = compileEdgeGrant(edge, kinds);
+    if (grant === undefined || grant.chain === true) continue;
+    const when = grant.when;
     if (!when) continue;
     out.push({ edge, when, source, scheduler: scheduler! });
   }
@@ -200,7 +190,10 @@ export const schedulerSourceLabel = (source: CanvasNode): string => {
   return source.ether?.entity?.kind ?? "scheduler";
 };
 
-/** Infer effect when connecting a scheduler → target. */
+/**
+ * DYING IN SURFACE BATCH — authoring-side draw helper only. The kernel reads
+ * the fire action off the compiled verb.
+ */
 export const inferSchedulerEdgeEffect = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
