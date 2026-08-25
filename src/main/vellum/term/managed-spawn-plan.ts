@@ -100,6 +100,8 @@ export type SpawnPlanInput = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  /** Named agent mode (Amp `-m low|medium|high|ultra`). */
+  readonly mode?: string;
   readonly permissionMode?: string;
   readonly cwd?: string;
   /** Pin/resume session id from ether.terminal.sessionId. */
@@ -162,6 +164,7 @@ export const makeManagedSpawnIntent = (
     ...(input.profile ? { profile: input.profile } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
+    ...(input.mode ? { mode: input.mode } : {}),
     ...(input.permissionMode
       ? { permissionMode: input.permissionMode }
       : {}),
@@ -170,7 +173,7 @@ export const makeManagedSpawnIntent = (
 
 type RecoveredLaunchChoices = Pick<
   ManagedLaunchChoices,
-  "model" | "effort" | "permissionMode" | "profile"
+  "model" | "effort" | "mode" | "permissionMode" | "profile"
 >;
 
 const valueForFlag = (
@@ -224,6 +227,11 @@ const recoverDocumentLaunchChoices = (
     ? (argv.includes("--yolo") ? "yolo" : undefined)
     : valueForFlag(argv, spec.permissionModeFlag);
 
+  // Named agent mode (Amp `-m`). Recovered like every other template-owned
+  // flag so a wake or restart relaunches the seat in the mode it was created
+  // with, rather than silently dropping back to the harness default.
+  const mode = valueForFlag(argv, spec.modeFlag);
+
   switch (harness) {
     case "claude":
       return {
@@ -264,6 +272,7 @@ const recoverDocumentLaunchChoices = (
       return {
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
         ...(effort ? { effort } : {}),
+        ...(mode ? { mode } : {}),
         ...(permissionMode ? { permissionMode } : {}),
       };
   }
@@ -330,6 +339,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(profile ? { profile } : {}),
     ...(input.model ?? recovered.model ? { model: input.model ?? recovered.model } : {}),
     ...(input.effort ?? recovered.effort ? { effort: input.effort ?? recovered.effort } : {}),
+    ...(input.mode ?? recovered.mode ? { mode: input.mode ?? recovered.mode } : {}),
     ...(input.permissionMode ?? recovered.permissionMode
       ? { permissionMode: input.permissionMode ?? recovered.permissionMode }
       : {}),
@@ -415,6 +425,7 @@ const spawnInputForManagedIntent = (
   profile: intent.profile,
   model: intent.model,
   effort: intent.effort,
+  mode: intent.mode,
   permissionMode: intent.permissionMode,
 });
 

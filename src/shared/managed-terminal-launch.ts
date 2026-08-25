@@ -39,6 +39,8 @@ export type ManagedSpawnIntent = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  /** Named agent mode (Amp `-m`), compiled the same way as model/effort. */
+  readonly mode?: string;
   readonly permissionMode?: string;
   readonly cwd?: string;
 };

@@ -94,6 +94,8 @@ export type ManagedAgentSeatOptions = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  /** Named agent mode (Amp `-m low|medium|high|ultra`). */
+  readonly mode?: string;
   readonly permissionMode?: string;
   readonly cwd?: string;
   readonly label?: string;
@@ -126,6 +128,7 @@ export const buildManagedAgentSeat = (
       ...(options.profile ? { profile: options.profile } : {}),
       ...(options.model ? { model: options.model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
+      ...(options.mode ? { mode: options.mode } : {}),
       ...(options.permissionMode
         ? { permissionMode: options.permissionMode }
         : {}),
@@ -148,6 +151,7 @@ export const buildManagedAgentSeat = (
     options.profile,
     options.model,
     options.effort,
+    options.mode,
   ].filter((p): p is string => Boolean(p && p.trim()));
   const label = options.label?.trim() || parts.join(" - ");
   // Pin harnesses (Claude/Grok) require a UUID for --session-id; ULIDs are rejected.
@@ -164,6 +168,7 @@ export const buildManagedAgentSeat = (
             ...(options.profile ? { profile: options.profile } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(options.effort ? { effort: options.effort } : {}),
+            ...(options.mode ? { mode: options.mode } : {}),
             ...(options.permissionMode
               ? { permissionMode: options.permissionMode }
               : {}),

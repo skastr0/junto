@@ -161,3 +161,37 @@ describe("ensureProvisionedSessionId", () => {
     expect(usesProvisionedSession("not-a-harness")).toBe(false);
   });
 });
+
+describe("amp mode survives a wake", () => {
+  it("recovers -m from the stored argv instead of dropping to the default", () => {
+    // A wake re-plans from the document's argv. Without mode recovery a seat
+    // created in ultra would come back in Amp's default mode.
+    const resolved = launchForManagedSpawn({
+      harness: "amp",
+      agentKey: "local:amp",
+      sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+      resume: true,
+      documentLaunch: {
+        kind: "harness" as const,
+        argv: [
+          "amp",
+          "--no-ide",
+          "threads",
+          "continue",
+          "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+          "-m",
+          "ultra",
+        ],
+      },
+    });
+    expect(resolved.launch?.argv).toEqual([
+      "amp",
+      "--no-ide",
+      "threads",
+      "continue",
+      "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+      "-m",
+      "ultra",
+    ]);
+  });
+});
