@@ -14,6 +14,8 @@ export type AgentConfigurationChoices = {
   readonly profile?: string;
   readonly model?: string;
   readonly effort?: string;
+  /** Named agent mode for harnesses whose one dial is a mode (Amp). */
+  readonly mode?: string;
   readonly permissionMode?: string;
 };
 

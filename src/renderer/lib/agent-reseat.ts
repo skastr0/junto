@@ -47,6 +47,7 @@ export const reseatChoicesFromConfiguration = (
   ...(choices.profile ? { profile: choices.profile } : {}),
   ...(choices.model ? { model: choices.model } : {}),
   ...(choices.effort ? { effort: choices.effort } : {}),
+  ...(choices.mode ? { mode: choices.mode } : {}),
   ...(cwd ? { cwd } : {}),
 });
 

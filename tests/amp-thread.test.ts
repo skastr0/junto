@@ -12,6 +12,8 @@ import {
   launchForManagedSpawn,
   planManagedSpawn,
 } from "../src/main/vellum/term/managed-spawn-plan";
+import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { AMP_TEMPLATE } from "../src/shared/managed-terminal-templates";
 
 // The receipt shape below is real output from
 // `amp threads new --visibility private` on 0.0.1787664850.
@@ -193,5 +195,27 @@ describe("amp mode survives a wake", () => {
       "-m",
       "ultra",
     ]);
+  });
+});
+
+describe("an Amp seat authored from the picker", () => {
+  it("stores the picked mode in the node's launch argv", () => {
+    const node = makeManagedAgentNode(0, 0, {
+      harness: "amp",
+      host: "local",
+      mode: "ultra",
+    });
+    const argv = node.ether?.terminal?.launch?.argv ?? [];
+    expect(argv.slice(0, 2)).toEqual(["amp", "--no-ide"]);
+    expect(argv).toContain("-m");
+    expect(argv[argv.indexOf("-m") + 1]).toBe("ultra");
+    // The thread is Amp's to mint, so the node carries no session id yet.
+    expect(node.ether?.terminal?.sessionId).toBeUndefined();
+  });
+
+  it("offers exactly the modes Amp documents, and no model list", () => {
+    expect(AMP_TEMPLATE.modes).toEqual(["low", "medium", "high", "ultra"]);
+    expect(AMP_TEMPLATE.efforts).toEqual([]);
+    expect(AMP_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
   });
 });

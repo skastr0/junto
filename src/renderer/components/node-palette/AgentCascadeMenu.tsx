@@ -292,7 +292,19 @@ export function AgentCascadeMenu({
     const pinned = base.find((m) => m.id === pin) ?? { id: pin, label: pin };
     return [pinned, ...rest];
   }, [models, harness, activeProfile]);
-  const firstColumnIsLoading = harness === "hermes" ? profiles === null : models === null;
+  /**
+   * Some harnesses have no model to choose — their one dial is a named mode
+   * (Amp `-m low|medium|high|ultra`, which selects model, system prompt, and
+   * tools together). Those list modes in the first column, labelled as modes
+   * and committed as `mode`, so nothing calls a mode a model.
+   */
+  const templateModes = templateFor(harness).modes ?? [];
+  const usesModes = templateModes.length > 0;
+  const firstColumnIsLoading = usesModes
+    ? false
+    : harness === "hermes"
+      ? profiles === null
+      : models === null;
   const configure = (choices: AgentConfigurationChoices): void => {
     onConfigure(choices);
   };
@@ -453,13 +465,23 @@ export function AgentCascadeMenu({
         label={
           harness === "hermes"
             ? "Hermes profiles"
-            : `${templateFor(harness).displayName} models`
+            : usesModes
+              ? `${templateFor(harness).displayName} modes`
+              : `${templateFor(harness).displayName} models`
         }
         parent={templateFor(harness).displayName}
         step={harness === "hermes" ? "profile" : "model"}
       >
         {firstColumnIsLoading ? (
           <LoadingRows />
+        ) : usesModes ? (
+          templateModes.map((mode) => (
+            <CascadeItem
+              key={mode}
+              label={mode}
+              onSelect={() => configure({ harness, mode })}
+            />
+          ))
         ) : harness === "hermes" ? (
           profileChoices.map((profile) => {
             // Chevron only when a model column can open (loading or non-empty).
