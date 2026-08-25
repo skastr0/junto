@@ -32,7 +32,6 @@ import type {
   FinishCriteria,
   TaskClaim,
   TaskPipelineArm,
-  TaskProposal,
 } from "@shared/work-model";
 import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import type { ContentPart } from "@shared/content";
@@ -56,7 +55,6 @@ import {
   workRequestResolve,
   workTaskCreate,
   workTaskDescribe,
-  workTaskPropose,
   workTaskRespond,
   workTaskTransition,
   type WorkIds,
@@ -389,22 +387,9 @@ export interface WorkServiceShape {
       claims?: ReadonlyArray<TaskClaim>,
       options?: WorkTaskCreateOptions,
     ) => Effect.Effect<WorkOpResult<Task>>;
-    readonly workTaskPropose: (
-      canvas: string,
-      nodeId: string,
-      brief: string,
-      metadata: WorkMetadata | undefined,
-      proposedBy: ActorRef,
-      reason?: string,
-      media?: ReadonlyArray<Part>,
-      dependsOn?: ReadonlyArray<string>,
-      finishCriteria?: FinishCriteria,
-      claims?: ReadonlyArray<TaskClaim>,
-    ) => Effect.Effect<WorkOpResult<TaskProposal>>;
     /**
-     * Command Center operator planning: mint a pending proposal without an
-     * agent seat (uses operatorPlanningActorRef). Same contract as task.create;
-     * not claimable until approve.
+     * Operator planning: mint a submitted Task with operator-gated overlay
+     * (not claimable until promote). Uses operatorPlanningActorRef.
      */
     readonly workTaskProposeOperator: (
       canvas: string,
@@ -812,13 +797,6 @@ export const WorkLive = Layer.effect(
         externalizeMessage(message, owner),
       ).pipe(Effect.map((history) => ({ ...task, history })));
 
-    const externalizeProposal = (
-      proposal: TaskProposal,
-    ): Effect.Effect<TaskProposal, WorkServiceError> =>
-      externalizeMessage(proposal.brief).pipe(
-        Effect.map((brief) => ({ ...proposal, brief })),
-      );
-
     const complete = <T>(
       canvasName: string,
       outcome: WorkMutationOutcome<T>,
@@ -1205,69 +1183,6 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskPropose: (
-        canvas,
-        nodeId,
-        brief,
-        metadata,
-        proposedBy,
-        reason,
-        media,
-        dependsOn,
-        finishCriteria,
-        claims,
-      ) =>
-        asResult(
-          Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readCanvas(canvas),
-            ]);
-            yield* requireLocalActor(
-              read,
-              proposedBy,
-              nodeId,
-              "tasks.create",
-              context,
-            );
-            const node = yield* requireNode(read.doc, nodeId);
-            const policy = yield* runPolicy(() =>
-              workTaskPropose(
-                read.doc,
-                canvas,
-                nodeId,
-                brief,
-                metadata,
-                ids,
-                proposedBy,
-                reason,
-                media,
-                dependsOn,
-                finishCriteria,
-                claims,
-              )
-            );
-            const proposal = yield* externalizeProposal(policy.proposal);
-            const home = yield* homeForNode(node, context);
-            const outcome = home === context.localInstallationId
-              ? yield* local(
-                repository.createProposal({
-                  sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
-                  proposal,
-                }),
-              )
-              : yield* enqueue(
-                context,
-                home,
-                workItem("proposal", proposal.id, canvas, nodeId),
-                { operation: "proposal.create", proposal },
-                proposal,
-              );
-            return yield* complete(canvas, outcome);
-          }),
-        ),
-
       workTaskProposeOperator: (
         canvas,
         nodeId,
@@ -1355,6 +1270,10 @@ export const WorkLive = Layer.effect(
                   "only the Command Center operator may promote arrivals",
               });
             }
+            // Local-only by design (same as workTaskPromote): Station protocol 1
+            // has no promote action, so this cannot enqueue the way task.create
+            // does. ProposeOperator may still queue a create onto a remote-homed
+            // sink; those arrivals wait until the row lives on Command Center.
             if (home !== context.localInstallationId) {
               return yield* new WorkServiceError({
                 code: "invalid",
@@ -1622,6 +1541,8 @@ export const WorkLive = Layer.effect(
                   "only the Command Center operator may promote arrivals",
               });
             }
+            // Local-only: protocol 1 has no promote action to enqueue. See
+            // workTaskApproveProposal.
             if (home !== context.localInstallationId) {
               return yield* new WorkServiceError({
                 code: "invalid",

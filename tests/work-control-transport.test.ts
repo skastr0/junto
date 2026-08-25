@@ -838,6 +838,17 @@ describe("work control transport", () => {
     expect(denied.error.type).toBe("InputError");
     expect(denied.error.message).toMatch(/promotion|operator/i);
 
+    for (const state of ["completed", "rejected", "canceled"] as const) {
+      const blocked = (await call(server.socketPath, {
+        token: token(),
+        op: "tasks.update",
+        args: { target: "tasks", task: taskId, state },
+      })) as { ok: false; error: { type: string; message: string } };
+      expect(blocked.ok).toBe(false);
+      expect(blocked.error.type).toBe("InputError");
+      expect(blocked.error.message).toMatch(/promotion|not yet claimable/i);
+    }
+
     const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
     const approved = await runtimes[runtimes.length - 1]!.runPromise(
       work.workTaskApproveProposal("work-cli", "tasks", taskId),

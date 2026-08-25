@@ -180,7 +180,7 @@ export const proposalRowsForSeat = (
       if (task.raisedBy?.seatId !== seatId) continue;
       if (task.state !== "submitted") continue;
       const admission = taskAdmissionState(task, contract, Date.now());
-      if (admission !== "operator-gated" && admission !== "operator-owned") continue;
+      if (admission !== "operator-gated") continue;
       const key = `${node.id}:${task.id}`;
       if (seen.has(key)) continue;
       const title = taskBrief(task) || "Untitled proposal";

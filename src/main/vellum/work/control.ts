@@ -166,7 +166,11 @@ import {
   summarizeNode,
 } from "./authz";
 import { resolveSinkAdmission } from "@shared/work-model";
-import { effectiveClaimsStack, sinkContractOf } from "@shared/claims";
+import {
+  effectiveClaimsStack,
+  sinkContractOf,
+  taskAdmissionState,
+} from "@shared/claims";
 import { regionStack } from "@shared/graph";
 import { flowDestinations, reachableStations } from "@shared/flow-graph";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
@@ -1038,6 +1042,35 @@ const dispatchOp = (
             next_step: "pick another task; only the agent that claimed this one can update it",
           },
         });
+      }
+      // Seat-wire only. Operator promote / reject IPC is the door into
+      // unadmitted arrivals; a connected seat must not complete, cancel, or
+      // reject a submitted row whose admission is not yet claimable.
+      if (task !== undefined && task.state === "submitted") {
+        const admission = taskAdmissionState(
+          task,
+          sinkContractOf(gate.node),
+          Date.now(),
+        );
+        if (admission !== "claimable") {
+          const promotion =
+            admission === "operator-gated"
+              ? `task "${task.id}" awaits operator promotion and is not yet claimable`
+              : admission === "held"
+                ? `task "${task.id}" is not claimable before ${task.holdUntil} (station bake)`
+                : `task "${task.id}" is operator-owned; seats cannot update it`;
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "InputError",
+            message: promotion,
+            details: {
+              retryable: false,
+              next_step:
+                admission === "operator-gated"
+                  ? "wait for the operator to promote this arrival, or pick a claimable task"
+                  : "pick a claimable task; only the operator can admit or refuse unadmitted work",
+            },
+          });
+        }
       }
       const result = yield* work.workTaskTransition(
         caller.canvasName,

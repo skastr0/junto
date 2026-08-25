@@ -168,8 +168,9 @@ export function TasksCard({
 } & SinkRenameProps) {
   const items = node.ether?.tasks?.items ?? [];
   const proposals = node.ether?.tasks?.proposals ?? [];
+  const liveIds = new Set(items.map((item) => item.id));
   const pendingProposals = proposals.filter(
-    (proposal) => proposal.state === "pending",
+    (proposal) => proposal.state === "pending" && !liveIds.has(proposal.id),
   );
   const contract = node.ether?.tasks?.contract;
   const { inFlight, needsInput } = sinkGlance(items, contract);

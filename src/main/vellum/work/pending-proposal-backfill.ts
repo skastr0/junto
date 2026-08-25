@@ -1,16 +1,17 @@
 /**
  * Install-ops walk: pending proposals → unadmitted tasks.
  *
- * NEW FILE, unwired. Do not import this from boot until GO: Task.admission /
- * Task.raisedBy and a repository persist path must exist first.
+ * SELECT only; persist is a port (WorkLive wires repository.createTask).
+ * Never touches work_proposal_events. Completeness: no pending proposal
+ * remains without a matching work_tasks row.
  *
- * This module SELECTs product rows and writes only the install-ops marker.
- * It never INSERT/UPDATE/DELETE work_* tables (repository.ts remains the
- * sole work-plane writer) and never touches work_proposal_events.
- *
- * Completeness: marker is complete only when a scan finds no pending
- * proposal without a matching work_tasks row. A no-op persist cannot
- * complete the walk. Failure leaves the marker pending for the next boot.
+ * Skips (by design, not defects):
+ * - rejected proposals — never were tasks; leave as historical proposal rows
+ * - approved proposals — live work is already work_tasks at approved_task_id
+ *   (possibly a different id); never rewrite those ids
+ * - pending whose proposal_id already exists as a work_tasks row (resume)
+ * A leftover pending card is one of those skips, or a persist that failed
+ * closed (marker stays pending, next boot retries).
  */
 
 import { Effect } from "effect";

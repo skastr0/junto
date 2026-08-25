@@ -384,7 +384,7 @@ const laneForTask = (
   if (task.state === "submitted") {
     const admission = taskAdmissionState(task, contract, nowMs);
     if (shape.hasInbound) return "inbound";
-    if (admission === "operator-gated" || admission === "operator-owned") {
+    if (admission === "operator-gated") {
       return "proposal";
     }
   }
@@ -2267,8 +2267,7 @@ export function TaskBoard({
     for (const task of items) {
       if (
         task.state === "submitted" &&
-        (taskAdmissionState(task, sinkContract, nowMs) === "operator-gated" ||
-          taskAdmissionState(task, sinkContract, nowMs) === "operator-owned")
+        taskAdmissionState(task, sinkContract, nowMs) === "operator-gated"
       ) {
         map.set(task.id, task.raisedBy?.nodeId ?? "operator");
       }

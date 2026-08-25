@@ -54,8 +54,7 @@ const isUnadmittedSubmitted = (
   nowMs: number,
 ): boolean => {
   if (item.state !== "submitted") return false;
-  const admission = taskAdmissionState(item, contract, nowMs);
-  return admission === "operator-gated" || admission === "operator-owned";
+  return taskAdmissionState(item, contract, nowMs) === "operator-gated";
 };
 
 /** Sink-card glance counts (tasks / requests): queued / in flight / needs input. */

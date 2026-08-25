@@ -580,8 +580,12 @@ describe("admission", () => {
   it("holds a baking arrival, then gates unpromoted operator-gated ones", () => {
     const held = baseTask("t1", { holdUntil: "2026-08-20T13:00:00.000Z" });
     expect(
-      taskAdmissionState(held, { inbound: { admission: "operator-gated" } }, now),
+      taskAdmissionState(held, { inbound: { admission: "auto" } }, now),
     ).toBe("held");
+    // Unpromoted gated dominates bake so glance does not treat it as queued.
+    expect(
+      taskAdmissionState(held, { inbound: { admission: "operator-gated" } }, now),
+    ).toBe("operator-gated");
 
     const baked = baseTask("t1", { holdUntil: "2026-08-20T11:00:00.000Z" });
     expect(
@@ -594,6 +598,18 @@ describe("admission", () => {
     expect(
       taskAdmissionState(promoted, { inbound: { admission: "operator-gated" } }, now),
     ).toBe("claimable");
+
+    const promotedStillBaking = baseTask("t1", {
+      holdUntil: "2026-08-20T13:00:00.000Z",
+      metadata: { [PIPELINE_ADMITTED_METADATA_KEY]: 0 },
+    });
+    expect(
+      taskAdmissionState(
+        promotedStillBaking,
+        { inbound: { admission: "operator-gated" } },
+        now,
+      ),
+    ).toBe("held");
   });
 
   it("epoch-scopes the promotion marker", () => {

@@ -496,9 +496,12 @@ export const effectiveTaskAdmission = (
 };
 
 /**
- * Admission state of a submitted arrival at a sink. Operator-owned dominates
- * (no seat claim ever); then bake hold; then the operator gate.
- * Effective admission is max(sink floor, per-task overlay).
+ * Admission state of a submitted arrival at a sink.
+ * Operator-owned dominates (no seat claim ever). Unpromoted operator-gated
+ * dominates bake so a gated+holdFor arrival stays gated (Proposals) instead
+ * of counting as queued until the hold expires, then teleporting. After
+ * promotion, bake hold still applies. Effective admission is max(sink floor,
+ * per-task overlay).
  */
 export const taskAdmissionState = (
   task: Task,
@@ -507,11 +510,11 @@ export const taskAdmissionState = (
 ): TaskAdmissionState => {
   const admission = effectiveTaskAdmission(task, contract);
   if (admission === "operator-owned") return "operator-owned";
-  const holdUntil = task.holdUntil === undefined ? NaN : Date.parse(task.holdUntil);
-  if (Number.isFinite(holdUntil) && holdUntil > nowMs) return "held";
   if (admission === "operator-gated" && !taskPromoted(task)) {
     return "operator-gated";
   }
+  const holdUntil = task.holdUntil === undefined ? NaN : Date.parse(task.holdUntil);
+  if (Number.isFinite(holdUntil) && holdUntil > nowMs) return "held";
   return "claimable";
 };
 
