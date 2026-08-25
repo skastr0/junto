@@ -433,7 +433,7 @@ const vellumApi: VellumCommandApi = {
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>
     invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
-  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims) =>
+  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims, options) =>
     invoke(
       IPC_CHANNELS.workTaskCreate,
       IPC_TIMEOUT_MS,
@@ -446,6 +446,7 @@ const vellumApi: VellumCommandApi = {
       dependsOn,
       finishCriteria,
       claims,
+      options,
     ),
   workTaskPropose: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims) =>
     invoke(

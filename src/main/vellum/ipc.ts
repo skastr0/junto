@@ -685,6 +685,7 @@ export const registerVellumIpc = (): void => {
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: import("@shared/work-model").FinishCriteria,
       claims?: ReadonlyArray<import("@shared/work-model").TaskClaim>,
+      options?: import("@shared/ipc").TaskCreateOptions,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-create",
@@ -703,6 +704,7 @@ export const registerVellumIpc = (): void => {
               dependsOn,
               finishCriteria,
               claims,
+              options,
             );
           }),
         ),

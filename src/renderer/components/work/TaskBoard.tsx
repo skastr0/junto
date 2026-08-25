@@ -48,7 +48,7 @@ import type {
   TaskState,
   WorkMetadata,
 } from "@shared/canvas";
-import type { WorkOpResult } from "@shared/ipc";
+import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
 import { sinkGlance } from "@shared/attention";
 import {
   canTransitionTaskState,
@@ -72,7 +72,11 @@ import {
 } from "./TaskStationConsole";
 import { effectiveClaimsStack, taskAdmissionState } from "@shared/claims";
 import { defectTargetOptions } from "@shared/journey-integrity";
-import { resolveSinkAdmission, type TaskClaim } from "@shared/work-model";
+import {
+  resolveSinkAdmission,
+  type SinkAdmission,
+  type TaskClaim,
+} from "@shared/work-model";
 import { currentTaskOwner } from "@shared/task-owner";
 import {
   arrivalGlance,
@@ -110,6 +114,12 @@ import {
 } from "../../lib/herdr-clipboard-image";
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
+import {
+  admissionFloorOutcome,
+  defaultTaskAdmission,
+  parseTaskHold,
+  taskAdmissionChoices,
+} from "./task-create-admission";
 import "./task-board.css";
 
 /** Prefer artifacts sinks edge-linked to the task node; else first on canvas. */
@@ -1234,6 +1244,7 @@ export function TaskCreateDialog({
   mode,
   pending,
   artifactsNodeId,
+  admissionFloor,
   onClose,
   onCreate,
   shell = "focus",
@@ -1246,6 +1257,8 @@ export function TaskCreateDialog({
   readonly pending: boolean;
   /** Resolved from canvas; not operator-authored at create. */
   readonly artifactsNodeId: string | undefined;
+  /** Minimum admission policy imposed by the destination sink. */
+  readonly admissionFloor: SinkAdmission;
   readonly onClose: () => void;
   readonly onCreate: (
     title: string,
@@ -1253,6 +1266,7 @@ export function TaskCreateDialog({
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string>,
     finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
+    options: TaskCreateOptions | undefined,
   ) => void;
   readonly shell?: TaskCreateShell;
   /**
@@ -1266,7 +1280,7 @@ export function TaskCreateDialog({
    * close button so the shell does not double up identical dismiss controls.
    */
   readonly headerActions?: ReactNode;
-  /** Sits between the header and the form — the creation metro map goes here. */
+  /** Compact, collapsed route context shown after the work description. */
   readonly preamble?: ReactNode;
 }) {
   const isProposal = mode === "proposal";
@@ -1284,6 +1298,12 @@ export function TaskCreateDialog({
   const [formError, setFormError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
+  const [admission, setAdmission] = useState<SinkAdmission>(() =>
+    defaultTaskAdmission(admissionFloor),
+  );
+  const [holdFor, setHoldFor] = useState("");
+  const [holdError, setHoldError] = useState("");
+  const admissionChoices = taskAdmissionChoices(admissionFloor);
 
   useEffect(() => {
     if (resetToken === 0) return;
@@ -1300,7 +1320,10 @@ export function TaskCreateDialog({
     setFormError("");
     setDragOver(false);
     setDescriptionOpen(false);
-  }, [resetToken]);
+    setAdmission(defaultTaskAdmission(admissionFloor));
+    setHoldFor("");
+    setHoldError("");
+  }, [admissionFloor, resetToken]);
 
   const appendMedia = (draft: TaskMediaDraft) => {
     setMedia((current) => {
@@ -1369,6 +1392,12 @@ export function TaskCreateDialog({
               setFormError("Add an Artifacts card to the canvas before requiring artifacts.");
               return;
             }
+            const parsedHold = parseTaskHold(holdFor);
+            if (!parsedHold.ok) {
+              setHoldError(parsedHold.message);
+              return;
+            }
+            setHoldError("");
             const finishCriteria: import("@shared/work-model").FinishCriteria | undefined = (() => {
               const description = criteriaText.trim();
               const artifacts =
@@ -1395,6 +1424,14 @@ export function TaskCreateDialog({
               parts,
               dependsOn,
               finishCriteria,
+              isProposal
+                ? undefined
+                : {
+                    admission,
+                    ...(parsedHold.ms !== undefined
+                      ? { holdForMs: parsedHold.ms }
+                      : {}),
+                  },
             );
           }}
           onPaste={(event) => {
@@ -1418,7 +1455,7 @@ export function TaskCreateDialog({
                   maxLength={180}
                 />
               </label>
-              <label className="task-create-dialog__grow">
+              <label className="task-create-dialog__description">
                 <FieldCaption
                   label="Description"
                   help="Required. Context, constraints, expected result, and any proof the worker should return."
@@ -1442,11 +1479,25 @@ export function TaskCreateDialog({
                     if (formError && event.target.value.trim()) setFormError("");
                   }}
                   placeholder="Context, constraints, expected result…"
-                  rows={12}
+                  rows={7}
                   aria-invalid={formError === "Description is required."}
                 />
               </label>
-              <label className="task-create-dialog__grow task-create-dialog__grow--secondary">
+
+              {preamble ? (
+                <details className="task-create-dialog__line">
+                  <summary>
+                    <span>
+                      <strong>The line</strong>
+                      <small>Stations and standing claims this work can reach</small>
+                    </span>
+                    <span className="task-create-dialog__line-action">Show route</span>
+                  </summary>
+                  <div className="task-create-dialog__line-map">{preamble}</div>
+                </details>
+              ) : null}
+
+              <label className="task-create-dialog__criteria">
                 <FieldCaption
                   label="Finish criteria"
                   help="What finished looks like, in your words."
@@ -1461,6 +1512,52 @@ export function TaskCreateDialog({
             </div>
 
             <aside className="task-create-dialog__aside" aria-label="Details and hard gates">
+              {!isProposal ? (
+                <section className="task-create-dialog__admission" aria-labelledby="task-admission-label">
+                  <div className="task-create-dialog__admission-heading">
+                    <div>
+                      <strong id="task-admission-label">Admission</strong>
+                      <span>{`Sink floor: ${admissionFloorOutcome(admissionFloor)}`}</span>
+                    </div>
+                  </div>
+                  <div className="task-create-dialog__admission-options" role="group" aria-label="Task admission">
+                    {admissionChoices.map((choice) => (
+                      <button
+                        key={choice.value}
+                        type="button"
+                        className="task-create-dialog__admission-option"
+                        data-selected={String(admission === choice.value)}
+                        aria-pressed={admission === choice.value}
+                        disabled={choice.disabled || pending}
+                        title={choice.reason}
+                        onClick={() => setAdmission(choice.value)}
+                      >
+                        <strong>{choice.label}</strong>
+                        <span>{choice.outcome}</span>
+                        {choice.reason ? <small>{choice.reason}</small> : null}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="task-create-dialog__hold">
+                    <FieldCaption
+                      label="Optional hold"
+                      help="Delay claimability after approval. The station bake still applies when this is blank."
+                    />
+                    <Input
+                      aria-label="Optional hold duration"
+                      value={holdFor}
+                      onChange={(event) => {
+                        setHoldFor(event.target.value);
+                        if (holdError) setHoldError("");
+                      }}
+                      placeholder="90m, 12h, 7d"
+                      aria-invalid={holdError ? true : undefined}
+                    />
+                    {holdError ? <small className="task-create-dialog__hold-error" role="alert">{holdError}</small> : null}
+                  </label>
+                </section>
+              ) : null}
+
               <label>
                 <FieldCaption
                   label="Depends on"
@@ -1674,7 +1771,6 @@ export function TaskCreateDialog({
     return (
       <div className="task-create-dialog task-create-dialog--inline" data-testid="task-enqueue-form">
         {header}
-        {preamble}
         {formBody}
         {descriptionOpen ? (
           <div className="task-description-focus task-description-focus--inline">
@@ -1724,7 +1820,6 @@ export function TaskCreateDialog({
         panelClassName="task-create-dialog"
       >
         {header}
-        {preamble}
         {formBody}
       </FocusSurface>
 
@@ -2543,6 +2638,7 @@ export function TaskBoard({
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
     claims: ReadonlyArray<TaskClaim> = [],
+    options?: TaskCreateOptions,
   ) => {
     if (!api || !title.trim() || !details.trim()) return;
     setError("");
@@ -2563,6 +2659,7 @@ export function TaskBoard({
           dependsOn.length > 0 ? dependsOn : undefined,
           finishCriteria,
           claims.length > 0 ? claims : undefined,
+          options,
         ),
       );
       if (result === undefined) return;
@@ -3238,6 +3335,7 @@ export function TaskBoard({
             mode={creating}
             pending={creatingPending}
             artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
+            admissionFloor={resolveSinkAdmission(sinkContract)}
             preamble={
               creating === "task" ? (
                 <TaskCreationMetroMap
@@ -3253,7 +3351,7 @@ export function TaskBoard({
                 setCreationPins([]);
               }
             }}
-            onCreate={(title, details, media, dependsOn, finishCriteria) => {
+            onCreate={(title, details, media, dependsOn, finishCriteria, options) => {
               if (creating === "proposal") {
                 void createProposal(
                   title,
@@ -3272,6 +3370,7 @@ export function TaskBoard({
                 dependsOn,
                 finishCriteria,
                 creationPins,
+                options,
               );
             }}
           />

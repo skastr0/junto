@@ -774,26 +774,173 @@
   font-weight: 600;
 }
 
-.task-create-dialog__grow {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.task-create-dialog__grow textarea {
-  min-height: 200px;
-  max-height: none;
-  height: 100%;
+.task-create-dialog__description textarea {
+  min-height: 148px;
+  max-height: 240px;
   resize: vertical;
 }
 
-.task-create-dialog__grow--secondary textarea {
-  min-height: 120px;
+.task-create-dialog__criteria textarea {
+  min-height: 108px;
+  max-height: 180px;
+  resize: vertical;
 }
 
 .task-create-dialog__aside textarea {
   min-height: 64px;
   max-height: 140px;
   resize: vertical;
+}
+
+.task-create-dialog__line {
+  min-width: 0;
+  border: 1px solid var(--color-stroke);
+  border-radius: 8px;
+  background: var(--color-raise-2);
+}
+
+.task-create-dialog__line > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 46px;
+  padding: 8px 11px;
+  color: var(--color-ink);
+  cursor: pointer;
+  list-style: none;
+}
+
+.task-create-dialog__line > summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-create-dialog__line > summary > span:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-create-dialog__line > summary strong {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.task-create-dialog__line > summary small,
+.task-create-dialog__admission-heading span {
+  color: var(--color-dim);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.task-create-dialog__line-action {
+  flex: none;
+  color: var(--color-cyan);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-create-dialog__line[open] .task-create-dialog__line-action::before {
+  content: "Hide route";
+}
+
+.task-create-dialog__line[open] .task-create-dialog__line-action {
+  font-size: 0;
+}
+
+.task-create-dialog__line[open] .task-create-dialog__line-action::before {
+  font-size: 9px;
+}
+
+.task-create-dialog__line-map {
+  min-width: 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--color-stroke);
+}
+
+.task-create-dialog__admission {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 42%, var(--color-stroke));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--color-amber) 4%, var(--color-raise-2));
+}
+
+.task-create-dialog__admission-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.task-create-dialog__admission-heading strong {
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.task-create-dialog__admission-options {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: 6px;
+}
+
+.task-create-dialog__admission-option {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 0;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+  color: var(--color-dim);
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-create-dialog__admission-option:last-child {
+  border-bottom: 0;
+}
+
+.task-create-dialog__admission-option[data-selected="true"] {
+  background: color-mix(in oklab, var(--color-amber) 12%, var(--color-raise-2));
+  color: var(--color-ink);
+  box-shadow: inset 2px 0 0 var(--color-amber);
+}
+
+.task-create-dialog__admission-option:disabled {
+  color: var(--color-faint);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.task-create-dialog__admission-option strong {
+  color: inherit;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.task-create-dialog__admission-option span,
+.task-create-dialog__admission-option small {
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.task-create-dialog__admission-option small {
+  color: var(--color-crimson);
+}
+
+.task-create-dialog__hold {
+  gap: 5px !important;
+}
+
+.task-create-dialog__hold-error {
+  color: var(--color-crimson);
+  font-size: 9px;
+  line-height: 1.35;
 }
 
 /* Checkbox rows: horizontal, not stacked (parent label uses display:grid). */

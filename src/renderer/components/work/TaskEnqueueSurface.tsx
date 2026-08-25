@@ -2,7 +2,9 @@ import { useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
 import type { Part, WorkMetadata } from "@shared/canvas";
-import type { WorkOpResult } from "@shared/ipc";
+import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
+import { sinkContractOf } from "@shared/claims";
+import { resolveSinkAdmission } from "@shared/work-model";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import {
   closeWorkbenchSurface,
@@ -63,6 +65,12 @@ export function TaskEnqueueSurface({
       edges: state$.doc.edges.get(),
     });
   });
+  const admissionFloor = use$(() => {
+    const node = nodeId
+      ? state$.doc.nodes.get().find((entry) => entry.id === nodeId)
+      : undefined;
+    return resolveSinkAdmission(sinkContractOf(node));
+  });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [resetToken, setResetToken] = useState(0);
@@ -86,6 +94,7 @@ export function TaskEnqueueSurface({
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string>,
     finishCriteria: import("@shared/work-model").FinishCriteria | undefined,
+    options: TaskCreateOptions | undefined,
   ) => {
     if (!api || !title.trim() || !details.trim()) return;
     setError("");
@@ -124,6 +133,8 @@ export function TaskEnqueueSurface({
             media.length > 0 ? media : undefined,
             dependsOn.length > 0 ? dependsOn : undefined,
             finishCriteria,
+            undefined,
+            options,
           ),
         );
         if (result === undefined) return;
@@ -188,6 +199,7 @@ export function TaskEnqueueSurface({
         mode={mode}
         pending={pending}
         artifactsNodeId={artifactsNodeId}
+        admissionFloor={admissionFloor}
         shell="inline"
         stayOpen
         resetToken={resetToken}
@@ -195,8 +207,8 @@ export function TaskEnqueueSurface({
         onClose={() => {
           if (!pending) closeWorkbenchSurface(surface.id);
         }}
-        onCreate={(title, details, media, dependsOn, finishCriteria) => {
-          void create(title, details, media, dependsOn, finishCriteria);
+        onCreate={(title, details, media, dependsOn, finishCriteria, options) => {
+          void create(title, details, media, dependsOn, finishCriteria, options);
         }}
       />
     </section>

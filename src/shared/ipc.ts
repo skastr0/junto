@@ -23,7 +23,7 @@ import type {
   TaskClaim,
   EtherFlag,
 } from "./canvas";
-import type { TaskPipelineArm } from "./work-model";
+import type { SinkAdmission, TaskPipelineArm } from "./work-model";
 import type { ContentRef } from "./content";
 import type {
   DemoCommand,
@@ -306,6 +306,12 @@ export const IPC_CHANNELS = {
   /** Main → renderer: ring was cleared. */
   observabilityCleared: "vellum-command:observability-cleared",
 } as const;
+
+/** Operator-authored per-task arrival policy on the create surface. */
+export type TaskCreateOptions = {
+  readonly admission: SinkAdmission;
+  readonly holdForMs?: number;
+};
 
 export interface ChassisApi {
   readonly doctor: () => Promise<DoctorReport>;
@@ -662,6 +668,8 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     finishCriteria?: FinishCriteria,
     /** Station-addressed claims; set at creation. */
     claims?: ReadonlyArray<TaskClaim>,
+    /** Per-task admission overlay and optional origin hold. */
+    options?: TaskCreateOptions,
   ) => Promise<WorkOpResult<Task>>;
   /**
    * Operator planning proposal — same authoring contract as workTaskCreate;
