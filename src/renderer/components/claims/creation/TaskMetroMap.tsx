@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ClaimProvenance } from "@shared/claims";
 import type { ClaimDef, TaskClaim } from "@shared/work-model";
 import { Chip, Eyebrow } from "../../ui";
 import { ClaimList } from "../ClaimList";
@@ -8,25 +7,14 @@ import { StationStopCard } from "./StationStopCard";
 import {
   claimsAt,
   formatProfile,
+  groupLineLaw,
   groupStopsByHop,
-  lineLaw,
   lineProfile,
   pinsAt,
   replacePinsAt,
   strandedPins,
 } from "./station-pins";
 import "./metro-map.css";
-
-const provenanceLabel = (provenance: ClaimProvenance): string => {
-  switch (provenance.kind) {
-    case "region":
-      return provenance.label;
-    case "sink":
-      return "station law";
-    case "task":
-      return "task law";
-  }
-};
 
 export function TaskMetroMap({
   line,
@@ -39,7 +27,7 @@ export function TaskMetroMap({
 }) {
   const pinned = useMemo(() => pins ?? [], [pins]);
   const profile = useMemo(() => lineProfile(line, pinned), [line, pinned]);
-  const standingLaw = useMemo(() => lineLaw(line), [line]);
+  const lawGroups = useMemo(() => groupLineLaw(line), [line]);
   const stages = useMemo(() => groupStopsByHop(line), [line]);
   const lineNodeIds = useMemo(() => line.map((stop) => stop.nodeId), [line]);
   const stranded = useMemo(() => strandedPins(pinned, line), [line, pinned]);
@@ -61,28 +49,34 @@ export function TaskMetroMap({
         <span className="task-metro__profile">{formatProfile(profile)}</span>
       </header>
 
-      {standingLaw.length > 0 ? (
-        <section className="task-metro-law" aria-label="Law in force along the whole line">
-          <div className="task-metro-law__head">
-            <strong>In force along the whole line</strong>
-            <span>answered once, wherever the work finishes</span>
-          </div>
-          <ul className="task-metro-law__list">
-            {standingLaw.map((entry) => (
-              <li key={entry.claim.id} data-severity={entry.claim.severity}>
-                <span>{entry.claim.text}</span>
-                <span className="task-metro-law__meta">
-                  <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
-                    {entry.claim.severity}
-                  </Chip>
-                  <Chip tone={entry.provenance.kind === "region" ? "violet" : "cyan"}>
-                    {provenanceLabel(entry.provenance)}
-                  </Chip>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {lawGroups.length > 0 ? (
+        <div className="task-metro-law-stack" aria-label="Law on this line">
+          {lawGroups.map((group) => (
+            <section
+              key={group.id}
+              className="task-metro-law"
+              data-kind={group.kind}
+              aria-label={`${group.label}: ${group.scope}`}
+            >
+              <div className="task-metro-law__head">
+                <strong>{group.label}</strong>
+                <span>{group.scope}</span>
+              </div>
+              <ul className="task-metro-law__list">
+                {group.claims.map((entry) => (
+                  <li key={entry.claim.id} data-severity={entry.claim.severity}>
+                    <span>{entry.claim.text}</span>
+                    <span className="task-metro-law__meta">
+                      <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
+                        {entry.claim.severity}
+                      </Chip>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
       ) : null}
 
       {stranded.length > 0 ? (

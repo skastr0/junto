@@ -10,9 +10,12 @@ import {
 import {
   claimsAt,
   formatProfile,
+  groupLineLaw,
   groupStopsByHop,
   lineLaw,
   lineProfile,
+  REGION_LAW_SCOPE,
+  SINK_LAW_SCOPE,
   pinsAt,
   pruneToLine,
   replacePinsAt,
@@ -307,6 +310,14 @@ describe("lineProfile", () => {
     expect(line).toHaveLength(5);
     expect(line.every((stop) => stop.law.some((entry) => entry.claim.id === "ambient"))).toBe(true);
     expect(lineLaw(line).map((entry) => entry.claim.id)).toEqual(["ambient"]);
+    expect(groupLineLaw(line)).toEqual([
+      expect.objectContaining({
+        kind: "region",
+        label: "Factory",
+        scope: REGION_LAW_SCOPE,
+        claims: [expect.objectContaining({ claim: expect.objectContaining({ id: "ambient" }) })],
+      }),
+    ]);
     expect(groupStopsByHop(line).map((stage) => stage.stops.length)).toEqual([
       1,
       1,
@@ -349,5 +360,34 @@ describe("lineProfile", () => {
     expect(formatProfile(lineProfile(stationLine(board, "solo")))).toBe(
       "1 stop, no standing claims",
     );
+  });
+});
+
+describe("groupLineLaw", () => {
+  it("splits region law from per-station sink law and names both", () => {
+    const board = doc(
+      [
+        region("factory", "Factory", [claim("ambient")], {
+          x: -100,
+          y: -100,
+          width: 900,
+          height: 900,
+        }),
+        sink("intake", { claims: [claim("intake-gate")] }, { x: 0, y: 0 }),
+        sink("build", { claims: [claim("build-gate")] }, { x: 250, y: 0 }),
+      ],
+      [flowEdge("e1", "intake", "build")],
+    );
+    const groups = groupLineLaw(stationLine(board, "intake"));
+    expect(groups.map((group) => [group.kind, group.label, group.scope])).toEqual([
+      ["region", "Factory", REGION_LAW_SCOPE],
+      ["sink", "intake", SINK_LAW_SCOPE],
+      ["sink", "build", SINK_LAW_SCOPE],
+    ]);
+    expect(groups.map((group) => group.claims.map((entry) => entry.claim.id))).toEqual([
+      ["ambient"],
+      ["intake-gate"],
+      ["build-gate"],
+    ]);
   });
 });

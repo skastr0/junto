@@ -25,6 +25,69 @@ export const lineLaw = (
   return law;
 };
 
+export const REGION_LAW_SCOPE =
+  "asked when work completes at a stop it covers";
+export const SINK_LAW_SCOPE = "asked when work completes at this station";
+
+/**
+ * Standing law split by provenance. Region claims keep their region name;
+ * sink claims keep the station they bind at. The kernel evaluates each
+ * completing station's own stack — a fork that skips a sink never asks
+ * that sink's claims, and hard region claims are re-demanded at every
+ * covered completion.
+ */
+export type LineLawGroup = {
+  readonly kind: "region" | "sink";
+  readonly id: string;
+  readonly label: string;
+  readonly scope: string;
+  readonly claims: ReadonlyArray<EffectiveClaim>;
+};
+
+export const groupLineLaw = (
+  line: ReadonlyArray<StationStop>,
+): ReadonlyArray<LineLawGroup> => {
+  const groups: LineLawGroup[] = [];
+  const indexByKey = new Map<string, number>();
+  const seenClaim = new Set<string>();
+  for (const stop of line) {
+    for (const entry of stop.law) {
+      if (entry.provenance.kind === "task") continue;
+      const key =
+        entry.provenance.kind === "region"
+          ? `region:${entry.provenance.regionId}`
+          : `sink:${entry.provenance.nodeId}`;
+      const claimKey = `${key}:${entry.claim.id}`;
+      if (seenClaim.has(claimKey)) continue;
+      seenClaim.add(claimKey);
+      const existing = indexByKey.get(key);
+      if (existing !== undefined) {
+        const group = groups[existing]!;
+        groups[existing] = {
+          ...group,
+          claims: [...group.claims, entry],
+        };
+        continue;
+      }
+      indexByKey.set(key, groups.length);
+      groups.push({
+        kind: entry.provenance.kind,
+        id: key,
+        label:
+          entry.provenance.kind === "region"
+            ? entry.provenance.label
+            : stop.label,
+        scope:
+          entry.provenance.kind === "region"
+            ? REGION_LAW_SCOPE
+            : SINK_LAW_SCOPE,
+        claims: [entry],
+      });
+    }
+  }
+  return groups;
+};
+
 export type StationHop = {
   readonly hops: number;
   readonly stops: ReadonlyArray<StationStop>;

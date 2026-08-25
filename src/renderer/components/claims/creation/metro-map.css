@@ -25,7 +25,13 @@
   text-transform: uppercase;
 }
 
-/* --- law: semantic once, visual once ------------------------------------ */
+/* --- law: split by provenance (region vs this station) ------------------ */
+
+.task-metro-law-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 .task-metro-law {
   display: grid;
@@ -34,6 +40,11 @@
   padding: 7px 9px;
   border: 1px solid color-mix(in oklab, var(--color-violet) 28%, var(--color-stroke));
   background: color-mix(in oklab, var(--color-violet) 5%, var(--color-inset));
+}
+
+.task-metro-law[data-kind="sink"] {
+  border-color: color-mix(in oklab, var(--color-cyan) 28%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-cyan) 5%, var(--color-inset));
 }
 
 .task-metro-law__head {
