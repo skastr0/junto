@@ -1062,6 +1062,75 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.ruleId).toBe("subagents_working");
   });
 
+  it("agy: empty composer is visible idle (factory mail nudge gate)", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  • Status: Idle — standing by for task edges or work assignments.",
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("empty_prompt_idle");
+    expect(result.visibleIdle).toBe(true);
+  });
+
+  it("agy: composer draft is visible idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          HR,
+          "> vellum-command msg list",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("composer_draft_idle");
+    expect(result.visibleIdle).toBe(true);
+  });
+
+  it("agy: subagent counter still outranks empty composer idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high · 2 subagent(s)",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("subagents_working");
+  });
+
+  it("agy: permission prompt still outranks composer idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  agy is requesting permission for: bash",
+          "  do you want to proceed?",
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash · high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.visibleAttention).toBe(true);
+  });
+
   it("agy: idle footer without activity line or subagents is not working", () => {
     const result = evaluate(
       snap({

@@ -9,7 +9,7 @@ import type { SeatRulePack } from "../types";
 
 export const agyRules: SeatRulePack = {
   harness: "agy",
-  version: "2026.08.23.1",
+  version: "2026.08.25.1",
   rules: [
     {
       id: "modal_allow_action",
@@ -87,6 +87,45 @@ export const agyRules: SeatRulePack = {
       visibleWorking: true,
       matchers: {
         lineRegex: ["[1-9][0-9]*\\s+[Ss]ubagent"],
+      },
+    },
+    {
+      /**
+       * Empty composer between the last two ─── rules is Antigravity's idle
+       * chrome. Without a positive idle rule the seat only ever reached
+       * `fallback:idle` (low confidence), which `isSeatIdle` fails closed on —
+       * so factory mail nudges were deferred forever as "not-idle".
+       * Priority sits below every working rule (90+) and every attention rule
+       * (300+): a live activity line, subagent counter or modal still wins.
+       */
+      id: "empty_prompt_idle",
+      state: "idle",
+      priority: 80,
+      region: "prompt_box_body",
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*[❯>]\\s*$"],
+        not: [
+          { contains: ["esc to cancel"] },
+          { contains: ["do you want to proceed?"] },
+          { contains: ["your answer:"] },
+        ],
+      },
+    },
+    {
+      /** Draft text sitting in the composer is still an idle seat. */
+      id: "composer_draft_idle",
+      state: "idle",
+      priority: 70,
+      region: "prompt_box_body",
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*[❯>]\\s+\\S"],
+        not: [
+          { contains: ["esc to cancel"] },
+          { contains: ["do you want to proceed?"] },
+          { contains: ["your answer:"] },
+        ],
       },
     },
     {
