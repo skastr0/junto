@@ -56,7 +56,7 @@ describe("InjectionSupervisor", () => {
     expect(writer).not.toHaveBeenCalled();
   });
 
-  it("escalates after the turn budget without factory proof", () => {
+  it("re-orients on a budget, then escalates once, then keeps the floor", () => {
     const s = new InjectionSupervisor();
     const writer = vi.fn();
     const escalate = vi.fn();
@@ -66,10 +66,6 @@ describe("InjectionSupervisor", () => {
     s.setNow(() => now);
 
     const marker = buildBootstrapMarker("b1");
-    // law-aligned: pre-law counted every working→idle flip as a turn and
-    // wrote one PTY orient notice at turn 1 → the product law counts only
-    // marker-observed turns and never writes the PTY (policy.ts: orient is
-    // dead), escalating on the canvas at the 3rd turn.
     const turnCycle = (n: bigint): void => {
       // Marker-observed turn: our injection is live in the prompt box…
       s.noteSeatState(seatEvent({ state: "working", at: now }));
@@ -79,20 +75,50 @@ describe("InjectionSupervisor", () => {
       s.onSnapshot(snap({ lines: ["", "❯ "], text: "done", seq: n + 1n }));
     };
 
-    turnCycle(2n); // turn 1 → no PTY write ever (orient is gone per law)
-    turnCycle(5n); // turn 2 → no repeat (once per generation)
+    // One quiet turn is ordinary work — nothing is written.
+    turnCycle(2n);
     expect(writer).not.toHaveBeenCalled();
-    turnCycle(8n); // turn 3 → budget exhausted → escalate, no write
-    expect(writer).not.toHaveBeenCalled();
+
+    // Second unproven turn: the seat is re-told where its factory CLI is.
+    // This is the floor that a compaction-wiped seat needs; spawn-time
+    // delivery is long gone from the harness's own context by now.
+    turnCycle(5n);
+    expect(writer).toHaveBeenCalledTimes(1);
+    expect(String(writer.mock.calls[0][1])).toMatch(/vellum-command onboard/);
+
+    // Budget exhausted: the operator hears about it, exactly once.
+    turnCycle(8n);
     expect(escalate).toHaveBeenCalledTimes(1);
     expect(escalate.mock.calls[0][1]).toMatch(/unguided/);
+
+    // And escalation does not end the floor: the seat is still being given
+    // the chance to fix itself two turns later.
+    turnCycle(11n);
+    expect(escalate).toHaveBeenCalledTimes(1);
+    expect(writer).toHaveBeenCalledTimes(2);
   });
 
-  ;
+  it("never writes the floor into a live operator surface", () => {
+    const s = new InjectionSupervisor();
+    const writer = vi.fn();
+    s.setWriter(writer);
+    const now = 2_000_000;
+    s.setNow(() => now);
 
-  ;
+    const marker = buildBootstrapMarker("b1");
+    const turnCycle = (n: bigint, promptLine: string): void => {
+      s.noteSeatState(seatEvent({ state: "working", at: now }));
+      s.onSnapshot(snap({ lines: [`❯ ${marker}`], text: marker, seq: n }));
+      s.noteSeatState(seatEvent({ state: "idle", at: now }));
+      s.onSnapshot(snap({ lines: ["", promptLine], text: "done", seq: n + 1n }));
+    };
 
-  ;
+    // Operator draft sitting in the composer across both turns: the notice
+    // would append to their half-typed line, so it is never sent.
+    turnCycle(2n, "❯ fix the parser");
+    turnCycle(5n, "❯ fix the parser");
+    expect(writer).not.toHaveBeenCalled();
+  });
 
   it("generation change resets per-generation state (resume re-zero fix)", () => {
     const s = new InjectionSupervisor();

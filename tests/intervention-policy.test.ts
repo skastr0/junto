@@ -4,6 +4,7 @@ import {
   InteractionContext,
   Intervention,
   MAX_TURNS_WITHOUT_PROOF,
+  REORIENT_EVERY_TURNS,
   POLICY_TABLE,
   PTY_WRITE_KINDS,
   decideIntervention,
@@ -32,6 +33,8 @@ const DEFAULT_CTX: InteractionContextT = {
   turn: "none",
   awareness: "unproven",
   turnsWithoutProof: 0,
+  orientationsDelivered: 0,
+  escalated: false,
 };
 
 const ctxFrom = (over: Partial<InteractionContextT>): InteractionContextT => ({
@@ -50,6 +53,8 @@ const AWARENESS_SIGNALS = [
   "proven",
 ] as const;
 const BUDGET_VALUES = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
+const ORIENTATION_VALUES = [0, 1, 2] as const;
+const ESCALATED_VALUES = [false, true] as const;
 
 const USER_GATED: ReadonlyArray<(typeof USER_SIGNALS)[number]> = [
   "present",
@@ -84,8 +89,19 @@ describe("intervention policy", () => {
           for (const turn of TURN_SIGNALS) {
             for (const awareness of AWARENESS_SIGNALS) {
               for (const turnsWithoutProof of BUDGET_VALUES) {
+               for (const orientationsDelivered of ORIENTATION_VALUES) {
+                for (const escalated of ESCALATED_VALUES) {
                 const d = decideIntervention(
-                  ctxFrom({ seat, user, injection, turn, awareness, turnsWithoutProof }),
+                  ctxFrom({
+                    seat,
+                    user,
+                    injection,
+                    turn,
+                    awareness,
+                    turnsWithoutProof,
+                    orientationsDelivered,
+                    escalated,
+                  }),
                 );
                 total += 1;
 
@@ -115,16 +131,35 @@ describe("intervention policy", () => {
                 // silent above (priority: gone → silent precedes the budget).
                 if (
                   seat !== "gone" &&
+                  !escalated &&
                   turnsWithoutProof >= MAX_TURNS_WITHOUT_PROOF &&
                   BUDGET_EXHAUSTED_AWARENESS.includes(awareness)
                 ) {
                   expect(d.kind).toBe("escalate");
                 }
 
+                // Escalation is once per generation: a canvas event the
+                // operator has already seen is never repeated.
+                if (escalated) {
+                  expect(d.kind).not.toBe("escalate");
+                }
+
+                // The re-orientation floor is budgeted, and only ever fires on
+                // a completed turn for a seat that has not proven awareness.
+                if (d.kind === "notify-orient") {
+                  expect(turn).toBe("ended");
+                  expect(awareness).toBe("unproven");
+                  expect(turnsWithoutProof).toBeGreaterThanOrEqual(
+                    (orientationsDelivered + 1) * REORIENT_EVERY_TURNS,
+                  );
+                }
+
                 // Holds always carry a reason.
                 if (d.kind === "hold") {
                   expect(d.reason.length).toBeGreaterThan(0);
                 }
+                }
+               }
               }
             }
           }
@@ -137,7 +172,9 @@ describe("intervention policy", () => {
         INJECTION_SIGNALS.length *
         TURN_SIGNALS.length *
         AWARENESS_SIGNALS.length *
-        BUDGET_VALUES.length,
+        BUDGET_VALUES.length *
+        ORIENTATION_VALUES.length *
+        ESCALATED_VALUES.length,
     );
   });
 

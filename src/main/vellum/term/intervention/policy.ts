@@ -41,6 +41,21 @@ import type {
 /** Turns a seat may go without proof of vellum awareness before we escalate. */
 export const MAX_TURNS_WITHOUT_PROOF = 3;
 
+/**
+ * Turns between orient notices.
+ *
+ * The floor exists because doctrine is not permanent. A Tier-B seat carries it
+ * only in conversation history, and a harness that compacts its own context
+ * throws it away mid-session — verified on codex-cli 0.149.1, where a forced
+ * `/compact` leaves the agent answering "None" about its standing instruction.
+ * Nothing in the spawn path can fix that after the fact, so the supervisor
+ * re-delivers on a budget instead of assuming one delivery lasts forever.
+ *
+ * Two, not one: a single quiet turn is normal work, and a notice after every
+ * turn would be nagging rather than a floor.
+ */
+export const REORIENT_EVERY_TURNS = 2;
+
 // ---------------------------------------------------------------------------
 // Signal literals
 //
@@ -103,6 +118,20 @@ export const InteractionContext = Schema.Struct({
   turnsWithoutProof: Schema.Int.pipe(
     Schema.check(Schema.isBetween({ minimum: 0, maximum: 8 })),
   ),
+  /**
+   * Orient notices already delivered to this generation. The re-orientation
+   * floor is budgeted off this: a seat whose doctrine was destroyed mid-session
+   * gets told again, on a schedule, rather than once at spawn and never after.
+   */
+  orientationsDelivered: Schema.Int.pipe(
+    Schema.check(Schema.isBetween({ minimum: 0, maximum: 8 })),
+  ),
+  /**
+   * The canvas has already been told about this generation. Escalation stays
+   * once per generation, and — unlike before — it does not end the floor: a
+   * seat that has been escalated keeps getting its scheduled re-orientation.
+   */
+  escalated: Schema.Boolean,
 });
 export type InteractionContext = typeof InteractionContext.Type;
 
@@ -152,15 +181,20 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   // Budget exhausted without proof: escalate. Escalate is canvas-only — NOT a
   // PTY write — so the write-gates never block it (a live operator surface
   // still never gets written to: only notify-orient is a write).
-  if (turnsWithoutProof >= MAX_TURNS_WITHOUT_PROOF) {
-    if (awareness === "unproven") {
-      return {
-        kind: "escalate",
-        diagnostics: [
-          `seat unguided after ${MAX_TURNS_WITHOUT_PROOF} turns without proof of vellum awareness`,
-        ],
-      };
-    }
+  if (
+    turnsWithoutProof >= MAX_TURNS_WITHOUT_PROOF &&
+    awareness === "unproven" &&
+    // Once per generation. Re-escalating would only repeat a canvas event the
+    // operator has already seen, and it would starve the re-orientation floor
+    // below — which is the part that can still fix the seat by itself.
+    !ctx.escalated
+  ) {
+    return {
+      kind: "escalate",
+      diagnostics: [
+        `seat unguided after ${MAX_TURNS_WITHOUT_PROOF} turns without proof of vellum awareness`,
+      ],
+    };
   }
 
   // ── write-gates ──────────────────────────────────────────────────────────
@@ -174,12 +208,27 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   if (injection === "live") return { kind: "hold", reason: "one-live" };
   if (seat === "attention") return { kind: "hold", reason: "modal" };
 
-  // ── unproven after a turn ─────────────────────────────────────────────────
-  // Do NOT paste an orient notice into the PTY. Multi-line bracketed paste
-  // often lands as a stuck "[Pasted text #N]" chip (Claude/Devin) — operators
-  // cannot read it and cannot trust it. Spawn already delivered doctrine
-  // (Tier A flags / Tier B argv prompt). Proof still comes from onboard /
-  // work-plane calls; budget exhaustion escalates to the canvas above.
+  // ── unproven after a turn: the re-orientation floor ───────────────────────
+  // Spawn-time delivery is not durable. A Tier-B seat holds its doctrine only
+  // in conversation history, and a harness that compacts its own context
+  // discards it mid-session with nothing on the spawn path able to notice.
+  // So an unproven seat is re-told on a budget: one notice every
+  // REORIENT_EVERY_TURNS unproven turns, each one still behind every
+  // write-gate above (an operator at the keyboard, our own text still pending,
+  // or a modal all win).
+  //
+  // The old objection to this write was the stuck `[Pasted text #N]` chip.
+  // That is now handled where it belongs, in the drive: paste and CR are
+  // separate writes with a settle between them, and prompt-pending evidence
+  // refuses to receipt a turn whose text never left the composer.
+  if (
+    turn === "ended" &&
+    awareness === "unproven" &&
+    turnsWithoutProof >=
+      (ctx.orientationsDelivered + 1) * REORIENT_EVERY_TURNS
+  ) {
+    return { kind: "notify-orient", payload: "orient" };
+  }
   if (turn === "ended" && awareness === "unproven") {
     return { kind: "hold", reason: "turn" };
   }
@@ -216,12 +265,48 @@ export const POLICY_TABLE: ReadonlyArray<{
 
     // Budget exhaustion beats the orient notice.
 
-  // ── L1: unproven, turn ended — hold (no PTY orient paste) ─────────────────
+  // ── L1: unproven, turn ended — the budgeted re-orientation floor ──────────
+  // One quiet turn is ordinary work, so the first notice waits for the second.
   { ctx: { turn: "ended" }, expected: "hold" },
-  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "hold" },
-  // Budget exhaustion escalates to the canvas (never a PTY write).
+  { ctx: { turn: "ended", turnsWithoutProof: 1 }, expected: "hold" },
+  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "notify-orient" },
+  // A notice already spent buys the next two turns of quiet.
+  {
+    ctx: { turn: "ended", turnsWithoutProof: 2, orientationsDelivered: 1 },
+    expected: "hold",
+  },
+  {
+    ctx: {
+      turn: "ended",
+      turnsWithoutProof: 4,
+      orientationsDelivered: 1,
+      escalated: true,
+    },
+    expected: "notify-orient",
+  },
+  // The floor outlives escalation: the canvas has been told once, and the seat
+  // is still being re-oriented in case it can fix itself.
+  {
+    ctx: {
+      turn: "ended",
+      turnsWithoutProof: 4,
+      orientationsDelivered: 1,
+      escalated: true,
+    },
+    expected: "notify-orient",
+  },
+  // Write-gates still win over the floor, exactly as over any PTY write.
+  {
+    ctx: { turn: "ended", turnsWithoutProof: 2, user: "drafted" },
+    expected: "hold",
+  },
+  // Budget exhaustion escalates to the canvas (never a PTY write), once.
   { ctx: { turn: "ended", turnsWithoutProof: 3 }, expected: "escalate" },
   { ctx: { turn: "ended", turnsWithoutProof: 8 }, expected: "escalate" },
+  {
+    ctx: { turn: "ended", turnsWithoutProof: 8, escalated: true },
+    expected: "notify-orient",
+  },
 
   // ── L0: unproven, no boundary yet ─────────────────────────────────────────
   { ctx: {}, expected: "hold" },

@@ -58,7 +58,12 @@ type SeatSupervision = {
   lastActedKind: Intervention["kind"] | undefined;
   /** Only re-inject a charter when a NEW turn completed since the last one. */
   repairedOnce: boolean;
-  orientedOnce: boolean;
+  /**
+   * Orient notices delivered to THIS generation. A count, not a flag: the
+   * re-orientation floor re-delivers on a budget, because a harness that
+   * compacts its own context throws the doctrine away mid-session.
+   */
+  orientationsDelivered: number;
   escalatedOnce: boolean;
   hadDelivery: boolean;
   lastText: string | undefined;
@@ -121,7 +126,7 @@ export class InjectionSupervisor {
         lastOutputAt: undefined,
         lastActedKind: undefined,
         repairedOnce: false,
-        orientedOnce: false,
+        orientationsDelivered: 0,
         escalatedOnce: false,
         hadDelivery: false,
         lastText: undefined,
@@ -264,6 +269,8 @@ export class InjectionSupervisor {
       turn: inter.turn,
       awareness: seat.awareness,
       turnsWithoutProof: seat.turnsWithoutProof,
+      orientationsDelivered: seat.orientationsDelivered,
+      escalated: seat.escalatedOnce,
     };
     const decision = decideIntervention(ctx);
 
@@ -283,8 +290,9 @@ export class InjectionSupervisor {
       case "hold":
         return;
       case "notify-orient": {
-        if (seat.orientedOnce) return;
-        seat.orientedOnce = true;
+        // The policy owns the schedule; the supervisor only records that a
+        // notice went out, which is what moves the budget forward.
+        seat.orientationsDelivered += 1;
         seat.lastActedKind = "notify-orient";
         const payload = appendBootstrapMarker(
           buildOrientNotice(bindingId),

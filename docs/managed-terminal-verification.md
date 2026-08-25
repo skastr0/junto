@@ -28,7 +28,7 @@ Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 
 
 Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` or transcripts silently disable. `--mcp-config` (if ever used) is variadic — put last.
 
-## Codex — 13/13 VERIFIED ([full report](research/managed-terminal-probes/codex-tui-probe.md))
+## Codex — 14/14 VERIFIED ([full report](research/managed-terminal-probes/codex-tui-probe.md))
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -45,6 +45,32 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | C11 | Spawn env inherited by agent shell; filter knob `shell_environment_policy` | codex injects `CODEX_THREAD_ID`, `CODEX_SANDBOX*` |
 | C12 | OSC title state machine: idle basename / braille working ~10Hz / **`Action Required` title for input-required** / empty on shutdown | startup modals (dir-trust, hooks-review) emit no title — grid only |
 | C13 | Mid-turn 0x03 interrupts, TUI survives | ⚠ idle 0x03 with EMPTY composer exits immediately, no confirmation; with text it only clears |
+| C14 | `-c developer_instructions` is NOT a Tier-A route (2026-08-25, codex-cli 0.149.1) | see the refutation below |
+
+### C14 — why Codex stays Tier B (probe receipt, 2026-08-25, codex-cli 0.149.1)
+
+`-c developer_instructions` looks like a system-prompt flag and behaves like one
+right up to the point where it matters:
+
+- it passes strict-config, renders verbatim as the first `developer` role
+  message, and a live turn obeys it;
+- **a real `/compact` destroys it.** After compaction the agent answers `None`
+  when asked for its standing instruction, and `thread_settings_applied`
+  records `null`;
+- **re-passing the flag on resume does not reinject it.** Thread settings are
+  frozen at creation, so `codex resume <id> -c developer_instructions=…` is a
+  no-op. A pre-compaction resume appears to obey only because the transcript
+  replays.
+
+So the flag buys an instruction that silently disappears exactly when the seat
+most needs it, and cannot be restored by the spawn path. Codex therefore stays
+**Tier B** — `injectionSpec.tier` and the `instructionInjection` badge both `B`,
+no `systemPromptConfigKey` plumbing — and doctrine is re-delivered by the
+supervisor's budgeted re-orientation floor (`REORIENT_EVERY_TURNS` in
+`term/intervention/policy.ts`), which is harness-agnostic and self-heals any
+Tier-B seat whose context was compacted away.
+
+Do not retry the flag on resume. The freeze is the trap.
 
 ## Grok — 13/13 VERIFIED ([full report](research/managed-terminal-probes/grok-tui-probe.md))
 
