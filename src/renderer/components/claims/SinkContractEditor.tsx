@@ -217,11 +217,20 @@ function BakeTimeField({
   );
 }
 
-export function SinkContractEditor({ node }: { readonly node: CanvasNode }) {
-  const [openFold, setOpenFold] = useState<"inbound" | "outbound" | null>(null);
+export function SinkContractEditor({
+  node,
+  focusSide,
+}: {
+  readonly node: CanvasNode;
+  /** Board-side entry opens only the matching half of the station contract. */
+  readonly focusSide?: "inbound" | "outbound";
+}) {
+  const [openFold, setOpenFold] = useState<"inbound" | "outbound" | null>(
+    focusSide ?? null,
+  );
   useEffect(() => {
-    setOpenFold(null);
-  }, [node.id]);
+    setOpenFold(focusSide ?? null);
+  }, [focusSide, node.id]);
 
   if (node.ether?.entity?.kind !== "task") return null;
 
@@ -254,32 +263,11 @@ export function SinkContractEditor({ node }: { readonly node: CanvasNode }) {
       .filter(Boolean)
       .join(", ") || "nothing set";
 
-  return (
-    <>
-      <ContractText
-        label="stage"
-        hint="Seats claiming here receive this as ambient context."
-        ariaLabel="Sink stage instruction"
-        resetKey={node.id}
-        value={contract?.instruction ?? ""}
-        placeholder="What is this stage for?"
-        onCommit={(instruction) => write({ ...contract, instruction })}
-      />
-
-      <InheritedLaw node={node} />
-
-      <ClaimList
-        ownerNodeId={node.id}
-        claims={claims}
-        label="claims at this sink"
-        hint="Answered by whoever closes a task here, on top of the region law above."
-        onChange={(next: ReadonlyArray<ClaimDef>) => write({ ...contract, claims: next })}
-      />
-
-      <Fold
-        title="arrivals"
-        summary={inboundSummary}
-        open={openFold === "inbound"}
+  const inboundFold = (
+    <Fold
+      title="arrivals"
+      summary={inboundSummary}
+      open={openFold === "inbound"}
         onToggle={() => setOpenFold((open) => (open === "inbound" ? null : "inbound"))}
       >
         <label className="inspector-editor">
@@ -324,11 +312,12 @@ export function SinkContractEditor({ node }: { readonly node: CanvasNode }) {
           onChange={(checklist: ReadonlyArray<CheckDef>) => writeInbound({ checklist })}
         />
       </Fold>
-
-      <Fold
-        title="departures"
-        summary={outboundSummary}
-        open={openFold === "outbound"}
+  );
+  const outboundFold = (
+    <Fold
+      title="departures"
+      summary={outboundSummary}
+      open={openFold === "outbound"}
         onToggle={() => setOpenFold((open) => (open === "outbound" ? null : "outbound"))}
       >
         <ContractText
@@ -355,6 +344,36 @@ export function SinkContractEditor({ node }: { readonly node: CanvasNode }) {
           onChange={(checklist: ReadonlyArray<CheckDef>) => writeOutbound({ checklist })}
         />
       </Fold>
+  );
+
+  return (
+    <>
+      {focusSide === undefined ? (
+        <>
+          <ContractText
+            label="stage"
+            hint="Seats claiming here receive this as ambient context."
+            ariaLabel="Sink stage instruction"
+            resetKey={node.id}
+            value={contract?.instruction ?? ""}
+            placeholder="What is this stage for?"
+            onCommit={(instruction) => write({ ...contract, instruction })}
+          />
+
+          <InheritedLaw node={node} />
+
+          <ClaimList
+            ownerNodeId={node.id}
+            claims={claims}
+            label="claims at this sink"
+            hint="Answered by whoever closes a task here, on top of the region law above."
+            onChange={(next: ReadonlyArray<ClaimDef>) => write({ ...contract, claims: next })}
+          />
+        </>
+      ) : null}
+
+      {focusSide !== "outbound" ? inboundFold : null}
+      {focusSide !== "inbound" ? outboundFold : null}
     </>
   );
 }

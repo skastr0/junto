@@ -30,6 +30,38 @@ export const pipelineShape = (doc: CanvasDoc, nodeId: string): PipelineShape => 
   };
 };
 
+/** Deterministic station-name list for compact board copy. */
+export const formatStationNames = (
+  names: ReadonlyArray<string>,
+): string => {
+  if (names.length === 0) return "connected stations";
+  if (names.length === 1) return names[0]!;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+};
+
+export type PipelineLaneCopy = {
+  readonly inboundHint: string;
+  readonly inboundEmpty: string;
+  readonly outboundHint: string;
+  readonly outboundEmpty: string;
+};
+
+/** Named teaching copy for the two flow-derived columns. */
+export const pipelineLaneCopy = (
+  shape: PipelineShape,
+  stationName: (nodeId: string) => string,
+): PipelineLaneCopy => {
+  const upstream = formatStationNames(shape.sources.map(stationName));
+  const destinations = formatStationNames(shape.destinations.map(stationName));
+  return {
+    inboundHint: `Arrivals from ${upstream}`,
+    inboundEmpty: `Arrivals from ${upstream} land here.`,
+    outboundHint: `Destinations: ${destinations}`,
+    outboundEmpty: `Completed work goes to ${destinations}.`,
+  };
+};
+
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
 const HOUR_MS = 60 * MINUTE_MS;

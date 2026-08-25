@@ -2279,6 +2279,107 @@ describe("WorkService — pipeline", () => {
     }
   });
 
+  it("records operator context before promoting or rejecting an arrival", async () => {
+    const name = "arrival-decision-context";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          {
+            id: "gate",
+            type: "text",
+            text: "Review",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: {
+              entity: { kind: "task" },
+              tasks: {
+                contract: { inbound: { admission: "operator-gated" } },
+              },
+            },
+          },
+          agentNode("claimant"),
+        ],
+        edges: [{ id: "claim-edge", fromNode: "claimant", toNode: "gate" }],
+      }),
+    );
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const actor = read.actorRefs.find((ref) => ref.nodeId === "claimant");
+    if (actor === undefined) throw new Error("missing claimant actor ref");
+
+    const promotedSource = await workRuntime.runPromise(
+      work.workTaskCreate(name, "gate", "promote me", { details: "promote me" }),
+    );
+    if (!promotedSource.ok) throw new Error(promotedSource.message);
+    const promoted = await workRuntime.runPromise(
+      work.workTaskPromote(
+        name,
+        "gate",
+        promotedSource.data.id,
+        "Check the retry boundary first.",
+      ),
+    );
+    expect(promoted.ok).toBe(true);
+    if (!promoted.ok) return;
+    expect(promoted.data.history.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ kind: "text", text: "Check the retry boundary first." }],
+    });
+    const claimed = await workRuntime.runPromise(
+      work.workTaskClaim(name, "gate", promotedSource.data.id, actor),
+    );
+    expect(claimed.ok).toBe(true);
+    if (!claimed.ok) return;
+    expect(
+      claimed.data.history.flatMap((message) =>
+        message.parts.flatMap((part) =>
+          part.kind === "text" ? [part.text] : [],
+        ),
+      ),
+    ).toEqual([
+      "promote me",
+      "Check the retry boundary first.",
+    ]);
+
+    const rejectedSource = await workRuntime.runPromise(
+      work.workTaskCreate(name, "gate", "reject me", { details: "reject me" }),
+    );
+    expect(rejectedSource.ok).toBe(true);
+    if (!rejectedSource.ok) return;
+    const rejected = await workRuntime.runPromise(
+      work.workTaskRejectArrival(
+        name,
+        "gate",
+        rejectedSource.data.id,
+        "The acceptance case is missing.",
+      ),
+    );
+    expect(rejected.ok).toBe(true);
+    if (!rejected.ok) return;
+    expect(rejected.data).toMatchObject({
+      state: "rejected",
+      history: [
+        expect.any(Object),
+        {
+          role: "user",
+          parts: [{ kind: "text", text: "The acceptance case is missing." }],
+        },
+      ],
+    });
+
+    const fastSource = await workRuntime.runPromise(
+      work.workTaskCreate(name, "gate", "fast promote", { details: "fast promote" }),
+    );
+    expect(fastSource.ok).toBe(true);
+    if (!fastSource.ok) return;
+    const fast = await workRuntime.runPromise(
+      work.workTaskPromote(name, "gate", fastSource.data.id),
+    );
+    expect(fast.ok).toBe(true);
+    if (fast.ok) expect(fast.data.history).toHaveLength(1);
+  });
+
   it("serves show/claims/rulings views with onion-scoped journeys", async () => {
     const name = "pipeline-views";
     await workRuntime.runPromise(

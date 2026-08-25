@@ -235,9 +235,9 @@ export function TasksCard({
                 className="truncate"
                 style={{ color: proposalCount > 0 ? HUE.violet : DIM }}
                 data-testid="tasks-glance-proposals"
-                aria-label={`${proposalCount} proposals`}
+                aria-label={`${proposalCount} awaiting approval`}
               >
-                {proposalCount} proposals
+                {proposalCount} awaiting approval
               </span>
               <span
                 className="truncate"

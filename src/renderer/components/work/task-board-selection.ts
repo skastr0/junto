@@ -119,8 +119,8 @@ export const resolveTaskBoardBulkActions = (
         kind: "reject_proposals",
         label:
           items.length === 1
-            ? "Reject proposal"
-            : `Reject ${items.length} proposals`,
+            ? "Reject pending work"
+            : `Reject ${items.length} pending items`,
       },
     ];
   }

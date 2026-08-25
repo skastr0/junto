@@ -4,9 +4,11 @@ import { decodeCanvasDoc, type CanvasDoc, type Task } from "../src/shared/canvas
 import {
   arrivalGlance,
   formatHoldCountdown,
+  formatStationNames,
   groupOutboundPassages,
   hasPendingHold,
   localPassage,
+  pipelineLaneCopy,
   pipelineShape,
 } from "../src/renderer/components/work/task-flow-columns";
 
@@ -86,6 +88,37 @@ describe("pipelineShape", () => {
       hasInbound: false,
       hasOutbound: false,
     });
+  });
+});
+
+describe("pipeline lane copy", () => {
+  it("names real upstream and destination stations", () => {
+    const shape = {
+      sources: ["intake", "triage"],
+      destinations: ["review", "ship"],
+      hasInbound: true,
+      hasOutbound: true,
+    };
+    const label = (id: string) => ({
+      intake: "Intake",
+      triage: "Triage",
+      review: "Review",
+      ship: "Ship",
+    })[id] ?? id;
+    expect(pipelineLaneCopy(shape, label)).toEqual({
+      inboundHint: "Arrivals from Intake and Triage",
+      inboundEmpty: "Arrivals from Intake and Triage land here.",
+      outboundHint: "Destinations: Review and Ship",
+      outboundEmpty: "Completed work goes to Review and Ship.",
+    });
+  });
+
+  it("formats one, two, and several station names without unstable locale output", () => {
+    expect(formatStationNames(["Review"])).toBe("Review");
+    expect(formatStationNames(["Review", "Ship"])).toBe("Review and Ship");
+    expect(formatStationNames(["Intake", "Review", "Ship"])).toBe(
+      "Intake, Review, and Ship",
+    );
   });
 });
 
