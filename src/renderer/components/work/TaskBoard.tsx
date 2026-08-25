@@ -1542,7 +1542,7 @@ export function TaskCreateDialog({
                   <label className="task-create-dialog__hold">
                     <FieldCaption
                       label="Optional hold"
-                      help="Delay claimability after approval. The station bake still applies when this is blank."
+                      help="Delay claimability from creation. The station bake still applies when this is blank."
                     />
                     <Input
                       aria-label="Optional hold duration"
@@ -2662,7 +2662,9 @@ export function TaskBoard({
         setError(result.message);
         return;
       }
-      setAnnouncement(`Created ${title.trim()} in Queue.`);
+      setAnnouncement(
+        `Created ${title.trim()} in ${laneById(laneForTask(result.data, shape, sinkContract, Date.now())).label}.`,
+      );
       setCreating(null);
       setCreationPins([]);
       setSelectedTaskId(result.data.id);
@@ -3243,15 +3245,24 @@ export function TaskBoard({
           eyebrow="station"
           title={currentStation.name}
           status={
-            currentStation.namingHint ?? currentStation.role ?? (
-              <>
-                {glance.inFlight} in flight
-                {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
-              </>
-            )
+            <>
+              {glance.inFlight} in flight
+              {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
+            </>
           }
           actions={
             <>
+              <IconButton
+                tone={contractSide ? "accent" : "default"}
+                aria-label="Edit station contract"
+                title="Edit station contract"
+                onClick={() => {
+                  setSelectedTaskId(null);
+                  setContractSide((current) => (current ? null : "inbound"));
+                }}
+              >
+                <Settings2 size={14} />
+              </IconButton>
               <IconButton
                 tone={searchOpen ? "accent" : "default"}
                 aria-label={searchOpen ? "Close task search" : "Search tasks"}
