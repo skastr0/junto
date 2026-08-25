@@ -116,6 +116,13 @@ export type ArgvSpec = {
   readonly modeFlag?: string;
   /** When set, effort is emitted as `-c <key>="<value>"` (Codex). */
   readonly effortConfigKey?: string;
+  /**
+   * When set, effort is not a token at all: it rides inside the model value as
+   * a bracketed option (Cursor `--model claude-opus-4-8[effort=high]`, merged
+   * into any brackets the model already carries). A picker effort with no model
+   * selected has nothing to attach to and is dropped rather than guessed at.
+   */
+  readonly effortModelBracketKey?: string;
   /** Permission / approval flag (`--permission-mode`, `-a`, `--yolo`). */
   readonly permissionModeFlag?: string;
   /** Hermes profile: `-p` / `--profile`. */
@@ -768,10 +775,22 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Cursor Agent CLI (binary: `agent`) — Tier B, capture session, grid feed.
- * Verified 2026.08.11: positional prompt; --model (effort is a model-id
- * suffix, not a flag); --yolo/--force allow-all; --resume <id> named only;
- * --trust skips the workspace-trust modal. No public system-prompt flag.
+ * Cursor Agent CLI (binary: `agent`) — Tier B, session PIN, grid feed.
+ * Verified 2026.08.11: positional prompt; --model; --yolo/--force allow-all;
+ * --resume <id> named only; --trust skips the workspace-trust modal. No public
+ * system-prompt flag.
+ *
+ * Re-probed 2026-08-25 and two facts changed the shape:
+ * - `--new-session-id <uuid>` starts a session with a caller-provided id, so
+ *   Cursor is a PIN harness like Claude and Grok rather than a capture one.
+ *   The alternative (`create-chat`) hands back an id for a chat that exists
+ *   server-side only — nothing lands on disk until the first turn, so such an
+ *   id can never be proven before use. A minted pin is knowable from the start.
+ *   Durable proof appears at `~/.cursor/chats/<workspaceHash>/<id>/meta.json`.
+ * - Effort is not a flag and not only a model-id suffix: `--model` accepts
+ *   bracketed options verbatim (`claude-opus-4-8[context=1m,effort=high]`), so
+ *   a picker effort rides inside the model value (`effortModelBracketKey`).
+ * - `--resume <id>` continues that exact session; it does not fork.
  */
 export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   harness: "cursor",
@@ -782,7 +801,10 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     prefix: ["--trust"],
     promptMode: "positional",
     modelFlag: "--model",
+    // Bracketed inside the model value, never a flag of its own.
+    effortModelBracketKey: "effort",
     permissionModeFlag: "--yolo",
+    sessionIdFlag: "--new-session-id",
     resumeMode: "flag",
     resumeFlag: "--resume",
     resumeReinjection: "re-pass",
@@ -797,15 +819,19 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   capabilityBadges: {
     instructionInjection: "B",
     hooks: false,
-    effortAtSpawn: false,
-    sessionId: "capture",
+    // True only with a model: the bracket has nothing to attach to otherwise.
+    effortAtSpawn: true,
+    sessionId: "pin",
     remote: false,
     requiresGitCwd: false,
     stateFeed: "grid (alt buffer)",
     attentionSource: "grid (approval forms)",
-    labels: ["injection B", "grid", "capture session"],
+    labels: ["injection B", "grid", "effort in model", "session pin"],
   },
-  efforts: [],
+  // The levels the harness's own vocabulary attests: `effort=high` appears
+  // verbatim in `--model` help and the live model list carries `-low` / `-high`
+  // variants. A model that advertises its own levels wins via `effortsFor`.
+  efforts: ["low", "high"],
 };
 
 /**

@@ -239,17 +239,6 @@ const CAPTURE_FIXTURES: readonly Fixture[] = [
     },
   },
   {
-    harness: "cursor",
-    sessionId: "0a1b2c3d-4e5f-4061-8273-8495a6b7c8d9",
-    cwd: "/Users/me/proj",
-    seed: (home, sid) => {
-      mkdirSync(
-        join(home, ".cursor", "projects", "Users-me-proj", "agent-transcripts", sid),
-        { recursive: true },
-      );
-    },
-  },
-  {
     harness: "agy",
     sessionId: "conv-9f8e7d6c5b4a",
     seed: (home, sid) => {

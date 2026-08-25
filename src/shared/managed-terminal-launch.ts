@@ -184,6 +184,36 @@ const pushFlag = (
   argv.push(flag, value);
 };
 
+/**
+ * Merge one `key=value` option into a model's bracket group, the way Cursor
+ * writes it in `--model` help: `claude-opus-4-8[context=1m,effort=high]`.
+ *
+ * A model that already names the key keeps its position and takes the new
+ * value; a model with other options gains one entry; a bare model gains the
+ * whole group. Exported because this is a harness syntax fact worth testing on
+ * its own, not an inline string concat.
+ */
+export const withModelBracketOption = (
+  model: string,
+  key: string,
+  value: string,
+): string => {
+  const trimmed = model.trim();
+  const entry = `${key}=${value}`;
+  const open = trimmed.indexOf("[");
+  if (open < 0 || !trimmed.endsWith("]")) return `${trimmed}[${entry}]`;
+  const base = trimmed.slice(0, open);
+  const inner = trimmed.slice(open + 1, -1);
+  const parts = inner
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const at = parts.findIndex((part) => part.split("=")[0]?.trim() === key);
+  if (at >= 0) parts[at] = entry;
+  else parts.push(entry);
+  return `${base}[${parts.join(",")}]`;
+};
+
 const buildArgv = (
   template: ManagedTerminalTemplate,
   choices: ManagedLaunchChoices,
@@ -215,7 +245,19 @@ const buildArgv = (
   }
 
   if (choices.model) {
-    pushFlag(argv, spec.modelFlag, choices.model);
+    // Cursor carries effort inside the model value, so the two are resolved
+    // together rather than as independent tokens.
+    pushFlag(
+      argv,
+      spec.modelFlag,
+      spec.effortModelBracketKey && choices.effort
+        ? withModelBracketOption(
+            choices.model,
+            spec.effortModelBracketKey,
+            choices.effort,
+          )
+        : choices.model,
+    );
   }
 
   if (choices.mode) {
@@ -223,7 +265,11 @@ const buildArgv = (
   }
 
   if (choices.effort) {
-    if (spec.effortConfigKey) {
+    if (spec.effortModelBracketKey) {
+      // Already merged into the model value above. With no model selected the
+      // bracket has nothing to attach to, so the effort is dropped rather than
+      // invented onto a model the operator did not choose.
+    } else if (spec.effortConfigKey) {
       // Codex: -c model_reasoning_effort="low"
       argv.push("-c", `${spec.effortConfigKey}=${JSON.stringify(choices.effort)}`);
     } else {

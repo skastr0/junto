@@ -10,7 +10,10 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
-import type { HarnessId } from "@shared/managed-terminal-templates";
+import {
+  templateFor,
+  type HarnessId,
+} from "@shared/managed-terminal-templates";
 
 export type SessionExistenceProbe = {
   readonly harness: string;
@@ -379,15 +382,37 @@ const cursorDataRoot = (
 };
 
 /**
- * Cursor sessions: ~/.cursor/projects/<sanitized>/agent-transcripts/<id>/
- * or <id>.jsonl, plus ~/.cursor/chats/<workspaceId>/<id>/meta.json.
- * Sanitize is Claude-ish without the leading dash.
+ * Cursor sessions. The durable receipt is
+ * `~/.cursor/chats/<workspaceHash>/<id>/meta.json`, written once the session
+ * has a first turn — checked first because it is the one path re-probed live
+ * (2026-08-25). `~/.cursor/projects/<sanitized>/agent-transcripts/…` is kept as
+ * a second look for older layouts; sanitize is Claude-ish without the leading
+ * dash.
+ *
+ * A pinned id that has not taken a turn yet is legitimately not proven here,
+ * and that is the right answer: resume would have nothing to resume, so the
+ * spawn falls open to creating the session with that same pinned id.
  */
 const cursorSessionExists = (
   sessionId: string,
   cwd: string | undefined,
   dataRoot: string,
 ): boolean => {
+  const chatsRoot = join(dataRoot, "chats");
+  if (isDir(chatsRoot)) {
+    let workspaceDirs: string[];
+    try {
+      workspaceDirs = readdirSync(chatsRoot);
+    } catch {
+      workspaceDirs = [];
+    }
+    for (const workspaceId of workspaceDirs) {
+      if (isFile(join(chatsRoot, workspaceId, sessionId, "meta.json"))) {
+        return true;
+      }
+    }
+  }
+
   const projects = join(dataRoot, "projects");
   const matchInProject = (projectDir: string): boolean => {
     const transcripts = join(projectDir, "agent-transcripts");
@@ -412,17 +437,6 @@ const cursorSessionExists = (
     }
   }
 
-  const chats = join(dataRoot, "chats");
-  if (!isDir(chats)) return false;
-  let workspaces: string[];
-  try {
-    workspaces = readdirSync(chats);
-  } catch {
-    return false;
-  }
-  for (const workspaceId of workspaces) {
-    if (isFile(join(chats, workspaceId, sessionId, "meta.json"))) return true;
-  }
   return false;
 };
 
@@ -467,7 +481,7 @@ export const isHarnessResumeFailureText = (text: string): boolean => {
 };
 
 export type HarnessSessionArgv = {
-  readonly harness: "grok" | "claude" | "pi";
+  readonly harness: "grok" | "claude" | "pi" | "cursor";
   readonly sessionId: string;
   readonly mode: "pin" | "resume";
 };
@@ -480,11 +494,41 @@ const pinHarnessFromBinary = (
   if (name === "grok") return "grok";
   if (name === "claude") return "claude";
   if (name === "pi") return "pi";
+  // Cursor's binary is `agent`; it pins with `--new-session-id`.
+  if (name === "agent") return "cursor";
   return undefined;
 };
 
+/**
+ * The harness's own named-resume flag, read from its template so this low-level
+ * reclaim path cannot drift from the shape `buildArgv` emits.
+ *
+ * It drifted once: every harness but Claude got `-r`, and on Pi `-r`
+ * (`--resume`) means "Select a session to resume" — the interactive picker,
+ * verified on 0.84.2 — so a reclaimed seat opened a menu instead of its own
+ * session. Pi's named form is `--session <path|id>`, which the template
+ * already declared.
+ */
 const resumeFlagFor = (harness: HarnessSessionArgv["harness"]): string =>
-  harness === "claude" ? "--resume" : "-r";
+  templateFor(harness).argvSpec.resumeFlag ?? "-r";
+
+/**
+ * The token that CREATES a named session for this harness, read from the
+ * template rather than assumed: `--session-id` for claude/grok/pi,
+ * `--new-session-id` for cursor.
+ */
+const pinFlagFor = (
+  harness: HarnessSessionArgv["harness"],
+): string | undefined => templateFor(harness).argvSpec.sessionIdFlag;
+
+/**
+ * Named-resume tokens across the pin harnesses: `-r` / `--resume` (grok,
+ * claude) and Pi's `--session`. `--session-id` and `--session-dir` are NOT
+ * resume — the first is a pin that creates the session if missing, the second
+ * is storage configuration — so this matches whole tokens only.
+ */
+const isNamedResumeToken = (token: string): boolean =>
+  token === "-r" || token === "--resume" || token === "--session";
 
 /** Read pin/resume id from spawn argv. Pin is create; resume is reclaim. */
 export const parseHarnessSessionArgv = (
@@ -492,23 +536,26 @@ export const parseHarnessSessionArgv = (
 ): HarnessSessionArgv | undefined => {
   const harness = pinHarnessFromBinary(argv[0]);
   if (!harness) return undefined;
+  const pinFlag = pinFlagFor(harness);
   for (let i = 1; i < argv.length; i += 1) {
     const tok = argv[i];
-    if (tok === "-r" || tok === "--resume") {
+    if (isNamedResumeToken(tok)) {
       const id = argv[i + 1];
       if (id && !id.startsWith("-")) {
         return { harness, sessionId: id, mode: "resume" };
       }
     }
-    if (tok === "--session-id") {
-      const id = argv[i + 1];
-      if (id && !id.startsWith("-")) {
-        return { harness, sessionId: id, mode: "pin" };
+    if (pinFlag) {
+      if (tok === pinFlag) {
+        const id = argv[i + 1];
+        if (id && !id.startsWith("-")) {
+          return { harness, sessionId: id, mode: "pin" };
+        }
       }
-    }
-    if (tok.startsWith("--session-id=")) {
-      const id = tok.slice("--session-id=".length);
-      if (id) return { harness, sessionId: id, mode: "pin" };
+      if (tok.startsWith(`${pinFlag}=`)) {
+        const id = tok.slice(pinFlag.length + 1);
+        if (id) return { harness, sessionId: id, mode: "pin" };
+      }
     }
   }
   return undefined;
@@ -540,12 +587,14 @@ export const reclaimOrphanedHarnessArgv = (
   }
   const out = [...argv];
   const resumeFlag = resumeFlagFor(parsed.harness);
+  const pinFlag = pinFlagFor(parsed.harness);
+  if (!pinFlag) return stripIdlessSessionContinue(out);
   for (let i = 1; i < out.length; i += 1) {
-    if (out[i] === "--session-id" && out[i + 1] === parsed.sessionId) {
+    if (out[i] === pinFlag && out[i + 1] === parsed.sessionId) {
       out[i] = resumeFlag;
       return stripIdlessSessionContinue(out);
     }
-    if (out[i] === `--session-id=${parsed.sessionId}`) {
+    if (out[i] === `${pinFlag}=${parsed.sessionId}`) {
       out.splice(i, 1, resumeFlag, parsed.sessionId);
       return stripIdlessSessionContinue(out);
     }
@@ -559,14 +608,22 @@ export const launchArgvUsesResume = (
   if (!argv || argv.length === 0) return false;
   for (let i = 0; i < argv.length; i += 1) {
     const tok = argv[i];
-    if (tok === "-r" || tok === "--resume") return true;
+    // Pi's `--session <id>` is a resume as much as `-r` is; missing it left the
+    // isolation guard and the dead-resume fail-open blind to every Pi resume.
+    if (isNamedResumeToken(tok)) return true;
     if (tok === "resume" && i > 0) return true;
   }
   return false;
 };
 
-/** Pin harnesses that mint a UUID at node create. Pi pins via --session-id. */
+/**
+ * Pin harnesses that mint a UUID at node create. Pi pins via `--session-id`,
+ * Cursor via `--new-session-id`.
+ */
 export const isPinSessionHarness = (harness: string): boolean =>
-  harness === "claude" || harness === "grok" || harness === "pi";
+  harness === "claude" ||
+  harness === "grok" ||
+  harness === "pi" ||
+  harness === "cursor";
 
 export type { HarnessId };

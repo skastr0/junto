@@ -154,7 +154,10 @@ export const buildManagedAgentSeat = (
     options.mode,
   ].filter((p): p is string => Boolean(p && p.trim()));
   const label = options.label?.trim() || parts.join(" - ");
-  // Pin harnesses (Claude/Grok) require a UUID for --session-id; ULIDs are rejected.
+  // Pin harnesses (Claude/Grok/Pi/Cursor) require a UUID for their session-id
+  // flag; ULIDs are rejected. The id is minted here, before the seat exists, so
+  // the node knows its session from the first spawn and every later wake
+  // resumes that exact one.
   const pinSession =
     template.capabilityBadges.sessionId === "pin"
       ? crypto.randomUUID()
