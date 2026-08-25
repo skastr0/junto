@@ -75,7 +75,7 @@ const runtimeWindow = {
     chatFinishNodeDelete,
   },
   setTimeout: globalThis.setTimeout,
-  confirm: () => true,
+  confirm: (_message: string) => true,
 };
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
@@ -1000,13 +1000,143 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges).toHaveLength(0);
   });
 
+  it("names station and routing impact before deleting a referenced task station", () => {
+    state$.canvasName.set("mutation-test");
+    const liveTask = (id: string, station: string) => ({
+      id,
+      state: "working" as const,
+      history: [
+        {
+          messageId: `message-${id}`,
+          role: "user" as const,
+          parts: [{ kind: "text" as const, text: "ship" }],
+          taskId: id,
+        },
+      ],
+      journey: [
+        {
+          nodeId: station,
+          enteredAt: "2026-08-25T12:00:00.000Z",
+          epoch: 0,
+        },
+      ],
+    });
+    loadDoc({
+      nodes: [
+        {
+          ...taskSink("intake", 0),
+          text: "Intake",
+          ether: {
+            entity: { kind: "task" },
+            tasks: { items: [liveTask("intake-task", "intake")] },
+          },
+        },
+        {
+          ...taskSink("review", 300),
+          text: "Review",
+          ether: {
+            entity: { kind: "task" },
+            tasks: { items: [liveTask("review-task", "review")] },
+          },
+        },
+      ],
+      edges: [
+        {
+          id: "flow",
+          fromNode: "intake",
+          toNode: "review",
+          ether: { flow: { source: "intake", destination: "review" } },
+        },
+      ],
+    });
+    const confirms: string[] = [];
+    runtimeWindow.confirm = (message: string) => {
+      confirms.push(message);
+      return false;
+    };
+
+    deleteNode("review");
+
+    expect(confirms).toEqual([
+      "Delete this node? “Review” holds 1 live task. 1 live journey references “Review” as a stop or send-back target. “Intake” has 1 live task that will lose “Review” as a forward destination. This removes “Intake”’s last forward connection, leaving it with nowhere to forward. Connected edges (1) will also be removed.",
+    ]);
+    expect(state$.doc.peek().nodes).toHaveLength(2);
+    expect(state$.doc.peek().edges).toHaveLength(1);
+
+    runtimeWindow.confirm = () => true;
+    deleteNode("review");
+    expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["intake"]);
+    expect(state$.doc.peek().edges).toHaveLength(0);
+  });
+
+  it("names live routing impact before deleting a task-flow relation", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        {
+          ...taskSink("intake", 0),
+          text: "Intake",
+          ether: {
+            entity: { kind: "task" },
+            tasks: {
+              items: [
+                {
+                  id: "live-task",
+                  state: "working",
+                  history: [
+                    {
+                      messageId: "message-live-task",
+                      role: "user",
+                      parts: [{ kind: "text", text: "ship" }],
+                      taskId: "live-task",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        { ...taskSink("review", 300), text: "Review" },
+      ],
+      edges: [
+        {
+          id: "flow",
+          fromNode: "intake",
+          toNode: "review",
+          ether: { flow: { source: "intake", destination: "review" } },
+        },
+      ],
+    });
+    const confirms: string[] = [];
+    runtimeWindow.confirm = (message: string) => {
+      confirms.push(message);
+      return false;
+    };
+
+    deleteEdges(["flow"]);
+
+    expect(confirms).toEqual([
+      "Delete this relation? “Intake” has 1 live task that will lose “Review” as a forward destination. This removes “Intake”’s last forward connection, leaving it with nowhere to forward.",
+    ]);
+    expect(state$.doc.peek().edges).toHaveLength(1);
+
+    runtimeWindow.confirm = () => true;
+    deleteEdges(["flow"]);
+    expect(state$.doc.peek().edges).toHaveLength(0);
+  });
+
   it("requires confirmation before deleting relations", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
-    runtimeWindow.confirm = () => false;
+    const confirms: string[] = [];
+    runtimeWindow.confirm = (message: string) => {
+      confirms.push(message);
+      return false;
+    };
 
     deleteEdges(["edge-1"]);
     expect(state$.doc.peek().edges).toHaveLength(1);
+    expect(confirms).toEqual(["Delete this relation?"]);
 
     runtimeWindow.confirm = () => true;
     deleteEdges(["edge-1"]);

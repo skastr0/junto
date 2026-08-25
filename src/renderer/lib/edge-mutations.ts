@@ -27,6 +27,7 @@ import {
 } from "@shared/scheduler-effects";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
 import { noteEdgeCreated } from "./edge-sparks";
+import { flowEdgeRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
 
@@ -95,7 +96,9 @@ export const deleteEdges = (ids: ReadonlyArray<string>): void => {
   const existingEdges = doc.edges.filter((edge) => removed.has(edge.id));
   if (existingEdges.length === 0) return;
   const label = existingEdges.length === 1 ? "this relation" : `${existingEdges.length} relations`;
-  if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?`)) return;
+  const impactWarnings = flowEdgeRemovalWarnings(doc, existingEdges);
+  const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
+  if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
   removeEdgesFromSelection(removed);
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
 };

@@ -29,6 +29,10 @@ import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
 import { noteWorkDocChange } from "./edge-sparks";
+import {
+  flowEdgeRemovalWarnings,
+  stationDeletionWarnings,
+} from "./deletion-impact";
 import { licenseCustody } from "./license-custody";
 import {
   removeEdgesFromSelection,
@@ -673,11 +677,19 @@ const deleteNodesInternal = async (
   const existingNodes = doc.nodes.filter((node) => removed.has(node.id));
   if (existingNodes.length === 0) return;
   const connectedEdges = doc.edges.filter((edge) => removed.has(edge.fromNode) || removed.has(edge.toNode)).length;
+  const removedEdges = doc.edges.filter(
+    (edge) => removed.has(edge.fromNode) || removed.has(edge.toNode),
+  );
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
+  const impactWarnings = [
+    ...stationDeletionWarnings(doc, removed),
+    ...flowEdgeRemovalWarnings(doc, removedEdges, removed),
+  ];
+  const impactCopy = impactWarnings.length === 0 ? "" : ` ${impactWarnings.join(" ")}`;
   if (
     confirmedPageStops === undefined &&
-    !confirmDestructive(`Delete ${nodeLabel}?${relationLabel}`)
+    !confirmDestructive(`Delete ${nodeLabel}?${impactCopy}${relationLabel}`)
   ) return;
 
   // Page nodes follow their explicit document policy. Default is kill-session
