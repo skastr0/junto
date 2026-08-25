@@ -115,8 +115,17 @@ export function DefectTargetPicker({
       </details>
       {selectedTarget ? (
         <p className="task-station-console__defect-consequence">
-          Work already accepted before {selectedTarget.label} stays accepted;
-          everything from {selectedTarget.label} onward is redone.
+          {selectedTarget.present ? (
+            <>
+              Work already accepted before {selectedTarget.label} stays accepted;
+              everything from {selectedTarget.label} onward is redone.
+            </>
+          ) : (
+            <>
+              {selectedTarget.label} can no longer receive work. Choose another
+              visited station.
+            </>
+          )}
         </p>
       ) : null}
     </>

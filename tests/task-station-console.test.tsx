@@ -31,4 +31,23 @@ describe("TaskStationConsole defect targets", () => {
     expect(html).toContain("Work already accepted before Review stays accepted; everything from Review onward is redone.");
     expect(html).toMatch(/<input[^>]*disabled=""[^>]*value="build"/);
   });
+
+  it("does not promise a consequence for an unavailable selected station", () => {
+    const html = renderToStaticMarkup(
+      <DefectTargetPicker
+        targets={[
+          { id: "briefing", label: "Briefing", present: true },
+          { id: "build", label: "Build", present: false },
+        ]}
+        selected="build"
+        pending={false}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain(
+      "Build can no longer receive work. Choose another visited station.",
+    );
+    expect(html).not.toContain("everything from Build onward is redone");
+  });
 });
