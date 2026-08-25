@@ -4,12 +4,13 @@ import {
   flowEdgeRemovalImpact,
   stationDeletionImpact,
 } from "@shared/journey-integrity";
-import { nodeTitle } from "./presentation";
+import { stationIdentity } from "@shared/station-identity";
 
 const count = (value: number, singular: string, plural = `${singular}s`): string =>
   `${value} ${value === 1 ? singular : plural}`;
 
-const quotedTitle = (node: CanvasNode): string => `“${nodeTitle(node)}”`;
+const quotedTitle = (node: CanvasNode): string =>
+  `“${stationIdentity(node).name}”`;
 
 const stationName = (doc: CanvasDoc, nodeId: string): string => {
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
