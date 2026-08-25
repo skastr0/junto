@@ -129,6 +129,9 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   // Geography furniture: bare map text. Not a physics KindSpecs key — role
   // stays geography via open-vocab resolveSpec (same as notes / unknown kinds).
   "label",
+  // Commit browser. Visualization only — no ports, no wires. Role stays
+  // geography via open-vocab resolveSpec (same as label).
+  "git",
 ] as const;
 
 // Bound herdr work surface (PTY pane on a host). Not a hermes agent binding;
@@ -221,6 +224,12 @@ export type EtherBrowser = typeof EtherBrowser.Type;
 /** Resolve onDelete with product default `kill-session` when the field is omitted. */
 export const resolveBrowserOnDelete = (browser: EtherBrowser | undefined): BrowserOnDelete =>
   browser?.onDelete ?? "kill-session";
+
+/** Authorial binding for entity.kind === "git". Live status is never stored here. */
+export const EtherGit = Schema.Struct({
+  cwd: Schema.String,
+});
+export type EtherGit = typeof EtherGit.Type;
 
 // `name` is the node's IMMUTABLE identity — the join key against the live
 // corpus (shared/connections.ts resolves every source connection from it at
@@ -485,6 +494,8 @@ export const EtherNodeExtension = Schema.Struct({
   terminal: Schema.optionalKey(EtherTerminal),
   // Work-surface binding for entity.kind === "page" on a link node.
   browser: Schema.optionalKey(EtherBrowser),
+  /** Repo path for entity.kind === "git". Live branch/diff is IPC, not document. */
+  git: Schema.optionalKey(EtherGit),
   // Host that may execute/tool this node. Optional for graceful degradation.
   host: Schema.optionalKey(EtherHostId),
 });

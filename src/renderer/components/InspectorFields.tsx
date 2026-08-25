@@ -43,7 +43,7 @@ import {
   setEdgeWhen,
 } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
-import { commitDoc, editLink, editText, renameGroup, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editLink, editText, renameGroup, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -426,12 +426,15 @@ const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: stri
 export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const textValue = node.type === "text" ? node.text : "";
   const groupLabelValue = node.type === "group" ? node.label ?? "" : "";
+  const gitCwdValue = node.ether?.git?.cwd ?? "";
   const [textDraft, setTextDraft] = useState(textValue);
   const [groupLabelDraft, setGroupLabelDraft] = useState(groupLabelValue);
+  const [gitCwdDraft, setGitCwdDraft] = useState(gitCwdValue);
   useEffect(() => {
     setTextDraft(textValue);
     setGroupLabelDraft(groupLabelValue);
-  }, [groupLabelValue, node.id, textValue]);
+    setGitCwdDraft(gitCwdValue);
+  }, [gitCwdValue, groupLabelValue, node.id, textValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
   const commitGroupLabel = () => { if (node.type === "group" && groupLabelDraft !== groupLabelValue) renameGroup(node.id, groupLabelDraft.trim()); };
@@ -446,7 +449,8 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
     node.ether?.entity?.kind !== "cron" &&
     node.ether?.entity?.kind !== "timer" &&
     node.ether?.entity?.kind !== "watcher" &&
-    node.ether?.entity?.kind !== "relay" ? (
+    node.ether?.entity?.kind !== "relay" &&
+    node.ether?.entity?.kind !== "git" ? (
       <label className="inspector-editor">
         <span>{node.ether?.entity ? "label" : "note text"}</span>
         <textarea
@@ -458,6 +462,29 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               setTextDraft(textValue);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
+    ) : null}
+    {node.ether?.entity?.kind === "git" ? (
+      <label className="inspector-editor">
+        <span>repository folder</span>
+        <input
+          data-focus-owner="canvas-draft"
+          aria-label="Git repository folder"
+          value={gitCwdDraft}
+          onChange={(event) => setGitCwdDraft(event.target.value)}
+          onBlur={() => setGitCwd(node.id, gitCwdDraft)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              setGitCwd(node.id, gitCwdDraft);
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setGitCwdDraft(gitCwdValue);
               event.currentTarget.blur();
             }
           }}

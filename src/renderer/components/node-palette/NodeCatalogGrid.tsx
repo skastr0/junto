@@ -7,6 +7,7 @@ import {
   Braces,
   Clock3,
   FileText,
+  GitBranch,
   Globe2,
   Inbox,
   PanelTop,
@@ -95,6 +96,7 @@ export const NO_WIRES_COPY: Partial<Record<string, string>> = {
   region: "No wires — sits on the map.",
   terminal: "No wires — open it and work by hand.",
   herdr: "No wires — open it and work by hand.",
+  git: "No wires — visualization only.",
 };
 
 export type CatalogWireLine = {
@@ -179,6 +181,11 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "pad", category: "sinks", label: "Pad", subtitle: "images, shapes, ink, pins",
     icon: PenLine,
     purpose: "A shared page. You mark; wired agents read the same page and patch boxes and pins.",
+  },
+  {
+    id: "git", category: "sinks", label: "Git", subtitle: "commit browser",
+    icon: GitBranch,
+    purpose: "Browse commits and diffs for a repository on this machine.",
   },
   ...(BROWSER_ENABLED ? [{
     id: "page", category: "canvas", label: "Page", subtitle: "a browser page",

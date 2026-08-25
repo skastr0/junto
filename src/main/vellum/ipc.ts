@@ -64,6 +64,7 @@ import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
+import { registerGitIpc } from "./git/ipc";
 import {
   GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
@@ -299,6 +300,7 @@ export const registerVellumIpc = (): void => {
     ensureHostAvailable: ensureBoxHostAvailable,
     broadcast,
   });
+  registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
   registerObservabilityIpc(privilegedIpc, broadcast);
   registerHostsIpc(privilegedIpc);

@@ -441,6 +441,26 @@ export const makeGaugeNode = (
   },
 });
 
+/** Git commit browser — geography furniture. Live status is IPC, not document. */
+export const makeGitNode = (
+  x: number,
+  y: number,
+  cwd: string,
+  label = "git",
+): TextNode => ({
+  id: `git-${ulid()}`,
+  type: "text",
+  text: label,
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 280,
+  height: 128,
+  ether: {
+    entity: { kind: "git" },
+    git: { cwd },
+  },
+});
+
 /** Cron schedule node — 5-field expression; fires edge effects on due. */
 export const makeCronNode = (
   x: number,

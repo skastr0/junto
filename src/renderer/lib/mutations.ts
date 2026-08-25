@@ -1107,6 +1107,30 @@ export const setPageBinding = (
  * ActorSeatId, so relocation must be expressed as a newly authored seat after
  * the old seat's work has been resolved.
  */
+export const setGitCwd = (id: string, input: string): void => {
+  const cwd = input.trim();
+  if (!cwd) return;
+  const doc = state$.doc.peek();
+  const target = doc.nodes.find((node) => node.id === id);
+  if (target?.ether?.entity?.kind !== "git" || target.ether.git?.cwd === cwd) {
+    return;
+  }
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((node) =>
+      node.id === id && node.ether?.entity?.kind === "git"
+        ? {
+            ...node,
+            ether: {
+              ...node.ether,
+              git: { cwd },
+            },
+          }
+        : node,
+    ),
+  });
+};
+
 export const setNodeHost = (id: string, input: string): void => {
   const host = input.trim();
   if (!isValidStationHostId(host)) return;

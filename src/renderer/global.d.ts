@@ -7,6 +7,7 @@ import type {
   VellumCommandHerdrApi,
   VellumCommandHermesIntegrationApi,
   VellumCommandSchedulerApi,
+  VellumCommandGitApi,
   VellumCommandTerminalApi,
   VellumCommandUsageApi,
 } from "@shared/ipc";
@@ -20,6 +21,7 @@ declare global {
     readonly vellumCommand?: VellumCommandApi &
       VellumCommandChatApi &
       VellumCommandTerminalApi &
+      VellumCommandGitApi &
       VellumCommandDemoApi &
       Partial<
         VellumCommandHerdrApi &

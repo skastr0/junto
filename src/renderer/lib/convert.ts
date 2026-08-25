@@ -21,7 +21,7 @@ import {
 } from "@shared/physics";
 import { regionStack } from "@shared/graph";
 import { AGENT_NODE_SIZE } from "./node-geometry";
-import { isLabelNode, nodeTitle, searchText } from "./presentation";
+import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
 // paints above the region containing it (depth is authoring-warned at
@@ -249,6 +249,7 @@ export const toFlow = (
       return cached;
     }
     const label = isLabelNode(node);
+    const git = isGitNode(node);
     const visualSize = entityKind(node) === "agent"
       ? AGENT_NODE_SIZE
       : { width: node.width, height: node.height };
@@ -265,7 +266,7 @@ export const toFlow = (
       // explicitly through GroupNode's label gesture, while the transparent
       // body stays a true marquee surface. Bare labels keep their existing
       // selectable behavior.
-      connectable: !isGroup && !label,
+      connectable: !isGroup && !label && !git,
       ariaLabel: nodeTitle(node),
       focusable: true,
       selectable: !isGroup,

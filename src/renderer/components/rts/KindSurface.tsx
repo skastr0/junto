@@ -167,6 +167,7 @@ function NodeFormFocus({
         kind !== "cron" &&
         kind !== "relay" &&
         kind !== "page" &&
+        kind !== "git" &&
         Boolean(node.ether?.entity) ? (
           <WaitingOnSection nodeId={node.id} />
         ) : null}
@@ -181,6 +182,7 @@ function NodeFormFocus({
         kind !== "cron" &&
         kind !== "relay" &&
         kind !== "page" &&
+        kind !== "git" &&
         node.type !== "group" &&
         Boolean(node.ether?.entity) ? (
           <NodePlacementSection node={node} />
@@ -196,6 +198,7 @@ function NodeFormFocus({
         kind !== "cron" &&
         kind !== "relay" &&
         kind !== "page" &&
+        kind !== "git" &&
         Boolean(node.ether?.entity) ? (
           <NodeCapabilityInventory node={node} />
         ) : null}

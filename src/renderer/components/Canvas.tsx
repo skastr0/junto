@@ -87,6 +87,7 @@ import { edgeTypes } from "./edges/EtherEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
+import { GitWizard, createGitFromRegion } from "./git/GitWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
@@ -791,6 +792,11 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
+  addGit: () => {
+    const position = positionFor({ width: 280, height: 128 });
+    window.dispatchEvent(new CustomEvent("vellum-command:new-git", { detail: position }));
+    dismiss();
+  },
   addTerminal: () => {
     const position = positionFor({ width: 260, height: 110 });
     window.dispatchEvent(new CustomEvent("vellum-command:new-terminal", { detail: position }));
@@ -1274,6 +1280,7 @@ function CanvasGraph() {
   const connecting = useConnection((connection) => connection.inProgress);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [terminalAnchor, setTerminalAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [gitAnchor, setGitAnchor] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
     const openTerminal = (event: Event) => {
       const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
@@ -1287,6 +1294,17 @@ function CanvasGraph() {
     window.addEventListener("vellum-command:new-terminal", openTerminal);
     return () => {
       window.removeEventListener("vellum-command:new-terminal", openTerminal);
+    };
+  }, []);
+  useEffect(() => {
+    const openGit = (event: Event) => {
+      const anchor = (event as CustomEvent<{ x: number; y: number }>).detail;
+      if (createGitFromRegion(anchor)) return;
+      setGitAnchor(anchor);
+    };
+    window.addEventListener("vellum-command:new-git", openGit);
+    return () => {
+      window.removeEventListener("vellum-command:new-git", openGit);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1505,6 +1523,7 @@ function CanvasGraph() {
 
   return <CanvasPerformanceBoundary><>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
+    {gitAnchor ? <GitWizard anchor={gitAnchor} onClose={() => setGitAnchor(null)} /> : null}
     <ReactFlow
       ref={rfRef}
       className={[

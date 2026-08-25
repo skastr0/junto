@@ -18,6 +18,7 @@ import {
   type VellumCommandBrowserApi,
   type VellumCommandChatApi,
   type VellumCommandDemoApi,
+  type VellumCommandGitApi,
   type VellumCommandHerdrApi,
   type VellumCommandHermesIntegrationApi,
   type VellumCommandSchedulerApi,
@@ -864,6 +865,12 @@ const terminalApi: VellumCommandTerminalApi = {
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
 };
 
+const gitApi: VellumCommandGitApi = {
+  gitStatus: (cwd) => invoke(IPC_CHANNELS.gitStatus, IPC_TIMEOUT_MS, cwd),
+  gitLog: (cwd, limit) => invoke(IPC_CHANNELS.gitLog, IPC_TIMEOUT_MS, cwd, limit),
+  gitShow: (cwd, sha) => invoke(IPC_CHANNELS.gitShow, IPC_TIMEOUT_MS, cwd, sha),
+};
+
 const demoApi: VellumCommandDemoApi = {
   demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
   demoCommand: (command) => invoke(IPC_CHANNELS.demoCommand, IPC_TIMEOUT_MS, command),
@@ -888,6 +895,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {}),
     ...(HERDR_ENABLED ? herdrApi : {}),
     ...terminalApi,
+    ...gitApi,
     ...(BROWSER_ENABLED ? browserApi : {}),
     ...demoApi,
   });

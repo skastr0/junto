@@ -47,6 +47,7 @@ import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
+import type { GitLogResult, GitShowResult, GitStatusResult } from "./git";
 import type { ActorRef } from "./work-protocol";
 import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
 import type { LicenseApi } from "./license";
@@ -276,6 +277,9 @@ export const IPC_CHANNELS = {
   terminalShutdown: "vellum-command:terminal-shutdown",
   terminalEvent: "vellum-command:terminal-event",
   hostDirectoryRead: "vellum-command:host-directory-read",
+  gitStatus: "vellum-command:git-status",
+  gitLog: "vellum-command:git-log",
+  gitShow: "vellum-command:git-show",
   /** Fail-soft model list for the managed-terminal harness picker. */
   managedTerminalModels: "vellum-command:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
@@ -1477,6 +1481,12 @@ export interface TerminalAttachInput {
   readonly takeover?: boolean;
   /** Route to remote station when not local. */
   readonly hostId?: string;
+}
+
+export interface VellumCommandGitApi {
+  readonly gitStatus: (cwd: string) => Promise<GitStatusResult>;
+  readonly gitLog: (cwd: string, limit?: number) => Promise<GitLogResult>;
+  readonly gitShow: (cwd: string, sha: string) => Promise<GitShowResult>;
 }
 
 export interface VellumCommandTerminalApi {

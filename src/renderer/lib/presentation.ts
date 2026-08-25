@@ -15,6 +15,10 @@ export const hostOf = (url: string): string => {
 export const isLabelNode = (node: CanvasNode): boolean =>
   node.ether?.entity?.kind === "label";
 
+/** Git commit browser (geography). No connectors, ports, or factory seat. */
+export const isGitNode = (node: CanvasNode): boolean =>
+  node.ether?.entity?.kind === "git";
+
 export const searchText = (node: CanvasNode): string => [
   node.type,
   node.type === "text" ? node.text : "",
@@ -24,6 +28,7 @@ export const searchText = (node: CanvasNode): string => [
   node.type === "group" ? node.label ?? "" : "",
   node.ether?.entity?.kind ?? "",
   node.ether?.entity?.name ?? "",
+  node.ether?.git?.cwd ?? "",
   ...(node.ether?.flags ?? []),
 ].join(" ").toLowerCase();
 
@@ -54,6 +59,10 @@ export const nodeDetail = (node: CanvasNode): string => {
   if (node.type === "link") return node.url;
   if (node.type === "group") return "Spatial region";
   const entity = node.ether?.entity;
+  if (entity?.kind === "git") {
+    const cwd = node.ether?.git?.cwd?.trim();
+    if (cwd) return cwd;
+  }
   if (entity?.name) return `${entity.kind} - ${entity.name}`;
   return "";
 };

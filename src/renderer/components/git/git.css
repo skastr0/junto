@@ -1,0 +1,90 @@
+.git-glance {
+  min-height: 0;
+}
+
+.git-glance__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.git-glance__branch {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.git-glance__sync {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.git-glance__commit {
+  min-width: 0;
+}
+
+.git-glance__sha {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
+.git-glance__loc {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.git-browser {
+  display: grid;
+  grid-template-columns: 20% 80%;
+  min-height: 0;
+  height: 100%;
+}
+
+.git-browser__list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--color-stroke);
+}
+
+.git-browser__row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-stroke) 70%, transparent);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.git-browser__row[data-active="true"] {
+  background: color-mix(in oklch, var(--color-amber) 12%, transparent);
+}
+
+.git-browser__row:hover {
+  background: color-mix(in oklch, var(--color-ink) 6%, transparent);
+}
+
+.git-browser__diff {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color-scheme: dark;
+  --diffs-font-family: var(--font-mono);
+  --diffs-dark-bg: var(--color-ground);
+  --diffs-dark: var(--color-ink);
+}
+
+.git-browser__empty {
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

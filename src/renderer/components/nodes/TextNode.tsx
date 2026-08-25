@@ -15,7 +15,7 @@ import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
 import { markdownImageLine, putImagesFromDataTransfer } from "../../lib/image-content";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
-import { isLabelNode } from "../../lib/presentation";
+import { isGitNode, isLabelNode } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { timerActivity, watcherActivity } from "../../lib/activity";
 import {
@@ -62,6 +62,8 @@ import {
 } from "../work/WorkSurfaces";
 import { PadCard } from "../pad/PadCard";
 import { PadDetail } from "../pad/PadDetail";
+import { GitCard } from "../git/GitCard";
+import { GitDetail } from "../git/GitDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
 
@@ -537,7 +539,8 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     entityKind === "requests" ||
     entityKind === "artifacts" ||
     entityKind === "board" ||
-    entityKind === "pad";
+    entityKind === "pad" ||
+    entityKind === "git";
   const isCron = entityKind === "cron" || entityKind === "timer";
 
   useEffect(() => {
@@ -626,7 +629,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       blocked={data.blocked}
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
       resizable={!isAgent}
-      showHandles={!isLabel}
+      showHandles={!isLabel && !isGitNode(node)}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
       toolbarExtras={
@@ -677,6 +680,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       ) : null}
       {workDetail && entityKind === "pad" ? (
         <PadDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
+      {workDetail && entityKind === "git" ? (
+        <GitDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && entityKind === "artifacts" ? (
         <ArtifactsDetail
@@ -840,6 +846,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             />
           ) : entityKind === "pad" ? (
             <PadCard
+              node={node}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : entityKind === "git" ? (
+            <GitCard
               node={node}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}

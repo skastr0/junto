@@ -25,7 +25,7 @@ import {
   defaultWatchWhenForSource,
   inferSchedulerEdgeEffect,
 } from "@shared/scheduler-effects";
-import { isLabelNode, nodeTitle } from "./presentation";
+import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
 import { noteEdgeCreated } from "./edge-sparks";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
@@ -321,6 +321,13 @@ export const addEdge = (params: {
     state$.error.set("Labels cannot take connections.");
     return;
   }
+  if (
+    (fromNode && isGitNode(fromNode)) ||
+    (toNode && isGitNode(toNode))
+  ) {
+    state$.error.set("Git cannot take connections.");
+    return;
+  }
   const fromRole = roleOfNode(fromNode);
   const toRole = roleOfNode(toNode);
   const fromKind = fromNode?.ether?.entity?.kind;
@@ -436,7 +443,7 @@ export const planConnectToTarget = (
 ): EdgeBatchPlan => {
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   const target = nodeById.get(targetId);
-  if (!target || target.type === "group" || isLabelNode(target)) {
+  if (!target || target.type === "group" || isLabelNode(target) || isGitNode(target)) {
     return {
       toAdd: [],
       skipped: sourceIds.map((source) => ({ source, reason: "invalid-target" as const })),
@@ -464,7 +471,7 @@ export const planConnectToTarget = (
       skipped.push({ source: sourceId, reason: "group-source" });
       continue;
     }
-    if (isLabelNode(source)) {
+    if (isLabelNode(source) || isGitNode(source)) {
       skipped.push({ source: sourceId, reason: "label-source" });
       continue;
     }
