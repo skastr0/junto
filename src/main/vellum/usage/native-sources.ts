@@ -1,34 +1,48 @@
 import { Layer } from "effect";
+import { antigravitySource } from "./antigravity-source";
 import { claudeSource } from "./claude-source";
 import { codexSource } from "./codex-source";
-import { codexbarSource } from "./codexbar-source";
+import { copilotSource } from "./copilot-source";
+import { cursorSource } from "./cursor-source";
+import { devinSource } from "./devin-source";
 import { grokSource } from "./grok-source";
 import { hermesSource } from "./hermes-source";
+import { kimiSource } from "./kimi-source";
+import { ollamaSource } from "./ollama-source";
+import { openrouterSource } from "./openrouter-source";
+import { opencodeGoSource } from "./opencodego-source";
+import { syntheticSource } from "./synthetic-source";
 import { UsageSources } from "./usage-source";
 
 // Station usage registry.
 //
-// Beta surface: **codexbar only**. Missing CLI → empty state → HUD hidden
-// (fail open). No native harness polling in production until post-beta.
-//
-// WIP post-beta: re-enable `NATIVE_USAGE_SOURCES` by spreading them into
-// `StationUsageSourcesLive` (and keep preferNativeUsageSnapshots ranking).
-// Source modules stay wired for unit tests via `NativeUsageSourcesLive`.
+// Production is the native sources only. Each source is an ordered strategy
+// pipeline (live credential read first, local cache / cheaper probes after)
+// and every fetch is a TOTAL fail-open envelope: failures fold into
+// ok:false + reason, never a throw across IPC. A missing or failing source
+// degrades to an empty snapshot so the HUD hides instead of erroring.
 
 /**
- * First-party harness readers — implemented, unit-tested, **not** on the
- * production path. Claude plan windows, Grok/Hermes session tokens, Codex
- * limits stub. Re-enable post-beta when product wants dual-source again.
+ * First-party harness readers — the production usage path. Claude plan
+ * windows via OAuth, Codex limits via ChatGPT backend, Grok/Hermes session
+ * tokens. Order matters for HUD paint order only; correctness never depends
+ * on it.
  */
 export const NATIVE_USAGE_SOURCES = [
   claudeSource,
   codexSource,
+  copilotSource,
+  cursorSource,
+  devinSource,
   grokSource,
   hermesSource,
+  kimiSource,
+  ollamaSource,
+  opencodeGoSource,
+  openrouterSource,
+  antigravitySource,
+  syntheticSource,
 ] as const;
 
-/** Production registry (beta): codexbar alone. */
-export const StationUsageSourcesLive = Layer.succeed(UsageSources, [codexbarSource]);
-
-/** Native-only (unit tests / post-beta experiments — not the live app). */
-export const NativeUsageSourcesLive = Layer.succeed(UsageSources, [...NATIVE_USAGE_SOURCES]);
+/** Production registry: the native strategy pipelines alone. */
+export const StationUsageSourcesLive = Layer.succeed(UsageSources, [...NATIVE_USAGE_SOURCES]);

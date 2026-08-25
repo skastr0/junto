@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 
 // Provider usage plane: normalized rate-limit/quota snapshots from pluggable
-// UsageSources. Beta: codexbar only (native readers exist but are unwired —
-// WIP post-beta). A separate bounded context from the entity snapshot plane —
-// quotas never bind to canvas nodes. Envelope semantics mirror entities.ts:
-// a down source degrades to ok:false with a reason, never a throw.
+// UsageSources — first-party native strategy pipelines per provider. A
+// separate bounded context from the entity snapshot plane — quotas never bind
+// to canvas nodes. Envelope semantics mirror entities.ts: a down source
+// degrades to ok:false with a reason, never a throw.
 // HUD fail-open: paint last-good when present; hide entirely when no quotas
-// (missing codexbar, empty poll) — no error chrome.
+// (no detected source, empty poll) — no error chrome.
 
 export const UsageWindowLabel = Schema.Literals(["primary", "secondary", "tertiary", "extra"]);
 export type UsageWindowLabel = typeof UsageWindowLabel.Type;
@@ -55,66 +55,37 @@ export const UsageUnavailableReason = Schema.Literals(["cli-missing", "cli-error
 export type UsageUnavailableReason = typeof UsageUnavailableReason.Type;
 
 export const UsageSnapshot = Schema.Struct({
-  // Usage source id, e.g. "claude" | "grok" | "hermes" | "codex" | "codexbar".
+  // Usage source id, e.g. "claude" | "grok" | "hermes" | "codex".
   source: Schema.String,
   fetchedAt: Schema.String,
   ok: Schema.Boolean,
   reason: Schema.optionalKey(UsageUnavailableReason),
   error: Schema.optionalKey(Schema.String),
   quotas: Schema.Array(ProviderQuota),
+  // How trustworthy this payload is: "live" (fresh from the provider),
+  // "stale-cache" (last-good local mirror painted honestly), or "derived"
+  // (computed from indirect signals). Set by the source itself; absent means
+  // the source does not distinguish.
+  dataConfidence: Schema.optionalKey(Schema.String),
 });
 export type UsageSnapshot = typeof UsageSnapshot.Type;
 
 /** Providers with first-party native readers (when they ship plan windows). */
-export const NATIVE_USAGE_PROVIDERS = ["claude", "codex", "grok", "hermes"] as const;
-
-const hasPlanWindows = (quota: ProviderQuota): boolean =>
-  quota.status === "ok" && quota.windows.length > 0;
-
-/**
- * Resolve native vs codexbar per provider so the rail never double-paints.
- *
- * Priority (one row per provider name):
- *   1. native with plan windows  → codexbar row for that provider drops
- *   2. codexbar with plan windows → tokens-only / empty native for that
- *      provider drops (Grok updates.jsonl must not hide codexbar plan %)
- *   3. tokens-only native only when codexbar has no plan row
- *
- * Empty native Codex stub never claims — multi-account codexbar still fills.
- */
-export const preferNativeUsageSnapshots = (
-  snapshots: ReadonlyArray<UsageSnapshot>,
-): ReadonlyArray<UsageSnapshot> => {
-  const nativePlan = new Set<string>();
-  const codexbarPlan = new Set<string>();
-  for (const snapshot of snapshots) {
-    if (!snapshot.ok) continue;
-    for (const quota of snapshot.quotas) {
-      if (!hasPlanWindows(quota)) continue;
-      const key = quota.provider.toLowerCase();
-      if (snapshot.source === "codexbar") codexbarPlan.add(key);
-      else nativePlan.add(key);
-    }
-  }
-
-  return snapshots.map((snapshot) => {
-    if (!snapshot.ok || snapshot.quotas.length === 0) return snapshot;
-
-    if (snapshot.source === "codexbar") {
-      const quotas = snapshot.quotas.filter(
-        (quota) => !nativePlan.has(quota.provider.toLowerCase()),
-      );
-      return quotas.length === snapshot.quotas.length ? snapshot : { ...snapshot, quotas };
-    }
-
-    // Native: keep plan rows; drop tokens-only when codexbar already paints plan %.
-    const quotas = snapshot.quotas.filter((quota) => {
-      if (hasPlanWindows(quota)) return true;
-      return !codexbarPlan.has(quota.provider.toLowerCase());
-    });
-    return quotas.length === snapshot.quotas.length ? snapshot : { ...snapshot, quotas };
-  });
-};
+export const NATIVE_USAGE_PROVIDERS = [
+  "claude",
+  "codex",
+  "copilot",
+  "cursor",
+  "devin",
+  "grok",
+  "hermes",
+  "kimi",
+  "ollama",
+  "opencode-go",
+  "openrouter",
+  "antigravity",
+  "synthetic",
+] as const;
 
 /** True when any quota extras mark partial / tokens-only coverage. */
 export const usageStateIsPartial = (state: { readonly snapshots: ReadonlyArray<UsageSnapshot> }): boolean =>
