@@ -90,7 +90,7 @@ export function TaskMetroMap({
       <ol className="task-metro__stages" data-testid="task-metro-rail">
         {stages.map((stage, stageIndex) => (
           <li
-            key={stage.hops}
+            key={`${stage.hops}:${stage.parents.join(",")}`}
             className="task-metro__stage"
             data-branch={String(stage.stops.length > 1)}
             data-first={String(stageIndex === 0)}

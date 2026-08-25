@@ -355,6 +355,31 @@ describe("lineProfile", () => {
     expect(formatProfile(profile)).toBe("2 stops, 4 claims, 3 hard");
   });
 
+  it("does not merge same-hop stops that belong to parallel chains", () => {
+    const board = doc(
+      [
+        sink("intake"),
+        sink("left"),
+        sink("right"),
+        sink("left-end"),
+        sink("right-end"),
+      ],
+      [
+        flowEdge("e1", "intake", "left"),
+        flowEdge("e2", "intake", "right"),
+        flowEdge("e3", "left", "left-end"),
+        flowEdge("e4", "right", "right-end"),
+      ],
+    );
+    const stages = groupStopsByHop(stationLine(board, "intake"));
+    expect(stages.map((stage) => stage.stops.map((stop) => stop.nodeId))).toEqual([
+      ["intake"],
+      ["left", "right"],
+      ["left-end"],
+      ["right-end"],
+    ]);
+  });
+
   it("says so when nothing stands on the line", () => {
     const board = doc([sink("solo")], []);
     expect(formatProfile(lineProfile(stationLine(board, "solo")))).toBe(

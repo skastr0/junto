@@ -90,23 +90,48 @@ export const groupLineLaw = (
 
 export type StationHop = {
   readonly hops: number;
+  /** Parent station ids that forward here, document order, joined for grouping. */
+  readonly parents: ReadonlyArray<string>;
   readonly stops: ReadonlyArray<StationStop>;
 };
 
-/** Compact rail columns: stations at the same distance share one branch stage. */
+const parentsOf = (
+  line: ReadonlyArray<StationStop>,
+  nodeId: string,
+): ReadonlyArray<string> =>
+  line
+    .filter((stop) => stop.destinations.includes(nodeId))
+    .map((stop) => stop.nodeId);
+
+const sameParents = (
+  left: ReadonlyArray<string>,
+  right: ReadonlyArray<string>,
+): boolean =>
+  left.length === right.length && left.every((id, index) => id === right[index]);
+
+/**
+ * Compact rail columns. Same-distance stops share a branch column only when
+ * they share the same parents — a true fork. Parallel chains at the same hop
+ * stay separate so the rail does not invent a common fork.
+ */
 export const groupStopsByHop = (
   line: ReadonlyArray<StationStop>,
 ): ReadonlyArray<StationHop> => {
   const groups: StationHop[] = [];
   for (const stop of line) {
+    const parents = parentsOf(line, stop.nodeId);
     const current = groups.at(-1);
-    if (current?.hops === stop.hops) {
+    if (
+      current !== undefined &&
+      current.hops === stop.hops &&
+      sameParents(current.parents, parents)
+    ) {
       groups[groups.length - 1] = {
         ...current,
         stops: [...current.stops, stop],
       };
     } else {
-      groups.push({ hops: stop.hops, stops: [stop] });
+      groups.push({ hops: stop.hops, parents, stops: [stop] });
     }
   }
   return groups;
