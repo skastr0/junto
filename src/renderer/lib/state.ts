@@ -20,7 +20,7 @@ export const state$ = observable({
   canvases: [] as ReadonlyArray<CanvasSummary>,
   canvasName: "",
   canvasLoading: false,
-  searchQuery: "",
+  commandBarOpen: false,
   edgeFilter: "" as EtherEdgeKind | "",
   flagFilter: "" as EtherFlag | "",
   editNodeId: "",
@@ -73,7 +73,7 @@ export const state$ = observable({
   // region membership can re-poll without forcing a React Flow rebuild.
   docEpoch: 0,
   snapshots: EMPTY_SNAPSHOTS as SnapshotState,
-  // Provider usage plane (beta: codexbar). Fail-open empty until first quotas.
+  // Provider usage plane (native sources). Fail-open empty until first quotas.
   usage: EMPTY_USAGE as UsageState,
   // User settings document (main owns the SQLite row; renderer holds a live projection).
   settings: EMPTY_SETTINGS as Settings,

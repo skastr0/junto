@@ -149,12 +149,14 @@ test("multi-select: RTS multi command + multi-prompt", async ({ vellumCommand })
   await expect(promptInput).toBeFocused();
   await expect(promptInput).toHaveValue("Keep this draft with the selected seats");
 
-  // Search is an explicit selection reset. The stale multi channel must not
-  // keep the prompt mounted after the single-node channel is cleared.
-  const search = page.locator(".station-search input");
-  await search.fill("a");
+  // Search is an explicit selection reset. The command bar clears selection
+  // on open, so the stale multi channel must not keep the prompt mounted
+  // after the single-node channel is cleared.
+  await page.locator(".station-command-trigger").click();
+  await expect(page.getByTestId("command-bar-input")).toBeVisible();
   await expect(page.getByTestId("rts-multi-prompt")).toHaveCount(0);
-  await search.fill("");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("command-bar-input")).toHaveCount(0);
   await shiftClick(alpha);
   await shiftClick(beta);
   await expect(page.getByTestId("rts-multi-prompt")).toBeVisible();

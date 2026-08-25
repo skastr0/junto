@@ -1,7 +1,6 @@
 import { use$, useObservable } from "@legendapp/state/react";
-import { batch } from "@legendapp/state";
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2, X } from "lucide-react";
+import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2 } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
 import type { CanvasPauseState } from "@shared/pause";
 import {
@@ -11,7 +10,8 @@ import {
   USAGE_ENABLED,
 } from "@shared/features";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
-import { clearSelection, state$ } from "../lib/state";
+import { state$ } from "../lib/state";
+import { openCommandBar } from "../lib/command-bar";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
@@ -136,33 +136,21 @@ function CanvasPicker({
   );
 }
 
-function SearchField({ canvasName }: { readonly canvasName: string }) {
-  const value = use$(state$.searchQuery);
+function CommandBarTrigger({ canvasName }: { readonly canvasName: string }) {
   const label = `Search ${canvasName || "canvas"}`;
-  const setSearch = (next: string) => {
-    batch(() => {
-      state$.searchQuery.set(next);
-      clearSelection();
-    });
-  };
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        inputRef.current?.focus();
-      }
-      if (!event.metaKey && !event.ctrlKey && event.key === "/") {
-        event.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  return <label className="station-search" title="Search nodes (/ or ⌘K)"><Search size={14} /><input ref={inputRef} aria-label={label} value={value} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setSearch(""); inputRef.current?.blur(); } }} placeholder="search nodes" />{value ? <button type="button" className="station-search__clear" aria-label="Clear search" onClick={() => setSearch("")}><X size={13} /></button> : null}</label>;
+  return (
+    <button
+      type="button"
+      className="station-command-trigger"
+      title="Open command bar (⌘K)"
+      aria-label={label}
+      onClick={() => openCommandBar()}
+    >
+      <Search size={14} />
+      <span className="station-command-trigger__label">search nodes</span>
+      <kbd className="station-command-trigger__kbd">⌘K</kbd>
+    </button>
+  );
 }
 
 // Factory pause switch (app-state, main-owned). The canvas is born paused;
@@ -396,7 +384,7 @@ export function TopBar({
     <header className="station-bar">
       {USAGE_ENABLED ? <UsageHud /> : null}
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
-      <SearchField canvasName={canvasName} />
+      <CommandBarTrigger canvasName={canvasName} />
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />

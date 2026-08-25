@@ -39,6 +39,7 @@ import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
+import { CommandBarHost } from "./components/command-bar/CommandBar";
 import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
@@ -100,7 +101,7 @@ const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
 
 const resetCanvasView = (): void => {
   batch(() => {
-    state$.searchQuery.set("");
+    state$.commandBarOpen.set(false);
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
     clearSelection();
@@ -323,8 +324,9 @@ export function App() {
 
     // Usage: subscribe first so no push is lost. getUsage is instant (main
     // already holds last-good cache + kicks primary poll on start). Do NOT
-    // await refreshUsage here — that was waiting 30–60s on codexbar and made
-    // the HUD feel deferred. Main `usage.start()` polls immediately.
+    // await refreshUsage here — that was waiting 30–60s on slow provider
+    // fetches and made the HUD feel deferred. Main `usage.start()` polls
+    // immediately.
     const offUsage =
       USAGE_ENABLED && vellum.onUsageChanged
         ? vellum.onUsageChanged((state) => state$.usage.set(state))
@@ -512,6 +514,7 @@ export function App() {
           <DemoCameraBridge />
         </ReactFlowProvider>
         <CanvasChrome />
+        <CommandBarHost />
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <RendererErrorBoundary

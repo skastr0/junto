@@ -29,7 +29,7 @@ import {
 } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
 import type { FlowEdge, FlowNode } from "../lib/convert";
-import { createFlowIdentityCache, searchText, toFlow } from "../lib/convert";
+import { createFlowIdentityCache, toFlow } from "../lib/convert";
 import {
   edgeImpactClass,
   edgeImpactRole,
@@ -245,7 +245,6 @@ function applyStructuralRebuild(
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   flowCache: ReturnType<typeof createFlowIdentityCache>,
-  searchQuery: string,
   edgeFilter: EtherEdgeKind | "",
   flagFilter: EtherFlag | "",
 ): void {
@@ -274,14 +273,10 @@ function applyStructuralRebuild(
   );
   // Selection + impact cone classes live on the RF shell (not Flow data).
   const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, nodeIds, edgeId);
-  const query = searchQuery.trim().toLowerCase();
-  const nextNodes = query
-    ? stamped.nodes.filter((flowNode) => searchText(flowNode.data.node).includes(query))
-    : stamped.nodes;
-  const queryVisibleIds = query ? new Set(nextNodes.map((flowNode) => flowNode.id)) : null;
-  const nextEdges = queryVisibleIds
-    ? stamped.edges.filter((edge) => queryVisibleIds.has(edge.source) && queryVisibleIds.has(edge.target))
-    : stamped.edges;
+  // The command bar filters a LIST, never the graph: canvas search thinning
+  // was retired with the station search field.
+  const nextNodes = stamped.nodes;
+  const nextEdges = stamped.edges;
 
   // Preserve array identity when every element is unchanged — kernel ticks with
   // a quiet execution snapshot must not bounce React Flow.
@@ -298,7 +293,6 @@ function applyStructuralRebuild(
 }
 
 function useCanvasDocument(
-  searchQuery: string,
   edgeFilter: EtherEdgeKind | "",
   flagFilter: EtherFlag | "",
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
@@ -308,14 +302,6 @@ function useCanvasDocument(
   flowCacheRef: React.MutableRefObject<ReturnType<typeof createFlowIdentityCache>>,
   rebuildTick: number,
 ) {
-  // Keep search input live; rebuild only after pause so keystrokes do not
-  // remint the full graph on every character.
-  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
-  useEffect(() => {
-    const handle = window.setTimeout(() => setDebouncedSearch(searchQuery), 150);
-    return () => window.clearTimeout(handle);
-  }, [searchQuery]);
-
   const rebuild = useCallback(() => {
     // Drag + viewport pan both own the RF shell — queue structural remints.
     if (dragInProgressRef.current || viewportBusy$.peek()) {
@@ -327,12 +313,10 @@ function useCanvasDocument(
       setNodes,
       setEdges,
       flowCacheRef.current,
-      debouncedSearch,
       edgeFilter,
       flagFilter,
     );
   }, [
-    debouncedSearch,
     edgeFilter,
     flagFilter,
     setNodes,
@@ -440,33 +424,15 @@ function useCanvasDocument(
   }, [setNodes, setEdges]);
 }
 
-function useCanvasSearchViewport(searchQuery: string, nodeCount: number, rf: CanvasFlow, viewKey: string) {
-  const previousQuery = useRef("");
+function useCanvasFilterViewport(viewKey: string, rf: CanvasFlow) {
   const previousViewKey = useRef("");
   useEffect(() => {
-    const query = searchQuery.trim();
-    const hadQuery = previousQuery.current.length > 0;
-    const hadFilter = previousViewKey.current.length > 0;
     const filterChanged = previousViewKey.current !== viewKey;
-    previousQuery.current = query;
     previousViewKey.current = viewKey;
-    if (!query) {
-      if (hadQuery || (hadFilter && filterChanged)) {
-        const frame = requestAnimationFrame(() => fitReadableField(rf, 260));
-        return () => cancelAnimationFrame(frame);
-      }
-      return;
-    }
-    if (nodeCount === 0) return;
-    const frame = requestAnimationFrame(() => {
-      void withViewportBusy(() => rf.fitView({
-        padding: 0.25,
-        duration: 260,
-        maxZoom: 1.5,
-      })).catch(() => undefined);
-    });
+    if (!filterChanged) return;
+    const frame = requestAnimationFrame(() => fitReadableField(rf, 260));
     return () => cancelAnimationFrame(frame);
-  }, [searchQuery, nodeCount, rf, viewKey]);
+  }, [viewKey, rf]);
 }
 
 function useCanvasFocus(rf: CanvasFlow) {
@@ -1165,10 +1131,9 @@ function RtsMinimapStack() {
 }
 
 function useCanvasGraph() {
-  // Narrow React subscriptions: filters/search only. Doc/execution/selection
+  // Narrow React subscriptions: filters only. Doc/execution/selection
   // drive RF via onChange → setNodes so CanvasGraph does not re-render on
   // every kernel cycle.
-  const searchQuery = use$(state$.searchQuery);
   const edgeFilter = use$(state$.edgeFilter);
   const flagFilter = use$(state$.flagFilter);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
@@ -1181,7 +1146,6 @@ function useCanvasGraph() {
   const [rebuildTick, setRebuildTick] = useState(0);
   const flushRebuild = useCallback(() => setRebuildTick((n) => n + 1), []);
   useCanvasDocument(
-    searchQuery,
     edgeFilter,
     flagFilter,
     setNodes,
@@ -1191,7 +1155,7 @@ function useCanvasGraph() {
     flowCacheRef,
     rebuildTick,
   );
-  useCanvasSearchViewport(searchQuery, nodes.length, rf, `${edgeFilter}|${flagFilter}`);
+  useCanvasFilterViewport(`${edgeFilter}|${flagFilter}`, rf);
   useCanvasFocus(rf);
   useCanvasViewport(nodes.length, rf);
   return {

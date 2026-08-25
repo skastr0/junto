@@ -48,6 +48,7 @@ import {
   type RegionRetapMemory,
 } from "../../lib/region-retap";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
+import { focusCanvasNode, isHotbarLeaseActor } from "../../lib/command-bar";
 import {
   assignFixedSlot,
   clearHotbarNode,
@@ -112,6 +113,7 @@ import {
   agentSeat$,
   bindingIdForNode,
   seatEventForNode,
+  seatNeedsLook,
 } from "../../lib/agent-seat-state";
 import {
   collectOperatorAttention,
@@ -256,11 +258,9 @@ const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string 
 /**
  * Opportunistic hotbar leases are **actors only** (factory role).
  * Well-known: `agent`. Notes, tasks, regions, pages, etc. never auto-lease.
- * Operator fixed slots (⌘1–9) remain unrestricted.
+ * Operator fixed slots (⌘1–9) remain unrestricted. Shared with the command
+ * bar via lib/command-bar so focus commits lease identically everywhere.
  */
-const isHotbarLeaseActor = (node: CanvasNode | undefined): boolean =>
-  node !== undefined && roleOf(specOf(node)) === "actor";
-
 const leaseEligibleActorIds = (
   nodes: ReadonlyArray<CanvasNode>,
 ): Set<string> => {
@@ -924,15 +924,7 @@ const collectIdleHerdrInputs = (
 };
 
 const focusNode = (nodeId: string): void => {
-  selectNode(nodeId);
-  state$.focusNodeId.set(nodeId);
-  // Only actors enter the opportunistic lease MRU. Regions / sinks / notes do not.
-  const node = state$.doc.peek().nodes.find((n) => n.id === nodeId);
-  if (isHotbarLeaseActor(node)) {
-    state$.hotbarActiveMru.set(
-      touchActiveMru(state$.hotbarActiveMru.peek(), nodeId),
-    );
-  }
+  focusCanvasNode(nodeId);
   recomputeHotbar();
 };
 
@@ -1190,6 +1182,7 @@ function HotbarStrip({
               ? undefined
               : liveActivitySeverity({
                   seatState: seatEventForNode(node)?.state,
+                  seatNeedsLook: seatNeedsLook(bindingIdForNode(node)),
                   herdrAgentStatus: herdrStatus,
                 }),
           });
@@ -1552,7 +1545,17 @@ function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): ReadonlyMap<
 }
 
 const severityRank = (s: MemberSeverity): number =>
-  s === "blocked" ? 0 : s === "attention" ? 1 : s === "working" ? 2 : s === "parked" ? 3 : 4;
+  s === "blocked"
+    ? 0
+    : s === "attention"
+      ? 1
+      : s === "working"
+        ? 2
+        : s === "ready"
+          ? 3
+          : s === "parked"
+            ? 4
+            : 5;
 
 export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
   const idleQueue = useIdleHerdrQueue();

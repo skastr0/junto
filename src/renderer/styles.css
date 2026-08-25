@@ -731,8 +731,10 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent);
 }
-.station-search { display: flex; min-width: 150px; max-width: 260px; flex: 1; align-items: center; gap: 8px; border: 1px solid var(--color-stroke); border-radius: 7px; background: var(--color-overlay-1); color: var(--color-faint); padding: 0 9px; transition: border-color .18s ease, background .18s ease; }
-.station-search:focus-within { border-color: color-mix(in oklab, var(--color-second) 50%, transparent); background: color-mix(in oklab, var(--color-second) 3.5%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 6%, transparent); }
+.station-command-trigger { display: flex; height: 34px; min-width: 150px; max-width: 260px; flex: 1; align-items: center; gap: 8px; border: 1px solid var(--color-stroke); border-radius: 7px; background: var(--color-overlay-1); color: var(--color-faint); padding: 0 9px; cursor: pointer; transition: border-color .18s ease, background .18s ease; }
+.station-command-trigger:hover, .station-command-trigger:focus-visible { border-color: color-mix(in oklab, var(--color-second) 50%, transparent); background: color-mix(in oklab, var(--color-second) 3.5%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 6%, transparent); outline: none; }
+.station-command-trigger__label { flex: 1; min-width: 0; overflow: hidden; color: var(--color-faint); font-size: 10px; letter-spacing: .1em; text-align: left; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.station-command-trigger__kbd { border: 1px solid color-mix(in oklab, var(--color-second) 22%, transparent); border-radius: 4px; background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-cyan); padding: 1px 5px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0; }
 .station-save { display: inline-flex; align-items: center; gap: 5px; color: var(--color-faint); font-size: 8px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
 .station-save--error { border: 0; background: transparent; cursor: pointer; padding: 0; }
 .station-save__dot { width: 6px; height: 6px; border-radius: 999px; background: var(--color-faint); }
@@ -760,10 +762,25 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .canvas-dialog__submit:disabled { cursor: not-allowed; opacity: .35; }
 .canvas-dialog__danger { border: 1px solid color-mix(in oklab, var(--color-accent) 55%, transparent); background: color-mix(in oklab, var(--color-accent) 14%, transparent); color: var(--color-crimson); }
 .canvas-dialog__danger:hover:not(:disabled) { background: color-mix(in oklab, var(--color-accent) 24%, transparent); }
-.station-search input { min-width: 0; flex: 1; height: 32px; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
-.station-search input::placeholder { color: var(--color-faint); opacity: 1; }
-.station-search__clear { display: grid; height: 22px; width: 22px; place-items: center; border-radius: 4px; color: var(--color-dim); }
-.station-search__clear:hover { background: var(--color-overlay-3); color: var(--color-ink); }
+.command-bar-backdrop { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: flex-start; justify-content: center; padding: 16vh 16px 16px; background: var(--color-backdrop); backdrop-filter: blur(2px); }
+.command-bar { display: flex; width: min(620px, 100%); flex-direction: column; overflow: hidden; border: 1px solid var(--color-stroke); border-radius: 10px; background: linear-gradient(160deg, color-mix(in oklab, var(--color-raise) 97%, transparent), color-mix(in oklab, var(--color-ground) 98%, transparent)); box-shadow: 0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1); }
+.command-bar__input-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-stroke); padding: 0 14px; color: var(--color-faint); }
+.command-bar__input-row input { min-width: 0; flex: 1; height: 46px; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13px; letter-spacing: 0; }
+.command-bar__input-row input::placeholder { color: var(--color-faint); opacity: 1; }
+.command-bar__clear { display: grid; height: 22px; width: 22px; flex: none; place-items: center; border-radius: 4px; color: var(--color-dim); }
+.command-bar__clear:hover { background: var(--color-overlay-3); color: var(--color-ink); }
+.command-bar__list { max-height: min(46vh, 420px); overflow-y: auto; padding: 6px; }
+.command-bar__row { display: flex; align-items: center; gap: 10px; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+.command-bar__row--active { background: var(--color-overlay-2); }
+.command-bar__row-icon { display: grid; flex: none; place-items: center; color: var(--color-dim); }
+.command-bar__row-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.command-bar__row-title { overflow: hidden; color: var(--color-ink); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.command-bar__row-detail { overflow: hidden; color: var(--color-faint); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.command-bar__empty { padding: 24px 12px; color: var(--color-faint); font-size: 10px; letter-spacing: .14em; text-align: center; text-transform: uppercase; }
+.command-bar__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--color-stroke); padding: 8px 14px; color: var(--color-faint); font-size: 10px; }
+.command-bar__count { flex: none; letter-spacing: .08em; text-transform: uppercase; }
+.command-bar__hints { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; }
+.command-bar__hint { margin: 0 8px 0 0; color: var(--color-dim); white-space: nowrap; }
 .digest-copy-button { font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
 .station-view-toggle { display: inline-flex; height: 34px; align-items: center; gap: 7px; border: 1px solid var(--color-stroke); border-radius: 7px; background: var(--color-overlay-1); color: var(--color-steel); padding: 0 9px; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
 .station-view-toggle:hover { border-color: color-mix(in oklab, var(--color-second) 40%, transparent); background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-cyan); }
@@ -878,14 +895,14 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 }
 @media (max-width: 1360px) {
   .station-bar { gap: 8px; padding: 0 10px 0 84px; }
-  .station-search { max-width: 210px; min-width: 120px; }
+  .station-command-trigger { max-width: 210px; min-width: 120px; }
   .station-actions { gap: 7px !important; }
   .field-hint__secondary { display: none; }
 }
 
 @media (max-width: 980px) {
   .station-select { min-width: 88px; max-width: 140px; }
-  .station-search { max-width: 170px; }
+  .station-command-trigger { max-width: 170px; }
   .station-generate-button span,
   .station-view-toggle span { display: none; }
   .station-generate-button { width: 34px; justify-content: center; padding: 0; }

@@ -362,6 +362,9 @@ const edges: CanvasEdge[] = [
 ];
 
 test("capture every surface for design review", async () => {
+  // This audit drives ~30 surfaces plus seeded live planes; it runs long
+  // enough to need a budget above the default 90s worker timeout.
+  test.setTimeout(300_000);
   const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-audit-"));
   const herdrScenario = join(scenarioDir, "herdr.json");
   const codexbarScenario = join(scenarioDir, "codexbar.json");
@@ -498,6 +501,15 @@ test("capture every surface for design review", async () => {
     });
     await expect(termNode).toBeVisible({ timeout: 15_000 });
     await shot(page, "01-canvas-full");
+
+    // Command bar: default catalog, then a filtered list.
+    await page.locator(".station-command-trigger").click();
+    await expect(page.getByTestId("command-bar-input")).toBeVisible();
+    await shot(page, "01b-command-bar-open");
+    await page.getByTestId("command-bar-input").fill("task");
+    await shot(page, "01c-command-bar-filtered");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-bar-input")).toHaveCount(0);
 
     // Node closeups.
     const closeup = async (hasText: string, name: string) => {

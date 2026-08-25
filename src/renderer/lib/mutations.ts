@@ -594,7 +594,6 @@ export const addNode = (
   },
 ): void => {
   batch(() => {
-    state$.searchQuery.set("");
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
     // Keep the single/multi selection pair coherent so RTS flag keys target
