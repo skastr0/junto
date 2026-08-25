@@ -212,6 +212,18 @@ export const ensureManagedSeatRunning = (
       console.error(
         `[wake] refused ${canvasName}/${node.id}: ${provisioned.reason}`,
       );
+      // A console line is not an operator surface. An auth, network, or
+      // missing-thread failure has to reach the canvas, or the seat simply
+      // never wakes and nothing on screen says why. Only for a seat that
+      // already has a slot — forcing one for a seat that never started would
+      // publish attention for a generation that does not exist.
+      if (seatStateRuntime.machine.getSlot(surface.bindingId)) {
+        seatStateRuntime.machine.force(
+          surface.bindingId,
+          "attention",
+          `session-unavailable: ${provisioned.reason}`,
+        );
+      }
       return false;
     }
     const baseSpec: ActorOccupySpec = {

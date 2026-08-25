@@ -373,3 +373,66 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
     expect(fresh?.firstTypedMessage?.length ?? 0).toBeGreaterThan(0);
   });
 });
+
+describe("AC-10: a thread that cannot be provisioned is visible, not silent", () => {
+  it("keeps every failure inside one typed reason the seat can show", async () => {
+    // Auth, network, and unreadable-receipt failures share one shape on
+    // purpose: the seat surfaces a reason, and no path substitutes a
+    // different thread or launches without one.
+    const authFailure = await provisionAmpThread({
+      run: async () => {
+        throw new Error("not authenticated");
+      },
+    });
+    const receiptFailure = await provisionAmpThread({
+      run: async () => "some unrelated banner",
+    });
+    for (const failed of [authFailure, receiptFailure]) {
+      expect(failed.ok).toBe(false);
+      if (failed.ok) continue;
+      expect(failed.failure.code).toBe("amp_thread_unprovisioned");
+      expect(failed.failure.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("never reaches a launch when the thread is unknown", () => {
+    // The last line of defence: even if a caller ignored the failure, the
+    // planner refuses to build argv without a thread.
+    expect(
+      launchForManagedSpawn({
+        harness: "amp",
+        agentKey: "local:amp",
+        resume: true,
+        documentLaunch: {
+          kind: "harness" as const,
+          argv: ["amp", "--no-ide", "threads", "continue"],
+        },
+      }).launch,
+    ).toBeUndefined();
+  });
+});
+
+describe("AC-9: provisioning touches only the public thread surface", () => {
+  it("invokes one documented command and no config, cache, or log path", async () => {
+    const calls: Array<readonly string[]> = [];
+    await provisionAmpThread({
+      run: async (_binary, args) => {
+        calls.push(args);
+        return "T-01a03989-71a6-733b-ac4c-76f54969cb55";
+      },
+    });
+    expect(calls).toEqual([["threads", "new", "--visibility", "private"]]);
+    const flat = calls.flat().join(" ");
+    for (const forbidden of [
+      "--settings-file",
+      "--log-file",
+      "--mcp-config",
+      "plugins",
+      "orb",
+      "-x",
+      "--execute",
+    ]) {
+      expect(flat).not.toContain(forbidden);
+    }
+  });
+});
