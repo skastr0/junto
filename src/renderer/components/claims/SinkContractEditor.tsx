@@ -20,9 +20,8 @@ import { CheckList } from "./CheckList";
 import { formatBakeTime, normalizeSinkContract, parseBakeTime } from "./sink-contract";
 
 // The sink contract is what a station is: its purpose, its standing law, how
-// arrivals become claimable, and what it publishes forward. Arrivals and
-// departures stay folded until the operator asks for them — most stations
-// only ever need a purpose and a claim or two.
+// arrivals become claimable, and what it publishes forward. A full station
+// view opens both sides; board-column entry opens only the side it names.
 
 const ADMISSION_OPTIONS: ReadonlyArray<{ readonly value: SinkAdmission; readonly label: string }> = [
   { value: "auto", label: "Auto — seats claim on arrival" },
@@ -225,11 +224,13 @@ export function SinkContractEditor({
   /** Board-side entry opens only the matching half of the station contract. */
   readonly focusSide?: "inbound" | "outbound";
 }) {
-  const [openFold, setOpenFold] = useState<"inbound" | "outbound" | null>(
-    focusSide ?? null,
-  );
+  const initialFolds = () => ({
+    inbound: focusSide !== "outbound",
+    outbound: focusSide !== "inbound",
+  });
+  const [openFolds, setOpenFolds] = useState(initialFolds);
   useEffect(() => {
-    setOpenFold(focusSide ?? null);
+    setOpenFolds(initialFolds());
   }, [focusSide, node.id]);
 
   if (node.ether?.entity?.kind !== "task") return null;
@@ -267,8 +268,10 @@ export function SinkContractEditor({
     <Fold
       title="arrivals"
       summary={inboundSummary}
-      open={openFold === "inbound"}
-        onToggle={() => setOpenFold((open) => (open === "inbound" ? null : "inbound"))}
+      open={openFolds.inbound}
+      onToggle={() =>
+        setOpenFolds((open) => ({ ...open, inbound: !open.inbound }))
+      }
       >
         <label className="inspector-editor">
           <span>admission</span>
@@ -317,8 +320,10 @@ export function SinkContractEditor({
     <Fold
       title="departures"
       summary={outboundSummary}
-      open={openFold === "outbound"}
-        onToggle={() => setOpenFold((open) => (open === "outbound" ? null : "outbound"))}
+      open={openFolds.outbound}
+      onToggle={() =>
+        setOpenFolds((open) => ({ ...open, outbound: !open.outbound }))
+      }
       >
         <ContractText
           label="emission"
