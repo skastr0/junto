@@ -101,6 +101,8 @@ export type SpawnPlanInput = {
   readonly documentLaunch?: TerminalLaunch;
   readonly agentKey?: string;
   readonly profile?: string;
+  /** Hermes provider — travels with the model on every cold wake. */
+  readonly provider?: string;
   readonly model?: string;
   readonly effort?: string;
   /** Named agent mode (Amp `-m low|medium|high|ultra`). */
@@ -165,6 +167,7 @@ export const makeManagedSpawnIntent = (
     resumeRequested: input.resume === true,
     injection: injectionForSpawn(input),
     ...(input.profile ? { profile: input.profile } : {}),
+    ...(input.provider ? { provider: input.provider } : {}),
     ...(input.model ? { model: input.model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
     ...(input.mode ? { mode: input.mode } : {}),
@@ -176,7 +179,7 @@ export const makeManagedSpawnIntent = (
 
 type RecoveredLaunchChoices = Pick<
   ManagedLaunchChoices,
-  "model" | "effort" | "mode" | "permissionMode" | "profile"
+  "model" | "effort" | "mode" | "permissionMode" | "profile" | "provider"
 >;
 
 const valueForFlag = (
@@ -262,11 +265,17 @@ const recoverDocumentLaunchChoices = (
         ...(permissionMode ? { permissionMode } : {}),
       };
     case "hermes":
+      // Provider is recovered next to the model on purpose: a Hermes resume
+      // that carries one without the other reverts the model silently, and the
+      // only place the revert shows is a session_model_usage row.
       return {
         ...(valueForFlag(argv, spec.profileFlag)
           ? { profile: valueForFlag(argv, spec.profileFlag) }
           : {}),
         ...(valueForFlag(argv, spec.modelFlag) ? { model: valueForFlag(argv, spec.modelFlag) } : {}),
+        ...(valueForFlag(argv, spec.providerFlag)
+          ? { provider: valueForFlag(argv, spec.providerFlag) }
+          : {}),
         ...(permissionMode ? { permissionMode } : {}),
       };
     // pi / prime-agent / kimi / muse / devin: generic template slots
@@ -406,6 +415,9 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(rulesDir ? { rulesDir } : {}),
     ...(agentFile ? { agentFile } : {}),
     ...(profile ? { profile } : {}),
+    ...(input.provider ?? recovered.provider
+      ? { provider: input.provider ?? recovered.provider }
+      : {}),
     ...(input.model ?? recovered.model ? { model: input.model ?? recovered.model } : {}),
     ...(input.effort ?? recovered.effort ? { effort: input.effort ?? recovered.effort } : {}),
     ...(input.mode ?? recovered.mode ? { mode: input.mode ?? recovered.mode } : {}),
@@ -495,6 +507,7 @@ const spawnInputForManagedIntent = (
   resume: intent.resumeRequested,
   injection: intent.injection,
   profile: intent.profile,
+  provider: intent.provider,
   model: intent.model,
   effort: intent.effort,
   mode: intent.mode,
@@ -546,6 +559,7 @@ export const planFreshPinSession = (input: {
     injection: { seatBound: false, connected: false },
     sessionId: input.sessionId,
     ...(profile ? { profile } : {}),
+    ...(recovered.provider ? { provider: recovered.provider } : {}),
     ...(recovered.model ? { model: recovered.model } : {}),
     ...(recovered.effort ? { effort: recovered.effort } : {}),
     ...(recovered.permissionMode

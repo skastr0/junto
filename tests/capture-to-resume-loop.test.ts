@@ -7,6 +7,7 @@
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -192,6 +193,18 @@ type Fixture = {
 };
 
 const CAPTURE_FIXTURES: readonly Fixture[] = [
+  {
+    // Hermes keeps sessions only in state.db; the jsonl tree is retired.
+    harness: "hermes",
+    sessionId: "20260825_140355_9f3ab1",
+    seed: (home, sid) => {
+      mkdirSync(join(home, ".hermes"), { recursive: true });
+      const db = new DatabaseSync(join(home, ".hermes", "state.db"));
+      db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY);");
+      db.prepare("INSERT INTO sessions (id) VALUES (?)").run(sid);
+      db.close();
+    },
+  },
   {
     harness: "codex",
     sessionId: "0199a0b1-c2d3-4e5f-8a9b-0c1d2e3f4a5b",

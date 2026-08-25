@@ -112,7 +112,9 @@ describe("managed-terminal templates (data)", () => {
     // Codex captures its thread id and `codexSessionExists` proves it; the old
     // "unavailable" badge described a gap that was already closed.
     expect(CODEX_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
-    expect(HERMES_TEMPLATE.capabilityBadges.sessionId).toBe("unavailable");
+    // Hermes proves session ids from ~/.hermes/state.db; the retired jsonl
+    // tree was the only thing the old "unavailable" badge described.
+    expect(HERMES_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
     expect(HERMES_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
     expect(HERMES_TEMPLATE.capabilityBadges.remote).toBe(true);
@@ -137,9 +139,11 @@ describe("managed-terminal templates (data)", () => {
       "no cold resume",
     );
     expect(HERMES_TEMPLATE.capabilityBadges.labels).toEqual(
-      expect.arrayContaining(["no cold resume"]),
+      expect.arrayContaining(["capture session"]),
     );
-    expect(HERMES_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("session capture");
+    expect(HERMES_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain(
+      "no cold resume",
+    );
     expect(CLAUDE_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
     expect(GROK_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
     expect(HERMES_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");

@@ -127,6 +127,12 @@ export type ArgvSpec = {
   readonly permissionModeFlag?: string;
   /** Hermes profile: `-p` / `--profile`. */
   readonly profileFlag?: string;
+  /**
+   * Provider selector for harnesses that route a model through a named
+   * provider (Hermes `--provider`). It travels WITH the model — a Hermes resume
+   * that re-passes one without the other reverts silently.
+   */
+  readonly providerFlag?: string;
   /** Session pin when supported (`--session-id`). Absent ⇒ capture-only. */
   readonly sessionIdFlag?: string;
   /**
@@ -464,16 +470,39 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
   defaultPermissionMode: "default",
 };
 
+/**
+ * Hermes — Tier B, capture session, remote-capable.
+ *
+ * Re-probed 0.20.4 (2026-08-25):
+ * - Session storage is `~/.hermes/state.db` ALONE. The jsonl transcripts under
+ *   `~/.hermes/sessions/` are retired: new sessions write nothing there, so the
+ *   database is the only current receipt and `hermesSessionExists` reads it.
+ * - `HERMES_SESSION_ID` reaches the agent shell and IS the session id
+ *   (`%Y%m%d_%H%M%S_<hex6>`), which is what the capture path observes.
+ * - `--resume <id>` keeps continuity but SILENTLY reverts the model unless
+ *   `-m` (and `--provider`, where one was chosen) are re-passed — the revert is
+ *   visible only in `session_model_usage` rows, never on screen. `buildArgv`
+ *   re-passes every template-owned flag on resume, which is what makes a cold
+ *   wake keep both the conversation and the model it was running.
+ * - Trap: the `hermes resume` SUBCOMMAND lifts an ESTOP sentinel; it is not
+ *   session resume. This template resumes by flag and never by subcommand.
+ *
+ * `chat --tui` stays the prefix: a Vellum Command seat is a visible TUI on a
+ * real PTY. The headless `chat -q` form in the receipts is the no-TTY path,
+ * which this integration does not use.
+ */
 export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   harness: "hermes",
   displayName: "Hermes",
-  probedVersion: "2026-07",
+  probedVersion: "0.20.4",
   argvSpec: {
     binary: "hermes",
     // -z / chat -q without --tui are headless. Interactive auto-submit needs --tui.
     prefix: ["chat", "--tui"],
     promptMode: "flag-q",
     modelFlag: "-m",
+    // Re-passed with the model on every resume, or the model reverts silently.
+    providerFlag: "--provider",
     // No effort flag — omit in v1 (typed /reasoning is session-scoped only).
     permissionModeFlag: "--yolo",
     profileFlag: "--profile",
@@ -492,12 +521,20 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     instructionInjection: "B",
     hooks: false,
     effortAtSpawn: false,
-    sessionId: "unavailable",
+    // state.db proves a session id, so cold resume is real; the badge used to
+    // say unavailable because the retired jsonl tree was the only thing probed.
+    sessionId: "capture",
     remote: true,
     requiresGitCwd: false,
     stateFeed: "OSC (--tui only) → grid",
     attentionSource: "OSC title ⚠",
-    labels: ["injection B", "OSC + grid", "no effort flag", "no cold resume", "remote"],
+    labels: [
+      "injection B",
+      "OSC + grid",
+      "no effort flag",
+      "capture session",
+      "remote",
+    ],
   },
   efforts: [],
 };

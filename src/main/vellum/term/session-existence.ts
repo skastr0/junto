@@ -8,6 +8,7 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
 import {
@@ -106,7 +107,7 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
       case "codex":
         return codexSessionExists(sessionId, home);
       case "hermes":
-        return false;
+        return hermesSessionExists(sessionId, home);
       // Pi is a pin harness; sessions live under
       // ~/.pi/agent/sessions/--<cwd-encoded>--/<ts>_<uuidv7>.jsonl.
       case "pi":
@@ -209,6 +210,66 @@ const claudeSessionExists = (
     if (matchInProject(join(projects, enc))) return true;
   }
   return false;
+};
+
+/**
+ * Hermes session ids are `%Y%m%d_%H%M%S_<hex6>` — the same value the harness
+ * exports as `HERMES_SESSION_ID` into the agent shell. Shape-checking before
+ * the query keeps scraped PTY text from reaching the database at all.
+ */
+export const isHermesSessionId = (value: string): boolean =>
+  /^\d{8}_\d{6}_[0-9a-f]{6}$/i.test(value.trim());
+
+/**
+ * Hermes sessions live in ONE place: `~/.hermes/state.db`.
+ *
+ * The jsonl transcripts under `~/.hermes/sessions/` are retired — v0.20.4
+ * writes nothing there, so the newest file on disk predates the sessions a seat
+ * is actually resuming, and a filesystem probe would report "not proven" for
+ * every live session. The database is the only current receipt.
+ *
+ * Opened strictly read-only: this never creates the file, never migrates it,
+ * and never takes a write lock on a database the operator's own Hermes is
+ * using. Any failure — missing file, locked, unexpected schema — is
+ * not-proven, which fails open to a fresh session rather than a dead resume.
+ */
+const hermesSessionExists = (sessionId: string, home: string): boolean => {
+  if (!isHermesSessionId(sessionId)) return false;
+  const path = join(home, ".hermes", "state.db");
+  if (!isFile(path)) return false;
+
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(path, {
+      open: true,
+      readOnly: true,
+      allowExtension: false,
+      enableDoubleQuotedStringLiterals: false,
+      timeout: 2_000,
+    });
+    // The id column has been `id` in every build probed; `session_id` is tried
+    // only if the first statement cannot prepare, so a schema rename degrades
+    // to a second attempt instead of a silent false.
+    for (const column of ["id", "session_id"] as const) {
+      try {
+        const row = database
+          .prepare(`SELECT 1 AS present FROM sessions WHERE ${column} = ? LIMIT 1`)
+          .get(sessionId);
+        return row !== undefined;
+      } catch {
+        // try the next column name
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // best-effort
+    }
+  }
 };
 
 /** Codex rollouts embed the thread id in the filename. */

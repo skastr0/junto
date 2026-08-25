@@ -38,6 +38,8 @@ export type ManagedSpawnIntent = {
   readonly resumeRequested: boolean;
   readonly injection: InjectionContext;
   readonly profile?: string;
+  /** Hermes provider — re-passed with the model on every cold wake. */
+  readonly provider?: string;
   readonly model?: string;
   readonly effort?: string;
   /** Named agent mode (Amp `-m`), compiled the same way as model/effort. */
@@ -59,6 +61,12 @@ export type ManagedLaunchChoices = {
   readonly mode?: string;
   /** Hermes profile name. */
   readonly profile?: string;
+  /**
+   * Provider for `argvSpec.providerFlag` (Hermes `--provider`). Travels with
+   * the model: a resume that re-passes one without the other reverts the model
+   * silently, so both are recovered and re-emitted together.
+   */
+  readonly provider?: string;
   /** Optional first-turn / auto-submit prompt. */
   readonly prompt?: string;
   /** Pin session id (Claude/Grok). Ignored on capture-only harnesses. */
@@ -242,6 +250,10 @@ const buildArgv = (
 
   if (choices.profile) {
     pushFlag(argv, spec.profileFlag, choices.profile);
+  }
+
+  if (choices.provider) {
+    pushFlag(argv, spec.providerFlag, choices.provider);
   }
 
   if (choices.model) {
