@@ -21,7 +21,7 @@ import "./task-journey.css";
 
 const layerTone = (layer: JourneyLayer): StatusTone => {
   if (layer.live) return "amber";
-  if (layer.stale) return "dim";
+  if (layer.needsRedo) return "dim";
   if (layer.exit === "rejected-back") return "crimson";
   if (layer.exit === "closed") return "green";
   return "cyan";
@@ -46,7 +46,7 @@ function LayerInterior({ layer }: { readonly layer: JourneyLayer }) {
         <div className="task-journey__defect">
           <CircleAlert size={12} aria-hidden />
           <div>
-            <strong>Defect filed here</strong>
+            <strong>Sent back to {layer.defect.targetStation}</strong>
             <p>{layer.defect.summary || "No summary was recorded."}</p>
             {layer.defect.refs.length > 0 ? (
               <ul className="task-journey__refs">
@@ -66,6 +66,9 @@ function LayerInterior({ layer }: { readonly layer: JourneyLayer }) {
             {layer.receipts.map((receipt) => (
               <li key={`${receipt.kind}-${receipt.claimId}`}>
                 <div className="task-journey__receipt-head">
+                  <Chip tone={receipt.live ? "green" : "steel"}>
+                    {receipt.live ? "live" : "superseded"}
+                  </Chip>
                   <Chip tone={receipt.kind === "waiver" ? "violet" : "cyan"}>
                     {receipt.kind === "waiver" ? "waived" : "answered"}
                   </Chip>
@@ -140,7 +143,7 @@ function Layer({ layer }: { readonly layer: JourneyLayer }) {
       className={[
         "task-journey__layer",
         layer.live ? "is-live" : "",
-        layer.stale ? "is-stale" : "",
+        layer.needsRedo ? "needs-redo" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -150,6 +153,7 @@ function Layer({ layer }: { readonly layer: JourneyLayer }) {
         type="button"
         className="task-journey__head"
         aria-expanded={open}
+        title={`Passage epoch ${layer.epoch}`}
         onClick={() => setOpen((value) => !value)}
       >
         {open ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
@@ -159,7 +163,16 @@ function Layer({ layer }: { readonly layer: JourneyLayer }) {
         <Chip tone={layer.live ? "amber" : layer.exit === "rejected-back" ? "crimson" : "steel"}>
           {layerExitLabel(layer)}
         </Chip>
-        {layer.stale ? <Chip tone="steel">epoch {layer.epoch}</Chip> : null}
+        {layer.needsRedo ? <Chip tone="steel">Needs redoing from here</Chip> : null}
+        {!layer.needsRedo && layer.receiptState ? (
+          <Chip tone={layer.receiptState === "live" ? "green" : "steel"}>
+            {layer.receiptState === "live"
+              ? "Receipts live"
+              : layer.receiptState === "mixed"
+                ? "Mixed receipts"
+                : "Receipts superseded"}
+          </Chip>
+        ) : null}
         <span className="task-journey__meta">
           {layer.tickets.length > 0 ? (
             <span
@@ -224,14 +237,17 @@ export function TaskJourney({
         <span className="task-journey__summary">
           {journey.layers.length} passages, {journey.stationCount} stations
         </span>
-        {journey.epoch > 0 ? <Chip tone="crimson">epoch {journey.epoch}</Chip> : null}
       </h3>
       <ol className="task-journey__list">
         {journey.layers.map((layer) => (
           <Fragment key={layer.key}>
-            {layer.epochStart && layer.epoch > 0 ? (
-              <li className="task-journey__epoch" aria-label={`Epoch ${layer.epoch} boundary`}>
-                Epoch {layer.epoch} — sent back, earlier receipts are stale
+            {layer.epochDefect ? (
+              <li
+                className="task-journey__epoch"
+                aria-label={`Sent back to ${layer.epochDefect.targetStation}`}
+                title={`Epoch ${layer.epoch}`}
+              >
+                Sent back to {layer.epochDefect.targetStation} — receipts from this stop onward must be earned again
               </li>
             ) : null}
             <Layer layer={layer} />

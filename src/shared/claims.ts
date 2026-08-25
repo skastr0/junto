@@ -192,7 +192,7 @@ const stationOrder = (
  * shadow globally, exactly as the old epoch-global rule read them. Liveness
  * is computed, never stored — no defect re-stamps or erases a receipt.
  */
-const receiptLive = (
+export const receiptLive = (
   task: Task,
   journey: ReadonlyArray<Passage>,
   passage: Passage,
@@ -211,9 +211,25 @@ const receiptLive = (
 };
 
 /** A waiver never survives any later defect — the route re-decides from the target. */
-const waiverLive = (task: Task, passage: Passage): boolean => {
+export const waiverLive = (task: Task, passage: Passage): boolean => {
   const later = taskEpoch(task) > passage.epoch;
   return !later;
+};
+
+/**
+ * The durable station row holds evidence for its latest completed passage.
+ * Keep this selection shared with read-side projections so the UI cannot
+ * attach the same current evidence to multiple historical visits.
+ */
+export const latestCompletedPassages = (
+  journey: ReadonlyArray<Passage>,
+): ReadonlyMap<string, Passage> => {
+  const latest = new Map<string, Passage>();
+  for (const passage of journey) {
+    if (passage.exit !== "forwarded" && passage.exit !== "closed") continue;
+    latest.set(passage.nodeId, passage);
+  }
+  return latest;
 };
 
 /**
@@ -247,11 +263,7 @@ export const stationReceipts = (
   // A station's row holds the evidence of its LATEST completion there —
   // re-homing replaces the row — so each station is read once, against the
   // last passage that completed at it (exit forwarded or closed).
-  const latestCompleted = new Map<string, Passage>();
-  for (const passage of journey) {
-    if (passage.exit !== "forwarded" && passage.exit !== "closed") continue;
-    latestCompleted.set(passage.nodeId, passage);
-  }
+  const latestCompleted = latestCompletedPassages(journey);
   for (const [station, passage] of latestCompleted) {
     const row = nodeById(doc, station)?.ether?.tasks?.items.find(
       (item) => item.id === task.id,

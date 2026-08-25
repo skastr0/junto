@@ -50,8 +50,9 @@
   background: var(--color-raise-2);
 }
 
-.task-journey__layer.is-stale {
-  opacity: 0.55;
+.task-journey__layer.needs-redo {
+  border-left-style: dashed;
+  background: color-mix(in oklch, var(--color-raise) 82%, var(--color-inset));
 }
 
 .task-journey__head {

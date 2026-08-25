@@ -25,6 +25,7 @@ import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import type { Task, TasksSinkContract } from "../src/shared/work-model";
 import { workTaskTransition } from "../src/shared/work";
+import { buildTaskJourney } from "../src/renderer/components/work/task-journey";
 
 const root = join(tmpdir(), `vellum-command-defect-persistence-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -104,6 +105,9 @@ const T0 = "2026-08-21T09:00:00.000Z"; // created at s1
 const T1 = "2026-08-21T10:00:00.000Z"; // s1 → s2
 const T2 = "2026-08-21T11:00:00.000Z"; // s2 → s3
 const T3 = "2026-08-21T12:00:00.000Z"; // s3 defects back to s1
+const T4 = "2026-08-21T13:00:00.000Z"; // repaired s1 → s2
+const T5 = "2026-08-21T14:00:00.000Z"; // repaired s2 → s3
+const T6 = "2026-08-21T15:00:00.000Z"; // repaired s3 closes
 
 const ids = (() => {
   let n = 0;
@@ -126,7 +130,7 @@ const sinkNode = (
   width: 100,
   height: 60,
   ether: {
-    entity: { kind: "task" },
+    entity: { kind: "task", name: `${id} station` },
     tasks: {
       items: [...items],
       ...(contract !== undefined ? { contract } : {}),
@@ -404,5 +408,67 @@ describe("deep defect persistence", () => {
     // And the untouched s2 bag carries no defect stamp at all.
     const s2Bag = await rawPipelineBag(s2);
     expect(s2Bag?.defects).toBeUndefined();
+  });
+
+  it("projects the real defect accounting, then re-runs the line to terminal close", async () => {
+    const defectedDoc = await docFromRepository();
+    const returned = await taskAt(s1, taskId);
+    const defectedView = buildTaskJourney(defectedDoc, returned!, "s1");
+
+    expect(defectedView.layers.map((layer) => [layer.nodeId, layer.needsRedo])).toEqual([
+      ["s1", true],
+      ["s2", true],
+      ["s3", false],
+      ["s1", false],
+    ]);
+    expect(defectedView.layers[1]!.receiptState).toBe("superseded");
+    expect(defectedView.layers[2]!.defect?.targetStation).toBe("s1 station");
+    expect(defectedView.layers[3]!.epochDefect?.targetStation).toBe("s1 station");
+
+    await forwardThroughService(s1, s1Evidence, T4);
+    await forwardThroughService(s2, s2Evidence, T5);
+
+    const beforeClose = await docFromRepository();
+    const closeEvidence = { artifacts: [] };
+    const closePolicy = workTaskTransition(
+      beforeClose,
+      canvasName,
+      "s3",
+      taskId,
+      "completed",
+      "repair line verified",
+      ids,
+      closeEvidence,
+      { nowMs: Date.parse(T6) },
+    );
+    expect(closePolicy.forwarded).toBeUndefined();
+    expect(closePolicy.task.state).toBe("completed");
+    expect(closePolicy.task.journey?.at(-1)?.exit).toBe("closed");
+
+    await runtime.runPromise(
+      repository.transitionTask({
+        sink: s3,
+        basis,
+        taskId,
+        state: "completed",
+        completionEvidence: closeEvidence,
+        pipeline: {
+          journey: closePolicy.task.journey ?? [],
+          defects: closePolicy.task.defects,
+        },
+        originAt: T6,
+        receivedAt: T6,
+      }),
+    );
+
+    const closed = await taskAt(s3, taskId);
+    expect(closed?.state).toBe("completed");
+    const closedView = buildTaskJourney(await docFromRepository(), closed!, "s3");
+    const currentEpochLayers = closedView.layers.filter((layer) => layer.epoch === 1);
+    expect(currentEpochLayers.map((layer) => [layer.nodeId, layer.receiptState])).toEqual([
+      ["s1", "live"],
+      ["s2", "live"],
+      ["s3", undefined],
+    ]);
   });
 });

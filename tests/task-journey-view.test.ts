@@ -128,18 +128,35 @@ describe("buildTaskJourney", () => {
     expect(layerExitLabel(second)).toBe("Here now");
   });
 
-  it("marks prior-epoch layers stale and opens an epoch boundary at the send-back", () => {
+  it("keeps upstream receipts live and marks only the defect target onward for rework", () => {
     const defectNote = makeAgentMessage({
       messageId: "m2",
       text: 'defect from "review": missing receipts\nref: src/b.ts',
       contextId: "c1",
       taskId: "t1",
     });
+    const upstream = task("shape", {
+      state: "completed",
+      completionEvidence: {
+        artifacts: [],
+        responses: [{ claimId: "c-shape", response: "foundation stayed square" }],
+      },
+    });
+    const downstream = task("wire", {
+      state: "completed",
+      completionEvidence: {
+        artifacts: [],
+        responses: [{ claimId: "c-wire", response: "continuity checked" }],
+      },
+    });
     const current = task("build", {
       epoch: 1,
+      defects: [{ epoch: 1, target: "build", at: "2026-08-20T12:00:00.000Z" }],
       history: [brief, defectNote],
       journey: [
-        passage({ nodeId: "build", exit: "forwarded", next: "review" }),
+        passage({ nodeId: "shape", exit: "forwarded", next: "build" }),
+        passage({ nodeId: "build", exit: "forwarded", next: "wire" }),
+        passage({ nodeId: "wire", exit: "forwarded", next: "review" }),
         passage({
           nodeId: "review",
           exit: "rejected-back",
@@ -149,18 +166,52 @@ describe("buildTaskJourney", () => {
         passage({ nodeId: "build", epoch: 1, enteredAt: "2026-08-20T12:00:00.000Z" }),
       ],
     });
-    const board = doc([sink("build", [current]), sink("review", [])]);
+    const board = doc([
+      sink("shape", [upstream], [
+        { id: "c-shape", text: "base is square", severity: "hard" },
+      ]),
+      sink("build", [current]),
+      sink("wire", [downstream], [
+        { id: "c-wire", text: "wiring is continuous", severity: "hard" },
+      ]),
+      sink("review", []),
+    ]);
 
     const view = buildTaskJourney(board, current, "build");
     expect(view.epoch).toBe(1);
-    expect(view.layers.map((l) => l.stale)).toEqual([true, true, false]);
-    expect(view.layers.map((l) => l.epochStart)).toEqual([true, false, true]);
-    expect(view.layers[1]!.defect).toEqual({
+    expect(view.layers.map((layer) => layer.needsRedo)).toEqual([
+      false,
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(view.layers.map((layer) => layer.receiptState)).toEqual([
+      "live",
+      undefined,
+      "superseded",
+      undefined,
+      undefined,
+    ]);
+    expect(view.layers.map((layer) => layer.epochStart)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      true,
+    ]);
+    expect(view.layers[3]!.defect).toEqual({
       summary: "missing receipts",
       refs: ["src/b.ts"],
+      target: "build",
+      targetStation: "build station",
     });
-    expect(view.layers[1]!.refs).toEqual(["src/b.ts"]);
-    expect(layerExitLabel(view.layers[1]!)).toBe("Sent back to build station");
-    expect(view.layers[2]!.live).toBe(true);
+    expect(view.layers[3]!.refs).toEqual(["src/b.ts"]);
+    expect(layerExitLabel(view.layers[3]!)).toBe("Sent back to build station");
+    expect(view.layers[4]!.epochDefect).toEqual({
+      target: "build",
+      targetStation: "build station",
+    });
+    expect(view.layers[4]!.live).toBe(true);
   });
 });

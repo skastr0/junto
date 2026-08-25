@@ -15,7 +15,15 @@ import type {
   Task,
   Ticket,
 } from "@shared/work-model";
-import { effectiveClaimsStack, taskEpoch, type ClaimProvenance } from "@shared/claims";
+import {
+  effectiveClaimsStack,
+  latestCompletedPassages,
+  receiptLive,
+  taskDefects,
+  taskEpoch,
+  waiverLive,
+  type ClaimProvenance,
+} from "@shared/claims";
 import { nodeTitle } from "../../lib/presentation";
 
 export type JourneyReceipt = {
@@ -28,7 +36,11 @@ export type JourneyReceipt = {
   readonly claimText?: string;
   readonly severity?: ClaimSeverity;
   readonly provenance?: string;
+  /** The same derived liveness used by closure accounting. */
+  readonly live: boolean;
 };
+
+export type JourneyReceiptState = "live" | "superseded" | "mixed";
 
 export type JourneyTicket = {
   readonly checkId: string;
@@ -56,8 +68,10 @@ export type JourneyLayer = {
   readonly nodeId: string;
   readonly station: string;
   readonly epoch: number;
-  /** Recorded before the current epoch — receipts no longer count for closure. */
-  readonly stale: boolean;
+  /** Liveness of the evidence currently retained on this completed station row. */
+  readonly receiptState?: JourneyReceiptState;
+  /** This completed stop is shadowed by a later targeted defect. */
+  readonly needsRedo: boolean;
   /** The passage the task is living right now. */
   readonly live: boolean;
   readonly enteredAt: string;
@@ -72,9 +86,19 @@ export type JourneyLayer = {
   readonly receipts: ReadonlyArray<JourneyReceipt>;
   readonly tickets: ReadonlyArray<JourneyTicket>;
   readonly openClaims: ReadonlyArray<JourneyOpenClaim>;
-  readonly defect?: { readonly summary: string; readonly refs: ReadonlyArray<string> };
+  readonly defect?: {
+    readonly summary: string;
+    readonly refs: ReadonlyArray<string>;
+    readonly target: string;
+    readonly targetStation: string;
+  };
   /** First layer of its epoch — the view draws an epoch boundary above it. */
   readonly epochStart: boolean;
+  /** Defect that opened this layer's epoch. */
+  readonly epochDefect?: {
+    readonly target: string;
+    readonly targetStation: string;
+  };
 };
 
 export type TaskJourneyView = {
@@ -119,7 +143,12 @@ const defectOf = (
   task: Task,
   passage: Passage,
   currentNodeId: string,
-): { readonly summary: string; readonly refs: ReadonlyArray<string> } | undefined => {
+): {
+  readonly summary: string;
+  readonly refs: ReadonlyArray<string>;
+  readonly target: string;
+  readonly targetStation: string;
+} | undefined => {
   if (passage.exit !== "rejected-back" || passage.next === undefined) return undefined;
   const row =
     passage.next === currentNodeId ? task : rowAt(doc, passage.next, task.id);
@@ -136,9 +165,16 @@ const defectOf = (
         .filter((line) => line.startsWith("ref: "))
         .map((line) => line.slice("ref: ".length).trim())
         .filter((ref) => ref.length > 0),
+      target: passage.next,
+      targetStation: stationLabel(doc, passage.next),
     };
   }
-  return { summary: "", refs: [] };
+  return {
+    summary: "",
+    refs: [],
+    target: passage.next,
+    targetStation: stationLabel(doc, passage.next),
+  };
 };
 
 const receiptsAt = (
@@ -146,7 +182,9 @@ const receiptsAt = (
   task: Task,
   passage: Passage,
   row: Task | undefined,
+  isLatestCompleted: boolean,
 ): ReadonlyArray<JourneyReceipt> => {
+  if (!isLatestCompleted) return [];
   const evidence = row?.completionEvidence;
   const known = new Map(
     effectiveClaimsStack(doc, passage.nodeId, task).map((entry) => [
@@ -169,6 +207,7 @@ const receiptsAt = (
       kind: "response" as const,
       body: response.response,
       refs: cleanRefs(response.refs),
+      live: receiptLive(task, task.journey ?? [], passage),
       ...decorate(response.claimId),
     })),
     ...(evidence?.claimWaivers ?? []).map((waiver) => ({
@@ -176,6 +215,7 @@ const receiptsAt = (
       kind: "waiver" as const,
       body: waiver.reason,
       refs: [] as ReadonlyArray<string>,
+      live: waiverLive(task, passage),
       ...decorate(waiver.claimId),
     })),
   ];
@@ -228,19 +268,38 @@ export const buildTaskJourney = (
 ): TaskJourneyView => {
   const epoch = taskEpoch(task);
   const passages = task.journey ?? [];
+  const latestCompleted = latestCompletedPassages(passages);
+  const defects = taskDefects(task);
   const layers = passages.map((passage, index) => {
     const row =
       passage.nodeId === currentNodeId ? task : rowAt(doc, passage.nodeId, task.id);
-    const receipts = receiptsAt(doc, task, passage, row);
+    const isCompleted = passage.exit === "forwarded" || passage.exit === "closed";
+    const isLatestCompleted = latestCompleted.get(passage.nodeId) === passage;
+    const receipts = receiptsAt(doc, task, passage, row, isLatestCompleted);
     const defect = defectOf(doc, task, passage, currentNodeId);
     const live = passage.exit === undefined && index === passages.length - 1;
+    const responseIsLive = isCompleted
+      ? receiptLive(task, passages, passage)
+      : true;
+    const receiptState = receipts.length === 0
+      ? undefined
+      : receipts.every((receipt) => receipt.live)
+        ? "live" as const
+        : receipts.every((receipt) => !receipt.live)
+          ? "superseded" as const
+          : "mixed" as const;
+    const epochStart = index === 0 || passages[index - 1]!.epoch !== passage.epoch;
+    const epochDefect = epochStart && passage.epoch > 0
+      ? defects.find((entry) => entry.epoch === passage.epoch)
+      : undefined;
     return {
       key: `${passage.nodeId}-${passage.epoch}-${passage.enteredAt}-${index}`,
       ordinal: index + 1,
       nodeId: passage.nodeId,
       station: stationLabel(doc, passage.nodeId),
       epoch: passage.epoch,
-      stale: passage.epoch < epoch,
+      ...(receiptState !== undefined ? { receiptState } : {}),
+      needsRedo: isCompleted && !responseIsLive,
       live,
       enteredAt: passage.enteredAt,
       ...(passage.exitedAt !== undefined ? { exitedAt: passage.exitedAt } : {}),
@@ -262,7 +321,15 @@ export const buildTaskJourney = (
       tickets: ticketsAt(passage, row),
       openClaims: live ? openClaimsAt(doc, task, passage, receipts) : [],
       ...(defect !== undefined ? { defect } : {}),
-      epochStart: index === 0 || passages[index - 1]!.epoch !== passage.epoch,
+      epochStart,
+      ...(epochDefect !== undefined
+        ? {
+            epochDefect: {
+              target: epochDefect.target,
+              targetStation: stationLabel(doc, epochDefect.target),
+            },
+          }
+        : {}),
     } satisfies JourneyLayer;
   });
   return {
