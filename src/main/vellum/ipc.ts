@@ -822,7 +822,7 @@ export const registerVellumIpc = (): void => {
   // Operator promotion of an operator-gated pipeline arrival.
   privilegedIpc.handle(
     IPC_CHANNELS.workTaskPromote,
-    (_event, canvas: string, nodeId: string, taskId: string) =>
+    (_event, canvas: string, nodeId: string, taskId: string, note?: string) =>
       runRendererWorkAuthoring(
         "ipc.work.task-promote",
         () => AppRuntime.runPromise(
@@ -830,7 +830,27 @@ export const registerVellumIpc = (): void => {
             const denied = yield* denyRemoteWork;
             if (denied) return denied;
             const work = yield* WorkService;
-            return yield* work.workTaskPromote(canvas, nodeId, taskId);
+            return yield* work.workTaskPromote(canvas, nodeId, taskId, note);
+          }),
+        ),
+      ),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.workTaskRejectArrival,
+    (_event, canvas: string, nodeId: string, taskId: string, note?: string) =>
+      runRendererWorkAuthoring(
+        "ipc.work.task-reject-arrival",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const work = yield* WorkService;
+            return yield* work.workTaskRejectArrival(
+              canvas,
+              nodeId,
+              taskId,
+              note,
+            );
           }),
         ),
       ),

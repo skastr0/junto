@@ -436,6 +436,14 @@ export interface WorkServiceShape {
       canvas: string,
       nodeId: string,
       taskId: string,
+      note?: string,
+    ) => Effect.Effect<WorkOpResult<Task>>;
+    /** Operator rejection of an unpromoted operator-gated arrival. */
+    readonly workTaskRejectArrival: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      note?: string,
     ) => Effect.Effect<WorkOpResult<Task>>;
     /**
      * Task record with journey. Seat view is onion-scoped: prior passages
@@ -1540,7 +1548,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskPromote: (canvas, nodeId, taskId) =>
+      workTaskPromote: (canvas, nodeId, taskId, note) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -1585,11 +1593,121 @@ export const WorkLive = Layer.effect(
                 disposition: "applied" as const,
               });
             }
+            const noteText = note?.trim();
+            let message: Message | undefined;
+            if (noteText) {
+              const policy = yield* runPolicy(() =>
+                workMessageAppend(
+                  read.doc,
+                  canvas,
+                  nodeId,
+                  taskId,
+                  makeUserMessage({
+                    messageId: ulid(),
+                    text: noteText,
+                    contextId: canvas,
+                    taskId,
+                  }),
+                )
+              );
+              message = yield* externalizeMessage(policy.message, {
+                kind: "message",
+                canvasName: canvas,
+                nodeId,
+                recordId: policy.message.messageId,
+              });
+            }
             const outcome = yield* local(
               repository.promoteTask({
                 sink: sinkRef(canvas, nodeId),
                 basis: intentBasis(context, read.intentWitness),
                 taskId,
+                ...(message === undefined ? {} : { message }),
+              }),
+            );
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskRejectArrival: (canvas, nodeId, taskId, note) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            if (context.configuration.role !== "command-center") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  "only the Command Center operator may reject arrivals",
+              });
+            }
+            if (home !== context.localInstallationId) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message: "arrival rejection executes on the task home installation",
+              });
+            }
+            const node = yield* requireNode(read.doc, nodeId);
+            const task = node.ether?.tasks?.items.find((item) => item.id === taskId);
+            if (task === undefined) {
+              return yield* new WorkServiceError({
+                code: "task_not_found",
+                message: `task "${taskId}" not found`,
+              });
+            }
+            const admission = effectiveTaskAdmission(task, sinkContractOf(node));
+            if (admission !== "operator-gated" || taskPromoted(task)) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  `task "${taskId}" is not an unpromoted operator-gated arrival`,
+              });
+            }
+            const noteText = note?.trim();
+            let message: Message | undefined;
+            if (noteText) {
+              const policy = yield* runPolicy(() =>
+                workMessageAppend(
+                  read.doc,
+                  canvas,
+                  nodeId,
+                  taskId,
+                  makeUserMessage({
+                    messageId: ulid(),
+                    text: noteText,
+                    contextId: canvas,
+                    taskId,
+                  }),
+                )
+              );
+              message = yield* externalizeMessage(policy.message, {
+                kind: "message",
+                canvasName: canvas,
+                nodeId,
+                recordId: policy.message.messageId,
+              });
+            }
+            yield* runPolicy(() =>
+              workTaskTransition(
+                read.doc,
+                canvas,
+                nodeId,
+                taskId,
+                "rejected",
+                undefined,
+                ids,
+              )
+            );
+            const outcome = yield* local(
+              repository.transitionTask({
+                sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
+                taskId,
+                state: "rejected",
+                ...(message === undefined ? {} : { message }),
               }),
             );
             return yield* complete(canvas, outcome);

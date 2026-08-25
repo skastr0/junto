@@ -2675,7 +2675,7 @@ export function TaskBoard({
     return transitionTask(task, "submitted", comment.trim());
   };
 
-  const promoteTask = async (task: WorkTask) => {
+  const promoteTask = async (task: WorkTask, note?: string) => {
     if (!api) {
       setError("Promotion is not available until the current work service is ready.");
       return;
@@ -2684,7 +2684,7 @@ export function TaskBoard({
     setPendingTaskId(task.id);
     try {
       const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskPromote(name, node.id, task.id),
+        api.workTaskPromote(name, node.id, task.id, note?.trim() || undefined),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -2702,6 +2702,38 @@ export function TaskBoard({
     }
   };
 
+  const rejectArrival = async (task: WorkTask, note?: string) => {
+    if (!api?.workTaskRejectArrival) {
+      setError("Arrival rejection is not available until the current work service is ready.");
+      return;
+    }
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskRejectArrival(
+          name,
+          node.id,
+          task.id,
+          note?.trim() || undefined,
+        ),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not reject ${taskTitle(task)}. ${result.message}`);
+        return;
+      }
+      setAnnouncement(`Rejected arrival ${taskTitle(task)}.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not reject ${taskTitle(task)}. ${message}`);
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
   const arrivalMarkFor = (task: WorkTask): ReactNode => {
     if (task.state !== "submitted" || proposalById.has(task.id)) return null;
     const glance = arrivalGlance(task, sinkContract, nowMs);
@@ -2710,7 +2742,12 @@ export function TaskBoard({
         glance={glance}
         gatedStation={resolveSinkAdmission(sinkContract) === "operator-gated"}
         pending={pendingTaskId === task.id}
-        onPromote={glance.promotable ? () => void promoteTask(task) : undefined}
+        onPromote={
+          glance.promotable ? (note) => void promoteTask(task, note) : undefined
+        }
+        onReject={
+          glance.promotable ? (note) => void rejectArrival(task, note) : undefined
+        }
       />
     );
   };

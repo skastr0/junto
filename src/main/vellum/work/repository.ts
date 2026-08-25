@@ -425,6 +425,8 @@ export type DefectBackTaskInput = LocalWorkInput & {
 
 export type PromoteTaskInput = LocalWorkInput & {
   readonly taskId: string;
+  /** Operator context appended to the task thread before the admission stamp. */
+  readonly message?: MessageValue;
 };
 
 export type StampBoardingInput = LocalWorkInput & {
@@ -7965,8 +7967,14 @@ export const WorkRepositoryLive = Layer.effect(
         // Promotion is a metadata stamp on the arrival, not a state change;
         // it records as a same-state 'task.transition' fact (the closed
         // immutable-log vocabulary has no dedicated word for it).
+        const taskWithMessage = input.message === undefined
+          ? current.task
+          : {
+              ...current.task,
+              history: [...current.task.history, input.message],
+            };
         const task = Schema.decodeUnknownSync(Task, strictDecode)(
-          applyPipelinePatch(current.task, {
+          applyPipelinePatch(taskWithMessage, {
             admittedEpoch: current.task.epoch ?? 0,
           }),
         );
