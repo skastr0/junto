@@ -41,9 +41,9 @@ describe("actor rail state", () => {
     expect(actorRailsOpen(NODE).connections).toBe(false);
   });
 
-  it("feeds the panel budget the rails actually occupy", () => {
+  it("keeps one panel budget while stacked sections collapse", () => {
     const expanded = actorTerminalRailsPx(actorRailsOpen(NODE));
     setActorRailOpen(NODE, "ledger", false);
-    expect(actorTerminalRailsPx(actorRailsOpen(NODE))).toBeLessThan(expanded);
+    expect(actorTerminalRailsPx(actorRailsOpen(NODE))).toBe(expanded);
   });
 });

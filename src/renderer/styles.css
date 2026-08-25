@@ -200,8 +200,7 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   overflow: auto;
 }
 .focus-surface__panel--terminal {
-  /* ~140 mono cells @ 13px (terminalFocusWidthPx) plus any in-panel side
-     rails (actor ledger + connections) so the xterm keeps its columns. */
+  /* ~140 mono cells @ 13px plus the optional actor context pane. */
   width: min(
     calc(var(--focus-terminal-width, 1100px) + var(--focus-terminal-rails, 0px)),
     100%
@@ -2717,9 +2716,28 @@ ol.note-md__list > .note-md__li::before {
   .vellum-tooltip { transition: none; }
 }
 
-/* Actor terminal — edges as a collapsible *right* side pane beside xterm.
-   Same modal plate (header full-width); not a horizontal bar under chrome,
-   not a floating FocusSurface aside. Works in focus and pinned dock. */
+/* Actor terminal — one right instrument pane beside xterm. Ledger occupies a
+   compact, vertically resizable top section; connections fill the remainder.
+   The pane stays inside the modal plate and preserves the xterm measure. */
+.actor-terminal-right-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 248px;
+  width: 248px;
+  min-width: 248px;
+  max-width: 248px;
+  min-height: 0;
+  height: 100%;
+  border-left: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
+  overflow: hidden;
+}
+.actor-terminal-right-pane--pinned.actor-terminal-right-pane--connections-collapsed {
+  flex-basis: 36px;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+}
 .actor-edges-glance {
   display: flex;
   flex-direction: column;
@@ -2732,6 +2750,23 @@ ol.note-md__list > .note-md__li::before {
   border-left: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
   background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
   overflow: hidden;
+}
+.actor-terminal-right-pane > .actor-edges-glance {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-left: 0;
+}
+.actor-terminal-right-pane > .actor-edges-glance--collapsed {
+  flex: 0 0 36px;
+  height: 36px;
+  min-height: 36px;
+}
+.actor-terminal-right-pane--pinned > .actor-edges-glance--collapsed {
+  flex: 1 1 0;
+  height: 100%;
 }
 .actor-edges-glance--collapsed {
   flex: 0 0 36px;
@@ -2923,9 +2958,9 @@ ol.note-md__list > .note-md__li::before {
   margin-left: 0;
 }
 
-/* Actor terminal — ledger as a collapsible *left* side pane beside xterm.
-   Mirror of the connections pane: same plate, border on the trailing (right)
-   edge. Focus modal only — the pinned dock keeps just the connections pane. */
+/* Ledger is the compact top section of the actor's right instrument pane.
+   Native vertical resize is constrained below 40% of pane height; its content
+   owns the scroll so resizing never moves the terminal or outer modal. */
 .actor-ledger {
   display: flex;
   flex-direction: column;
@@ -2939,11 +2974,44 @@ ol.note-md__list > .note-md__li::before {
   background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
   overflow: hidden;
 }
+.actor-terminal-right-pane > .actor-ledger {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: clamp(136px, 34%, 320px);
+  min-height: 112px;
+  max-height: 38%;
+  border-right: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  resize: vertical;
+}
+.actor-terminal-right-pane > .actor-ledger--expanded::after {
+  position: absolute;
+  right: 12px;
+  bottom: 2px;
+  left: 12px;
+  height: 1px;
+  content: "";
+  background: color-mix(in srgb, var(--color-amber) 32%, transparent);
+  pointer-events: none;
+}
 .actor-ledger--collapsed {
   flex: 0 0 36px;
   width: 36px;
   min-width: 36px;
   max-width: 36px;
+}
+.actor-terminal-right-pane > .actor-ledger--collapsed {
+  flex: 0 0 36px;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  resize: none;
 }
 .actor-ledger__chrome {
   display: flex;
@@ -2959,7 +3027,11 @@ ol.note-md__list > .note-md__li::before {
   padding: 8px 4px 4px;
   border-bottom: 0;
 }
-/* Expand / collapse stays on the trailing (right) edge of the left pane. */
+.actor-terminal-right-pane .actor-ledger--collapsed .actor-ledger__chrome {
+  justify-content: flex-end;
+  padding: 4px 6px;
+}
+/* Expand / collapse stays at the right edge of the compact section header. */
 .actor-ledger__toggle {
   flex-shrink: 0;
   margin-left: auto;
@@ -3307,6 +3379,9 @@ button.actor-ledger__item-row:focus-visible {
   color: var(--color-faint);
   user-select: none;
 }
+.actor-terminal-right-pane .actor-ledger__rail {
+  display: none;
+}
 
 /* Native terminal — fill focus/dock body.
    Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
@@ -3325,7 +3400,7 @@ button.actor-ledger__item-row:focus-visible {
   background: var(--color-ground);
   overflow: hidden;
 }
-/* Row under header: optional edges side pane + xterm stage. */
+/* Row under header: xterm stage + optional actor context pane. */
 .native-terminal-surface__body {
   display: flex;
   flex-direction: row;

@@ -1,23 +1,12 @@
 /**
  * The focused agent modal must keep the terminal at its reading width while
- * the side rails open and close around it.
- *
- * The regression this holds shut: the panel budgeted both rails as expanded
- * whatever they were doing, so collapsing one left ~200px of slack inside the
- * panel, the xterm stage flexed into it, and the terminal ran ~190 columns
- * instead of 140. Rails must grow the panel outwards, never take the terminal's
- * width and never hand it more.
+ * ledger and connections open and close inside one stacked right pane.
  *
  *   bun run test:e2e:fast e2e/scenarios/actor-focus-rails-width.spec.ts
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  agentTextNode,
-  canvasDoc,
-  tasksCriteriaEdge,
-  tasksNode,
-} from "../harness/sandbox";
+import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
@@ -25,7 +14,6 @@ const AGENT_LABEL = "rails width worker";
 
 const fixtureDoc = canvasDoc(
   [
-    tasksNode({ id: "tasks", x: 40, y: 40 }),
     agentTextNode({
       id: "worker",
       key: "local:e2e-rails-worker",
@@ -33,15 +21,31 @@ const fixtureDoc = canvasDoc(
       x: 360,
       y: 40,
     }),
+    agentTextNode({
+      id: "peer",
+      key: "local:e2e-rails-peer",
+      label: "rails width peer",
+      x: 680,
+      y: 40,
+    }),
   ],
-  [tasksCriteriaEdge("e-tasks-worker", "tasks", "worker")],
+  [
+    {
+      id: "e-worker-peer",
+      fromNode: "worker",
+      toNode: "peer",
+      fromSide: "right",
+      toSide: "left",
+    },
+  ],
 );
 
 type WidthProbe = {
   readonly panel: number;
   readonly stage: number;
-  readonly ledger: number;
-  readonly connections: number;
+  readonly rightPane: number;
+  readonly ledgerHeight: number;
+  readonly connectionsHeight: number;
 };
 
 const probeWidths = async (
@@ -59,12 +63,17 @@ const probeWidths = async (
     return {
       panel: panel.getBoundingClientRect().width,
       stage: width(".native-terminal-surface__stage"),
-      ledger: width(".actor-ledger"),
-      connections: width(".actor-edges-glance"),
+      rightPane: width(".actor-terminal-right-pane"),
+      ledgerHeight:
+        document.querySelector(".actor-ledger")?.getBoundingClientRect()
+          .height ?? 0,
+      connectionsHeight:
+        document.querySelector(".actor-edges-glance")?.getBoundingClientRect()
+          .height ?? 0,
     };
   });
 
-test("collapsing a focus rail narrows the modal, not the terminal", async () => {
+test("collapsing stacked right-pane sections does not resize the terminal", async () => {
   const vellumCommand = await launchVellum();
 
   try {
@@ -109,16 +118,16 @@ test("collapsing a focus rail narrows the modal, not the terminal", async () => 
     expect(ledgerShut).toBeTruthy();
     if (!ledgerShut) return;
 
-    // The rail gave its width back to the panel, not to the terminal.
-    expect(ledgerShut.ledger).toBeLessThan(bothOpen.ledger);
+    expect(ledgerShut.ledgerHeight).toBeLessThan(bothOpen.ledgerHeight);
     expect(
       Math.abs(ledgerShut.stage - bothOpen.stage),
       `stage ${ledgerShut.stage} vs ${bothOpen.stage} after collapsing the ledger`,
     ).toBeLessThanOrEqual(2);
     expect(
-      bothOpen.panel - ledgerShut.panel,
-      "panel must narrow by what the ledger gave up",
-    ).toBeGreaterThan(100);
+      Math.abs(ledgerShut.panel - bothOpen.panel),
+      "stacked sections must keep the focus panel width stable",
+    ).toBeLessThanOrEqual(2);
+    expect(ledgerShut.rightPane).toBeCloseTo(bothOpen.rightPane, 0);
 
     await surface
       .getByRole("button", { name: "Collapse connections pane" })
@@ -136,7 +145,10 @@ test("collapsing a focus rail narrows the modal, not the terminal", async () => 
       Math.abs(bothShut.stage - bothOpen.stage),
       `stage ${bothShut.stage} vs ${bothOpen.stage} with both rails collapsed`,
     ).toBeLessThanOrEqual(2);
-    expect(bothShut.panel).toBeLessThan(ledgerShut.panel);
+    expect(bothShut.panel).toBeCloseTo(ledgerShut.panel, 0);
+    expect(bothShut.connectionsHeight).toBeLessThan(
+      ledgerShut.connectionsHeight,
+    );
 
     await mkdir(SHOTS, { recursive: true });
     await page.screenshot({

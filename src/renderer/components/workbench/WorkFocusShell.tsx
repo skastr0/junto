@@ -14,12 +14,11 @@ import {
 } from "../../lib/surface-registry";
 import {
   actorTerminalRailsPx,
-  type ActorRailsOpen,
   type FocusMeasure,
 } from "../../lib/focus-measure";
 import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
-import { actorRailsOpen, terminal$ } from "../../lib/terminal-state";
+import { terminal$ } from "../../lib/terminal-state";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
 import { FocusSurface } from "../FocusSurface";
@@ -28,15 +27,12 @@ import { WorkbenchPanes } from "./WorkbenchPanes";
 import { saveAndCloseNoteSurface } from "./NoteSurface";
 
 /**
- * Actor terminals carry in-panel side rails (ledger + connections); the panel
- * budgets their CURRENT width so the xterm keeps its target columns. Collapsing
- * a rail narrows the panel by what the rail gave up — it does not hand those
- * pixels to the terminal, and expanding one grows the panel outwards instead of
- * eating columns. Raw shells and herdr panes stay at the bare terminal measure.
+ * Actor terminals carry one stacked right instrument pane (ledger above
+ * connections). The panel budgets its width once so the xterm keeps its target
+ * columns. Raw shells and herdr panes stay at the bare terminal measure.
  */
 const railsForFrontSurface = (
   frontId: string | undefined,
-  railsOpen: Record<string, Partial<ActorRailsOpen> | undefined>,
 ): number => {
   if (!frontId) return 0;
   const nodeId = parseTerminalSurfaceId(frontId);
@@ -46,9 +42,7 @@ const railsForFrontSurface = (
   const role = roleOf(
     resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
   );
-  return role === "actor"
-    ? actorTerminalRailsPx(actorRailsOpen(nodeId, railsOpen))
-    : 0;
+  return role === "actor" ? actorTerminalRailsPx() : 0;
 };
 
 /** Map shell size family → FocusSurface measure token. */
@@ -102,10 +96,8 @@ export function WorkFocusShell() {
 
   const paneCount = panesForLayout(focusLayout);
   const pane0 = focusMru[0];
-  // Tracked: collapsing or expanding a rail must re-budget the panel.
-  const railsOpen = use$(terminal$.railsOpenByNodeId);
   const terminalRailsPx =
-    sizeKey === "terminal" ? railsForFrontSurface(pane0, railsOpen) : 0;
+    sizeKey === "terminal" ? railsForFrontSurface(pane0) : 0;
   const pane1 = paneCount === 2 ? focusMru[1] : undefined;
   const tabs = focusMru.slice(paneCount);
   const activeId = pane0;
@@ -134,10 +126,8 @@ export function WorkFocusShell() {
       // Mismatched keys clear inline width so CSS measure (terminal / workspace
       // / task-create) owns the box after pin/unpin or kind switches.
       // Remembered width is the CONTENT width — the panel minus whatever the
-      // side rails occupy right now. Storing the whole panel box instead froze
-      // the rails budget into the dial: re-opening applied a width measured
-      // while the rails were expanded, the rails then collapsed inside it, and
-      // the xterm quietly grew by the slack.
+      // right instrument pane occupies. Storing the whole panel box instead
+      // freezes that pane into the user's terminal-width dial.
       const stored = dock$.registry.peek().focusSize;
       if (stored && stored.key === sizeKey) {
         const width = stored.width + terminalRailsPx;
@@ -166,9 +156,8 @@ export function WorkFocusShell() {
       panelObserverRef.current?.disconnect();
       panelObserverRef.current = null;
     };
-    // terminalRailsPx: a rail toggle must re-apply the inline width, or the
-    // panel stays at the box it was mounted with and the stage absorbs the
-    // difference.
+    // terminalRailsPx remains part of the dependency contract if a future
+    // instrument-pane presentation changes width.
   }, [hasFocus, sizeKey, terminalRailsPx]);
 
   // Front-surface changes keep the same FocusSurface mounted — re-claim the

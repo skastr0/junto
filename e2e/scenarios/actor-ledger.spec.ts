@@ -1,11 +1,11 @@
 /**
- * Actor ledger — the left kernel-standing pane in the terminal focus modal.
+ * Actor ledger — compact top section of the terminal's right context pane.
  *   bun run test:e2e:fast e2e/scenarios/actor-ledger.spec.ts
  *
  * Asserts:
- *   - the ledger pane renders on the LEFT of an actor focus modal (mail
- *     section with its empty state until real kernel mail exists)
- *   - collapse parks it to a rail; expand restores it
+ *   - the ledger renders to the RIGHT of the terminal, below 40% height
+ *   - its height is resizable and its content scrolls internally
+ *   - collapse parks it to a header; expand restores it
  *   - pinning the surface drops the ledger — the pinned dock keeps only the
  *     connections pane (operator ruling)
  *   - switching to another canvas hides the ledger on the surviving surface
@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
-const SHOTS = join(process.cwd(), "_design_screenshots", "actor_ledger");
+const SHOTS = join(process.cwd(), "test-results", "actor-ledger-right-pane");
 const CANVAS = "actor-ledger";
 const OTHER_CANVAS = "actor-ledger-other";
 
@@ -49,7 +49,7 @@ const fixture = canvasDoc(
   ],
 );
 
-test("ledger pane renders left in focus, collapses, and stays out of the pinned dock", async () => {
+test("ledger is a compact resizable section in the right pane and stays out of the pinned dock", async () => {
   await mkdir(SHOTS, { recursive: true });
   const vellumCommand = await launchVellum({
     seedCanvases: {
@@ -72,8 +72,9 @@ test("ledger pane renders left in focus, collapses, and stays out of the pinned 
     await expect(front).toBeVisible({ timeout: 20_000 });
     await expect(front.locator("header").first()).toContainText("Alpha hub");
 
-    // Ledger left, connections right — one modal plate.
+    // Ledger above connections on the right — one modal plate.
     const ledger = front.getByTestId("actor-ledger");
+    const rightPane = front.getByTestId("actor-terminal-right-pane");
     await expect(ledger).toBeVisible({ timeout: 10_000 });
     await expect(front.getByTestId("actor-edges-glance")).toBeVisible();
     await expect(ledger.locator(".actor-ledger__section-title")).toHaveText(
@@ -84,14 +85,36 @@ test("ledger pane renders left in focus, collapses, and stays out of the pinned 
       "No mail yet",
     );
 
+    const geometry = await rightPane.evaluate((pane) => {
+      const ledger = pane.querySelector<HTMLElement>(".actor-ledger")!;
+      const scroll = pane.querySelector<HTMLElement>(".actor-ledger__scroll")!;
+      const stage = pane.parentElement!.querySelector<HTMLElement>(
+        ".native-terminal-surface__stage",
+      )!;
+      const paneBox = pane.getBoundingClientRect();
+      const ledgerBox = ledger.getBoundingClientRect();
+      const stageBox = stage.getBoundingClientRect();
+      const ledgerStyle = getComputedStyle(ledger);
+      return {
+        ledgerToStage: ledgerBox.left - stageBox.right,
+        heightRatio: ledgerBox.height / paneBox.height,
+        resize: ledgerStyle.resize,
+        scrollOverflow: getComputedStyle(scroll).overflowY,
+      };
+    });
+    expect(geometry.ledgerToStage).toBeGreaterThanOrEqual(-1);
+    expect(geometry.heightRatio).toBeLessThan(0.4);
+    expect(geometry.resize).toBe("vertical");
+    expect(geometry.scrollOverflow).toBe("auto");
+
     await page.screenshot({
       path: join(SHOTS, "ledger_focus.png"),
       fullPage: false,
     });
 
-    // Collapse to the rail; expand restores the mail section.
+    // Collapse to the compact header; expand restores the mail section.
     await ledger.getByRole("button", { name: "Collapse ledger pane" }).click();
-    await expect(ledger.locator(".actor-ledger__rail-label")).toBeVisible();
+    await expect(ledger).toHaveCSS("height", "36px");
     await expect(ledger.locator(".actor-ledger__section-title")).toHaveCount(0);
     await ledger.getByRole("button", { name: "Expand ledger" }).click();
     await expect(ledger.locator(".actor-ledger__section-title")).toHaveText(

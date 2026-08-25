@@ -50,6 +50,7 @@ import {
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { onTerminalEvent } from "../../lib/terminal-events";
+import { actorRailsOpen, terminal$ } from "../../lib/terminal-state";
 import {
   initialSessionLoadPhase,
   isSessionLoadActive,
@@ -1665,6 +1666,8 @@ export function TerminalSurface({
   const pinned = use$(() =>
     dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
   );
+  const railsOpen = use$(terminal$.railsOpenByNodeId);
+  const actorRailState = actorRailsOpen(node.id, railsOpen);
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
   const closeSurface = () => closeFocusModalSurface(surfaceId);
@@ -1944,10 +1947,10 @@ export function TerminalSurface({
           </Button>
         </div>
       ) : null}
-      {/* Body: ledger pane LEFT (focus only), xterm stage, edges pane RIGHT —
-          one modal plate. The pinned dock keeps just the connections pane. */}
+      {/* Body: xterm stage plus one compact right instrument pane. The ledger
+          occupies the resizable top section in focus; connections fill the
+          remainder. The pinned dock keeps just connections. */}
       <div className="native-terminal-surface__body">
-        {!pinned ? <ActorLedgerPane node={node} visible={visible} /> : null}
         <div className="native-terminal-surface__stage">
           <div
             ref={hostRef}
@@ -2019,7 +2022,24 @@ export function TerminalSurface({
             </div>
           ) : null}
         </div>
-        <ActorEdgesGlance node={node} zone={pinned ? "pinned" : "focus"} />
+        {agentSeat ? (
+          <aside
+            className={[
+              "actor-terminal-right-pane",
+              pinned ? "actor-terminal-right-pane--pinned" : "",
+              actorRailState.connections
+                ? "actor-terminal-right-pane--connections-expanded"
+                : "actor-terminal-right-pane--connections-collapsed",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-label="Agent context pane"
+            data-testid="actor-terminal-right-pane"
+          >
+            {!pinned ? <ActorLedgerPane node={node} visible={visible} /> : null}
+            <ActorEdgesGlance node={node} zone={pinned ? "pinned" : "focus"} />
+          </aside>
+        ) : null}
       </div>
     </div>
   );

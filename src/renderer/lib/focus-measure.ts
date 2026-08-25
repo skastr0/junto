@@ -65,22 +65,13 @@ export function terminalFocusWidthPx(
 }
 
 /**
- * Side rails inside an ACTOR terminal focus panel (ledger left, connections
- * right). These sit inside the panel, so an actor terminal's panel must be
- * budgeted wider or the xterm silently loses their width in columns
- * (140 targeted, 76 measured before this budget existed).
- *
- * The budget tracks each rail's CURRENT width, collapsed or expanded. Budget
- * both as expanded while they are collapsed and the panel keeps 408px it is
- * not using — the stage flexes into it and the xterm runs ~190 columns. A rail
- * grows the panel outwards; it never takes columns from the terminal, and
- * collapsing it never hands columns to the terminal.
+ * The ACTOR terminal's right instrument pane stacks the compact ledger above
+ * connections. Both sections share one width, so the focus panel budgets that
+ * width once and the xterm keeps its target columns.
  */
 export const TERMINAL_RAILS_PX = {
-  ledger: 248,
-  connections: 232,
-  /** Icon-only strip a collapsed rail keeps (.actor-ledger--collapsed). */
-  collapsed: 36,
+  /** Shared width of the stacked ledger and connections pane. */
+  rightPane: 248,
 } as const;
 
 /** Expanded / collapsed state of the two actor rails. */
@@ -96,10 +87,8 @@ export const DEFAULT_ACTOR_RAILS_OPEN: ActorRailsOpen = {
 };
 
 export const actorTerminalRailsPx = (
-  open: ActorRailsOpen = DEFAULT_ACTOR_RAILS_OPEN,
-): number =>
-  (open.ledger ? TERMINAL_RAILS_PX.ledger : TERMINAL_RAILS_PX.collapsed) +
-  (open.connections ? TERMINAL_RAILS_PX.connections : TERMINAL_RAILS_PX.collapsed);
+  _open: ActorRailsOpen = DEFAULT_ACTOR_RAILS_OPEN,
+): number => TERMINAL_RAILS_PX.rightPane;
 
 /** Default CSS pixel widths for non-ch measures (document / workspace). */
 export const FOCUS_WIDTH_PX = {

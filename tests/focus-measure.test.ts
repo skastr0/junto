@@ -36,25 +36,20 @@ describe("focus-measure", () => {
       readonly connections: boolean;
     }): number => terminalFocusWidthPx() + actorTerminalRailsPx(open);
 
-    it("defaults to both rails expanded (their mount state)", () => {
-      expect(actorTerminalRailsPx()).toBe(
-        TERMINAL_RAILS_PX.ledger + TERMINAL_RAILS_PX.connections,
-      );
+    it("budgets the shared right pane once", () => {
+      expect(actorTerminalRailsPx()).toBe(TERMINAL_RAILS_PX.rightPane);
     });
 
-    it("budgets a collapsed rail at its icon strip, not its expanded width", () => {
+    it("keeps one pane width while its stacked sections collapse", () => {
       expect(actorTerminalRailsPx({ ledger: false, connections: false })).toBe(
-        TERMINAL_RAILS_PX.collapsed * 2,
+        TERMINAL_RAILS_PX.rightPane,
       );
       expect(actorTerminalRailsPx({ ledger: true, connections: false })).toBe(
-        TERMINAL_RAILS_PX.ledger + TERMINAL_RAILS_PX.collapsed,
+        TERMINAL_RAILS_PX.rightPane,
       );
     });
 
-    // The regression: the panel budgeted both rails as expanded always, so a
-    // collapsed rail left 408px of slack the xterm stage flexed into — the
-    // focused terminal ran ~190 columns instead of its 140.
-    it("leaves the terminal the same width whichever way the rails sit", () => {
+    it("leaves the terminal the same width whichever stacked sections are open", () => {
       const stageWidths = [
         { ledger: true, connections: true },
         { ledger: true, connections: false },
@@ -66,13 +61,13 @@ describe("focus-measure", () => {
       expect(stageWidths[0]).toBe(terminalFocusWidthPx());
     });
 
-    it("grows the panel outwards when a rail expands", () => {
+    it("keeps the panel stable when a right-pane section expands", () => {
       const collapsed = panelWidth({ ledger: false, connections: false });
       const oneOpen = panelWidth({ ledger: true, connections: false });
       const bothOpen = panelWidth({ ledger: true, connections: true });
 
-      expect(oneOpen).toBeGreaterThan(collapsed);
-      expect(bothOpen).toBeGreaterThan(oneOpen);
+      expect(oneOpen).toBe(collapsed);
+      expect(bothOpen).toBe(oneOpen);
     });
   });
 });

@@ -52,8 +52,8 @@ export function FocusSurface({
   readonly label: string;
   readonly panelClassName?: string;
   /**
-   * Extra panel width budgeted for in-panel side rails (actor terminal
-   * ledger + connections). Zero for rail-less surfaces.
+   * Extra panel width budgeted for an in-panel actor context pane. Zero for
+   * pane-less surfaces.
    */
   readonly terminalRailsPx?: number;
   /**

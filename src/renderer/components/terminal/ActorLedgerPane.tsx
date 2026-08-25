@@ -1,11 +1,10 @@
 /**
- * Left side-pane ledger for an actor terminal surface — the seat's standing
+ * Compact top section of an actor terminal's right pane — the seat's standing
  * with the work kernel, read from the canvas doc projection (no IPC reads;
  * operator actions go through the work IPC mutations).
  *
- * Sits to the left of the xterm stage inside the same modal plate, mirror of
- * the connections pane on the right. Focus modal only by operator ruling; the
- * pinned dock keeps just the connections pane.
+ * Sits above connections inside the same right-side instrument pane. Focus
+ * modal only by operator ruling; the pinned dock keeps just connections.
  *
  * Canvas binding: terminal surfaces are node-keyed and survive canvas
  * navigation, but the ledger projects from — and mutates — the ambient
@@ -14,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskProposalState, TaskState } from "@shared/work-model";
@@ -485,7 +484,7 @@ export function ActorLedgerPane({
               aria-controls={listId}
               onClick={() => setExpanded(false)}
             >
-              <PanelLeftClose size={15} strokeWidth={1.75} />
+            <ChevronUp size={15} strokeWidth={1.75} />
             </IconButton>
           </>
         ) : (
@@ -502,7 +501,7 @@ export function ActorLedgerPane({
             aria-controls={listId}
             onClick={() => setExpanded(true)}
           >
-            <PanelLeftOpen size={15} strokeWidth={1.75} />
+            <ChevronDown size={15} strokeWidth={1.75} />
           </IconButton>
         )}
       </header>
