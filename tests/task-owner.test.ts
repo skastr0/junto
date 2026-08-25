@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import type { Task, TasksSinkContract } from "../src/shared/work-model";
-import { ActorSeatId } from "../src/shared/work-protocol";
-import { currentTaskOwner } from "../src/shared/task-owner";
+import { ActorRef, ActorSeatId } from "../src/shared/work-protocol";
+import {
+  currentTaskOwner,
+  taskCommentRecipient,
+} from "../src/shared/task-owner";
 
 const task = (overrides: Partial<Task> = {}): Task =>
   ({
@@ -69,5 +72,74 @@ describe("currentTaskOwner", () => {
         currentTaskOwner(task({ state, claimedBy: SEAT }), undefined),
       ).toEqual({ kind: "seat", seatId: SEAT });
     }
+  });
+});
+
+describe("taskCommentRecipient", () => {
+  const OTHER = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"b".repeat(64)}`);
+  const ref = (seatId: typeof SEAT, nodeId: string, canvasName = "alpha") =>
+    Schema.decodeUnknownSync(ActorRef)({ seatId, canvasName, nodeId });
+
+  it("routes to the live owning seat when someone else comments", () => {
+    const recipient = taskCommentRecipient(
+      task({ claimedBy: SEAT }),
+      undefined,
+      { seatId: OTHER },
+      [ref(SEAT, "agent-node")],
+      "alpha",
+    );
+    expect(recipient?.nodeId).toBe("agent-node");
+  });
+
+  it("never echoes the sender commenting on their own task", () => {
+    expect(
+      taskCommentRecipient(
+        task({ claimedBy: SEAT }),
+        undefined,
+        { seatId: SEAT },
+        [ref(SEAT, "agent-node")],
+        "alpha",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("stays silent for unclaimed, operator-owned, terminal, and dead-seat rows", () => {
+    const contract: TasksSinkContract = {
+      inbound: { admission: "operator-owned" },
+    };
+    // Unclaimed: no owner.
+    expect(
+      taskCommentRecipient(task(), undefined, { seatId: OTHER }, [ref(SEAT, "n")], "alpha"),
+    ).toBeUndefined();
+    // Operator-owned: the operator has no mailbox seat.
+    expect(
+      taskCommentRecipient(
+        task({ claimedBy: SEAT }),
+        contract,
+        { seatId: OTHER },
+        [ref(SEAT, "n")],
+        "alpha",
+      ),
+    ).toBeUndefined();
+    // Terminal: finished work notifies nobody.
+    expect(
+      taskCommentRecipient(
+        task({ state: "completed", claimedBy: SEAT }),
+        undefined,
+        { seatId: OTHER },
+        [ref(SEAT, "n")],
+        "alpha",
+      ),
+    ).toBeUndefined();
+    // Owner not live on this canvas: no terminal to notify.
+    expect(
+      taskCommentRecipient(
+        task({ claimedBy: SEAT }),
+        undefined,
+        { seatId: OTHER },
+        [ref(SEAT, "n", "beta")],
+        "alpha",
+      ),
+    ).toBeUndefined();
   });
 });

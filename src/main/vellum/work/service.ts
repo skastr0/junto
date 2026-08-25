@@ -82,6 +82,8 @@ import {
 } from "@shared/claims";
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/graph";
+import { taskCommentRecipient } from "@shared/task-owner";
+import { makeUserMessage } from "@shared/task";
 import {
   TICKET_OUTPUT_TAIL_MAX_BYTES,
   type Ruling,
@@ -2209,6 +2211,68 @@ export const WorkLive = Layer.effect(
                 nodeId,
                 outcome.value,
               );
+            }
+            // Owner routing: a task-scoped message is the comment channel, and
+            // the current owner of the row gets a mailbox copy — the claiming
+            // seat only, never the sender echoing itself; operator-owned and
+            // unclaimed rows notify nobody. Best-effort by law: a notification
+            // failure must never fail the append. Runs only on the home-local
+            // path — an enqueued append has no local mailbox to notify.
+            if (
+              outcome.disposition === "applied" &&
+              taskId !== null &&
+              destination.kind === "task"
+            ) {
+              yield* Effect.gen(function* () {
+                const task = targetNode.ether?.tasks?.items.find(
+                  (item) => item.id === taskId,
+                );
+                if (task === undefined) return;
+                const ownerRef = taskCommentRecipient(
+                  task,
+                  sinkContractOf(targetNode),
+                  sentBy,
+                  read.actorRefs,
+                  canvas,
+                );
+                if (ownerRef === undefined) return;
+                const sourceText = message.parts
+                  .flatMap((part) => (part.kind === "text" ? [part.text] : []))
+                  .join("\n");
+                const notification = makeUserMessage({
+                  messageId: ulid(),
+                  text: `${sourceText}\n(comment on task ${taskId} at "${nodeId}" — reply: vellum-command msg send '{"target":"${nodeId}","taskId":"${taskId}","text":"..."}')`,
+                  contextId: canvas,
+                  metadata: {
+                    factoryMail: true,
+                    taskComment: true,
+                    taskId,
+                    sinkNodeId: nodeId,
+                  },
+                });
+                const copy = yield* externalizeMessage(notification, {
+                  kind: "message",
+                  canvasName: canvas,
+                  nodeId: ownerRef.nodeId,
+                  recordId: notification.messageId,
+                });
+                const delivered = yield* local(
+                  repository.appendMessage({
+                    sink: sinkRef(canvas, ownerRef.nodeId),
+                    basis: intentBasis(context, read.intentWitness),
+                    message: copy,
+                    sentBy,
+                    destination: { kind: "mailbox" },
+                  }),
+                );
+                if (delivered.disposition === "applied") {
+                  messageDelivery.notifyAppended(
+                    canvas,
+                    ownerRef.nodeId,
+                    delivered.value,
+                  );
+                }
+              }).pipe(Effect.catch(() => Effect.succeed(undefined)));
             }
             return yield* complete(canvas, outcome);
           }),
