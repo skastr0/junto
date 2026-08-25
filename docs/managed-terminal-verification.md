@@ -106,6 +106,30 @@ Do not retry the flag on resume. The freeze is the trap.
 | H10 | 0x03: first interrupts turn, second exits; partial turns still billed | one historic self-exit anomaly: 5/5 clean reproduction attempts survived — bounded non-reproducible, QA watch |
 | R1–R4 | Over `ssh -t remote-a`: full TUI renders; 14 profiles enumerated (~1.5s, byte-stable, cacheable); `--profile X -m Y` spawn verified; typing echo 16–145ms (mean ~66ms) | ⚠ spawn-time "Installing TUI dependencies…" window (~1–2s): Ctrl+C there kills the ssh session — gate interrupts on positive readiness, never a quiet-gap |
 
+## Muse — session capture, and the overlay that is not doctrine (0.2.1, 2026-08-25)
+
+| # | fact | key receipt / trap |
+|---|---|---|
+| M1 | `--agents` is an agent-definition overlay, NOT an injection route | schema is strict `{name, instructions, optional tools}`; a `systemPrompt` key is REJECTED; unknown keys are SILENTLY ignored; instructions demanding a canary prefix were never obeyed in main-session turns |
+| M2 | The session id is never printed | a live PTY capture of the TUI carries no UUID anywhere in its output, and the OSC title is the bare workspace name |
+| M3 | The id is the session directory's name | `~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/session.jsonl`, whose first record is `runtime.session.metadata` carrying `workspace_root` and a microsecond `recorded_at` |
+| M4 | `muse resume <uuid>` is exact | ⚠ BARE `muse resume` opens the session picker — a seat on no known session. Never emit it |
+| M5 | The TUI requires a responsive host, and the requirement is FATAL | ⚠ with OSC 10/11 and the OSC 4 palette queries unanswered, 0.2.1 emits ~260 bytes and EXITS without painting. Answered, the same spawn paints the TUI and runs a turn |
+
+M1 is why Muse stays Tier B with no `agentFlag` and no `systemPromptFlag`: the
+overlay looks like a doctrine route and silently is not, which is the worst
+shape a capability claim can have.
+
+M2 and M3 are why capture reads the store instead of the screen, and why it
+matches on workspace AND start time (`term/templates/muse-session.ts`) — the
+newest directory on the machine can easily belong to another seat.
+
+M5 is a live gap, not a Muse bug: Vellum Command answers those queries only from
+the renderer's xterm surface (`renderer/lib/xterm-appearance.ts`), so a seat the
+factory wakes with no surface attached has nobody to answer it. Until the PTY
+layer answers for every seat regardless of surface, a factory-woken Muse seat
+exits at startup and has no session to capture or resume.
+
 ## Study findings that change the build
 
 From [`herdr-study.md`](research/managed-terminal-probes/herdr-study.md) (master @ c0fb777, Apache-2.0; learn-never-fork):

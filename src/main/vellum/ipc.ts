@@ -80,6 +80,8 @@ import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
 import { composerDraft } from "./term/composer-draft";
+import { homedir } from "node:os";
+import { MuseSeatCapture } from "./term/muse-seat-capture";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import {
   peekFirstTypedMessage,
@@ -1326,6 +1328,9 @@ export const registerVellumIpc = (): void => {
       termPlane.bindProductAutomationSuspension(
         productAutomationSuspension,
       );
+      // Post-spawn session capture for harnesses that mint an id and never
+      // print it (Muse). Home is read lazily so a test seam can move it.
+      const museSeatCapture = new MuseSeatCapture(() => homedir());
       const driveReady = (bindingId: string): boolean => {
         if (productAutomationSuspended) return false;
         const slot = seatStateRuntime.machine.getSlot(bindingId);
@@ -1467,6 +1472,19 @@ export const registerVellumIpc = (): void => {
         cancelManagedPulseReady(bindingId);
         acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
+        if (harness === "muse") {
+          // Watch from the spawn itself: capture matches on workspace AND a
+          // start time, so a seat cannot claim the session of the seat that
+          // started just before it in the same directory.
+          const live = termPlane.host.get(bindingId);
+          museSeatCapture.watch({
+            bindingId,
+            canvasName: live?.canvasName ?? "",
+            nodeId: live?.nodeId ?? "",
+            cwd: live?.cwd ?? "",
+            spawnedAtMs: Date.now(),
+          });
+        }
         if (harness === "grok") {
           managedDrive.markSpawned(bindingId, GROK_MIN_POST_SPAWN_MS);
           const cancel = scheduleManagedPulseReady(
@@ -1491,7 +1509,18 @@ export const registerVellumIpc = (): void => {
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         // Injection supervisor: event-driven re-engagement policy.
         injectionSupervisor.noteSeatState(event);
+        // Muse mints its session id without printing it, so the seat watches
+        // for it on its own boundaries and stores it once. Without that, a
+        // cold wake would start a NEW session instead of resuming this one.
+        void museSeatCapture.attempt(event.bindingId).then((sessionId) => {
+          if (sessionId) {
+            console.info(
+              `[term] captured muse session ${sessionId} for ${event.bindingId}`,
+            );
+          }
+        });
         if (event.state === "gone") {
+          museSeatCapture.forget(event.bindingId);
           // Generation exited: a resumed generation must be able to receive
           // the doctrine again (cold resume must not re-zero the seat).
           clearDeliveredForBinding(event.bindingId);

@@ -25,8 +25,7 @@ import {
   templateFor,
   type HarnessId,
 } from "@shared/managed-terminal-templates";
-import { AppRuntime } from "../../runtime";
-import { CanvasesService } from "../canvases";
+import { writeSeatSessionId } from "./seat-session-id";
 import { isAmpThreadId, provisionAmpThread } from "./templates/amp-thread";
 
 export type SeatThreadResult =
@@ -79,31 +78,6 @@ const storedSessionId = (
   return value;
 };
 
-const writeSessionId = (
-  canvasName: string,
-  nodeId: string,
-  sessionId: string,
-): Effect.Effect<void, unknown, CanvasesService> =>
-  Effect.gen(function* () {
-    const canvases = yield* CanvasesService;
-    // Transactional RMW: another writer may be touching the same canvas, and
-    // the id must not be lost to a stale full-document write.
-    yield* canvases.mutate(canvasName, (doc: CanvasDoc) => ({
-      ...doc,
-      nodes: doc.nodes.map((node) =>
-        node.id === nodeId && node.ether?.terminal
-          ? {
-              ...node,
-              ether: {
-                ...node.ether,
-                terminal: { ...node.ether.terminal, sessionId },
-              },
-            }
-          : node,
-      ),
-    }));
-  });
-
 /**
  * Return the seat's provisioned session id, minting and persisting one on the
  * first call. Harnesses that do not use provisioned sessions return `ok` with
@@ -132,18 +106,18 @@ export const ensureProvisionedSessionId = async (input: {
   const minted = await provisionFor(harness, input.cwd);
   if (!minted.ok) return minted;
 
-  try {
-    await AppRuntime.runPromise(
-      writeSessionId(input.canvasName, input.nodeId, minted.sessionId),
-    );
-  } catch (error) {
+  const stored = await writeSeatSessionId({
+    canvasName: input.canvasName,
+    nodeId: input.nodeId,
+    sessionId: minted.sessionId,
+  });
+  if (!stored.ok) {
     // The thread exists but the node does not know about it. Refusing here
     // keeps the seat off a thread it cannot resume later, and the operator
     // sees why instead of silently getting a second thread on the next wake.
-    const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      reason: `provisioned ${minted.sessionId} but could not store it on the seat: ${message}`,
+      reason: `provisioned ${minted.sessionId} but could not store it on the seat: ${stored.reason}`,
     };
   }
   return { ok: true, sessionId: minted.sessionId, minted: true };
