@@ -228,9 +228,9 @@ describe("formatHops and admissionLabel", () => {
   });
 
   it("says how a stop admits arrivals", () => {
-    expect(admissionLabel("auto")).toBe("open to workers");
-    expect(admissionLabel("operator-gated")).toBe("you admit arrivals");
-    expect(admissionLabel("operator-owned")).toBe("yours to work");
+    expect(admissionLabel("auto")).toBe("Immediate");
+    expect(admissionLabel("operator-gated")).toBe("Approval");
+    expect(admissionLabel("operator-owned")).toBe("Mine");
   });
 });
 

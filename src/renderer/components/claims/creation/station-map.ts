@@ -14,6 +14,7 @@ import {
 import { flowDestinations } from "@shared/flow-graph";
 import { stationIdentity } from "@shared/station-identity";
 import { resolveSinkAdmission, type SinkAdmission } from "@shared/work-model";
+import { admissionLabel } from "../../../lib/admission-labels";
 
 export type StationStop = {
   readonly nodeId: string;
@@ -111,14 +112,4 @@ export const formatHops = (hops: number): string => {
   return `${hops} stops on`;
 };
 
-/** How a station admits arrivals, in words. */
-export const admissionLabel = (admission: SinkAdmission): string => {
-  switch (admission) {
-    case "operator-owned":
-      return "yours to work";
-    case "operator-gated":
-      return "you admit arrivals";
-    case "auto":
-      return "open to workers";
-  }
-};
+export { admissionLabel };

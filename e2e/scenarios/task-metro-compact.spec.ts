@@ -128,7 +128,7 @@ test("five-stop fork renders one compact line-wide law", async ({}, testInfo) =>
         { exact: true },
       ),
     ).toHaveCount(1);
-    await expect(strip.getByText("open to workers", { exact: true })).toHaveCount(0);
+    await expect(strip.getByText("Immediate", { exact: true })).toHaveCount(0);
     await expect(
       strip.getByText("No standing law at this stop.", { exact: true }),
     ).toHaveCount(0);

@@ -1,5 +1,10 @@
 import { HOLD_FOR_MAX_MS } from "@shared/work-control";
 import type { SinkAdmission } from "@shared/work-model";
+import {
+  ADMISSION_LABELS,
+  ADMISSION_ORDER,
+  admissionOutcome,
+} from "../../lib/admission-labels";
 import { parseBakeTime } from "../claims/sink-contract";
 
 const ADMISSION_RANK: Readonly<Record<SinkAdmission, number>> = {
@@ -12,22 +17,10 @@ export const TASK_ADMISSION_CHOICES: ReadonlyArray<{
   readonly value: SinkAdmission;
   readonly label: string;
   readonly outcome: string;
-}> = [
-  { value: "auto", label: "Immediate", outcome: "Goes live immediately" },
-  {
-    value: "operator-gated",
-    label: "Approval",
-    outcome: "Waits for my approval",
-  },
-  {
-    value: "operator-owned",
-    label: "Mine",
-    outcome: "I work it myself",
-  },
-];
+}> = ADMISSION_ORDER.map((value) => ADMISSION_LABELS[value]);
 
 export const admissionFloorOutcome = (floor: SinkAdmission): string =>
-  TASK_ADMISSION_CHOICES.find((choice) => choice.value === floor)?.outcome ?? floor;
+  admissionOutcome(floor);
 
 /** Creation defaults to operator approval, unless the sink floor is stricter. */
 export const defaultTaskAdmission = (floor: SinkAdmission): SinkAdmission =>

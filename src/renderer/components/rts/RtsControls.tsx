@@ -37,6 +37,10 @@ import {
   productNodeKindEnabled,
 } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
+import {
+  ADMISSION_ORDER,
+  admissionLabel,
+} from "../../lib/admission-labels";
 import { HUE } from "../../lib/theme";
 import { isCommandCenterAuthoring } from "../../lib/canvas-boot";
 import { state$ } from "../../lib/state";
@@ -472,11 +476,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
         <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
           <span className="rts-kind-pop__title">Admission</span>
           <div className="rts-kind-pop__choices">
-            {([
-              ["auto", "Auto"],
-              ["operator-gated", "Gated"],
-              ["operator-owned", "Owned"],
-            ] as const).map(([value, label]) => (
+            {ADMISSION_ORDER.map((value) => (
               <Button
                 key={value}
                 size="xs"
@@ -487,7 +487,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
                   setPop(null);
                 }}
               >
-                {label}
+                {admissionLabel(value)}
               </Button>
             ))}
           </div>

@@ -17,23 +17,22 @@ import { setSinkContract } from "../../lib/mutations";
 import { Chip, Select } from "../ui";
 import { ClaimList } from "./ClaimList";
 import { CheckList } from "./CheckList";
+import {
+  admissionChoiceLabel,
+  admissionLabel,
+  ADMISSION_ORDER,
+} from "../../lib/admission-labels";
 import { formatBakeTime, normalizeSinkContract, parseBakeTime } from "./sink-contract";
 
 // The sink contract is what a station is: its purpose, its standing law, how
 // arrivals become claimable, and what it publishes forward. A full station
 // view opens both sides; board-column entry opens only the side it names.
 
-const ADMISSION_OPTIONS: ReadonlyArray<{ readonly value: SinkAdmission; readonly label: string }> = [
-  { value: "auto", label: "Auto — seats claim on arrival" },
-  { value: "operator-gated", label: "Operator gated — you promote arrivals" },
-  { value: "operator-owned", label: "Operator owned — no seat ever claims" },
-];
-
-const ADMISSION_SHORT: Record<SinkAdmission, string> = {
-  auto: "auto",
-  "operator-gated": "operator gated",
-  "operator-owned": "operator owned",
-};
+const ADMISSION_OPTIONS: ReadonlyArray<{ readonly value: SinkAdmission; readonly label: string }> =
+  ADMISSION_ORDER.map((value) => ({
+    value,
+    label: admissionChoiceLabel(value),
+  }));
 
 const openFoldsFor = (focusSide: "inbound" | "outbound" | undefined) => ({
   inbound: focusSide !== "outbound",
@@ -251,7 +250,7 @@ export function SinkContractEditor({
 
   const bake = formatBakeTime(inbound?.claimableAfterMs);
   const inboundSummary = [
-    ADMISSION_SHORT[admission],
+    admissionLabel(admission),
     bake ? `bakes ${bake}` : undefined,
     inbound?.checklist?.length ? `${inbound.checklist.length} checks` : undefined,
   ]

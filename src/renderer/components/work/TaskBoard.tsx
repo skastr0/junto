@@ -66,6 +66,7 @@ import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
 import { TaskCreationMetroMap } from "../claims/creation";
 import { PinRulingControl, SinkContractEditor } from "../claims";
 import { formatBakeTime } from "../claims/sink-contract";
+import { admissionLabel } from "../../lib/admission-labels";
 import {
   TaskStationConsole,
   type StationSubmission,
@@ -2505,15 +2506,9 @@ export function TaskBoard({
   );
   const inboundContractGlance = useMemo(() => {
     const admission = resolveSinkAdmission(sinkContract);
-    const admissionLabel =
-      admission === "auto"
-        ? "Automatic"
-        : admission === "operator-gated"
-          ? "Waits for approval"
-          : "Operator owned";
     const bake = formatBakeTime(sinkContract?.inbound?.claimableAfterMs);
     return {
-      admission: `Admission: ${admissionLabel}`,
+      admission: `Admission: ${admissionLabel(admission)}`,
       bake: `Bake: ${bake || "none"}`,
     };
   }, [sinkContract]);

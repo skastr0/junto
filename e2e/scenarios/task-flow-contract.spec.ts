@@ -75,7 +75,7 @@ test("flow columns teach their real route and open the matching contract side", 
     await expect(board.getByText("Awaiting approval", { exact: true })).toHaveCount(0);
 
     const inbound = board.getByTestId("task-lane-inbound");
-    await expect(inbound).toContainText("Admission: Waits for approval");
+    await expect(inbound).toContainText("Admission: Approval");
     await expect(inbound).toContainText("Bake: 12h");
     await expect(inbound).toContainText("Arrivals from Intake land here.");
 
