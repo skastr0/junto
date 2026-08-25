@@ -2295,6 +2295,7 @@ describe("WorkService — pipeline", () => {
             ether: {
               entity: { kind: "task" },
               tasks: {
+                items: [],
                 contract: { inbound: { admission: "operator-gated" } },
               },
             },
