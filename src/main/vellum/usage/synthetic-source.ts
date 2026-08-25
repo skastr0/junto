@@ -10,9 +10,9 @@ import type { UsageSource } from "./usage-source";
 // weeklyTokenLimit, search.hourly. Generic fallback collects any object that
 // carries percent or limit/used/remaining fields.
 //
-// Credential resolution (cheap, local, read-only):
-//   1. SYNTHETIC_API_KEY environment variable (quotes stripped)
-// TODO: an operator-configured key tier lands with the Providers settings page.
+// Credential resolution (cheap, local, read-only), in order:
+//   1. operator-configured key from Settings > Providers (deliberate intent)
+//   2. SYNTHETIC_API_KEY environment variable (quotes stripped)
 // There is no CLI and no OAuth flow. Every failure folds into the snapshot
 // envelope; secrets never reach error strings or logs.
 
@@ -51,9 +51,20 @@ export const cleanSyntheticApiKey = (raw: string | undefined): string | undefine
   return value.length > 0 ? value : undefined;
 };
 
-/** Credential resolution from the environment. */
-export const resolveSyntheticApiKey = (env: NodeJS.ProcessEnv = process.env): string | undefined =>
-  cleanSyntheticApiKey(env["SYNTHETIC_API_KEY"]);
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface SyntheticOperatorCredentials {
+  readonly apiKey?: string;
+}
+
+/**
+ * Credential resolution: operator setting first (deliberate intent), then the
+ * SYNTHETIC_API_KEY environment variable.
+ */
+export const resolveSyntheticApiKey = (
+  env: NodeJS.ProcessEnv = process.env,
+  operator?: SyntheticOperatorCredentials,
+): string | undefined =>
+  cleanSyntheticApiKey(operator?.apiKey) ?? cleanSyntheticApiKey(env["SYNTHETIC_API_KEY"]);
 
 // ---------------------------------------------------------------------------
 // Response decode (pure, unit-tested)
@@ -501,15 +512,20 @@ const envelope = (
 /** Injectable dependencies so tests stay hermetic (no network, no host files). */
 export interface SyntheticSourceDeps {
   readonly resolveApiKey?: () => string | undefined;
+  /** Settings > Providers reader; consulted ahead of the env var. */
+  readonly readOperator?: () => SyntheticOperatorCredentials | undefined;
   readonly fetchImpl?: typeof fetch;
 }
 
 /**
- * Build the Synthetic usage source. The default instance resolves
- * SYNTHETIC_API_KEY and uses global fetch.
+ * Build the Synthetic usage source. The default instance resolves the
+ * operator-configured key first, then SYNTHETIC_API_KEY, and uses global
+ * fetch.
  */
 export const makeSyntheticSource = (deps: SyntheticSourceDeps = {}): UsageSource => {
-  const resolveApiKey = deps.resolveApiKey ?? (() => resolveSyntheticApiKey());
+  const resolveApiKey =
+    deps.resolveApiKey ??
+    (() => resolveSyntheticApiKey(process.env, deps.readOperator?.()));
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
 
   /** Cheap local presence probe: credential resolvable, no network. */
@@ -566,4 +582,5 @@ export const makeSyntheticSource = (deps: SyntheticSourceDeps = {}): UsageSource
   };
 };
 
+/** Default instance: no operator tier (env var only). */
 export const syntheticSource: UsageSource = makeSyntheticSource();

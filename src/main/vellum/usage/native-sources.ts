@@ -1,17 +1,19 @@
-import { Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { antigravitySource } from "./antigravity-source";
 import { claudeSource } from "./claude-source";
 import { codexSource } from "./codex-source";
-import { copilotSource } from "./copilot-source";
-import { cursorSource } from "./cursor-source";
-import { devinSource } from "./devin-source";
+import { makeCopilotSource } from "./copilot-source";
+import { makeCursorSource } from "./cursor-source";
+import { makeDevinSource } from "./devin-source";
 import { grokSource } from "./grok-source";
 import { hermesSource } from "./hermes-source";
-import { kimiSource } from "./kimi-source";
-import { ollamaSource } from "./ollama-source";
-import { openrouterSource } from "./openrouter-source";
-import { opencodeGoSource } from "./opencodego-source";
-import { syntheticSource } from "./synthetic-source";
+import { makeKimiSource } from "./kimi-source";
+import { makeOllamaSource } from "./ollama-source";
+import { makeOpenRouterSource } from "./openrouter-source";
+import { makeOpencodeGoSource } from "./opencodego-source";
+import { makeSyntheticSource } from "./synthetic-source";
+import { OperatorProviderCredentials } from "./operator-credentials";
+import type { UsageSource } from "./usage-source";
 import { UsageSources } from "./usage-source";
 
 // Station usage registry.
@@ -27,22 +29,42 @@ import { UsageSources } from "./usage-source";
  * windows via OAuth, Codex limits via ChatGPT backend, Grok/Hermes session
  * tokens. Order matters for HUD paint order only; correctness never depends
  * on it.
+ *
+ * Sources with an operator-configurable credential tier (copilot, cursor,
+ * devin, kimi, ollama, opencode-go, openrouter, synthetic) are built over the
+ * OperatorProviderCredentials reader so Settings > Providers sits FIRST in
+ * every resolution chain: operator setting -> env var -> credential files.
  */
-export const NATIVE_USAGE_SOURCES = [
-  claudeSource,
-  codexSource,
-  copilotSource,
-  cursorSource,
-  devinSource,
-  grokSource,
-  hermesSource,
-  kimiSource,
-  ollamaSource,
-  opencodeGoSource,
-  openrouterSource,
-  antigravitySource,
-  syntheticSource,
-] as const;
+type OperatorProviderCredentialsShape = Context.Service.Shape<
+  typeof OperatorProviderCredentials
+>;
+
+export const makeNativeUsageSources = (
+  operator: OperatorProviderCredentialsShape,
+): ReadonlyArray<UsageSource> => {
+  const readOperator = operator.read;
+  return [
+    claudeSource,
+    codexSource,
+    makeCopilotSource(() => readOperator().copilot),
+    makeCursorSource(() => readOperator().cursor),
+    makeDevinSource(() => readOperator().devin),
+    grokSource,
+    hermesSource,
+    makeKimiSource(() => readOperator().kimi),
+    makeOllamaSource(() => readOperator().ollama),
+    makeOpencodeGoSource(() => readOperator().opencodeGo),
+    makeOpenRouterSource(() => readOperator().openrouter),
+    antigravitySource,
+    makeSyntheticSource({ readOperator: () => readOperator().synthetic }),
+  ];
+};
 
 /** Production registry: the native strategy pipelines alone. */
-export const StationUsageSourcesLive = Layer.succeed(UsageSources, [...NATIVE_USAGE_SOURCES]);
+export const StationUsageSourcesLive = Layer.effect(
+  UsageSources,
+  Effect.gen(function* () {
+    const operator = yield* OperatorProviderCredentials;
+    return [...makeNativeUsageSources(operator)];
+  }),
+);

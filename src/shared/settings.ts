@@ -344,6 +344,151 @@ export const TerminalSettings = Schema.Struct({
 });
 export type TerminalSettings = typeof TerminalSettings.Type;
 
+// --- Providers (usage credentials) ----------------------------------------
+//
+// Operator-configured credentials for usage sources that need an API key /
+// token / cookie. One optional record per configurable provider; every field
+// is an optional secret so installed rows written before this section still
+// decode (absent ≡ not configured - env vars and conventional credential
+// files keep working unchanged).
+//
+// Secrets never leave main in clear text: every renderer-facing copy of the
+// aggregate goes through redactProvidersForIpc first, and a patch field whose
+// value equals MASKED_SECRET is treated as "unchanged" so an echoed masked
+// row can never overwrite the stored secret.
+
+/** Placeholder shown wherever a configured provider secret would appear. */
+export const MASKED_SECRET = "********";
+
+/** Upper bound for one provider credential value (Cookie headers run long). */
+const providerSecretString = Schema.String.pipe(
+  Schema.check(Schema.isMaxLength(8192)),
+);
+
+const OpenRouterProviderCredentials = Schema.Struct({
+  apiKey: Schema.optionalKey(providerSecretString),
+  managementApiKey: Schema.optionalKey(providerSecretString),
+});
+export type OpenRouterProviderCredentials = typeof OpenRouterProviderCredentials.Type;
+
+const SyntheticProviderCredentials = Schema.Struct({
+  apiKey: Schema.optionalKey(providerSecretString),
+});
+export type SyntheticProviderCredentials = typeof SyntheticProviderCredentials.Type;
+
+const KimiProviderCredentials = Schema.Struct({
+  authToken: Schema.optionalKey(providerSecretString),
+  apiKey: Schema.optionalKey(providerSecretString),
+});
+export type KimiProviderCredentials = typeof KimiProviderCredentials.Type;
+
+const DevinProviderCredentials = Schema.Struct({
+  bearerToken: Schema.optionalKey(providerSecretString),
+  /** Not a secret - it selects the billing organization to read. */
+  organizationId: Schema.optionalKey(
+    Schema.String.pipe(Schema.check(Schema.isMaxLength(256))),
+  ),
+});
+export type DevinProviderCredentials = typeof DevinProviderCredentials.Type;
+
+const OpencodeGoProviderCredentials = Schema.Struct({
+  apiKey: Schema.optionalKey(providerSecretString),
+});
+export type OpencodeGoProviderCredentials = typeof OpencodeGoProviderCredentials.Type;
+
+const CopilotProviderCredentials = Schema.Struct({
+  token: Schema.optionalKey(providerSecretString),
+});
+export type CopilotProviderCredentials = typeof CopilotProviderCredentials.Type;
+
+const OllamaProviderCredentials = Schema.Struct({
+  sessionCookie: Schema.optionalKey(providerSecretString),
+  apiKey: Schema.optionalKey(providerSecretString),
+});
+export type OllamaProviderCredentials = typeof OllamaProviderCredentials.Type;
+
+const CursorProviderCredentials = Schema.Struct({
+  cookieHeader: Schema.optionalKey(providerSecretString),
+});
+export type CursorProviderCredentials = typeof CursorProviderCredentials.Type;
+
+/**
+ * The configurable usage-provider ids. Claude / Codex / Hermes / Grok /
+ * Antigravity are intentionally absent - their credentials come from OAuth or
+ * harness sessions, never from this page.
+ */
+export const PROVIDER_SECTION_KEYS = [
+  "openrouter",
+  "synthetic",
+  "kimi",
+  "devin",
+  "opencodeGo",
+  "copilot",
+  "ollama",
+  "cursor",
+] as const;
+export type ProviderSectionKey = (typeof PROVIDER_SECTION_KEYS)[number];
+
+export const ProvidersSettings = Schema.Struct({
+  openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
+  synthetic: Schema.optionalKey(SyntheticProviderCredentials),
+  kimi: Schema.optionalKey(KimiProviderCredentials),
+  devin: Schema.optionalKey(DevinProviderCredentials),
+  opencodeGo: Schema.optionalKey(OpencodeGoProviderCredentials),
+  copilot: Schema.optionalKey(CopilotProviderCredentials),
+  ollama: Schema.optionalKey(OllamaProviderCredentials),
+  cursor: Schema.optionalKey(CursorProviderCredentials),
+});
+export type ProvidersSettings = typeof ProvidersSettings.Type;
+
+/** Which fields of each provider record are secrets (masked over IPC). */
+export const PROVIDER_SECRET_FIELDS: Readonly<
+  Record<ProviderSectionKey, ReadonlyArray<string>>
+> = {
+  openrouter: ["apiKey", "managementApiKey"],
+  synthetic: ["apiKey"],
+  kimi: ["authToken", "apiKey"],
+  devin: ["bearerToken"],
+  opencodeGo: ["apiKey"],
+  copilot: ["token"],
+  ollama: ["sessionCookie", "apiKey"],
+  cursor: ["cookieHeader"],
+};
+
+export const defaultProviders = (): ProvidersSettings => ({});
+
+/**
+ * Copy of the aggregate safe for renderers: every configured provider secret
+ * is replaced by MASKED_SECRET. Non-secret fields (devin.organizationId)
+ * pass through. Main-process consumers read raw values from the service.
+ */
+export const redactProvidersForIpc = (settings: Settings): Settings => {
+  const providers = settings.providers;
+  if (providers === undefined) return settings;
+  const entries: Array<[ProviderSectionKey, Record<string, string | undefined>]> = [];
+  for (const key of PROVIDER_SECTION_KEYS) {
+    const section = providers[key];
+    if (section === undefined) continue;
+    const secretFields = PROVIDER_SECRET_FIELDS[key];
+    const nextSection: Record<string, string | undefined> = { ...section };
+    for (const [field, value] of Object.entries(section)) {
+      if (
+        secretFields.includes(field) &&
+        typeof value === "string" &&
+        value !== MASKED_SECRET
+      ) {
+        nextSection[field] = MASKED_SECRET;
+      }
+    }
+    entries.push([key, nextSection]);
+  }
+  if (entries.length === 0) return settings;
+  return {
+    ...settings,
+    providers: Object.fromEntries(entries) as ProvidersSettings,
+  };
+};
+
 export const Settings = Schema.Struct({
   version: Schema.Literal(SETTINGS_VERSION),
   appearance: AppearanceSettings,
@@ -365,6 +510,13 @@ export const Settings = Schema.Struct({
    * Read it through terminalSettings() rather than reaching for the key.
    */
   terminal: Schema.optionalKey(TerminalSettings),
+  /**
+   * Optional so rows written before the Providers settings surface still
+   * decode. Absent ≡ nothing operator-configured; consumers fall back to env
+   * vars and conventional credential files. Read it through the aggregate -
+   * the renderer only ever sees the redacted projection.
+   */
+  providers: Schema.optionalKey(ProvidersSettings),
 });
 export type Settings = typeof Settings.Type;
 
@@ -434,6 +586,23 @@ export const TerminalPatch = Schema.Struct({
 });
 export type TerminalPatch = typeof TerminalPatch.Type;
 
+/**
+ * Partial provider update: omitted provider sections are untouched; within a
+ * section, omitted fields keep their stored value. "" clears a field;
+ * MASKED_SECRET is a no-op so an echoed masked row cannot clobber the secret.
+ */
+export const ProvidersPatch = Schema.Struct({
+  openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
+  synthetic: Schema.optionalKey(SyntheticProviderCredentials),
+  kimi: Schema.optionalKey(KimiProviderCredentials),
+  devin: Schema.optionalKey(DevinProviderCredentials),
+  opencodeGo: Schema.optionalKey(OpencodeGoProviderCredentials),
+  copilot: Schema.optionalKey(CopilotProviderCredentials),
+  ollama: Schema.optionalKey(OllamaProviderCredentials),
+  cursor: Schema.optionalKey(CursorProviderCredentials),
+});
+export type ProvidersPatch = typeof ProvidersPatch.Type;
+
 export const HarnessInstancePrefsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   model: Schema.optionalKey(harnessPrefString(200)),
@@ -501,6 +670,7 @@ export const SettingsPatch = Schema.Struct({
   fleet: Schema.optionalKey(FleetPatch),
   harnesses: Schema.optionalKey(HarnessesPatch),
   terminal: Schema.optionalKey(TerminalPatch),
+  providers: Schema.optionalKey(ProvidersPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -512,7 +682,8 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "station",
 "fleet",
 "harnesses",
-"terminal",]);
+"terminal",
+"providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
@@ -618,6 +789,7 @@ export const defaultSettings = (): Settings => ({
   fleet: defaultFleet(),
   harnesses: defaultHarnesses(),
   terminal: defaultTerminal(),
+  providers: defaultProviders(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -642,6 +814,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultHarnesses();
     case "terminal":
       return defaultTerminal();
+    case "providers":
+      return defaultProviders();
   }
 };
 
@@ -770,6 +944,33 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       };
     }
     next = { ...next, harnesses: { byHarness } };
+  }
+  if (patch.providers) {
+    const current = next.providers ?? defaultProviders();
+    let providers = current;
+    for (const key of PROVIDER_SECTION_KEYS) {
+      const sectionPatch: Record<string, string | undefined> | undefined =
+        patch.providers[key];
+      if (!sectionPatch) continue;
+      const prior: Record<string, string | undefined> = {
+        ...(providers[key] ?? {}),
+      };
+      for (const [field, value] of Object.entries(sectionPatch)) {
+        if (value === undefined) continue;
+        const trimmed = value.trim();
+        // An echoed masked row means "unchanged" - never overwrite the secret.
+        if (trimmed === MASKED_SECRET) continue;
+        if (trimmed.length === 0) delete prior[field];
+        else prior[field] = trimmed;
+      }
+      providers = {
+        ...providers,
+        [key]: Object.fromEntries(
+          Object.entries(prior).filter(([, v]) => v !== undefined),
+        ),
+      };
+    }
+    next = { ...next, providers };
   }
   return next;
 };

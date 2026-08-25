@@ -6,6 +6,7 @@ import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
 import { themePublishDecision } from "./theme-publish";
 import {
   SettingsSectionKey,
+  redactProvidersForIpc,
   settingsOpFail,
   settingsOpOk,
   type Settings,
@@ -27,6 +28,14 @@ import {
 } from "../state/recovery";
 
 const decodeSection = Schema.decodeUnknownResult(SettingsSectionKey);
+
+/**
+ * Renderer-facing projection: provider secrets leave main only as
+ * MASKED_SECRET. Raw values stay inside main (SettingsService and the
+ * usage-plane accessor); they never ride IPC results or broadcasts.
+ */
+const toRendererOpResult = (op: SettingsOpResult): SettingsOpResult =>
+  op.settings === undefined ? op : { ...op, settings: redactProvidersForIpc(op.settings) };
 
 const toOpResult = (
   either: Result.Result<
@@ -72,7 +81,7 @@ export const registerSettingsIpc = (
         const result = yield* Effect.result(settings.get);
         const op = toOpResult(result);
         publishThemeFromOp(op);
-        return op;
+        return toRendererOpResult(op);
       }),
     ),
   );
@@ -89,7 +98,7 @@ export const registerSettingsIpc = (
         const result = yield* Effect.result(settings.patch(patch));
         const op = toOpResult(result);
         publishThemeFromOp(op);
-        return op;
+        return toRendererOpResult(op);
       }),
     ),
   );
@@ -108,7 +117,7 @@ export const registerSettingsIpc = (
           );
         }
         const result = yield* Effect.result(settings.setStationTopology(station));
-        return toOpResult(result);
+        return toRendererOpResult(toOpResult(result));
       }),
     ),
   );
@@ -119,14 +128,14 @@ export const registerSettingsIpc = (
         const settings = yield* SettingsService;
         if (section === undefined || section === null || section === "") {
           const result = yield* Effect.result(settings.reset());
-          return toOpResult(result);
+          return toRendererOpResult(toOpResult(result));
         }
         const decoded = decodeSection(section);
         if (Result.isFailure(decoded)) {
           return settingsOpFail("validation", "settings reset section is invalid");
         }
         const result = yield* Effect.result(settings.reset(decoded.success));
-        return toOpResult(result);
+        return toRendererOpResult(toOpResult(result));
       }),
     ),
   );
@@ -182,7 +191,7 @@ export const registerSettingsIpc = (
       const settings = yield* SettingsService;
       settings.subscribe((next) => {
         publishThemePreference(next);
-        broadcast(IPC_CHANNELS.settingsChanged, next);
+        broadcast(IPC_CHANNELS.settingsChanged, redactProvidersForIpc(next));
       });
       // Prime cache so first UI open is warm and doctor is honest. This also
       // gives main the theme before any renderer exists, so a seat woken early

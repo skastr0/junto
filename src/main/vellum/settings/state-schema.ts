@@ -8,11 +8,13 @@ import {
   FleetSettings,
   HarnessesSettings,
   KernelSettings,
+  ProvidersSettings,
   SETTINGS_VERSION,
   SettingsError,
   StationSettings,
   TerminalSettings,
   defaultHarnesses,
+  defaultProviders,
   defaultTerminal,
   type Settings,
 } from "@shared/settings";
@@ -56,6 +58,8 @@ export const StoredSettingsPreferences = Schema.Struct({
    * and the next persist writes the key.
    */
   terminal: Schema.optionalKey(TerminalSettings),
+  /** Absent on rows written before the Providers settings surface. */
+  providers: Schema.optionalKey(ProvidersSettings),
 });
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
@@ -83,6 +87,7 @@ export const preferencesFromSettings = (
   fleet: settings.fleet,
   harnesses: settings.harnesses ?? defaultHarnesses(),
   terminal: settings.terminal ?? defaultTerminal(),
+  providers: settings.providers ?? defaultProviders(),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the
@@ -150,6 +155,7 @@ export const decodeStoredSettings = (
     fleet: prefs.fleet,
     harnesses: prefs.harnesses ?? defaultHarnesses(),
     terminal: prefs.terminal ?? defaultTerminal(),
+    providers: prefs.providers ?? defaultProviders(),
     station: decodedTopology.success,
   };
 };

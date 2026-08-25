@@ -104,18 +104,30 @@ export type DevinCredentialOutcome =
   | { readonly kind: "ok"; readonly credential: DevinCredential }
   | { readonly kind: "missing" };
 
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface DevinOperatorCredentials {
+  readonly bearerToken?: string;
+  readonly organizationId?: string;
+}
+
 /**
- * Tier 1 — environment overrides. Pure over the passed env record so tests
- * stay hermetic.
+ * Tier 1 — operator settings, then environment overrides. Pure over the
+ * passed env record so tests stay hermetic.
  */
-export const resolveEnvCredential = (env: NodeJS.ProcessEnv): DevinCredentialOutcome => {
+export const resolveEnvCredential = (
+  env: NodeJS.ProcessEnv,
+  operator?: DevinOperatorCredentials,
+): DevinCredentialOutcome => {
   const token =
+    extractBearer(operator?.bearerToken) ??
     extractBearer(asString(env.DEVIN_BEARER_TOKEN)) ??
     extractBearer(asString(env.DEVIN_AUTHORIZATION)) ??
     extractBearer(asString(env.DEVIN_API_TOKEN));
   if (!plausibleToken(token)) return { kind: "missing" };
   const organization = normalizeOrganization(
-    asString(env.DEVIN_ORGANIZATION) ?? asString(env.DEVIN_ORG),
+    operator?.organizationId ??
+      asString(env.DEVIN_ORGANIZATION) ??
+      asString(env.DEVIN_ORG),
   );
   return {
     kind: "ok",
@@ -268,10 +280,16 @@ export const resolveBrowserCredential = (): DevinCredentialOutcome => {
   return { kind: "ok", credential: { ...best, origin: "browser" } };
 };
 
-/** Ordered credential pipeline: explicit env overrides, then the browser. */
-export const resolveDevinCredential = (env: NodeJS.ProcessEnv = process.env): DevinCredentialOutcome => {
-  const fromEnv = resolveEnvCredential(env);
-  if (fromEnv.kind === "ok") return fromEnv;
+/**
+ * Ordered credential pipeline: operator settings, explicit env overrides,
+ * then the browser session.
+ */
+export const resolveDevinCredential = (
+  env: NodeJS.ProcessEnv = process.env,
+  operator?: DevinOperatorCredentials,
+): DevinCredentialOutcome => {
+  const fromOperatorOrEnv = resolveEnvCredential(env, operator);
+  if (fromOperatorOrEnv.kind === "ok") return fromOperatorOrEnv;
   return resolveBrowserCredential();
 };
 
@@ -279,7 +297,9 @@ export const resolveDevinCredential = (env: NodeJS.ProcessEnv = process.env): De
  * Cheap presence probe for `detect` — NO network, NO heavy scan. True when
  * an env credential resolves or any Chromium leveldb directory exists.
  */
-export const detectDevinCredential = async (): Promise<boolean> => {
-  if (resolveEnvCredential(process.env).kind === "ok") return true;
+export const detectDevinCredential = async (
+  operator?: DevinOperatorCredentials,
+): Promise<boolean> => {
+  if (resolveEnvCredential(process.env, operator).kind === "ok") return true;
   return levelDbCandidates(chromiumLevelDbRoots()).length > 0;
 };

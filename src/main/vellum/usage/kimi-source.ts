@@ -109,10 +109,32 @@ export const kimiCodeCredentialFresh = (
  * Endpoint overrides (KIMI_CODE_BASE_URL / KIMI_CODE_OAUTH_HOST) disable the
  * CLI-oauth tier: endpoint overrides disable CLI OAuth.
  */
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface KimiOperatorCredentials {
+  readonly authToken?: string;
+  readonly apiKey?: string;
+}
+
+/**
+ * Ordered resolution pipeline:
+ *   operator auth token -> operator API key ->
+ *   env web session token -> env Code API key -> fresh CLI OAuth credential.
+ * Endpoint overrides (KIMI_CODE_BASE_URL / KIMI_CODE_OAUTH_HOST) disable the
+ * CLI-oauth tier: endpoint overrides disable CLI OAuth.
+ */
 export const resolveKimiCredential = (
   env: NodeJS.ProcessEnv = process.env,
   nowMs: number = Date.now(),
+  operator?: KimiOperatorCredentials,
 ): KimiCredential | undefined => {
+  const operatorToken = cleanToken(operator?.authToken);
+  if (operatorToken !== undefined) return { token: operatorToken, kind: "web-token" };
+
+  const operatorApiKey = cleanToken(operator?.apiKey);
+  if (operatorApiKey !== undefined) {
+    return { token: operatorApiKey, kind: "api-key", identityHeaders: cliIdentityHeaders() };
+  }
+
   const webToken = resolveKimiWebToken(env);
   if (webToken !== undefined) return { token: webToken, kind: "web-token" };
 
@@ -152,7 +174,11 @@ const cliIdentityHeaders = (): Record<string, string> => ({
 });
 
 /** Cheap local presence probe - no network. */
-export const detectKimiPresence = async (): Promise<boolean> => {
+export const detectKimiPresence = async (
+  operator?: KimiOperatorCredentials,
+): Promise<boolean> => {
+  if (operator?.authToken !== undefined && operator.authToken.trim() !== "") return true;
+  if (operator?.apiKey !== undefined && operator.apiKey.trim() !== "") return true;
   if (resolveKimiWebToken() !== undefined || resolveKimiApiKey() !== undefined) return true;
   return readKimiCodeCredentialFile() !== undefined;
 };
@@ -582,10 +608,16 @@ const fetchWebUsage = async (
   }
 };
 
-const fetchKimi = async (): Promise<UsageSnapshot> => {
+const makeFetchKimi =
+  (readOperator: () => KimiOperatorCredentials | undefined) =>
+  async (): Promise<UsageSnapshot> =>
+    fetchKimi(resolveKimiCredential(process.env, Date.now(), readOperator()));
+
+const fetchKimi = async (
+  credential: ReturnType<typeof resolveKimiCredential>,
+): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const credential = resolveKimiCredential();
     if (credential === undefined) {
       return buildKimiSnapshot(fetchedAt, {
         kind: "unavailable",
@@ -625,8 +657,19 @@ const fetchKimi = async (): Promise<UsageSnapshot> => {
 export const KIMI_LIMITS_STATUS =
   "live - kimi.com billing/membership endpoints via KIMI_AUTH_TOKEN, or api.kimi.com coding usages via KIMI_CODE_API_KEY / ~/.kimi-code credentials";
 
-export const kimiSource: UsageSource = {
+/**
+ * Build the Kimi usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers kimi section (raw values,
+ * main-process only). Resolution order stays:
+ * operator settings -> env vars -> ~/.kimi-code credential file.
+ */
+export const makeKimiSource = (
+  readOperator: () => KimiOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
   id: "kimi",
-  detect: Effect.promise(detectKimiPresence),
-  fetch: Effect.promise(fetchKimi),
-};
+  detect: Effect.promise(() => detectKimiPresence(readOperator())),
+  fetch: Effect.promise(makeFetchKimi(readOperator)),
+});
+
+/** Default instance: no operator tier (env vars / credential file only). */
+export const kimiSource: UsageSource = makeKimiSource();

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
-import { detectDevinCredential, resolveDevinCredential } from "./devin-auth";
+import { detectDevinCredential, resolveDevinCredential, type DevinOperatorCredentials } from "./devin-auth";
 import type { DevinCredential } from "./devin-auth";
 import type { UsageSource } from "./usage-source";
 
@@ -315,10 +315,12 @@ const fetchOnce = async (
 export const fetchDevinWith = async (
   fetchImpl: FetchLike,
   env: NodeJS.ProcessEnv = process.env,
+  operator?: DevinOperatorCredentials,
 ): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const auth = resolveDevinCredential(env);
+    // Operator settings tier first (deliberate intent), then env, then browser.
+    const auth = resolveDevinCredential(env, operator);
     if (auth.kind !== "ok") {
       return buildDevinSnapshot(fetchedAt, {
         kind: "unavailable",
@@ -376,14 +378,22 @@ export const fetchDevinWith = async (
   }
 };
 
-const fetchDevin = async (): Promise<UsageSnapshot> => fetchDevinWith(globalThis.fetch);
-
 /** Capability note for doctor / HUD labeling - the fetch path is live. */
 export const DEVIN_LIMITS_STATUS =
   "live - app.devin.ai/api/<org>/billing/quota/usage via browser session or DEVIN_BEARER_TOKEN (read-only)";
 
-export const devinSource: UsageSource = {
+/**
+ * Build the Devin usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers devin section (raw values,
+ * main-process only).
+ */
+export const makeDevinSource = (
+  readOperator: () => DevinOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
   id: "devin",
-  detect: Effect.promise(detectDevinCredential),
-  fetch: Effect.promise(fetchDevin),
-};
+  detect: Effect.promise(() => detectDevinCredential(readOperator())),
+  fetch: Effect.promise(() => fetchDevinWith(globalThis.fetch, process.env, readOperator())),
+});
+
+/** Default instance: no operator tier (env overrides / browser session). */
+export const devinSource: UsageSource = makeDevinSource();

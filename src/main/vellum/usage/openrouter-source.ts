@@ -17,9 +17,9 @@ import type { UsageSource } from "./usage-source";
 //                         MANAGEMENT key (403 with the ordinary API key) and must
 //                         never follow a user-configured base URL override.
 //
-// Credential discovery: OPENROUTER_API_KEY environment variable first (the only
-// portable source), then two best-effort conventional key files. Keychain-backed
-// settings are not a portable file contract, so they are not probed here.
+// Credential discovery, in order: operator-configured Providers settings
+// (deliberate intent, see Settings > Providers) -> OPENROUTER_API_KEY
+// environment variable -> two best-effort conventional key files.
 //
 // Costs from these endpoints are real metered vendor numbers — extras carry
 // provenance "vendorMetered" and are never blended with estimates silently.
@@ -44,6 +44,12 @@ export interface OpenRouterCredentials {
   readonly apiKey: string;
   readonly managementApiKey?: string;
   readonly baseUrl: string;
+}
+
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface OpenRouterOperatorCredentials {
+  readonly apiKey?: string;
+  readonly managementApiKey?: string;
 }
 
 /**
@@ -84,12 +90,17 @@ const readKeyFile = (path: string): string | undefined => {
 export const resolveOpenRouterCredentials = (
   env: Record<string, string | undefined> = process.env,
   readFile: (path: string) => string | undefined = readKeyFile,
+  operator?: OpenRouterOperatorCredentials,
 ): OpenRouterCredentials | undefined => {
   const fileKey = KEY_FILE_CANDIDATES()
     .map(readFile)
     .map((raw) => cleanCredentialValue(raw))
     .find((key) => key !== undefined);
-  const apiKey = cleanCredentialValue(env.OPENROUTER_API_KEY) ?? fileKey;
+  // Operator setting first (deliberate intent), then env var, then files.
+  const apiKey =
+    cleanCredentialValue(operator?.apiKey) ??
+    cleanCredentialValue(env.OPENROUTER_API_KEY) ??
+    fileKey;
   if (apiKey === undefined) return undefined;
   // Endpoint override must be HTTPS or a bare-host HTTPS URL.
   let baseUrl = DEFAULT_BASE_URL;
@@ -102,7 +113,9 @@ export const resolveOpenRouterCredentials = (
       // Ignore invalid overrides; production endpoint stays.
     }
   }
-  const managementApiKey = cleanCredentialValue(env.OPENROUTER_MANAGEMENT_API_KEY);
+  const managementApiKey =
+    cleanCredentialValue(operator?.managementApiKey) ??
+    cleanCredentialValue(env.OPENROUTER_MANAGEMENT_API_KEY);
   return {
     apiKey,
     ...(managementApiKey !== undefined ? { managementApiKey } : {}),
@@ -552,13 +565,38 @@ const fetchAll = async (
   };
 };
 
-const detectOpenRouter = async (): Promise<boolean> =>
-  resolveOpenRouterCredentials() !== undefined;
+/**
+ * Build the OpenRouter usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers openrouter section (raw
+ * values, main-process only). Resolution order stays:
+ * operator settings -> env var -> conventional key files.
+ */
+const makeFetchCredentials =
+  (readOperator: () => OpenRouterOperatorCredentials | undefined) =>
+  async (): Promise<UsageSnapshot> => {
+    const credentials = resolveOpenRouterCredentials(
+      process.env,
+      readKeyFile,
+      readOperator(),
+    );
+    return fetchOpenRouter(credentials);
+  };
 
-const fetchOpenRouter = async (): Promise<UsageSnapshot> => {
+export const makeOpenRouterSource = (
+  readOperator: () => OpenRouterOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
+  id: "openrouter",
+  detect: Effect.promise(async () =>
+    resolveOpenRouterCredentials(process.env, readKeyFile, readOperator()) !== undefined,
+  ),
+  fetch: Effect.promise(makeFetchCredentials(readOperator)),
+});
+
+const fetchOpenRouter = async (
+  credentials: OpenRouterCredentials | undefined,
+): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const credentials = resolveOpenRouterCredentials();
     if (credentials === undefined) {
       return assembleOpenRouterSnapshot({ credentialsPresent: false, managementConfigured: false }, fetchedAt);
     }
@@ -584,8 +622,5 @@ const fetchOpenRouter = async (): Promise<UsageSnapshot> => {
   }
 };
 
-export const openrouterSource: UsageSource = {
-  id: "openrouter",
-  detect: Effect.promise(detectOpenRouter),
-  fetch: Effect.promise(fetchOpenRouter),
-};
+/** Default instance: no operator tier (env var / key files only). */
+export const openrouterSource: UsageSource = makeOpenRouterSource();

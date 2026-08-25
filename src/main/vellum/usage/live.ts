@@ -1,5 +1,9 @@
 import { Layer } from "effect";
 import { StationUsageSourcesLive } from "./native-sources";
+import {
+  makeOperatorProviderCredentialsLive,
+  OperatorProviderCredentials,
+} from "./operator-credentials";
 import { UsageCacheLive } from "./usage-cache";
 import { UsageServiceLive } from "./usage-service";
 
@@ -8,8 +12,17 @@ import { UsageServiceLive } from "./usage-service";
 // does not thread one member's output to satisfy another's requirement — see
 // runtime.ts).
 //
-// Beta registry = codexbar only (natives unwired — see native-sources.ts WIP).
+// Registry = the native strategy pipelines (see native-sources.ts), built
+// over the operator provider-credential reader, which itself requires
+// SettingsService (the leftover requirement propagates to the composition
+// root — see runtime.ts / remote-runtime.ts).
 export const UsageLive = Layer.provideMerge(
+  Layer.provideMerge(
+    Layer.mergeAll(StationUsageSourcesLive, UsageCacheLive),
+    makeOperatorProviderCredentialsLive,
+  ),
   UsageServiceLive,
-  Layer.mergeAll(StationUsageSourcesLive, UsageCacheLive),
 );
+
+/** Re-exported for runtimes that must satisfy the SettingsService link. */
+export { OperatorProviderCredentials };

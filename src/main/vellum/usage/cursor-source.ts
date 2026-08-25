@@ -667,8 +667,12 @@ export const probeCursorUsage = async (
   }
 };
 
-const detectCursor = async (): Promise<boolean> => {
+const detectCursor = async (
+  readOperator: () => CursorOperatorCredentials | undefined,
+): Promise<boolean> => {
   try {
+    const operatorCookie = readOperator()?.cookieHeader;
+    if (operatorCookie !== undefined && operatorCookie.trim() !== "") return true;
     if (process.env.CURSOR_COOKIE?.trim() !== undefined && process.env.CURSOR_COOKIE.trim() !== "") {
       return true;
     }
@@ -683,10 +687,17 @@ const resolveCredentialPresence = (): boolean => {
   return existsSync(cursorAppDbPath());
 };
 
-const fetchCursor = async (): Promise<UsageSnapshot> => {
+const makeFetchCursor =
+  (readOperator: () => CursorOperatorCredentials | undefined) =>
+  async (): Promise<UsageSnapshot> =>
+    fetchCursor(readOperator()?.cookieHeader);
+
+const fetchCursor = async (
+  operatorCookieHeader?: string,
+): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const outcome = resolveCursorCredential();
+    const outcome = resolveCursorCredential({ operatorCookieHeader });
     if (outcome.kind === "missing") {
       return buildCursorSnapshot(fetchedAt, { kind: "unavailable", reason: "source-missing", error: outcome.error });
     }
@@ -705,8 +716,23 @@ const fetchCursor = async (): Promise<UsageSnapshot> => {
 export const CURSOR_LIMITS_STATUS =
   "live - cursor.com web APIs via CURSOR_COOKIE, ~/.vellum-command/config/cursor-cookie, or the Cursor app session database";
 
-export const cursorSource: UsageSource = {
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface CursorOperatorCredentials {
+  readonly cookieHeader?: string;
+}
+
+/**
+ * Build the Cursor usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers cursor section (raw
+ * values, main-process only).
+ */
+export const makeCursorSource = (
+  readOperator: () => CursorOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
   id: "cursor",
-  detect: Effect.promise(detectCursor),
-  fetch: Effect.promise(fetchCursor),
-};
+  detect: Effect.promise(() => detectCursor(readOperator)),
+  fetch: Effect.promise(makeFetchCursor(readOperator)),
+});
+
+/** Default instance: no operator tier (env var / config file / app database). */
+export const cursorSource: UsageSource = makeCursorSource();

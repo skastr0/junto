@@ -67,14 +67,24 @@ export const redactSecrets = (text: string, secrets: ReadonlyArray<string | unde
   return out;
 };
 
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface OpencodeGoOperatorCredentials {
+  readonly apiKey?: string;
+}
+
 /**
- * API key resolution: OPENCODE_API_KEY first (quotes stripped), then the
- * opencode CLI's own auth.json ("opencode-go"."key"). Never logged.
+ * API key resolution, in order: operator settings (quotes stripped),
+ * OPENCODE_API_KEY, then the opencode CLI's own auth.json
+ * ("opencode-go"."key"). Never logged.
  */
 export const resolveGoApiKey = (
   env: NodeJS.ProcessEnv = process.env,
   openCodeHome: string = OPENCODE_HOME(),
+  operator?: OpencodeGoOperatorCredentials,
 ): string | undefined => {
+  const operatorRaw =
+    typeof operator?.apiKey === "string" ? operator.apiKey.trim() : "";
+  if (operatorRaw !== "") return operatorRaw;
   const raw = env[API_KEY_ENV];
   if (raw !== undefined) {
     let value = raw.trim();
@@ -727,10 +737,15 @@ const fetchLocalTier = async (): Promise<LocalTier> => {
   return { kind: "ok", quota };
 };
 
-const fetchOpenCodeGo = async (): Promise<UsageSnapshot> => {
+const makeFetchOpenCodeGo =
+  (readOperator: () => OpencodeGoOperatorCredentials | undefined) =>
+  async (): Promise<UsageSnapshot> => {
+    return fetchOpenCodeGo(resolveGoApiKey(process.env, OPENCODE_HOME(), readOperator()));
+  };
+
+const fetchOpenCodeGo = async (apiKey: ReturnType<typeof resolveGoApiKey>): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const apiKey = resolveGoApiKey();
     const hasLocalDb = existsSync(LOCAL_DB());
     if (apiKey === undefined && !hasLocalDb) {
       return assembleGoSnapshot({ kind: "skipped" }, { kind: "skipped" }, fetchedAt);
@@ -758,8 +773,11 @@ const fetchOpenCodeGo = async (): Promise<UsageSnapshot> => {
   }
 };
 
-const detectOpenCodeGo = async (): Promise<boolean> => {
+const detectOpenCodeGo = async (
+  operator?: OpencodeGoOperatorCredentials,
+): Promise<boolean> => {
   try {
+    if (operator?.apiKey !== undefined && operator.apiKey.trim() !== "") return true;
     if (process.env[API_KEY_ENV] !== undefined && process.env[API_KEY_ENV]!.trim() !== "") return true;
     if (existsSync(LOCAL_DB())) return true;
     if (existsSync(AUTH_JSON())) return true;
@@ -773,8 +791,18 @@ const detectOpenCodeGo = async (): Promise<boolean> => {
 export const OPENCODE_GO_LIMITS_STATUS =
   "live web windows via opencode.ai/zen/go/v1/usage (OPENCODE_API_KEY or auth.json); local opencode.db cost reader via system sqlite3";
 
-export const opencodeGoSource: UsageSource = {
+/**
+ * Build the OpenCode Go usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers opencodeGo section (raw
+ * values, main-process only).
+ */
+export const makeOpencodeGoSource = (
+  readOperator: () => OpencodeGoOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
   id: "opencode-go",
-  detect: Effect.promise(detectOpenCodeGo),
-  fetch: Effect.promise(fetchOpenCodeGo),
-};
+  detect: Effect.promise(() => detectOpenCodeGo(readOperator())),
+  fetch: Effect.promise(makeFetchOpenCodeGo(readOperator)),
+});
+
+/** Default instance: no operator tier (env var / CLI auth.json / local db). */
+export const opencodeGoSource: UsageSource = makeOpencodeGoSource();

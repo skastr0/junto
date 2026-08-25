@@ -8,7 +8,8 @@ import type { UsageSource } from "./usage-source";
 // Two strategies, tried in order:
 //
 //   (a) WEB — GET https://ollama.com/settings with an ollama.com session
-//       cookie (env OLLAMA_SESSION_COOKIE / OLLAMA_COOKIE, raw Cookie header
+//       cookie (operator settings first, then env OLLAMA_SESSION_COOKIE /
+//       OLLAMA_COOKIE, raw Cookie header
 //       or bare session token). The settings page embeds the plan name after
 //       a "Cloud Usage" label, the account email in #header-email, and usage
 //       bars labeled "Session usage" / "Hourly usage" (5h window) and
@@ -377,14 +378,37 @@ export const assembleOllamaSnapshot = (
   return { source: "ollama", fetchedAt, ok: false, reason, error: redact(error), quotas: [] };
 };
 
-const resolveSessionCookie = (): string | undefined =>
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface OllamaOperatorCredentials {
+  readonly sessionCookie?: string;
+  readonly apiKey?: string;
+}
+
+/**
+ * Session-cookie resolution: operator setting first (deliberate intent),
+ * then OLLAMA_SESSION_COOKIE / OLLAMA_COOKIE. Injectable env for tests.
+ */
+export const resolveSessionCookie = (
+  operator?: OllamaOperatorCredentials,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined =>
   normalizeOllamaCookie(
-    process.env.OLLAMA_SESSION_COOKIE ?? process.env.OLLAMA_COOKIE,
+    operator?.sessionCookie ??
+      env.OLLAMA_SESSION_COOKIE ??
+      env.OLLAMA_COOKIE,
   );
 
-const resolveApiKey = (): string | undefined => {
+/** API-key resolution: operator setting first, then OLLAMA_API_KEY / OLLAMA_KEY. */
+export const resolveApiKey = (
+  operator?: OllamaOperatorCredentials,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined => {
+  if (operator?.apiKey !== undefined) {
+    const operatorValue = operator.apiKey.trim();
+    if (operatorValue.length > 0) return operatorValue;
+  }
   for (const key of ["OLLAMA_API_KEY", "OLLAMA_KEY"]) {
-    const raw = process.env[key];
+    const raw = env[key];
     if (raw === undefined) continue;
     let value = raw.trim();
     if (
@@ -511,29 +535,35 @@ export const fetchOllamaApiKeyUsage = async (
   }
 };
 
-const collectSecrets = (): string[] => {
+const collectSecrets = (operator?: OllamaOperatorCredentials): string[] => {
   const values: string[] = [];
+  if (operator?.sessionCookie !== undefined && operator.sessionCookie.length > 0) {
+    values.push(operator.sessionCookie);
+  }
   const cookie = process.env.OLLAMA_SESSION_COOKIE ?? process.env.OLLAMA_COOKIE;
   if (cookie !== undefined) values.push(cookie);
-  const apiKey = resolveApiKey();
+  const apiKey = resolveApiKey(operator);
   if (apiKey !== undefined) values.push(apiKey);
   return values;
 };
 
-const detectOllama = async (): Promise<boolean> => {
+const detectOllama = async (operator?: OllamaOperatorCredentials): Promise<boolean> => {
   try {
-    return resolveSessionCookie() !== undefined || resolveApiKey() !== undefined;
+    return (
+      resolveSessionCookie(operator) !== undefined ||
+      resolveApiKey(operator) !== undefined
+    );
   } catch {
     return false;
   }
 };
 
-const fetchOllama = async (): Promise<UsageSnapshot> => {
+const fetchOllama = async (operator?: OllamaOperatorCredentials): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
-  const secrets = collectSecrets();
+  const secrets = collectSecrets(operator);
   try {
-    const cookieHeader = resolveSessionCookie();
-    const apiKey = resolveApiKey();
+    const cookieHeader = resolveSessionCookie(operator);
+    const apiKey = resolveApiKey(operator);
     if (cookieHeader === undefined && apiKey === undefined) {
       return assembleOllamaSnapshot(undefined, undefined, fetchedAt, secrets);
     }
@@ -553,8 +583,18 @@ const fetchOllama = async (): Promise<UsageSnapshot> => {
   }
 };
 
-export const ollamaSource: UsageSource = {
+/**
+ * Build the Ollama Cloud usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers ollama section (raw
+ * values, main-process only).
+ */
+export const makeOllamaSource = (
+  readOperator: () => OllamaOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
   id: "ollama",
-  detect: Effect.promise(detectOllama),
-  fetch: Effect.promise(fetchOllama),
-};
+  detect: Effect.promise(() => detectOllama(readOperator())),
+  fetch: Effect.promise(() => fetchOllama(readOperator())),
+});
+
+/** Default instance: no operator tier (env vars only). */
+export const ollamaSource: UsageSource = makeOllamaSource();

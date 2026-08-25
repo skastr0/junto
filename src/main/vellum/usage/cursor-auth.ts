@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Cursor credential discovery (read-only). Three tiers, cheapest first:
+// Cursor credential discovery (read-only), cheapest first:
+//   0. operator settings (Settings > Providers) - a full Cookie header,
+//      deliberate operator intent in Vellum Command.
 //   1. CURSOR_COOKIE env var - a full Cookie header copied from cursor.com.
 //   2. ~/.vellum-command/config/cursor-cookie - same Cookie header format,
 //      operator-managed. Vellum Command never writes this file.
@@ -32,7 +34,7 @@ export const cursorAppDbPath = (home: string = homedir(), env: NodeJS.ProcessEnv
 export interface CursorCredential {
   /** Complete Cookie header value ready for request injection. */
   readonly cookieHeader: string;
-  readonly origin: "env" | "config-file" | "app-database";
+  readonly origin: "operator-settings" | "env" | "config-file" | "app-database";
 }
 
 export type CursorCredentialOutcome =
@@ -44,6 +46,8 @@ export interface ResolveCursorCredentialOptions {
   readonly home?: string;
   readonly configPath?: string;
   readonly appDbPath?: string;
+  /** Settings > Providers tier - checked before CURSOR_COOKIE. */
+  readonly operatorCookieHeader?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +321,12 @@ export const resolveCursorCredential = (
 ): CursorCredentialOutcome => {
   const env = options.env ?? process.env;
   const home = options.home ?? homedir();
+
+  // Operator setting first (deliberate intent), then env var.
+  const operatorCookie = options.operatorCookieHeader?.trim();
+  if (operatorCookie !== undefined && operatorCookie !== "") {
+    return { kind: "ok", credential: { cookieHeader: operatorCookie, origin: "operator-settings" } };
+  }
 
   const envCookie = env.CURSOR_COOKIE?.trim();
   if (envCookie !== undefined && envCookie !== "") {

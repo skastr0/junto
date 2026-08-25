@@ -139,13 +139,17 @@ export const remoteAppVersion = (): string => {
 // Memoized StateEngine owner — same reference for every repository plane
 // ---------------------------------------------------------------------------
 
+// One shared settings layer reference: the usage plane's operator-credential
+// reader and every other consumer get the same memoized SettingsService.
+const RemoteSettingsLive = makeSettingsLive({ ensureDefaultCommandCenter: false });
+
 const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
     KernelStateRepositoryLive,
     FactoryPauseRepositoryLive,
     WorkRepositoryLive,
-    UsageLive,
-    makeSettingsLive({ ensureDefaultCommandCenter: false }),
+    Layer.provideMerge(UsageLive, RemoteSettingsLive),
+    RemoteSettingsLive,
     SchedulerRepositoryLive,
     StationStatusLive,
     StationRepositoryLive,

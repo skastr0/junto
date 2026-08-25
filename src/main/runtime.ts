@@ -139,7 +139,9 @@ const StateRepositoriesLive = Layer.provideMerge(
     KernelStateRepositoryLive,
     FactoryPauseRepositoryLive,
     WorkRepositoryLive,
-    UsageLive,
+    // The usage plane reads operator provider credentials from settings, so
+    // the memoized SettingsService instance feeds it here (same reference).
+    Layer.provideMerge(UsageLive, SettingsLive),
     SettingsLive,
     SchedulerRepositoryLive,
     StationStatusLive,

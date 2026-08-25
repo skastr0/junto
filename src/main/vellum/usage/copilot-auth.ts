@@ -17,7 +17,7 @@ export const GH_HOSTS_PATH = (): string => join(homedir(), ".config", "gh", "hos
 /** Future work only — do not wire up until device flow ships. */
 export const COPILOT_DEVICE_FLOW_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 
-export type CopilotTokenOrigin = "env" | "cli" | "hosts-file";
+export type CopilotTokenOrigin = "operator-settings" | "env" | "cli" | "hosts-file";
 
 export type CopilotAuthOutcome =
   | { readonly kind: "ok"; readonly token: string; readonly origin: CopilotTokenOrigin }
@@ -97,11 +97,26 @@ const readGhCliToken = async (): Promise<string | undefined> => {
   }
 };
 
+/** Operator tier from Settings > Providers - highest precedence in the chain. */
+export interface CopilotOperatorCredentials {
+  readonly token?: string;
+}
+
 /**
- * Ordered token resolution. Never throws; every failure folds into a
+ * Ordered token resolution: operator settings, then env vars, then the gh CLI
+ * credential store, then hosts.yml. Never throws; every failure folds into a
  * `missing` outcome whose copy tells the operator how to fix it.
  */
-export const resolveCopilotToken = async (): Promise<CopilotAuthOutcome> => {
+export const resolveCopilotToken = async (
+  operator?: CopilotOperatorCredentials,
+): Promise<CopilotAuthOutcome> => {
+  const operatorToken =
+    typeof operator?.token === "string" && plausibleToken(operator.token)
+      ? operator.token.trim()
+      : undefined;
+  if (operatorToken !== undefined) {
+    return { kind: "ok", token: operatorToken, origin: "operator-settings" };
+  }
   const envToken = pickEnvToken(process.env);
   if (envToken !== undefined) {
     return { kind: "ok", token: envToken.trim(), origin: "env" };

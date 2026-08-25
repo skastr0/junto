@@ -661,3 +661,75 @@
   gap: 2px;
   margin-bottom: 8px;
 }
+
+/* Providers section - one card per configurable usage provider. */
+.settings-provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-stroke);
+  background: color-mix(in oklab, var(--color-raise) 60%, transparent);
+}
+.settings-provider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-provider-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
+  gap: 12px;
+  align-items: center;
+}
+.settings-provider-field__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-provider-field__label {
+  font-size: 13px;
+  color: var(--color-ink);
+}
+.settings-provider-field__control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.settings-provider-input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid var(--color-stroke);
+  background: var(--color-shadow-2);
+  color: var(--color-ink);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+}
+.settings-provider-input:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--color-accent) 60%, transparent);
+}
+.settings-provider-reveal,
+.settings-provider-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--color-stroke);
+  background: transparent;
+  color: var(--color-dim);
+  cursor: pointer;
+}
+.settings-provider-reveal:hover,
+.settings-provider-clear:hover {
+  color: var(--color-amber);
+  border-color: color-mix(in oklab, var(--color-amber) 40%, transparent);
+}

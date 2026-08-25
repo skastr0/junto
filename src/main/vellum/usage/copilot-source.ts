@@ -1,14 +1,15 @@
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
 import type { UsageSource } from "./usage-source";
-import { resolveCopilotToken } from "./copilot-auth";
+import { resolveCopilotToken, type CopilotOperatorCredentials } from "./copilot-auth";
 
 // Native GitHub Copilot usage source.
 //
 // One live call against `GET https://api.github.com/copilot_internal/user`
 // with VS Code-impersonating headers, plus a best-effort
 // identity read from `GET https://api.github.com/user`. Token discovery is
-// environment → GitHub CLI → ~/.config/gh/hosts.yml (see copilot-auth.ts).
+// operator settings (Settings > Providers) → environment → GitHub CLI →
+// ~/.config/gh/hosts.yml (see copilot-auth.ts).
 // OAuth Device Flow is future work. Every failure mode folds into a TOTAL
 // envelope; nothing throws and tokens never appear in error text.
 
@@ -327,10 +328,16 @@ const fetchIdentityLogin = async (token: string): Promise<string | undefined> =>
   }
 };
 
-const fetchCopilot = async (): Promise<UsageSnapshot> => {
+const makeFetchCopilot =
+  (readOperator: () => CopilotOperatorCredentials | undefined) =>
+  async (): Promise<UsageSnapshot> => fetchCopilot(readOperator());
+
+const fetchCopilot = async (
+  operator?: CopilotOperatorCredentials,
+): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const auth = await resolveCopilotToken();
+    const auth = await resolveCopilotToken(operator);
     if (auth.kind !== "ok") {
       return buildCopilotSnapshot(fetchedAt, {
         kind: "unavailable",
@@ -392,18 +399,31 @@ const fetchCopilot = async (): Promise<UsageSnapshot> => {
   }
 };
 
-const detectCopilot = async (): Promise<boolean> => {
+const detectCopilot = async (
+  operator?: CopilotOperatorCredentials,
+): Promise<boolean> => {
   try {
-    // Cheap local probe: env vars, gh CLI credential store, hosts.yml. The
-    // gh call is a local read (`gh auth token`) bounded by its own timeout.
-    return (await resolveCopilotToken()).kind === "ok";
+    // Cheap local probe: operator settings, env vars, gh CLI credential
+    // store, hosts.yml. The gh call is a local read (`gh auth token`)
+    // bounded by its own timeout.
+    return (await resolveCopilotToken(operator)).kind === "ok";
   } catch {
     return false;
   }
 };
 
-export const copilotSource: UsageSource = {
+/**
+ * Build the Copilot usage source over an operator-credential reader.
+ * `readOperator` returns the Settings > Providers copilot section (raw
+ * values, main-process only).
+ */
+export const makeCopilotSource = (
+  readOperator: () => CopilotOperatorCredentials | undefined = () => undefined,
+): UsageSource => ({
   id: "copilot",
-  detect: Effect.promise(detectCopilot),
-  fetch: Effect.promise(fetchCopilot),
-};
+  detect: Effect.promise(() => detectCopilot(readOperator())),
+  fetch: Effect.promise(makeFetchCopilot(readOperator)),
+});
+
+/** Default instance: no operator tier (env / gh CLI / hosts.yml). */
+export const copilotSource: UsageSource = makeCopilotSource();

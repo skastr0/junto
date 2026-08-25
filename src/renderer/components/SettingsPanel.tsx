@@ -12,6 +12,7 @@ import {
   HARNESS_SETTINGS_ENABLED,
 } from "@shared/features";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
+import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import {
   decodeStateBackupId,
@@ -71,6 +72,11 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
         } as const,
       ]
     : []),
+  {
+    key: "providers",
+    label: "Providers",
+    blurb: "usage credentials: API keys, tokens, cookies",
+  },
   {
     key: "advanced",
     label: "Advanced",
@@ -1099,6 +1105,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return BROWSER_ENABLED ? <BrowserSection /> : null;
     case "harnesses":
       return HARNESS_SETTINGS_ENABLED ? <HarnessesSettingsSection /> : null;
+    case "providers":
+      return <ProvidersSettingsSection />;
     case "advanced":
       return <AdvancedSection />;
     case "license": {
