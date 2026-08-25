@@ -3,10 +3,12 @@ import { app, BrowserWindow, dialog, nativeTheme } from "electron";
 import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
+import { themePublishDecision } from "./theme-publish";
 import {
   SettingsSectionKey,
   settingsOpFail,
   settingsOpOk,
+  type Settings,
   type SettingsOpResult,
 } from "@shared/settings";
 import { Schema } from "effect";
@@ -46,11 +48,14 @@ export const registerSettingsIpc = (
    * every canvas, rendered or not, and every seat spawned with no surface — so
    * the stored preference has to reach it whenever it loads or changes.
    */
-  const publishThemePreference = (settings: unknown): void => {
-    setThemePreference(
-      (settings as { readonly appearance?: { readonly theme?: unknown } })?.appearance
-        ?.theme as string | undefined,
-    );
+  const publishThemePreference = (settings: Settings): void => {
+    setThemePreference(settings.appearance.theme);
+  };
+  /** Same publish, from an IPC result. See `themePublishDecision`. */
+  const publishThemeFromOp = (op: SettingsOpResult): void => {
+    const decision = themePublishDecision(op);
+    if (decision.kind === "leave") return;
+    setThemePreference(decision.preference);
   };
   // Only matters while the preference is "system"; harmless otherwise.
   nativeTheme.on("updated", () => refreshThemeFromSystem());
@@ -66,7 +71,7 @@ export const registerSettingsIpc = (
         const settings = yield* SettingsService;
         const result = yield* Effect.result(settings.get);
         const op = toOpResult(result);
-        publishThemePreference((op as { readonly value?: unknown })?.value);
+        publishThemeFromOp(op);
         return op;
       }),
     ),
@@ -83,7 +88,7 @@ export const registerSettingsIpc = (
         }
         const result = yield* Effect.result(settings.patch(patch));
         const op = toOpResult(result);
-        publishThemePreference((op as { readonly value?: unknown })?.value);
+        publishThemeFromOp(op);
         return op;
       }),
     ),

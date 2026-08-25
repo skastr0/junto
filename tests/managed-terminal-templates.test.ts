@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGY_TEMPLATE,
+  APPEARANCE_PREFERENCE_FLAGS,
   CLAUDE_MODEL_ALIASES,
   CLAUDE_TEMPLATE,
   CODEX_TEMPLATE,
@@ -78,6 +79,20 @@ describe("managed-terminal templates (data)", () => {
       expect(MANAGED_TERMINAL_TEMPLATES[id].harness).toBe(id);
     }
     expect(isHarnessId("openclaw")).toBe(false);
+  });
+
+  it("no template prefix carries an appearance or preference flag", () => {
+    // A seat Vellum Command starts must present the same experience as the harness
+    // started by hand. These flags have a home in the harness's own config, so
+    // one here would override the operator's file for factory seats only —
+    // which is exactly how grok ended up rendering scrollback-native with the
+    // wrong theme while plain `grok` rendered their configured TUI.
+    for (const id of ALL_HARNESSES) {
+      const prefix = MANAGED_TERMINAL_TEMPLATES[id].argvSpec.prefix;
+      for (const flag of APPEARANCE_PREFERENCE_FLAGS) {
+        expect(prefix, `${id} prefix must not carry ${flag}`).not.toContain(flag);
+      }
+    }
   });
 
   it("marks injection tiers and release capability badges honestly", () => {
@@ -370,7 +385,6 @@ describe("resolveManagedLaunch argv", () => {
     );
     expect(launch.argv).toEqual([
       "grok",
-      "--minimal",
       "-m",
       "grok-4.5",
       "--reasoning-effort",
@@ -385,10 +399,8 @@ describe("resolveManagedLaunch argv", () => {
     ]);
     expect(launch.cwd).toBe("/repo/git-project");
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
-    expect(GROK_TEMPLATE.argvSpec.prefix).toEqual(["--minimal"]);
-    expect(GROK_TEMPLATE.capabilityBadges.labels).toEqual(
-      expect.arrayContaining(["minimal palette"]),
-    );
+    // Appearance is the operator's harness config, never a spawn flag.
+    expect(GROK_TEMPLATE.argvSpec.prefix).toEqual([]);
   });
 
   it("grok prefers --rules when systemPrompt is set without agentFile", () => {
@@ -399,7 +411,7 @@ describe("resolveManagedLaunch argv", () => {
     );
     const argv = launch.argv ?? [];
     expect(argv[0]).toBe("grok");
-    expect(argv).toContain("--minimal");
+    expect(argv).not.toContain("--minimal");
     expect(argv).not.toContain("--no-alt-screen");
     expect(argv).toContain("--rules");
     expect(argv).toContain("doctrine text");

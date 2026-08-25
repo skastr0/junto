@@ -244,12 +244,12 @@ function AppearanceSection() {
               {
                 key: "follow" as const,
                 label: "Follow Vellum Command",
-                hint: "Recommended. Terminals use Vellum Command colours and the live appearance protocol. Grok spawns with --minimal for palette-native UI (not --no-alt-screen).",
+                hint: "Recommended. Terminals use Vellum Command colours and the live appearance protocol.",
               },
               {
                 key: "agent" as const,
                 label: "Use agent theme",
-                hint: "Preserve each harness's own configuration. Do not re-paint mid-session over agent colours.",
+                hint: "Do not re-paint mid-session over agent colours. Either way, a seat starts exactly as the harness would when you run it yourself.",
               },
             ] as const
           ).map((opt) => {

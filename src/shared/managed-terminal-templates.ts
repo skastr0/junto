@@ -72,7 +72,17 @@ export type InjectionSpec = {
 export type ArgvSpec = {
   /** Binary name resolved via PATH (or absolute when the host injects one). */
   readonly binary: string;
-  /** Fixed argv prefix after the binary (Hermes: `chat --tui`). */
+  /**
+   * Fixed argv prefix after the binary — STRUCTURAL ONLY (Hermes: `chat --tui`
+   * selects the interactive TUI; without it the binary is headless).
+   *
+   * A seat Vellum Command starts must present the same experience as the operator
+   * running the harness by hand, so this slot may never carry an appearance or
+   * preference flag. Those live in the harness's own config (Grok reads
+   * `~/.grok/config.toml`), and a flag here silently overrides the operator's
+   * file for factory seats only. `APPEARANCE_PREFERENCE_FLAGS` below names the
+   * ones already found doing that; the template contract test enforces it.
+   */
   readonly prefix: readonly string[];
   /**
    * How the optional initial prompt is attached:
@@ -150,6 +160,25 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
  */
 export const SPAWN_ENV_SCRUB_PREFIXES: readonly string[] = [
   "PRIME_AGENT_INTERNAL_",
+] as const;
+
+/**
+ * Argv flags that select how a harness LOOKS or how it decides, rather than
+ * what it is. Each one has a home in the harness's own config file, so putting
+ * one in a template prefix would give a factory-started seat a different
+ * experience from the same harness started by hand — the exact split this list
+ * exists to prevent. Enforced over every template by the contract test.
+ */
+export const APPEARANCE_PREFERENCE_FLAGS: readonly string[] = [
+  "--minimal",
+  "--no-alt-screen",
+  "--fullscreen",
+  "--theme",
+  "--light",
+  "--dark",
+  "--color",
+  "--no-color",
+  "--compact",
 ] as const;
 
 export type EnvSpec = {
@@ -308,10 +337,11 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
   probedVersion: "0.2.x",
   argvSpec: {
     binary: "grok",
-    // `--minimal` = palette-native / scrollback-native integration with the
-    // host xterm theme. Not the same as `--no-alt-screen` (inline vs alt
-    // buffer). Vellum Command's recommended appearance policy is follow.
-    prefix: ["--minimal"],
+    // No appearance prefix. `--minimal` used to live here and overrode the
+    // operator's own `[ui] screen_mode` for app-started seats only, so a
+    // factory seat rendered scrollback-native while `grok` by hand rendered
+    // the full TUI with their configured theme.
+    prefix: [],
     promptMode: "positional",
     modelFlag: "-m",
     effortFlag: "--reasoning-effort",
@@ -344,7 +374,6 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
       "effort",
       "session pin",
       "git cwd",
-      "minimal palette",
     ],
   },
   efforts: ["high", "medium", "low"],

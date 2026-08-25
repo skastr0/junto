@@ -40,9 +40,12 @@ const positiveInt = (min: number, max: number) =>
 /**
  * Managed-agent appearance policy:
  * - `follow` — leverage Vellum Command's xterm theme + live appearance
- *   protocol (recommended). Grok spawns with `--minimal` for palette-native UI.
- * - `agent` — preserve explicit user harness configuration; do not force
- *   palette-native spawn flags or re-paint mid-session over agent colours.
+ *   protocol (recommended).
+ * - `agent` — do not re-paint mid-session over agent colours.
+ *
+ * Neither policy changes how a harness is started. A seat Vellum Command starts must
+ * present the same experience as the same harness started by hand, so spawn
+ * argv never carries an appearance flag under either policy.
  */
 export const AgentAppearancePolicy = Schema.Literals(["follow", "agent"]);
 export type AgentAppearancePolicy = typeof AgentAppearancePolicy.Type;
