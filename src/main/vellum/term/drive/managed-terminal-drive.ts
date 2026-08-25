@@ -68,6 +68,17 @@ export type ClipboardSafeAssert = (
  */
 export type PromptPendingLookup = (bindingId: string) => boolean;
 
+/**
+ * Does the operator have unsubmitted text in this seat's prompt box?
+ *
+ * An idle seat is NOT a free composer: the agent can be done while the
+ * operator is mid-sentence. Pasting there appends to their draft and the CR
+ * submits it. Every write this drive makes waits for the box to be clear —
+ * queueing callers park until it is, non-queueing callers are refused and
+ * retry from their own source.
+ */
+export type OperatorDraftLookup = (bindingId: string) => boolean;
+
 export type WritePromptOptions = {
   /**
    * Positive UI readiness (not a quiet-gap). When false, abort to attention
@@ -146,6 +157,8 @@ export type ManagedTerminalDriveOptions = {
   readonly pasteToCrSettleMs?: number;
   /** Evidence-gated acknowledgement (see PromptPendingLookup). */
   readonly pendingText?: PromptPendingLookup;
+  /** Operator draft gate (see OperatorDraftLookup). */
+  readonly hasOperatorDraft?: OperatorDraftLookup;
 };
 
 export class ManagedTerminalDrive {
@@ -160,6 +173,7 @@ export class ManagedTerminalDrive {
   private readonly stallWatch: boolean;
   private readonly pasteToCrSettleMs: number;
   private readonly pendingText: PromptPendingLookup | undefined;
+  private readonly hasOperatorDraft: OperatorDraftLookup | undefined;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
@@ -188,6 +202,25 @@ export class ManagedTerminalDrive {
     this.stallWatch = options.stallWatch ?? true;
     this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
     this.pendingText = options.pendingText;
+    this.hasOperatorDraft = options.hasOperatorDraft;
+  }
+
+  /**
+   * True while a factory write must wait: the agent is mid-turn, a write is
+   * already in flight, a turn is pending acknowledgement, or — the operator
+   * case this gate exists for — there is an unsubmitted draft in the box.
+   */
+  private mustWait(bindingId: string): boolean {
+    return (
+      !this.isSeatIdle(bindingId) ||
+      this.writing.has(bindingId) ||
+      this.pendingTurns.has(bindingId) ||
+      this.operatorDrafting(bindingId)
+    );
+  }
+
+  private operatorDrafting(bindingId: string): boolean {
+    return this.hasOperatorDraft?.(bindingId) === true;
   }
 
   /** Mark a binding as just spawned — enforces min delay before first paste. */
@@ -266,14 +299,7 @@ export class ManagedTerminalDrive {
       return false;
     }
 
-    if (
-      !queueIfBusy &&
-      (!this.isSeatIdle(bindingId) ||
-        this.writing.has(bindingId) ||
-        this.pendingTurns.has(bindingId))
-    ) {
-      return false;
-    }
+    if (!queueIfBusy && this.mustWait(bindingId)) return false;
 
     const readyAfter =
       opts.readyAfterMs ?? this.readyAfter.get(bindingId) ?? 0;
@@ -308,15 +334,13 @@ export class ManagedTerminalDrive {
       }
     }
 
-    if (
-      !this.isSeatIdle(bindingId) ||
-      this.writing.has(bindingId) ||
-      this.pendingTurns.has(bindingId)
-    ) {
+    if (this.mustWait(bindingId)) {
       if (!queueIfBusy) return false;
       if (
         opts.interruptIfBusy &&
         !this.isSeatIdle(bindingId) &&
+        // Ctrl+C mid-turn also wipes whatever the operator has typed.
+        !this.operatorDrafting(bindingId) &&
         !this.mailInterrupts.has(bindingId)
       ) {
         // Reserve the coalescing slot before awaiting the physical write so
@@ -324,7 +348,11 @@ export class ManagedTerminalDrive {
         // promise also preserves FIFO queue order across the await boundary.
         this.mailInterrupts.set(bindingId, this.interrupt(bindingId));
       }
-      if (opts.interruptIfBusy && !this.isSeatIdle(bindingId)) {
+      if (
+        opts.interruptIfBusy &&
+        !this.isSeatIdle(bindingId) &&
+        !this.operatorDrafting(bindingId)
+      ) {
         const interruption = this.mailInterrupts.get(bindingId);
         if (interruption !== undefined) {
           const interrupted = await interruption;
@@ -345,11 +373,7 @@ export class ManagedTerminalDrive {
       // The interrupt can make the seat idle before its observer event is
       // delivered. Do not miss that boundary and strand the prompt in a queue
       // that was drained just before this call resumed.
-      if (
-        this.isSeatIdle(bindingId) &&
-        !this.writing.has(bindingId) &&
-        !this.pendingTurns.has(bindingId)
-      ) {
+      if (!this.mustWait(bindingId)) {
         return this.executePrompt(
           bindingId,
           text,
@@ -452,6 +476,15 @@ export class ManagedTerminalDrive {
   }
 
   /**
+   * The operator's prompt box went empty (submitted or cleared). Queued
+   * factory prompts waited for exactly this boundary.
+   */
+  onComposerClear(bindingId: string): void {
+    if (this.suspended) return;
+    void this.drainOne(bindingId);
+  }
+
+  /**
    * Turn-start ack (title flip, hook event, OSC). Clears stall watch for the seat.
    */
   onTurnStart(bindingId: string): void {
@@ -534,11 +567,7 @@ export class ManagedTerminalDrive {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
-    if (
-      !this.isSeatIdle(bindingId) ||
-      this.writing.has(bindingId) ||
-      this.pendingTurns.has(bindingId)
-    ) return;
+    if (this.mustWait(bindingId)) return;
     const q = this.queues.get(bindingId);
     if (!q || q.length === 0) return;
     const next = q.shift()!;

@@ -77,6 +77,7 @@ import {
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
+import { composerDraft } from "./term/composer-draft";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import {
   peekFirstTypedMessage,
@@ -1294,6 +1295,13 @@ export const registerVellumIpc = (): void => {
           if (!snap) return false;
           return promptStillPending(snap, text);
         },
+        // An idle seat with a half-typed operator prompt is not writeable:
+        // paste + CR would submit their draft. Wait for a clear box.
+        hasOperatorDraft: (bindingId) => composerDraft.hasDraft(bindingId),
+      });
+      // The operator submitted or cleared their draft: release what waited.
+      composerDraft.onClear((bindingId) => {
+        managedDrive.onComposerClear(bindingId);
       });
       const productAutomationSuspension = Object.freeze({
         suspend: (): void => {
@@ -1443,12 +1451,14 @@ export const registerVellumIpc = (): void => {
         const epoch = payload.epoch;
         if (payload.status === "exited") {
           managedDrive.invalidateBinding(bindingId);
+          composerDraft.clear(bindingId);
           cancelManagedPulseReady(bindingId, epoch);
           acceptedClaudeRecoveryEpoch.delete(bindingId);
           return;
         }
         if (payload.status !== "running") return;
         managedDrive.invalidateBinding(bindingId);
+        composerDraft.clear(bindingId);
         cancelManagedPulseReady(bindingId);
         acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;

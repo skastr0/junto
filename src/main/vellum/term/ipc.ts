@@ -18,6 +18,7 @@ import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
+import { composerDraft } from "./composer-draft";
 import { injectionSupervisor } from "./injection-supervisor";
 import { TerminalNodeDeleteService } from "./node-delete";
 import { rememberRemoteSeatState } from "./remote-seat-state";
@@ -461,7 +462,10 @@ export const registerTerminalIpc = (
       const written = router.write(owner.lease, decoded, owner.hostId);
       // Input-origin tagging: user keystrokes must suppress injection.
       void written.then((ok) => {
-        if (ok) injectionSupervisor.noteUserInput(owner.lease.bindingId);
+        if (!ok) return;
+        injectionSupervisor.noteUserInput(owner.lease.bindingId);
+        // Draft ledger: no factory write may land on a half-typed prompt.
+        composerDraft.note(owner.lease.bindingId, decoded);
       });
       return written;
     },
