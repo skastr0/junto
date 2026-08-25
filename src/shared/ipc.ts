@@ -867,6 +867,10 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
   readonly loginItemGet: () => Promise<LoginItemOpResult>;
   /** Explicit toggle only; no silent enrollment. */
   readonly loginItemSet: (openAtLogin: boolean) => Promise<LoginItemOpResult>;
+}
+
+/** Optional fleet/hosts product surface. Omitted from preload when Fleet UI is off. */
+export interface VellumCommandHostsApi {
   // Remote host registry (SSH fleet surface).
   readonly hostsList: () => Promise<HostsOpResult>;
   readonly hostsDiscoverPeers: () => Promise<HostsDiscoverPeersResult>;

@@ -20,7 +20,7 @@ describe("compile-time feature profiles", () => {
       cron: false,
       relay: false,
       browser: true,
-      fleetUi: true,
+      fleetUi: false,
       usage: false,
       helpMap: false,
       audio: false,

@@ -1,6 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS } from "../src/shared/ipc";
+
+vi.mock("@shared/release-capabilities", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../src/shared/release-capabilities")
+  >();
+  return {
+    ...actual,
+    RELEASE_CAPABILITIES: Object.freeze({
+      ...actual.RELEASE_CAPABILITIES,
+      freshRemoteEnrollment: true,
+      managedRemoteDeploy: true,
+      darwinRemoteDeploy: true,
+    }),
+  };
+});
+
 import { registerHostsIpc } from "../src/main/vellum/hosts/ipc";
 import {
   HOST_OPERATION_ADMISSIONS,

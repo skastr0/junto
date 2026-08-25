@@ -1,6 +1,7 @@
 import type {
   VellumCommandApi,
   VellumCommandGitApi,
+  VellumCommandHostsApi,
   VellumCommandTerminalApi,
 } from "@shared/ipc";
 
@@ -12,6 +13,7 @@ import type {
 export const getVellumCommandApi = ():
   | (VellumCommandApi &
       Partial<VellumCommandTerminalApi> &
-      Partial<VellumCommandGitApi>)
+      Partial<VellumCommandGitApi> &
+      Partial<VellumCommandHostsApi>)
   | undefined =>
   typeof window === "undefined" ? undefined : window.vellumCommand;

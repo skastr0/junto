@@ -23,6 +23,7 @@ import { HermesPlane } from "./hermes/plane";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
+  FLEET_UI_ENABLED,
   HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
@@ -303,7 +304,9 @@ export const registerVellumIpc = (): void => {
   registerGitIpc(privilegedIpc);
   registerSettingsIpc(privilegedIpc, broadcast);
   registerObservabilityIpc(privilegedIpc, broadcast);
-  registerHostsIpc(privilegedIpc);
+  if (FLEET_UI_ENABLED) {
+    registerHostsIpc(privilegedIpc);
+  }
   registerUpdateIpc(
     privilegedIpc,
     broadcast,
@@ -1712,7 +1715,7 @@ export const registerVellumIpc = (): void => {
         },
       });
 
-      if (stationForSeed.station.role === "command-center") {
+      if (FLEET_UI_ENABLED && stationForSeed.station.role === "command-center") {
         yield* fleetPropagation.start();
         // Managed fleet updates walk only from Command Center. The executor
         // re-reads the remoteManagedInstalls kill-switch on every pass, so
@@ -1720,7 +1723,7 @@ export const registerVellumIpc = (): void => {
         startLiveFleetUpdateExecutor();
       }
       settingsForSeed.subscribe((settings) => {
-        if (settings.station.role === "command-center") {
+        if (FLEET_UI_ENABLED && settings.station.role === "command-center") {
           Effect.runFork(fleetPropagation.start());
           startLiveFleetUpdateExecutor();
         }

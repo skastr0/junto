@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { computeDeployCapabilities } from "../src/shared/deploy-capabilities";
 import {
   BOX_FLEET_DISABLED_DETAIL,
-  LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
+  MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL,
   RELEASE_CAPABILITIES,
   resolveReleaseCapabilities,
 } from "../src/shared/release-capabilities";
@@ -16,7 +16,7 @@ describe("linux fleet release gate (production defaults)", () => {
   it("defaults freeze Linux deploy and Box fleet", () => {
     expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.boxFleet).toBe(false);
-    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(true);
+    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
   });
 
   it("computeDeployCapabilities refuses Linux targets (pure formula)", () => {
@@ -26,7 +26,7 @@ describe("linux fleet release gate (production defaults)", () => {
       platform: "linux",
     });
     expect(caps.effective.deployRemote).toBe(false);
-    expect(caps.detail.deployRemote).toBe(LINUX_REMOTE_DEPLOY_DISABLED_DETAIL);
+    expect(caps.detail.deployRemote).toBe(MANAGED_REMOTE_DEPLOY_DISABLED_DETAIL);
     expect(caps.effective.boxFleet).toBe(false);
     expect(caps.detail.boxFleet).toBe(BOX_FLEET_DISABLED_DETAIL);
   });

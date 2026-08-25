@@ -1,6 +1,21 @@
 import { readFileSync } from "node:fs";
 import { Context, Effect, Layer } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@shared/release-capabilities", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../src/shared/release-capabilities")
+  >();
+  return {
+    ...actual,
+    RELEASE_CAPABILITIES: Object.freeze({
+      ...actual.RELEASE_CAPABILITIES,
+      freshRemoteEnrollment: true,
+      managedRemoteDeploy: true,
+      darwinRemoteDeploy: true,
+    }),
+  };
+});
 import { defaultSettings } from "../src/shared/settings";
 import { BoxFleetService } from "../src/main/vellum/box";
 import {

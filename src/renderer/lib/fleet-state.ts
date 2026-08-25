@@ -24,6 +24,7 @@ const fleetUiOpen = (): boolean =>
   isCommandCenterFleetUi(state$.settings.station.role.peek());
 
 export const prefetchFleetChunk = (): void => {
+  if (!__VELLUM_COMMAND_FLEET_UI_ENABLED__) return;
   if (!fleetUiOpen()) return;
   if (fleetChunkPrefetch) return;
   fleetChunkPrefetch = import("../components/fleet/FleetOverlay").catch(() => {

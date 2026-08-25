@@ -70,7 +70,8 @@ export function FleetHostForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const api = getVellumCommandApi();
-    if (!api?.hostsUpsert) {
+    const upsert = api?.hostsUpsert;
+    if (!upsert) {
       setError("Hosts API unavailable.");
       return;
     }
@@ -87,7 +88,7 @@ export function FleetHostForm({
     setBusy(true);
     setError("");
     try {
-      const result = await api.hostsUpsert({
+      const result = await upsert({
         id: slugifyHostId(trimmedLabel),
         label: trimmedLabel,
         kind: "remote",

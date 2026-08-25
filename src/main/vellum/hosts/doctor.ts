@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   BROWSER_ENABLED,
+  FLEET_UI_ENABLED,
   HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
 } from "@shared/features";
@@ -606,7 +607,12 @@ export const runRemoteHostsDoctorSnapshot = (
       }
     }
 
-    const remoteHosts = hosts.filter((host) => host.kind === "remote");
+    const remoteHosts = FLEET_UI_ENABLED
+      ? hosts.filter((host) => host.kind === "remote")
+      : [];
+    if (!FLEET_UI_ENABLED && hosts.some((host) => host.kind === "remote")) {
+      lines.push("remote host probing is disabled in this Vellum Command build");
+    }
     if (remoteHosts.length > 0) {
       const sshBinaryOk = yield* Effect.tryPromise({
         try: async () => {

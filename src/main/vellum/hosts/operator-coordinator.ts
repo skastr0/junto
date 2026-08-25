@@ -50,6 +50,7 @@ import {
 } from "@shared/release-capabilities";
 import { computeDeployCapabilities } from "@shared/deploy-capabilities";
 import { RemoteHostsError, type RemoteHost } from "@shared/remote-hosts";
+import { FLEET_UI_ENABLED } from "@shared/features";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import {
   STATION_API_PROTOCOL,
@@ -918,6 +919,13 @@ export const makeOperatorCoordinator = (
         }),
       );
       return operatorSuccess(request, status);
+    }
+
+    if (!FLEET_UI_ENABLED) {
+      throw new OperatorCoordinatorError(
+        "runtime_down",
+        "Fleet operations are disabled in this Vellum Command build",
+      );
     }
 
     if (!options.fleetReady()) {

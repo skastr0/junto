@@ -17,19 +17,21 @@ export const useHostDeployJob = (
       return;
     }
     const api = getVellumCommandApi();
-    if (!api?.hostsDeployJobGet || !api.onHostsDeployJobChanged) {
+    const getJob = api?.hostsDeployJobGet;
+    const onChanged = api?.onHostsDeployJobChanged;
+    if (!getJob || !onChanged) {
       setJob(null);
       return;
     }
 
     let cancelled = false;
-    void api.hostsDeployJobGet(hostId).then((snapshot) => {
+    void getJob(hostId).then((snapshot) => {
       if (!cancelled) setJob(snapshot);
     }).catch(() => {
       if (!cancelled) setJob(null);
     });
 
-    const unsubscribe = api.onHostsDeployJobChanged((next) => {
+    const unsubscribe = onChanged((next) => {
       if (next.hostId === hostId) setJob(next);
     });
 
@@ -48,14 +50,16 @@ export const useRunningDeployJobs = (): ReadonlyArray<HostDeployJobSnapshot> => 
 
   useEffect(() => {
     const api = getVellumCommandApi();
-    if (!api?.hostsDeployJobsList || !api.onHostsDeployJobChanged) {
+    const listJobs = api?.hostsDeployJobsList;
+    const onChanged = api?.onHostsDeployJobChanged;
+    if (!listJobs || !onChanged) {
       setJobs([]);
       return;
     }
 
     let cancelled = false;
     const refresh = () => {
-      void api.hostsDeployJobsList().then((list) => {
+      void listJobs().then((list) => {
         if (!cancelled) {
           setJobs(list.filter((job) => job.status === "running"));
         }
@@ -65,7 +69,7 @@ export const useRunningDeployJobs = (): ReadonlyArray<HostDeployJobSnapshot> => 
     };
     refresh();
 
-    const unsubscribe = api.onHostsDeployJobChanged((next) => {
+    const unsubscribe = onChanged((next) => {
       setJobs((prev) => {
         const without = prev.filter((job) => job.hostId !== next.hostId);
         if (next.status === "running") return [...without, next];

@@ -21,6 +21,7 @@ import {
   type VellumCommandGitApi,
   type VellumCommandHerdrApi,
   type VellumCommandHermesIntegrationApi,
+  type VellumCommandHostsApi,
   type VellumCommandSchedulerApi,
   type VellumCommandTerminalApi,
   type VellumCommandUsageApi,
@@ -36,6 +37,7 @@ import type { Task } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
+  FLEET_UI_ENABLED,
   HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
@@ -601,39 +603,6 @@ const vellumApi: VellumCommandApi = {
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
-  hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
-  hostsDiscoverPeers: () => invoke(IPC_CHANNELS.hostsDiscoverPeers, IPC_TIMEOUT_MS),
-  hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
-  hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
-  hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
-  hostsConfigureRemote: (id: string) =>
-    invoke(IPC_CHANNELS.hostsConfigureRemote, IPC_TIMEOUT_MS, id),
-  hostsDeployRemote: (input) =>
-    invoke(IPC_CHANNELS.hostsDeployRemote, 1_200_000, input),
-  hostsDeployJobGet: (hostId: string) =>
-    invoke(IPC_CHANNELS.hostsDeployJobGet, IPC_TIMEOUT_MS, hostId),
-  hostsDeployJobsList: () =>
-    invoke(IPC_CHANNELS.hostsDeployJobsList, IPC_TIMEOUT_MS),
-  onHostsDeployJobChanged: (listener) =>
-    subscribe(IPC_CHANNELS.hostsDeployJobChanged, listener),
-  hostsDeployCapabilities: () =>
-    invoke(IPC_CHANNELS.hostsDeployCapabilities, IPC_TIMEOUT_MS),
-  boxAvailability: () =>
-    invoke(IPC_CHANNELS.boxAvailability, IPC_TIMEOUT_MS),
-  boxListOwned: () =>
-    invoke(IPC_CHANNELS.boxListOwned, IPC_TIMEOUT_MS),
-  boxCreate: () =>
-    invoke(IPC_CHANNELS.boxCreate, 120_000),
-  boxRefresh: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxRefresh, IPC_TIMEOUT_MS, boxId),
-  boxPrepareSsh: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxPrepareSsh, 180_000, boxId),
-  boxStop: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxStop, 180_000, boxId),
-  boxResume: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxResume, 180_000, boxId),
-  boxDetach: (boxId: string) =>
-    invoke(IPC_CHANNELS.boxDetach, IPC_TIMEOUT_MS, boxId),
   settingsGet: () => invoke<SettingsOpResult>(IPC_CHANNELS.settingsGet, IPC_TIMEOUT_MS),
   settingsPatch: (patch: SettingsPatch) =>
     invoke<SettingsOpResult>(IPC_CHANNELS.settingsPatch, IPC_TIMEOUT_MS, patch),
@@ -877,6 +846,42 @@ const demoApi: VellumCommandDemoApi = {
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
 };
 
+const hostsApi: VellumCommandHostsApi = {
+  hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
+  hostsDiscoverPeers: () => invoke(IPC_CHANNELS.hostsDiscoverPeers, IPC_TIMEOUT_MS),
+  hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
+  hostsRemove: (id: string) => invoke(IPC_CHANNELS.hostsRemove, IPC_TIMEOUT_MS, id),
+  hostsTest: (id: string) => invoke(IPC_CHANNELS.hostsTest, IPC_TIMEOUT_MS, id),
+  hostsConfigureRemote: (id: string) =>
+    invoke(IPC_CHANNELS.hostsConfigureRemote, IPC_TIMEOUT_MS, id),
+  hostsDeployRemote: (input) =>
+    invoke(IPC_CHANNELS.hostsDeployRemote, 1_200_000, input),
+  hostsDeployJobGet: (hostId: string) =>
+    invoke(IPC_CHANNELS.hostsDeployJobGet, IPC_TIMEOUT_MS, hostId),
+  hostsDeployJobsList: () =>
+    invoke(IPC_CHANNELS.hostsDeployJobsList, IPC_TIMEOUT_MS),
+  onHostsDeployJobChanged: (listener) =>
+    subscribe(IPC_CHANNELS.hostsDeployJobChanged, listener),
+  hostsDeployCapabilities: () =>
+    invoke(IPC_CHANNELS.hostsDeployCapabilities, IPC_TIMEOUT_MS),
+  boxAvailability: () =>
+    invoke(IPC_CHANNELS.boxAvailability, IPC_TIMEOUT_MS),
+  boxListOwned: () =>
+    invoke(IPC_CHANNELS.boxListOwned, IPC_TIMEOUT_MS),
+  boxCreate: () =>
+    invoke(IPC_CHANNELS.boxCreate, 120_000),
+  boxRefresh: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxRefresh, IPC_TIMEOUT_MS, boxId),
+  boxPrepareSsh: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxPrepareSsh, 180_000, boxId),
+  boxStop: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxStop, 180_000, boxId),
+  boxResume: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxResume, 180_000, boxId),
+  boxDetach: (boxId: string) =>
+    invoke(IPC_CHANNELS.boxDetach, IPC_TIMEOUT_MS, boxId),
+};
+
 // A preload is attached before Chromium has committed a document. Do not hand
 // a remote page the product API during that interval. Main independently
 // checks the exact WebContents + committed authority, which is what protects
@@ -894,6 +899,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
     ...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {}),
     ...(HERDR_ENABLED ? herdrApi : {}),
+    ...(FLEET_UI_ENABLED ? hostsApi : {}),
     ...terminalApi,
     ...gitApi,
     ...(BROWSER_ENABLED ? browserApi : {}),

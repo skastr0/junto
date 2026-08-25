@@ -15,9 +15,9 @@ describe("RELEASE_CAPABILITIES product surface", () => {
     expect([...SUPPORTED_MANAGED_HOST_PLATFORMS]).toEqual(["darwin"]);
     expect(isManagedHostPlatformSupported("darwin")).toBe(true);
     expect(isManagedHostPlatformSupported("linux")).toBe(false);
-    expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(true);
-    expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(true);
-    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(true);
+    expect(RELEASE_CAPABILITIES.freshRemoteEnrollment).toBe(false);
+    expect(RELEASE_CAPABILITIES.managedRemoteDeploy).toBe(false);
+    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
     expect(RELEASE_CAPABILITIES.boxFleet).toBe(false);
     expect(RELEASE_CAPABILITIES.commandCenterTransfer).toBe(true);

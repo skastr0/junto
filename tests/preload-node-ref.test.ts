@@ -3,6 +3,7 @@ import type {
   NodeRefOpenedDelivery,
   NodeRefOpenedEvent,
   VellumCommandApi,
+  VellumCommandHostsApi,
 } from "../src/shared/ipc";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -138,8 +139,12 @@ describe("preload renderer surface readiness", () => {
 
 describe("preload Remote deployment authorization", () => {
   it("forwards host id only — no administrator password payload", async () => {
-    const api = await loadPreload();
+    const api = (await loadPreload()) as VellumCommandApi &
+      Partial<VellumCommandHostsApi>;
     const input = { id: "studio" };
+    if (!api.hostsDeployRemote) {
+      throw new Error("hostsDeployRemote missing from all-on preload");
+    }
 
     await api.hostsDeployRemote(input);
 

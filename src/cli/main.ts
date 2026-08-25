@@ -35,7 +35,7 @@ import { earlyDispatchFromArgv } from "./early-dispatch";
 import { runContentTransfer } from "./content-transfer";
 import { runStationStdio } from "./station-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
-import { BROWSER_ENABLED } from "@shared/features";
+import { BROWSER_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
 
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
 const browserCliAvailable =
@@ -74,8 +74,9 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     boardCommand,
     padCommand,
     stationOperatorCommand,
-    fleetOperatorCommand,
-    qualificationOperatorCommand,
+    ...(FLEET_UI_ENABLED
+      ? [fleetOperatorCommand, qualificationOperatorCommand]
+      : []),
   ]),
 );
 
@@ -114,6 +115,15 @@ if (import.meta.main) {
     } else {
       await runBrowserCli(dispatch.args);
     }
+  } else if (
+    dispatch.kind === "cli" &&
+    !FLEET_UI_ENABLED &&
+    (dispatch.args[0] === "fleet" || dispatch.args[0] === "qualification")
+  ) {
+    process.stderr.write(
+      `vellum-command ${dispatch.args[0]}: disabled in this Vellum Command build\n`,
+    );
+    process.exitCode = 2;
   } else if (dispatch.kind === "station-stdio") {
     await runStationStdio(dispatch.args);
   } else if (dispatch.kind === "content-transfer") {

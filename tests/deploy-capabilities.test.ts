@@ -13,21 +13,42 @@ describe("computeDeployCapabilities", () => {
     const caps = computeDeployCapabilities({
       stationRole: "command-center",
       remoteManagedInstalls: false,
+      release: {
+        ...RELEASE_CAPABILITIES,
+        managedRemoteDeploy: true,
+        darwinRemoteDeploy: true,
+      },
     });
     expect(caps.effective.deployRemote).toBe(false);
     expect(caps.detail.deployRemote).toMatch(/turned off|Settings/i);
   });
 
-  it("enables Darwin deploy on Command Center when operator allows", () => {
+  it("refuses Darwin deploy under production freeze even when operator allows", () => {
     const caps = computeDeployCapabilities({
       stationRole: "command-center",
       remoteManagedInstalls: true,
       platform: "darwin",
     });
-    expect(caps.effective.deployRemote).toBe(true);
-    expect(caps.detail.deployRemote).toBeUndefined();
+    expect(caps.effective.deployRemote).toBe(false);
+    expect(caps.detail.deployRemote).toMatch(/disabled in this release/i);
     expect(caps.effective.boxFleet).toBe(false);
     expect(caps.release.linuxRemoteDeploy).toBe(false);
+  });
+
+  it("enables Darwin deploy when a test opens the managed surface", () => {
+    const caps = computeDeployCapabilities({
+      stationRole: "command-center",
+      remoteManagedInstalls: true,
+      platform: "darwin",
+      release: {
+        ...RELEASE_CAPABILITIES,
+        freshRemoteEnrollment: true,
+        managedRemoteDeploy: true,
+        darwinRemoteDeploy: true,
+      },
+    });
+    expect(caps.effective.deployRemote).toBe(true);
+    expect(caps.detail.deployRemote).toBeUndefined();
   });
 
   it("refuses Linux managed deploy under production surface", () => {
@@ -37,7 +58,7 @@ describe("computeDeployCapabilities", () => {
       platform: "linux",
     });
     expect(caps.effective.deployRemote).toBe(false);
-    expect(caps.detail.deployRemote).toMatch(/Linux/i);
+    expect(caps.detail.deployRemote).toMatch(/disabled in this release/i);
   });
 
   it("refuses deployment away from Command Center", () => {
@@ -45,6 +66,11 @@ describe("computeDeployCapabilities", () => {
       stationRole: "remote",
       remoteManagedInstalls: true,
       platform: "darwin",
+      release: {
+        ...RELEASE_CAPABILITIES,
+        managedRemoteDeploy: true,
+        darwinRemoteDeploy: true,
+      },
     });
     expect(caps.effective.deployRemote).toBe(false);
     expect(caps.detail.deployRemote).toMatch(/Command Center/i);
@@ -90,6 +116,7 @@ describe("computeDeployCapabilities", () => {
       platform: "linux",
       release: {
         ...RELEASE_CAPABILITIES,
+        managedRemoteDeploy: true,
         linuxRemoteDeploy: true,
         boxFleet: true,
       },
@@ -100,14 +127,15 @@ describe("computeDeployCapabilities", () => {
 });
 
 describe("releaseAllowsTargetPlatform", () => {
-  it("freezes Linux and admits Darwin under production", () => {
+  it("freezes Linux and Darwin under production", () => {
     expect(RELEASE_CAPABILITIES.linuxRemoteDeploy).toBe(false);
+    expect(RELEASE_CAPABILITIES.darwinRemoteDeploy).toBe(false);
     expect(releaseAllowsTargetPlatform(RELEASE_CAPABILITIES, "linux")).toEqual({
       ok: false,
       detail: LINUX_REMOTE_DEPLOY_DISABLED_DETAIL,
     });
     expect(releaseAllowsTargetPlatform(RELEASE_CAPABILITIES, "darwin").ok).toBe(
-      true,
+      false,
     );
     expect(
       releaseAllowsTargetPlatform(RELEASE_CAPABILITIES, undefined).ok,

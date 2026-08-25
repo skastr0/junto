@@ -4,11 +4,11 @@
  * Managed host platforms are the single policy source. Linux/Box support is
  * derived from that list — not separate product knobs re-introduced ad hoc.
  *
- * Current production surface: macOS managed hosts only. Linux fleet work and
- * Box provisioning remain in-tree but inaccessible until the platform is
- * re-listed. Other gates still apply: operator kill-switch
- * (`settings.fleet.remoteManagedInstalls`), station role (Command Center only
- * for deploy), and runtime deploy errors.
+ * Current production surface: Fleet/Remote management is dormant. Darwin
+ * enroll/deploy, Linux fleet, and Box stay off until Fleet UI ships.
+ * Auto-Command-Center establish is independent of these flags. Other gates
+ * still apply: operator kill-switch (`settings.fleet.remoteManagedInstalls`),
+ * station role (Command Center only for deploy), and runtime deploy errors.
  */
 
 /** Platforms that may receive managed Remote install / enrollment automation. */
@@ -47,9 +47,9 @@ export type ReleaseCapabilities = {
 const linuxManaged = isManagedHostPlatformSupported("linux");
 
 export const RELEASE_CAPABILITIES: ReleaseCapabilities = Object.freeze({
-  freshRemoteEnrollment: true,
-  managedRemoteDeploy: true,
-  darwinRemoteDeploy: isManagedHostPlatformSupported("darwin"),
+  freshRemoteEnrollment: false,
+  managedRemoteDeploy: false,
+  darwinRemoteDeploy: false,
   linuxRemoteDeploy: linuxManaged,
   boxFleet: linuxManaged,
   commandCenterTransfer: true,

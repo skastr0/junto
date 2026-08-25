@@ -397,12 +397,13 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
 
   const loadCaps = useCallback(async () => {
     const api = getVellumCommandApi();
-    if (!api?.hostsDeployCapabilities) {
+    const readCaps = api?.hostsDeployCapabilities;
+    if (!readCaps) {
       setCaps(null);
       return;
     }
     try {
-      const result = await api.hostsDeployCapabilities();
+      const result = await readCaps();
       setCaps(result.ok ? result : null);
     } catch {
       setCaps(null);
@@ -489,7 +490,12 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
     );
     try {
       if (kind === "configure") {
-        const result = await api.hostsConfigureRemote(host.id);
+        const configure = api.hostsConfigureRemote;
+        if (!configure) {
+          setActionLine("Host configure API unavailable");
+          return;
+        }
+        const result = await configure(host.id);
         const recovery = deployRecoveryGuidance(result.recoveryAction);
         setActionLine(
           [
@@ -503,10 +509,20 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             .join("\n"),
         );
       } else if (kind === "deploy") {
-        const result = await api.hostsDeployRemote({ id: host.id });
+        const deploy = api.hostsDeployRemote;
+        if (!deploy) {
+          setActionLine("Host deploy API unavailable");
+          return;
+        }
+        const result = await deploy({ id: host.id });
         presentDeployResult(result);
       } else {
-        const result = await api.hostsRemove(host.id);
+        const remove = api.hostsRemove;
+        if (!remove) {
+          setActionLine("Host remove API unavailable");
+          return;
+        }
+        const result = await remove(host.id);
         if (result.ok) {
           await refreshFleet();
         } else {

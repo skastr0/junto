@@ -16,6 +16,7 @@ import {
   hostsWithCapability,
   subscribeHostsSnapshot,
 } from "../hosts/snapshot";
+import { FLEET_UI_ENABLED } from "@shared/features";
 import { isLocalHost, TERMINAL_HOST_CAPABILITY } from "@shared/remote-hosts";
 import {
   isTermMaintenanceObservationId,
@@ -977,6 +978,11 @@ export class TerminalRouter extends EventEmitter {
     hostId: string,
     maintenanceCut?: HostMaintenanceCut,
   ): Promise<RemoteEntry> {
+    if (!FLEET_UI_ENABLED) {
+      throw new Error(
+        "Remote terminal routing is disabled in this Vellum Command build",
+      );
+    }
     this.assertRouteAdmission(hostId, maintenanceCut);
     const host = findHostById(hostId);
     if (!host || host.kind !== "remote" || !host.sshEndpoint) {

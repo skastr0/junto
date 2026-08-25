@@ -22,12 +22,13 @@ const persistAppearance = Effect.fn("fleet.persistAppearance")(function* (
 ) {
   if (latestRevision.get(command.host.id) !== command.revision) return;
   const api = getVellumCommandApi();
-  if (!api?.hostsUpsert) {
+  const upsert = api?.hostsUpsert;
+  if (!upsert) {
     return yield* Effect.fail(new Error("Host appearance API unavailable"));
   }
 
   const result = yield* Effect.tryPromise({
-    try: () => api.hostsUpsert({ ...command.host, appearance: command.appearance }),
+    try: () => upsert({ ...command.host, appearance: command.appearance }),
     catch: (cause) =>
       cause instanceof Error ? cause : new Error(String(cause)),
   });

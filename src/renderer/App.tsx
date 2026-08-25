@@ -44,17 +44,21 @@ import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
 import { SettingsPanel } from "./components/SettingsPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
-// Fleet pulls three.js + GLBs. Keep it out of the main chunk until open.
-const FleetOverlay = lazy(async () => {
-  const mod = await import("./components/fleet/FleetOverlay");
-  return { default: mod.FleetOverlay };
-});
 import {
   FLEET_UI_ENABLED,
   HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
+// Fleet pulls three.js + GLBs. The define identifier must wrap import() in
+// this module so ship builds can drop the chunk; imported FLEET_UI_ENABLED
+// is not visible to Rollup DCE.
+const FleetOverlay = __VELLUM_COMMAND_FLEET_UI_ENABLED__
+  ? lazy(async () => {
+      const mod = await import("./components/fleet/FleetOverlay");
+      return { default: mod.FleetOverlay };
+    })
+  : () => null;
 import { HerdrWizard } from "./components/herdr/HerdrWizard";
 import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
 import { HerdrToast } from "./components/herdr/HerdrToast";

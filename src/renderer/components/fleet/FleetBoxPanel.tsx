@@ -42,14 +42,15 @@ export function FleetBoxPanel({
 
   const refreshAvailability = useCallback(async (force = false) => {
     const api = getVellumCommandApi();
-    if (!api?.boxAvailability) {
+    const availability = api?.boxAvailability;
+    if (!availability) {
       invalidateBoxAvailability();
       setMessage("Box integration is unavailable in this build.");
       return;
     }
     try {
       if (!force && !boxAvailabilityNeedsRefresh()) return;
-      const status = await api.boxAvailability();
+      const status = await availability();
       if (!status.ok) {
         invalidateBoxAvailability();
         setMessage(status.message ?? status.detail);
@@ -64,14 +65,15 @@ export function FleetBoxPanel({
 
   const refreshOwnedBoxes = useCallback(async (force = false) => {
     const api = getVellumCommandApi();
-    if (!api?.boxListOwned) {
+    const listOwned = api?.boxListOwned;
+    if (!listOwned) {
       invalidateOwnedBoxes();
       setMessage("Box integration is unavailable in this build.");
       return;
     }
     try {
       if (!force && !ownedBoxesNeedRefresh()) return;
-      const owned = await api.boxListOwned();
+      const owned = await listOwned();
       if (!owned.ok) {
         invalidateOwnedBoxes();
         setMessage(owned.message ?? "Could not read owned Boxes.");
@@ -121,11 +123,12 @@ export function FleetBoxPanel({
 
   const create = async () => {
     const api = getVellumCommandApi();
-    if (!api?.boxCreate) return;
+    const createBox = api?.boxCreate;
+    if (!createBox) return;
     setBusy("create");
     setMessage("");
     try {
-      const result = await api.boxCreate();
+      const result = await createBox();
       if (!result.ok) {
         invalidateOwnedBoxes();
         const recovery =
