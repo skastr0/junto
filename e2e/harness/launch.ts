@@ -26,12 +26,14 @@ import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
+import type { UsageState } from "../../src/shared/usage";
 import {
   createSandbox,
   destroySandbox,
   removeFixtureCanvases,
   writeFixtureCanvas,
   writeFixtureHosts,
+  writeFixtureUsageState,
   type Sandbox,
 } from "./sandbox";
 import { startRendererServer, type RendererServer } from "./renderer-server";
@@ -52,7 +54,7 @@ const ELECTRON_BINARY = join(
 const MAIN_ENTRY = REPO_ROOT;
 const RENDERER_DIR = join(REPO_ROOT, "out/renderer");
 
-// e2e/fakes/bin/{herdr,ssh,hermes,codexbar} — stock-protocol emulators (see
+// e2e/fakes/bin/{herdr,ssh,hermes} — stock-protocol emulators (see
 // e2e/fakes/*.ts for the scenario-file contract each one reads). The system
 // floor is the minimal set every adapter still needs (/bin/sh, coreutils);
 // nothing above it, so an operator CLI on the real PATH can never leak in.
@@ -70,6 +72,11 @@ export interface LaunchOptions {
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
   readonly seedHosts?: ReadonlyArray<RemoteHost>;
+  /**
+   * Usage-plane last-good state seeded into the sandbox's `usage_state` row
+   * before boot — the same durable seam UsageCache paints at startup.
+   */
+  readonly seedUsage?: UsageState;
   readonly extraEnv?: Readonly<Record<string, string>>;
   /**
    * Extra Chromium switches. The operator runs on a scaled Retina display;
@@ -519,6 +526,9 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     if (options.seedHosts !== undefined) {
       await writeFixtureHosts(sandbox, options.seedHosts);
     }
+    if (options.seedUsage !== undefined) {
+      await writeFixtureUsageState(sandbox, options.seedUsage);
+    }
 
     server = await startRendererServer(RENDERER_DIR);
 
@@ -554,8 +564,8 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       ...(options.demo ? { VELLUM_COMMAND_DEMO: "1" } : {}),
       // Restrict PATH to e2e/fakes/bin + the system floor on every launch — no
       // operator CLI, no real host, no AI tokens. Never opt-in: app boot
-      // unconditionally starts the usage-HUD poller (ipc.ts), which shells out
-      // to codexbar the moment any scenario window opens, demo or not. This is
+      // unconditionally starts the usage-HUD poller (ipc.ts), which probes the
+      // native sources the moment any scenario window opens, demo or not. This is
       // one of the isolation invariants at the top of this file, not a
       // per-spec choice. `extraEnv.PATH` (if a spec ever sets it) still wins —
       // it's applied after.

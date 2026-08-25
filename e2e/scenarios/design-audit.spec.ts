@@ -1,16 +1,17 @@
 /**
  * Design-audit capture — NOT a correctness spec. Drives every reachable UI
- * surface with seeded fixtures + the fake herdr/hermes/codexbar binaries and
+ * surface with seeded fixtures + the fake herdr/hermes binaries and
  * screenshots each one to test-results/design-audit/ for visual review.
  *   VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help/herdr surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * A plain ship-profile build hides those surfaces and fails this spec.
  * The screenshots are the artifact; assertions only prove a surface appeared.
  */
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import type { UsageState } from "../../src/shared/usage";
 import { writeScenario as writeHerdrScenario } from "../fakes/scenario";
 import {
   agentTextNode,
@@ -367,7 +368,6 @@ test("capture every surface for design review", async () => {
   test.setTimeout(300_000);
   const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-audit-"));
   const herdrScenario = join(scenarioDir, "herdr.json");
-  const codexbarScenario = join(scenarioDir, "codexbar.json");
   await mkdir(SHOTS, { recursive: true });
 
   const world = {
@@ -445,31 +445,43 @@ test("capture every surface for design review", async () => {
       ],
     },
   });
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(
-    codexbarScenario,
-    JSON.stringify({
-      mode: "healthy",
-      quotas: [
-        {
-          provider: "codex",
-          usage: {
-            loginMethod: "auto",
-            primary: { usedPercent: 42, resetDescription: "3h 12m" },
-            secondary: { usedPercent: 7, resetDescription: "5d 1h" },
+  // Usage rail paint: seeded through the durable `usage_state` seam so the
+  // audit still captures frames 18/19 against native sources.
+  const auditUsage: UsageState = {
+    snapshots: [
+      {
+        source: "codex",
+        fetchedAt: new Date().toISOString(),
+        ok: true,
+        dataConfidence: "stale-cache",
+        quotas: [
+          {
+            provider: "codex",
+            source: "oauth",
+            status: "ok",
+            updatedAt: new Date().toISOString(),
+            windows: [{ label: "primary", usedPercent: 42, windowMinutes: 300 }],
           },
-        },
-        {
-          provider: "claude",
-          usage: {
-            loginMethod: "auto",
-            primary: { usedPercent: 18, resetDescription: "1h 40m" },
+        ],
+      },
+      {
+        source: "claude",
+        fetchedAt: new Date().toISOString(),
+        ok: true,
+        dataConfidence: "stale-cache",
+        quotas: [
+          {
+            provider: "claude",
+            source: "oauth",
+            status: "ok",
+            updatedAt: new Date().toISOString(),
+            windows: [{ label: "primary", usedPercent: 18, windowMinutes: 300 }],
           },
-        },
-      ],
-    }),
-    "utf8",
-  );
+        ],
+      },
+    ],
+    lastLiveAt: new Date().toISOString(),
+  };
 
   const vellumCommand = await launchVellum({
     // Seed before Electron owns the StateEngine. The harness splits work
@@ -477,9 +489,9 @@ test("capture every surface for design review", async () => {
     // canvas API after startup would intentionally discard its task/request/
     // artifact items as authored-document data.
     seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
+    seedUsage: auditUsage,
     extraEnv: {
       FAKE_HERDR_SCENARIO: herdrScenario,
-      FAKE_CODEXBAR_SCENARIO: codexbarScenario,
     },
   });
 

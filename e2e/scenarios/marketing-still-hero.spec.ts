@@ -5,17 +5,17 @@
  *   - a claimed input-required request blocking its claimant (fire)
  *   - an empty queue + free seat reading as calm capacity (ice)
  *   - text notes as on-canvas context, one per region
- *   - mocked usage rail (fake codexbar) so the top chrome sits balanced
+ *   - seeded usage rail (native `usage_state` seam) so the top chrome sits balanced
  *
  * Canvas name is `factory`. Same layout discipline as marketing-stills:
  * fixed card pitch, edges only along free corridors, no overlaps.
  *
  *   MARKETING_SHOTS_DIR=/path bun run test:e2e:fast e2e/scenarios/marketing-still-hero.spec.ts
  */
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
+import type { UsageState } from "../../src/shared/usage";
 import {
   agentTextNode,
   artifactsNode,
@@ -75,7 +75,7 @@ const resizeFrame = async (
   await page.emulateMedia({ reducedMotion: "reduce" });
 };
 
-/** Hide the demo chip only — the usage rail stays visible (mocked codexbar). */
+/** Hide the demo chip only — the usage rail stays visible (seeded usage state). */
 const hideDemoChip = async (page: Page) => {
   await page
     .getByText("DEMO - F9 to roll", { exact: false })
@@ -138,33 +138,49 @@ const note = (id: string, text: string, x: number, y: number, width = 320): Text
   height: 96,
 });
 
-// Mocked usage rail — two believable quotas so the top chrome reads real.
-const codexbarScenario = {
-  mode: "healthy",
-  quotas: [
+// Seeded usage rail — two believable quota rows so the top chrome reads real.
+const heroUsage: UsageState = {
+  snapshots: [
     {
-      provider: "codex",
-      source: "cli",
-      usage: {
-        accountEmail: "ops@example.com",
-        loginMethod: "chatgpt",
-        primary: { usedPercent: 42, windowMinutes: 300, resetDescription: "resets in 5h" },
-        secondary: { usedPercent: 7, windowMinutes: 10080 },
-        updatedAt: new Date().toISOString(),
-      },
+      source: "codex",
+      fetchedAt: new Date().toISOString(),
+      ok: true,
+      dataConfidence: "stale-cache",
+      quotas: [
+        {
+          provider: "codex",
+          source: "oauth",
+          status: "ok",
+          account: "ops@example.com",
+          updatedAt: new Date().toISOString(),
+          windows: [
+            { label: "primary", usedPercent: 42, windowMinutes: 300 },
+            { label: "secondary", usedPercent: 7, windowMinutes: 10_080 },
+          ],
+        },
+      ],
     },
     {
-      provider: "claude",
-      source: "cli",
-      usage: {
-        accountEmail: "ops@example.com",
-        loginMethod: "chatgpt",
-        primary: { usedPercent: 63, windowMinutes: 300, resetDescription: "resets in 2h" },
-        secondary: { usedPercent: 18, windowMinutes: 10080 },
-        updatedAt: new Date().toISOString(),
-      },
+      source: "claude",
+      fetchedAt: new Date().toISOString(),
+      ok: true,
+      dataConfidence: "stale-cache",
+      quotas: [
+        {
+          provider: "claude",
+          source: "oauth",
+          status: "ok",
+          account: "ops@example.com",
+          updatedAt: new Date().toISOString(),
+          windows: [
+            { label: "primary", usedPercent: 63, windowMinutes: 300 },
+            { label: "secondary", usedPercent: 18, windowMinutes: 10_080 },
+          ],
+        },
+      ],
     },
   ],
+  lastLiveAt: new Date().toISOString(),
 };
 
 test("still 00 — factory hero board", async () => {
@@ -367,17 +383,13 @@ test("still 00 — factory hero board", async () => {
     ),
   );
 
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-hero-"));
-  const scenarioPath = join(scenarioDir, "codexbar.json");
-  await writeFile(scenarioPath, JSON.stringify(codexbarScenario));
-
   // Demo mode mints an ephemeral SQLite authority (product change
   // "consolidate demo state to ephemeral SQLite"), so seeded canvases are
   // invisible to a demo launch. This still needs its seeded factory board,
-  // so it launches without demo mode; the mocked usage rail still renders.
+  // so it launches without demo mode; the seeded usage rail still renders.
   const vellumCommand = await launchVellum({
     seedCanvases: { factory: canvasDoc(nodes, edges) },
-    extraEnv: { FAKE_CODEXBAR_SCENARIO: scenarioPath },
+    seedUsage: heroUsage,
   });
 
   try {

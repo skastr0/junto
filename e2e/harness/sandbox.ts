@@ -30,6 +30,7 @@ import {
 } from "../../src/main/vellum/settings/service";
 import { makeHostsRegistry } from "../../src/main/vellum/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
+import type { UsageState } from "../../src/shared/usage";
 import {
   WorkRepository,
   WorkRepositoryLive,
@@ -414,6 +415,45 @@ export const removeFixtureCanvases = async (
         process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
       }
     }
+  }
+};
+
+/**
+ * Seed a usage-plane last-good state into the same explicit SQLite database
+ * Electron opens. This is the product's durable seam (`usage_state` row):
+ * UsageCache paints it at boot and UsageService keeps it when a live poll
+ * fails, so scenarios drive the native HUD without touching any source.
+ */
+export const writeFixtureUsageState = async (
+  sandbox: Sandbox,
+  state: UsageState,
+  databasePath?: string,
+): Promise<void> => {
+  const runtime = ManagedRuntime.make(
+    makeStateEngineLive(
+      databasePath ??
+        join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+    ),
+  );
+  try {
+    const engine = await runtime.runPromise(StateEngine);
+    await engine.transaction("seed-usage-state", (writer) => {
+      writer.run(
+        `INSERT INTO usage_state(singleton, snapshots_json, last_live_at, updated_at)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET
+           snapshots_json = excluded.snapshots_json,
+           last_live_at = excluded.last_live_at,
+           updated_at = excluded.updated_at`,
+        [
+          JSON.stringify(state.snapshots),
+          state.lastLiveAt ?? new Date().toISOString(),
+          new Date().toISOString(),
+        ],
+      );
+    });
+  } finally {
+    await runtime.dispose();
   }
 };
 
