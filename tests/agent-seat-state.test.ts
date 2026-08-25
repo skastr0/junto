@@ -883,6 +883,95 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.ruleId).toBe("welcome_idle");
   });
 
+  // Frames below are transcribed from a real `amp --no-ide threads continue`
+  // PTY capture (0.0.1787664850).
+  it("amp: connecting startup holds prior state instead of reading idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "\u256d\u2500\u2500 $\u00b7\u00b7\u00b7\u00b7 \u2500 high \u2500\u256e",
+          "\u2502                                              \u2502",
+          "\u2570 ~ Connecting \u2500\u2500 ~/Projects/vellum (main) \u2500\u256f",
+        ],
+        title: "",
+      }),
+      { harness: "amp" },
+    );
+    expect(result.skipStateUpdate).toBe(true);
+    expect(result.ruleId).toBe("connecting_unknown");
+  });
+
+  it("amp: resume replay is not a writeable seat either", () => {
+    const result = evaluate(
+      snap({
+        lines: ["\u2570 ~ Catching Up \u2500\u2500 ~/Projects/vellum (main) \u2500\u256f"],
+        title: "",
+      }),
+      { harness: "amp" },
+    );
+    expect(result.skipStateUpdate).toBe(true);
+  });
+
+  it("amp: braille title is working", () => {
+    const result = evaluate(
+      snap({
+        lines: ["\u2570 ~ Streaming \u2500\u2500 ~/Projects/vellum (main) \u2500\u256f"],
+        title: "\u28f6 amp - ~/Projects/vellum",
+      }),
+      { harness: "amp" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("osc_title_working");
+    expect(result.visibleWorking).toBe(true);
+  });
+
+  it("amp: a settled turn titles <thread> - amp - <cwd> and is idle", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          " \u2503 Reply with the single word READY and nothing else.",
+          " READY",
+          "\u2570\u2500\u2500 ~/Projects/vellum (main) \u2500\u256f",
+        ],
+        title: "Ready response - amp - ~/Projects/vellum",
+      }),
+      { harness: "amp" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("osc_title_idle");
+    expect(result.visibleIdle).toBe(true);
+  });
+
+  it("amp: waiting for approval is attention, never idle", () => {
+    const result = evaluate(
+      snap({
+        lines: ["\u2570 Waiting for Approval \u2500\u2500 ~/Projects/vellum \u2500\u256f"],
+        title: "Some thread - amp - ~/Projects/vellum",
+      }),
+      { harness: "amp" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.visibleAttention).toBe(true);
+  });
+
+  it("amp: the Ctrl+C menu is attention, a second Ctrl+C archives the thread", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "\u256d\u2500 Ctrl+C then \u2500\u256e",
+          "\u2502 Ctrl+N Archive and new thread \u2502",
+          "\u2502 Ctrl+E Archive and quit       \u2502",
+          "\u2502 Ctrl+C Quit                   \u2502",
+          "\u2502           Esc cancel          \u2502",
+        ],
+        title: "Ready response - amp - ~/Projects/vellum",
+      }),
+      { harness: "amp" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.ruleId).toBe("interrupt_menu_attention");
+  });
+
   // Transcribed from a live `grok` seat waiting on a swarm it spawned. The
   // OSC title had already reverted to the idle shape, so the seat published
   // idle via osc_title_idle while the subagent was still running.

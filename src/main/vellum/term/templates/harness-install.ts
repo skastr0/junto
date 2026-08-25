@@ -46,6 +46,10 @@ const extraInstallCandidates = (
   switch (harness) {
     case "agy":
       return [join(home, ".local", "bin", binary)];
+    case "amp":
+      // Verified install location for the user-installed Amp CLI. Detection
+      // only — Vellum Command never installs or authenticates Amp.
+      return [join(home, ".local", "bin", binary)];
     case "kimi":
       return [join(home, ".kimi-code", "bin", binary)];
     case "muse":

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGY_TEMPLATE,
+  AMP_TEMPLATE,
   APPEARANCE_PREFERENCE_FLAGS,
   CLAUDE_MODEL_ALIASES,
   CLAUDE_TEMPLATE,
@@ -56,6 +57,7 @@ describe("managed-terminal templates (data)", () => {
     "devin",
     "cursor",
     "agy",
+    "amp",
   ] as const;
 
   it("exports exactly the managed harnesses", () => {
@@ -416,6 +418,45 @@ describe("resolveManagedLaunch argv", () => {
     expect(argv).toContain("--rules");
     expect(argv).toContain("doctrine text");
     expect(argv).not.toContain("--agent");
+  });
+
+  it("amp: launches --no-ide and resumes the exact thread by id", () => {
+    // Both shapes verified against amp 0.0.1787664850 in a real PTY.
+    const fresh = resolveManagedLaunch(
+      "amp",
+      { resumeId: "T-01a03989-71a6-733b-ac4c-76f54969cb55", mode: "low" },
+      bareAmbient,
+    );
+    expect(fresh.argv).toEqual([
+      "amp",
+      "--no-ide",
+      "threads",
+      "continue",
+      "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+      "-m",
+      "low",
+    ]);
+    // Amp exposes no model flag and no independent effort — the one dial is
+    // the named mode, and it must never be reported as either of the others.
+    expect(AMP_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
+    expect(AMP_TEMPLATE.argvSpec.effortFlag).toBeUndefined();
+    expect(AMP_TEMPLATE.efforts).toEqual([]);
+    expect(AMP_TEMPLATE.modes).toEqual(["low", "medium", "high", "ultra"]);
+    expect(AMP_TEMPLATE.capabilityBadges.sessionId).toBe("provision");
+    expect(AMP_TEMPLATE.injectionSpec.tier).toBe("B");
+    expect(AMP_TEMPLATE.injectionSpec.flags).toEqual([]);
+  });
+
+  it("amp: no permission-mode override is ever spawned", () => {
+    const launch = resolveManagedLaunch(
+      "amp",
+      { resumeId: "T-01a03989-71a6-733b-ac4c-76f54969cb55" },
+      bareAmbient,
+    );
+    const argv = launch.argv ?? [];
+    expect(argv).not.toContain("--permission-mode");
+    expect(argv).not.toContain("--dangerously-skip-permissions");
+    expect(AMP_TEMPLATE.defaultPermissionMode).toBeUndefined();
   });
 
   it("hermes: chat --tui -q with profile and model", () => {

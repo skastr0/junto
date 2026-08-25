@@ -79,6 +79,69 @@ describe("isManagedTerminalReady", () => {
   });
 });
 
+describe("amp readiness is positive, not quiet", () => {
+  const snap = (title: string, lines: readonly string[]) => ({
+    bindingId: "b",
+    epoch: "e",
+    cols: 143,
+    rows: 40,
+    lines: [...lines],
+    text: lines.join("\n"),
+    seq: 1n,
+    signals: {
+      title,
+      osc9: "",
+      modes: {
+        bracketedPaste: false,
+        synchronizedOutput: false,
+        altScreen: false,
+        mouseModes: [],
+      },
+    },
+  });
+
+  it("refuses the connecting window even though the composer is painted", () => {
+    // Real startup frame: the whole box is on screen, the title is still empty,
+    // and a prompt written here is swallowed.
+    expect(
+      isManagedTerminalReady({
+        harness: "amp",
+        snapshot: snap("", [
+          "\u2502                                              \u2502",
+          "\u2570 ~ Connecting \u2500 ~/Projects/vellum (main) \u2500\u256f",
+        ]),
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses the resume replay window", () => {
+    expect(
+      isManagedTerminalReady({
+        harness: "amp",
+        snapshot: snap("", ["\u2570 ~ Catching Up \u2500 ~/Projects/vellum \u2500\u256f"]),
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses when there is no snapshot at all", () => {
+    expect(isManagedTerminalReady({ harness: "amp" })).toBe(false);
+    expect(isManagedTerminalReady({ harness: "amp", seatState: "idle" })).toBe(
+      false,
+    );
+  });
+
+  it("is ready once Amp titles the window and the footer settles", () => {
+    expect(
+      isManagedTerminalReady({
+        harness: "amp",
+        snapshot: snap("Ready response - amp - ~/Projects/vellum", [
+          "\u2570\u2500 ~/Projects/vellum (main) \u2500\u256f",
+        ]),
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("firstTyped arming", () => {
   afterEach(() => resetFirstTypedForTest());
 

@@ -36,6 +36,7 @@ export const HarnessId = Schema.Literals([
   "devin",
   "cursor",
   "agy",
+  "amp",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -105,6 +106,14 @@ export type ArgvSpec = {
    * (`-c model_reasoning_effort="…"`).
    */
   readonly effortFlag?: string;
+  /**
+   * Agent-mode flag for harnesses whose one dial is a named mode rather than a
+   * model or an effort (Amp `-m low|medium|high|ultra`, which selects model,
+   * system prompt, and tool set together). Kept distinct from `modelFlag` and
+   * `effortFlag`: presenting a mode as either would misreport what the harness
+   * offers.
+   */
+  readonly modeFlag?: string;
   /** When set, effort is emitted as `-c <key>="<value>"` (Codex). */
   readonly effortConfigKey?: string;
   /** Permission / approval flag (`--permission-mode`, `-a`, `--yolo`). */
@@ -120,6 +129,12 @@ export type ArgvSpec = {
    * - `subcommand` — `codex resume <id>` (binary args become resume …)
    */
   readonly resumeMode?: "flag" | "subcommand";
+  /**
+   * Tokens that carry a named resume when `resumeMode` is "subcommand".
+   * Codex resumes as `codex resume <id>`; Amp as `amp threads continue <id>`.
+   * Declared per template so a resume shape is data, never a harness branch.
+   */
+  readonly resumeSubcommand?: readonly string[];
   readonly resumeFlag?: string;
   /** Tier-A system prompt flag (`--append-system-prompt`, `--rules`). */
   readonly systemPromptFlag?: string;
@@ -204,9 +219,11 @@ export type CapabilityBadges = {
   readonly effortAtSpawn: boolean;
   /**
    * `pin` = spawn flag; `capture` = read from env/hook/title after start;
-   * `unavailable` = no release claim for cold-wake session recovery.
+   * `provision` = minted by a public CLI call before the PTY starts and stored
+   * as the seat's session id (Amp `threads new`); `unavailable` = no release
+   * claim for cold-wake session recovery.
    */
-  readonly sessionId: "pin" | "capture" | "unavailable";
+  readonly sessionId: "pin" | "capture" | "provision" | "unavailable";
   readonly remote: boolean;
   /** Grok swallows the argv prompt unless cwd is a git work tree. */
   readonly requiresGitCwd: boolean;
@@ -232,6 +249,11 @@ export type ManagedTerminalTemplate = {
    * (Hermes: typed `/reasoning` only, or omitted).
    */
   readonly efforts: readonly string[];
+  /**
+   * Named agent modes for `argvSpec.modeFlag`. Empty/absent for every harness
+   * whose dial is a model or an effort.
+   */
+  readonly modes?: readonly string[];
   /** Default permission/approval mode when the picker does not choose. */
   readonly defaultPermissionMode?: string;
   /** Probed binary version era (re-smoke on harness updates). */
@@ -733,6 +755,65 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
   defaultPermissionMode: undefined,
 };
 
+/**
+ * Amp CLI (Sourcegraph; binary: `amp`) — Tier B, provisioned thread, OSC → grid.
+ *
+ * Verified against 0.0.1787664850-g921ac7 by driving the real TUI in a PTY:
+ * - `amp threads new --visibility private` prints one `T-<uuid>` and exits;
+ * - `amp --no-ide -m <mode> threads continue <T-id>` opens the interactive TUI
+ *   on that exact thread. `--no-ide` keeps a Vellum Command-spawned seat from
+ *   attaching the operator's editor selection to every message;
+ * - the one dial is `-m low|medium|high|ultra` (model + system prompt + tools
+ *   together) — Amp exposes no model flag and no independent effort;
+ * - there is no session-scoped system-prompt flag, so doctrine is Tier B;
+ * - startup paints the composer with an `∼ Connecting` footer and NO OSC title;
+ *   a turn paints a braille-prefixed title and a `≈ Streaming` footer; a
+ *   finished turn paints `<title> - amp - <cwd>`.
+ */
+export const AMP_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "amp",
+  displayName: "Amp",
+  probedVersion: "0.0.1787664850",
+  argvSpec: {
+    binary: "amp",
+    // Structural only: `--no-ide` decides what the seat IS (a standalone
+    // terminal agent) rather than how it looks.
+    prefix: ["--no-ide"],
+    // No argv prompt slot: the thread is resumed by subcommand, so doctrine
+    // and mail both ride the drive's typed path.
+    promptMode: "none",
+    modeFlag: "-m",
+    resumeMode: "subcommand",
+    resumeSubcommand: ["threads", "continue"],
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description:
+      "No session-scoped system-prompt flag — doctrine is the first typed message",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: false,
+    sessionId: "provision",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "OSC title → grid (composer footer)",
+    attentionSource: "approval footer (Waiting for Approval) + Ctrl+C menu",
+    labels: [
+      "injection B",
+      "OSC + grid",
+      "mode",
+      "provisioned thread",
+    ],
+  },
+  efforts: [],
+  modes: ["low", "medium", "high", "ultra"],
+  defaultPermissionMode: undefined,
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -747,6 +828,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   devin: DEVIN_TEMPLATE,
   cursor: CURSOR_TEMPLATE,
   agy: AGY_TEMPLATE,
+  amp: AMP_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

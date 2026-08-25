@@ -52,6 +52,8 @@ export type ManagedSpawnIntent = {
 export type ManagedLaunchChoices = {
   readonly model?: string;
   readonly effort?: string;
+  /** Named agent mode for `argvSpec.modeFlag` (Amp low|medium|high|ultra). */
+  readonly mode?: string;
   /** Hermes profile name. */
   readonly profile?: string;
   /** Optional first-turn / auto-submit prompt. */
@@ -185,11 +187,12 @@ const buildArgv = (
       ? resumeFlag
       : undefined;
 
-  // Codex resume is a subcommand: `codex resume <id> …flags… [prompt]`
-  // Re-pass every flag — resume does not inherit spawn options.
-  // Named id only — never `--continue` / bare resume / "latest session".
+  // Subcommand resume re-passes every flag — resume does not inherit spawn
+  // options. Named id only, never `--continue` / bare resume / latest session.
+  // The tokens are template data: `codex resume <id>`, `amp threads continue <id>`.
   if (resumeId && spec.resumeMode === "subcommand") {
-    argv.push("resume", resumeId);
+    argv.push(...spec.prefix);
+    argv.push(...(spec.resumeSubcommand ?? ["resume"]), resumeId);
   } else {
     argv.push(...spec.prefix);
     if (resumeId && spec.resumeMode === "flag" && namedResumeFlag) {
@@ -203,6 +206,10 @@ const buildArgv = (
 
   if (choices.model) {
     pushFlag(argv, spec.modelFlag, choices.model);
+  }
+
+  if (choices.mode) {
+    pushFlag(argv, spec.modeFlag, choices.mode);
   }
 
   if (choices.effort) {
