@@ -2,13 +2,29 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
+import { parseJson } from "../adapters/exec";
+import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
+import {
+  claudeCredentialsResolvable,
+  fetchClaudeUsageApi,
+  parseClaudeOAuthUsage,
+  resolveClaudeAccessToken,
+  type ClaudeLiveOutcome,
+} from "./claude-oauth";
 import type { UsageSource } from "./usage-source";
 
-// Native Claude usage: ~/.claude.json → cachedUsageUtilization.
-// Machine-readable mirror of the /usage screen (five_hour / seven_day / limits).
-// Cache refreshes only when the user opens /usage in a live Claude session —
-// we paint last-good honestly (stale is fine; never invent live %).
+// Native Claude usage source — LIVE OAuth first, stale cache fallback.
+//
+// Strategy pipeline:
+//   (a) LIVE: access token resolved from Claude Code's local credential store
+//       (~/.claude/.credentials.json, then macOS Keychain) → one GET against
+//       https://api.anthropic.com/api/oauth/usage. 401/403/network failure
+//       folds into the stale path in the SAME call so callers always get the
+//       best available data.
+//   (b) FALLBACK: ~/.claude.json cachedUsageUtilization — machine-readable
+//       mirror of the /usage screen. It refreshes only when the user opens
+//       /usage in a live Claude session — we paint last-good honestly (stale
+//       is fine; never invent live %).
 
 const CLAUDE_JSON = (): string => join(homedir(), ".claude.json");
 
@@ -25,7 +41,7 @@ const asNumber = (value: unknown): number | undefined =>
 const asBoolean = (value: unknown): boolean | undefined =>
   typeof value === "boolean" ? value : undefined;
 
-/** Pure decode — exported for unit tests. */
+/** Pure decode of the stale cache — exported for unit tests. */
 export const parseClaudeCachedUsage = (
   payload: unknown,
   fetchedAt: string,
@@ -139,9 +155,66 @@ export const parseClaudeCachedUsage = (
   };
 };
 
+/**
+ * Pure fold of a live outcome plus the raw stale-cache payload into the one
+ * snapshot callers see. Live success wins when it decodes; any live failure
+ * (including 401/403) falls back to the stale quota so the best available
+ * data always ships. Exported for unit tests.
+ */
+export const assembleClaudeSnapshot = (
+  outcome: ClaudeLiveOutcome | undefined,
+  stalePayload: unknown,
+  fetchedAt: string,
+): UsageSnapshot => {
+  if (outcome?.kind === "ok") {
+    const liveQuota = parseClaudeOAuthUsage(outcome.payload, fetchedAt);
+    if (liveQuota !== undefined) {
+      return { source: "claude", fetchedAt, ok: true, quotas: [liveQuota] };
+    }
+    // Unusable live payload — degrade to the stale path below.
+  }
+
+  const staleQuota =
+    stalePayload !== undefined ? parseClaudeCachedUsage(stalePayload, fetchedAt) : undefined;
+  if (staleQuota !== undefined) {
+    return { source: "claude", fetchedAt, ok: true, quotas: [staleQuota] };
+  }
+
+  let reason: UsageUnavailableReason;
+  let error: string;
+  if (outcome === undefined) {
+    reason = "source-missing";
+    error = "no local Claude Code credentials and no ~/.claude.json cache";
+  } else if (outcome.kind === "unauthorized") {
+    reason = "cli-error";
+    error = `usage endpoint rejected credentials (${outcome.status})`;
+  } else if (outcome.kind === "failed") {
+    reason = "cli-error";
+    error = outcome.error;
+  } else {
+    reason = "parse-error";
+    error = "usage endpoint returned an unrecognized payload";
+  }
+  return { source: "claude", fetchedAt, ok: false, reason, error, quotas: [] };
+};
+
+const readStaleCachePayload = (): unknown | undefined => {
+  try {
+    const path = CLAUDE_JSON();
+    if (!existsSync(path)) return undefined;
+    return parseJson(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
 const detectClaude = async (): Promise<boolean> => {
   try {
-    return existsSync(CLAUDE_JSON());
+    if (existsSync(CLAUDE_JSON())) return true;
+    if (claudeCredentialsResolvable()) return true;
+    // Keychain presence probe stays cheap and best-effort; no network.
+    const token = await resolveClaudeAccessToken();
+    return token !== undefined;
   } catch {
     return false;
   }
@@ -149,49 +222,11 @@ const detectClaude = async (): Promise<boolean> => {
 
 const fetchClaude = async (): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
-  const path = CLAUDE_JSON();
   try {
-    if (!existsSync(path)) {
-      return {
-        source: "claude",
-        fetchedAt,
-        ok: false,
-        reason: "source-missing",
-        error: "~/.claude.json not found",
-        quotas: [],
-      };
-    }
-    const raw = readFileSync(path, "utf8");
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return {
-        source: "claude",
-        fetchedAt,
-        ok: false,
-        reason: "parse-error",
-        error: "~/.claude.json is not valid JSON",
-        quotas: [],
-      };
-    }
-    const quota = parseClaudeCachedUsage(parsed, fetchedAt);
-    if (quota === undefined) {
-      return {
-        source: "claude",
-        fetchedAt,
-        ok: false,
-        reason: "source-missing",
-        error: "cachedUsageUtilization absent (open /usage in Claude to populate)",
-        quotas: [],
-      };
-    }
-    return {
-      source: "claude",
-      fetchedAt,
-      ok: true,
-      quotas: [quota],
-    };
+    const token = await resolveClaudeAccessToken();
+    const outcome =
+      token !== undefined ? await fetchClaudeUsageApi(token) : undefined;
+    return assembleClaudeSnapshot(outcome, readStaleCachePayload(), fetchedAt);
   } catch (error) {
     return {
       source: "claude",
@@ -209,3 +244,7 @@ export const claudeSource: UsageSource = {
   detect: Effect.promise(detectClaude),
   fetch: Effect.promise(fetchClaude),
 };
+
+// WIP post-beta: natives remain unwired in production — StationUsageSourcesLive
+// stays codexbar-only (src/main/vellum/usage/native-sources.ts). This module is
+// exercised via NativeUsageSourcesLive in unit tests until that gate opens.
