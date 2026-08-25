@@ -458,14 +458,16 @@ const decodeArgs = <S extends Schema.Top>(
 const stationGuidance = (
   doc: CanvasDoc,
   station: string,
-): { triage?: string; emission?: string } => {
+): { instruction?: string; triage?: string; emission?: string } => {
   const contract = sinkContractOf(doc.nodes.find((node) => node.id === station));
+  const instruction = contract?.instruction?.trim();
   const triage = contract?.inbound?.instruction?.trim();
   const emission =
     flowDestinations(doc, station).length > 0
       ? contract?.outbound?.emission?.trim()
       : undefined;
   return {
+    ...(instruction ? { instruction } : {}),
     ...(triage ? { triage } : {}),
     ...(emission ? { emission } : {}),
   };
@@ -486,9 +488,6 @@ const stationLawMap = (doc: CanvasDoc, fromNodeId: string) =>
         provenance: entry.provenance,
       })),
       admission: resolveSinkAdmission(contract),
-      ...(contract?.instruction !== undefined
-        ? { instruction: contract.instruction }
-        : {}),
       ...(inbound?.description !== undefined
         ? { description: inbound.description }
         : {}),
@@ -520,9 +519,6 @@ const sinkPipelineBriefing = (doc: CanvasDoc, nodeId: string) => {
   if (contract === undefined && destinations.length === 0) return undefined;
   return {
     contract: {
-      ...(contract?.instruction !== undefined
-        ? { instruction: contract.instruction }
-        : {}),
       ...stationGuidance(doc, nodeId),
       claims: effectiveClaimsStack(doc, nodeId).length,
       admission: resolveSinkAdmission(contract),
@@ -849,9 +845,6 @@ const dispatchOp = (
         ...(contract !== undefined
           ? {
               contract: {
-                ...(contract.instruction !== undefined
-                  ? { instruction: contract.instruction }
-                  : {}),
                 ...stationGuidance(board, decoded.success.target),
                 claims: contract.claims ?? [],
                 admission: resolveSinkAdmission(contract),

@@ -1799,7 +1799,7 @@ describe("work control transport", () => {
                     ...node.ether?.tasks,
                     items: node.ether?.tasks?.items ?? [],
                     contract: {
-                      instruction: "close the journey",
+                      instruction: "  close the journey  ",
                       inbound: { instruction: "   " },
                       outbound: { emission: "hand off cleanly" },
                     },

@@ -1656,7 +1656,7 @@ export const WorkLive = Layer.effect(
           });
           const regions = regionStackFor(read.doc, nodeId);
           const sinkContract = sinkContractOf(node);
-          const sinkInstruction = sinkContract?.instruction;
+          const sinkInstruction = sinkContract?.instruction?.trim();
           const sinkTriage = sinkContract?.inbound?.instruction?.trim();
           // Emission is forwarding guidance — meaningless at a terminal sink.
           const sinkEmission =
@@ -1669,7 +1669,7 @@ export const WorkLive = Layer.effect(
             claims: effectiveClaimsStack(read.doc, nodeId, task),
             ambient: {
               regions,
-              ...(sinkInstruction !== undefined ? { sinkInstruction } : {}),
+              ...(sinkInstruction ? { sinkInstruction } : {}),
               ...(sinkTriage ? { sinkTriage } : {}),
               ...(sinkEmission ? { sinkEmission } : {}),
             },
