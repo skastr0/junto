@@ -2,7 +2,7 @@
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Result, Layer, Match, Schema } from "effect";
+import { Context, Effect, Option, Result, Layer, Match, Schema } from "effect";
 import type {
   Artifact,
   CanvasDoc,
@@ -109,6 +109,9 @@ import {
   StationLivePeerRegistry,
 } from "../station/session-registry";
 import { ContentService } from "../content/service";
+import { InstallOpsService } from "../install-ops/service";
+import { StateEngine } from "../state/engine";
+import { runPendingProposalBackfill } from "./pending-proposal-backfill";
 import type { ContentOwner } from "../content/manifest";
 import { admitWorkTarget, regionStackFor } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
@@ -1106,6 +1109,48 @@ export const WorkLive = Layer.effect(
         };
       }),
     );
+
+    const installOpsOption = yield* Effect.serviceOption(InstallOpsService);
+    const stateOption = yield* Effect.serviceOption(StateEngine);
+    if (Option.isSome(installOpsOption) && Option.isSome(stateOption)) {
+      yield* runPendingProposalBackfill({
+        state: stateOption.value,
+        installOps: installOpsOption.value,
+        persist: (input) =>
+          Effect.gen(function* () {
+            const [context, read] = yield* Effect.all([
+              stationContext,
+              readCanvas(input.canvasName),
+            ]);
+            yield* repository.createTask({
+              sink: {
+                canvasName: input.canvasName,
+                nodeId: input.nodeId,
+              },
+              basis: intentBasis(context, read.intentWitness),
+              task: input.materialization.task,
+            }).pipe(Effect.mapError(toWorkServiceError));
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                console.error(
+                  "[work] pending-proposal persist deferred:",
+                  error,
+                );
+              }),
+            ),
+          ),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            console.error(
+              "[work] pending-proposal backfill deferred to next boot:",
+              error,
+            );
+          }),
+        ),
+      );
+    }
 
     return WorkService.of({
       workTaskHome: (canvas, nodeId, taskId) =>
