@@ -23,6 +23,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.task-describe",
   "ipc.work.task-transition",
   "ipc.work.task-promote",
+  "ipc.work.task-comment",
   "ipc.work.task-respond",
   "ipc.work.task-claim",
   "ipc.work.message-append",

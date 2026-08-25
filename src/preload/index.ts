@@ -498,6 +498,15 @@ const vellumApi: VellumCommandApi = {
       taskId,
       note,
     ),
+  workTaskComment: (canvas, nodeId, taskId, text) =>
+    invoke(
+      IPC_CHANNELS.workTaskComment,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      text,
+    ),
   workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workTaskRespond,

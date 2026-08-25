@@ -122,6 +122,7 @@ export const IPC_CHANNELS = {
   workTaskTransition: "vellum-command:work-task-transition",
   workTaskPromote: "vellum-command:work-task-promote",
   workTaskRejectArrival: "vellum-command:work-task-reject-arrival",
+  workTaskComment: "vellum-command:work-task-comment",
   workTaskRespond: "vellum-command:work-task-respond",
   workTaskClaim: "vellum-command:work-task-claim",
   workRequestResolve: "vellum-command:work-request-resolve",
@@ -716,6 +717,13 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     taskId: string,
     note?: string,
   ) => Promise<WorkOpResult<Task>>;
+  /** Append an operator-authored comment through the canonical task message channel. */
+  readonly workTaskComment: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    text: string,
+  ) => Promise<WorkOpResult<Task["history"][number]>>;
   readonly workTaskRespond: (
     canvas: string,
     nodeId: string,

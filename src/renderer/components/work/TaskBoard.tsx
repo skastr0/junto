@@ -1,7 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
-  Activity,
   ArrowDownToLine,
   ArrowUpRight,
   CheckCircle2,
@@ -55,7 +54,6 @@ import {
   canTransitionTaskState,
   claimedByOf,
   compareTasksByLatestActivityDesc,
-  taskActivityNewestFirst,
   taskBrief,
   taskContentParts,
   taskMediaParts,
@@ -63,6 +61,7 @@ import {
 } from "@shared/task";
 import { ContentMedia } from "./ContentMedia";
 import { TaskJourney } from "./TaskJourney";
+import { TaskThread } from "./TaskThread";
 import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
 import { TaskCreationMetroMap } from "../claims/creation";
 import { PinRulingControl, SinkContractEditor } from "../claims";
@@ -74,6 +73,7 @@ import {
 import { effectiveClaimsStack, taskAdmissionState } from "@shared/claims";
 import { defectTargetOptions } from "@shared/journey-integrity";
 import { resolveSinkAdmission, type TaskClaim } from "@shared/work-model";
+import { currentTaskOwner } from "@shared/task-owner";
 import {
   arrivalGlance,
   groupOutboundPassages,
@@ -522,6 +522,7 @@ function TaskLane({
   selectedTaskIds,
   activeActorSeatIds,
   proposalById,
+  ownerFor,
   onCreate,
   onApprove,
   onRejectProposal,
@@ -556,6 +557,7 @@ function TaskLane({
   readonly selectedTaskIds: ReadonlySet<string>;
   readonly activeActorSeatIds: ReadonlySet<string>;
   readonly proposalById: ReadonlyMap<string, string>;
+  readonly ownerFor: (task: WorkTask) => string | undefined;
   readonly onCreate: () => void;
   readonly onApprove: (task: WorkTask) => void;
   readonly onRejectProposal?: (task: WorkTask) => void;
@@ -606,6 +608,7 @@ function TaskLane({
         checked={selectedTaskIds.has(task.id)}
         activeActorSeatIds={activeActorSeatIds}
         proposalBy={proposalById.get(task.id)}
+        ownerLabel={ownerFor(task)}
         onSelect={onSelect}
         onToggleSelect={onToggleSelect}
         onMove={onMove}
@@ -943,6 +946,7 @@ function TaskCard({
   checked,
   activeActorSeatIds,
   proposalBy,
+  ownerLabel,
   onSelect,
   onToggleSelect,
   onMove,
@@ -965,6 +969,7 @@ function TaskCard({
   readonly checked: boolean;
   readonly activeActorSeatIds: ReadonlySet<string>;
   readonly proposalBy?: string;
+  readonly ownerLabel?: string;
   readonly onSelect: (taskId: string) => void;
   readonly onToggleSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
@@ -1116,13 +1121,16 @@ function TaskCard({
                   tone={claimantRetired ? "crimson" : toneForState(task.state)}
                   pulse={!claimantRetired && task.state === "working"}
                 />
-                <span className="task-board-card__claimant" title={claim}>
-                  {proposalBy
-                    ? proposalBy === "operator"
-                      ? "Raised by operator"
-                      : `Raised by ${proposalBy}`
-                    : claim ?? "Unclaimed"}
-                </span>
+                {proposalBy || ownerLabel ? (
+                  <span className="task-board-card__claimant" title={claim}>
+                    <UserRound size={10} aria-hidden />
+                    {proposalBy
+                      ? proposalBy === "operator"
+                        ? "Raised by operator"
+                        : `Raised by ${proposalBy}`
+                      : ownerLabel}
+                  </span>
+                ) : null}
                 {mediaCount > 0 ? (
                   <span
                     className="task-board-card__media"
@@ -1187,11 +1195,6 @@ function TaskCard({
               </Chip>
             ) : null}
           </div>
-          {task.history.length > 1 ? (
-            <span className="task-board-card__history">
-              {task.history.length - 1} update{task.history.length === 2 ? "" : "s"}
-            </span>
-          ) : null}
         </footer>
       ) : null}
     </article>
@@ -1774,6 +1777,9 @@ function TaskDetailPanel({
   claimantRetired,
   isProposal,
   proposedBy,
+  ownerLabel,
+  seatName,
+  nodeName,
   station,
   onClose,
   onSaveTitle,
@@ -1782,6 +1788,7 @@ function TaskDetailPanel({
   onMove,
   onApprove,
   onRejectProposal,
+  onComment,
 }: {
   readonly task: WorkTask;
   /** Sink node the open row lives at — the journey reads its interiors from here. */
@@ -1791,6 +1798,9 @@ function TaskDetailPanel({
   readonly claimantRetired: boolean;
   readonly isProposal: boolean;
   readonly proposedBy?: string;
+  readonly ownerLabel?: string;
+  readonly seatName: (seatId: string) => string | undefined;
+  readonly nodeName: (nodeId: string) => string | undefined;
   /** Operator station console for an operator-owned sink; absent elsewhere. */
   readonly station?: ReactNode;
   readonly onClose: () => void;
@@ -1804,6 +1814,7 @@ function TaskDetailPanel({
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove?: (task: WorkTask) => void;
   readonly onRejectProposal?: (task: WorkTask) => void;
+  readonly onComment: (task: WorkTask, text: string) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
   const [response, setResponse] = useState("");
@@ -1815,7 +1826,6 @@ function TaskDetailPanel({
   const attentionRequired =
     !isProposal && (task.state === "input-required" || task.state === "auth-required");
   const requestContext = latestText(task);
-  const activityMessages = taskActivityNewestFirst(task);
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
@@ -1938,10 +1948,12 @@ function TaskDetailPanel({
 
       <div className="task-detail-panel__identity">
         <span title={isProposal ? "Pending work ID" : "Task ID"}>#{task.id}</span>
-        <span className="task-detail-panel__claim" title={isProposal ? proposedBy : claim}>
-          <UserRound size={12} aria-hidden />
-          {isProposal ? (proposedByLabel ?? "Awaiting approval") : (claim ?? "Unclaimed")}
-        </span>
+        {isProposal || ownerLabel ? (
+          <span className="task-detail-panel__claim" title={isProposal ? proposedBy : claim}>
+            <UserRound size={12} aria-hidden />
+            {isProposal ? (proposedByLabel ?? "Awaiting approval") : ownerLabel}
+          </span>
+        ) : null}
         {rejectedTimes !== undefined ? (
           <span title="Times returned to Queue after QA rejection">
             QA rejects: {rejectedTimes}
@@ -2014,6 +2026,14 @@ function TaskDetailPanel({
             <PinRulingControl nodeId={nodeId} text={response} sourceRequestId={task.id} />
           </section>
         ) : null}
+
+        <TaskThread
+          task={task}
+          pending={pending}
+          seatName={seatName}
+          nodeName={nodeName}
+          onComment={(text) => onComment(task, text)}
+        />
 
         <section className="task-detail-panel__section">
           <h3>Title</h3>
@@ -2167,7 +2187,7 @@ function TaskDetailPanel({
             <p className="task-detail-panel__description">
               If the completed work does not prove the finish criteria, leave a
               comment. The task will return to Queue and the comment will stay in
-              Activity for the next worker.
+              Thread for the next worker.
             </p>
             <label className="task-detail-panel__response-field">
               <span>QA rejection comment</span>
@@ -2198,35 +2218,6 @@ function TaskDetailPanel({
             </div>
           </section>
         ) : null}
-
-        <section className="task-detail-panel__section">
-          <h3>
-            <Activity size={13} aria-hidden />
-            Activity
-          </h3>
-          <ol className="task-detail-panel__activity">
-            {activityMessages.length > 0 ? (
-              activityMessages.map((message) => (
-                <li key={message.messageId}>
-                  <div>
-                    <div className="task-detail-panel__activity-actor">
-                      <StatusDot tone={message.role === "agent" ? "cyan" : "amber"} />
-                      <strong>{message.role === "agent" ? claim ?? "Agent" : "Operator"}</strong>
-                    </div>
-                    <p>
-                      {message.parts
-                        .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
-                        .map((part) => part.text)
-                        .join(" ") || "Attached structured context."}
-                    </p>
-                  </div>
-                </li>
-              ))
-            ) : (
-              <li className="task-detail-panel__empty">No activity yet.</li>
-            )}
-          </ol>
-        </section>
 
         {isProposal ? (
           <section className="task-detail-panel__section task-detail-panel__status">
@@ -2393,6 +2384,18 @@ export function TaskBoard({
     );
     return (nodeId: string): string => names.get(nodeId) ?? nodeId;
   }, [doc]);
+  const seatName = useMemo(() => {
+    const names = new Map<string, string>(
+      actorRefs.map((actor) => [actor.seatId, stationName(actor.nodeId)]),
+    );
+    return (seatId: string): string | undefined => names.get(seatId);
+  }, [actorRefs, stationName]);
+  const ownerFor = (task: WorkTask): string | undefined => {
+    const owner = currentTaskOwner(task, sinkContract);
+    if (owner.kind === "operator") return "Operator";
+    if (owner.kind === "seat") return seatName(owner.seatId) ?? owner.seatId;
+    return undefined;
+  };
   const laneCopy = useMemo(
     () => pipelineLaneCopy(shape, stationName),
     [shape, stationName],
@@ -3048,6 +3051,35 @@ export function TaskBoard({
     }
   };
 
+  const commentOnTask = async (
+    task: WorkTask,
+    text: string,
+  ): Promise<boolean> => {
+    if (!api || !text.trim()) return false;
+    setError("");
+    setPendingTaskId(task.id);
+    try {
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskComment(name, node.id, task.id, text.trim()),
+      );
+      if (result === undefined) return false;
+      if (!result.ok) {
+        setError(result.message);
+        setAnnouncement(`Could not comment on ${taskTitle(task)}. ${result.message}`);
+        return false;
+      }
+      setAnnouncement(`Comment added to ${taskTitle(task)}.`);
+      return true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setAnnouncement(`Could not comment on ${taskTitle(task)}. ${message}`);
+      return false;
+    } finally {
+      setPendingTaskId(null);
+    }
+  };
+
   const onDragStart = (event: DragStartEvent) => {
     const data = event.operation.source?.data as BoardDragData | undefined;
     if (data?.kind !== "task") return;
@@ -3356,6 +3388,7 @@ export function TaskBoard({
                 selectedTaskIds={selectedTaskIds}
                 activeActorSeatIds={activeActorSeatIds}
                 proposalById={proposalById}
+                ownerFor={ownerFor}
                 onCreate={() =>
                   setCreating(lane.id === "proposal" ? "proposal" : "task")
                 }
@@ -3397,6 +3430,9 @@ export function TaskBoard({
               }
               isProposal={selectedIsProposal}
               proposedBy={proposalById.get(selectedTask.id)}
+              ownerLabel={ownerFor(selectedTask)}
+              seatName={seatName}
+              nodeName={stationName}
               station={
                 operatorOwned &&
                 !selectedIsProposal &&
@@ -3451,6 +3487,7 @@ export function TaskBoard({
                   ? (task) => void rejectProposal(task)
                   : undefined
               }
+              onComment={commentOnTask}
             />
           ) : null}
           {contractSide ? (

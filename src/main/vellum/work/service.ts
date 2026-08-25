@@ -493,6 +493,13 @@ export interface WorkServiceShape {
       taskId: string,
       actor: ActorRef,
     ) => Effect.Effect<WorkOpResult<Task>>;
+    /** Command Center operator comment on the canonical task thread. */
+    readonly workTaskComment: (
+      canvas: string,
+      nodeId: string,
+      taskId: string,
+      message: Message,
+    ) => Effect.Effect<WorkOpResult<Message>>;
     readonly workMessageAppend: (
       canvas: string,
       nodeId: string,
@@ -2224,6 +2231,130 @@ export const WorkLive = Layer.effect(
                 value: sourceTask,
                 disposition: "queued",
               };
+            }
+            return yield* complete(canvas, outcome);
+          }),
+        ),
+
+      workTaskComment: (canvas, nodeId, taskId, message) =>
+        asResult(
+          Effect.gen(function* () {
+            const [context, read, home] = yield* Effect.all([
+              stationContext,
+              readCanvas(canvas),
+              itemHome("task", canvas, nodeId, taskId),
+            ]);
+            if (context.configuration.role !== "command-center") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  "only the Command Center operator may comment on a task",
+              });
+            }
+            const targetNode = yield* requireNode(read.doc, nodeId);
+            const targetSpec = resolveSpec({
+              isGroup: false,
+              kind: targetNode.ether?.entity?.kind,
+            });
+            const isTaskSink = Match.value(targetSpec).pipe(
+              Match.when({ _tag: "Sink", kind: "task" }, () => true),
+              Match.orElse(() => false),
+            );
+            if (!isTaskSink) {
+              return yield* new WorkServiceError({
+                code: "illegal_kind",
+                message: "task comments require a task sink",
+              });
+            }
+            const policy = yield* runPolicy(() =>
+              workMessageAppend(read.doc, canvas, nodeId, taskId, message)
+            );
+            const materializedMessage = yield* externalizeMessage(policy.message, {
+              kind: "message",
+              canvasName: canvas,
+              nodeId,
+              recordId: policy.message.messageId,
+            });
+            const sentBy = operatorPlanningActorRef(canvas);
+            const destination = { kind: "task" as const, itemId: taskId };
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.appendMessage({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  message: materializedMessage,
+                  sentBy,
+                  destination,
+                }),
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem(
+                  "message",
+                  materializedMessage.messageId,
+                  canvas,
+                  nodeId,
+                ),
+                {
+                  operation: "message.append",
+                  message: materializedMessage,
+                  sentBy,
+                  destination,
+                },
+                materializedMessage,
+              );
+            if (outcome.disposition === "applied") {
+              yield* Effect.gen(function* () {
+                const task = targetNode.ether?.tasks?.items.find(
+                  (item) => item.id === taskId,
+                );
+                if (task === undefined) return;
+                const ownerRef = taskCommentRecipient(
+                  task,
+                  sinkContractOf(targetNode),
+                  sentBy,
+                  read.actorRefs,
+                  canvas,
+                );
+                if (ownerRef === undefined) return;
+                const sourceText = message.parts
+                  .flatMap((part) => (part.kind === "text" ? [part.text] : []))
+                  .join("\n");
+                const notification = makeUserMessage({
+                  messageId: ulid(),
+                  text: `${sourceText}\n(comment on task ${taskId} at "${nodeId}" — reply: vellum-command msg send '{"target":"${nodeId}","taskId":"${taskId}","text":"..."}')`,
+                  contextId: canvas,
+                  metadata: {
+                    factoryMail: true,
+                    taskComment: true,
+                    taskId,
+                    sinkNodeId: nodeId,
+                  },
+                });
+                const copy = yield* externalizeMessage(notification, {
+                  kind: "message",
+                  canvasName: canvas,
+                  nodeId: ownerRef.nodeId,
+                  recordId: notification.messageId,
+                });
+                const delivered = yield* local(
+                  repository.appendMessage({
+                    sink: sinkRef(canvas, ownerRef.nodeId),
+                    basis: intentBasis(context, read.intentWitness),
+                    message: copy,
+                    sentBy,
+                    destination: { kind: "mailbox" },
+                  }),
+                );
+                if (delivered.disposition === "applied") {
+                  messageDelivery.notifyAppended(
+                    canvas,
+                    ownerRef.nodeId,
+                    delivered.value,
+                  );
+                }
+              }).pipe(Effect.catch(() => Effect.succeed(undefined)));
             }
             return yield* complete(canvas, outcome);
           }),

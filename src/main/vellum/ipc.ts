@@ -98,6 +98,8 @@ import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { licensedRendererIpc } from "./license/admission";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
+import { makeUserMessage } from "@shared/task";
+import { ulid } from "ulid";
 import type { PadPatch } from "@shared/pad";
 import { IntentFactBasis, type ActorRef } from "@shared/work-protocol";
 import {
@@ -850,6 +852,44 @@ export const registerVellumIpc = (): void => {
               nodeId,
               taskId,
               note,
+            );
+          }),
+        ),
+      ),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.workTaskComment,
+    (_event, canvas: string, nodeId: string, taskId: string, text: string) =>
+      runRendererWorkAuthoring(
+        "ipc.work.task-comment",
+        () => AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const denied = yield* denyRemoteWork;
+            if (denied) return denied;
+            const body = text.trim();
+            if (!body) {
+              return {
+                ok: false as const,
+                code: "invalid" as const,
+                message: "Task comment must be non-empty.",
+              };
+            }
+            const work = yield* WorkService;
+            return yield* work.workTaskComment(
+              canvas,
+              nodeId,
+              taskId,
+              makeUserMessage({
+                messageId: ulid(),
+                text: body,
+                contextId: canvas,
+                taskId,
+                metadata: {
+                  taskComment: true,
+                  fromSeat: "operator",
+                  "vellum.taskThread.kind": "comment",
+                },
+              }),
             );
           }),
         ),

@@ -65,6 +65,7 @@ describe("main authoring architecture", () => {
       "ipc.work.request-resolve",
       "ipc.work.task-approve-proposal",
       "ipc.work.task-claim",
+      "ipc.work.task-comment",
       "ipc.work.task-create",
       "ipc.work.task-describe",
       "ipc.work.task-propose",

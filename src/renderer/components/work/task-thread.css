@@ -1,0 +1,232 @@
+.task-thread {
+  display: grid;
+  gap: 0;
+  margin: 16px 0 2px;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 8px;
+  background: var(--color-raise);
+  box-shadow: inset 0 1px var(--color-overlay-1);
+}
+
+.task-thread__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border-bottom: 1px solid var(--color-stroke);
+  background:
+    linear-gradient(110deg, color-mix(in oklab, var(--color-amber) 7%, transparent), transparent 48%),
+    var(--color-raise-2);
+}
+
+.task-thread__heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.task-thread__heading span {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.task-thread__heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-thread__messages {
+  display: grid;
+  margin: 0;
+  padding: 3px 12px 3px 10px;
+  list-style: none;
+}
+
+.task-thread__message {
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 82px;
+}
+
+.task-thread__message + .task-thread__message {
+  border-top: 1px solid color-mix(in oklab, var(--color-stroke) 72%, transparent);
+}
+
+.task-thread__rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.task-thread__rail::before {
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: 8px;
+  width: 1px;
+  background: var(--color-stroke);
+  content: "";
+}
+
+.task-thread__message:first-child .task-thread__rail::before {
+  top: 8px;
+}
+
+.task-thread__message:last-child .task-thread__rail::before {
+  bottom: calc(100% - 9px);
+}
+
+.task-thread__rail > span {
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border: 1px solid var(--color-dim);
+  border-radius: 50%;
+  background: var(--color-raise);
+}
+
+.task-thread__message[data-kind="brief"] .task-thread__rail > span {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
+.task-thread__message[data-kind="defect"] .task-thread__rail > span {
+  border-color: var(--color-crimson);
+  background: var(--color-crimson);
+}
+
+.task-thread__message > article {
+  min-width: 0;
+}
+
+.task-thread__message > article > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-thread__message > article > header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink-2);
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-thread__message > article > header time {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.task-thread__parts {
+  display: grid;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.task-thread__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-dim);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.task-thread__message[data-kind="brief"] .task-thread__text {
+  color: var(--color-ink-2);
+}
+
+.task-thread__link {
+  overflow: hidden;
+  color: var(--color-cyan);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-thread__attachment,
+.task-thread__image {
+  width: 100%;
+  max-height: 220px;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-inset);
+}
+
+.task-thread__image {
+  object-fit: contain;
+}
+
+.task-thread__attachment-label {
+  padding: 8px 9px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 5px;
+  color: var(--color-dim);
+  font-size: 9px;
+  background: var(--color-inset);
+}
+
+.task-thread__data {
+  max-height: 180px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: 5px;
+  color: var(--color-dim);
+  font-size: 9px;
+  background: var(--color-inset);
+}
+
+.task-thread__composer {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px 12px 35px;
+  border-top: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+}
+
+.task-thread__composer > label {
+  color: var(--color-dim);
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.task-thread__composer textarea {
+  min-height: 68px;
+}
+
+.task-thread__composer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-thread__composer > div > span {
+  color: var(--color-faint);
+  font-size: 8px;
+  line-height: 1.4;
+}
