@@ -2,7 +2,14 @@ import { use$, useObservable } from "@legendapp/state/react";
 import { useEffect, useRef, useState } from "react";
 import { CircleHelp, Pause, Play, Plus, Radar, ScrollText, Search, Settings2, Trash2 } from "lucide-react";
 import type { CanvasSummary } from "@shared/ipc";
-import type { CanvasPauseState } from "@shared/pause";
+import {
+  cancelFactoryFirstPlay,
+  confirmFactoryFirstPlay,
+  factoryPause$,
+  refreshFactoryLicense,
+  refreshFactoryPause,
+  toggleFactoryPause,
+} from "../lib/factory-pause";
 import {
   DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
@@ -156,87 +163,24 @@ function CommandBarTrigger({ canvasName }: { readonly canvasName: string }) {
 // Factory pause switch (app-state, main-owned). The canvas is born paused;
 // PAUSED is the prominent state, playing stays quiet. First play routes
 // through FirstPlayConfirm (everPlayed latch); pausing is always instant.
-// State is fetched per canvas switch and refreshed from each write result —
-// no push channel (pause flips only through this control today).
+// The state machine lives in lib/factory-pause.ts and is shared with the
+// command bar "Play/Pause factory" action — this control is a thin face.
 function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
-  const [pauseState, setPauseState] = useState<CanvasPauseState | undefined>(undefined);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [licenseMaintenance, setLicenseMaintenance] = useState(false);
+  const pauseState = use$(factoryPause$.state);
+  const confirmOpen = use$(factoryPause$.confirmOpen);
+  const error = use$(factoryPause$.error);
+  const busy = use$(factoryPause$.busy);
+  const licenseMaintenance = use$(factoryPause$.licenseMaintenance);
 
   useEffect(() => {
-    setPauseState(undefined);
-    setConfirmOpen(false);
-    setError("");
-    if (!canvasName) return;
-    let cancelled = false;
-    void window.vellumCommand
-      ?.factoryPauseState(canvasName)
-      .then((state) => {
-        if (!cancelled) setPauseState(state);
-      })
-      .catch(() => {
-        // Unreachable backend: leave the control unrendered rather than lie.
-      });
-    return () => {
-      cancelled = true;
-    };
+    void refreshFactoryPause(canvasName);
   }, [canvasName]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const syncLicense = (status: { access: string; canPlayFactory?: boolean }) => {
-      if (cancelled) return;
-      setLicenseMaintenance(
-        status.access === "maintenance" || status.canPlayFactory === false,
-      );
-    };
-    void window.vellumCommand?.licenseStatus?.().then(syncLicense).catch(() => undefined);
-    const unsub = window.vellumCommand?.onLicenseChanged?.(syncLicense);
-    return () => {
-      cancelled = true;
-      unsub?.();
-    };
-  }, []);
+  useEffect(() => refreshFactoryLicense(), []);
 
   if (!canvasName || !pauseState) return null;
 
-  const apply = async (paused: boolean) => {
-    if (busy || licenseMaintenance) return;
-    setBusy(true);
-    try {
-      const result = await window.vellumCommand?.factoryPauseSet(
-        canvasName,
-        { kind: "canvas" },
-        paused,
-      );
-      if (!result) return;
-      if (result.ok) {
-        setPauseState(result.state);
-        setError("");
-      } else {
-        setError(result.error);
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onClick = () => {
-    if (licenseMaintenance) return;
-    if (pauseState.playing) {
-      void apply(true); // pausing is always instant
-      return;
-    }
-    if (!pauseState.everPlayed) {
-      setConfirmOpen(true);
-      return;
-    }
-    void apply(false);
-  };
+  const onClick = () => toggleFactoryPause(canvasName);
 
   const playing = pauseState.playing && !licenseMaintenance;
   const pauseLabel = licenseMaintenance
@@ -330,11 +274,8 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
       {confirmOpen ? (
         <FirstPlayConfirm
           canvasName={canvasName}
-          onConfirm={() => {
-            setConfirmOpen(false);
-            void apply(false);
-          }}
-          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => confirmFactoryFirstPlay(canvasName)}
+          onCancel={cancelFactoryFirstPlay}
         />
       ) : null}
     </>

@@ -102,6 +102,7 @@ const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
 const resetCanvasView = (): void => {
   batch(() => {
     state$.commandBarOpen.set(false);
+    state$.nodePaletteOpen.set(false);
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
     clearSelection();
@@ -445,6 +446,17 @@ export function App() {
   // Cmd+] / Cmd+[ swap the front terminal between connected actors. Capture
   // phase (installed here, checked there) so the chord never reaches xterm.
   useEffect(() => installActorMirrorHotkeys(), []);
+
+  // Command bar "Open canvas" action — one-shot request consumed here so the
+  // readCanvas + loadDoc flow keeps its single owner in App.
+  useEffect(() => {
+    return state$.canvasOpenRequest.onChange(() => {
+      const name = state$.canvasOpenRequest.peek();
+      if (!name) return;
+      state$.canvasOpenRequest.set("");
+      void openCanvas(name);
+    });
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

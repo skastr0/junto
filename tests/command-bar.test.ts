@@ -63,3 +63,54 @@ describe("command bar node ranking", () => {
     expect(filterCommandBarNodes(nodes, "worker-9", []).map((m) => m.node.id)).toEqual(["named"]);
   });
 });
+
+import { Play, type LucideIcon } from "lucide-react";
+import {
+  commandBarActionQuery,
+  commandBarMode,
+  filterCommandBarActions,
+  type CommandBarAction,
+} from "../src/renderer/lib/command-bar-actions";
+
+const action = (id: string, label: string, detail = ""): CommandBarAction => ({
+  id,
+  label,
+  detail,
+  icon: Play as LucideIcon,
+  run: () => undefined,
+});
+
+describe("command bar actions mode", () => {
+  it("treats a > prefix as actions mode and tab as the fallback toggle", () => {
+    expect(commandBarMode(">fit", "nodes")).toBe("actions");
+    expect(commandBarMode(">", "nodes")).toBe("actions");
+    expect(commandBarMode("fit", "nodes")).toBe("nodes");
+    expect(commandBarMode("fit", "actions")).toBe("actions");
+    expect(commandBarMode("", "nodes")).toBe("nodes");
+  });
+
+  it("strips the > prefix for the action search term", () => {
+    expect(commandBarActionQuery(">fit")).toBe("fit");
+    expect(commandBarActionQuery(">  fit view ")).toBe("fit view");
+    expect(commandBarActionQuery("fit")).toBe("fit");
+    expect(commandBarActionQuery("")).toBe("");
+  });
+
+  it("returns the full catalog for an empty query", () => {
+    const catalog = [action("a", "Fit view"), action("b", "Clear selection")];
+    expect(filterCommandBarActions(catalog, "")).toEqual(catalog);
+    expect(filterCommandBarActions(catalog, ">")).toEqual(catalog);
+  });
+
+  it("matches labels and details", () => {
+    const catalog = [
+      action("a", "Fit view", "Frame all nodes"),
+      action("b", "Open settings"),
+      action("c", "Edge filter / show blocks"),
+    ];
+    expect(filterCommandBarActions(catalog, "fit").map((a) => a.id)).toEqual(["a"]);
+    expect(filterCommandBarActions(catalog, "frame").map((a) => a.id)).toEqual(["a"]);
+    expect(filterCommandBarActions(catalog, ">filter").map((a) => a.id)).toEqual(["c"]);
+    expect(filterCommandBarActions(catalog, "nope")).toEqual([]);
+  });
+});

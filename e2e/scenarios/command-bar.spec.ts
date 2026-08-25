@@ -64,3 +64,54 @@ test("command bar opens from the trigger and cmd+K, filters the list only, and c
   await page.keyboard.press("Escape");
   await expect(input).toHaveCount(0);
 });
+
+
+test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async ({ vellumCommand }) => {
+  const { page } = vellumCommand;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+
+  // Select a node first: copy-node-reference only appears with a selection,
+  // and the palette must not clear it on open.
+  await page.locator('.react-flow__node[data-id="n-beta"]').click();
+  await expect(page.locator(".rts-shell")).toBeVisible();
+
+  // ">" switches to the actions catalog.
+  await page.keyboard.press("Meta+k");
+  const input = page.getByTestId("command-bar-input");
+  await expect(input).toBeVisible();
+  await input.fill(">");
+  const actionRows = page.locator(".command-bar__row--action");
+  const list = page.locator(".command-bar__list");
+  await expect(actionRows.first()).toBeVisible();
+  await expect(list).toContainText("Open settings");
+  await expect(list).toContainText("Fit view");
+  await expect(list).toContainText("Clear selection");
+
+  // Filtering narrows the action list.
+  await input.fill(">fit");
+  await expect(actionRows).toHaveCount(1);
+  await expect(list).toContainText("Fit view");
+
+  // Enter runs and closes the palette.
+  await page.keyboard.press("Enter");
+  await expect(input).toHaveCount(0);
+
+  // Selection survived the palette open: copy-node-reference is reachable.
+  await page.keyboard.press("Meta+k");
+  await expect(input).toBeVisible();
+  await input.fill(">copy");
+  await expect(actionRows).toHaveCount(1);
+  await expect(list).toContainText("Copy node reference");
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+
+  // Tab toggles into actions and back to nodes.
+  await page.keyboard.press("Meta+k");
+  await expect(input).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(actionRows.first()).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(page.locator(".command-bar__row-title").first()).toHaveText("Alpha release");
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+});

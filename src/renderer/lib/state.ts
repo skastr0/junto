@@ -21,6 +21,13 @@ export const state$ = observable({
   canvasName: "",
   canvasLoading: false,
   commandBarOpen: false,
+  /** Node palette (add canvas item) — shared by the field trigger and the
+   * command bar action. */
+  nodePaletteOpen: false,
+  /** One-shot request: bump to fit the readable view (Canvas consumes). */
+  fitViewRequest: 0,
+  /** One-shot request: canvas name to open (App consumes + clears). */
+  canvasOpenRequest: "",
   edgeFilter: "" as EtherEdgeKind | "",
   flagFilter: "" as EtherFlag | "",
   editNodeId: "",

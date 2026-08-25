@@ -4,7 +4,7 @@ import { roleOf } from "@shared/physics";
 import { touchActiveMru } from "./hotbar-slots";
 import { specOf } from "./node-spec";
 import { nodeTitle, searchText } from "./presentation";
-import { clearSelection, selectNode, state$ } from "./state";
+import { selectNode, state$ } from "./state";
 
 /**
  * Command bar (cmd+K) — quick node navigation without touching the canvas.
@@ -15,13 +15,10 @@ import { clearSelection, selectNode, state$ } from "./state";
  * search field.
  */
 
-/** Open the palette. Selection reset keeps the historical contract: search is
- * an explicit selection reset (multi-prompt channel closes on open). */
+/** Open the palette. The open canvas and current selection are untouched —
+ * the bar reads them (e.g. copy-node-reference) and commits only on Enter. */
 export const openCommandBar = (): void => {
-  batch(() => {
-    clearSelection();
-    state$.commandBarOpen.set(true);
-  });
+  state$.commandBarOpen.set(true);
 };
 
 export const closeCommandBar = (): void => {

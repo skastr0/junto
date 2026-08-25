@@ -870,8 +870,10 @@ function ModeDeckFocus({
 // same unobstructed canvas positions as the former docked deck.
 function CanvasFieldTools() {
   const rf = useReactFlow<FlowNode, FlowEdge>();
-  const [open, setOpen] = useState(false);
-  const dismiss = useCallback(() => { setOpen(false); }, []);
+  // Shared with the command bar action: the palette opens from either the
+  // field trigger or "Add canvas item" in the palette.
+  const open = use$(state$.nodePaletteOpen);
+  const dismiss = useCallback(() => { state$.nodePaletteOpen.set(false); }, []);
 
   // A non-overlapping slot near the viewport center for a node of the given size.
   const nextPosition = (size: { width: number; height: number }) => {
@@ -907,7 +909,7 @@ function CanvasFieldTools() {
           className="node-deck-trigger"
           aria-label="Add canvas item"
           aria-expanded={open}
-          onClick={() => { setOpen((value) => !value); }}
+          onClick={() => { state$.nodePaletteOpen.set(!state$.nodePaletteOpen.peek()); }}
         >
           <Plus size={12} /><span>add item</span>
         </button>
@@ -1157,6 +1159,12 @@ function useCanvasGraph() {
   );
   useCanvasFilterViewport(`${edgeFilter}|${flagFilter}`, rf);
   useCanvasFocus(rf);
+  // One-shot fit request from the command bar "Fit view" action.
+  useEffect(() => {
+    return state$.fitViewRequest.onChange(() => {
+      fitReadableField(rf);
+    });
+  }, [rf]);
   useCanvasViewport(nodes.length, rf);
   return {
     nodes,

@@ -508,6 +508,8 @@ test("capture every surface for design review", async () => {
     await shot(page, "01b-command-bar-open");
     await page.getByTestId("command-bar-input").fill("task");
     await shot(page, "01c-command-bar-filtered");
+    await page.getByTestId("command-bar-input").fill(">");
+    await shot(page, "01d-command-bar-actions");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("command-bar-input")).toHaveCount(0);
 
