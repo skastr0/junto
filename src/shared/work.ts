@@ -699,10 +699,12 @@ export type WorkTaskTransitionOptions = {
    * it has exactly one. Validated against live flow edges (act-time DAG law).
    */
   readonly next?: string;
-  /** Defect-back payload on → rejected for a task with a previous passage. */
+  /** Defect payload on → rejected for a task with a prior passage. */
   readonly defect?: {
     readonly summary: string;
     readonly refs?: ReadonlyArray<string>;
+    /** Visited station to send the task back to; omitted = the previous station. */
+    readonly target?: string;
   };
   /** Per-task forward hold stamp (ms); wins over destination claimableAfterMs. */
   readonly holdForMs?: number;
@@ -1069,11 +1071,36 @@ export const workTaskTransition = (
     if (defect !== undefined) {
       const { journey, passage } = currentPassageFor(current, nodeId, nowIso);
       const previous = journey[journey.length - 1];
-      if (previous !== undefined) {
-        // Defect-back: epoch++ stales prior receipts/waivers/tickets for
-        // closure accounting (history retained); the task re-homes to the
-        // previous journey sink as submitted with the defect on record.
+      // Defect-to-target: any station the journey already visited is a legal
+      // target; no target keeps today's meaning (the previous station).
+      // Beginning and previous are just targets, never separate code paths.
+      const target = defect.target ?? previous?.nodeId;
+      if (defect.target !== undefined) {
+        const visited = [...new Set(journey.map((entry) => entry.nodeId))];
+        if (defect.target === nodeId) {
+          throw new WorkError(
+            "invalid",
+            `defect target "${defect.target}" is this station — a defect sends the task back to a prior station`,
+          );
+        }
+        if (!visited.includes(defect.target)) {
+          throw new WorkError(
+            "invalid",
+            visited.length === 0
+              ? `task "${taskId}" has no prior station to defect to`
+              : `defect target "${defect.target}" is not a station this task has visited — pick one of [${visited.join(", ")}]`,
+          );
+        }
+      }
+      if (target !== undefined) {
+        // Targeted defect: epoch++ and one append-only log entry. Liveness of
+        // prior receipts is DERIVED from the log (a defect shadows receipts at
+        // and downstream of its target); nothing is re-stamped or erased.
         const bumpedEpoch = taskEpoch(current) + 1;
+        const defects = [
+          ...(current.defects ?? []),
+          { epoch: bumpedEpoch, target, at: nowIso },
+        ];
         const claimedBy = claimedByOf(current);
         const exited: Passage = {
           ...passage,
@@ -1082,15 +1109,15 @@ export const workTaskTransition = (
             : {}),
           exitedAt: nowIso,
           exit: "rejected-back",
-          next: previous.nodeId,
+          next: target,
         };
         const closedJourney = [...journey, exited];
-        next = { ...next, journey: closedJourney };
-        const previousNode = requireNode(doc, previous.nodeId);
-        requireSink(previousNode, ["task"]);
+        next = { ...next, journey: closedJourney, defects };
+        const targetNode = requireNode(doc, target);
+        requireSink(targetNode, ["task"]);
         const holdUntil = computeHoldUntil(
           nowMs,
-          sinkContractOf(previousNode)?.inbound?.claimableAfterMs,
+          sinkContractOf(targetNode)?.inbound?.claimableAfterMs,
           undefined,
         );
         const brief: Message = {
@@ -1108,15 +1135,15 @@ export const workTaskTransition = (
           taskId,
         });
         defectBack = {
-          nodeId: previous.nodeId,
+          nodeId: target,
           task: rehomedTask(
-            current,
+            { ...current, defects },
             closedJourney,
-            previous.nodeId,
+            target,
             bumpedEpoch,
             nowIso,
             holdUntil,
-            rehomedHistory(doc, previous.nodeId, current, brief, defectNote),
+            rehomedHistory(doc, target, current, brief, defectNote),
           ),
         };
       }

@@ -503,6 +503,101 @@ describe("defect-back", () => {
     expect(rejected.defectBack).toBeUndefined();
     expect(rejected.task.state).toBe("rejected");
   });
+
+  it("records the previous station as the defect target when none is named", () => {
+    const doc = docWith(
+      [sinkNode("s1"), sinkNode("s2")],
+      [flowEdge("e1", "s1", "s2")],
+    );
+    const created = createTask(doc, "s1");
+    const forwarded = workTaskTransition(
+      created.doc, "alpha", "s1", created.task.id,
+      "completed", "done", ids, { artifacts: [] }, { nowMs: NOW },
+    );
+    const rejected = workTaskTransition(
+      forwarded.doc, "alpha", "s2", created.task.id,
+      "rejected", undefined, ids, undefined,
+      { defect: { summary: "misses the edge case" }, nowMs: NOW + 60_000 },
+    );
+    const returned = itemsAt(rejected.doc, "s1")[0]!;
+    expect(returned.defects).toEqual([
+      { epoch: 1, target: "s1", at: new Date(NOW + 60_000).toISOString() },
+    ]);
+    expect(rejected.task.defects).toEqual(returned.defects);
+  });
+});
+
+describe("defect to a visited target", () => {
+  const line = () =>
+    docWith(
+      [sinkNode("s1"), sinkNode("s2"), sinkNode("s3")],
+      [flowEdge("e1", "s1", "s2"), flowEdge("e2", "s2", "s3")],
+    );
+
+  const travelToS3 = () => {
+    const doc = line();
+    const created = createTask(doc, "s1");
+    const atS2 = workTaskTransition(
+      created.doc, "alpha", "s1", created.task.id,
+      "completed", "explored", ids, { artifacts: [] }, { nowMs: NOW },
+    );
+    const atS3 = workTaskTransition(
+      atS2.doc, "alpha", "s2", created.task.id,
+      "completed", "implemented", ids, { artifacts: [] }, { nowMs: NOW + 1_000 },
+    );
+    return { doc: atS3.doc, taskId: created.task.id };
+  };
+
+  it("re-homes to any visited station, skipping stations between", () => {
+    const { doc, taskId } = travelToS3();
+    const rejected = workTaskTransition(
+      doc, "alpha", "s3", taskId,
+      "rejected", undefined, ids, undefined,
+      {
+        defect: { summary: "the exploration itself was wrong", target: "s1" },
+        nowMs: NOW + 60_000,
+      },
+    );
+    expect(rejected.defectBack?.nodeId).toBe("s1");
+    expect(rejected.task.journey?.at(-1)?.exit).toBe("rejected-back");
+    expect(rejected.task.journey?.at(-1)?.next).toBe("s1");
+    const returned = itemsAt(rejected.doc, "s1")[0]!;
+    expect(returned.state).toBe("submitted");
+    expect(returned.epoch).toBe(1);
+    expect(returned.defects).toEqual([
+      { epoch: 1, target: "s1", at: new Date(NOW + 60_000).toISOString() },
+    ]);
+    // The record of the whole line travels with the re-homed task.
+    expect(returned.journey?.map((p) => p.nodeId)).toEqual([
+      "s1", "s2", "s3", "s1",
+    ]);
+    // s2's passage row is untouched by the deep defect.
+    const s2Row = itemsAt(rejected.doc, "s2")[0]!;
+    expect(s2Row.state).toBe("completed");
+    expect(s2Row.journey?.at(-1)?.exit).toBe("forwarded");
+  });
+
+  it("refuses a target the journey never visited, naming the visited stations", () => {
+    const { doc, taskId } = travelToS3();
+    expect(() =>
+      workTaskTransition(
+        doc, "alpha", "s3", taskId,
+        "rejected", undefined, ids, undefined,
+        { defect: { summary: "bad", target: "s9" }, nowMs: NOW + 60_000 },
+      ),
+    ).toThrow(/not a station this task has visited.*s1.*s2/);
+  });
+
+  it("refuses the current station as a target", () => {
+    const { doc, taskId } = travelToS3();
+    expect(() =>
+      workTaskTransition(
+        doc, "alpha", "s3", taskId,
+        "rejected", undefined, ids, undefined,
+        { defect: { summary: "bad", target: "s3" }, nowMs: NOW + 60_000 },
+      ),
+    ).toThrow(/is this station/);
+  });
 });
 
 describe("exited passage rows stay closed", () => {

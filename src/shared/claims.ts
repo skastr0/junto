@@ -3,8 +3,10 @@ import type {
   CheckDef,
   ClaimDef,
   CompletionEvidence,
+  Passage,
   Task,
   TaskClaim,
+  TaskDefect,
   TasksSinkContract,
   TicketSide,
 } from "./work-model";
@@ -167,11 +169,58 @@ export const carryClaimEvidence = (
   };
 };
 
+/** Append-only defect log accessor. */
+export const taskDefects = (task: Task): ReadonlyArray<TaskDefect> =>
+  task.defects ?? [];
+
 /**
- * Receipts recorded at stations along the CURRENT epoch of the journey.
- * A response/waiver lives in the station row's completionEvidence at that
- * station (the passage record); a defect-back epoch bump stales prior epochs
- * for closure accounting while history stays retained.
+ * Line position of a station: its first-visit index in the journey. A defect
+ * target is always a visited station, so a missing station (corrupt record)
+ * resolves to -1, which shadows everything — the conservative reading.
+ */
+const stationOrder = (
+  journey: ReadonlyArray<Passage>,
+  station: string,
+): number => journey.findIndex((passage) => passage.nodeId === station);
+
+/**
+ * Derived receipt liveness. A receipt earned when `passage` completed is live
+ * iff no later defect shadows it: a defect aimed at station S shadows the
+ * receipts of every station at or downstream of S in journey order. Epochs
+ * that pre-date the defect log (historical rows) have no target on record and
+ * shadow globally, exactly as the old epoch-global rule read them. Liveness
+ * is computed, never stored — no defect re-stamps or erases a receipt.
+ */
+const receiptLive = (
+  task: Task,
+  journey: ReadonlyArray<Passage>,
+  passage: Passage,
+): boolean => {
+  const defects = taskDefects(task);
+  const recorded = new Set(defects.map((defect) => defect.epoch));
+  for (let epoch = passage.epoch + 1; epoch <= taskEpoch(task); epoch += 1) {
+    if (!recorded.has(epoch)) return false;
+  }
+  const order = stationOrder(journey, passage.nodeId);
+  return !defects.some(
+    (defect) =>
+      defect.epoch > passage.epoch &&
+      stationOrder(journey, defect.target) <= order,
+  );
+};
+
+/** A waiver never survives any later defect — the route re-decides from the target. */
+const waiverLive = (task: Task, passage: Passage): boolean => {
+  const later = taskEpoch(task) > passage.epoch;
+  return !later;
+};
+
+/**
+ * Receipts recorded at stations along the journey, with liveness DERIVED
+ * from the append-only defect log. A response/waiver lives in the station
+ * row's completionEvidence at that station (the passage record); a defect
+ * aimed at station S shadows receipts at and downstream of S for closure
+ * accounting (upstream receipts stay live), while history stays retained.
  *
  * `responded` maps claimId -> the set of stations that recorded a response
  * for it. Region/sink (ambient) claims are read "answered anywhere" — the
@@ -191,24 +240,33 @@ export const stationReceipts = (
   readonly responded: ReadonlyMap<string, ReadonlySet<string>>;
   readonly waived: ReadonlySet<string>;
 } => {
-  const epoch = taskEpoch(task);
+  const journey = task.journey ?? [];
   const responded = new Map<string, Set<string>>();
   const waived = new Set<string>();
-  const seen = new Set<string>();
-  for (const passage of task.journey ?? []) {
-    if (passage.epoch !== epoch) continue;
-    if (seen.has(passage.nodeId)) continue;
-    seen.add(passage.nodeId);
-    const row = nodeById(doc, passage.nodeId)?.ether?.tasks?.items.find(
+  // A station's row holds the evidence of its LATEST completion there —
+  // re-homing replaces the row — so each station is read once, against the
+  // last passage that completed at it (exit forwarded or closed).
+  const latestCompleted = new Map<string, Passage>();
+  for (const passage of journey) {
+    if (passage.exit !== "forwarded" && passage.exit !== "closed") continue;
+    latestCompleted.set(passage.nodeId, passage);
+  }
+  for (const [station, passage] of latestCompleted) {
+    const row = nodeById(doc, station)?.ether?.tasks?.items.find(
       (item) => item.id === task.id,
     );
-    for (const entry of row?.completionEvidence?.responses ?? []) {
-      const stations = responded.get(entry.claimId) ?? new Set<string>();
-      stations.add(passage.nodeId);
-      responded.set(entry.claimId, stations);
+    if (row?.completionEvidence === undefined) continue;
+    if (receiptLive(task, journey, passage)) {
+      for (const entry of row.completionEvidence.responses ?? []) {
+        const stations = responded.get(entry.claimId) ?? new Set<string>();
+        stations.add(station);
+        responded.set(entry.claimId, stations);
+      }
     }
-    for (const entry of row?.completionEvidence?.claimWaivers ?? []) {
-      waived.add(entry.claimId);
+    if (waiverLive(task, passage)) {
+      for (const entry of row.completionEvidence.claimWaivers ?? []) {
+        waived.add(entry.claimId);
+      }
     }
   }
   return { responded, waived };

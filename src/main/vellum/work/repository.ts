@@ -407,6 +407,9 @@ export type DefectBackTaskInput = LocalWorkInput & {
   readonly message?: MessageValue;
   /** Closed journey including the rejected-back exit (policy-computed). */
   readonly journey: NonNullable<TaskValue["journey"]>;
+  /** Append-only defect log including this defect (policy-computed). */
+  readonly defects?: NonNullable<TaskValue["defects"]>;
+  /** The visited station the defect re-opens (any prior stop, not only the last). */
   readonly previous: SinkRefValue;
   /** Policy-built submitted epoch-bumped task re-homed at `previous`. */
   readonly returnedTask: TaskValue;
@@ -1600,6 +1603,7 @@ type PipelineBag = {
   readonly claims?: TaskValue["claims"];
   readonly epoch?: TaskValue["epoch"];
   readonly journey?: TaskValue["journey"];
+  readonly defects?: TaskValue["defects"];
   readonly holdUntil?: TaskValue["holdUntil"];
   readonly boarding?: TaskValue["boarding"];
 };
@@ -1614,6 +1618,9 @@ const foldPipelineMetadata = (
     ...(task.epoch !== undefined ? { epoch: task.epoch } : {}),
     ...(task.journey !== undefined && task.journey.length > 0
       ? { journey: task.journey }
+      : {}),
+    ...(task.defects !== undefined && task.defects.length > 0
+      ? { defects: task.defects }
       : {}),
     ...(task.holdUntil !== undefined ? { holdUntil: task.holdUntil } : {}),
     ...(task.boarding !== undefined && task.boarding.length > 0
@@ -1735,6 +1742,7 @@ const taskFromRow = (
       : {}),
     ...(pipeline?.epoch !== undefined ? { epoch: pipeline.epoch } : {}),
     ...(pipeline?.journey !== undefined ? { journey: pipeline.journey } : {}),
+    ...(pipeline?.defects !== undefined ? { defects: pipeline.defects } : {}),
     ...(pipeline?.holdUntil !== undefined
       ? { holdUntil: pipeline.holdUntil }
       : {}),
@@ -7864,6 +7872,7 @@ export const WorkRepositoryLive = Layer.effect(
               ? current.task.history
               : [...current.task.history, message],
           journey: input.journey,
+          ...(input.defects !== undefined ? { defects: input.defects } : {}),
         });
         const rejectedFact = commitLocalFact(writer, {
           localInstallationId,

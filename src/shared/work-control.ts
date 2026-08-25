@@ -241,6 +241,11 @@ export type TasksClaimArgs = typeof TasksClaimArgs.Type;
 export const TaskDefectArgs = Schema.Struct({
   summary: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   refs: Schema.optionalKey(Schema.Array(Schema.String)),
+  /**
+   * Visited station to send the task back to. Omitted keeps today's meaning:
+   * the previous station. The beginning of the line is just a target too.
+   */
+  target: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
 });
 export type TaskDefectArgs = typeof TaskDefectArgs.Type;
 

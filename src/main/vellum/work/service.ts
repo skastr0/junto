@@ -1516,6 +1516,9 @@ export const WorkLive = Layer.effect(
                   taskId,
                   ...(message === undefined ? {} : { message }),
                   journey: policy.task.journey ?? [],
+                  ...(policy.task.defects !== undefined
+                    ? { defects: policy.task.defects }
+                    : {}),
                   previous: sinkRef(canvas, defectBack.nodeId),
                   returnedTask: defectBack.task,
                 }),

@@ -150,9 +150,11 @@ const stationSections = (
   if (epoch > 0) {
     // The defect itself is recorded as the newest history note by the
     // send-back transition; the packet points at it rather than restating it.
+    // The packet is delivered at the defect target, so "this station onward"
+    // names exactly the shadowed receipts.
     lines.push(
       "",
-      `This task was sent back to you (epoch ${epoch}). Prior receipts and tickets are stale — answer the claims again and re-run boarding. The defect is the newest note in the task history.`,
+      `This task was sent back to you (epoch ${epoch}). Receipts from this station onward are stale, along with all waivers and tickets — answer the claims here again and re-run boarding. The defect is the newest note in the task history.`,
     );
   }
 

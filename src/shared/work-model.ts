@@ -294,6 +294,22 @@ export const Passage = Schema.Struct({
 });
 export type Passage = typeof Passage.Type;
 
+/**
+ * Append-only defect record: epoch `epoch` was opened by a defect aimed at
+ * station `target`. Receipts earned before the defect at stations strictly
+ * upstream of `target` stay live for closure accounting; receipts at or
+ * downstream of `target` are shadowed. Waivers never survive any defect.
+ * Nothing ever mutates or removes an entry — liveness is derived, not stored.
+ */
+export const TaskDefect = Schema.Struct({
+  epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(1))),
+  /** Sink node id of the visited station the task was sent back to. */
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  /** ISO timestamp of the defect. */
+  at: Schema.String,
+});
+export type TaskDefect = typeof TaskDefect.Type;
+
 /** Boarding-check output tail cap (the board op handler truncates by bytes). */
 export const TICKET_OUTPUT_TAIL_MAX_BYTES = 8 * 1024;
 
@@ -327,6 +343,8 @@ export type TaskPipelineArm = {
   readonly defect?: {
     readonly summary: string;
     readonly refs?: ReadonlyArray<string>;
+    /** Visited station to send the task back to; omitted = the previous station. */
+    readonly target?: string;
   };
   readonly holdForMs?: number;
 };
@@ -369,12 +387,14 @@ export const Task = Schema.Struct({
   claims: TaskAuthoringFields.claims,
   /** Stamped only on successful → completed. */
   completionEvidence: Schema.optionalKey(CompletionEvidence),
-  /** Defect-back generation counter; a bump stales prior receipts for closure accounting. Default 0. */
+  /** Defect generation counter. Staleness is derived from the defects log: a defect shadows receipts at and downstream of its target. Default 0. */
   epoch: Schema.optionalKey(
     Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   ),
   /** Append-only station journey (pipeline passages). */
   journey: Schema.optionalKey(Schema.Array(Passage)),
+  /** Append-only defect log — receipt liveness is derived from it, never stored. */
+  defects: Schema.optionalKey(Schema.Array(TaskDefect)),
   /** Not claimable before this ISO time — arrival bake from claimableAfterMs / holdFor stamp. */
   holdUntil: Schema.optionalKey(Schema.String),
   /** Current-epoch boarding tickets — system-stamped only, never evidence input. */

@@ -215,6 +215,77 @@ describe("station receipts and fork waivers", () => {
     expect(stale.waived.size).toBe(0);
   });
 
+  it("keeps upstream receipts live after a targeted defect and always kills waivers", () => {
+    const passedTask = baseTask("t1", {
+      state: "completed",
+      completionEvidence: {
+        artifacts: [],
+        responses: [{ claimId: "c-s1", response: "checked at s1" }],
+        claimWaivers: [{ claimId: "c-waived", reason: "out of scope" }],
+      },
+    });
+    const journey = [
+      { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "forwarded", next: "s2" },
+      { nodeId: "s2", enteredAt: "2026-08-20T01:00:00.000Z", epoch: 0, exit: "forwarded", next: "s3" },
+      { nodeId: "s3", enteredAt: "2026-08-20T02:00:00.000Z", epoch: 0, exit: "rejected-back", next: "s2" },
+      { nodeId: "s2", enteredAt: "2026-08-20T03:00:00.000Z", epoch: 1 },
+    ] as const;
+
+    // Defect aimed at s2: s1 sits strictly upstream, so its receipt survives.
+    // The waiver dies regardless — no waiver survives any defect.
+    const backToS2 = baseTask("t1", {
+      epoch: 1,
+      journey: [...journey],
+      defects: [{ epoch: 1, target: "s2", at: "2026-08-20T02:00:00.000Z" }],
+    });
+    const receipts = stationReceipts(journeyDoc(passedTask), backToS2);
+    expect([...receipts.responded.keys()]).toEqual(["c-s1"]);
+    expect([...receipts.responded.get("c-s1") ?? []]).toEqual(["s1"]);
+    expect(receipts.waived.size).toBe(0);
+
+    // Defect aimed at s1 shadows s1 itself — even though the old evidence is
+    // still physically on the row, the accounting must not read it.
+    const backToS1 = baseTask("t1", {
+      epoch: 1,
+      journey: [
+        ...journey.slice(0, 3),
+        { nodeId: "s1", enteredAt: "2026-08-20T03:00:00.000Z", epoch: 1 },
+      ],
+      defects: [{ epoch: 1, target: "s1", at: "2026-08-20T02:00:00.000Z" }],
+    });
+    const shadowed = stationReceipts(journeyDoc(passedTask), backToS1);
+    expect(shadowed.responded.size).toBe(0);
+    expect(shadowed.waived.size).toBe(0);
+  });
+
+  it("shadows re-earned receipts only from the later defect target onward", () => {
+    // Epoch 1 re-earned a receipt at s1 (after a defect to s1); a second
+    // defect aimed at s2 must keep that s1 receipt live: only stations at or
+    // downstream of s2 lose their receipts.
+    const passedTask = baseTask("t1", {
+      state: "completed",
+      completionEvidence: {
+        artifacts: [],
+        responses: [{ claimId: "c-s1", response: "re-checked at s1 in epoch 1" }],
+      },
+    });
+    const task = baseTask("t1", {
+      epoch: 2,
+      journey: [
+        { nodeId: "s1", enteredAt: "2026-08-20T00:00:00.000Z", epoch: 0, exit: "rejected-back", next: "s1" },
+        { nodeId: "s1", enteredAt: "2026-08-20T01:00:00.000Z", epoch: 1, exit: "forwarded", next: "s2" },
+        { nodeId: "s2", enteredAt: "2026-08-20T02:00:00.000Z", epoch: 1, exit: "rejected-back", next: "s2" },
+        { nodeId: "s2", enteredAt: "2026-08-20T03:00:00.000Z", epoch: 2 },
+      ],
+      defects: [
+        { epoch: 1, target: "s1", at: "2026-08-20T00:30:00.000Z" },
+        { epoch: 2, target: "s2", at: "2026-08-20T02:30:00.000Z" },
+      ],
+    });
+    const receipts = stationReceipts(journeyDoc(passedTask), task);
+    expect([...receipts.responded.keys()]).toEqual(["c-s1"]);
+  });
+
   it("never lets a response recorded at one station satisfy a claim addressed to another", () => {
     // A claim addressed to s4 is answered (illegitimately) at s1's own
     // completion row, then the task travels s1 -> s2. Forwarding from s2

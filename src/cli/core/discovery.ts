@@ -218,9 +218,9 @@ export const tasksCreateSchema: CommandSchemaContract = {
 export const tasksUpdateSchema: CommandSchemaContract = {
   command_id: "tasks.update",
   command: "tasks update",
-  schema_id: "tasks.update.input/v3",
+  schema_id: "tasks.update.input/v4",
   description:
-    "Transition a task to a new task state. On completed, completionEvidence supplies artifacts + git commits for finish-criteria gates and responses + claimWaivers for the station's claims; next names the forward destination and holdFor (\"7d\", \"12h\", or ms) bakes the arrival. On rejected, defect sends the task back to the previous station.",
+    "Transition a task to a new task state. On completed, completionEvidence supplies artifacts + git commits for finish-criteria gates and responses + claimWaivers for the station's claims; next names the forward destination and holdFor (\"7d\", \"12h\", or ms) bakes the arrival. On rejected, defect sends the task back to a visited station: defect.target picks any stop the journey already made (receipts earned strictly before it stay live), omitted means the previous station.",
   schema: TasksUpdateCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
