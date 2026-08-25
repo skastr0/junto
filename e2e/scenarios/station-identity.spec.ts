@@ -94,7 +94,9 @@ test("named stations carry through the board and task travel strip", async ({}, 
     });
     await expect(strip).toBeVisible();
     for (const name of ["Build", "Review", "Ship"]) {
-      await expect(strip.getByRole("heading", { name, exact: true })).toBeVisible();
+      await expect(
+        strip.getByRole("button", { name: new RegExp(`^${name},`) }),
+      ).toBeVisible();
     }
 
     const stripScreenshot = join(
