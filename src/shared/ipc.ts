@@ -121,6 +121,7 @@ export const IPC_CHANNELS = {
   workTaskDescribe: "vellum-command:work-task-describe",
   workTaskTransition: "vellum-command:work-task-transition",
   workTaskPromote: "vellum-command:work-task-promote",
+  workTaskRejectArrival: "vellum-command:work-task-reject-arrival",
   workTaskRespond: "vellum-command:work-task-respond",
   workTaskClaim: "vellum-command:work-task-claim",
   workRequestResolve: "vellum-command:work-request-resolve",
@@ -706,6 +707,14 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     canvas: string,
     nodeId: string,
     taskId: string,
+    note?: string,
+  ) => Promise<WorkOpResult<Task>>;
+  /** Operator rejection of an unpromoted operator-gated arrival. */
+  readonly workTaskRejectArrival: (
+    canvas: string,
+    nodeId: string,
+    taskId: string,
+    note?: string,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskRespond: (
     canvas: string,
