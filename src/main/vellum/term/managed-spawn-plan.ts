@@ -19,6 +19,8 @@ import {
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
 import { usableVellumCommandHome } from "@shared/vellum-home";
+import { planManagedInjection } from "@shared/managed-terminal-injection";
+import { writeAgentRulesDir } from "./agent-rules-dir";
 import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
@@ -286,6 +288,28 @@ const profileFromAgentKey = (agentKey: string | undefined): string | undefined =
 };
 
 /**
+ * Materialize the app-owned rules directory for a harness whose Tier-A carrier
+ * is a directory rather than a flag string (agy `--add-dir`).
+ *
+ * Returns undefined for every other harness, for an unarmed injection, and for
+ * a failed write — the resolver treats a missing directory as "no carrier" and
+ * falls back to typed delivery, so a seat is never launched un-briefed.
+ */
+const rulesDirForSpawn = (
+  harness: HarnessId,
+  injection: ManagedSpawnIntent["injection"],
+): string | undefined => {
+  if (!templateFor(harness).argvSpec.rulesDirFlag) return undefined;
+  const seatRef = injection.seatRef?.trim();
+  if (!seatRef) return undefined;
+  const plan = planManagedInjection(harness, injection);
+  if (!plan.inject) return undefined;
+  const doctrine = plan.systemPrompt ?? plan.firstTypedMessage;
+  if (!doctrine) return undefined;
+  return writeAgentRulesDir({ seatRef, doctrine });
+};
+
+/**
  * Build spawn plan. When harness is known and doc shows work edges, inject
  * doctrine (Tier A argv / Tier B firstTyped). Unconnected → silence.
  */
@@ -331,15 +355,23 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
         sessionId: sessionId ?? "",
         ...(cwd ? { cwd } : {}),
       });
+  // Harnesses whose Tier-A carrier is a DIRECTORY (agy `--add-dir`) need the
+  // doctrine on disk before argv is built. This host owns a filesystem, so it
+  // writes the app-owned rules dir and hands the resolver the path; a failed
+  // write returns undefined and the resolver falls back to typed delivery.
+  const armedInjection = {
+    ...injection,
+    seatBound: injection.seatBound && !resume,
+    connected: injection.connected && !resume,
+  };
+  const rulesDir = rulesDirForSpawn(harness, armedInjection);
+
   const choices: ManagedLaunchChoices = {
-    injection: {
-      // A resumed session already carries the doctrine in its own history.
-      // The Command Center may compile the topology context, but only this
-      // spawn host decides resume and therefore whether injection is armed.
-      ...injection,
-      seatBound: injection.seatBound && !resume,
-      connected: injection.connected && !resume,
-    },
+    // A resumed session already carries the doctrine in its own history.
+    // The Command Center may compile the topology context, but only this
+    // spawn host decides resume and therefore whether injection is armed.
+    injection: armedInjection,
+    ...(rulesDir ? { rulesDir } : {}),
     ...(profile ? { profile } : {}),
     ...(input.model ?? recovered.model ? { model: input.model ?? recovered.model } : {}),
     ...(input.effort ?? recovered.effort ? { effort: input.effort ?? recovered.effort } : {}),
