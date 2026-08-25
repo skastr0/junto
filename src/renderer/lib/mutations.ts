@@ -991,6 +991,36 @@ export const editText = (id: string, text: string): void => {
   });
 };
 
+/** Persist a task sink's native first-line rename as its projection-safe name. */
+export const renameTaskStation = (id: string, firstLine: string): void => {
+  const next = firstLine.trim();
+  if (!next) return;
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((node) => {
+      if (
+        node.id !== id ||
+        node.type !== "text" ||
+        node.ether?.entity?.kind !== "task"
+      ) return node;
+      const rest = node.text.split("\n").slice(1).join("\n");
+      return {
+        ...node,
+        text: rest ? `${next}\n${rest}` : next,
+        ether: {
+          ...node.ether,
+          tasks: {
+            items: node.ether.tasks?.items ?? [],
+            ...(node.ether.tasks ?? {}),
+            stationName: next,
+          },
+        },
+      };
+    }),
+  });
+};
+
 /**
  * Authorial display label on ether.terminal. Kept in lockstep with the first
  * line of node.text when the operator renames a terminal/agent card.

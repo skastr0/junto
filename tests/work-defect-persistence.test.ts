@@ -130,9 +130,10 @@ const sinkNode = (
   width: 100,
   height: 60,
   ether: {
-    entity: { kind: "task", name: `${id} station` },
+    entity: { kind: "task" },
     tasks: {
       items: [...items],
+      stationName: `${id} station`,
       ...(contract !== undefined ? { contract } : {}),
     },
   },

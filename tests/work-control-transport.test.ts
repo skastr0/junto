@@ -1756,20 +1756,57 @@ describe("work control transport", () => {
       data: {
         connected: Array<{
           id: string;
+          title: string;
+          station?: { name: string; role?: string };
           contract?: { triage?: string; emission?: string };
-          destinations?: Array<{ station: string }>;
+          destinations?: Array<{ station: string; name: string }>;
         }>;
       };
     };
     expect(onboard.ok).toBe(true);
     const sinkEntry = onboard.data.connected.find((c) => c.id === "tasks");
+    expect(sinkEntry?.title).toBe("implement and gate the change");
+    expect(sinkEntry?.station).toEqual({
+      name: "implement and gate the change",
+      role: "implement and gate the change",
+    });
     expect(sinkEntry?.contract).toMatchObject({
       triage: "reproduce the defect before touching code",
       emission: "name the verified fix and cite the failing test",
     });
     expect(sinkEntry?.destinations).toEqual([
-      expect.objectContaining({ station: "review" }),
+      expect.objectContaining({ station: "review", name: "station review" }),
     ]);
+
+    const renamed = await runtime.runPromise(canvases.read("work-cli"));
+    await runtime.runPromise(
+      canvases.write("work-cli", {
+        ...renamed.doc,
+        nodes: renamed.doc.nodes.map((node) =>
+          node.id === "tasks"
+            ? {
+                ...node,
+                text: "Build",
+                ether: {
+                  ...node.ether,
+                  tasks: {
+                    items: node.ether?.tasks?.items ?? [],
+                    ...(node.ether?.tasks ?? {}),
+                    stationName: "Build",
+                  },
+                },
+              }
+            : node,
+        ),
+      }),
+    );
+    const renamedOnboard = (await call(server.socketPath, {
+      token: token(),
+      op: "onboard",
+    })) as typeof onboard;
+    expect(
+      renamedOnboard.data.connected.find((entry) => entry.id === "tasks")?.title,
+    ).toBe("Build");
 
     const show = (await call(server.socketPath, {
       token: token(),
@@ -1778,6 +1815,7 @@ describe("work control transport", () => {
     })) as {
       ok: true;
       data: {
+        station: { nodeId: string; name: string; role?: string };
         ambient: {
           sinkInstruction?: string;
           sinkTriage?: string;
@@ -1786,6 +1824,11 @@ describe("work control transport", () => {
       };
     };
     expect(show.ok).toBe(true);
+    expect(show.data.station).toEqual({
+      nodeId: "tasks",
+      name: "Build",
+      role: "implement and gate the change",
+    });
     expect(show.data.ambient).toMatchObject({
       sinkInstruction: "implement and gate the change",
       sinkTriage: "reproduce the defect before touching code",

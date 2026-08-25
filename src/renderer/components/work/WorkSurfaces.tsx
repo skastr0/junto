@@ -15,6 +15,7 @@ import {
   taskBrief,
 } from "@shared/task";
 import { sinkGlance, taskScanCounts } from "@shared/attention";
+import { stationIdentity } from "@shared/station-identity";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -22,7 +23,7 @@ import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { applyWorkCanvasWrite, editText } from "../../lib/mutations";
+import { applyWorkCanvasWrite, editText, renameTaskStation } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { boardAuthorLabel } from "../../lib/board-author";
@@ -55,6 +56,7 @@ type SinkRenameProps = {
 function SinkGlanceHead({
   node,
   fallback,
+  displayLabel,
   decal,
   trailing,
   renaming = false,
@@ -62,13 +64,18 @@ function SinkGlanceHead({
 }: {
   readonly node: CanvasNode;
   readonly fallback: string;
+  readonly displayLabel?: string;
   readonly decal: ReactNode;
   readonly trailing?: ReactNode;
 } & SinkRenameProps) {
   const rawText = node.type === "text" ? node.text : "";
   const firstLine = rawText.split("\n")[0] ?? "";
-  const label = firstLine || fallback;
+  const label = displayLabel ?? (firstLine || fallback);
   const commitRename = (nextFirst: string) => {
+    if (node.ether?.entity?.kind === "task") {
+      renameTaskStation(node.id, nextFirst);
+      return;
+    }
     const rest = rawText.split("\n").slice(1).join("\n");
     editText(node.id, rest ? `${nextFirst}\n${rest}` : nextFirst);
   };
@@ -216,6 +223,7 @@ export function TasksCard({
       <SinkGlanceHead
         node={node}
         fallback="tasks"
+        displayLabel={stationIdentity(node).name}
         decal={<ListChecks size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}

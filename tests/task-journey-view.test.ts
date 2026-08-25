@@ -29,15 +29,16 @@ const sink = (id: string, items: ReadonlyArray<Task>, claims?: ReadonlyArray<{
 }>): CanvasNode => ({
   id,
   type: "text",
-  text: "tasks",
+  text: `${id} station`,
   x: 0,
   y: 0,
   width: 100,
   height: 60,
   ether: {
-    entity: { kind: "task", name: `${id} station` },
+    entity: { kind: "task" },
     tasks: {
       items: [...items],
+      stationName: `${id} station`,
       ...(claims !== undefined ? { contract: { claims: [...claims] } } : {}),
     },
   },

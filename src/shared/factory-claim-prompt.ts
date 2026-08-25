@@ -19,6 +19,7 @@ import {
 } from "./claims";
 import { flowDestinations } from "./flow-graph";
 import { regionStack } from "./graph";
+import { stationIdentity, stationName } from "./station-identity";
 
 export type FactoryClaimPromptInput = {
   /** Task sink node id on the canvas (CLI `target`). */
@@ -58,7 +59,11 @@ const stationSections = (
 ): readonly string[] => {
   const lines: string[] = [];
 
-  const contract = sinkContractOf(nodeById(doc, sinkNodeId));
+  const sinkNode = nodeById(doc, sinkNodeId);
+  const identity = stationIdentity(sinkNode, sinkNodeId);
+  const contract = sinkContractOf(sinkNode);
+  lines.push("", `Station: ${identity.name}`);
+  if (identity.namingHint) lines.push(identity.namingHint);
   const instruction = contract?.instruction;
   if (instruction !== undefined && instruction.trim().length > 0) {
     lines.push("", "What this station is for:", instruction.trim());
@@ -103,11 +108,15 @@ const stationSections = (
 
   const destinations = flowDestinations(doc, sinkNodeId);
   if (destinations.length > 0) {
+    const namedDestinations = destinations.map((destination) => ({
+      id: destination,
+      name: stationName(nodeById(doc, destination), destination),
+    }));
     lines.push(
       "",
       destinations.length === 1
-        ? `Forward: completing here sends the task to "${destinations[0]}".`
-        : `Forward: this station forks — name one of [${destinations.join(", ")}] as next when you complete.`,
+        ? `Forward: completing here sends the task to ${namedDestinations[0]!.name} (next: "${namedDestinations[0]!.id}").`
+        : `Forward: this station forks — choose ${namedDestinations.map(({ name, id }) => `${name} ("${id}")`).join(", ")} as next when you complete.`,
     );
     const emission = contract?.outbound?.emission;
     if (emission !== undefined && emission.trim().length > 0) {
@@ -118,8 +127,9 @@ const stationSections = (
     for (const destination of destinations) {
       const checks = requiredBoardingChecks(doc, sinkNodeId, destination);
       if (checks.length === 0) continue;
+      const destinationName = stationName(nodeById(doc, destination), destination);
       lines.push(
-        `Boarding checks for "${destination}" (green tickets are required to forward):`,
+        `Boarding checks for ${destinationName} (green tickets are required to forward):`,
         ...checks.map(({ check, side }) => `- ${side}: ${check.label}`),
       );
     }
@@ -141,7 +151,7 @@ const stationSections = (
     for (const passage of priorPassages) {
       const emission = passage.emissionNote?.trim();
       lines.push(
-        `- ${passage.nodeId} (${passage.exit ?? "left"})${emission ? `: ${emission}` : ""}`,
+        `- ${stationName(nodeById(doc, passage.nodeId), passage.nodeId)} (${passage.exit ?? "left"})${emission ? `: ${emission}` : ""}`,
       );
     }
   }
@@ -220,6 +230,10 @@ export const buildFactoryClaimPrompt = (
   // forwarding guidance, so it only travels when the station forwards.
   const contract =
     doc === undefined ? undefined : sinkContractOf(nodeById(doc, sinkNodeId));
+  const identity =
+    doc === undefined
+      ? undefined
+      : stationIdentity(nodeById(doc, sinkNodeId), sinkNodeId);
   const guidanceInstruction = contract?.instruction?.trim();
   const guidanceTriage = contract?.inbound?.instruction?.trim();
   const guidanceEmission =
@@ -234,6 +248,14 @@ export const buildFactoryClaimPrompt = (
 
   const packet = {
     sinkTarget: sinkNodeId,
+    ...(identity !== undefined
+      ? {
+          station: {
+            name: identity.name,
+            ...(identity.role ? { role: identity.role } : {}),
+          },
+        }
+      : {}),
     taskId: task.id,
     state: task.state,
     brief,
@@ -251,7 +273,13 @@ export const buildFactoryClaimPrompt = (
         }
       : {}),
     ...(doc !== undefined && flowDestinations(doc, sinkNodeId).length > 0
-      ? { forwardsTo: flowDestinations(doc, sinkNodeId) }
+      ? {
+          forwardsTo: flowDestinations(doc, sinkNodeId),
+          forwardStations: flowDestinations(doc, sinkNodeId).map((nodeId) => ({
+            nodeId,
+            name: stationName(nodeById(doc, nodeId), nodeId),
+          })),
+        }
       : {}),
     ...(Object.keys(guidance).length > 0 ? { guidance } : {}),
     ...(taskEpoch(task) > 0 ? { epoch: taskEpoch(task) } : {}),

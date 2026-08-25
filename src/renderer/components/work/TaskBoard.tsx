@@ -98,7 +98,10 @@ import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
-import { nodeTitle } from "../../lib/presentation";
+import {
+  stationIdentity,
+  stationName as displayStationName,
+} from "@shared/station-identity";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
   extractHerdrClipboardImage,
@@ -2379,11 +2382,16 @@ export function TaskBoard({
     const names = new Map(
       doc.nodes.map((entry) => [
         entry.id,
-        entry.ether?.entity?.name?.trim() || nodeTitle(entry),
+        displayStationName(entry),
       ]),
     );
-    return (nodeId: string): string => names.get(nodeId) ?? nodeId;
+    return (nodeId: string): string =>
+      names.get(nodeId) ?? displayStationName(undefined, nodeId);
   }, [doc]);
+  const currentStation = useMemo(
+    () => stationIdentity(doc.nodes.find((entry) => entry.id === node.id), node.id),
+    [doc, node.id],
+  );
   const seatName = useMemo(() => {
     const names = new Map<string, string>(
       actorRefs.map((actor) => [actor.seatId, stationName(actor.nodeId)]),
@@ -3140,13 +3148,15 @@ export function TaskBoard({
         onDragEnd={onDragEnd}
       >
         <OverlayHeader
-          eyebrow="tasks"
-          title="Task flow"
+          eyebrow="station"
+          title={currentStation.name}
           status={
-            <>
-              {glance.inFlight} in flight
-              {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
-            </>
+            currentStation.namingHint ?? currentStation.role ?? (
+              <>
+                {glance.inFlight} in flight
+                {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
+              </>
+            )
           }
           actions={
             <>

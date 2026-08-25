@@ -1091,10 +1091,9 @@ const commitFullGeneration = (
  * boundary because no repository-private document transform may be required
  * to make authorial persistence safe.
  *
- * `ether.tasks.contract` is the one exception: the sink contract is
- * operator-authored document truth, so it survives the strip while the
- * projected rows beside it do not. `items` stays present-and-empty because
- * WorkTasks requires it.
+ * `ether.tasks.stationName` and `ether.tasks.contract` are operator-authored
+ * document truth, so they survive the strip while projected rows beside them
+ * do not. `items` stays present-and-empty because WorkTasks requires it.
  */
 const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
   ...doc,
@@ -1124,9 +1123,27 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
       ...rest
     } = etherIn;
     const contract = strippedTasks?.contract;
-    const ether = contract === undefined
+    const nativeTaskTitle =
+      node.type === "text" &&
+      etherIn.entity?.kind === "task" &&
+      (strippedTasks?.items?.length ?? 0) === 0
+        ? node.text.split("\n")[0]?.replace(/^#+\s*/, "").trim()
+        : undefined;
+    const stationName =
+      strippedTasks?.stationName?.trim() ||
+      (nativeTaskTitle && !/^(?:task|tasks)$/i.test(nativeTaskTitle)
+        ? nativeTaskTitle
+        : undefined);
+    const ether = contract === undefined && stationName === undefined
       ? rest
-      : { ...rest, tasks: { items: [], contract } };
+      : {
+          ...rest,
+          tasks: {
+            items: [],
+            ...(stationName ? { stationName } : {}),
+            ...(contract ? { contract } : {}),
+          },
+        };
     const kind = ether.entity?.kind;
     const text =
       node.type !== "text"

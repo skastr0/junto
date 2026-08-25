@@ -166,6 +166,7 @@ import {
   summarizeNode,
 } from "./authz";
 import { resolveSinkAdmission } from "@shared/work-model";
+import { stationIdentity, stationName } from "@shared/station-identity";
 import {
   effectiveClaimsStack,
   sinkContractOf,
@@ -514,12 +515,14 @@ const stationGuidance = (
 
 const stationLawMap = (doc: CanvasDoc, fromNodeId: string) =>
   [...reachableStations(doc, fromNodeId)].map((station) => {
-    const contract = sinkContractOf(
-      doc.nodes.find((node) => node.id === station),
-    );
+    const node = doc.nodes.find((candidate) => candidate.id === station);
+    const identity = stationIdentity(node, station);
+    const contract = sinkContractOf(node);
     const inbound = contract?.inbound;
     return {
       station,
+      name: identity.name,
+      ...(identity.role ? { role: identity.role } : {}),
       claims: effectiveClaimsStack(doc, station).map((entry) => ({
         id: entry.claim.id,
         text: entry.claim.text,
@@ -540,13 +543,15 @@ const stationLawMap = (doc: CanvasDoc, fromNodeId: string) =>
  * carry no sink contract and no flow edges, so plain sinks stay quiet.
  */
 const sinkPipelineBriefing = (doc: CanvasDoc, nodeId: string) => {
-  const contract = sinkContractOf(doc.nodes.find((node) => node.id === nodeId));
+  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  const identity = stationIdentity(node, nodeId);
+  const contract = sinkContractOf(node);
   const destinations = flowDestinations(doc, nodeId).map((destination) => {
-    const inbound = sinkContractOf(
-      doc.nodes.find((node) => node.id === destination),
-    )?.inbound;
+    const destinationNode = doc.nodes.find((candidate) => candidate.id === destination);
+    const inbound = sinkContractOf(destinationNode)?.inbound;
     return {
       station: destination,
+      name: stationName(destinationNode, destination),
       ...(inbound?.description !== undefined
         ? { description: inbound.description }
         : {}),
@@ -557,6 +562,11 @@ const sinkPipelineBriefing = (doc: CanvasDoc, nodeId: string) => {
   });
   if (contract === undefined && destinations.length === 0) return undefined;
   return {
+    station: {
+      name: identity.name,
+      ...(identity.role ? { role: identity.role } : {}),
+      ...(identity.namingHint ? { namingHint: identity.namingHint } : {}),
+    },
     contract: {
       ...stationGuidance(doc, nodeId),
       claims: effectiveClaimsStack(doc, nodeId).length,

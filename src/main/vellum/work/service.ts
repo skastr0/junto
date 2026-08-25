@@ -82,6 +82,7 @@ import {
 } from "@shared/claims";
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/graph";
+import { stationIdentity, stationName } from "@shared/station-identity";
 import { taskCommentRecipient } from "@shared/task-owner";
 import { makeUserMessage } from "@shared/task";
 import {
@@ -271,11 +272,13 @@ export type WorkBoardCheckResult = {
 
 export type WorkTaskPassageView = {
   readonly nodeId: string;
+  readonly station: string;
   readonly enteredAt: string;
   readonly epoch: number;
   readonly exitedAt?: string;
   readonly exit?: "forwarded" | "closed" | "rejected-back";
   readonly next?: string;
+  readonly nextStation?: string;
   readonly emissionNote?: string;
   /** Refs cited by that station's claim responses (onion-visible). */
   readonly refs: ReadonlyArray<string>;
@@ -285,6 +288,11 @@ export type WorkTaskPassageView = {
 
 export type WorkTaskShowView = {
   readonly task: Task;
+  readonly station: {
+    readonly nodeId: string;
+    readonly name: string;
+    readonly role?: string;
+  };
   readonly journey: ReadonlyArray<WorkTaskPassageView>;
   /** Effective claims at this station (seat) — full task claims for operator. */
   readonly claims: ReadonlyArray<EffectiveClaim>;
@@ -1753,13 +1761,22 @@ export const WorkLive = Layer.effect(
             ];
             return {
               nodeId: passage.nodeId,
+              station: stationName(nodeById(read.doc, passage.nodeId), passage.nodeId),
               enteredAt: passage.enteredAt,
               epoch: passage.epoch,
               ...(passage.exitedAt !== undefined
                 ? { exitedAt: passage.exitedAt }
                 : {}),
               ...(passage.exit !== undefined ? { exit: passage.exit } : {}),
-              ...(passage.next !== undefined ? { next: passage.next } : {}),
+              ...(passage.next !== undefined
+                ? {
+                    next: passage.next,
+                    nextStation: stationName(
+                      nodeById(read.doc, passage.next),
+                      passage.next,
+                    ),
+                  }
+                : {}),
               ...(passage.emissionNote !== undefined
                 ? { emissionNote: passage.emissionNote }
                 : {}),
@@ -1771,6 +1788,7 @@ export const WorkLive = Layer.effect(
           });
           const regions = regionStackFor(read.doc, nodeId);
           const sinkContract = sinkContractOf(node);
+          const identity = stationIdentity(node, nodeId);
           const sinkInstruction = sinkContract?.instruction?.trim();
           const sinkTriage = sinkContract?.inbound?.instruction?.trim();
           // Emission is forwarding guidance — meaningless at a terminal sink.
@@ -1780,6 +1798,11 @@ export const WorkLive = Layer.effect(
               : undefined;
           return {
             task,
+            station: {
+              nodeId,
+              name: identity.name,
+              ...(identity.role ? { role: identity.role } : {}),
+            },
             journey,
             claims: effectiveClaimsStack(read.doc, nodeId, task),
             ambient: {

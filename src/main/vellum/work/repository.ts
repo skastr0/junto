@@ -1062,13 +1062,15 @@ export const projectWorkSnapshots = (
       delete ether.board;
       delete ether.pad;
       if (kind === "task") {
-        // The sink contract is operator-authored document truth, not a work
-        // row — the projection overlay must carry it through.
+        // Station identity and contract are operator-authored document truth,
+        // not work rows — the projection overlay must carry both through.
+        const stationName = source.ether?.tasks?.stationName;
         const contract = source.ether?.tasks?.contract;
-        ether.tasks =
-          contract === undefined
-            ? snapshot.tasks
-            : { ...snapshot.tasks, contract };
+        ether.tasks = {
+          ...snapshot.tasks,
+          ...(stationName ? { stationName } : {}),
+          ...(contract ? { contract } : {}),
+        };
       }
       if (kind === "requests") ether.requests = snapshot.requests;
       if (kind === "artifacts") ether.artifacts = snapshot.artifacts;

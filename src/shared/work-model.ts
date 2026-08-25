@@ -486,12 +486,13 @@ export const Artifact = Schema.Struct({
 export type Artifact = typeof Artifact.Type;
 
 /**
- * Tasks sink contents. `contract` is operator-authored document truth
- * (`ether.tasks.contract`); items/proposals stay runtime work projections.
+ * Tasks sink contents. `stationName` and `contract` are operator-authored
+ * document truth; items/proposals stay runtime work projections.
  */
 export const WorkTasks = Schema.Struct({
   items: Schema.Array(Task),
   proposals: Schema.optionalKey(Schema.Array(TaskProposal)),
+  stationName: Schema.optionalKey(Schema.String),
   contract: Schema.optionalKey(TasksSinkContract),
 });
 export type WorkTasks = typeof WorkTasks.Type;

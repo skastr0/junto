@@ -19,6 +19,7 @@ import {
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { Result, Match } from "effect";
 import { RELAY_ENABLED } from "@shared/features";
+import { stationName } from "@shared/station-identity";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
@@ -30,6 +31,7 @@ export const nodeKind = (node: CanvasNode | undefined): string | undefined =>
   node?.ether?.entity?.kind;
 
 export const nodeTitle = (node: CanvasNode): string => {
+  if (nodeKind(node) === "task") return stationName(node);
   if (node.type === "text") {
     const first = node.text?.split("\n")[0]?.trim();
     if (first) return first;

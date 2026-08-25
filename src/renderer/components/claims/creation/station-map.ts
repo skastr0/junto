@@ -12,8 +12,8 @@ import {
   type EffectiveClaim,
 } from "@shared/claims";
 import { flowDestinations } from "@shared/flow-graph";
+import { stationIdentity } from "@shared/station-identity";
 import { resolveSinkAdmission, type SinkAdmission } from "@shared/work-model";
-import { nodeTitle } from "../../../lib/presentation";
 
 export type StationStop = {
   readonly nodeId: string;
@@ -77,9 +77,10 @@ export const stationLine = (
     const law = effectiveClaimsStack(doc, stop.nodeId);
     const destinations = flowDestinations(doc, stop.nodeId);
     const previous = walked[index - 1];
+    const identity = stationIdentity(node, stop.nodeId);
     return {
       nodeId: stop.nodeId,
-      label: node ? nodeTitle(node) : stop.nodeId,
+      label: identity.name,
       hops: stop.hops,
       origin: index === 0,
       terminal: destinations.length === 0,
@@ -91,9 +92,7 @@ export const stationLine = (
       hard: law.filter((entry) => entry.claim.severity === "hard").length,
       soft: law.filter((entry) => entry.claim.severity === "soft").length,
       admission: resolveSinkAdmission(contract),
-      ...(contract?.instruction !== undefined
-        ? { instruction: contract.instruction }
-        : {}),
+      ...(identity.role !== undefined ? { instruction: identity.role } : {}),
       ...(inbound?.description !== undefined
         ? { description: inbound.description }
         : {}),

@@ -24,7 +24,7 @@ import {
   waiverLive,
   type ClaimProvenance,
 } from "@shared/claims";
-import { nodeTitle } from "../../lib/presentation";
+import { stationName } from "@shared/station-identity";
 
 export type JourneyReceipt = {
   readonly claimId: string;
@@ -115,8 +115,7 @@ const rowAt = (doc: CanvasDoc, nodeId: string, taskId: string): Task | undefined
 
 export const stationLabel = (doc: CanvasDoc, nodeId: string): string => {
   const node = nodeById(doc, nodeId);
-  if (node === undefined) return nodeId;
-  return node.ether?.entity?.name?.trim() || nodeTitle(node);
+  return stationName(node, nodeId);
 };
 
 const provenanceText = (provenance: ClaimProvenance, doc: CanvasDoc): string => {

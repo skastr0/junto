@@ -2465,6 +2465,9 @@ describe("WorkService — pipeline", () => {
       work.workTaskShow(name, "v2", taskId, "seat")
     );
     const priorPassage = seatView.journey.find((p) => p.nodeId === "v1");
+    expect(seatView.station.name).toBe("station v2");
+    expect(priorPassage?.station).toBe("station v1");
+    expect(priorPassage?.nextStation).toBe("station v2");
     expect(priorPassage?.emissionNote).toBe("the emission");
     expect(priorPassage?.refs).toEqual(["docs/receipt.md"]);
     // Onion: seat view never carries prior interiors.
