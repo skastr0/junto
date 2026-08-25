@@ -14,6 +14,11 @@ export type StationDestination = {
   readonly label: string;
 };
 
+/** A visited station offered as a defect target in journey order. */
+export type DefectStationTarget = StationDestination & {
+  readonly present: boolean;
+};
+
 /** What the operator answered at this station, sent with the completion. */
 export type StationSubmission = {
   readonly responses: ReadonlyArray<ClaimResponse>;
@@ -53,6 +58,71 @@ const provenanceChip = (claim: EffectiveClaim): string => {
   }
 };
 
+/** Keep the previous-station fast path implicit; name only a deeper target. */
+export const explicitDefectTarget = (
+  previousStation: string | undefined,
+  selectedStation: string,
+): string | undefined =>
+  selectedStation === previousStation ? undefined : selectedStation;
+
+export function DefectTargetPicker({
+  targets,
+  selected,
+  pending,
+  onSelect,
+}: {
+  readonly targets: ReadonlyArray<DefectStationTarget>;
+  readonly selected: string;
+  readonly pending: boolean;
+  readonly onSelect: (station: string) => void;
+}) {
+  const selectedTarget = targets.find((target) => target.id === selected);
+  return (
+    <>
+      <details className="task-station-console__defect-targets">
+        <summary>
+          <span>Return to</span>
+          <strong>{selectedTarget?.label ?? "Choose a station"}</strong>
+        </summary>
+        <fieldset aria-label="Defect target">
+          <legend>Visited line</legend>
+          {targets.map((target, index) => (
+            <label
+              key={target.id}
+              className="task-station-console__defect-target"
+              data-present={target.present ? "true" : "false"}
+            >
+              <span className="task-station-console__defect-stop" aria-hidden>
+                {index + 1}
+              </span>
+              <input
+                type="radio"
+                name="defect-target"
+                value={target.id}
+                checked={target.id === selected}
+                disabled={pending || !target.present}
+                onChange={() => onSelect(target.id)}
+              />
+              <span>
+                <strong>{target.label}</strong>
+                {!target.present ? (
+                  <small>No longer a task station</small>
+                ) : null}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </details>
+      {selectedTarget ? (
+        <p className="task-station-console__defect-consequence">
+          Work already accepted before {selectedTarget.label} stays accepted;
+          everything from {selectedTarget.label} onward is redone.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * Operator console for an operator-owned station: answer the standing claims,
  * then route the work forward, close it, or send it back as a defect. The
@@ -61,6 +131,8 @@ const provenanceChip = (claim: EffectiveClaim): string => {
 export function TaskStationConsole({
   claims,
   destinations,
+  defectTargets,
+  previousStation,
   canSendBack,
   pending,
   onComplete,
@@ -68,6 +140,9 @@ export function TaskStationConsole({
 }: {
   readonly claims: ReadonlyArray<EffectiveClaim>;
   readonly destinations: ReadonlyArray<StationDestination>;
+  readonly defectTargets: ReadonlyArray<DefectStationTarget>;
+  /** The kernel's unchanged implicit target when no explicit target is sent. */
+  readonly previousStation: string | undefined;
   /** Defect-back needs a previous passage to return to. */
   readonly canSendBack: boolean;
   readonly pending: boolean;
@@ -80,6 +155,7 @@ export function TaskStationConsole({
     summary: string,
     refs: ReadonlyArray<string>,
     note: string,
+    target: string | undefined,
   ) => Promise<boolean>;
 }) {
   const [drafts, setDrafts] = useState<ReadonlyMap<string, ClaimDraft>>(new Map());
@@ -88,6 +164,12 @@ export function TaskStationConsole({
   const [defectOpen, setDefectOpen] = useState(false);
   const [defectSummary, setDefectSummary] = useState("");
   const [defectRefs, setDefectRefs] = useState("");
+  const defaultDefectTarget =
+    previousStation ?? defectTargets[defectTargets.length - 1]?.id ?? "";
+  const [defectTarget, setDefectTarget] = useState(defaultDefectTarget);
+  const selectedDefectTarget = defectTargets.find(
+    (target) => target.id === defectTarget,
+  );
 
   const draftFor = (claimId: string): ClaimDraft => drafts.get(claimId) ?? EMPTY_DRAFT;
   const patchDraft = (claimId: string, patch: Partial<ClaimDraft>) =>
@@ -137,6 +219,7 @@ export function TaskStationConsole({
     setDefectOpen(false);
     setDefectSummary("");
     setDefectRefs("");
+    setDefectTarget(defaultDefectTarget);
   };
 
   const complete = async (destination: string | undefined) => {
@@ -315,7 +398,13 @@ export function TaskStationConsole({
       </div>
 
       {defectOpen && canSendBack ? (
-        <div className="task-station-console__field">
+        <div className="task-station-console__defect">
+          <DefectTargetPicker
+            targets={defectTargets}
+            selected={defectTarget}
+            pending={pending}
+            onSelect={setDefectTarget}
+          />
           <label className="task-station-console__field">
             <span>Defect</span>
             <Textarea
@@ -339,15 +428,24 @@ export function TaskStationConsole({
             <Button
               size="sm"
               variant="danger"
-              disabled={pending || !defectSummary.trim()}
+              disabled={
+                pending ||
+                !defectSummary.trim() ||
+                !selectedDefectTarget?.present
+              }
               data-testid="task-station-defect-send"
-              title="Return this work to the station it came from"
+              title={
+                selectedDefectTarget
+                  ? `Return this work to ${selectedDefectTarget.label}`
+                  : "Choose a station to return this work to"
+              }
               onClick={async () => {
                 if (
                   await onSendBack(
                     defectSummary.trim(),
                     parseRefs(defectRefs),
                     note.trim(),
+                    explicitDefectTarget(previousStation, defectTarget),
                   )
                 ) {
                   reset();

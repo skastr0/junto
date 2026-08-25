@@ -70,6 +70,7 @@ import {
   type StationSubmission,
 } from "./TaskStationConsole";
 import { effectiveClaimsStack, taskAdmissionState } from "@shared/claims";
+import { defectTargetOptions } from "@shared/journey-integrity";
 import { resolveSinkAdmission, type TaskClaim } from "@shared/work-model";
 import {
   arrivalGlance,
@@ -2775,6 +2776,7 @@ export function TaskBoard({
     summary: string,
     refs: ReadonlyArray<string>,
     defectNote: string,
+    target: string | undefined,
   ): Promise<boolean> => {
     if (!api || !summary.trim()) return false;
     setError("");
@@ -2792,6 +2794,7 @@ export function TaskBoard({
             defect: {
               summary: summary.trim(),
               ...(refs.length > 0 ? { refs } : {}),
+              ...(target !== undefined ? { target } : {}),
             },
           },
         ),
@@ -2802,7 +2805,11 @@ export function TaskBoard({
         setAnnouncement(`Could not send ${taskTitle(task)} back. ${result.message}`);
         return false;
       }
-      setAnnouncement(`Sent ${taskTitle(task)} back as a defect.`);
+      setAnnouncement(
+        target === undefined
+          ? `Sent ${taskTitle(task)} back as a defect.`
+          : `Sent ${taskTitle(task)} back to ${stationName(target)} as a defect.`,
+      );
       return true;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -3244,13 +3251,31 @@ export function TaskBoard({
                       id: destination,
                       label: stationName(destination),
                     }))}
+                    defectTargets={defectTargetOptions(
+                      doc,
+                      selectedTask,
+                      node.id,
+                    ).map((target) => ({
+                      id: target.station,
+                      label: stationName(target.station),
+                      present: target.present,
+                    }))}
+                    previousStation={
+                      selectedTask.journey?.at(-2)?.nodeId
+                    }
                     canSendBack={(selectedTask.journey?.length ?? 0) > 1}
                     pending={pendingTaskId === selectedTask.id}
                     onComplete={(submission, next) =>
                       completeAtStation(selectedTask, submission, next)
                     }
-                    onSendBack={(summary, refs, stationNote) =>
-                      sendBackDefect(selectedTask, summary, refs, stationNote)
+                    onSendBack={(summary, refs, stationNote, target) =>
+                      sendBackDefect(
+                        selectedTask,
+                        summary,
+                        refs,
+                        stationNote,
+                        target,
+                      )
                     }
                   />
                 ) : undefined
