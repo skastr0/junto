@@ -70,6 +70,10 @@ import {
   getCapturedSessionId,
 } from "./session-id-store";
 import {
+  scheduleCapturedSessionPersist,
+  usesCapturedSession,
+} from "./session-capture-persist";
+import {
   isHarnessResumeFailureText,
   isPinSessionHarness,
   launchArgvUsesResume,
@@ -1655,6 +1659,9 @@ export class LocalSessionHost extends EventEmitter {
     const sessionId = safeStructuredSessionId(report);
     if (sessionId !== undefined) {
       recordCapturedSessionId(rec.bindingId, sessionId);
+      // The reporter is Prime Agent's own structured channel — a better source
+      // than scraped PTY text, and it reaches the same proof-then-store path.
+      this.persistCapturedSession(rec, sessionId);
     }
     if (report.released === true) {
       seatStateRuntime.clearStructuredHook(
@@ -1849,6 +1856,32 @@ export class LocalSessionHost extends EventEmitter {
     });
   }
 
+  /**
+   * A capture harness just announced its session id. Prove it against the
+   * harness's own state, then write it to the seat's node so the next wake
+   * resumes this conversation instead of opening a new one.
+   *
+   * Fire-and-forget by design: the PTY data path must not wait on a filesystem
+   * probe or a canvas write, and a seat whose id cannot be proven simply keeps
+   * running with the id held for this generation only.
+   */
+  private persistCapturedSession(rec: SessionRec, sessionId: string): void {
+    const canvasName = rec.canvasName;
+    const nodeId = rec.nodeId;
+    const harness = rec.harness;
+    if (!canvasName || !nodeId || !harness) return;
+    if (!usesCapturedSession(harness)) return;
+    void scheduleCapturedSessionPersist(`${rec.bindingId}@${rec.epoch}`, {
+      canvasName,
+      nodeId,
+      harness,
+      sessionId,
+      ...(rec.cwd ? { cwd: rec.cwd } : {}),
+    }).catch(() => {
+      // Recovery, never a gate: a failed persist leaves the seat untouched.
+    });
+  }
+
   private observeData(rec: SessionRec, data: string): void {
     if (
       rec.killed ||
@@ -1866,7 +1899,10 @@ export class LocalSessionHost extends EventEmitter {
     if ((rec.agentKey || rec.harness) && !getCapturedSessionId(rec.bindingId)) {
       const captureText = `${rec.sessionCaptureTail}${data}`;
       const sid = extractSessionIdFromText(captureText);
-      if (sid) recordCapturedSessionId(rec.bindingId, sid);
+      if (sid) {
+        recordCapturedSessionId(rec.bindingId, sid);
+        this.persistCapturedSession(rec, sid);
+      }
       rec.sessionCaptureTail = captureText.slice(-SESSION_CAPTURE_TAIL_BYTES);
     } else {
       rec.sessionCaptureTail = `${rec.sessionCaptureTail}${data}`.slice(

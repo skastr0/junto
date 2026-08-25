@@ -140,7 +140,47 @@ export type ArgvSpec = {
   readonly systemPromptFlag?: string;
   /** Grok agent file flag (`--agent`). */
   readonly agentFlag?: string;
+  /**
+   * Tier-A rules-DIRECTORY flag (Antigravity `--add-dir`, repeatable). The
+   * harness exposes no system-prompt flag, but it loads `AGENTS.md` from every
+   * directory added to the workspace — so doctrine ships as an app-owned
+   * ephemeral directory instead of an argv string.
+   *
+   * Vellum Command mounts ONLY its own directory
+   * (`<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-rules/<seat>/`): the
+   * operator's workspace is never written to, and the loaded context cites the
+   * app-owned path as its origin. Probed on agy 1.1.20 — an `AGENTS.md` in an
+   * added dir is obeyed, while a cwd `AGENTS.md` alone is not read at all.
+   */
+  readonly rulesDirFlag?: string;
+  /**
+   * Whether re-passing the injection carriers (`systemPromptFlag` / `agentFlag`)
+   * on a RESUME launch actually reaches the harness. This is a probe receipt,
+   * not a preference — a harness that freezes its instructions at thread
+   * creation accepts the flag on the command line and silently ignores it, so
+   * without this fact the argv would look correct and the seat would run
+   * un-briefed.
+   *
+   * - `re-pass`   — resume argv carrying the injection spec is honored.
+   *   Probed 2026-08: claude, grok, pi, cursor, agy, muse, hermes. (Hermes also
+   *   needs `-m` re-passed on every resume or the model silently reverts;
+   *   `buildArgv` already re-passes every template-owned flag on resume.)
+   * - `frozen`    — instructions are fixed at session creation and cannot be
+   *   re-passed. Probed 2026-08: codex (re-passed developer instructions do not
+   *   apply to an existing thread) and kimi (`--agent-file` cannot combine with
+   *   `--session` / `--continue` at all). Doctrine for these harnesses is
+   *   delivered-at-creation; later generations are re-oriented by the injection
+   *   supervisor's notices instead.
+   * - `unprobed`  — no receipt yet. Treated exactly like `frozen` at the argv
+   *   boundary, so an unverified harness never gets a claim it has not earned.
+   */
+  readonly resumeReinjection: "re-pass" | "frozen" | "unprobed";
 };
+
+/** Injection carriers may ride a resume launch only for this class. */
+export const reinjectableOnResume = (
+  template: ManagedTerminalTemplate,
+): boolean => template.argvSpec.resumeReinjection === "re-pass";
 
 /**
  * Exact env keys that must be stripped from the ambient process env before
@@ -291,6 +331,7 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     resumeMode: "flag",
     resumeFlag: "--resume",
     systemPromptFlag: "--append-system-prompt",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -327,7 +368,10 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     effortConfigKey: "model_reasoning_effort",
     permissionModeFlag: "-a",
     resumeMode: "subcommand",
-    // No session pin; capture via SessionStart / CODEX_THREAD_ID / notify.
+    // No session pin; the thread id is CAPTURED (SessionStart /
+    // CODEX_THREAD_ID / notify) and proven against ~/.codex/sessions before
+    // it is ever used to resume.
+    resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -341,12 +385,22 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     // Hooks dropped: trust modal; --dangerously-bypass-hook-trust banned.
     hooks: false,
     effortAtSpawn: true,
-    sessionId: "unavailable",
+    // Capture, not unavailable: `codexSessionExists` proves a thread id against
+    // ~/.codex/sessions and `codex resume <id>` was verified live, so the badge
+    // that used to read "unavailable" contradicted shipped behavior.
+    sessionId: "capture",
     remote: false,
     requiresGitCwd: false,
     stateFeed: "OSC → grid (+ notify turn-complete)",
     attentionSource: "OSC title Action Required + grid for startup modals",
-    labels: ["injection B", "no hooks", "effort", "no cold resume"],
+    labels: [
+      "injection B",
+      "no hooks",
+      "effort",
+      "capture session",
+      // Doctrine is frozen at thread creation: a resume cannot carry it again.
+      "doctrine at creation",
+    ],
   },
   // Per-model lists come from `codex debug models`; these are common floors.
   efforts: ["low", "medium", "high", "xhigh", "ultra"],
@@ -373,6 +427,7 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
     resumeFlag: "-r",
     systemPromptFlag: "--rules",
     agentFlag: "--agent",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -417,6 +472,7 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     profileFlag: "--profile",
     resumeMode: "flag",
     resumeFlag: "-r",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -463,6 +519,7 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
     resumeMode: "flag",
     resumeFlag: "--session",
     systemPromptFlag: "--append-system-prompt",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -507,6 +564,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
     resumeMode: "flag",
     resumeFlag: "-r",
     systemPromptFlag: "--append-system-prompt",
+    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -560,6 +618,7 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--yolo",
     resumeMode: "flag",
     resumeFlag: "-S",
+    resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -576,7 +635,9 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "hook feed → grid",
     attentionSource: "PermissionRequest hook → grid approval panel",
-    labels: ["injection B", "hook feed", "capture session"],
+    // `--agent-file` cannot combine with `--session`/`--continue`, so a resumed
+    // Kimi seat can never be re-briefed on argv.
+    labels: ["injection B", "hook feed", "capture session", "doctrine at creation"],
   },
   efforts: [],
 };
@@ -601,6 +662,7 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
     effortFlag: "--reasoning-effort",
     permissionModeFlag: "--yolo",
     resumeMode: "subcommand",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -644,6 +706,7 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--permission-mode",
     resumeMode: "flag",
     resumeFlag: "-r",
+    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -685,6 +748,7 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--yolo",
     resumeMode: "flag",
     resumeFlag: "--resume",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -708,14 +772,23 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Antigravity CLI (Google Antigravity; binary: `agy`) — Tier B, capture session, grid feed.
+ * Antigravity CLI (Google Antigravity; binary: `agy`) — Tier A, capture session, grid feed.
  * Verified 1.1.13: `-i <prompt>` auto-submit; `--model`; `--effort` (low|medium|high);
  * `--dangerously-skip-permissions`; `--agent`; `--conversation <id>` resume.
+ *
+ * Re-probed 1.1.20 for injection: there is still no system-prompt flag, but
+ * `--add-dir <dir>` (repeatable) mounts a directory into the workspace and an
+ * `AGENTS.md` inside it loads as project doctrine — confirmed by a canary rule
+ * obeyed from an added dir while the cwd carried no `AGENTS.md` at all. That
+ * makes doctrine a spawn-time fact rather than a typed first message, so agy is
+ * Tier A through the app-owned ephemeral rules dir (never the user workspace).
+ * `--conversation <id>` resume was re-verified on the same build: a token
+ * stated in one print-mode turn came back on the resumed conversation.
  */
 export const AGY_TEMPLATE: ManagedTerminalTemplate = {
   harness: "agy",
   displayName: "Antigravity",
-  probedVersion: "1.1.13",
+  probedVersion: "1.1.20",
   argvSpec: {
     binary: "agy",
     prefix: [],
@@ -724,18 +797,20 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
     effortFlag: "--effort",
     permissionModeFlag: "--dangerously-skip-permissions",
     agentFlag: "--agent",
+    rulesDirFlag: "--add-dir",
     resumeMode: "flag",
     resumeFlag: "--conversation",
+    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
-    tier: "B",
-    flags: [],
+    tier: "A",
+    flags: ["--add-dir"],
     description:
-      "No system-prompt flag — doctrine delivered as the first typed message",
+      "Doctrine is an AGENTS.md in an app-owned ephemeral rules dir mounted with --add-dir",
   },
   capabilityBadges: {
-    instructionInjection: "B",
+    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "capture",
@@ -744,7 +819,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "grid (screen rules)",
     attentionSource: "permission prompt ([y/n], do you want to proceed?)",
     labels: [
-      "injection B",
+      "injection A",
       "grid",
       "effort",
       "capture session",
@@ -785,6 +860,7 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
     modeFlag: "-m",
     resumeMode: "subcommand",
     resumeSubcommand: ["threads", "continue"],
+    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {

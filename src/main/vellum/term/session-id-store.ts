@@ -1,9 +1,12 @@
 /**
  * Ephemeral, best-effort session-id observation for managed seats.
  *
- * This process-local map is diagnostic plumbing, not a cold-resume contract:
- * PTY output is untrusted, values are not persisted, and no spawn path consumes
- * them. Pin-capable harnesses store their authorial id on the canvas instead.
+ * This process-local map is an OBSERVATION, never a claim: PTY output is
+ * untrusted and nothing here is proof of anything. It is the first half of the
+ * cold-resume loop — `session-capture-persist` takes what lands here, proves it
+ * against the harness's own durable state, and only then writes it to the
+ * seat's node. Pin-capable harnesses store their authorial id on the canvas
+ * instead and never consult this map.
  */
 
 const byBinding = new Map<string, string>();

@@ -20,6 +20,7 @@ import {
   SPAWN_ENV_SCRUB,
   SPAWN_ENV_SCRUB_PREFIXES,
   isHarnessId,
+  reinjectableOnResume,
   templateFor,
 } from "./managed-terminal-templates";
 
@@ -74,6 +75,13 @@ export type ManagedLaunchChoices = {
   readonly systemPrompt?: string;
   /** Grok `--agent <file>` (takes precedence over systemPrompt for injection). */
   readonly agentFile?: string;
+  /**
+   * Tier-A rules DIRECTORY for `argvSpec.rulesDirFlag` (Antigravity
+   * `--add-dir`). The caller owns the directory and its `AGENTS.md`; this
+   * resolver only mounts it. Main-side `planManagedSpawn` fills it — the
+   * directory must exist on the spawning host, so the renderer never sets it.
+   */
+  readonly rulesDir?: string;
   /**
    * Seat connection + context slots. When set:
    * - connected=false → no Tier-A flags from injection (unconnected silence)
@@ -251,10 +259,27 @@ const buildArgv = (
   }
 
   // Tier-A injection. Grok prefers --agent file when provided.
-  if (choices.agentFile && spec.agentFlag) {
-    pushFlag(argv, spec.agentFlag, choices.agentFile);
-  } else if (choices.systemPrompt && spec.systemPromptFlag) {
-    pushFlag(argv, spec.systemPromptFlag, choices.systemPrompt);
+  //
+  // On a resume the carriers ride only where the harness honors them
+  // (`resumeReinjection`). Codex ignores re-passed instructions on an existing
+  // thread and Kimi refuses `--agent-file` alongside `--session` outright, so
+  // emitting the flag there is either a lie about what the seat was told or an
+  // argv the harness rejects. Those harnesses keep the doctrine they were given
+  // at creation; the injection supervisor re-orients them by notice instead.
+  const injectionCarriersAllowed =
+    !resumeId || reinjectableOnResume(template);
+  if (injectionCarriersAllowed) {
+    if (choices.agentFile && spec.agentFlag) {
+      pushFlag(argv, spec.agentFlag, choices.agentFile);
+    } else if (choices.systemPrompt && spec.systemPromptFlag) {
+      pushFlag(argv, spec.systemPromptFlag, choices.systemPrompt);
+    }
+    // Rules DIRECTORY carrier (agy `--add-dir`). Independent of the two
+    // string carriers above: the harness that mounts a dir has no
+    // system-prompt flag at all, so this is not an "else" branch of them.
+    if (choices.rulesDir && spec.rulesDirFlag) {
+      pushFlag(argv, spec.rulesDirFlag, choices.rulesDir);
+    }
   }
 
   // Prompt last (positional, with optional separator), as -q for Hermes TUI
@@ -317,6 +342,7 @@ const applyInjectionChoices = (
     const {
       systemPrompt: _sp,
       agentFile: _af,
+      rulesDir: _rd,
       ...rest
     } = choices;
     return { choices: rest, plan };
@@ -343,6 +369,33 @@ const applyInjectionChoices = (
       };
     }
     return { choices, plan };
+  }
+  // Tier A whose ONLY carrier is a rules directory (agy `--add-dir`): the
+  // directory has to exist on the spawning host, so a caller with no
+  // filesystem — or a failed write — leaves the seat with no carrier at all.
+  // Fall back to typed delivery rather than launching an un-briefed seat.
+  const rulesDirTemplate = templateFor(harness);
+  if (
+    rulesDirTemplate.argvSpec.rulesDirFlag &&
+    !rulesDirTemplate.argvSpec.systemPromptFlag &&
+    !choices.rulesDir
+  ) {
+    const body = plan.systemPrompt.trim();
+    const mode = rulesDirTemplate.argvSpec.promptMode;
+    if (
+      body &&
+      (mode === "positional" || mode === "flag-q" || mode === "flag-i") &&
+      !choices.prompt?.trim()
+    ) {
+      return {
+        choices: { ...choices, prompt: body },
+        plan: { inject: true, tier: plan.tier },
+      };
+    }
+    return {
+      choices,
+      plan: { inject: true, tier: plan.tier, firstTypedMessage: body },
+    };
   }
   // Tier A connected: doctrine is SoT for systemPrompt unless agentFile wins.
   if (choices.agentFile) {

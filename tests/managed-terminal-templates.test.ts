@@ -109,7 +109,9 @@ describe("managed-terminal templates (data)", () => {
     expect(CODEX_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(HERMES_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.sessionId).toBe("pin");
-    expect(CODEX_TEMPLATE.capabilityBadges.sessionId).toBe("unavailable");
+    // Codex captures its thread id and `codexSessionExists` proves it; the old
+    // "unavailable" badge described a gap that was already closed.
+    expect(CODEX_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
     expect(HERMES_TEMPLATE.capabilityBadges.sessionId).toBe("unavailable");
     expect(HERMES_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
@@ -129,12 +131,14 @@ describe("managed-terminal templates (data)", () => {
     expect(CLAUDE_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("cold resume");
     expect(GROK_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("cold resume");
     expect(CODEX_TEMPLATE.capabilityBadges.labels).toEqual(
-      expect.arrayContaining(["no cold resume"]),
+      expect.arrayContaining(["capture session", "doctrine at creation"]),
+    );
+    expect(CODEX_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain(
+      "no cold resume",
     );
     expect(HERMES_TEMPLATE.capabilityBadges.labels).toEqual(
       expect.arrayContaining(["no cold resume"]),
     );
-    expect(CODEX_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("session capture");
     expect(HERMES_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("session capture");
     expect(CLAUDE_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
     expect(GROK_TEMPLATE.capabilityBadges.stateFeed).not.toContain("hooks");
