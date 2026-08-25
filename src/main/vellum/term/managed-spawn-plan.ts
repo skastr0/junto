@@ -21,6 +21,7 @@ import type { TerminalLaunch } from "@shared/terminal";
 import { usableVellumCommandHome } from "@shared/vellum-home";
 import { planManagedInjection } from "@shared/managed-terminal-injection";
 import { writeAgentRulesDir } from "./agent-rules-dir";
+import { writeAgentFileSpec } from "./agent-file-spec";
 import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
@@ -310,6 +311,33 @@ const rulesDirForSpawn = (
 };
 
 /**
+ * Materialize the app-owned agent definition for a harness whose Tier-A carrier
+ * is a FILE rather than a flag string (kimi `--agent-file`).
+ *
+ * Same shape and same failure posture as the rules directory above: undefined
+ * for every other harness, for an unarmed injection, and for a failed write —
+ * the resolver then falls back to typed delivery, so a seat is never launched
+ * un-briefed. A harness that also owns a system-prompt flag (grok `--rules` +
+ * `--agent`) is excluded: its agent file is the caller's choice, not doctrine.
+ */
+const agentFileForSpawn = (
+  harness: HarnessId,
+  injection: ManagedSpawnIntent["injection"],
+): string | undefined => {
+  const spec = templateFor(harness).argvSpec;
+  if (!spec.agentFlag || spec.systemPromptFlag || spec.rulesDirFlag) {
+    return undefined;
+  }
+  const seatRef = injection.seatRef?.trim();
+  if (!seatRef) return undefined;
+  const plan = planManagedInjection(harness, injection);
+  if (!plan.inject) return undefined;
+  const doctrine = plan.systemPrompt ?? plan.firstTypedMessage;
+  if (!doctrine) return undefined;
+  return writeAgentFileSpec({ seatRef, doctrine });
+};
+
+/**
  * Build spawn plan. When harness is known and doc shows work edges, inject
  * doctrine (Tier A argv / Tier B firstTyped). Unconnected → silence.
  */
@@ -365,6 +393,10 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     connected: injection.connected && !resume,
   };
   const rulesDir = rulesDirForSpawn(harness, armedInjection);
+  // Same for a FILE carrier (kimi `--agent-file`). A resumed seat leaves
+  // `armedInjection` unarmed, so no file is written and the launch is the plain
+  // `-S <id>` resume the harness accepts — `--agent-file` cannot ride there.
+  const agentFile = agentFileForSpawn(harness, armedInjection);
 
   const choices: ManagedLaunchChoices = {
     // A resumed session already carries the doctrine in its own history.
@@ -372,6 +404,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     // spawn host decides resume and therefore whether injection is armed.
     injection: armedInjection,
     ...(rulesDir ? { rulesDir } : {}),
+    ...(agentFile ? { agentFile } : {}),
     ...(profile ? { profile } : {}),
     ...(input.model ?? recovered.model ? { model: input.model ?? recovered.model } : {}),
     ...(input.effort ?? recovered.effort ? { effort: input.effort ?? recovered.effort } : {}),

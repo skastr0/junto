@@ -598,13 +598,21 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Kimi Code (Moonshot) — Tier B, capture session, native hook feed.
- * Verified 0.29.0: NO argv prompt slot in the TUI (promptMode "none" — the
- * drive delivers the first typed message); -m model; --yolo/--auto approval
- * (no enum); resume `-S <id>` / `-c`; no pin (capture via SessionStart hook
- * stdin or the welcome-card "Session: <uuid>" line); 20-event JSON-stdin
- * hooks (PermissionRequest→blocked) — but hooks live in the user's config,
- * so Vellum Command never installs them (badge hooks: false).
+ * Kimi Code (Moonshot) — Tier A by agent file, capture session, native hook feed.
+ * Verified 0.29.0: NO argv prompt slot in the TUI (promptMode "none"); -m model;
+ * --yolo/--auto approval (no enum); resume `-S <id>` / `-c`; no pin (capture via
+ * SessionStart hook stdin or the welcome-card "Session: <uuid>" line); 20-event
+ * JSON-stdin hooks (PermissionRequest→blocked) — but hooks live in the user's
+ * config, so Vellum Command never installs them (badge hooks: false).
+ *
+ * Re-probed 0.34.0 (2026-08-25): `--agent-file <path>` loads a Markdown agent
+ * definition and its body IS the system prompt (canary honored in a live
+ * session), so the seat is briefed before turn 1 with no PTY paste. Frontmatter
+ * validation is strict and pre-flight — a bad key exits 1 before any model call
+ * — and `allowed-tools` is a Claude-side key Kimi warns it may misread, so
+ * `agent-file-spec` emits only name/description/tools. The flag cannot combine
+ * with `--session`/`--continue`, which is why `resumeReinjection` is frozen: a
+ * resumed seat keeps its original briefing and degrades to typed delivery.
  */
 export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "kimi",
@@ -618,16 +626,21 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--yolo",
     resumeMode: "flag",
     resumeFlag: "-S",
+    // The Tier-A carrier is a FILE, not a prompt string: `--agent-file <path>`
+    // loads a Markdown agent definition whose body becomes the system prompt.
+    // `agent-file-spec` (main) writes that file; the resolver only mounts it.
+    agentFlag: "--agent-file",
     resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
-    tier: "B",
-    flags: [],
-    description: "No system-prompt flag — doctrine delivered as the first typed message",
+    tier: "A",
+    flags: ["--agent-file"],
+    description:
+      "Agent definition at spawn via --agent-file; the file body is the system prompt",
   },
   capabilityBadges: {
-    instructionInjection: "B",
+    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: false,
     sessionId: "capture",
@@ -636,8 +649,15 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "hook feed → grid",
     attentionSource: "PermissionRequest hook → grid approval panel",
     // `--agent-file` cannot combine with `--session`/`--continue`, so a resumed
-    // Kimi seat can never be re-briefed on argv.
-    labels: ["injection B", "hook feed", "capture session", "doctrine at creation"],
+    // Kimi seat can never be re-briefed on argv: it keeps the doctrine its
+    // first generation was given and falls back to typed delivery.
+    labels: [
+      "injection A",
+      "agent file",
+      "hook feed",
+      "capture session",
+      "doctrine at creation",
+    ],
   },
   efforts: [],
 };
@@ -649,11 +669,26 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
  * SUBCOMMAND (`muse resume <uuid>` — root options allowed on either side);
  * no pin (capture via `exec --json` first line / session dirs); TUI needs a
  * responsive host (bracketed paste + OSC palette + DSR cursor-position).
+ *
+ * Re-probed 0.2.1 (2026-08-25):
+ * - `--agents` is an agent-definition overlay, NOT a doctrine route. Its schema
+ *   is strict {name, instructions, optional tools}, `systemPrompt` is rejected
+ *   outright, unknown keys are silently dropped, and instructions demanding a
+ *   canary prefix were never obeyed in main-session turns. Tier stays B; no
+ *   agentFlag, no systemPromptFlag, nothing here advertises otherwise.
+ * - The session id is never printed: a live PTY capture carries no UUID and the
+ *   OSC title is the bare workspace name. It is the session directory's name
+ *   (term/templates/muse-session.ts reads it back, workspace-scoped).
+ * - `muse resume <uuid>` is exact; BARE `muse resume` opens the session picker
+ *   and must never be emitted — a seat on no known session.
+ * - The "responsive host" requirement is hard: with OSC 10/11 and the OSC 4
+ *   palette queries unanswered, 0.2.1 emits ~260 bytes and EXITS without ever
+ *   painting. Answered, the same spawn paints the TUI and runs a turn.
  */
 export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
   harness: "muse",
   displayName: "Muse",
-  probedVersion: "0.1.0-R708.1",
+  probedVersion: "0.2.1",
   argvSpec: {
     binary: "muse",
     prefix: [],
@@ -662,6 +697,8 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
     effortFlag: "--reasoning-effort",
     permissionModeFlag: "--yolo",
     resumeMode: "subcommand",
+    // Explicit, so the bare-`resume` picker can never be reached by defaulting.
+    resumeSubcommand: ["resume"],
     resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,

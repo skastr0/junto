@@ -370,6 +370,35 @@ const applyInjectionChoices = (
     }
     return { choices, plan };
   }
+  // Tier A whose ONLY carrier is an agent FILE (kimi `--agent-file`): the file
+  // has to exist on the spawning host, so a caller with no filesystem — or a
+  // failed write — leaves the seat with no carrier at all. Kimi has no argv
+  // prompt slot, so the fallback is the typed first message: Tier B, exactly
+  // what this harness did before the file carrier existed.
+  const agentFileTemplate = templateFor(harness);
+  if (
+    agentFileTemplate.argvSpec.agentFlag &&
+    !agentFileTemplate.argvSpec.systemPromptFlag &&
+    !agentFileTemplate.argvSpec.rulesDirFlag &&
+    !choices.agentFile
+  ) {
+    const body = plan.systemPrompt.trim();
+    const mode = agentFileTemplate.argvSpec.promptMode;
+    if (
+      body &&
+      (mode === "positional" || mode === "flag-q" || mode === "flag-i") &&
+      !choices.prompt?.trim()
+    ) {
+      return {
+        choices: { ...choices, prompt: body },
+        plan: { inject: true, tier: plan.tier },
+      };
+    }
+    return {
+      choices,
+      plan: { inject: true, tier: plan.tier, firstTypedMessage: body },
+    };
+  }
   // Tier A whose ONLY carrier is a rules directory (agy `--add-dir`): the
   // directory has to exist on the spawning host, so a caller with no
   // filesystem — or a failed write — leaves the seat with no carrier at all.

@@ -124,9 +124,11 @@ describe("resume argv per reinjectability class", () => {
     expect(kimiResume).toContain("ses_abc");
     expect(kimiResume).not.toContain("/tmp/agent.md");
     expect(kimiResume).not.toContain("DOCTRINE");
-    // Kimi declares neither carrier flag, so the fresh argv has none either —
-    // the point is that resume never gains one.
-    expect(kimiFresh).not.toContain("/tmp/agent.md");
+    // A fresh Kimi seat DOES take the carrier (`--agent-file` is its Tier-A
+    // route); the point is that a resume drops it, because the flag cannot
+    // combine with `--session` at all.
+    expect(kimiFresh).toContain("--agent-file");
+    expect(kimiFresh).toContain("/tmp/agent.md");
 
     const codexResume = resolveManagedLaunch("codex", {
       resumeId: "0199-thread",
