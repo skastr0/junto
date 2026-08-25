@@ -17,7 +17,7 @@ const station = (
     ether: {
       ...node.ether,
       entity: { kind: "task", name: label },
-      tasks: { items: [], contract },
+      tasks: { items: [], stationName: label, contract },
     },
   };
 };
