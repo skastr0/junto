@@ -1,15 +1,7 @@
-import type { ClaimDef, TaskClaim } from "@shared/work-model";
-import type { ClaimProvenance } from "@shared/claims";
+import { ChevronDown, Flag, GitFork, Timer } from "lucide-react";
 import { Chip, type ChipTone } from "../../ui";
-import { ClaimList } from "../ClaimList";
 import { formatBakeTime } from "../sink-contract";
 import { admissionLabel, formatHops, type StationStop } from "./station-map";
-import { claimsAt } from "./station-pins";
-
-// One stop on the creation metro map: what this station stands for, the law
-// already standing there with its provenance, and the claims this task pins
-// to it. Reading a stop should answer "what will be asked of the work here?"
-// before a single word of the brief is written.
 
 const ADMISSION_TONE: Readonly<Record<StationStop["admission"], ChipTone>> = {
   auto: "steel",
@@ -17,124 +9,69 @@ const ADMISSION_TONE: Readonly<Record<StationStop["admission"], ChipTone>> = {
   "operator-owned": "cyan",
 };
 
-const provenanceChip = (
-  provenance: ClaimProvenance,
-): { readonly tone: ChipTone; readonly label: string } => {
-  switch (provenance.kind) {
-    case "region":
-      return { tone: "violet", label: provenance.label };
-    case "sink":
-      return { tone: "cyan", label: "station law" };
-    case "task":
-      return { tone: "amber", label: "pinned" };
-  }
-};
-
+/** One compact stop. Details are intentionally limited to its pinned claims. */
 export function StationStopCard({
   stop,
-  first,
-  last,
-  pins,
-  onPinsChange,
+  expanded,
+  pinCount,
+  editable,
+  onToggle,
 }: {
   readonly stop: StationStop;
-  readonly first: boolean;
-  readonly last: boolean;
-  /** Station-addressed claims already pinned to this stop. */
-  readonly pins?: ReadonlyArray<TaskClaim>;
-  /** Absent when the line is read-only: no pin affordance is offered. */
-  readonly onPinsChange?: (next: ReadonlyArray<ClaimDef>) => void;
+  readonly expanded: boolean;
+  readonly pinCount: number;
+  readonly editable: boolean;
+  readonly onToggle: () => void;
 }) {
   const bake = formatBakeTime(stop.bakeMs);
-  const pinned = pins ?? [];
-
   return (
-    <>
-      <div className="task-metro__rail" aria-hidden>
-        <span
-          className="task-metro__track"
-          data-side="in"
-          data-open={String(!first)}
-          data-linked={String(stop.linkedToPrevious)}
-        />
-        <span
-          className="task-metro__dot"
-          data-tone={stop.origin ? "origin" : stop.terminal ? "terminal" : "stop"}
-        />
-        <span className="task-metro__track" data-side="out" data-open={String(!last)} />
-      </div>
-
-      <div>
-        <div className="task-metro__where">{formatHops(stop.hops)}</div>
-        <h4 className="task-metro__name" title={stop.label}>
+    <button
+      type="button"
+      className="task-metro-stop"
+      data-origin={String(stop.origin)}
+      data-terminal={String(stop.terminal)}
+      data-expanded={String(expanded)}
+      aria-expanded={expanded}
+      aria-controls={`task-metro-stop-${stop.nodeId}`}
+      aria-label={`${stop.label}, ${formatHops(stop.hops)}${
+        stop.terminal ? ", terminal stop" : ""
+      }${pinCount > 0 ? `, ${pinCount} pinned` : ""}`}
+      onClick={onToggle}
+    >
+      <span className="task-metro-stop__dot" aria-hidden />
+      <span className="task-metro-stop__body">
+        <strong className="task-metro-stop__name" title={stop.label}>
           {stop.label}
-        </h4>
-      </div>
-
-      <div className="task-metro__card">
-        <div className="task-metro__marks">
-          <Chip tone={ADMISSION_TONE[stop.admission]} title="How arrivals become claimable here">
-            {admissionLabel(stop.admission)}
-          </Chip>
-          {bake ? <Chip tone="steel" title="Arrivals bake before anyone can claim them">{`bakes ${bake}`}</Chip> : null}
-          {stop.terminal ? (
-            <Chip tone="green" title="Nothing downstream, work closes at this stop">
-              closes here
-            </Chip>
-          ) : stop.destinations.length > 1 ? (
-            <Chip tone="steel" title="Forwarding from here is choose one">
-              {`forks ${stop.destinations.length} ways`}
+        </strong>
+        <span className="task-metro-stop__marks">
+          {stop.admission !== "auto" ? (
+            <Chip tone={ADMISSION_TONE[stop.admission]}>
+              {admissionLabel(stop.admission)}
             </Chip>
           ) : null}
-        </div>
-
-        {stop.instruction ? (
-          <p className="task-metro__prose" data-kind="instruction">
-            {stop.instruction}
-          </p>
-        ) : null}
-        {stop.description ? (
-          <p className="task-metro__prose">{`Takes in: ${stop.description}`}</p>
-        ) : null}
-        {stop.triage ? <p className="task-metro__prose">{stop.triage}</p> : null}
-
-        {stop.law.length > 0 ? (
-          <ul className="task-metro__law">
-            {stop.law.map((entry) => {
-              const chip = provenanceChip(entry.provenance);
-              return (
-                <li
-                  key={`${entry.provenance.kind}:${entry.claim.id}`}
-                  className="task-metro-claim"
-                  data-severity={entry.claim.severity}
-                >
-                  <p className="task-metro-claim__text">{entry.claim.text}</p>
-                  <span className="task-metro-claim__meta">
-                    <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
-                      {entry.claim.severity}
-                    </Chip>
-                    <Chip tone={chip.tone}>{chip.label}</Chip>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="task-metro__empty">No standing law at this stop.</p>
-        )}
-
-        {onPinsChange ? (
-          <div className="task-metro__pins">
-            <ClaimList
-              ownerNodeId={stop.nodeId}
-              claims={claimsAt(pinned, stop.nodeId)}
-              label="pin to this stop"
-              hint="Answered when the work reaches here, or waived if the route skips it."
-              onChange={onPinsChange}
-            />
-          </div>
-        ) : null}
-      </div>
-    </>
+          {bake ? (
+            <Chip tone="steel">
+              <Timer size={9} aria-hidden />
+              {bake}
+            </Chip>
+          ) : null}
+          {stop.destinations.length > 1 ? (
+            <Chip tone="steel">
+              <GitFork size={9} aria-hidden />
+              {stop.destinations.length} ways
+            </Chip>
+          ) : null}
+          {stop.terminal ? (
+            <span className="task-metro-stop__terminal" title="Terminal stop">
+              <Flag size={10} aria-hidden />
+            </span>
+          ) : null}
+          {pinCount > 0 ? <Chip tone="amber">{`${pinCount} pinned`}</Chip> : null}
+        </span>
+      </span>
+      {editable || pinCount > 0 ? (
+        <ChevronDown className="task-metro-stop__chevron" size={12} aria-hidden />
+      ) : null}
+    </button>
   );
 }

@@ -254,7 +254,7 @@ export function ClaimList({
   readonly ownerNodeId: string;
   readonly claims: ReadonlyArray<ClaimDef>;
   readonly label: string;
-  readonly hint: string;
+  readonly hint?: string;
   readonly onChange: (next: ReadonlyArray<ClaimDef>) => void;
 }) {
   const doc = use$(state$.doc);
@@ -276,7 +276,7 @@ export function ClaimList({
   return (
     <div className="inspector-section">
       <div className="inspector-section__label">{label}</div>
-      <div className="inspector-detail mt-1">{hint}</div>
+      {hint ? <div className="inspector-detail mt-1">{hint}</div> : null}
       {claims.length > 0 ? (
         <div className="mt-2 grid gap-1.5">
           {claims.map((claim, index) => (

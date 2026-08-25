@@ -1,17 +1,16 @@
-/* The creation metro map: the line a task raised here will travel, origin on
-   the left, one card per stop. Same language as task-flow.css — hairline
-   strokes, raise fills, tiny caps — with a rail drawn through the markers. */
+/* Compact task route: one law ledger, one topology rail, details on demand. */
 
 .task-metro {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 11px 14px 13px;
+  padding: 10px 14px 11px;
   border-bottom: 1px solid var(--color-stroke);
   background: color-mix(in oklab, var(--color-cyan) 4%, var(--color-raise-2));
 }
 
-.task-metro__head {
+.task-metro__head,
+.task-metro-law__head {
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -21,184 +20,285 @@
   margin-left: auto;
   color: var(--color-faint);
   font-size: 9px;
-  letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.task-metro__line {
-  display: flex;
-  gap: 0;
-  margin: 0;
-  padding: 0 0 3px;
-  overflow-x: auto;
-  list-style: none;
+/* --- law: semantic once, visual once ------------------------------------ */
+
+.task-metro-law {
+  display: grid;
+  grid-template-columns: minmax(188px, 0.38fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in oklab, var(--color-violet) 28%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-violet) 5%, var(--color-inset));
 }
 
-.task-metro__stop {
-  display: flex;
-  min-width: 214px;
-  max-width: 260px;
-  flex: 1 1 214px;
+.task-metro-law__head {
+  min-width: 0;
   flex-direction: column;
-  gap: 7px;
-  padding-right: 9px;
+  gap: 2px;
 }
 
-.task-metro__stop:last-child {
-  padding-right: 0;
-}
-
-/* --- rail ---------------------------------------------------------------- */
-
-.task-metro__rail {
-  display: flex;
-  height: 11px;
-  align-items: center;
-}
-
-.task-metro__track {
-  height: 1px;
-  flex: 1 1 auto;
-  background: var(--color-stroke);
-}
-
-.task-metro__track[data-open="false"] {
-  background: transparent;
-}
-
-.task-metro__track[data-linked="false"] {
-  background: repeating-linear-gradient(
-    to right,
-    var(--color-stroke) 0 3px,
-    transparent 3px 6px
-  );
-}
-
-.task-metro__dot {
-  width: 9px;
-  height: 9px;
-  flex: 0 0 auto;
-  border: 1px solid var(--color-dim);
-  border-radius: 50%;
-  background: var(--color-ground);
-}
-
-.task-metro__dot[data-tone="origin"] {
-  border-color: var(--color-amber);
-  background: var(--color-amber);
-}
-
-.task-metro__dot[data-tone="terminal"] {
-  border-color: var(--color-green);
-}
-
-/* --- stop head + card ---------------------------------------------------- */
-
-.task-metro__where {
-  color: var(--color-faint);
-  font-size: 8px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.task-metro__name {
-  overflow: hidden;
-  margin: 1px 0 0;
+.task-metro-law__head strong {
   color: var(--color-ink);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-metro__card {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 7px;
-  padding: 9px 10px 10px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 7px;
-  background: var(--color-raise);
-}
-
-.task-metro__stop[data-origin="true"] .task-metro__card {
-  border-color: color-mix(in oklab, var(--color-amber) 30%, var(--color-stroke));
-}
-
-.task-metro__marks {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-
-.task-metro__prose {
-  margin: 0;
-  color: var(--color-dim);
   font-size: 10px;
-  line-height: 1.45;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.task-metro__prose[data-kind="instruction"] {
-  color: var(--color-ink);
+.task-metro-law__head span {
+  color: var(--color-faint);
+  font-size: 9px;
+  line-height: 1.35;
 }
 
-.task-metro__law {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.task-metro-law__list {
+  display: grid;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.task-metro-claim {
+.task-metro-law__list > li {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 5px;
-  background: var(--color-inset);
-}
-
-.task-metro-claim[data-severity="hard"] {
-  border-left: 2px solid color-mix(in oklab, var(--color-amber) 55%, var(--color-stroke));
-}
-
-.task-metro-claim__text {
-  margin: 0;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-stroke);
   color: var(--color-ink);
   font-size: 10px;
+  line-height: 1.35;
+}
+
+.task-metro-law__list > li[data-severity="hard"] {
+  border-left-color: color-mix(in oklab, var(--color-amber) 65%, var(--color-stroke));
+}
+
+.task-metro-law__list > li > span:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.task-metro-law__meta {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+/* --- topology ------------------------------------------------------------ */
+
+.task-metro__stages,
+.task-metro__stage-stops {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-metro__stages {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  overflow-x: auto;
+  padding: 1px 0;
+}
+
+.task-metro__stage {
+  position: relative;
+  display: flex;
+  min-width: 128px;
+  flex: 1 0 128px;
+  align-items: center;
+  padding: 13px 7px 0;
+}
+
+.task-metro__stage-label {
+  position: absolute;
+  top: 0;
+  left: 14px;
+  color: var(--color-faint);
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.task-metro__stage::before,
+.task-metro__stage::after {
+  position: absolute;
+  top: 50%;
+  width: 50%;
+  height: 1px;
+  background: var(--color-stroke);
+  content: "";
+}
+
+.task-metro__stage::before { left: 0; }
+.task-metro__stage::after { right: 0; }
+.task-metro__stage[data-first="true"]::before,
+.task-metro__stage[data-last="true"]::after { background: transparent; }
+
+.task-metro__stage-stops {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  gap: 5px;
+}
+
+.task-metro__stage[data-branch="true"] .task-metro__stage-stops::before {
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: -7px;
+  width: 1px;
+  background: var(--color-cyan);
+  content: "";
+}
+
+.task-metro__stage-stop {
+  position: relative;
+}
+
+.task-metro__stage[data-branch="true"] .task-metro__stage-stop::before {
+  position: absolute;
+  top: 50%;
+  left: -7px;
+  width: 8px;
+  height: 1px;
+  background: var(--color-cyan);
+  content: "";
+}
+
+.task-metro-stop {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-raise);
+  color: var(--color-ink);
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.task-metro-stop:hover,
+.task-metro-stop:focus-visible,
+.task-metro-stop[data-expanded="true"] {
+  border-color: color-mix(in oklab, var(--color-cyan) 55%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-cyan) 6%, var(--color-raise));
+  outline: none;
+}
+
+.task-metro-stop[data-origin="true"] {
+  border-color: color-mix(in oklab, var(--color-amber) 42%, var(--color-stroke));
+}
+
+.task-metro-stop__dot {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--color-dim);
+  border-radius: 50%;
+  background: var(--color-ground);
+}
+
+.task-metro-stop[data-origin="true"] .task-metro-stop__dot {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
+.task-metro-stop[data-terminal="true"] .task-metro-stop__dot {
+  border-color: var(--color-green);
+  box-shadow: inset 0 0 0 2px var(--color-ground);
+  background: var(--color-green);
+}
+
+.task-metro-stop__body {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.task-metro-stop__name {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-metro-stop__marks {
+  display: flex;
+  min-height: 11px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.task-metro-stop__marks:empty { display: none; }
+
+.task-metro-stop__terminal {
+  display: inline-flex;
+  color: var(--color-green);
+}
+
+.task-metro-stop__chevron {
+  color: var(--color-faint);
+  transition: transform 120ms ease;
+}
+
+.task-metro-stop[data-expanded="true"] .task-metro-stop__chevron {
+  transform: rotate(180deg);
+}
+
+/* --- one on-demand pin editor ------------------------------------------- */
+
+.task-metro__pin-primer,
+.task-metro__stranded {
+  margin: 0;
+  font-size: 9px;
   line-height: 1.4;
 }
 
-.task-metro-claim__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+.task-metro__pin-primer { color: var(--color-faint); }
+.task-metro__stranded { color: var(--color-crimson); }
+
+.task-metro__stop-detail {
+  padding: 8px 9px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 26%, var(--color-stroke));
+  border-radius: 6px;
+  background: var(--color-inset);
+  animation: task-metro-detail-in 120ms ease-out both;
+}
+
+.task-metro__readonly-pins {
+  display: grid;
   gap: 4px;
-}
-
-.task-metro__empty {
   margin: 0;
-  color: var(--color-faint);
+  padding: 0;
+  color: var(--color-ink);
   font-size: 10px;
-  line-height: 1.45;
+  list-style: none;
 }
 
-.task-metro__pins {
-  margin-top: 1px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-stroke);
+@keyframes task-metro-detail-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.task-metro__stranded {
-  margin: 0;
-  color: var(--color-crimson);
-  font-size: 10px;
-  line-height: 1.45;
+@media (prefers-reduced-motion: reduce) {
+  .task-metro-stop,
+  .task-metro-stop__chevron,
+  .task-metro__stop-detail {
+    transition: none;
+    animation: none;
+  }
 }

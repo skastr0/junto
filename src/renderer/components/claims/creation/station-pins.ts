@@ -5,8 +5,49 @@
  * branch abandons it. Nothing here judges a claim — pins are prompts.
  */
 
+import type { EffectiveClaim } from "@shared/claims";
 import type { ClaimDef, TaskClaim } from "@shared/work-model";
 import type { StationStop } from "./station-map";
+
+/** Standing claims in first-seen order, deduplicated across every stop. */
+export const lineLaw = (
+  line: ReadonlyArray<StationStop>,
+): ReadonlyArray<EffectiveClaim> => {
+  const seen = new Set<string>();
+  const law: EffectiveClaim[] = [];
+  for (const stop of line) {
+    for (const entry of stop.law) {
+      if (seen.has(entry.claim.id)) continue;
+      seen.add(entry.claim.id);
+      law.push(entry);
+    }
+  }
+  return law;
+};
+
+export type StationHop = {
+  readonly hops: number;
+  readonly stops: ReadonlyArray<StationStop>;
+};
+
+/** Compact rail columns: stations at the same distance share one branch stage. */
+export const groupStopsByHop = (
+  line: ReadonlyArray<StationStop>,
+): ReadonlyArray<StationHop> => {
+  const groups: StationHop[] = [];
+  for (const stop of line) {
+    const current = groups.at(-1);
+    if (current?.hops === stop.hops) {
+      groups[groups.length - 1] = {
+        ...current,
+        stops: [...current.stops, stop],
+      };
+    } else {
+      groups.push({ hops: stop.hops, stops: [stop] });
+    }
+  }
+  return groups;
+};
 
 /** Pins addressed to one stop, in authoring order. */
 export const pinsAt = (
@@ -82,14 +123,15 @@ export const lineProfile = (
   pins: ReadonlyArray<TaskClaim> = [],
 ): LineProfile => {
   const onLine = pruneToLine(pins, line);
+  const standing = lineLaw(line);
   return {
     stops: line.length,
-    standing: line.reduce((total, stop) => total + stop.law.length, 0),
+    standing: standing.length,
     hard:
-      line.reduce((total, stop) => total + stop.hard, 0) +
+      standing.filter((entry) => entry.claim.severity === "hard").length +
       onLine.filter((pin) => pin.severity === "hard").length,
     soft:
-      line.reduce((total, stop) => total + stop.soft, 0) +
+      standing.filter((entry) => entry.claim.severity === "soft").length +
       onLine.filter((pin) => pin.severity === "soft").length,
     pinned: onLine.length,
   };

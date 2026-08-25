@@ -10,6 +10,8 @@ import {
 import {
   claimsAt,
   formatProfile,
+  groupStopsByHop,
+  lineLaw,
   lineProfile,
   pinsAt,
   pruneToLine,
@@ -39,8 +41,12 @@ const sink = (
   width: 200,
   height: 80,
   ether: {
-    entity: { kind: "task", name: id },
-    ...(contract ? { tasks: { items: [], contract } } : {}),
+    entity: { kind: "task" },
+    tasks: {
+      items: [],
+      stationName: id,
+      ...(contract ? { contract } : {}),
+    },
   },
 });
 
@@ -273,6 +279,51 @@ describe("station pins", () => {
 });
 
 describe("lineProfile", () => {
+  it("counts one ambient claim once across a five-stop fork", () => {
+    const ambient = claim("ambient");
+    const board = doc(
+      [
+        region("factory", "Factory", [ambient], {
+          x: -100,
+          y: -100,
+          width: 1500,
+          height: 800,
+        }),
+        sink("intake", undefined, { x: 0, y: 0 }),
+        sink("build", undefined, { x: 250, y: 0 }),
+        sink("review", undefined, { x: 500, y: 0 }),
+        sink("security", undefined, { x: 500, y: 200 }),
+        sink("ship", undefined, { x: 800, y: 100 }),
+      ],
+      [
+        flowEdge("e1", "intake", "build"),
+        flowEdge("e2", "build", "review"),
+        flowEdge("e3", "build", "security"),
+        flowEdge("e4", "review", "ship"),
+        flowEdge("e5", "security", "ship"),
+      ],
+    );
+    const line = stationLine(board, "intake");
+    expect(line).toHaveLength(5);
+    expect(line.every((stop) => stop.law.some((entry) => entry.claim.id === "ambient"))).toBe(true);
+    expect(lineLaw(line).map((entry) => entry.claim.id)).toEqual(["ambient"]);
+    expect(groupStopsByHop(line).map((stage) => stage.stops.length)).toEqual([
+      1,
+      1,
+      2,
+      1,
+    ]);
+    const profile = lineProfile(line);
+    expect(profile).toEqual({
+      stops: 5,
+      standing: 1,
+      hard: 1,
+      soft: 0,
+      pinned: 0,
+    });
+    expect(formatProfile(profile)).toBe("5 stops, 1 claim, 1 hard");
+  });
+
   it("counts stops, standing law, and pins in one glance", () => {
     const board = doc(
       [
