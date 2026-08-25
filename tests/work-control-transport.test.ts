@@ -849,6 +849,15 @@ describe("work control transport", () => {
       expect(blocked.error.message).toMatch(/promotion|not yet claimable/i);
     }
 
+    const boarded = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.board",
+      args: { target: "tasks", task: taskId, results: [] },
+    })) as { ok: false; error: { type: string; message: string } };
+    expect(boarded.ok).toBe(false);
+    expect(boarded.error.type).toBe("InputError");
+    expect(boarded.error.message).toMatch(/promotion|not yet claimable/i);
+
     const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
     const approved = await runtimes[runtimes.length - 1]!.runPromise(
       work.workTaskApproveProposal("work-cli", "tasks", taskId),

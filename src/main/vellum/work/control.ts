@@ -13,9 +13,9 @@ import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
-import type { Artifact, CanvasDoc, Message, Part } from "@shared/canvas";
+import type { Artifact, CanvasDoc, CanvasNode, Message, Part } from "@shared/canvas";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import type { BoardAuthor } from "@shared/work-model";
+import type { BoardAuthor, Task } from "@shared/work-model";
 import {
   normalizePreambleText,
   PREAMBLE_MAX_TEXT_LENGTH,
@@ -398,6 +398,41 @@ const mapWorkCode = (
         details: { retryable: false },
       };
   }
+};
+
+/**
+ * Seat-wire only. Operator promote / reject IPC is the door into unadmitted
+ * arrivals; a connected seat must not complete, cancel, reject, or board a
+ * submitted row whose admission is not yet claimable.
+ */
+const refuseUnadmittedSubmitted = (
+  task: Task | undefined,
+  node: CanvasNode | undefined,
+): WorkErrorBody | undefined => {
+  if (task === undefined || task.state !== "submitted") return undefined;
+  const admission = taskAdmissionState(
+    task,
+    sinkContractOf(node),
+    Date.now(),
+  );
+  if (admission === "claimable") return undefined;
+  const promotion =
+    admission === "operator-gated"
+      ? `task "${task.id}" awaits operator promotion and is not yet claimable`
+      : admission === "held"
+        ? `task "${task.id}" is not claimable before ${task.holdUntil} (station bake)`
+        : `task "${task.id}" is operator-owned; seats cannot update it`;
+  return {
+    type: "InputError",
+    message: promotion,
+    details: {
+      retryable: false,
+      next_step:
+        admission === "operator-gated"
+          ? "wait for the operator to promote this arrival, or pick a claimable task"
+          : "pick a claimable task; only the operator can admit or refuse unadmitted work",
+    },
+  };
 };
 
 type WorkMutationOutcome<T> = {
@@ -1043,34 +1078,9 @@ const dispatchOp = (
           },
         });
       }
-      // Seat-wire only. Operator promote / reject IPC is the door into
-      // unadmitted arrivals; a connected seat must not complete, cancel, or
-      // reject a submitted row whose admission is not yet claimable.
-      if (task !== undefined && task.state === "submitted") {
-        const admission = taskAdmissionState(
-          task,
-          sinkContractOf(gate.node),
-          Date.now(),
-        );
-        if (admission !== "claimable") {
-          const promotion =
-            admission === "operator-gated"
-              ? `task "${task.id}" awaits operator promotion and is not yet claimable`
-              : admission === "held"
-                ? `task "${task.id}" is not claimable before ${task.holdUntil} (station bake)`
-                : `task "${task.id}" is operator-owned; seats cannot update it`;
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "InputError",
-            message: promotion,
-            details: {
-              retryable: false,
-              next_step:
-                admission === "operator-gated"
-                  ? "wait for the operator to promote this arrival, or pick a claimable task"
-                  : "pick a claimable task; only the operator can admit or refuse unadmitted work",
-            },
-          });
-        }
+      const unadmitted = refuseUnadmittedSubmitted(task, gate.node);
+      if (unadmitted !== undefined) {
+        return yield* Effect.fail(unadmitted);
       }
       const result = yield* work.workTaskTransition(
         caller.canvasName,
@@ -1178,6 +1188,10 @@ const dispatchOp = (
             next_step: "pick another task; only the agent that claimed this one can board it",
           },
         });
+      }
+      const unadmitted = refuseUnadmittedSubmitted(task, gate.node);
+      if (unadmitted !== undefined) {
+        return yield* Effect.fail(unadmitted);
       }
       const result = yield* work.workTaskBoard(
         caller.canvasName,
