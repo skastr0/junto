@@ -8,7 +8,7 @@ import type { SeatRulePack } from "../types";
 
 export const grokRules: SeatRulePack = {
   harness: "grok",
-  version: "2026.08.14.1",
+  version: "2026.08.25.1",
   rules: [
     {
       id: "osc_title_attention",
@@ -73,6 +73,31 @@ export const grokRules: SeatRulePack = {
       // Animated chip with non-zero background task count (top chrome).
       matchers: {
         lineRegex: ["[⋅:⸬⁙.-]\\s+[1-9][0-9]*\\s+│"],
+      },
+    },
+    {
+      /**
+       * Waiting on background work it spawned. Captured live:
+       *   `◎ 1 subagent still running · send a message to interrupt`
+       * Grok flips its OSC title back to the idle shape while the parent turn
+       * waits, so `osc_title_idle` (1100) would publish idle over a seat that
+       * is still working. This sits above it and reads the status line, which
+       * is the only surface that keeps telling the truth.
+       */
+      id: "background_wait_working",
+      state: "working",
+      priority: 1160,
+      region: "bottom_non_empty_lines",
+      regionN: 5,
+      visibleWorking: true,
+      // Count-anchored on purpose. Grok's own transcript narrates waiting
+      // ("One agent still running - …", seen live inside a ┃ thought block),
+      // and a loose phrase match there would pin a finished seat to working
+      // and starve it of factory work.
+      matchers: {
+        lineRegex: [
+          "[1-9][0-9]*\\s+(?:subagent|command|task|loop)s?\\s+still\\s+running",
+        ],
       },
     },
     {

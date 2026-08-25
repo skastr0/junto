@@ -883,6 +883,59 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.ruleId).toBe("welcome_idle");
   });
 
+  // Transcribed from a live `grok` seat waiting on a swarm it spawned. The
+  // OSC title had already reverted to the idle shape, so the seat published
+  // idle via osc_title_idle while the subagent was still running.
+  it("grok: waiting on a subagent outranks the idle OSC title", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "▶ Fan out read-only swarm across UI, main, SSH/Tailscale, CC enro…",
+          "□ Ground swarm claims at source and report dormant vs still-live …",
+          "◎ 1 subagent still running · send a message to interrupt",
+          "❯",
+          "Grok 4.6 (high) · 163K / 500K (33%) · ctrl+o transcript",
+        ],
+        title: "vellum - grok",
+      }),
+      { harness: "grok" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("background_wait_working");
+    expect(result.visibleWorking).toBe(true);
+  });
+
+  it("grok: its own narration about waiting never pins working", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "┃One agent still running - CLI/preload DCE. Let me wait for it.",
+          "❯",
+          "Grok 4.6 (high) · 163K / 500K (33%) · ctrl+o transcript",
+        ],
+        title: "vellum - grok",
+      }),
+      { harness: "grok" },
+    );
+    expect(result.state).toBe("idle");
+  });
+
+  it("grok: the same seat with the wait line gone is idle again", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "    Worked for 4m12s",
+          "❯",
+          "Grok 4.6 (high) · 163K / 500K (33%) · ctrl+o transcript",
+        ],
+        title: "vellum - grok",
+      }),
+      { harness: "grok" },
+    );
+    expect(result.state).toBe("idle");
+    expect(result.ruleId).toBe("osc_title_idle");
+  });
+
   // Lines below are transcribed from a live `agy` seat screen captured over
   // the term control plane while a subagent turn was running.
   it("agy: activity line with elapsed timer is working", () => {
