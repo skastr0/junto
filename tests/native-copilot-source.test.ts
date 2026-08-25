@@ -15,7 +15,7 @@ import {
 
 const FETCHED = "2026-08-17T12:00:00.000Z";
 
-// copilot_internal/user response shape (CodexBar reference): quota_snapshots
+// copilot_internal/user response shape: quota_snapshots
 // with premium_interactions / chat, lenient number|string fields.
 const USAGE_FIXTURE = {
   copilot_plan: "business",

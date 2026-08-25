@@ -163,12 +163,17 @@ describe("packaged runtime smoke process qualification", () => {
     expect(survivingProcessRows(original, current)).toEqual([original[0]]);
   });
 
-  it("reports only an allowlisted kind for a surviving codexbar adapter", () => {
+  it("reports only an allowlisted kind for a surviving adapter process", () => {
     expect(
       boundedProcessKind(
-        "/private/tool/codexbar usage --json --provider secret-provider-material",
+        "/private/tool/hermes usage --json --provider secret-provider-material",
       ),
-    ).toBe("codexbar");
+    ).toBe("hermes");
+    expect(
+      boundedProcessKind(
+        "/private/tool/unrecognized-external-tool usage --json --provider secret-provider-material",
+      ),
+    ).toBe("other");
   });
 
   it("rejects live Vellum Command and debugger/CDP authority", () => {

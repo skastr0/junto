@@ -15,7 +15,7 @@ import {
 const FETCHED = "2026-07-26T12:00:00.000Z";
 const KEY = "sk-or-v1-secret-value-do-not-leak";
 
-// Real response shapes per OpenRouter docs + CodexBar plugin.
+// Real response shapes per OpenRouter docs.
 const CREDITS_FIXTURE = {
   data: { total_credits: 150.0, total_usage: 97.25 },
 };

@@ -4,8 +4,8 @@ import { join } from "node:path";
 import type { ProviderQuota, UsageWindow } from "@shared/usage";
 import { parseJson, runCli } from "../adapters/exec";
 
-// Live Claude Code subscription usage over the OAuth usage API, as read by
-// CodexBar: GET https://api.anthropic.com/api/oauth/usage with the access
+// Live Claude Code subscription usage over the OAuth usage API:
+// GET https://api.anthropic.com/api/oauth/usage with the access
 // token Claude Code stores locally. The token is resolved best-effort from
 // ~/.claude/.credentials.json, then the macOS Keychain item written by
 // Claude Code itself. Tokens are used in-memory only — never logged,

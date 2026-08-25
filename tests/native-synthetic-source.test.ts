@@ -1,15 +1,11 @@
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Effect } from "effect";
 import {
   cleanSyntheticApiKey,
   fetchSyntheticUsageApi,
   makeSyntheticSource,
   parseSyntheticQuota,
-  readSyntheticApiKeyFromCodexBarConfig,
   resolveSyntheticApiKey,
 } from "../src/main/vellum/usage/synthetic-source";
 
@@ -68,31 +64,9 @@ describe("credential resolution", () => {
     expect(cleanSyntheticApiKey('""')).toBeUndefined();
   });
 
-  it("falls back to CodexBar's stored synthetic key", () => {
-    const dir = mkdtempSync(join(tmpdir(), "synthetic-src-test-"));
-    try {
-      const configPath = join(dir, "config.json");
-      writeFileSync(
-        configPath,
-        JSON.stringify({
-          providers: [
-            { id: "claude", apiKey: "other-key" },
-            { id: "synthetic", apiKey: '"stored-key"' },
-          ],
-        }),
-      );
-      expect(readSyntheticApiKeyFromCodexBarConfig(configPath)).toBe("stored-key");
-      expect(resolveSyntheticApiKey({}, configPath)).toBe("stored-key");
-      expect(resolveSyntheticApiKey({ SYNTHETIC_API_KEY: "env-wins" }, configPath)).toBe("env-wins");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("returns undefined when no credential tier resolves", () => {
-    const missingPath = join(tmpdir(), "synthetic-src-test-does-not-exist.json");
-    expect(readSyntheticApiKeyFromCodexBarConfig(missingPath)).toBeUndefined();
-    expect(resolveSyntheticApiKey({ SYNTHETIC_API_KEY: "" }, missingPath)).toBeUndefined();
+  it("prefers the env var when set and returns undefined when it is empty", () => {
+    expect(resolveSyntheticApiKey({ SYNTHETIC_API_KEY: '"quoted"' })).toBe("quoted");
+    expect(resolveSyntheticApiKey({ SYNTHETIC_API_KEY: "" })).toBeUndefined();
   });
 });
 

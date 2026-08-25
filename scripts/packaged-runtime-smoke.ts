@@ -114,7 +114,6 @@ const processRole = (row: ProcessRow, rootPid: number): string | undefined => {
 
 export const boundedProcessKind = (command: string): string => {
   for (const kind of [
-    "codexbar",
     "grok",
     "hermes",
     "herdr",

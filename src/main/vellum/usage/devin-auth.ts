@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 // Credential discovery for the native Devin usage source.
 //
-// Protocol reference: CodexBar Sources/CodexBarCore/Providers/Devin/.
 // Devin exposes daily/weekly ACU quota windows at
 // `GET https://app.devin.ai/api/<organization>/billing/quota/usage`,
 // authenticated with the app.devin.ai browser session bearer (`auth1_…`)
@@ -13,8 +12,8 @@ import { join } from "node:path";
 // Discovery tiers (read-only, never logged):
 //   1. Environment overrides — DEVIN_BEARER_TOKEN / DEVIN_AUTHORIZATION,
 //      organization from DEVIN_ORGANIZATION / DEVIN_ORG.
-//   2. Chromium localStorage byte scan (Google Chrome, CodexBar parity:
-//      browserCookieOrder = [.chrome]) for the `auth1_session` token and
+//   2. Chromium localStorage byte scan (Google Chrome first in the browser
+//      probe order) for the `auth1_session` token and
 //      organization metadata under the app.devin.ai origin.
 //
 // Tokens NEVER leave this module in error text or logs.

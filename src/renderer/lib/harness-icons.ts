@@ -5,10 +5,10 @@ import { DIM, HUE, INK } from "./theme";
 
 // The provider:agent:icon repository, in three layers:
 //
-//   data       — PROVIDER_MARKS (generated from the local CodexBar.app
-//                provider-icon set; do not edit) plus CURATED, a small set
+//   data       — PROVIDER_MARKS (generated from the bundled monochrome
+//                provider mark set; do not edit) plus CURATED, a small set
 //                of hand-picked overrides whose marks beat the generated
-//                ones (official source art the CodexBar set lacks).
+//                ones (official source art absent from the generated set).
 //   facade     — GLYPHS (merged table, curated wins) + ALIASES, queried
 //                through harnessGlyphFor / harnessDisplayName / harnessHue.
 //   contract   — MarksService / Marks / MarksLive / marks: the Effect-shaped
@@ -31,7 +31,7 @@ export interface HarnessGlyph {
 // Curated overrides. These keep the better marks we already had — do NOT
 // replace them with generated data: claude uses Anthropic's official
 // monochrome mark, gemini carries brand color, openai
-// is the Wikimedia symbol on its native 20×20 grid, and the CodexBar set
+// is the Wikimedia symbol on its native 20×20 grid, and the generated set
 // skips kimi, windsurf, and hermes entirely. Everything else (including grok,
 // codex, devin, amp — same source data) resolves from the generated table.
 // pi, prime-agent, and muse have NO generated mark — their entries are the

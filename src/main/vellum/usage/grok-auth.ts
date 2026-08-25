@@ -6,7 +6,7 @@ import { join } from "node:path";
 //
 // The file is a map keyed by OIDC scope URL written by `grok login`. We prefer
 // the SuperGrok OIDC scope over the legacy session scope and skip stale
-// entries that carry no usable bearer key. HARD RULE (CodexBar parity): we
+// entries that carry no usable bearer key. HARD RULE: we
 // never refresh tokens in-process - on expiry or rejection the caller gets an
 // outcome that says re-auth via `grok login` is needed. Token material never
 // appears in error text; only field names are named.

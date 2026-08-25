@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
 import type { UsageSource } from "./usage-source";
 
-// Native Kimi Code (Moonshot AI) usage source, protocol per CodexBar:
+// Native Kimi Code (Moonshot AI) usage source, wire protocol:
 //   - Web session path: POST https://www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages
 //     with {"scope":["FEATURE_CODING"]} and a bearer web auth token, enriched by POST
 //     .../kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats.
@@ -40,7 +40,7 @@ export interface KimiCredential {
   // Which strategy resolved it: web session token, Code API key, CLI oauth file.
   readonly kind: "web-token" | "api-key" | "cli-oauth";
   readonly codeApiBase?: string;
-  /** Identity headers CodexBar mirrors for the CLI credential path. */
+  /** Identity headers mirrored for the CLI credential path. */
   readonly identityHeaders?: Record<string, string>;
 }
 
@@ -104,10 +104,10 @@ export const kimiCodeCredentialFresh = (
 };
 
 /**
- * Ordered resolution mirroring CodexBar's auto pipeline:
+ * Ordered resolution pipeline:
  *   web session token -> Code API key -> fresh CLI OAuth credential.
  * Endpoint overrides (KIMI_CODE_BASE_URL / KIMI_CODE_OAUTH_HOST) disable the
- * CLI-oauth tier, matching CodexBar's hasCodeEndpointOverride gate.
+ * CLI-oauth tier: endpoint overrides disable CLI OAuth.
  */
 export const resolveKimiCredential = (
   env: NodeJS.ProcessEnv = process.env,
@@ -204,7 +204,7 @@ export interface DetailCounts {
 }
 
 /**
- * Mirror of CodexBar usageCounts: used is authoritative even over limit
+ * Count derivation: used is authoritative even over limit
  * (overage); remaining must describe a valid balance; otherwise 0 percent
  * with reliable=false so no pace/window duration is invented.
  */
@@ -319,7 +319,7 @@ export const parseCodeApiUsage = (
   if (primary !== undefined) windows.push(primary);
 
   const [firstLimit] = parseRateLimits(payload);
-  // Session lane fallback: 5h, matching CodexBar sessionWindowMinutes.
+  // Session lane fallback: a five-hour window.
   if (firstLimit !== undefined) {
     windows.push(rateLimitWindow({ ...firstLimit, windowMinutes: firstLimit.windowMinutes ?? 300 }));
   }
@@ -475,7 +475,7 @@ const baseHeaders = (token: string, kind: KimiCredential["kind"]): Record<string
     "User-Agent": "Vellum Command",
   };
   if (kind === "web-token") {
-    // Connect-protocol conventions per CodexBar webRequest().
+    // Connect-protocol web request conventions.
     headers["Content-Type"] = "application/json";
     headers["Cookie"] = `kimi-auth=${token}`;
     headers["Origin"] = "https://www.kimi.com";
@@ -517,7 +517,7 @@ const fetchCodeApiUsage = async (
   credential: KimiCredential,
 ): Promise<{ quota: ProviderQuota; extras: UsageWindow[] } | { failure: string }> => {
   const base = credential.codeApiBase ?? DEFAULT_CODE_API_BASE;
-  // CodexBar endpoint rule: <base>/coding/v1/<usages>, tolerating bases that
+  // Endpoint rule: <base>/coding/v1/<usages>, tolerating bases that
   // already carry the coding path suffix.
   const suffix = /\/coding\/v1\/?$/.test(base)
     ? "usages"

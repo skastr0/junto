@@ -8,7 +8,7 @@ import type { UsageSource } from "./usage-source";
 
 // Native OpenCode Go (the Go-based opencode CLI) usage source.
 //
-// Strategy pipeline (mirrors the CodexBar reference implementation):
+// Strategy pipeline:
 //   (a) WEB/API — GET https://opencode.ai/zen/go/v1/usage with a Bearer key
 //       resolved from OPENCODE_API_KEY or the opencode CLI's own
 //       ~/.local/share/opencode/auth.json ("opencode-go"."key"). Read-only;

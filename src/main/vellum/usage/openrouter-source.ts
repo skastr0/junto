@@ -7,7 +7,7 @@ import type { UsageSource } from "./usage-source";
 
 // Native OpenRouter usage source — API-key REST read, first class.
 //
-// Endpoints (CodexBar reference, Sources/CodexBarCore/Resources/Plugins/openrouter.js):
+// Endpoints:
 //   GET {base}/credits  — total_credits / total_usage; balance = max(0, credits - usage).
 //   GET {base}/auth/key — key label, limit, usage, limit_remaining, limit_reset,
 //                         rate_limit, usage_daily/weekly/monthly. Falls back to
@@ -17,10 +17,9 @@ import type { UsageSource } from "./usage-source";
 //                         MANAGEMENT key (403 with the ordinary API key) and must
 //                         never follow a user-configured base URL override.
 //
-// Credential discovery: OPENROUTER_API_KEY environment variable first (CodexBar's
-// only portable source), then two best-effort conventional key files. CodexBar
-// itself stores extra keys in its own Keychain-backed settings, which is not a
-// portable file contract, so it is not probed here.
+// Credential discovery: OPENROUTER_API_KEY environment variable first (the only
+// portable source), then two best-effort conventional key files. Keychain-backed
+// settings are not a portable file contract, so they are not probed here.
 //
 // Costs from these endpoints are real metered vendor numbers — extras carry
 // provenance "vendorMetered" and are never blended with estimates silently.
@@ -92,7 +91,7 @@ export const resolveOpenRouterCredentials = (
     .find((key) => key !== undefined);
   const apiKey = cleanCredentialValue(env.OPENROUTER_API_KEY) ?? fileKey;
   if (apiKey === undefined) return undefined;
-  // Endpoint override must be HTTPS or a bare-host HTTPS URL (CodexBar policy).
+  // Endpoint override must be HTTPS or a bare-host HTTPS URL.
   let baseUrl = DEFAULT_BASE_URL;
   const override = cleanCredentialValue(env.OPENROUTER_API_URL);
   if (override !== undefined) {
@@ -325,7 +324,7 @@ export const buildOpenRouterQuota = (parts: OpenRouterParts, fetchedAt: string):
   const windows: UsageWindow[] = [];
   if (key?.limit !== undefined && key.limit > 0) {
     // Prefer the server-reported remaining amount, then the usage field that
-    // matches the declared reset window, then cumulative usage (CodexBar order).
+    // matches the declared reset window, then cumulative usage (that order).
     let used: number | undefined;
     if (key.limitRemaining !== undefined) {
       used = key.limit - Math.min(key.limit, Math.max(0, key.limitRemaining));
@@ -533,7 +532,7 @@ const fetchAll = async (
 
   let historyOutcomes: OpenRouterEndpointOutcome[] | undefined;
   // A management credential must never follow a user-configurable base URL to
-  // a proxy — always hit the production activity host (CodexBar law).
+  // a proxy — always hit the production activity host.
   if (credentials.managementApiKey !== undefined) {
     const bounds = activityWindowBounds(new Date());
     const activityHeaders: Record<string, string> = {

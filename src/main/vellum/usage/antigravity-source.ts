@@ -6,8 +6,7 @@ import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
 import { runCli } from "../adapters/exec";
 import type { UsageSource } from "./usage-source";
 
-// Native Google Antigravity usage. Two planes for v1 (CodexBar reference:
-// Sources/CodexBarCore/Providers/Antigravity):
+// Native Google Antigravity usage. Two planes for v1:
 //   1. Localhost probes of a running language_server (desktop app / IDE /
 //      warm `agy` CLI server) — gRPC-web JSON endpoints under
 //      /exa.language_server_pb.LanguageServerService/, CSRF-token header
@@ -70,8 +69,7 @@ export type AntigravityProcessKind = "app" | "ide" | "cli";
 
 /**
  * Classify a command line as the Antigravity app language server, IDE
- * extension language server, or the `agy` CLI language server (CodexBar
- * reference: AntigravityStatusProbe.antigravityProcessKind).
+ * extension language server, or the `agy` CLI language server.
  */
 export const classifyAntigravityProcess = (command: string): AntigravityProcessKind | undefined => {
   const lower = command.toLowerCase();
@@ -174,7 +172,7 @@ export type QuotaBucketKind = "session" | "weekly" | "other";
 
 const SESSION_ALIASES = new Set(["session", "5h", "5-hour", "five hour", "five-hour"]);
 
-/** 5-hour vs weekly cadence from bucket id/display name (CodexBar aliases). */
+/** 5-hour vs weekly cadence from bucket id/display name aliases. */
 export const quotaBucketKind = (...labels: ReadonlyArray<string>): QuotaBucketKind => {
   const candidates = new Set<string>();
   for (const raw of labels) {
@@ -572,7 +570,7 @@ const hasUsableBuckets = (decoded: DecodedQuotaSummary): boolean =>
   );
 
 /**
- * Endpoint orchestration (CodexBar fetchSnapshot order): quota summary first
+ * Endpoint orchestration (fetch order): quota summary first
  * (with a best-effort GetUserStatus identity merge), then legacy GetUserStatus
  * model quotas, then GetCommandModelConfigs. Injected `send` keeps this pure
  * and unit-testable.

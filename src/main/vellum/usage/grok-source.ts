@@ -182,7 +182,7 @@ export const aggregateGrokUpdates = (files: ReadonlyArray<string>): GrokAggregat
 // ---------------------------------------------------------------------------
 // Strategy pipeline: CLI credits proxy -> grok.com gRPC-web -> local sessions.
 //
-// CodexBar parity notes: the primary auto-mode strategy spawns an interactive
+// Adapter constraint notes: the primary auto-mode strategy spawns an interactive
 // `grok agent stdio` JSON-RPC session, but Vellum Command's shared adapter
 // plane closes child stdin immediately (exec.ts runCli), so a multi-turn RPC
 // exchange is unrepresentable here - the bearer-token surfaces below are the

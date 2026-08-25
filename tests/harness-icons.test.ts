@@ -17,7 +17,7 @@ import { PROVIDER_MARKS } from "../src/renderer/lib/provider-marks.generated";
 import { DIM, HUE, INK } from "../src/renderer/lib/theme";
 
 describe("PROVIDER_MARKS (generated table integrity)", () => {
-  it("carries the 51 CodexBar provider ids", () => {
+  it("carries all 51 bundled provider ids", () => {
     expect(Object.keys(PROVIDER_MARKS)).toHaveLength(51);
   });
 
@@ -121,7 +121,7 @@ describe("harnessGlyphFor", () => {
     expect(harnessGlyphFor("nous")).toBe(GLYPHS.hermes);
   });
 
-  it("resolves codexbar provider ids, and chatgpt lands on openai — not codex", () => {
+  it("resolves generated provider ids, and chatgpt lands on openai — not codex", () => {
     expect(harnessGlyphFor("opencodego")).toBe(GLYPHS.opencodego);
     expect(harnessGlyphFor("crossmodel")).toBe(GLYPHS.crossmodel);
     expect(harnessGlyphFor("openrouter")).toBe(GLYPHS.openrouter);
@@ -139,7 +139,7 @@ describe("harnessGlyphFor", () => {
     expect(Array.isArray(GLYPHS.amp.d)).toBe(true);
     expect(GLYPHS.amp.d).toHaveLength(4);
     expect(GLYPHS.amp.viewBox).toBe("0 0 28 28");
-    // CodexBar marks: grok is a single evenodd 24×24 path, codex a single
+    // Bundled marks: grok is a single evenodd 24×24 path, codex a single
     // path on a 100×100 grid, devin a 24×24 ring.
     expect(GLYPHS.grok.viewBox).toBe("0 0 24 24");
     expect(GLYPHS.grok.fillRule).toBe("evenodd");

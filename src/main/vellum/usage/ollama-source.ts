@@ -5,8 +5,7 @@ import type { UsageSource } from "./usage-source";
 
 // Native Ollama Cloud usage source (ollama.com hosted inference).
 //
-// Protocol spec: Sources/CodexBarCore/Providers/Ollama + CodexBar UI layer in
-// the CodexBar reference app. Two strategies, tried in order:
+// Two strategies, tried in order:
 //
 //   (a) WEB — GET https://ollama.com/settings with an ollama.com session
 //       cookie (env OLLAMA_SESSION_COOKIE / OLLAMA_COOKIE, raw Cookie header
@@ -35,7 +34,7 @@ const SESSION_WINDOW_MINUTES = 300;
 const WEEKLY_WINDOW_MINUTES = 10_080;
 const DEFAULT_SESSION_COOKIE_NAME = "__Secure-session";
 
-/** Recognized ollama.com session cookie names (CodexBar parity). */
+/** Recognized ollama.com session cookie names. */
 const SESSION_COOKIE_NAMES: ReadonlyArray<string> = [
   DEFAULT_SESSION_COOKIE_NAME,
   "session",
@@ -199,7 +198,7 @@ const parseUsageBlock = (label: string, html: string): UsageBlock | undefined =>
 };
 
 /**
- * Heuristic sign-in page detection (CodexBar parity): auth forms pointing at
+ * Heuristic sign-in page detection: auth forms pointing at
  * login/signin routes or carrying email/password fields.
  */
 const looksSignedOut = (html: string): boolean => {

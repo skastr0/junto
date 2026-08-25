@@ -1,5 +1,5 @@
 /* Compact usage rail — component-scoped (do not land in styles.css).
-   Sits in the station TopBar (native usage + optional codexbar). */
+   Sits in the station TopBar (native usage). */
 
 .usage-hud {
   pointer-events: auto;

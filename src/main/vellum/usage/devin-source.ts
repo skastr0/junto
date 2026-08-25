@@ -7,8 +7,8 @@ import type { UsageSource } from "./usage-source";
 // Native Devin (Cognition) usage: daily/weekly ACU quota windows from the
 // app.devin.ai web backend,
 // `GET https://app.devin.ai/api/<organization>/billing/quota/usage`,
-// bearer from the browser session or DEVIN_* env overrides (CodexBar
-// parity). Read-only; on 401/403 we tell the operator to refresh the Devin
+// bearer from the browser session or DEVIN_* env overrides.
+// Read-only; on 401/403 we tell the operator to refresh the Devin
 // session — never a write, spawn, or token refresh. Every failure mode folds
 // into a TOTAL envelope; nothing throws.
 
@@ -33,8 +33,8 @@ const asNumber = (value: unknown): number | undefined => {
 };
 
 /**
- * Endpoint candidates for one organization, in probe order (CodexBar
- * `candidatePaths` parity): internal ID path first, normalized form next,
+ * Endpoint candidates for one organization, in probe order:
+ * internal ID path first, normalized form next,
  * then slug/prefixed variants.
  */
 export const candidatePaths = (
@@ -355,7 +355,7 @@ export const fetchDevinWith = async (
           error: "billing/quota/usage returned no usable quota windows",
         });
       }
-      // Invalid credentials fail the whole pipeline (CodexBar parity):
+      // Invalid credentials fail the whole pipeline:
       // trying more paths with the same dead session is pointless.
       if (outcome.status === 401 || outcome.status === 403) {
         return buildDevinSnapshot(fetchedAt, {

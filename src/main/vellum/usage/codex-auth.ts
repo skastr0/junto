@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 // ~/.codex/auth.json reader for the native Codex usage source.
 //
-// HARD RULE (CodexBar parity): we NEVER refresh tokens in-process. The Codex
+// HARD RULE: we NEVER refresh tokens in-process. The Codex
 // CLI owns the rotation lifecycle of its own auth file; a rotated response
 // written back here would strand the CLI. On any auth failure the caller gets
 // an outcome that says re-auth (Codex CLI login) is needed — no process spawn,

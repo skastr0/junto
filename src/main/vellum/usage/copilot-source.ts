@@ -6,7 +6,7 @@ import { resolveCopilotToken } from "./copilot-auth";
 // Native GitHub Copilot usage source.
 //
 // One live call against `GET https://api.github.com/copilot_internal/user`
-// with VS Code-impersonating headers (CodexBar parity), plus a best-effort
+// with VS Code-impersonating headers, plus a best-effort
 // identity read from `GET https://api.github.com/user`. Token discovery is
 // environment → GitHub CLI → ~/.config/gh/hosts.yml (see copilot-auth.ts).
 // OAuth Device Flow is future work. Every failure mode folds into a TOTAL
@@ -43,7 +43,7 @@ export const redactSecret = (text: string, secret: string | undefined): string =
 
 // ---------------------------------------------------------------------------
 // Reset-date parsing — fractional ISO8601, plain ISO8601, or bare yyyy-MM-dd
-// (UTC midnight), exactly like CodexBar's parseQuotaResetDate.
+// (UTC midnight).
 // ---------------------------------------------------------------------------
 
 export const parseQuotaResetDate = (value: unknown): string | undefined => {
@@ -54,7 +54,7 @@ export const parseQuotaResetDate = (value: unknown): string | undefined => {
 };
 
 // ---------------------------------------------------------------------------
-// Quota snapshot decoding (lenient, CodexBar CopilotUsageModels parity)
+// Quota snapshot decoding (lenient)
 // ---------------------------------------------------------------------------
 
 interface DecodedSnapshot {
@@ -115,7 +115,7 @@ const carriesCreditsCounter = (snapshot: DecodedSnapshot | undefined): boolean =
   snapshot?.creditsUsed !== undefined;
 
 /**
- * Select premium_interactions / chat with CodexBar's tiered fallbacks:
+ * Select premium_interactions / chat with tiered fallbacks:
  * direct keys first, legacy monthly_quotas/limited_user_quotas counts as
  * synthetic snapshots, then dynamic-key name matching (chat / premium /
  * completion / code). Exported for unit tests.

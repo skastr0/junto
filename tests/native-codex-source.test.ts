@@ -12,7 +12,7 @@ import {
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 
-// wham/usage response shape (CodexBar reference): rate_limit windows with
+// wham/usage response shape: rate_limit windows with
 // used_percent / reset_at epoch seconds / limit_window_seconds.
 const WHAM_FIXTURE = {
   rate_limit: {

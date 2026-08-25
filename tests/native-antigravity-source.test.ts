@@ -26,7 +26,7 @@ import {
 
 const FETCHED = "2026-08-24T12:00:00.000Z";
 
-// RetrieveUserQuotaSummary shape (CodexBar reference): payload under
+// RetrieveUserQuotaSummary response shape: payload under
 // `response`, buckets with direct remainingFraction or protobuf-oneof
 // {case:"remainingFraction", value}, ISO8601 / epoch resetTime.
 const QUOTA_SUMMARY_FIXTURE = {

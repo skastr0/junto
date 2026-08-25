@@ -94,7 +94,7 @@ export const parseGrokSettingsTier = (payload: unknown): string | undefined => {
 };
 
 /**
- * CodexBar window-label heuristic for Grok's untyped credits surface:
+ * Window-label heuristic for Grok's untyped credits surface:
  * 4-12 days of duration reads Weekly, 20-45 days reads Monthly. An untyped
  * window that only carries resetsAt keeps the Weekly label near reset; the
  * web path never infers cadence from time-until-reset alone beyond that.

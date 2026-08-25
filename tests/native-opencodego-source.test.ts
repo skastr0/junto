@@ -15,7 +15,7 @@ const FETCHED = "2026-07-26T12:00:00.000Z";
 const FETCHED_MS = Date.parse(FETCHED);
 const SECRET = "oc_zen_super_secret_key_1234567890";
 
-// zen/go/v1/usage response shape (CodexBar reference): nested usage dict with
+// zen/go/v1/usage response shape: nested usage dict with
 // rolling/weekly/monthly groups carrying tolerant percent + reset keys.
 const ZEN_FIXTURE = {
   data: {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { runCli } from "../adapters/exec";
 
 // Copilot token discovery (read-only) for the native GitHub Copilot usage
-// source. Order mirrors CodexBar's credential adapter:
+// source. Ordered discovery:
 //   1. environment tokens (COPILOT_API_TOKEN, GH_*, GITHUB_TOKEN),
 //   2. the GitHub CLI (`gh auth token`) — read probe with a timeout,
 //   3. ~/.config/gh/hosts.yml oauth_token entries.

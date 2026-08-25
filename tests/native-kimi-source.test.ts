@@ -16,7 +16,7 @@ import {
 
 const FETCHED = "2026-08-17T12:00:00.000Z";
 
-// GetUsages web response shape (CodexBar KimiModels): usages[] scoped to
+// GetUsages web response shape (Kimi models): usages[] scoped to
 // FEATURE_CODING with a string-counter detail and optional limits[].
 const WEB_USAGE_FIXTURE = {
   usages: [
@@ -71,7 +71,7 @@ describe("detail decode", () => {
     expect(decodeUsageDetail("nope")).toBeUndefined();
   });
 
-  it("derives counts like CodexBar usageCounts - used authoritative, remaining must balance", () => {
+  it("derives counts - used authoritative, remaining must balance", () => {
     // Used wins even in overage.
     expect(countsOfDetail({ limit: 100, used: 120 })).toEqual({
       usedPercent: 100,
@@ -250,7 +250,7 @@ describe("credential resolution", () => {
     expect(resolveKimiCredential({ ...base, KIMI_AUTH_TOKEN: "web-tok" })?.kind).toBe("web-token");
     expect(resolveKimiCredential({ ...base, KIMI_CODE_API_KEY: "api-key" })?.kind).toBe("api-key");
     expect(resolveKimiCredential(base)).toBeUndefined();
-    // Endpoint overrides disable the file tier (CodexBar hasCodeEndpointOverride).
+    // Endpoint overrides disable the file tier.
     expect(
       resolveKimiCredential({ KIMI_CODE_HOME: "/nonexistent-kimi-home-for-tests", KIMI_CODE_OAUTH_HOST: "x" })
         ?.kind,

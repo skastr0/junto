@@ -11,7 +11,7 @@ import {
 } from "./cursor-auth";
 
 // Native Cursor usage: cookie-authenticated cursor.com web APIs, fanned out
-// concurrently (CodexBar protocol reference):
+// concurrently:
 //   GET  /api/usage-summary                        - required; plan/onDemand/
 //                                                    overall/pooled, cents.
 //   GET  /api/auth/me                              - optional identity.
@@ -131,7 +131,7 @@ const centsRatioPercent = (
 };
 
 /**
- * Headline "Total" precedence (mirrors the CodexBar reference):
+ * Headline "Total" precedence (first match wins):
  * plan.totalPercentUsed -> averaged auto+api lanes -> either lane alone ->
  * plan cents ratio -> individualUsage.overall ratio -> teamUsage.pooled ratio.
  */

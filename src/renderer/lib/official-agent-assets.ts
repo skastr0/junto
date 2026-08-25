@@ -29,7 +29,7 @@
 //   docs/research/agent-cli-sweep/icons.md for the full hunt log.
 //
 // devin — deliberately NOT curated: it resolves from the generated
-//   PROVIDER_MARKS table (CodexBar source), which the harness-icons contract
+//   PROVIDER_MARKS table (bundled mark set), which the harness-icons contract
 //   tests pin. A clean official cognition.com vector exists
 //   (https://cognition.com/icon.svg, SHA-256 207432b78c80378b659deff5114d06e7def680ec6f5b2265a0ac714a9f82beda)
 //   but overriding it would break the generated-table mapping test.

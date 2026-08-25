@@ -1,14 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
 import type { UsageSource } from "./usage-source";
 
 // Native Synthetic usage source (synthetic.new) - API-key quota endpoint.
 //
-// Protocol reverse-engineered from CodexBar's bundled plugin
-// (Sources/CodexBarCore/Resources/Plugins/synthetic.js):
+// Wire protocol:
 //   GET https://api.synthetic.new/v2/quotas   Authorization: Bearer <key>
 // Known quota slots at root or under `data`: rollingFiveHourLimit,
 // weeklyTokenLimit, search.hourly. Generic fallback collects any object that
@@ -16,15 +12,13 @@ import type { UsageSource } from "./usage-source";
 //
 // Credential resolution (cheap, local, read-only):
 //   1. SYNTHETIC_API_KEY environment variable (quotes stripped)
-//   2. ~/.codexbar/config.json providers[] entry id "synthetic" -> apiKey
+// TODO: an operator-configured key tier lands with the Providers settings page.
 // There is no CLI and no OAuth flow. Every failure folds into the snapshot
 // envelope; secrets never reach error strings or logs.
 
 const SYNTHETIC_QUOTAS_URL = "https://api.synthetic.new/v2/quotas";
 /** Hard budget for one quota poll so the HUD never stalls on a slow API. */
 const USAGE_FETCH_TIMEOUT_MS = 10_000;
-
-const CODEXBAR_CONFIG_PATH = (): string => join(homedir(), ".codexbar", "config.json");
 
 type JsonObject = Record<string, unknown>;
 
@@ -57,34 +51,9 @@ export const cleanSyntheticApiKey = (raw: string | undefined): string | undefine
   return value.length > 0 ? value : undefined;
 };
 
-/**
- * Read-only peek into CodexBar's local config for a stored Synthetic key.
- * Shape: { providers: [ { id: "synthetic", apiKey: "..." }, ... ] }
- */
-export const readSyntheticApiKeyFromCodexBarConfig = (path: string): string | undefined => {
-  try {
-    if (!existsSync(path)) return undefined;
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (!isObject(parsed) || !Array.isArray(parsed.providers)) return undefined;
-    for (const entry of parsed.providers) {
-      if (!isObject(entry)) continue;
-      if (entry.id !== "synthetic") continue;
-      const key = typeof entry.apiKey === "string" ? entry.apiKey : undefined;
-      return key === undefined ? undefined : cleanSyntheticApiKey(key);
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-/** Ordered credential resolution: env first, then CodexBar's stored key. */
-export const resolveSyntheticApiKey = (
-  env: NodeJS.ProcessEnv = process.env,
-  codexbarConfigPath: string = CODEXBAR_CONFIG_PATH(),
-): string | undefined =>
-  cleanSyntheticApiKey(env["SYNTHETIC_API_KEY"]) ??
-  readSyntheticApiKeyFromCodexBarConfig(codexbarConfigPath);
+/** Credential resolution from the environment. */
+export const resolveSyntheticApiKey = (env: NodeJS.ProcessEnv = process.env): string | undefined =>
+  cleanSyntheticApiKey(env["SYNTHETIC_API_KEY"]);
 
 // ---------------------------------------------------------------------------
 // Response decode (pure, unit-tested)
@@ -392,7 +361,7 @@ export const parseSyntheticQuota = (
   if (hasKnownSlots) {
     lanes = knownSlots.map(({ payload: slotPayload, title }) => {
       const lane = parseLane(slotPayload);
-      // A named slot without its own name keeps the canonical CodexBar title.
+      // A named slot without its own name keeps the canonical slot title.
       if (lane !== undefined && lane.title === undefined) {
         return { ...lane, title };
       }
@@ -537,7 +506,7 @@ export interface SyntheticSourceDeps {
 
 /**
  * Build the Synthetic usage source. The default instance resolves
- * SYNTHETIC_API_KEY (then CodexBar's stored key) and uses global fetch.
+ * SYNTHETIC_API_KEY and uses global fetch.
  */
 export const makeSyntheticSource = (deps: SyntheticSourceDeps = {}): UsageSource => {
   const resolveApiKey = deps.resolveApiKey ?? (() => resolveSyntheticApiKey());

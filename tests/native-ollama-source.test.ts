@@ -14,7 +14,7 @@ const FETCHED = "2026-08-18T12:00:00.000Z";
 const SECRET_COOKIE = "s3cr3t-session-token-value-0001";
 const SECRET_KEY = "sk-ollama-super-secret-key-4242";
 
-/** Fixture modeled on the ollama.com/settings HTML CodexBar scrapes. */
+/** Fixture modeled on the ollama.com/settings HTML page. */
 const SETTINGS_HTML = `
 <html><body>
 <div id="header-email" class="truncate">dev@example.com</div>
