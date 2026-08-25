@@ -294,15 +294,30 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     input.cwd?.trim() ||
     input.documentLaunch?.cwd?.trim() ||
     undefined;
+  // A provisioned session (Amp) is minted BY the harness through its public
+  // CLI and stored on the node, so the id itself is the proof and the resume
+  // subcommand is the only launch shape there is. Probing local harness state
+  // for it would mean reading Amp's private files, which this integration does
+  // not do — and launching without the id would drop the seat into Amp's
+  // interactive thread picker instead of the thread the node owns.
+  const provisioned =
+    templateFor(harness).capabilityBadges.sessionId === "provision";
+  if (provisioned && !sessionId) {
+    // Fail closed: no thread, no launch. Every entry point that reaches here
+    // without provisioning first gets the same refusal rather than a seat on
+    // the wrong thread.
+    return undefined;
+  }
   // -r / --resume only when external harness state proves the id exists.
   // Canvas mint alone is not proof; unproven → pin/create (fail open).
-  const resume =
-    Boolean(sessionId && input.resume) &&
-    shouldResumeHarnessSession(true, {
-      harness,
-      sessionId: sessionId ?? "",
-      ...(cwd ? { cwd } : {}),
-    });
+  const resume = provisioned
+    ? Boolean(sessionId)
+    : Boolean(sessionId && input.resume) &&
+      shouldResumeHarnessSession(true, {
+        harness,
+        sessionId: sessionId ?? "",
+        ...(cwd ? { cwd } : {}),
+      });
   const choices: ManagedLaunchChoices = {
     injection: {
       // A resumed session already carries the doctrine in its own history.
@@ -349,6 +364,18 @@ export const launchForManagedSpawn = (
     if (harnessRaw && isPinSessionHarness(harnessRaw)) {
       sessionId = randomUUID();
     }
+  }
+
+  const harnessId = input.harness?.trim();
+  if (
+    harnessId &&
+    isHarnessId(harnessId) &&
+    templateFor(harnessId).capabilityBadges.sessionId === "provision" &&
+    !sessionId
+  ) {
+    // The document launch is no safer than the planned one here: its argv ends
+    // at `threads continue` with no id. Refuse both.
+    return { launch: undefined, plan: undefined };
   }
 
   const plan = planManagedSpawn({ ...input, sessionId, resume });

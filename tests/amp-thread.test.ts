@@ -4,6 +4,14 @@ import {
   parseAmpThreadReceipt,
   provisionAmpThread,
 } from "../src/main/vellum/term/templates/amp-thread";
+import {
+  ensureProvisionedSessionId,
+  usesProvisionedSession,
+} from "../src/main/vellum/term/amp-seat-thread";
+import {
+  launchForManagedSpawn,
+  planManagedSpawn,
+} from "../src/main/vellum/term/managed-spawn-plan";
 
 // The receipt shape below is real output from
 // `amp threads new --visibility private` on 0.0.1787664850.
@@ -78,5 +86,78 @@ describe("provisionAmpThread", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.failure.reason).toContain("exactly one thread id");
+  });
+});
+
+describe("amp launch shape depends on a provisioned thread", () => {
+  const seatInput = (sessionId?: string) => ({
+    harness: "amp",
+    agentKey: "local:amp",
+    ...(sessionId ? { sessionId } : {}),
+    resume: true,
+    documentLaunch: {
+      kind: "harness" as const,
+      argv: ["amp", "--no-ide", "threads", "continue"],
+    },
+  });
+
+  it("refuses to launch without one, rather than opening Amp's picker", () => {
+    // `amp --no-ide threads continue` with no id drops the operator into an
+    // interactive thread picker — a seat on no particular thread.
+    const planned = planManagedSpawn(seatInput());
+    expect(planned).toBeUndefined();
+    const resolved = launchForManagedSpawn(seatInput());
+    expect(resolved.launch).toBeUndefined();
+    expect(resolved.plan).toBeUndefined();
+  });
+
+  it("resumes the stored thread without probing Amp's private state", () => {
+    // Pin harnesses only resume when local harness files prove the session
+    // exists. Amp's proof is that Amp minted the id itself, so the resume
+    // shape applies with no filesystem probe at all.
+    const resolved = launchForManagedSpawn(
+      seatInput("T-01a03989-71a6-733b-ac4c-76f54969cb55"),
+    );
+    expect(resolved.launch?.argv).toEqual([
+      "amp",
+      "--no-ide",
+      "threads",
+      "continue",
+      "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    ]);
+  });
+});
+
+describe("ensureProvisionedSessionId", () => {
+  it("returns a valid stored thread without calling the CLI again", async () => {
+    const result = await ensureProvisionedSessionId({
+      canvasName: "factory",
+      nodeId: "n1",
+      harness: "amp",
+      storedSessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    });
+    expect(result).toEqual({
+      ok: true,
+      sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    });
+  });
+
+  it("passes non-provisioned harnesses straight through", async () => {
+    const result = await ensureProvisionedSessionId({
+      canvasName: "factory",
+      nodeId: "n1",
+      harness: "claude",
+      storedSessionId: "5a2f1f6c-1f1e-4c7a-9a1e-3f0f5b2a7c11",
+    });
+    expect(result).toEqual({
+      ok: true,
+      sessionId: "5a2f1f6c-1f1e-4c7a-9a1e-3f0f5b2a7c11",
+    });
+  });
+
+  it("knows which harnesses mint their own session", () => {
+    expect(usesProvisionedSession("amp")).toBe(true);
+    expect(usesProvisionedSession("claude")).toBe(false);
+    expect(usesProvisionedSession("not-a-harness")).toBe(false);
   });
 });

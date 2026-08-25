@@ -270,6 +270,27 @@ export const registerTerminalIpc = (
             );
           }
         }
+        // A provisioned-session harness (Amp) has its thread minted by its own
+        // CLI and stored on the node before any PTY opens. Idempotent: a node
+        // that already carries a thread never mints a second one.
+        const { ensureProvisionedSessionId } = await import("./amp-seat-thread");
+        const provisioned = await ensureProvisionedSessionId({
+          canvasName,
+          nodeId: node.id,
+          harness: surface.harness,
+          ...(node.ether?.terminal?.sessionId
+            ? { storedSessionId: node.ether.terminal.sessionId }
+            : {}),
+          ...(surface.launch?.cwd ? { cwd: surface.launch.cwd } : {}),
+        });
+        if (!provisioned.ok) {
+          // Auth, network, and unreadable-receipt failures all land here. The
+          // seat never opens on a thread it does not own, and never silently
+          // falls back to Amp's own thread picker.
+          return deny(`terminal ipc: ${surface.harness} session unavailable — ${provisioned.reason}`);
+        }
+        const sessionIdForSpawn =
+          provisioned.sessionId || node.ether?.terminal?.sessionId;
         const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
         // Pure compilation only. Session proof, isolation, final argv, and
         // first-typed disposition belong to the selected process host.
@@ -280,7 +301,7 @@ export const registerTerminalIpc = (
           documentLaunch: surface.launch,
           agentKey: surface.agentKey,
           cwd: surface.launch?.cwd,
-          sessionId: node.ether?.terminal?.sessionId,
+          sessionId: sessionIdForSpawn,
           resume: input.resume === true,
         });
 

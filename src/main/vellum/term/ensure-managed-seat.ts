@@ -9,6 +9,7 @@ import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { InstallationId } from "@shared/installation-id";
 import type { ActorRef } from "@shared/work-protocol";
 import { deriveActorSeatId } from "../station/actor-seat-compiler";
+import { ensureProvisionedSessionId } from "./amp-seat-thread";
 import { makeManagedSpawnIntent } from "./managed-spawn-plan";
 import { termPlane } from "./plane";
 import { seatStateRuntime } from "./agent-state";
@@ -193,6 +194,26 @@ export const ensureManagedSeatRunning = (
           onSuccess: () => true,
         }),
       );
+    // Same provisioning step the operator-initiated create runs, for the same
+    // reason: a provisioned-session harness has no launch shape without its
+    // thread id, and the id must be on the node before the PTY opens.
+    const provisioned = yield* Effect.promise(() =>
+      ensureProvisionedSessionId({
+        canvasName,
+        nodeId: node.id,
+        harness: surface.harness,
+        ...(node.ether?.terminal?.sessionId
+          ? { storedSessionId: node.ether.terminal.sessionId }
+          : {}),
+        ...(surface.launch?.cwd ? { cwd: surface.launch.cwd } : {}),
+      }),
+    );
+    if (!provisioned.ok) {
+      console.error(
+        `[wake] refused ${canvasName}/${node.id}: ${provisioned.reason}`,
+      );
+      return false;
+    }
     const baseSpec: ActorOccupySpec = {
       bindingId: surface.bindingId,
       hostId: surface.hostId,
@@ -208,6 +229,7 @@ export const ensureManagedSeatRunning = (
         documentLaunch: surface.launch,
         agentKey: surface.agentKey,
         cwd: surface.launch?.cwd,
+        ...(provisioned.sessionId ? { sessionId: provisioned.sessionId } : {}),
         resume: true,
       }),
     };
