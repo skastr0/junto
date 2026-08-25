@@ -165,21 +165,24 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
 
   const admissionKey = kindStrip.getByRole("button", { name: "Admission" });
   const bakeKey = kindStrip.getByRole("button", { name: "Bake" });
-  await expect(admissionKey).toHaveAttribute("title", "Admission: auto");
-  await expect(bakeKey).toHaveAttribute("title", "Bake: none");
+  await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Admission: auto");
+  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Bake: none");
 
   await admissionKey.click();
   const admissionQuickSelect = page.getByLabel("Admission quick select");
   await expect(admissionQuickSelect).toBeVisible();
   await admissionQuickSelect.getByRole("button", { name: "Gated" }).click();
-  await expect(admissionKey).toHaveAttribute("title", "Admission: operator gated");
+  await expect(admissionKey).toHaveAttribute(
+    "data-vellum-tooltip",
+    "Admission: operator gated",
+  );
 
   await bakeKey.click();
   const bakeQuickSet = page.getByLabel("Bake quick set");
   await expect(bakeQuickSet).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "03-task-sink-bake-key.png"), fullPage: false });
   await bakeQuickSet.getByRole("button", { name: "1h" }).click();
-  await expect(bakeKey).toHaveAttribute("title", "Bake: 1h");
+  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Bake: 1h");
   // The install-time fit centers the region, so the tasks sink sits outside
   // the viewport and its floating toolbar (fixed-position) cannot be clicked.
   // Frame the selected node through the command card first.

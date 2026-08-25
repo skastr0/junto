@@ -487,8 +487,17 @@ const vellumApi: VellumCommandApi = {
       completionEvidence,
       pipeline,
     ),
-  workTaskPromote: (canvas, nodeId, taskId) =>
-    invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
+  workTaskPromote: (canvas, nodeId, taskId, note) =>
+    invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId, note),
+  workTaskRejectArrival: (canvas, nodeId, taskId, note) =>
+    invoke(
+      IPC_CHANNELS.workTaskRejectArrival,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      note,
+    ),
   workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workTaskRespond,
