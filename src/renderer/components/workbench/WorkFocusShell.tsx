@@ -25,6 +25,7 @@ import { resolveSpec, roleOf } from "@shared/physics";
 import { FocusSurface } from "../FocusSurface";
 import { WorkbenchChrome } from "./WorkbenchChrome";
 import { WorkbenchPanes } from "./WorkbenchPanes";
+import { saveAndCloseNoteSurface } from "./NoteSurface";
 
 /**
  * Actor terminals carry in-panel side rails (ledger + connections); the panel
@@ -55,6 +56,8 @@ const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
   switch (key) {
     case "terminal":
       return "terminal";
+    case "document":
+      return "document";
     case "chat":
     case "task-create":
     case "workspace":
@@ -90,6 +93,7 @@ export function WorkFocusShell() {
   const sizeKey = workFocusSizeKeyForSurfaces(focusSurfaces);
   const onlyChats = sizeKey === "chat";
   const onlyTaskCreate = sizeKey === "task-create";
+  const onlyNotes = sizeKey === "document";
   const measure = measureForSizeKey(sizeKey);
   // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
   // Pure terminal/herdr focus uses surface-local Pin + Close — reusing the
@@ -108,11 +112,13 @@ export function WorkFocusShell() {
   const active = activeId ? surfaceById(registry, activeId) : undefined;
 
   const closeAllFocus = useCallback(() => {
-    const ids = dock$.registry
+    const surfaces = dock$.registry
       .peek()
-      .surfaces.filter((s) => s.zone === "focus")
-      .map((s) => s.id);
-    for (const id of ids) closeWorkbenchSurface(id);
+      .surfaces.filter((surface) => surface.zone === "focus");
+    for (const surface of surfaces) {
+      if (surface.kind === "note") saveAndCloseNoteSurface(surface.id);
+      else closeWorkbenchSurface(surface.id);
+    }
   }, []);
 
   const panelObserverRef = useRef<ResizeObserver | null>(null);
@@ -189,11 +195,11 @@ export function WorkFocusShell() {
       layer="work"
       contain="parent"
       terminalRailsPx={terminalRailsPx}
-      label={active ? `Workbench - ${active.kind}` : "Workbench focus"}
+      label={active?.kind === "note" ? "Edit note" : active ? `Workbench - ${active.kind}` : "Workbench focus"}
       onClose={closeAllFocus}
       closeOnEscape={false}
       closeOnBackdrop
-      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}`}
+      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}${onlyNotes ? " work-focus-shell__panel--note" : ""}`}
     >
       <div className="work-focus-shell">
         {showDockChrome ? (

@@ -376,6 +376,12 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   width: min(1080px, calc(100vw - 48px));
   height: 80vh;
 }
+.focus-surface__panel.work-focus-shell__panel--note {
+  align-self: center;
+  width: min(760px, calc(100vw - 48px));
+  height: min(80vh, 900px);
+  resize: both;
+}
 .workbench-chrome {
   display: flex;
   flex-shrink: 0;
@@ -2634,6 +2640,7 @@ ol.note-md__list > .note-md__li::before {
   flex-direction: column;
   width: 100%;
   height: 100%;
+  padding: 12px;
 }
 .note-edit-modal__chrome {
   display: flex;

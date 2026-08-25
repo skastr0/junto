@@ -37,6 +37,9 @@ export function surfaceLabel(
     if (!payload) return "enqueue";
     return payload.mode === "proposal" ? `propose - ${payload.title}` : `enqueue - ${payload.title}`;
   }
+  if (surface.kind === "note") {
+    return dock$.noteById[surface.id].peek()?.title ?? "Note";
+  }
   return surface.kind;
 }
 

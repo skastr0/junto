@@ -11,7 +11,13 @@
 // - Multiple herdr surfaces allowed (focus-on-click routes keyboard).
 //   Per-terminal control exclusivity is host-side; not a global UI lock.
 
-export type SurfaceKind = "browser" | "herdr" | "terminal" | "chat" | "task-create";
+export type SurfaceKind =
+  | "browser"
+  | "herdr"
+  | "terminal"
+  | "chat"
+  | "task-create"
+  | "note";
 export type WorkZone = "focus" | "pinned";
 export type LayoutMode = "solo" | "split-v" | "split-h";
 
@@ -30,7 +36,8 @@ export type WorkFocusSizeKey =
   | "terminal"
   | "workspace"
   | "chat"
-  | "task-create";
+  | "task-create"
+  | "document";
 
 export type WorkFocusSize = {
   readonly key: WorkFocusSizeKey;
@@ -284,6 +291,7 @@ export const workFocusSizeKeyForSurfaces = (
   }
   if (focusSurfaces.every((s) => s.kind === "chat")) return "chat";
   if (focusSurfaces.every((s) => s.kind === "task-create")) return "task-create";
+  if (focusSurfaces.every((s) => s.kind === "note")) return "document";
   return "workspace";
 };
 

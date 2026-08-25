@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
-import { Gauge, Radio, Settings2, Timer, X } from "lucide-react";
+import { Gauge, Radio, Settings2, Timer } from "lucide-react";
 
 import type { CanvasNode } from "@shared/canvas";
 import {
@@ -11,8 +11,6 @@ import {
 } from "@shared/cron-expression";
 import type { FlowNode } from "../../lib/convert";
 import { CronScheduleSurface } from "./CronScheduleSurface";
-import { registerCanvasDraftCommit } from "../../lib/canvas-editor-flush";
-import { markdownImageLine, putImagesFromDataTransfer } from "../../lib/image-content";
 import { editText } from "../../lib/mutations";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { isGitNode, isLabelNode } from "../../lib/presentation";
@@ -39,6 +37,7 @@ import {
   shouldRefreshSessionFromTerminalEvent,
 } from "../../lib/terminal-session-refresh";
 import { terminal$ } from "../../lib/terminal-state";
+import { openNoteSurface } from "../../lib/dock-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { HerdrCard } from "../herdr/HerdrCard";
 import { HarnessMark } from "../herdr/HarnessMark";
@@ -47,8 +46,7 @@ import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
-import { FocusSurface } from "../FocusSurface";
-import { Button, Eyebrow, IconButton } from "../ui";
+import { IconButton } from "../ui";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
@@ -372,145 +370,6 @@ function EntityCard({
 // Freeform note body: instrument mono for body; condensed display for heads
 // (CSS). Markdown is structure only — no wiki/chips/shorthand leak.
 
-function NoteEditModal({
-  draft,
-  onChange,
-  onCommit,
-  onDiscard,
-}: {
-  readonly draft: string;
-  readonly onChange: (value: string) => void;
-  readonly onCommit: () => void;
-  readonly onDiscard: () => void;
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const commitRef = useRef(onCommit);
-  commitRef.current = onCommit;
-
-  useLayoutEffect(
-    () => registerCanvasDraftCommit(() => commitRef.current()),
-    [],
-  );
-
-  useEffect(() => {
-    textareaRef.current?.focus();
-    // Place caret at end for writing continuation rather than select-all.
-    const el = textareaRef.current;
-    if (el) {
-      const len = el.value.length;
-      el.setSelectionRange(len, len);
-    }
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onDiscard();
-      }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        onCommit();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onCommit, onDiscard]);
-
-  const insertAtCursor = (snippet: string) => {
-    const el = textareaRef.current;
-    // Prefer live textarea value — paste put is async and `draft` can be stale.
-    const current = el?.value ?? draft;
-    if (!el) {
-      onChange(
-        current.endsWith("\n") || current.length === 0
-          ? `${current}${snippet}`
-          : `${current}\n${snippet}`,
-      );
-      return;
-    }
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const next = `${current.slice(0, start)}${snippet}${current.slice(end)}`;
-    onChange(next);
-    requestAnimationFrame(() => {
-      const caret = start + snippet.length;
-      el.focus();
-      el.setSelectionRange(caret, caret);
-    });
-  };
-
-  const onPasteImage = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const data = event.clipboardData;
-    if (!data) return;
-    const hasImageItem =
-      Array.from(data.items ?? []).some(
-        (item) => item.kind === "file" && item.type.startsWith("image/"),
-      ) ||
-      Array.from(data.files ?? []).some((file) => file.type.startsWith("image/"));
-    if (!hasImageItem) return;
-    event.preventDefault();
-    void (async () => {
-      const result = await putImagesFromDataTransfer(data);
-      if (result.kind === "none") return;
-      if (result.kind === "error") {
-        state$.error.set(result.error);
-        return;
-      }
-      const lines = result.refs.map((ref) =>
-        markdownImageLine(ref, ref.displayName ?? "image"),
-      );
-      insertAtCursor(`${lines.join("\n")}\n`);
-    })();
-  };
-
-  // House FocusSurface owns portal/backdrop/enter-animation/session size.
-  // Semantics preserved: backdrop click SAVES (onClose=onCommit), Escape
-  // discards (own keydown; FocusSurface Escape stays off).
-  return (
-    <FocusSurface
-      measure="document"
-      height="resizable"
-      layer="detail"
-      label="Edit note"
-      onClose={onCommit}
-      closeOnEscape={false}
-    >
-      <div className="note-edit-modal nowheel">
-        <div className="note-edit-modal__chrome">
-          <Eyebrow tone="faint" size="xs">
-            note - markdown
-          </Eyebrow>
-          <div className="note-edit-modal__actions">
-            <Button size="xs" variant="chrome" onClick={onCommit}>
-              done
-            </Button>
-            <IconButton
-              size="sm"
-              aria-label="Close without saving"
-              title="Discard"
-              onClick={onDiscard}
-            >
-              <X size={13} />
-            </IconButton>
-          </div>
-        </div>
-        <textarea
-          ref={textareaRef}
-          className="note-edit-modal__textarea nodrag nowheel"
-          aria-label="Note markdown"
-          spellCheck
-          value={draft}
-          onChange={(event) => onChange(event.target.value)}
-          onPaste={onPasteImage}
-          placeholder={"# heading\n\n- list item\n\n**bold** and `code`\n\npaste an image to embed"}
-        />
-        <div className="note-edit-modal__hint">⌘↵ save - esc discard - paste image to embed</div>
-      </div>
-    </FocusSurface>
-  );
-}
-
 export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const node = data.node;
   const text = node.type === "text" ? node.text : "";
@@ -527,7 +386,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   const [editing, setEditing] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [maximized, setMaximized] = useState(false);
   const [workDetail, setWorkDetail] = useState(false);
   const [workDetailItemId, setWorkDetailItemId] = useState<string | undefined>();
   const [cronScheduleOpen, setCronScheduleOpen] = useState(false);
@@ -544,19 +402,19 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const isCron = entityKind === "cron" || entityKind === "timer";
 
   useEffect(() => {
-    if (editing && !maximized) {
+    if (editing) {
       setDraft(text);
       ref.current?.focus();
       ref.current?.select();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, maximized]);
+  }, [editing]);
 
   useEffect(() => {
     if (!isEditTarget) return;
     setDraft(text);
     if (isLabel) setEditing(true);
-    else if (isFreeNote) setMaximized(true);
+    else if (isFreeNote) openNoteSurface(node);
     // Seat/shell/sink cards: rename first line (not full note textarea).
     else if (
       isHerdr ||
@@ -597,26 +455,22 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   const commit = () => {
     setEditing(false);
-    setMaximized(false);
     if (draft !== text) editText(node.id, draft);
   };
 
   const discard = () => {
     setEditing(false);
-    setMaximized(false);
     setDraft(text);
   };
 
   const openInline = () => {
     setDraft(text);
-    setMaximized(false);
     setEditing(true);
   };
 
   const openMaximized = () => {
-    setDraft(text);
     setEditing(false);
-    setMaximized(true);
+    openNoteSurface(node);
   };
 
   const labelHue = node.color ? accentColor(node.color) : INK;
@@ -647,14 +501,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       }
 
     >
-      {maximized && !isLabel ? (
-        <NoteEditModal
-          draft={draft}
-          onChange={setDraft}
-          onCommit={commit}
-          onDiscard={discard}
-        />
-      ) : null}
       {workDetail && entityKind === "task" ? (
         <TasksDetail
           node={node}
@@ -750,7 +596,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           </div>
         )
       ) : editing &&
-        !maximized &&
         !isHerdr &&
         !managedTerminal &&
         !isWorkSurface ? (

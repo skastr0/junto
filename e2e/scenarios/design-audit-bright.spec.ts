@@ -156,6 +156,12 @@ test("capture key surfaces in bright mode", async () => {
     const noteEditor = page.getByRole("dialog", { name: "Edit note" });
     await expect(noteEditor).toBeVisible({ timeout: 10_000 });
     await shot(page, "03-note-edit-focus");
+    await noteEditor.getByRole("button", { name: "Pin note editor" }).click();
+    const pinnedNote = page.getByTestId("note-workbench-surface");
+    await expect(pinnedNote).toBeVisible();
+    await shot(page, "03b-note-edit-pinned");
+    await pinnedNote.getByRole("button", { name: "Unpin note editor" }).click();
+    await expect(noteEditor).toBeVisible();
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 

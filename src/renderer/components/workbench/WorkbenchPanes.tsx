@@ -21,6 +21,7 @@ import { registerTerminalSlot } from "../../lib/terminal-state";
 import { Button } from "../ui";
 import { ChatSurface } from "../chat/ChatSurface";
 import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
+import { NoteSurface } from "./NoteSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { BROWSER_ENABLED } from "@shared/features";
 
@@ -126,6 +127,16 @@ function resolveSurfaceBody(
   if (surface.kind === "task-create") {
     return (
       <TaskEnqueueSurface
+        surface={surface}
+        zone={zone}
+        visible={visible}
+        onActivate={onActivate}
+      />
+    );
+  }
+  if (surface.kind === "note") {
+    return (
+      <NoteSurface
         surface={surface}
         zone={zone}
         visible={visible}

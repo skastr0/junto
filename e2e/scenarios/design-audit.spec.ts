@@ -613,6 +613,12 @@ test("capture every surface for design review", async () => {
     const noteEditor = page.getByRole("dialog", { name: "Edit note" });
     await expect(noteEditor).toBeVisible({ timeout: 10_000 });
     await shot(page, "25-note-edit");
+    await noteEditor.getByRole("button", { name: "Pin note editor" }).click();
+    const pinnedNote = page.getByTestId("note-workbench-surface");
+    await expect(pinnedNote).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Pinned work surface dock" })).toBeVisible();
+    await pinnedNote.getByRole("button", { name: "Unpin note editor" }).click();
+    await expect(noteEditor).toBeVisible();
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     const pageNode = page

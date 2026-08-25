@@ -62,10 +62,20 @@ export interface DockTaskCreatePayload {
   readonly mode: "task" | "proposal";
 }
 
+export interface DockNotePayload {
+  readonly nodeId: string;
+  readonly title: string;
+  /** Live textarea value; kept outside the React Flow node lifecycle. */
+  readonly draft: string;
+  /** Last value committed to the canvas by an explicit or durability save. */
+  readonly savedText: string;
+}
+
 const HERDR_SURFACE_PREFIX = "herdr:";
 const TERMINAL_SURFACE_PREFIX = "terminal:";
 const CHAT_SURFACE_PREFIX = "chat:";
 const TASK_CREATE_SURFACE_PREFIX = "task-create:";
+const NOTE_SURFACE_PREFIX = "note:";
 export const terminalSurfaceId = (nodeId: string): string => `${TERMINAL_SURFACE_PREFIX}${nodeId}`;
 export const parseTerminalSurfaceId = (id: string): string | null => id.startsWith(TERMINAL_SURFACE_PREFIX) && id.length > TERMINAL_SURFACE_PREFIX.length ? id.slice(TERMINAL_SURFACE_PREFIX.length) : null;
 export const chatSurfaceId = (nodeId: string): string => `${CHAT_SURFACE_PREFIX}${nodeId}`;
@@ -78,6 +88,11 @@ export const taskCreateSurfaceId = (nodeId: string): string =>
 export const parseTaskCreateSurfaceId = (id: string): string | null =>
   id.startsWith(TASK_CREATE_SURFACE_PREFIX) && id.length > TASK_CREATE_SURFACE_PREFIX.length
     ? id.slice(TASK_CREATE_SURFACE_PREFIX.length)
+    : null;
+export const noteSurfaceId = (nodeId: string): string => `${NOTE_SURFACE_PREFIX}${nodeId}`;
+export const parseNoteSurfaceId = (id: string): string | null =>
+  id.startsWith(NOTE_SURFACE_PREFIX) && id.length > NOTE_SURFACE_PREFIX.length
+    ? id.slice(NOTE_SURFACE_PREFIX.length)
     : null;
 
 /** Surface id for a herdr terminal bound to a canvas node. */
@@ -98,6 +113,8 @@ export const dock$ = observable({
   chatById: {} as Record<string, DockChatPayload>,
   /** task-create:<nodeId> -> quick enqueue surface for a tasks sink. */
   taskCreateById: {} as Record<string, DockTaskCreatePayload>,
+  /** note:<nodeId> -> focus-safe Note editor draft and durability baseline. */
+  noteById: {} as Record<string, DockNotePayload>,
   /** Explicit Stop Page failures stay visible until retry/open succeeds. */
   stopErrorByRef: {} as Record<string, string>,
   configHydrated: false,
@@ -168,6 +185,8 @@ const applyTransition = (transition: WorkbenchTransition): void => {
       dock$.chatById[closed.id].delete();
     } else if (closed.kind === "task-create") {
       dock$.taskCreateById[closed.id].delete();
+    } else if (closed.kind === "note") {
+      dock$.noteById[closed.id].delete();
     }
   }
 };
@@ -219,6 +238,46 @@ export const openTaskCreateSurface = (
     openSurface(dock$.registry.peek(), { id, kind: "task-create" }, zone),
   );
   clearHerdrKeyboardFocus();
+};
+
+/**
+ * Open a freeform Note in the shared workbench. Draft ownership deliberately
+ * lives here rather than inside TextNode: React Flow may rebuild or temporarily
+ * omit a card while canvas projections update, but operator-owned focus and
+ * unsaved text must survive that churn.
+ */
+export const openNoteSurface = (
+  node: CanvasNode,
+  zone: WorkZone = "focus",
+): void => {
+  if (node.type !== "text" || node.ether?.entity) return;
+  const id = noteSurfaceId(node.id);
+  const title = node.text.split("\n")[0]?.trim() || "Note";
+  const existing = dock$.noteById[id].peek();
+  dock$.noteById[id].set(
+    existing
+      ? { ...existing, title }
+      : {
+          nodeId: node.id,
+          title,
+          draft: node.text,
+          savedText: node.text,
+        },
+  );
+  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "note" }, zone));
+  clearHerdrKeyboardFocus();
+};
+
+export const updateNoteSurfaceDraft = (id: string, draft: string): void => {
+  const payload = dock$.noteById[id].peek();
+  if (!payload || payload.draft === draft) return;
+  dock$.noteById[id].set({ ...payload, draft });
+};
+
+export const markNoteSurfaceSaved = (id: string, savedText: string): void => {
+  const payload = dock$.noteById[id].peek();
+  if (!payload) return;
+  dock$.noteById[id].set({ ...payload, savedText });
 };
 
 /**

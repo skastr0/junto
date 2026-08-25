@@ -24,8 +24,10 @@ import {
   chatSurfaceId,
   dock$,
   herdrSurfaceId,
+  noteSurfaceId,
   openAgentChatSurface,
   openDockBrowser,
+  openNoteSurface,
   openTaskCreateSurface,
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
@@ -38,6 +40,11 @@ import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state
 import { herdr$ } from "../src/renderer/lib/herdr-state";
 import { openTerminalSurface, terminal$ } from "../src/renderer/lib/terminal-state";
 import type { CanvasNode } from "../src/shared/canvas";
+import {
+  discardAndCloseNoteSurface,
+  saveNoteSurfaceDraft,
+} from "../src/renderer/components/workbench/NoteSurface";
+import { state$ } from "../src/renderer/lib/state";
 
 // --- pure registry ---------------------------------------------------------
 
@@ -148,6 +155,7 @@ describe("surface-registry (pure workbench)", () => {
     expect(isInteractiveSurface("herdr")).toBe(true);
     expect(isInteractiveSurface("chat")).toBe(true);
     expect(isInteractiveSurface("task-create")).toBe(true);
+    expect(isInteractiveSurface("note")).toBe(true);
   });
 
   it("opens task-create into focus and pins beside other surfaces", () => {
@@ -180,6 +188,9 @@ describe("surface-registry (pure workbench)", () => {
         { id: "c2", kind: "chat", zone: "focus" },
       ]),
     ).toBe("chat");
+    expect(
+      workFocusSizeKeyForSurfaces([{ id: "note:n1", kind: "note", zone: "focus" }]),
+    ).toBe("document");
     expect(
       workFocusSizeKeyForSurfaces([
         { id: "t1", kind: "terminal", zone: "focus" },
@@ -279,9 +290,12 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
 }
 
 function resetDock(): void {
+  state$.doc.set({ nodes: [], edges: [] });
   dock$.registry.set(initialWorkbenchState());
   dock$.browserByRef.set({});
   dock$.chatById.set({});
+  dock$.taskCreateById.set({});
+  dock$.noteById.set({});
   dock$.stopErrorByRef.set({});
   dock$.configHydrated.set(false);
   browser$.sessionByRef.set({});
@@ -392,6 +406,71 @@ describe("dock-state", () => {
     closeWorkbenchSurface(id);
     expect(dock$.registry.peek().surfaces).toEqual([]);
     expect(dock$.chatById[id].peek()).toBeUndefined();
+  });
+
+  it("keeps a Note draft outside the canvas card across pinning and repeated opens", () => {
+    const node = {
+      id: "note-1",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 160,
+      text: "Field notes\n\nOriginal",
+    } satisfies CanvasNode;
+
+    openNoteSurface(node);
+    const id = noteSurfaceId(node.id);
+    dock$.noteById[id].draft.set("Field notes\n\nOperator draft");
+    pinWorkbenchSurface(id);
+    openNoteSurface({ ...node, text: "Field notes\n\nProjection update" });
+
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id, kind: "note", zone: "pinned" },
+    ]);
+    expect(dock$.noteById[id].peek()).toMatchObject({
+      nodeId: "note-1",
+      draft: "Field notes\n\nOperator draft",
+      savedText: "Field notes\n\nOriginal",
+    });
+
+    closeWorkbenchSurface(id);
+    expect(dock$.noteById[id].peek()).toBeUndefined();
+  });
+
+  it("durability saves a Note draft without dismissing its focus surface", () => {
+    const node = {
+      id: "note-save",
+      type: "text" as const,
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 160,
+      text: "Focus-safe note",
+    } satisfies CanvasNode;
+    state$.doc.set({ nodes: [node], edges: [] });
+    openNoteSurface(node);
+    const id = noteSurfaceId(node.id);
+    dock$.noteById[id].draft.set("Focus-safe note\n\nStill open after canvas flush");
+
+    saveNoteSurfaceDraft(id);
+
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id, kind: "note", zone: "focus" },
+    ]);
+    expect(state$.doc.peek().nodes[0]).toMatchObject({
+      text: "Focus-safe note\n\nStill open after canvas flush",
+    });
+    expect(dock$.noteById[id].peek()?.savedText).toBe(
+      "Focus-safe note\n\nStill open after canvas flush",
+    );
+
+    dock$.noteById[id].draft.set("discard me");
+    discardAndCloseNoteSurface(id);
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(state$.doc.peek().nodes[0]).toMatchObject({
+      text: "Focus-safe note\n\nStill open after canvas flush",
+    });
   });
 
   it("opens many browsers without detaching earlier ones (tabs replace eviction)", async () => {
