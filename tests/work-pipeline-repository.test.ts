@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
 import {
   WorkRepository,
@@ -424,5 +425,64 @@ describe("pipeline persistence", () => {
     const promoted = await taskAt(s2, "task-gated");
     expect(promoted?.metadata?.["vellum.pipeline.admittedEpoch"]).toBe(0);
     expect(promoted?.state).toBe("submitted");
+  });
+
+  it("passthrough admission and raisedBy; patches defects onto the durable row", async () => {
+    const raisedBy = {
+      seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`),
+      canvasName: "factory",
+      nodeId: "agent-1",
+    };
+    await runtime.runPromise(
+      repository.createTask({
+        sink: s1,
+        basis,
+        task: {
+          id: "task-pass",
+          state: "submitted",
+          history: [
+            {
+              messageId: "m-pass",
+              role: "user",
+              parts: [{ kind: "text", text: "keep overlay" }],
+            },
+          ],
+          admission: "operator-gated",
+          raisedBy,
+        },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const defects = [
+      { epoch: 1, target: "stage-1", at: "2026-08-20T12:00:00.000Z" },
+    ];
+    await runtime.runPromise(
+      repository.transitionTask({
+        sink: s1,
+        basis,
+        taskId: "task-pass",
+        state: "completed",
+        pipeline: {
+          journey: [
+            {
+              nodeId: "stage-1",
+              enteredAt: observedAt,
+              epoch: 0,
+              exitedAt: "2026-08-20T12:00:00.000Z",
+              exit: "closed",
+            },
+          ],
+          defects,
+        },
+        originAt: "2026-08-20T12:00:00.000Z",
+        receivedAt: "2026-08-20T12:00:00.000Z",
+      }),
+    );
+    const after = await taskAt(s1, "task-pass");
+    expect(after?.admission).toBe("operator-gated");
+    expect(after?.raisedBy).toEqual(raisedBy);
+    expect(after?.defects).toEqual(defects);
+    expect(after?.state).toBe("completed");
   });
 });

@@ -1488,10 +1488,16 @@ export const WorkLive = Layer.effect(
             }
             // Terminal close of a pipeline task stamps the passage exit on
             // the same row; the durable write carries the journey patch.
+            const pipeline = {
+              ...(policy.task.journey !== undefined
+                ? { journey: policy.task.journey }
+                : {}),
+              ...(policy.task.defects !== undefined
+                ? { defects: policy.task.defects }
+                : {}),
+            };
             const journeyPatch =
-              state === "completed" && policy.task.journey !== undefined
-                ? { pipeline: { journey: policy.task.journey } }
-                : {};
+              Object.keys(pipeline).length > 0 ? { pipeline } : {};
             const action = {
               operation: "task.transition" as const,
               taskId,

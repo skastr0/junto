@@ -382,11 +382,19 @@ export type TransitionTaskInput = LocalWorkInput & {
 export type TaskPipelinePatch = {
   readonly epoch?: number;
   readonly journey?: TaskValue["journey"];
+  readonly defects?: TaskValue["defects"];
   readonly holdUntil?: string | null;
   readonly boarding?: TaskValue["boarding"] | null;
   readonly claims?: TaskValue["claims"];
   /** Operator promotion marker for the given epoch (metadata bag key). */
   readonly admittedEpoch?: number | null;
+  /**
+   * Omitted: keep the durable row's admission / raisedBy (passthrough).
+   * Set: write through. admission null clears (re-home). raisedBy is
+   * identity — no null clear.
+   */
+  readonly admission?: TaskValue["admission"] | null;
+  readonly raisedBy?: TaskValue["raisedBy"];
 };
 
 export type ForwardTaskInput = LocalWorkInput & {
@@ -1666,7 +1674,17 @@ const applyPipelinePatch = (
   let next: TaskValue = { ...task };
   if (patch.epoch !== undefined) next = { ...next, epoch: patch.epoch };
   if (patch.journey !== undefined) next = { ...next, journey: patch.journey };
+  if (patch.defects !== undefined) next = { ...next, defects: patch.defects };
   if (patch.claims !== undefined) next = { ...next, claims: patch.claims };
+  if (patch.raisedBy !== undefined) next = { ...next, raisedBy: patch.raisedBy };
+  if (patch.admission !== undefined) {
+    if (patch.admission === null) {
+      const { admission: _admission, ...rest } = next;
+      next = rest;
+    } else {
+      next = { ...next, admission: patch.admission };
+    }
+  }
   if (patch.holdUntil !== undefined) {
     if (patch.holdUntil === null) {
       const { holdUntil: _hold, ...rest } = next;
