@@ -18,7 +18,10 @@ import type {
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
 import { getVellumCommandApi } from "../../lib/vellum-api";
-import type { AgentConfigurationChoices } from "./agent-launch-model";
+import {
+  firstCascadeColumn,
+  type AgentConfigurationChoices,
+} from "./agent-launch-model";
 
 export type { AgentConfigurationChoices };
 
@@ -298,8 +301,9 @@ export function AgentCascadeMenu({
    * tools together). Those list modes in the first column, labelled as modes
    * and committed as `mode`, so nothing calls a mode a model.
    */
-  const templateModes = templateFor(harness).modes ?? [];
-  const usesModes = templateModes.length > 0;
+  const firstColumn = firstCascadeColumn(harness);
+  const templateModes = firstColumn.kind === "modes" ? firstColumn.modes : [];
+  const usesModes = firstColumn.kind === "modes";
   const firstColumnIsLoading = usesModes
     ? false
     : harness === "hermes"

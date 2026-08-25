@@ -30,7 +30,16 @@ import { CanvasesService } from "../canvases";
 import { isAmpThreadId, provisionAmpThread } from "./templates/amp-thread";
 
 export type SeatThreadResult =
-  | { readonly ok: true; readonly sessionId: string }
+  | {
+      readonly ok: true;
+      readonly sessionId: string;
+      /**
+       * True when this call created the thread. A minted thread is EMPTY, so
+       * the seat still needs its Tier-B doctrine; a thread that was already on
+       * the node carries its own history and must not be re-bootstrapped.
+       */
+      readonly minted: boolean;
+    }
   | { readonly ok: false; readonly reason: string };
 
 /** Harnesses whose session id is minted by their own CLI before spawn. */
@@ -48,7 +57,7 @@ const provisionFor = async (
         cwd === undefined ? {} : { cwd },
       );
       return minted.ok
-        ? { ok: true, sessionId: minted.threadId }
+        ? { ok: true, sessionId: minted.threadId, minted: true }
         : { ok: false, reason: minted.failure.reason };
     }
     default:
@@ -109,10 +118,16 @@ export const ensureProvisionedSessionId = async (input: {
 }): Promise<SeatThreadResult> => {
   const harness = input.harness.trim();
   if (!isHarnessId(harness) || !usesProvisionedSession(harness)) {
-    return { ok: true, sessionId: input.storedSessionId?.trim() ?? "" };
+    return {
+      ok: true,
+      sessionId: input.storedSessionId?.trim() ?? "",
+      minted: false,
+    };
   }
   const existing = storedSessionId(harness, input.storedSessionId);
-  if (existing !== undefined) return { ok: true, sessionId: existing };
+  if (existing !== undefined) {
+    return { ok: true, sessionId: existing, minted: false };
+  }
 
   const minted = await provisionFor(harness, input.cwd);
   if (!minted.ok) return minted;
@@ -131,5 +146,5 @@ export const ensureProvisionedSessionId = async (input: {
       reason: `provisioned ${minted.sessionId} but could not store it on the seat: ${message}`,
     };
   }
-  return { ok: true, sessionId: minted.sessionId };
+  return { ok: true, sessionId: minted.sessionId, minted: true };
 };

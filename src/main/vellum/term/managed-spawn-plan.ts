@@ -317,10 +317,14 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     // the wrong thread.
     return undefined;
   }
+  // For a provisioned harness `resume` means only one thing here: does the
+  // thread already carry history? A thread minted for this spawn is empty, so
+  // the seat still needs its Tier-B doctrine even though the launch argv is
+  // the resume subcommand either way (see the resumeId choice below).
   // -r / --resume only when external harness state proves the id exists.
   // Canvas mint alone is not proof; unproven → pin/create (fail open).
   const resume = provisioned
-    ? Boolean(sessionId)
+    ? Boolean(sessionId && input.resume)
     : Boolean(sessionId && input.resume) &&
       shouldResumeHarnessSession(true, {
         harness,
@@ -343,7 +347,10 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(input.permissionMode ?? recovered.permissionMode
       ? { permissionMode: input.permissionMode ?? recovered.permissionMode }
       : {}),
-    ...(sessionId && resume
+    // A provisioned harness has exactly one launch shape — `threads continue
+    // <id>` — whether or not the thread has history, because the id IS the
+    // seat's thread. Injection arming is decided by `resume` above, not here.
+    ...(sessionId && (resume || provisioned)
       ? { resumeId: sessionId }
       : sessionId
         ? { sessionId }

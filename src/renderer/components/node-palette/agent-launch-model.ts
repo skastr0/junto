@@ -4,7 +4,7 @@ import {
   TERMINAL_HOST_CAPABILITY,
 } from "@shared/remote-hosts";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
-import type { HarnessId } from "@shared/managed-terminal-templates";
+import { templateFor, type HarnessId } from "@shared/managed-terminal-templates";
 import { mergeHarnessLaunchDefaults } from "@shared/harness-settings";
 import type { Settings } from "@shared/settings";
 
@@ -81,4 +81,25 @@ export const actorHostChoicesFromEnrollment = (
   return enrolled.some((host) => host.id === configured.id)
     ? enrolled
     : [configured, ...enrolled];
+};
+
+/**
+ * What the cascade's first column offers for a harness.
+ *
+ * Three shapes, because harnesses genuinely differ: Hermes picks a profile
+ * first, most harnesses pick a model, and a harness whose only dial is a named
+ * mode (Amp `-m low|medium|high|ultra`, which selects model, system prompt,
+ * and tools together) picks a mode. Naming the shape here — rather than
+ * inferring it inside the menu — is what keeps a mode from being labelled or
+ * committed as a model.
+ */
+export type CascadeFirstColumn =
+  | { readonly kind: "profiles" }
+  | { readonly kind: "models" }
+  | { readonly kind: "modes"; readonly modes: readonly string[] };
+
+export const firstCascadeColumn = (harness: HarnessId): CascadeFirstColumn => {
+  if (harness === "hermes") return { kind: "profiles" };
+  const modes = templateFor(harness).modes ?? [];
+  return modes.length > 0 ? { kind: "modes", modes } : { kind: "models" };
 };

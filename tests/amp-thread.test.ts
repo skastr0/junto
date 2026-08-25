@@ -13,6 +13,11 @@ import {
   planManagedSpawn,
 } from "../src/main/vellum/term/managed-spawn-plan";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
+import { firstCascadeColumn } from "../src/renderer/components/node-palette/agent-launch-model";
+import { harnessBinaryInstalled } from "../src/main/vellum/term/templates/harness-install";
+import { evaluate } from "../src/main/vellum/term/agent-state";
+import { ManagedTerminalDrive } from "../src/main/vellum/term/drive";
+import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
 import { AMP_TEMPLATE } from "../src/shared/managed-terminal-templates";
 
 // The receipt shape below is real output from
@@ -141,6 +146,9 @@ describe("ensureProvisionedSessionId", () => {
     expect(result).toEqual({
       ok: true,
       sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+      // Not minted here: the seat is resuming its own thread, so the doctrine
+      // must not be typed in again.
+      minted: false,
     });
   });
 
@@ -154,6 +162,7 @@ describe("ensureProvisionedSessionId", () => {
     expect(result).toEqual({
       ok: true,
       sessionId: "5a2f1f6c-1f1e-4c7a-9a1e-3f0f5b2a7c11",
+      minted: false,
     });
   });
 
@@ -217,5 +226,150 @@ describe("an Amp seat authored from the picker", () => {
     expect(AMP_TEMPLATE.modes).toEqual(["low", "medium", "high", "ultra"]);
     expect(AMP_TEMPLATE.efforts).toEqual([]);
     expect(AMP_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
+  });
+});
+
+describe("AC-1: Amp is offered only where it is installed", () => {
+  it("finds amp on PATH and at its known install location, and nothing else", () => {
+    expect(
+      harnessBinaryInstalled("amp", "amp", {
+        pathEnv: "/nowhere",
+        home: "/fake-home",
+        pathSep: ":",
+      }),
+    ).toBe(false);
+  });
+
+  it("offers modes rather than models in the picker's first column", () => {
+    expect(firstCascadeColumn("amp")).toEqual({
+      kind: "modes",
+      modes: ["low", "medium", "high", "ultra"],
+    });
+    expect(firstCascadeColumn("claude")).toEqual({ kind: "models" });
+    expect(firstCascadeColumn("hermes")).toEqual({ kind: "profiles" });
+  });
+});
+
+describe("AC-7: mail waits for a verified idle Amp seat", () => {
+  const snap = (
+    title: string,
+    lines: readonly string[],
+  ): ObserverGridSnapshot => ({
+    cols: 143,
+    rows: 40,
+    lines: [...lines],
+    text: lines.join("\n"),
+    signals: {
+      title,
+      osc9: "",
+      modes: {
+        bracketedPaste: false,
+        synchronizedOutput: false,
+        altScreen: false,
+        mouseModes: [],
+      },
+    },
+    seq: 1n,
+    epoch: "e1",
+    bindingId: "b1",
+  });
+
+  // Real frames again: a streaming turn, then the settled composer.
+  const WORKING = snap("\u28f6 amp - ~/Projects/vellum", [
+    "\u2570 ~ Streaming \u2500 ~/Projects/vellum (main) \u2500\u256f",
+  ]);
+  const IDLE = snap("Ready response - amp - ~/Projects/vellum", [
+    "\u2570\u2500 ~/Projects/vellum (main) \u2500\u256f",
+  ]);
+
+  it("queues while the turn streams and submits once the turn settles", async () => {
+    const writes: string[] = [];
+    let seatIdle = evaluate(WORKING, { harness: "amp" }).state === "idle";
+    expect(seatIdle).toBe(false);
+
+    const drive = new ManagedTerminalDrive({
+      write: (_bindingId, data) => {
+        writes.push(data);
+        return true;
+      },
+      isSeatIdle: () => seatIdle,
+      stallWatch: false,
+      pasteToCrSettleMs: 0,
+    });
+
+    const delivery = drive.writePrompt("b1", "mail body", {
+      queueTimeoutMs: 5_000,
+    });
+    await Promise.resolve();
+    expect(writes).toEqual([]);
+    expect(drive.queuedCount("b1")).toBe(1);
+
+    seatIdle = evaluate(IDLE, { harness: "amp" }).state === "idle";
+    expect(seatIdle).toBe(true);
+    drive.onSeatIdle("b1");
+    expect(await delivery).toBe(true);
+    expect(writes).toEqual([
+      "\u001b[200~mail body\u001b[201~",
+      "\r",
+    ]);
+    drive.resetForTest();
+  });
+});
+
+describe("AC-8: a restart resumes the same thread without re-injecting doctrine", () => {
+  const seat = (resume: boolean) => ({
+    harness: "amp",
+    agentKey: "local:amp",
+    sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    resume,
+    injection: {
+      seatBound: true,
+      connected: true,
+      seatRef: "agent-1",
+      connectedTargets: [
+        { id: "task-1", kind: "task", title: "tasks", grants: ["tasks.list"] },
+      ],
+    },
+    documentLaunch: {
+      kind: "harness" as const,
+      argv: [
+        "amp",
+        "--no-ide",
+        "threads",
+        "continue",
+        "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+      ],
+    },
+  });
+
+  it("re-opens the exact thread and arms no bootstrap message", () => {
+    const resumed = planManagedSpawn(seat(true));
+    expect(resumed?.launch?.argv).toEqual([
+      "amp",
+      "--no-ide",
+      "threads",
+      "continue",
+      "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    ]);
+    // The thread already carries the doctrine in its own history.
+    expect(resumed?.firstTypedMessage).toBeUndefined();
+    expect(resumed?.injection.inject).toBe(false);
+  });
+
+  it("arms the Tier-B bootstrap for the freshly minted thread", () => {
+    // The thread `amp threads new` just created is empty, so the first launch
+    // is a fresh seat even though its argv is the resume subcommand. Without
+    // this split an Amp seat would never receive its doctrine at all.
+    const fresh = planManagedSpawn(seat(false));
+    expect(fresh?.launch?.argv).toEqual([
+      "amp",
+      "--no-ide",
+      "threads",
+      "continue",
+      "T-01a03989-71a6-733b-ac4c-76f54969cb55",
+    ]);
+    expect(fresh?.injection.tier).toBe("B");
+    expect(fresh?.injection.inject).toBe(true);
+    expect(fresh?.firstTypedMessage?.length ?? 0).toBeGreaterThan(0);
   });
 });

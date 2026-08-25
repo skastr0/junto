@@ -291,6 +291,10 @@ export const registerTerminalIpc = (
         }
         const sessionIdForSpawn =
           provisioned.sessionId || node.ether?.terminal?.sessionId;
+        // A thread minted for this spawn is empty: the seat is fresh and must
+        // receive its doctrine, however the launch argv is shaped.
+        const resumeRequested =
+          provisioned.ok && provisioned.minted ? false : input.resume === true;
         const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
         // Pure compilation only. Session proof, isolation, final argv, and
         // first-typed disposition belong to the selected process host.
@@ -302,7 +306,7 @@ export const registerTerminalIpc = (
           agentKey: surface.agentKey,
           cwd: surface.launch?.cwd,
           sessionId: sessionIdForSpawn,
-          resume: input.resume === true,
+          resume: resumeRequested,
         });
 
         nodeDelete.assertCreate(createAdmission);

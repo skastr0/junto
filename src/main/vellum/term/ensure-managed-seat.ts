@@ -230,7 +230,8 @@ export const ensureManagedSeatRunning = (
         agentKey: surface.agentKey,
         cwd: surface.launch?.cwd,
         ...(provisioned.sessionId ? { sessionId: provisioned.sessionId } : {}),
-        resume: true,
+        // A thread minted right here is empty — this seat is fresh, not a wake.
+        resume: !provisioned.minted,
       }),
     };
 
