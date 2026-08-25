@@ -9,6 +9,7 @@ import { deleteNode, renameGroup } from "../../lib/mutations";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$, toggleConnectionFocus } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
+import { regionGlanceFontSize } from "../../lib/region-glance";
 import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
 import {
   isMultiSelectGesture,
@@ -160,6 +161,12 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // resizeNode) repaints it without this card watching the whole document.
   const nestingDepth = data.regionDepth ?? 0;
   const nestedTooDeep = nestingDepth > MAX_REGION_DEPTH;
+  // Zoomed-out watermark (see region-glance.ts). Outermost regions only: nested
+  // plates would stack names on top of each other and read as noise. Opacity is
+  // inherited from the ReactFlow root, so this costs no render on zoom.
+  // An unnamed region has nothing to say at a distance — print nothing rather
+  // than a placeholder the operator cannot navigate by.
+  const glanceable = nestingDepth === 0 && label.trim().length > 0;
 
   useEffect(() => {
     if (!editing) return;
@@ -280,6 +287,19 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     }}
   >
+    {glanceable ? (
+      <div className="vellum-region-glance" aria-hidden>
+        <span
+          className="vellum-region-glance__text"
+          style={{
+            fontSize: `${regionGlanceFontSize(node.width, node.height, label)}px`,
+            ...(node.color ? { color: withAlpha(tint, 0.4) } : {}),
+          }}
+        >
+          {label}
+        </span>
+      </div>
+    ) : null}
     <div style={{ pointerEvents: "auto" }}>
       <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
     </div>

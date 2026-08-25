@@ -88,6 +88,7 @@ import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
+import { RegionGlanceGate } from "./RegionGlanceGate";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
@@ -1557,6 +1558,7 @@ function CanvasGraph() {
       <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(fieldTheme.ink!, 0.07)} />
       <CanvasLoom edges={edges} />
       <CanvasMagnifier />
+      <RegionGlanceGate />
       <ImpactSeedChip />
       <ConnectPreviewChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}

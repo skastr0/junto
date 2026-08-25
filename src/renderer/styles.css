@@ -1126,6 +1126,31 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .vellum-group__label { display: inline-flex; align-items: center; gap: 6px; color: color-mix(in oklab, var(--color-ink) 60%, transparent) !important; background: transparent !important; border-color: transparent !important; }
 .vellum-group__label:hover { color: color-mix(in oklab, var(--color-ink) 85%, transparent) !important; }
 .vellum-group__label-prefix { color: var(--color-faint); }
+/* Region glance — pulled-back camera prints the region name across its body.
+   Opacity rides --vellum-region-glance, written on the ReactFlow root per zoom
+   (see lib/region-glance.ts); at readable zoom the value is 0 and this is invisible. */
+.vellum-region-glance {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: var(--vellum-region-glance, 0);
+}
+.vellum-region-glance__text {
+  max-width: 100%;
+  color: color-mix(in oklab, var(--color-ink) 32%, transparent);
+  font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  line-height: 1;
+  letter-spacing: .1em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .vellum-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid var(--color-amber) !important; border-radius: 2px !important; background: var(--color-inset) !important; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
 .vellum-resize-line { border-color: color-mix(in oklab, var(--color-main) 50%, transparent) !important; }
 /* Cards drag from anywhere; keep motion quiet and physical. */
