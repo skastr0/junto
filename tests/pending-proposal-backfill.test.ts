@@ -394,11 +394,23 @@ describe("runPendingProposalBackfill", () => {
   });
 });
 
-describe.skip("pending-proposal backfill — GO gates", () => {
-  it("stamps Task.admission and Task.raisedBy on the durable row", () => {
-    // GO: first-class Task.admission / Task.raisedBy, then persist through
-    // repository without a second writer. Until then the overlay lives on
-    // UnadmittedMaterialization only.
+describe("pending-proposal backfill — GO fields", () => {
+  it("stamps Task.admission and Task.raisedBy on the materialized task", () => {
+    const out = materializePendingProposal({
+      proposal: {
+        id: "prop-1",
+        state: "pending",
+        brief: {
+          messageId: "m1",
+          role: "user",
+          parts: [{ kind: "text", text: "Do it" }],
+        },
+        proposedBy,
+        metadata: { details: "Do it" },
+      },
+    });
+    expect(out.task.admission).toBe("operator-gated");
+    expect(out.task.raisedBy).toEqual(proposedBy);
   });
 });
 

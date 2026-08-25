@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import type { Task, TaskProposal, CanvasDoc, CanvasNode } from "./canvas";
+import type { TasksSinkContract } from "./work-model";
 import { claimedByOf, isTerminalTaskState } from "./task";
+import { taskAdmissionState } from "./claims";
 import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
 import { resolveSpec, roleOf } from "./physics/kinds";
 import {
@@ -36,9 +38,31 @@ const roleOfNode = (node: CanvasNode) =>
     }),
   );
 
+const isQueuedSubmitted = (
+  item: Task,
+  contract: TasksSinkContract | undefined,
+  nowMs: number,
+): boolean => {
+  if (item.state !== "submitted") return false;
+  const admission = taskAdmissionState(item, contract, nowMs);
+  return admission === "claimable" || admission === "held";
+};
+
+const isUnadmittedSubmitted = (
+  item: Task,
+  contract: TasksSinkContract | undefined,
+  nowMs: number,
+): boolean => {
+  if (item.state !== "submitted") return false;
+  const admission = taskAdmissionState(item, contract, nowMs);
+  return admission === "operator-gated" || admission === "operator-owned";
+};
+
 /** Sink-card glance counts (tasks / requests): queued / in flight / needs input. */
 export const sinkGlance = (
   items: ReadonlyArray<Task>,
+  contract?: TasksSinkContract,
+  nowMs: number = Date.now(),
 ): {
   readonly queued: number;
   readonly inFlight: number;
@@ -49,7 +73,7 @@ export const sinkGlance = (
   let inFlightCount = 0;
   let needsInput = 0;
   for (const item of items) {
-    if (item.state === "submitted") queued += 1;
+    if (isQueuedSubmitted(item, contract, nowMs)) queued += 1;
     if (inFlight(item)) inFlightCount += 1;
     if (needsHuman(item)) needsInput += 1;
   }
@@ -57,21 +81,30 @@ export const sinkGlance = (
 };
 
 /**
- * Compact TaskScan counters. Proposals are planning inventory, so only
- * pending proposals appear in the scan. Completed is executable work that
- * reached its terminal success state; other terminal states stay out of this
- * small history count.
+ * Compact TaskScan counters. Unadmitted submitted tasks (and leftover
+ * pending proposals not yet backfilled) are planning inventory.
  */
 export const taskScanCounts = (
   items: ReadonlyArray<Task>,
-  proposals: ReadonlyArray<Pick<TaskProposal, "state">> = [],
+  proposals: ReadonlyArray<Pick<TaskProposal, "id" | "state">> = [],
+  contract?: TasksSinkContract,
+  nowMs: number = Date.now(),
 ): {
   readonly proposals: number;
   readonly completed: number;
-} => ({
-  proposals: proposals.filter((proposal) => proposal.state === "pending").length,
-  completed: items.filter((item) => item.state === "completed").length,
-});
+} => {
+  const itemIds = new Set(items.map((item) => item.id));
+  const unadmitted = items.filter((item) =>
+    isUnadmittedSubmitted(item, contract, nowMs),
+  ).length;
+  const leftover = proposals.filter(
+    (proposal) => proposal.state === "pending" && !itemIds.has(proposal.id),
+  ).length;
+  return {
+    proposals: unadmitted + leftover,
+    completed: items.filter((item) => item.state === "completed").length,
+  };
+};
 
 /**
  * Per-node attention signal for chrome (`data-attention`).

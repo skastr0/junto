@@ -967,22 +967,27 @@ const dispatchOp = (
       if ("type" in gate) return yield* Effect.fail(gate);
       const actor = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(actor)) return yield* Effect.fail(actor.failure);
-      const result = yield* work.workTaskPropose(
+      const result = yield* work.workTaskCreate(
         caller.canvasName,
         decoded.success.target,
         decoded.success.brief,
         decoded.success.metadata,
-        actor.success,
         decoded.success.reason,
         decoded.success.media,
         decoded.success.dependsOn,
         decoded.success.finishCriteria,
         decoded.success.claims,
+        {
+          admission: decoded.success.admission,
+          admissionOmitted: "operator-gated",
+          ...(decoded.success.holdForMs !== undefined
+            ? { holdForMs: decoded.success.holdForMs }
+            : {}),
+          raisedBy: actor.success,
+        },
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      // The standing law the proposal will have to answer, station by station,
-      // so the raiser can address claims before the journey starts.
       const law = stationLawMap(board, decoded.success.target);
       return {
         ...exposeWorkMutation(mapped.success),

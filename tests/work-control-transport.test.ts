@@ -817,35 +817,30 @@ describe("work control transport", () => {
       ok: true;
       data: {
         id: string;
-        proposedBy: { seatId: string; nodeId: string };
+        raisedBy: { seatId: string; nodeId: string };
+        admission?: string;
       };
     };
     expect(created.ok).toBe(true);
-    expect(created.data.proposedBy).toMatchObject({
+    expect(created.data.raisedBy).toMatchObject({
       seatId: actor.seatId,
       nodeId: actor.nodeId,
     });
+    expect(created.data.admission).toBe("operator-gated");
 
-    const proposalId = created.data.id;
+    const taskId = created.data.id;
     const denied = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
-      args: { target: "tasks", task: proposalId },
+      args: { target: "tasks", task: taskId },
     })) as { ok: false; error: { type: string; message: string } };
     expect(denied.ok).toBe(false);
-    expect(denied.error.type).toBe("UnknownTarget");
-
-    const actorUpdate = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.update",
-      args: { target: "tasks", task: proposalId, state: "rejected" },
-    })) as { ok: false; error: { type: string; message: string } };
-    expect(actorUpdate.ok).toBe(false);
-    expect(actorUpdate.error.type).toBe("UnknownTarget");
+    expect(denied.error.type).toBe("InputError");
+    expect(denied.error.message).toMatch(/promotion|operator/i);
 
     const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
     const approved = await runtimes[runtimes.length - 1]!.runPromise(
-      work.workTaskApproveProposal("work-cli", "tasks", proposalId),
+      work.workTaskApproveProposal("work-cli", "tasks", taskId),
     );
     expect(approved.ok).toBe(true);
     if (!approved.ok) throw new Error(approved.message);
@@ -853,7 +848,7 @@ describe("work control transport", () => {
     const claimed = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
-      args: { target: "tasks", task: approved.data.id },
+      args: { target: "tasks", task: taskId },
     })) as { ok: true };
     expect(claimed.ok).toBe(true);
   });
@@ -878,17 +873,17 @@ describe("work control transport", () => {
     })) as {
       ok: true;
       data: {
-        brief: {
+        history: ReadonlyArray<{
           parts: ReadonlyArray<
             | { kind: "text"; text: string }
             | { kind: "content"; ref: ContentRef }
             | { kind: "raw"; bytesBase64: string; mediaType?: string }
           >;
-        };
+        }>;
       };
     };
     expect(created.ok).toBe(true);
-    const media = created.data.brief.parts.find(
+    const media = created.data.history[0]?.parts.find(
       (part) => part.kind === "content" || part.kind === "raw",
     );
     expect(media).toMatchObject({

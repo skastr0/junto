@@ -69,7 +69,7 @@ import {
   TaskStationConsole,
   type StationSubmission,
 } from "./TaskStationConsole";
-import { effectiveClaimsStack } from "@shared/claims";
+import { effectiveClaimsStack, taskAdmissionState } from "@shared/claims";
 import { resolveSinkAdmission, type TaskClaim } from "@shared/work-model";
 import {
   arrivalGlance,
@@ -371,12 +371,24 @@ export const isTaskClaimantRetired = (
   && !TERMINAL_STATES.has(state)
   && !activeActorSeatIds.has(claimedBy);
 
-const laneForTask = (task: WorkTask, shape: PipelineShape): LaneId => {
+const laneForTask = (
+  task: WorkTask,
+  shape: PipelineShape,
+  contract: import("@shared/work-model").TasksSinkContract | undefined,
+  nowMs: number,
+): LaneId => {
   if (TERMINAL_STATES.has(task.state)) return shape.hasOutbound ? "outbound" : "closed";
   if (task.state === "working") return "working";
   // input-required and residual durable auth-required share one attention lane
   if (task.state === "input-required" || task.state === "auth-required") return "input";
-  return shape.hasInbound ? "inbound" : "queue";
+  if (task.state === "submitted") {
+    const admission = taskAdmissionState(task, contract, nowMs);
+    if (shape.hasInbound) return "inbound";
+    if (admission === "operator-gated" || admission === "operator-owned") {
+      return "proposal";
+    }
+  }
+  return "queue";
 };
 
 const stateLabel = (state: TaskState): string => {
@@ -2234,24 +2246,36 @@ export function TaskBoard({
 }) {
   const items = node.ether?.tasks?.items ?? [];
   const proposals = node.ether?.tasks?.proposals ?? [];
+  const sinkContract = node.ether?.tasks?.contract;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const liveIds = useMemo(() => new Set(items.map((task) => task.id)), [items]);
   const proposalTasks = useMemo(
     () =>
       proposals
-        .filter((proposal) => proposal.state === "pending")
+        .filter(
+          (proposal) =>
+            proposal.state === "pending" && !liveIds.has(proposal.id),
+        )
         .map(proposalAsDisplayTask),
-    [proposals],
+    [liveIds, proposals],
   );
-  const proposalById = useMemo(
-    () =>
-      new Map(
-        proposals.map((proposal) => [
-          proposal.id,
-          proposal.proposedBy.nodeId,
-        ]),
-      ),
-    [proposals],
-  );
-  const glance = sinkGlance(items);
+  const proposalById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const proposal of proposals) {
+      map.set(proposal.id, proposal.proposedBy.nodeId);
+    }
+    for (const task of items) {
+      if (
+        task.state === "submitted" &&
+        (taskAdmissionState(task, sinkContract, nowMs) === "operator-gated" ||
+          taskAdmissionState(task, sinkContract, nowMs) === "operator-owned")
+      ) {
+        map.set(task.id, task.raisedBy?.nodeId ?? "operator");
+      }
+    }
+    return map;
+  }, [items, nowMs, proposals, sinkContract]);
+  const glance = sinkGlance(items, sinkContract, nowMs);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
@@ -2283,7 +2307,6 @@ export function TaskBoard({
   const [bulkPending, setBulkPending] = useState(false);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const api = getVellumCommandApi();
   const name = canvasName();
   const actorRefs = use$(state$.actorRefs);
@@ -2292,7 +2315,6 @@ export function TaskBoard({
     [actorRefs],
   );
   const doc = use$(state$.doc);
-  const sinkContract = node.ether?.tasks?.contract;
   // Columns follow the flow edges: incoming flow turns Proposals + Queue into
   // Inbound, outgoing flow turns Closed into Outbound (spec §7).
   const shape = useMemo(() => pipelineShape(doc, node.id), [doc, node.id]);
@@ -2340,13 +2362,15 @@ export function TaskBoard({
           Boolean(taskDetails(task)?.toLowerCase().includes(normalized));
       }),
     );
-    for (const task of visibleItems) grouped[laneForTask(task, shape)].push(task);
+    for (const task of visibleItems) {
+      grouped[laneForTask(task, shape, sinkContract, nowMs)].push(task);
+    }
     // Latest activity first in every lane (Closed especially: complete by latest).
     for (const laneId of Object.keys(grouped) as LaneId[]) {
       grouped[laneId].sort(compareTasksByLatestActivityDesc);
     }
     return grouped;
-  }, [proposalTasks, query, shape, visibleItems]);
+  }, [nowMs, proposalTasks, query, shape, sinkContract, visibleItems]);
 
   const outboundGroups = useMemo((): ReadonlyArray<TaskLaneGroup> | undefined => {
     if (!shape.hasOutbound) return undefined;

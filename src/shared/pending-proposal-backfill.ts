@@ -226,6 +226,8 @@ export const materializePendingProposal = (input: {
       ? { finishCriteria: input.proposal.finishCriteria }
       : {}),
     ...(claims !== undefined && claims.length > 0 ? { claims } : {}),
+    admission: PENDING_PROPOSAL_BACKFILL_ADMISSION,
+    raisedBy: input.proposal.proposedBy,
   };
   return {
     task,

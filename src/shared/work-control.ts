@@ -5,6 +5,7 @@ import {
   ContentPart,
   FinishCriteria,
   RawPart,
+  SinkAdmission,
   TaskClaim,
 } from "./work-model";
 import { ContentRef } from "./content";
@@ -194,28 +195,44 @@ export const TasksListArgs = Schema.Struct({
 });
 export type TasksListArgs = typeof TasksListArgs.Type;
 
-/**
- * Author a pending proposal for operator review.
- *
- * Same authoring contract as executable task creation (`workTaskCreate` /
- * `workTaskPropose`): brief + required description (`metadata.details`) +
- * optional reason/media/dependsOn/finishCriteria. Only approval mints a
- * submitted Task; proposal-only fields (`proposedBy`, `approvedTaskId`,
- * proposal state) are server-owned.
- */
-export const TasksCreateArgs = Schema.Struct({
+/** Outer bound on a hold/park stamp — no operator recourse beyond this. */
+export const HOLD_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+
+const holdForMsField = Schema.optionalKey(
+  Schema.Number.pipe(
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+    Schema.check(Schema.isLessThanOrEqualTo(HOLD_FOR_MAX_MS)),
+  ),
+);
+
+const tasksCreateFields = {
   target: Schema.String,
   brief: Schema.String,
   reason: Schema.optionalKey(Schema.String),
   metadata: Schema.optionalKey(WorkMetadata),
   /** First-class media on the brief. RawPart decodes for legacy clients but is rejected at durable write. */
   media: Schema.optionalKey(Schema.Array(Schema.Union([RawPart, ContentPart]))),
-  /** Same-sink hard prerequisites (task ids). Carried onto minted Task on approve. */
+  /** Same-sink hard prerequisites (task ids). */
   dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
-  /** Operator done-definition; carried onto minted Task on approve. */
+  /** Operator done-definition. */
   finishCriteria: Schema.optionalKey(FinishCriteria),
-  /** Station-addressed claims; set at creation, carried onto minted Task on approve. */
+  /** Station-addressed claims; set at creation. */
   claims: Schema.optionalKey(Schema.Array(TaskClaim)),
+  /**
+   * Requested admission overlay. Omitted on the agent wire persists
+   * operator-gated (clamped to the sink floor). Explicit auto is allowed
+   * only when the sink floor is auto.
+   */
+  admission: Schema.optionalKey(SinkAdmission),
+} as const;
+
+/**
+ * Author a task on a connected sink. Agents omit admission => operator-gated
+ * (persisted). Optional holdForMs bakes the origin arrival.
+ */
+export const TasksCreateArgs = Schema.Struct({
+  ...tasksCreateFields,
+  holdForMs: holdForMsField,
 }).pipe(
   Schema.check(Schema.makeFilter((args) => {
     const details = args.metadata?.details;
@@ -228,6 +245,26 @@ export const TasksCreateArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type TasksCreateArgs = typeof TasksCreateArgs.Type;
+
+/**
+ * CLI-side create input. Identical to the wire except `holdFor`, which accepts
+ * a spoken duration or milliseconds; the CLI parses it to `holdForMs`.
+ */
+export const TasksCreateCliArgs = Schema.Struct({
+  ...tasksCreateFields,
+  holdFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
+}).pipe(
+  Schema.check(Schema.makeFilter((args) => {
+    const details = args.metadata?.details;
+    return (
+      (typeof details === "string" && details.trim().length > 0) ||
+      "description (metadata.details) must be non-empty"
+    );
+  })),
+).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksCreateCliArgs = typeof TasksCreateCliArgs.Type;
 
 export const TasksClaimArgs = Schema.Struct({
   target: Schema.String,
@@ -260,16 +297,6 @@ const tasksUpdateFields = {
   /** Send the task back to the previous station with a defect on record. */
   defect: Schema.optionalKey(TaskDefectArgs),
 } as const;
-
-/** Outer bound on a completion-time hold/park stamp — no operator recourse beyond this. */
-export const HOLD_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
-
-const holdForMsField = Schema.optionalKey(
-  Schema.Number.pipe(
-    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-    Schema.check(Schema.isLessThanOrEqualTo(HOLD_FOR_MAX_MS)),
-  ),
-);
 
 export const TasksUpdateArgs = Schema.Struct({
   ...tasksUpdateFields,

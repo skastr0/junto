@@ -171,10 +171,12 @@ export function TasksCard({
   const pendingProposals = proposals.filter(
     (proposal) => proposal.state === "pending",
   );
-  const { inFlight, needsInput } = sinkGlance(items);
+  const contract = node.ether?.tasks?.contract;
+  const { inFlight, needsInput } = sinkGlance(items, contract);
   const { proposals: proposalCount, completed: completedCount } = taskScanCounts(
     items,
     proposals,
+    contract,
   );
   const hotItems = items.filter(
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",

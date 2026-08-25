@@ -18,14 +18,14 @@ import {
   RulingsArgs,
   TasksClaimArgs,
   TasksClaimsArgs,
-  TasksCreateArgs,
+  TasksCreateCliArgs,
   TasksListArgs,
   TasksShowArgs,
   TasksUpdateCliArgs,
   type WorkOpName,
 } from "../../shared/work-control";
 import { tasksBoardCommand } from "./board";
-import { toTasksUpdateArgs } from "../core/duration";
+import { toTasksCreateArgs, toTasksUpdateArgs } from "../core/duration";
 import { InputError } from "../core/errors";
 import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
@@ -105,11 +105,28 @@ const tasksCreateCommand = Command.make(
       runMutationBatch({
         input,
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: TasksCreateArgs,
-        run: (item) => callDomain("tasks.create", item, toUndefined(timeout)),
+        itemSchema: TasksCreateCliArgs,
+        run: (item) =>
+          Effect.gen(function* () {
+            const lowered = toTasksCreateArgs(item);
+            if (!lowered.ok) {
+              return yield* Effect.fail(
+                new InputError({
+                  message: lowered.message,
+                  path: "holdFor",
+                  received: item.holdFor,
+                }),
+              );
+            }
+            return yield* callDomain(
+              "tasks.create",
+              lowered.args,
+              toUndefined(timeout),
+            );
+          }),
       }),
     ),
-).pipe(Command.withDescription("Create one or more proposals for operator review"));
+).pipe(Command.withDescription("Create one or more tasks on a connected sink (batch-capable)"));
 
 const tasksUpdateCommand = Command.make(
   "update",

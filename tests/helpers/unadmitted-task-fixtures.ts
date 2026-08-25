@@ -69,6 +69,8 @@ export const unadmittedTask = (
       ? { claims: parts.claims }
       : {}),
     ...(parts.holdUntil !== undefined ? { holdUntil: parts.holdUntil } : {}),
+    ...(admission !== undefined ? { admission } : {}),
+    ...(parts.raisedBy !== undefined ? { raisedBy: parts.raisedBy } : {}),
   };
   return {
     task,

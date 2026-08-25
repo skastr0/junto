@@ -331,6 +331,92 @@ describe("work pure transforms", () => {
     expect(created.task.metadata?.details).toBe("full context");
   });
 
+  it("agent omit stamps operator-gated; explicit auto is claimable; loosen is refused", () => {
+    const worker = actorRef("1", "worker-1");
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const gated = workTaskCreate(
+      doc,
+      "alpha",
+      "tasks",
+      "gated create",
+      { details: "gated create" },
+      ids,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { admissionOmitted: "operator-gated", raisedBy: worker },
+    );
+    expect(gated.task.admission).toBe("operator-gated");
+    expect(gated.task.raisedBy).toEqual(worker);
+    expect(() =>
+      workTaskClaim(gated.doc, "alpha", "tasks", gated.task.id, worker, ids),
+    ).toThrow(/promotion|operator/i);
+
+    const auto = workTaskCreate(
+      doc,
+      "alpha",
+      "tasks",
+      "explicit auto",
+      { details: "explicit auto" },
+      ids,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { admission: "auto", admissionOmitted: "operator-gated" },
+    );
+    expect(auto.task.admission).toBe("auto");
+    const claimed = workTaskClaim(auto.doc, "alpha", "tasks", auto.task.id, worker, ids);
+    expect(claimed.task.state).toBe("working");
+
+    expect(() =>
+      workTaskCreate(
+        {
+          nodes: [{
+            ...emptyTaskNode(),
+            ether: {
+              entity: { kind: "task" },
+              tasks: { items: [], contract: { inbound: { admission: "operator-owned" } } },
+            },
+          }],
+          edges: [],
+        },
+        "alpha",
+        "tasks",
+        "loosen",
+        { details: "loosen" },
+        ids,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { admission: "auto", admissionOmitted: "operator-gated" },
+      ),
+    ).toThrow(/loosen/);
+  });
+
+  it("origin create stamps holdUntil from holdForMs", () => {
+    const created = workTaskCreate(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "bake me",
+      { details: "bake me" },
+      ids,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { holdForMs: 60_000, nowMs: Date.parse("2026-08-25T12:00:00.000Z") },
+    );
+    expect(created.task.holdUntil).toBe("2026-08-25T12:01:00.000Z");
+  });
+
   it("create → claim → transition, with contextId from canvas name", () => {
     let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
     const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", { details: "ship docs" }, ids);

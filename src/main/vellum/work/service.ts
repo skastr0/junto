@@ -55,13 +55,12 @@ import {
   workRequestCreate,
   workRequestResolve,
   workTaskCreate,
-  workTaskApproveProposal,
-  workTaskRejectProposal,
   workTaskDescribe,
   workTaskPropose,
   workTaskRespond,
   workTaskTransition,
   type WorkIds,
+  type WorkTaskCreateOptions,
 } from "@shared/work";
 import {
   collectContentRefsFromTask,
@@ -74,16 +73,17 @@ import {
   effectiveClaimsStack,
   requiredBoardingChecks,
   respondedAtStation,
+  effectiveTaskAdmission,
   sinkContractOf,
   stationReceipts,
   taskAdmissionState,
   taskEpoch,
+  taskPromoted,
   type EffectiveClaim,
 } from "@shared/claims";
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/graph";
 import {
-  resolveSinkAdmission,
   TICKET_OUTPUT_TAIL_MAX_BYTES,
   type Ruling,
   type Ticket,
@@ -384,6 +384,7 @@ export interface WorkServiceShape {
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: FinishCriteria,
       claims?: ReadonlyArray<TaskClaim>,
+      options?: WorkTaskCreateOptions,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskPropose: (
       canvas: string,
@@ -412,7 +413,7 @@ export interface WorkServiceShape {
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: FinishCriteria,
       claims?: ReadonlyArray<TaskClaim>,
-    ) => Effect.Effect<WorkOpResult<TaskProposal>>;
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskApproveProposal: (
       canvas: string,
       nodeId: string,
@@ -422,7 +423,7 @@ export interface WorkServiceShape {
       canvas: string,
       nodeId: string,
       taskId: string,
-    ) => Effect.Effect<WorkOpResult<TaskProposal>>;
+    ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskDescribe: (
       canvas: string,
       nodeId: string,
@@ -1109,7 +1110,7 @@ export const WorkLive = Layer.effect(
     return WorkService.of({
       workTaskHome: (canvas, nodeId, taskId) =>
         itemHome("task", canvas, nodeId, taskId),
-      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims) =>
+      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims, options) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -1130,6 +1131,7 @@ export const WorkLive = Layer.effect(
                 dependsOn,
                 finishCriteria,
                 claims,
+                options,
               )
             );
             const task = yield* externalizeTask(policy.task, {
@@ -1248,39 +1250,46 @@ export const WorkLive = Layer.effect(
               );
             }
             const node = yield* requireNode(read.doc, nodeId);
-            const proposedBy = operatorPlanningActorRef(canvas);
             const policy = yield* runPolicy(() =>
-              workTaskPropose(
+              workTaskCreate(
                 read.doc,
                 canvas,
                 nodeId,
                 brief,
                 metadata,
                 ids,
-                proposedBy,
                 reason,
                 media,
                 dependsOn,
                 finishCriteria,
                 claims,
+                {
+                  admissionOmitted: "operator-gated",
+                  raisedBy: operatorPlanningActorRef(canvas),
+                },
               )
             );
-            const proposal = yield* externalizeProposal(policy.proposal);
+            const task = yield* externalizeTask(policy.task, {
+              kind: "task",
+              canvasName: canvas,
+              nodeId,
+              recordId: policy.task.id,
+            });
             const home = yield* homeForNode(node, context);
             const outcome = home === context.localInstallationId
               ? yield* local(
-                repository.createProposal({
+                repository.createTask({
                   sink: sinkRef(canvas, nodeId),
                   basis: intentBasis(context, read.intentWitness),
-                  proposal,
+                  task,
                 }),
               )
               : yield* enqueue(
                 context,
                 home,
-                workItem("proposal", proposal.id, canvas, nodeId),
-                { operation: "proposal.create", proposal },
-                proposal,
+                workItem("task", task.id, canvas, nodeId),
+                { operation: "task.create", task },
+                task,
               );
             return yield* complete(canvas, outcome);
           }),
@@ -1292,56 +1301,44 @@ export const WorkLive = Layer.effect(
             const [context, read, home] = yield* Effect.all([
               stationContext,
               readCanvas(canvas),
-              itemHome("proposal", canvas, nodeId, taskId),
+              itemHome("task", canvas, nodeId, taskId),
             ]);
-            const policy = yield* runPolicy(() =>
-              workTaskApproveProposal(
-                read.doc,
-                canvas,
-                nodeId,
+            if (context.configuration.role !== "command-center") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  "only the Command Center operator may promote arrivals",
+              });
+            }
+            if (home !== context.localInstallationId) {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message: "promotion executes on the task home installation",
+              });
+            }
+            const node = yield* requireNode(read.doc, nodeId);
+            const current = node.ether?.tasks?.items.find((item) => item.id === taskId);
+            if (current === undefined) {
+              return yield* new WorkServiceError({
+                code: "task_not_found",
+                message: `task "${taskId}" not found`,
+              });
+            }
+            const admission = effectiveTaskAdmission(current, sinkContractOf(node));
+            if (admission !== "operator-gated") {
+              return yield* new WorkServiceError({
+                code: "invalid",
+                message:
+                  `task "${taskId}" effective admission is ${admission}; promotion applies to operator-gated arrivals`,
+              });
+            }
+            const outcome = yield* local(
+              repository.promoteTask({
+                sink: sinkRef(canvas, nodeId),
+                basis: intentBasis(context, read.intentWitness),
                 taskId,
-                ids,
-              )
+              }),
             );
-            const outcome = home === context.localInstallationId
-              ? yield* local(
-                repository.approveProposal({
-                  sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
-                  proposalId: taskId,
-                  task: policy.task,
-                }),
-              ).pipe(Effect.map((entry) => ({
-                ...entry,
-                value: entry.value.task,
-              })))
-              : yield* requireRoutableRemote(home, context).pipe(
-                  Effect.flatMap(() =>
-                    repository.enqueueRemoteProposalApproval({
-                      sink: sinkRef(canvas, nodeId),
-                      targetInstallationId: home,
-                      item: {
-                        ...workItem(
-                          "proposal",
-                          taskId,
-                          canvas,
-                          nodeId,
-                        ),
-                        kind: "proposal" as const,
-                      },
-                      action: {
-                        operation: "proposal.approve",
-                        proposalId: taskId,
-                        task: policy.task,
-                      },
-                    })
-                  ),
-                  Effect.mapError(toWorkServiceError),
-                  Effect.as({
-                    value: policy.task,
-                    disposition: "queued" as const,
-                  }),
-                );
             return yield* complete(canvas, outcome);
           }),
         ),
@@ -1352,42 +1349,39 @@ export const WorkLive = Layer.effect(
             const [context, read, home] = yield* Effect.all([
               stationContext,
               readCanvas(canvas),
-              itemHome("proposal", canvas, nodeId, taskId),
+              itemHome("task", canvas, nodeId, taskId),
             ]);
             const policy = yield* runPolicy(() =>
-              workTaskRejectProposal(read.doc, nodeId, taskId)
+              workTaskTransition(
+                read.doc,
+                canvas,
+                nodeId,
+                taskId,
+                "rejected",
+                undefined,
+                ids,
+              )
             );
             const outcome = home === context.localInstallationId
               ? yield* local(
-                repository.rejectProposal({
+                repository.transitionTask({
                   sink: sinkRef(canvas, nodeId),
                   basis: intentBasis(context, read.intentWitness),
-                  proposalId: taskId,
+                  taskId,
+                  state: "rejected",
                 }),
               )
-              : yield* requireRoutableRemote(home, context).pipe(
-                  Effect.flatMap(() =>
-                    repository.enqueueRemoteCommand({
-                      sink: sinkRef(canvas, nodeId),
-                      targetInstallationId: home,
-                      item: workItem(
-                        "proposal",
-                        taskId,
-                        canvas,
-                        nodeId,
-                      ),
-                      action: {
-                        operation: "proposal.reject",
-                        proposalId: taskId,
-                      },
-                    })
-                  ),
-                  Effect.mapError(toWorkServiceError),
-                  Effect.as({
-                    value: policy.proposal,
-                    disposition: "queued" as const,
-                  }),
-                );
+              : yield* enqueue(
+                context,
+                home,
+                workItem("task", taskId, canvas, nodeId),
+                {
+                  operation: "task.transition",
+                  taskId,
+                  state: "rejected",
+                },
+                policy.task,
+              );
             return yield* complete(canvas, outcome);
           }),
         ),
@@ -1590,12 +1584,25 @@ export const WorkLive = Layer.effect(
               });
             }
             const node = yield* requireNode(read.doc, nodeId);
-            const admission = resolveSinkAdmission(sinkContractOf(node));
+            const task = node.ether?.tasks?.items.find((item) => item.id === taskId);
+            if (task === undefined) {
+              return yield* new WorkServiceError({
+                code: "task_not_found",
+                message: `task "${taskId}" not found`,
+              });
+            }
+            const admission = effectiveTaskAdmission(task, sinkContractOf(node));
             if (admission !== "operator-gated") {
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
-                  `sink "${nodeId}" admission is ${admission}; promotion applies to operator-gated sinks`,
+                  `task "${taskId}" effective admission is ${admission}; promotion applies to operator-gated arrivals`,
+              });
+            }
+            if (taskPromoted(task)) {
+              return yield* complete(canvas, {
+                value: task,
+                disposition: "applied" as const,
               });
             }
             const outcome = yield* local(

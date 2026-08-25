@@ -8,6 +8,7 @@ import type {
   TaskState,
 } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
+import { taskAdmissionState } from "@shared/claims";
 import { taskBrief } from "@shared/task";
 import { isArtifactArchived } from "@shared/work";
 import { claimedTaskForActorNode } from "./claimed-task";
@@ -171,6 +172,29 @@ export const proposalRowsForSeat = (
         ...(details !== undefined ? { details } : {}),
         dependsOnCount: proposal.dependsOn?.length ?? 0,
         hasFinishCriteria: proposal.finishCriteria !== undefined,
+      });
+    }
+    const contract = node.ether?.tasks?.contract;
+    const seen = new Set(rows.map((row) => `${row.sinkNodeId}:${row.proposalId}`));
+    for (const task of node.ether?.tasks?.items ?? []) {
+      if (task.raisedBy?.seatId !== seatId) continue;
+      if (task.state !== "submitted") continue;
+      const admission = taskAdmissionState(task, contract, Date.now());
+      if (admission !== "operator-gated" && admission !== "operator-owned") continue;
+      const key = `${node.id}:${task.id}`;
+      if (seen.has(key)) continue;
+      const title = taskBrief(task) || "Untitled proposal";
+      const details =
+        typeof task.metadata?.details === "string" ? task.metadata.details : undefined;
+      rows.push({
+        proposalId: task.id,
+        sinkNodeId: node.id,
+        state: "pending",
+        title,
+        ...(task.reason !== undefined ? { reason: task.reason } : {}),
+        ...(details !== undefined ? { details } : {}),
+        dependsOnCount: task.dependsOn?.length ?? 0,
+        hasFinishCriteria: task.finishCriteria !== undefined,
       });
     }
   }

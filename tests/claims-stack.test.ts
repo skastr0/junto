@@ -9,8 +9,10 @@ import type {
 } from "../src/shared/work-model";
 import {
   PIPELINE_ADMITTED_METADATA_KEY,
+  clampRequestedAdmission,
   computeHoldUntil,
   effectiveClaimsStack,
+  effectiveTaskAdmission,
   evaluateBoarding,
   evaluateClaimCompletion,
   evaluateForkWaivers,
@@ -607,6 +609,86 @@ describe("admission", () => {
 
   it("defaults to claimable with no contract", () => {
     expect(taskAdmissionState(baseTask("t1"), undefined, now)).toBe("claimable");
+  });
+
+  it("treats omitted Task.admission as inherit-sink (historical rows stay auto)", () => {
+    expect(effectiveTaskAdmission(baseTask("t1"), undefined)).toBe("auto");
+    expect(
+      taskAdmissionState(baseTask("t1"), { inbound: { admission: "auto" } }, now),
+    ).toBe("claimable");
+  });
+
+  it("gates an auto sink when the task overlay is operator-gated", () => {
+    const gated = baseTask("t1", { admission: "operator-gated" });
+    expect(
+      effectiveTaskAdmission(gated, { inbound: { admission: "auto" } }),
+    ).toBe("operator-gated");
+    expect(
+      taskAdmissionState(gated, { inbound: { admission: "auto" } }, now),
+    ).toBe("operator-gated");
+    expect(
+      taskAdmissionState(
+        baseTask("t1", {
+          admission: "operator-gated",
+          metadata: { [PIPELINE_ADMITTED_METADATA_KEY]: 0 },
+        }),
+        { inbound: { admission: "auto" } },
+        now,
+      ),
+    ).toBe("claimable");
+  });
+});
+
+describe("clampRequestedAdmission", () => {
+  it("rejects an explicit loosen against the sink floor", () => {
+    expect(
+      clampRequestedAdmission({
+        floor: "operator-owned",
+        requested: "auto",
+        omitted: "operator-gated",
+      }),
+    ).toEqual({
+      ok: false,
+      message:
+        'admission "auto" loosens sink floor "operator-owned"; requester may only tighten',
+    });
+  });
+
+  it("persists agent omit as operator-gated, or the owned floor when that is stricter", () => {
+    expect(
+      clampRequestedAdmission({
+        floor: "auto",
+        requested: undefined,
+        omitted: "operator-gated",
+      }),
+    ).toEqual({ ok: true, stamp: "operator-gated" });
+    expect(
+      clampRequestedAdmission({
+        floor: "operator-owned",
+        requested: undefined,
+        omitted: "operator-gated",
+      }),
+    ).toEqual({ ok: true, stamp: "operator-owned" });
+  });
+
+  it("lets operator omit inherit the sink with no stamp", () => {
+    expect(
+      clampRequestedAdmission({
+        floor: "auto",
+        requested: undefined,
+        omitted: "inherit",
+      }),
+    ).toEqual({ ok: true, stamp: undefined });
+  });
+
+  it("accepts an explicit auto on an auto sink", () => {
+    expect(
+      clampRequestedAdmission({
+        floor: "auto",
+        requested: "auto",
+        omitted: "operator-gated",
+      }),
+    ).toEqual({ ok: true, stamp: "auto" });
   });
 });
 

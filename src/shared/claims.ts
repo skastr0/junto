@@ -4,6 +4,7 @@ import type {
   ClaimDef,
   CompletionEvidence,
   Passage,
+  SinkAdmission,
   Task,
   TaskClaim,
   TaskDefect,
@@ -443,16 +444,68 @@ export const PIPELINE_ADMITTED_METADATA_KEY = "vellum.pipeline.admittedEpoch";
 export const taskPromoted = (task: Task): boolean =>
   task.metadata?.[PIPELINE_ADMITTED_METADATA_KEY] === taskEpoch(task);
 
+const ADMISSION_RANK: Readonly<Record<SinkAdmission, 0 | 1 | 2>> = {
+  auto: 0,
+  "operator-gated": 1,
+  "operator-owned": 2,
+};
+
+/**
+ * Requester overlay vs sink floor. The sink is the floor — a requester may
+ * only tighten. Agent wire omit defaults to operator-gated (persisted);
+ * operator create omit inherits the sink (no stamp).
+ */
+export const clampRequestedAdmission = (input: {
+  readonly floor: SinkAdmission;
+  readonly requested: SinkAdmission | undefined;
+  readonly omitted: "operator-gated" | "inherit";
+}):
+  | { readonly ok: true; readonly stamp: SinkAdmission | undefined }
+  | { readonly ok: false; readonly message: string } => {
+  const floor = input.floor;
+  if (input.requested !== undefined) {
+    if (ADMISSION_RANK[input.requested] < ADMISSION_RANK[floor]) {
+      return {
+        ok: false,
+        message:
+          `admission "${input.requested}" loosens sink floor "${floor}"; requester may only tighten`,
+      };
+    }
+    return { ok: true, stamp: input.requested };
+  }
+  if (input.omitted === "inherit") return { ok: true, stamp: undefined };
+  if (ADMISSION_RANK["operator-gated"] < ADMISSION_RANK[floor]) {
+    return { ok: true, stamp: floor };
+  }
+  return { ok: true, stamp: "operator-gated" };
+};
+
+/**
+ * Effective admission of a stored task. Omitted Task.admission inherits the
+ * sink floor (historical rows). A stored overlay that is somehow looser than
+ * the floor is ignored — the floor wins.
+ */
+export const effectiveTaskAdmission = (
+  task: Pick<Task, "admission">,
+  contract: TasksSinkContract | undefined,
+): SinkAdmission => {
+  const floor = resolveSinkAdmission(contract);
+  const requested = task.admission;
+  if (requested === undefined) return floor;
+  return ADMISSION_RANK[requested] >= ADMISSION_RANK[floor] ? requested : floor;
+};
+
 /**
  * Admission state of a submitted arrival at a sink. Operator-owned dominates
  * (no seat claim ever); then bake hold; then the operator gate.
+ * Effective admission is max(sink floor, per-task overlay).
  */
 export const taskAdmissionState = (
   task: Task,
   contract: TasksSinkContract | undefined,
   nowMs: number,
 ): TaskAdmissionState => {
-  const admission = resolveSinkAdmission(contract);
+  const admission = effectiveTaskAdmission(task, contract);
   if (admission === "operator-owned") return "operator-owned";
   const holdUntil = task.holdUntil === undefined ? NaN : Date.parse(task.holdUntil);
   if (Number.isFinite(holdUntil) && holdUntil > nowMs) return "held";

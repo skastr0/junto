@@ -1,4 +1,9 @@
-import type { TasksUpdateArgs, TasksUpdateCliArgs } from "@shared/work-control";
+import type {
+  TasksCreateArgs,
+  TasksCreateCliArgs,
+  TasksUpdateArgs,
+  TasksUpdateCliArgs,
+} from "@shared/work-control";
 
 // Hold durations as an operator speaks them. The wire carries milliseconds
 // only; this is the CLI-side surface so a seat never has to compute
@@ -50,6 +55,21 @@ export type TasksUpdateWireResult =
 export const toTasksUpdateArgs = (
   item: TasksUpdateCliArgs,
 ): TasksUpdateWireResult => {
+  const { holdFor, ...rest } = item;
+  if (holdFor === undefined) return { ok: true, args: rest };
+  const parsed = parseHoldFor(holdFor);
+  if (!parsed.ok) return { ok: false, message: parsed.message };
+  return { ok: true, args: { ...rest, holdForMs: parsed.ms } };
+};
+
+export type TasksCreateWireResult =
+  | { readonly ok: true; readonly args: TasksCreateArgs }
+  | { readonly ok: false; readonly message: string };
+
+/** Lower one CLI create item onto the wire shape. */
+export const toTasksCreateArgs = (
+  item: TasksCreateCliArgs,
+): TasksCreateWireResult => {
   const { holdFor, ...rest } = item;
   if (holdFor === undefined) return { ok: true, args: rest };
   const parsed = parseHoldFor(holdFor);

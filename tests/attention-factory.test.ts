@@ -88,9 +88,9 @@ describe("sinkGlance + attention", () => {
     ];
     expect(
       taskScanCounts(items, [
-        { state: "pending" },
-        { state: "approved" },
-        { state: "rejected" },
+        { id: "p1", state: "pending" },
+        { id: "p2", state: "approved" },
+        { id: "p3", state: "rejected" },
       ]),
     ).toEqual({ proposals: 1, completed: 1 });
   });

@@ -1606,6 +1606,8 @@ type PipelineBag = {
   readonly defects?: TaskValue["defects"];
   readonly holdUntil?: TaskValue["holdUntil"];
   readonly boarding?: TaskValue["boarding"];
+  readonly admission?: TaskValue["admission"];
+  readonly raisedBy?: TaskValue["raisedBy"];
 };
 
 const foldPipelineMetadata = (
@@ -1626,6 +1628,8 @@ const foldPipelineMetadata = (
     ...(task.boarding !== undefined && task.boarding.length > 0
       ? { boarding: task.boarding }
       : {}),
+    ...(task.admission !== undefined ? { admission: task.admission } : {}),
+    ...(task.raisedBy !== undefined ? { raisedBy: task.raisedBy } : {}),
   };
   if (Object.keys(bag).length === 0) return task.metadata;
   return { ...(task.metadata ?? {}), [PIPELINE_METADATA_BAG_KEY]: bag };
@@ -1751,6 +1755,8 @@ const taskFromRow = (
       : {}),
     ...(lifted.metadata !== undefined ? { metadata: lifted.metadata } : {}),
     ...(row.reason === null ? {} : { reason: row.reason }),
+    ...(pipeline?.admission !== undefined ? { admission: pipeline.admission } : {}),
+    ...(pipeline?.raisedBy !== undefined ? { raisedBy: pipeline.raisedBy } : {}),
     ...(row.response === null ? {} : { response: row.response }),
   };
 };

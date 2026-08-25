@@ -34,7 +34,7 @@ import {
   TasksBoardCliArgs,
   TasksClaimArgs,
   TasksClaimsArgs,
-  TasksCreateArgs,
+  TasksCreateCliArgs,
   TasksListArgs,
   TasksShowArgs,
   TasksUpdateCliArgs,
@@ -207,10 +207,10 @@ export const tasksClaimSchema: CommandSchemaContract = {
 export const tasksCreateSchema: CommandSchemaContract = {
   command_id: "tasks.create",
   command: "tasks create",
-  schema_id: "tasks.create.input/v2",
+  schema_id: "tasks.create.input/v3",
   description:
-    "Create a proposal on a connected task node for operator review. Same authoring fields as executable tasks (brief, required metadata.details description, reason, media, dependsOn, finishCriteria); approval mints a submitted Task.",
-  schema: TasksCreateArgs,
+    "Create a task on a connected sink. Same authoring fields as before, plus optional admission (auto | operator-gated | operator-owned; omit persists operator-gated, clamped to the sink floor) and holdFor (\"12h\", \"7d\", or ms) to bake the origin arrival.",
+  schema: TasksCreateCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
 };
@@ -1119,7 +1119,7 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "tasks.create",
     command: "tasks create",
     category: "workflow",
-    description: "Create one or more proposals (batch-capable).",
+    description: "Create one or more tasks on a connected sink (batch-capable).",
     schemas: [tasksCreateSchema],
     examples: allExamples.filter((e) => e.command_id === "tasks.create"),
     batch: {

@@ -401,6 +401,14 @@ export const Task = Schema.Struct({
   boarding: Schema.optionalKey(Schema.Array(Ticket)),
   metadata: TaskAuthoringFields.metadata,
   reason: TaskAuthoringFields.reason,
+  /**
+   * Requester admission overlay. Omitted = inherit the sink floor
+   * (`resolveSinkAdmission`, default auto). Agents persist an explicit stamp
+   * when they omit on the wire (operator-gated). Never loosens the sink floor.
+   */
+  admission: Schema.optionalKey(SinkAdmission),
+  /** Who raised this task. Optional; historical rows omit it. */
+  raisedBy: Schema.optionalKey(ActorRef),
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalKey(Schema.String),
 }).pipe(

@@ -671,7 +671,7 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     dependsOn?: ReadonlyArray<string>,
     finishCriteria?: FinishCriteria,
     claims?: ReadonlyArray<TaskClaim>,
-  ) => Promise<WorkOpResult<TaskProposal>>;
+  ) => Promise<WorkOpResult<Task>>;
   readonly workTaskApproveProposal: (
     canvas: string,
     nodeId: string,
@@ -681,7 +681,7 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     canvas: string,
     nodeId: string,
     taskId: string,
-  ) => Promise<WorkOpResult<TaskProposal>>;
+  ) => Promise<WorkOpResult<Task>>;
   readonly workTaskDescribe: (
     canvas: string,
     nodeId: string,

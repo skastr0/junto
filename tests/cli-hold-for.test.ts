@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseHoldFor, toTasksUpdateArgs } from "../src/cli/core/duration";
+import {
+  parseHoldFor,
+  toTasksCreateArgs,
+  toTasksUpdateArgs,
+} from "../src/cli/core/duration";
 
 describe("parseHoldFor", () => {
   it("reads the units an operator would speak", () => {
@@ -66,5 +70,25 @@ describe("toTasksUpdateArgs", () => {
       holdFor: "a while",
     });
     expect(lowered.ok).toBe(false);
+  });
+});
+
+describe("toTasksCreateArgs", () => {
+  it("lowers holdFor onto the create wire field", () => {
+    const lowered = toTasksCreateArgs({
+      target: "n7",
+      brief: "Bake me",
+      metadata: { details: "Bake me" },
+      holdFor: "12h",
+    });
+    expect(lowered).toEqual({
+      ok: true,
+      args: {
+        target: "n7",
+        brief: "Bake me",
+        metadata: { details: "Bake me" },
+        holdForMs: 43_200_000,
+      },
+    });
   });
 });

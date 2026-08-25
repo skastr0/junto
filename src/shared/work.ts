@@ -10,12 +10,14 @@ import type {
   Message,
   Part,
   Passage,
+  SinkAdmission,
   TaskProposal,
   TaskState,
   FinishCriteria,
   CompletionEvidence,
   TaskClaim,
 } from "./work-model";
+import { resolveSinkAdmission } from "./work-model";
 import type { ActorRef } from "./work-protocol";
 import {
   canTransitionTaskState,
@@ -45,6 +47,7 @@ import {
 import {
   PIPELINE_ADMITTED_METADATA_KEY,
   carryClaimEvidence,
+  clampRequestedAdmission,
   computeHoldUntil,
   effectiveClaimsStack,
   evaluateBoarding,
@@ -341,6 +344,15 @@ const withRequiredDescription = (
   return { ...(metadata ?? {}), details };
 };
 
+export type WorkTaskCreateOptions = {
+  readonly admission?: SinkAdmission;
+  /** Agent wire omit persists operator-gated. Operator enqueue inherits the sink. */
+  readonly admissionOmitted?: "operator-gated" | "inherit";
+  readonly holdForMs?: number;
+  readonly raisedBy?: ActorRef;
+  readonly nowMs?: number;
+};
+
 export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkProposalResult = {
@@ -375,6 +387,7 @@ export const workTaskCreate = (
   finishCriteria?: FinishCriteria,
   /** Station-addressed claims; set at creation, immutable on generic transitions. */
   claims?: ReadonlyArray<TaskClaim>,
+  options?: WorkTaskCreateOptions,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
@@ -385,6 +398,18 @@ export const workTaskCreate = (
   const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
+  const contract = sinkContractOf(node);
+  const clamped = clampRequestedAdmission({
+    floor: resolveSinkAdmission(contract),
+    requested: options?.admission,
+    omitted: options?.admissionOmitted ?? "inherit",
+  });
+  if (!clamped.ok) throw new WorkError("invalid", clamped.message);
+  const holdUntil = computeHoldUntil(
+    options?.nowMs ?? Date.now(),
+    contract?.inbound?.claimableAfterMs,
+    options?.holdForMs,
+  );
   const taskId = ids.id();
   const existing = node.ether?.tasks?.items ?? [];
   const normalizedDeps = normalizeDependsOn(dependsOn);
@@ -422,6 +447,9 @@ export const workTaskCreate = (
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
     ...(normalizedClaims ? { claims: normalizedClaims } : {}),
+    ...(clamped.stamp !== undefined ? { admission: clamped.stamp } : {}),
+    ...(options?.raisedBy !== undefined ? { raisedBy: options.raisedBy } : {}),
+    ...(holdUntil !== undefined ? { holdUntil } : {}),
   };
   const items = [...existing, task];
   return { doc: withTasks(doc, nodeId, items), task };
@@ -798,6 +826,7 @@ const rehomedTask = (
     holdUntil: _hold,
     response: _response,
     metadata: _metadata,
+    admission: _admission,
     ...rest
   } = task;
   const metadata = rehomedMetadata(task.metadata);
