@@ -20,6 +20,7 @@ import {
   Reply,
   RotateCcw,
   Search,
+  Settings2,
   UserRound,
   X,
   XCircle,
@@ -64,7 +65,8 @@ import { ContentMedia } from "./ContentMedia";
 import { TaskJourney } from "./TaskJourney";
 import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
 import { TaskCreationMetroMap } from "../claims/creation";
-import { PinRulingControl } from "../claims";
+import { PinRulingControl, SinkContractEditor } from "../claims";
+import { formatBakeTime } from "../claims/sink-contract";
 import {
   TaskStationConsole,
   type StationSubmission,
@@ -76,6 +78,7 @@ import {
   arrivalGlance,
   groupOutboundPassages,
   hasPendingHold,
+  pipelineLaneCopy,
   pipelineShape,
   type OutboundGroupKind,
   type PipelineShape,
@@ -266,11 +269,11 @@ type LaneDefinition = {
 const LANES: ReadonlyArray<LaneDefinition> = [
   {
     id: "proposal",
-    label: "Proposals",
+    label: "Awaiting approval",
     tone: "violet",
     chipTone: "violet",
     icon: UserRound,
-    hint: "Planning drafts — approve to Queue when ready for workers",
+    hint: "Work waiting for your approval before workers can claim it",
   },
   {
     id: "queue",
@@ -311,7 +314,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
 
 /**
  * Pipeline columns. They stand in for the plain lanes when the sink sits on
- * flow edges: Inbound replaces Proposals + Queue on the arrival side, Outbound
+ * flow edges: Inbound replaces Awaiting approval + Queue on the arrival side, Outbound
  * replaces Closed on the departure side. A sink with no flow edges never sees
  * them and renders exactly as before.
  */
@@ -506,6 +509,9 @@ function TaskLane({
   lanes,
   tasks,
   groups,
+  headerDetail,
+  headerAction,
+  emptyText,
   markFor,
   allTasks,
   searchActive,
@@ -533,6 +539,12 @@ function TaskLane({
   readonly tasks: ReadonlyArray<WorkTask>;
   /** Outbound only: the same tasks, bucketed by where each passage went. */
   readonly groups?: ReadonlyArray<TaskLaneGroup>;
+  /** Read-only contract facts shown directly under the column title. */
+  readonly headerDetail?: ReactNode;
+  /** Side-specific contract entry point rendered in the column header. */
+  readonly headerAction?: ReactNode;
+  /** Teaching copy for an empty column. */
+  readonly emptyText?: string;
   /** Inbound only: the admission mark for an arrival. */
   readonly markFor?: (task: WorkTask) => ReactNode;
   readonly allTasks: ReadonlyArray<WorkTask>;
@@ -649,22 +661,28 @@ function TaskLane({
             {tasks.length}
           </span>
         </div>
-        {createsTasks ? (
-          <IconButton
-            size="sm"
-            tone="accent"
-            aria-label={
-              lane.id === "proposal"
-                ? "Create proposal"
-                : `Create task in ${lane.label}`
-            }
-            title={lane.id === "proposal" ? "Create proposal" : "Create task"}
-            onClick={onCreate}
-          >
-            <Plus size={13} />
-          </IconButton>
-        ) : null}
+        <div className="task-board-lane__header-actions">
+          {headerAction}
+          {createsTasks ? (
+            <IconButton
+              size="sm"
+              tone="accent"
+              aria-label={
+                lane.id === "proposal"
+                  ? "Add work for approval"
+                  : `Create task in ${lane.label}`
+              }
+              title={lane.id === "proposal" ? "Add work for approval" : "Create task"}
+              onClick={onCreate}
+            >
+              <Plus size={13} />
+            </IconButton>
+          ) : null}
+        </div>
       </header>
+      {headerDetail ? (
+        <div className="task-board-lane__contract-glance">{headerDetail}</div>
+      ) : null}
       <p className="task-board-lane__hint">{lane.hint}</p>
 
       <div className="task-board-lane__list" role="list">
@@ -686,13 +704,13 @@ function TaskLane({
               {searchActive
                 ? "No matching tasks"
                 : lane.id === "proposal"
-                  ? "No proposals yet"
-                  : `No ${lane.label.toLowerCase()}`}
+                  ? "Nothing awaiting approval"
+                  : emptyText ?? `No ${lane.label.toLowerCase()}`}
             </span>
-            {createsTasks && !searchActive ? (
+            {createsTasks && lane.id !== "inbound" && !searchActive ? (
               <button type="button" onClick={onCreate}>
                 {lane.id === "proposal"
-                  ? "Create the first proposal"
+                  ? "Add work for approval"
                   : "Create the first task"}
               </button>
             ) : null}
@@ -700,6 +718,50 @@ function TaskLane({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function TaskContractPanel({
+  node,
+  side,
+  station,
+  onClose,
+}: {
+  readonly node: CanvasNode;
+  readonly side: "inbound" | "outbound";
+  readonly station: string;
+  readonly onClose: () => void;
+}) {
+  const arrivals = side === "inbound";
+  return (
+    <aside
+      className="task-board-contract-panel"
+      role="complementary"
+      aria-label={`${arrivals ? "Arrivals" : "Departures"} contract for ${station}`}
+      data-testid={`task-board-contract-${side}`}
+    >
+      <OverlayHeader
+        eyebrow="station contract"
+        title={arrivals ? "Arrivals" : "Departures"}
+        status={
+          arrivals
+            ? "How work enters this station and becomes claimable"
+            : "What this station publishes before work moves on"
+        }
+        actions={
+          <IconButton
+            aria-label={`Close ${arrivals ? "arrivals" : "departures"} contract`}
+            title="Close contract"
+            onClick={onClose}
+          >
+            <X size={14} />
+          </IconButton>
+        }
+      />
+      <div className="task-board-contract-panel__body">
+        <SinkContractEditor node={node} focusSide={side} />
+      </div>
+    </aside>
   );
 }
 
@@ -738,9 +800,9 @@ function TaskActionsMenu({
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
-  // Proposals are display-mapped to submitted WorkTasks; they must not get
+  // Approval candidates are display-mapped to submitted WorkTasks; they must not get
   // task transition actions (Delete/Complete/…) — that calls workTaskTransition
-  // with a proposal id and yields "task … not found". Use Reject proposal only.
+  // with a proposal id and yields "task … not found". Use the approval actions only.
   const terminalActions = isProposal
     ? ([] as ReadonlyArray<readonly [TaskState, string]>)
     : (
@@ -816,7 +878,7 @@ function TaskActionsMenu({
             disabled={pending}
             onClick={() => commit(() => onRejectProposal(task))}
           >
-            Reject proposal
+            Reject pending work
           </button>
         ) : null}
         {!isProposal ? (
@@ -1057,8 +1119,8 @@ function TaskCard({
                 <span className="task-board-card__claimant" title={claim}>
                   {proposalBy
                     ? proposalBy === "operator"
-                      ? "Proposed by operator"
-                      : `Proposed by ${proposalBy}`
+                      ? "Raised by operator"
+                      : `Raised by ${proposalBy}`
                     : claim ?? "Unclaimed"}
                 </span>
                 {mediaCount > 0 ? (
@@ -1101,7 +1163,7 @@ function TaskCard({
                 proposalBy !== undefined ? "violet" : chipToneForState(task.state)
               }
             >
-              {proposalBy !== undefined ? "Proposed" : stateLabel(task.state)}
+              {proposalBy !== undefined ? "Awaiting approval" : stateLabel(task.state)}
             </Chip>
             {mark}
             {depChip ? (
@@ -1568,10 +1630,10 @@ export function TaskCreateDialog({
             <Button type="submit" variant="primary" disabled={pending || !title.trim()}>
               {pending
                 ? isProposal
-                  ? "Proposing…"
+                  ? "Adding…"
                   : "Creating…"
                 : isProposal
-                  ? "Create proposal"
+                  ? "Add for approval"
                   : stayOpen
                     ? "Add task"
                     : "Create task"}
@@ -1582,14 +1644,14 @@ export function TaskCreateDialog({
 
   const header = (
     <OverlayHeader
-      eyebrow={isProposal ? "new proposal" : stayOpen ? "quick enqueue" : "new task"}
+      eyebrow={isProposal ? "approval queue" : stayOpen ? "quick enqueue" : "new task"}
       title={stayOpen ? "Add to the queue" : "Define the work"}
       actions={
         headerActions !== undefined ? (
           headerActions
         ) : (
           <IconButton
-            aria-label={isProposal ? "Close proposal creator" : "Close task creator"}
+            aria-label={isProposal ? "Close approval form" : "Close task creator"}
             title="Close"
             onClick={onClose}
             disabled={pending}
@@ -1649,7 +1711,7 @@ export function TaskCreateDialog({
         measure="document"
         height="fit"
         layer="work"
-        label={isProposal ? "Create proposal" : "Create task"}
+        label={isProposal ? "Add work for approval" : "Create task"}
         onClose={onClose}
         closeOnBackdrop={!pending && !descriptionOpen}
         closeOnEscape={!pending && !descriptionOpen}
@@ -1795,8 +1857,8 @@ function TaskDetailPanel({
     proposedBy === undefined
       ? undefined
       : proposedBy === "operator"
-        ? "Proposed by operator"
-        : `Proposed by ${proposedBy}`;
+        ? "Raised by operator"
+        : `Raised by ${proposedBy}`;
 
   return (
     <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
@@ -1804,7 +1866,7 @@ function TaskDetailPanel({
         <div>
           <div className="task-detail-panel__chips">
             <Chip tone={isProposal ? "violet" : chipToneForState(task.state)}>
-              {isProposal ? "Proposed" : stateLabel(task.state)}
+              {isProposal ? "Awaiting approval" : stateLabel(task.state)}
             </Chip>
             {claimantRetired ? (
               <Chip
@@ -1819,7 +1881,7 @@ function TaskDetailPanel({
                 size="xs"
                 variant="primary"
                 disabled={pending}
-                title="Approve this proposal into the Queue for workers"
+                title="Approve this work into the Queue for workers"
                 onClick={() => onApprove(task)}
               >
                 <CheckCircle2 size={12} />
@@ -1831,11 +1893,11 @@ function TaskDetailPanel({
                 size="xs"
                 variant="danger"
                 disabled={pending}
-                title="Reject and remove this proposal from the board"
+                title="Reject and remove this pending work from the board"
                 onClick={() => onRejectProposal(task)}
               >
                 <XCircle size={12} />
-                Reject proposal
+                Reject pending work
               </Button>
             ) : null}
             {!isProposal && canTransitionTaskState(task.state, "archived") ? (
@@ -1875,10 +1937,10 @@ function TaskDetailPanel({
       </header>
 
       <div className="task-detail-panel__identity">
-        <span title={isProposal ? "Proposal ID" : "Task ID"}>#{task.id}</span>
+        <span title={isProposal ? "Pending work ID" : "Task ID"}>#{task.id}</span>
         <span className="task-detail-panel__claim" title={isProposal ? proposedBy : claim}>
           <UserRound size={12} aria-hidden />
-          {isProposal ? (proposedByLabel ?? "Proposed") : (claim ?? "Unclaimed")}
+          {isProposal ? (proposedByLabel ?? "Awaiting approval") : (claim ?? "Unclaimed")}
         </span>
         {rejectedTimes !== undefined ? (
           <span title="Times returned to Queue after QA rejection">
@@ -2171,8 +2233,8 @@ function TaskDetailPanel({
             <div>
               <h3>Planning</h3>
               <p>
-                Proposals are drafts. Approve to mint a queued task workers can claim,
-                reject to discard it, or leave it here until the plan is ready.
+                This work is waiting for your approval. Approve to place it in the
+                queue, reject to discard it, or leave it here until it is ready.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2195,7 +2257,7 @@ function TaskDetailPanel({
                   onClick={() => onRejectProposal(task)}
                 >
                   <XCircle size={13} />
-                  Reject proposal
+                  Reject pending work
                 </Button>
               ) : null}
             </div>
@@ -2279,6 +2341,7 @@ export function TaskBoard({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
+  const [contractSide, setContractSide] = useState<"inbound" | "outbound" | null>(null);
   const [creating, setCreating] = useState<CreateDialogMode | null>(null);
   const [creatingPending, setCreatingPending] = useState(false);
   // Station pins from the creation metro map, cleared each time the composer
@@ -2315,7 +2378,7 @@ export function TaskBoard({
     [actorRefs],
   );
   const doc = use$(state$.doc);
-  // Columns follow the flow edges: incoming flow turns Proposals + Queue into
+  // Columns follow the flow edges: incoming flow turns Awaiting approval + Queue into
   // Inbound, outgoing flow turns Closed into Outbound (spec §7).
   const shape = useMemo(() => pipelineShape(doc, node.id), [doc, node.id]);
   // An operator-owned station never hands work to a seat: the operator answers
@@ -2330,6 +2393,24 @@ export function TaskBoard({
     );
     return (nodeId: string): string => names.get(nodeId) ?? nodeId;
   }, [doc]);
+  const laneCopy = useMemo(
+    () => pipelineLaneCopy(shape, stationName),
+    [shape, stationName],
+  );
+  const inboundContractGlance = useMemo(() => {
+    const admission = resolveSinkAdmission(sinkContract);
+    const admissionLabel =
+      admission === "auto"
+        ? "Automatic"
+        : admission === "operator-gated"
+          ? "Waits for approval"
+          : "Operator owned";
+    const bake = formatBakeTime(sinkContract?.inbound?.claimableAfterMs);
+    return {
+      admission: `Admission: ${admissionLabel}`,
+      bake: `Bake: ${bake || "none"}`,
+    };
+  }, [sinkContract]);
 
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -2523,7 +2604,7 @@ export function TaskBoard({
         setError(result.message);
         return;
       }
-      setAnnouncement(`Proposed ${title.trim()} for planning.`);
+      setAnnouncement(`Added ${title.trim()} for approval.`);
       setCreating(null);
       setCreationPins([]);
       setSelectedTaskId(result.data.id);
@@ -3062,7 +3143,7 @@ export function TaskBoard({
                 onClick={() => setCreating("proposal")}
               >
                 <Plus size={12} />
-                New proposal
+                Add for approval
               </Button>
               <Button
                 variant="primary"
@@ -3216,7 +3297,10 @@ export function TaskBoard({
           </div>
         ) : null}
 
-        <div className="task-board-workspace" data-detail-open={selectedTask ? "true" : "false"}>
+        <div
+          className="task-board-workspace"
+          data-detail-open={selectedTask || contractSide ? "true" : "false"}
+        >
           <div
             className="task-board-grid"
             style={{ ["--task-board-lanes" as string]: shownLanes.length }}
@@ -3230,6 +3314,38 @@ export function TaskBoard({
                 lanes={boardLanes}
                 tasks={tasksByLane[lane.id]}
                 groups={lane.id === "outbound" ? outboundGroups : undefined}
+                headerDetail={
+                  lane.id === "inbound" ? (
+                    <>
+                      <span>{inboundContractGlance.admission}</span>
+                      <span>{inboundContractGlance.bake}</span>
+                    </>
+                  ) : lane.id === "outbound" ? (
+                    <span>{laneCopy.outboundHint}</span>
+                  ) : undefined
+                }
+                headerAction={
+                  lane.id === "inbound" || lane.id === "outbound" ? (
+                    <IconButton
+                      size="sm"
+                      aria-label={`Edit ${lane.id === "inbound" ? "arrivals" : "departures"} contract`}
+                      title={`Edit ${lane.id === "inbound" ? "arrivals" : "departures"} contract`}
+                      onClick={() => {
+                        setSelectedTaskId(null);
+                        setContractSide(lane.id === "inbound" ? "inbound" : "outbound");
+                      }}
+                    >
+                      <Settings2 size={13} />
+                    </IconButton>
+                  ) : undefined
+                }
+                emptyText={
+                  lane.id === "inbound"
+                    ? laneCopy.inboundEmpty
+                    : lane.id === "outbound"
+                      ? laneCopy.outboundEmpty
+                      : undefined
+                }
                 markFor={lane.id === "inbound" ? arrivalMarkFor : undefined}
                 allTasks={scopeTasks}
                 searchActive={Boolean(query.trim())}
@@ -3243,7 +3359,10 @@ export function TaskBoard({
                 onCreate={() =>
                   setCreating(lane.id === "proposal" ? "proposal" : "task")
                 }
-                onSelect={(taskId) => focusTask(taskId, "replace")}
+                onSelect={(taskId) => {
+                  setContractSide(null);
+                  focusTask(taskId, "replace");
+                }}
                 onToggleSelect={toggleTaskChecked}
                 onSelectAllInLane={() => {
                   const columnIds = tasksByLane[lane.id].map((task) => task.id);
@@ -3332,6 +3451,14 @@ export function TaskBoard({
                   ? (task) => void rejectProposal(task)
                   : undefined
               }
+            />
+          ) : null}
+          {contractSide ? (
+            <TaskContractPanel
+              node={node}
+              side={contractSide}
+              station={stationName(node.id)}
+              onClose={() => setContractSide(null)}
             />
           ) : null}
         </div>
