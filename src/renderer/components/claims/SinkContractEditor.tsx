@@ -354,29 +354,25 @@ export function SinkContractEditor({
 
   return (
     <>
-      {focusSide === undefined ? (
-        <>
-          <ContractText
-            label="stage"
-            hint="Seats claiming here receive this as ambient context."
-            ariaLabel="Sink stage instruction"
-            resetKey={node.id}
-            value={contract?.instruction ?? ""}
-            placeholder="What is this stage for?"
-            onCommit={(instruction) => write({ ...contract, instruction })}
-          />
+      <ContractText
+        label="stage"
+        hint="Seats claiming here receive this as ambient context."
+        ariaLabel="Sink stage instruction"
+        resetKey={node.id}
+        value={contract?.instruction ?? ""}
+        placeholder="What is this stage for?"
+        onCommit={(instruction) => write({ ...contract, instruction })}
+      />
 
-          <InheritedLaw node={node} />
+      <InheritedLaw node={node} />
 
-          <ClaimList
-            ownerNodeId={node.id}
-            claims={claims}
-            label="claims at this sink"
-            hint="Answered by whoever closes a task here, on top of the region law above."
-            onChange={(next: ReadonlyArray<ClaimDef>) => write({ ...contract, claims: next })}
-          />
-        </>
-      ) : null}
+      <ClaimList
+        ownerNodeId={node.id}
+        claims={claims}
+        label="claims at this sink"
+        hint="Answered by whoever closes a task here, on top of the region law above."
+        onChange={(next: ReadonlyArray<ClaimDef>) => write({ ...contract, claims: next })}
+      />
 
       {focusSide !== "outbound" ? inboundFold : null}
       {focusSide !== "inbound" ? outboundFold : null}
