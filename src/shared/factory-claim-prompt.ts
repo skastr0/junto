@@ -213,6 +213,23 @@ export const buildFactoryClaimPrompt = (
   const claims =
     doc === undefined ? [] : effectiveClaimsStack(doc, sinkNodeId, task);
 
+  // Machine-readable mirror of the prose guidance: a seat that parses only the
+  // JSON packet must see the same station law the prose carries. Emission is
+  // forwarding guidance, so it only travels when the station forwards.
+  const contract =
+    doc === undefined ? undefined : sinkContractOf(nodeById(doc, sinkNodeId));
+  const guidanceInstruction = contract?.instruction?.trim();
+  const guidanceTriage = contract?.inbound?.instruction?.trim();
+  const guidanceEmission =
+    doc !== undefined && flowDestinations(doc, sinkNodeId).length > 0
+      ? contract?.outbound?.emission?.trim()
+      : undefined;
+  const guidance = {
+    ...(guidanceInstruction ? { instruction: guidanceInstruction } : {}),
+    ...(guidanceTriage ? { triage: guidanceTriage } : {}),
+    ...(guidanceEmission ? { emission: guidanceEmission } : {}),
+  };
+
   const packet = {
     sinkTarget: sinkNodeId,
     taskId: task.id,
@@ -234,6 +251,7 @@ export const buildFactoryClaimPrompt = (
     ...(doc !== undefined && flowDestinations(doc, sinkNodeId).length > 0
       ? { forwardsTo: flowDestinations(doc, sinkNodeId) }
       : {}),
+    ...(Object.keys(guidance).length > 0 ? { guidance } : {}),
     ...(taskEpoch(task) > 0 ? { epoch: taskEpoch(task) } : {}),
   };
 

@@ -131,4 +131,40 @@ describe("claim packet station law", () => {
     expect(text).not.toContain("Claims in force here");
     expect(text).toContain("[factory claim] task");
   });
+
+  it("mirrors the station guidance into the JSON packet", () => {
+    const text = buildFactoryClaimPrompt({
+      sinkNodeId: "build",
+      task: task(),
+      doc: board,
+    });
+    const packet = JSON.parse(text.split("--- task packet (JSON) ---")[1]!);
+    expect(packet.guidance).toEqual({
+      instruction: "implement and gate the change",
+      triage: "reproduce the defect before touching code",
+      emission: "name the verified fix and cite the failing test it closes",
+    });
+  });
+
+  it("never surfaces blank triage, and drops emission at a terminal station", () => {
+    const terminalBoard: CanvasDoc = {
+      nodes: [
+        sink("terminal", {
+          instruction: "close the journey",
+          inbound: { instruction: "   " },
+          outbound: { emission: "hand off cleanly" },
+        }),
+      ],
+      edges: [],
+    };
+    const text = buildFactoryClaimPrompt({
+      sinkNodeId: "terminal",
+      task: task(),
+      doc: terminalBoard,
+    });
+    expect(text).not.toContain("How work arriving here is handled:");
+    expect(text).not.toContain("publishes forward");
+    const packet = JSON.parse(text.split("--- task packet (JSON) ---")[1]!);
+    expect(packet.guidance).toEqual({ instruction: "close the journey" });
+  });
 });

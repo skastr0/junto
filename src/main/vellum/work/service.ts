@@ -290,6 +290,10 @@ export type WorkTaskShowView = {
       readonly instruction?: string;
     }>;
     readonly sinkInstruction?: string;
+    /** Arrival triage guidance from the sink contract (inbound.instruction). */
+    readonly sinkTriage?: string;
+    /** Forward emission guidance (outbound.emission) — only when this station forwards. */
+    readonly sinkEmission?: string;
   };
 };
 
@@ -1653,8 +1657,12 @@ export const WorkLive = Layer.effect(
           const regions = regionStackFor(read.doc, nodeId);
           const sinkContract = sinkContractOf(node);
           const sinkInstruction = sinkContract?.instruction;
-          const sinkTriage = sinkContract?.inbound?.instruction;
-          const sinkEmission = sinkContract?.outbound?.emission;
+          const sinkTriage = sinkContract?.inbound?.instruction?.trim();
+          // Emission is forwarding guidance — meaningless at a terminal sink.
+          const sinkEmission =
+            flowDestinations(read.doc, nodeId).length > 0
+              ? sinkContract?.outbound?.emission?.trim()
+              : undefined;
           return {
             task,
             journey,
@@ -1662,8 +1670,8 @@ export const WorkLive = Layer.effect(
             ambient: {
               regions,
               ...(sinkInstruction !== undefined ? { sinkInstruction } : {}),
-              ...(sinkTriage !== undefined ? { sinkTriage } : {}),
-              ...(sinkEmission !== undefined ? { sinkEmission } : {}),
+              ...(sinkTriage ? { sinkTriage } : {}),
+              ...(sinkEmission ? { sinkEmission } : {}),
             },
           };
         }),

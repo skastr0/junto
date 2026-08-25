@@ -1682,7 +1682,7 @@ describe("work control transport", () => {
                       contract: {
                         instruction: "implement and gate the change",
                         inbound: {
-                          instruction: "reproduce the defect before touching code",
+                          instruction: "  reproduce the defect before touching code  ",
                         },
                         outbound: {
                           emission: "name the verified fix and cite the failing test",
@@ -1755,6 +1755,88 @@ describe("work control transport", () => {
     expect(sinkEntry?.destinations).toEqual([
       expect.objectContaining({ station: "review" }),
     ]);
+
+    const show = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.show",
+      args: { target: "tasks", task: "t1" },
+    })) as {
+      ok: true;
+      data: {
+        ambient: {
+          sinkInstruction?: string;
+          sinkTriage?: string;
+          sinkEmission?: string;
+        };
+      };
+    };
+    expect(show.ok).toBe(true);
+    expect(show.data.ambient).toMatchObject({
+      sinkInstruction: "implement and gate the change",
+      sinkTriage: "reproduce the defect before touching code",
+      sinkEmission: "name the verified fix and cite the failing test",
+    });
+  });
+
+  it("blank triage never surfaces and emission drops at a terminal station", async () => {
+    const server = servers[0]!;
+    const runtime = runtimes.at(-1)!;
+    const canvases = await runtime.runPromise(CanvasesService);
+    const current = await runtime.runPromise(canvases.read("work-cli"));
+    // Same contract, but no flow edge: the station is terminal, and the
+    // authored triage is whitespace-only (JSON Canvas can hold that even
+    // though the editor normalizes it away).
+    await runtime.runPromise(
+      canvases.write("work-cli", {
+        ...current.doc,
+        nodes: current.doc.nodes.map((node) =>
+          node.id === "tasks"
+            ? {
+                ...node,
+                ether: {
+                  ...node.ether,
+                  tasks: {
+                    ...node.ether?.tasks,
+                    items: node.ether?.tasks?.items ?? [],
+                    contract: {
+                      instruction: "close the journey",
+                      inbound: { instruction: "   " },
+                      outbound: { emission: "hand off cleanly" },
+                    },
+                  },
+                },
+              }
+            : node,
+        ),
+      }),
+    );
+
+    const list = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.list",
+      args: { target: "tasks" },
+    })) as {
+      ok: true;
+      data: {
+        contract?: { instruction?: string; triage?: string; emission?: string };
+      };
+    };
+    expect(list.ok).toBe(true);
+    expect(list.data.contract?.instruction).toBe("close the journey");
+    expect(list.data.contract?.triage).toBeUndefined();
+    expect(list.data.contract?.emission).toBeUndefined();
+
+    const show = (await call(server.socketPath, {
+      token: token(),
+      op: "tasks.show",
+      args: { target: "tasks", task: "t1" },
+    })) as {
+      ok: true;
+      data: { ambient: { sinkTriage?: string; sinkEmission?: string } };
+    };
+    expect(show.ok).toBe(true);
+    expect(show.data.ambient.sinkTriage).toBeUndefined();
+    expect(show.data.ambient.sinkEmission).toBeUndefined();
   });
 });
 
