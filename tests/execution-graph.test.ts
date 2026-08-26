@@ -287,7 +287,7 @@ describe("deriveExecutionGraph — no cascade", () => {
     expect(graph.blocked.has("a2")).toBe(false);
   });
 
-  it("relayState off (default) never cascades actor stoppage", () => {
+  it("a blocked seat never spreads its stoppage to the seat it messages", () => {
     const a1 = actorRef("a1", "1");
     const a2 = actorRef("a2", "2");
     const doc: CanvasDoc = {
@@ -311,7 +311,8 @@ describe("deriveExecutionGraph — no cascade", () => {
     expect(graph.blocked.has("a2")).toBe(false);
   });
 
-  // relayState cascade deleted by wires law (explicitness) — no tests reasserting it.
+  // Stoppage never fans out on its own: a second hop is an explicit relay the
+  // operator drew. The law above is the whole of it — nothing else to assert.
 
   it("stable seat identity blocks through an alias; another seat does not", () => {
     const docFor = (items: ReadonlyArray<ReturnType<typeof taskItem>>): CanvasDoc => ({

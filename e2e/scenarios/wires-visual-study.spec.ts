@@ -24,7 +24,7 @@ const work = {
     y: 120,
     items: [
       taskItem("t1", "Ship the edge sheet v2", "submitted"),
-      taskItem("t2", "Purge relayState chrome", "submitted"),
+      taskItem("t2", "Repaint the wire temperature ramp", "submitted"),
       taskItem("t3", "Digest role counts", "submitted"),
     ],
   }),
