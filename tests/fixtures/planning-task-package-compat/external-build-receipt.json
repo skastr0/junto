@@ -1,5 +1,5 @@
 {
-  "contract": "vellum-command/planning-task-package-build-receipt/v1",
+  "contract": "vellum-command/planning-task-package-build-receipt/v2",
   "recordedAt": "2026-08-26T21:18:00Z",
   "runtime": {
     "os": "macOS 26.5.2 (25F84)",
@@ -13,14 +13,22 @@
     "path": "qualification-entry.ts.fixture",
     "bytes": 3736,
     "sha256": "2b85b6feb0d51b3a081fd36b7637a7375d9c9a901f592d9a7cb8310ecce593d1",
-    "description": "A driver only. Every Schema and decoder is imported from the exact archived cohort. It does not re-author Task."
+    "description": "A reviewable driver only. Every Schema and decoder is imported from the exact archived cohort. Its guarded matrix ordering proves only this archive driver, not production package ingress."
+  },
+  "rebuildScript": {
+    "path": "rebuild-source-decoder.mjs",
+    "bytes": 6358,
+    "sha256": "483fb9f2f37cd5f341060fd0028afbf27517680e87a8b5b9c3061a7a97d5add6",
+    "runtime": "stock Node orchestrator with mise bun@1.3.13",
+    "command": "node tests/fixtures/planning-task-package-compat/rebuild-source-decoder.mjs --cohort <released-0.1.14|unreleased-protocol1-v2|current-v3> --project-root <git-checkout> --output-root <empty-output-root>"
   },
   "archiveBuildProcedure": [
-    "git archive --format=tar <commit> | tar -xf - -C <temporary-directory>",
+    "git archive --format=tar <exact-commit> and verify the recorded archive SHA-256 before extraction",
     "mise x bun@1.3.13 -- bun install --frozen-lockfile --ignore-scripts",
     "copy the SHA-256-pinned qualification-entry.ts.fixture into the archive root",
     "mise x bun@1.3.13 -- bun build qualification-entry.ts --target=node --format=esm --minify --outfile <cohort>.mjs",
-    "node <cohort>.mjs matrix < decoder-matrix-input.json"
+    "repeat the Bun build and require the executable bytes and SHA-256 to match exactly",
+    "compress with deterministic gzip and require the checked transport bytes and SHA-256"
   ],
   "cohorts": {
     "released-0.1.14": {
@@ -200,33 +208,28 @@
       }
     }
   },
-  "releasedPackageInstrument": {
+  "releasedPackageStaticExtraction": {
     "sourceZipSha256": "e47a0edb0eb1642b517a7916855dae1f911d4c6006bfe9e31c356b3621a6670e",
     "sourceAppAsarSha256": "11ccaee77152f1e9024c1ac24048370173a058f840c0bd9b6cd25332e5953bbf",
     "sourceMainBundleSha256": "9564bbabfc5ce075951e70d1a80520ba58454adb27384d6b67bd2594af01ee66",
-    "rawReleasedMainPrefixSha256": "91a339895ab8cb96d964285e60d590fb2c1407cb4f7740d54449e54dfd05f8a3",
-    "instrumentedSourceSha256": "70acdecc4829c015b5bc3b3bb0a0d6790fb00bf5e2652eccf9201b3db1ca2170",
-    "command": "mise x bun@1.3.13 -- bun build released-main-prefix-probe.mjs --target=node --format=esm --minify --outfile released-package-instrumented-decoder.mjs",
-    "bundledModules": 143,
-    "output": {
-      "path": "bundles/released-package-instrumented-decoder.mjs.gz",
-      "compression": "gzip",
-      "compressedBytes": 164648,
-      "compressedSha256": "3d71f4602af38ab20906f0f281509db1023269de136f08f7c2617caee4a7a0f3",
-      "executableBytes": 523049,
-      "executableSha256": "9cb000ee40f237cd6f33278ad1f031f5a0d052d8150ca9a5d15bfe38c16a33ed",
-      "artifactKind": "instrumented-released-package-decoder-bundle",
-      "isReleasedPackage": false,
-      "releasedMainPrefixSha256": "91a339895ab8cb96d964285e60d590fb2c1407cb4f7740d54449e54dfd05f8a3",
-      "instrumentedSourceSha256": "70acdecc4829c015b5bc3b3bb0a0d6790fb00bf5e2652eccf9201b3db1ca2170",
-      "deterministicRebuildVerified": true,
-      "repeatBuildExecutableSha256": "9cb000ee40f237cd6f33278ad1f031f5a0d052d8150ca9a5d15bfe38c16a33ed"
+    "script": {
+      "path": "extract-released-main-slices.mjs",
+      "bytes": 9314,
+      "sha256": "da7049db6f77521474231f2a6d26f38ecfcd4b6a9addd658eab85e5e9ab33a5f"
     },
-    "qualificationLabel": "Derived executable evidence from exact released compiled bytes. This is not the unmodified signed package."
+    "receipt": {
+      "path": "released-main-static/released-main-slice-receipt.json",
+      "bytes": 7282,
+      "sha256": "c417ff2d4285f60539a85b7cbb2f6598f0b3d3336b9fbda00bd05085c28fcc1b"
+    },
+    "mode": "static-hash-and-marker-only",
+    "archivedBytesExecuted": false,
+    "instrumentedExecutablePresent": false
   },
   "limitations": [
     "Standalone Bun compiled binary hashes contain a temporary PID path and are observations, not reproducible provenance pins.",
     "The current v3 and protocol-1 v2 cohorts are untagged, unreleased source archives. Their bundles are never labeled released packages.",
-    "No released older Remote artifact exists. A native released-Remote pairing must be performed by the dedicated later qualification task."
+    "The archive qualification driver proves only its own guarded decode order. Static public-package slices do not prove production package call ordering.",
+    "No released older Remote artifact exists. Native released-Remote pairing cannot be performed until such an artifact exists."
   ]
 }

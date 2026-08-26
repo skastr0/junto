@@ -1,6 +1,6 @@
 {
-  "contract": "vellum-command/planning-task-package-provenance/v2",
-  "generatedAt": "2026-08-26T21:19:00Z",
+  "contract": "vellum-command/planning-task-package-provenance/v3",
+  "generatedAt": "2026-08-26T22:30:00Z",
   "v3Introduction": {
     "commit": "e846e7d11d2ed4d0a0d1bcf6a58ccf243ad514e7",
     "treeOidSha1": "11157b9408d775c2fa1708840f84771ed0309bad",
@@ -46,7 +46,7 @@
         "sha256": "a9996ccdc16abee320dd003a56e7e205d1c2137bf8e6bdd23dacc8aac6a129ef"
       },
       "cohort": {
-        "releaseStatus": "released-command-center-macos",
+        "releaseStatus": "public-0.1.14-decoder-source-cohort",
         "remoteArtifactStatus": "no-released-remote-artifact",
         "appVersion": "0.1.14",
         "stateSchemaVersion": 18,
@@ -394,22 +394,121 @@
   },
   "publicPackage": {
     "receipt": "public-package-receipt.json",
-    "feedFixture": "public-latest-mac.yml",
-    "instrumentedDecoder": {
-      "path": "bundles/released-package-instrumented-decoder.mjs.gz",
-      "compression": "gzip",
-      "compressedBytes": 164648,
-      "compressedSha256": "3d71f4602af38ab20906f0f281509db1023269de136f08f7c2617caee4a7a0f3",
-      "executableBytes": 523049,
-      "executableSha256": "9cb000ee40f237cd6f33278ad1f031f5a0d052d8150ca9a5d15bfe38c16a33ed",
-      "artifactKind": "instrumented-released-package-decoder-bundle",
-      "isReleasedPackage": false,
-      "releasedMainPrefixSha256": "91a339895ab8cb96d964285e60d590fb2c1407cb4f7740d54449e54dfd05f8a3",
-      "instrumentedSourceSha256": "70acdecc4829c015b5bc3b3bb0a0d6790fb00bf5e2652eccf9201b3db1ca2170",
-      "deterministicRebuildVerified": true,
-      "repeatBuildExecutableSha256": "9cb000ee40f237cd6f33278ad1f031f5a0d052d8150ca9a5d15bfe38c16a33ed"
+    "feed": {
+      "path": "public-latest-mac.yml",
+      "bytes": 534,
+      "sha256": "c6f8a2f0e5bba9de4621a067ea2ab3ff1e9820d6e40c013363e8b91f8b38e734"
     },
-    "provenanceStatement": "The version bump is 1719b8d0, but the signed package has no embedded commit and contains post-bump production changes through at least 2dc82e9e. Decoder-relevant blobs are unchanged across that interval."
+    "packageIdentity": {
+      "zip": {
+        "bytes": 176039073,
+        "sha256": "e47a0edb0eb1642b517a7916855dae1f911d4c6006bfe9e31c356b3621a6670e",
+        "sha512Base64": "vACmL001sTgBRCe45SNkxDtflhyuuhi+30bWGDwn51vXpz5ELDbv3lnOEKkFgmKLObjAvvdmYermcM9dsZQYvQ=="
+      },
+      "extractedApp": {
+        "productName": "Vellum Command",
+        "bundleShortVersion": "0.1.14",
+        "appAsarSha256": "11ccaee77152f1e9024c1ac24048370173a058f840c0bd9b6cd25332e5953bbf",
+        "mainBundleBytes": 3099351,
+        "mainBundleSha256": "9564bbabfc5ce075951e70d1a80520ba58454adb27384d6b67bd2594af01ee66",
+        "cliBytes": 65000176,
+        "cliSha256": "17609d6a0a61b9fa36ed9fdff3d72c0b6649a8b6501d0848587e6cdaa05179d5"
+      },
+      "cohort": {
+        "appVersion": "0.1.14",
+        "stateSchemaVersion": 18,
+        "tasksCreateSchemaId": "tasks.create.input/v2",
+        "taskCreateSemantics": "pending-proposal-mints-new-task-on-approval",
+        "stationProtocolBaseline": 5,
+        "stationProtocolSupport": {
+          "preferred": 5,
+          "compatibleFrom": 5,
+          "warnBelow": 5
+        },
+        "stationPreface": "vellum-command/station-protocol-preface/v1",
+        "stationSession": "vellum-command/station-session/v5",
+        "stationApi": "vellum-command/station-api/v5",
+        "stationControl": "vellum-command/station-control/v5",
+        "workProtocol": "vellum/work/v2"
+      }
+    },
+    "staticEvidence": {
+      "receipt": "released-main-static/released-main-slice-receipt.json",
+      "mode": "static-hash-and-marker-only",
+      "ranges": [
+        {
+          "id": "task-authoring-schema",
+          "path": "released-main-static/released-main-task-authoring-schema.txt.fixture",
+          "start": 145838,
+          "end": 149032,
+          "bytes": 3194,
+          "sha256": "7bf15588530a77a5924207a315d512b500ee43a630db6caa64849b38934e7c03"
+        },
+        {
+          "id": "work-protocol",
+          "path": "released-main-static/released-main-work-protocol.txt.fixture",
+          "start": 165565,
+          "end": 165605,
+          "bytes": 40,
+          "sha256": "e31056c1d765d7d9221b8af0fe9c23964eb0cf7e2fdb96ddafaf87f6b281267f"
+        },
+        {
+          "id": "station-preface-api",
+          "path": "released-main-static/released-main-station-preface-api.txt.fixture",
+          "start": 186438,
+          "end": 191096,
+          "bytes": 4658,
+          "sha256": "31dd711582834b089de92dbf2abcdd0c11e541b7bfdd6962cff3d68c4b9a6f7e"
+        },
+        {
+          "id": "station-control",
+          "path": "released-main-static/released-main-station-control.txt.fixture",
+          "start": 344202,
+          "end": 344299,
+          "bytes": 97,
+          "sha256": "df3239f041a9c56ebec7ade5bd86287f5f57848fe9dd75c462a2f00b3075ceb1"
+        },
+        {
+          "id": "station-session",
+          "path": "released-main-static/released-main-station-session.txt.fixture",
+          "start": 346441,
+          "end": 346538,
+          "bytes": 97,
+          "sha256": "01380a1eca7a4dab945348a7e0b41628121a6591954dd3cf8775a0811e1ed82d"
+        },
+        {
+          "id": "state-schema-version",
+          "path": "released-main-static/released-main-state-schema-version.txt.fixture",
+          "start": 464139,
+          "end": 464308,
+          "bytes": 169,
+          "sha256": "1bb1c941e0bf1cd40ffa1df5c9b43dbf0e90779fd3f9eb85a75eb54325812ef3"
+        }
+      ],
+      "archivedBytesExecuted": false,
+      "instrumentedExecutablePresent": false
+    },
+    "provenanceStatement": "The public 0.1.14 ZIP, app.asar, main bundle, and CLI are hash-pinned. The package has no embedded commit, so source archives characterize only independently matched decoder blobs. Exact released main slices are static evidence and are never imported or spawned."
+  },
+  "receipts": {
+    "externalBuild": {
+      "path": "external-build-receipt.json",
+      "contract": "vellum-command/planning-task-package-build-receipt/v2",
+      "bytes": 11027,
+      "sha256": "9953bc7e0b45f1cfd7f785f720eee4a2155e806a2aa62de7ff5e0c5492ee55f9"
+    },
+    "publicPackage": {
+      "path": "public-package-receipt.json",
+      "contract": "vellum-command/public-macos-0.1.14-package-receipt/v2",
+      "bytes": 15817,
+      "sha256": "55540bccd9538329cea3df55846cdcaa2585a7a1374ff0129528d4cb7249e7c5"
+    },
+    "releasedMainSlice": {
+      "path": "released-main-static/released-main-slice-receipt.json",
+      "contract": "vellum-command/released-main-static-slice/v1",
+      "bytes": 7282,
+      "sha256": "c417ff2d4285f60539a85b7cbb2f6598f0b3d3336b9fbda00bd05085c28fcc1b"
+    }
   },
   "protocolPins": {
     "preTaskBaseCommit": "259d29a0518dd1b00d191f3b05b3a0b48adbe8d8",
@@ -454,11 +553,11 @@
     "taskCreateCanonicalJsonSha256": "23af8b52d7562d493180e202110924e5d56b2b00f360a18a7bdb31255b63fcd0"
   },
   "honestFindings": [
-    "The exact legacy tasks.create.input/v2 Task decoder already accepts dependsOn. Version 3 added Task admission and raisedBy, not dependsOn.",
-    "Both exact older decoders reject a current Task that carries admission and raisedBy. They reject those excess fields deterministically and do not silently accept version 3.",
-    "The public 0.1.14 package is Station protocol 5 only. It has no overlap with protocol 1 and returns a non-retryable no-common-version preface rejection before session or Work decode.",
-    "The checked decoder bundles are exact-archive build outputs or an instrumented derivative of released compiled bytes. None is mislabeled as a released package.",
-    "There is no released older Remote artifact. Native released-Remote pairing remains for the dedicated later qualification task."
+    "The exact protocol-1 v2 archive decoder already accepts dependsOn and rejects admission and raisedBy. Version 3 accepts all checked historical and current Task shapes.",
+    "The public 0.1.14 ZIP and exact static app.asar slices pin schema 18, Station baseline 5 with support 5/5/5, Work v2, and the v2 Task authoring shape.",
+    "The release-line archive qualification driver records zero guarded decoder invocations when offered protocol 1. That proves only the reviewable archive driver, not production package ingress ordering.",
+    "The focused qualifier never imports or spawns released app.asar bytes. Static markers and an unsigned run observation do not prove preface rejection before Work decode.",
+    "No released older Remote artifact exists. The current protocol-1 v2 and v3 cohorts are unreleased source archives, and no Station protocol bytes are changed by this proof."
   ],
   "files": [
     {
@@ -472,11 +571,6 @@
       "sha256": "63553944cfafa8ed50add6db0e465dbd0ed04cf8f8faf503a728c9abd48db2bd"
     },
     {
-      "path": "bundles/released-package-instrumented-decoder.mjs.gz",
-      "bytes": 164648,
-      "sha256": "3d71f4602af38ab20906f0f281509db1023269de136f08f7c2617caee4a7a0f3"
-    },
-    {
       "path": "bundles/unreleased-protocol1-v2-decoder.mjs.gz",
       "bytes": 201175,
       "sha256": "48acbc5ae07e4950dd91229084e805fee3d85e2414cbbfb89d526edb19d770f2"
@@ -488,8 +582,13 @@
     },
     {
       "path": "external-build-receipt.json",
-      "bytes": 11066,
-      "sha256": "b3cae662a7a9c58162655e7a3439d740ec262932c9fd0dd32ae63ea4ba3be7e9"
+      "bytes": 11027,
+      "sha256": "9953bc7e0b45f1cfd7f785f720eee4a2155e806a2aa62de7ff5e0c5492ee55f9"
+    },
+    {
+      "path": "extract-released-main-slices.mjs",
+      "bytes": 9314,
+      "sha256": "da7049db6f77521474231f2a6d26f38ecfcd4b6a9addd658eab85e5e9ab33a5f"
     },
     {
       "path": "public-latest-mac.yml",
@@ -498,8 +597,8 @@
     },
     {
       "path": "public-package-receipt.json",
-      "bytes": 14327,
-      "sha256": "70ee52adbd40dde3eabaa45d2b7051591a72c70e7ba812c8ad7df1e214899f0f"
+      "bytes": 15817,
+      "sha256": "55540bccd9538329cea3df55846cdcaa2585a7a1374ff0129528d4cb7249e7c5"
     },
     {
       "path": "qualification-entry.ts.fixture",
@@ -508,8 +607,48 @@
     },
     {
       "path": "qualify.mjs",
-      "bytes": 11278,
-      "sha256": "e169352ceceb0be71a813c5e80ee1d28e34de1d2fc89e08dbf6f359b9e331961"
+      "bytes": 19756,
+      "sha256": "4cfbb9ba2689ef6442bfd7f8216f0fbfa1ec983f3a033898246d2b27c185a7fa"
+    },
+    {
+      "path": "rebuild-source-decoder.mjs",
+      "bytes": 6358,
+      "sha256": "483fb9f2f37cd5f341060fd0028afbf27517680e87a8b5b9c3061a7a97d5add6"
+    },
+    {
+      "path": "released-main-static/released-main-slice-receipt.json",
+      "bytes": 7282,
+      "sha256": "c417ff2d4285f60539a85b7cbb2f6598f0b3d3336b9fbda00bd05085c28fcc1b"
+    },
+    {
+      "path": "released-main-static/released-main-state-schema-version.txt.fixture",
+      "bytes": 169,
+      "sha256": "1bb1c941e0bf1cd40ffa1df5c9b43dbf0e90779fd3f9eb85a75eb54325812ef3"
+    },
+    {
+      "path": "released-main-static/released-main-station-control.txt.fixture",
+      "bytes": 97,
+      "sha256": "df3239f041a9c56ebec7ade5bd86287f5f57848fe9dd75c462a2f00b3075ceb1"
+    },
+    {
+      "path": "released-main-static/released-main-station-preface-api.txt.fixture",
+      "bytes": 4658,
+      "sha256": "31dd711582834b089de92dbf2abcdd0c11e541b7bfdd6962cff3d68c4b9a6f7e"
+    },
+    {
+      "path": "released-main-static/released-main-station-session.txt.fixture",
+      "bytes": 97,
+      "sha256": "01380a1eca7a4dab945348a7e0b41628121a6591954dd3cf8775a0811e1ed82d"
+    },
+    {
+      "path": "released-main-static/released-main-task-authoring-schema.txt.fixture",
+      "bytes": 3194,
+      "sha256": "7bf15588530a77a5924207a315d512b500ee43a630db6caa64849b38934e7c03"
+    },
+    {
+      "path": "released-main-static/released-main-work-protocol.txt.fixture",
+      "bytes": 40,
+      "sha256": "e31056c1d765d7d9221b8af0fe9c23964eb0cf7e2fdb96ddafaf87f6b281267f"
     },
     {
       "path": "schema20-sentinel.db",

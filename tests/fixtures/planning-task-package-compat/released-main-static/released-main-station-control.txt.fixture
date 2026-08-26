@@ -1,0 +1,1 @@
+const STATION_CONTROL_PROTOCOL = `vellum-command/station-control/v${STATION_PROTOCOL_BASELINE}`;
