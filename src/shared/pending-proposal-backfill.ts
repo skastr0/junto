@@ -75,7 +75,45 @@ export const proposalBackfillTaskKey = (
   canvasName: string,
   nodeId: string,
   id: string,
-): string => `${canvasName}\0${nodeId}\0${id}`;
+): string => JSON.stringify([canvasName, nodeId, id]);
+
+/** Dependency existence is canvas-wide even though materialization is sink-local. */
+export const proposalBackfillDependencyKey = (
+  canvasName: string,
+  taskId: string,
+): string => JSON.stringify([canvasName, taskId]);
+
+export type ProposalBackfillFrontierCandidate = {
+  readonly key: string;
+  readonly canvasName: string;
+  readonly dependsOn?: ReadonlyArray<string>;
+};
+
+/**
+ * Return the next durable-safe frontier. Callers add only tasks whose writes
+ * are witnessed, then plan again. A cycle or missing explicit dependency has
+ * no ready member and stays waiting; dependency prose is never consulted.
+ */
+export const planProposalBackfillFrontier = (input: {
+  readonly candidates: ReadonlyArray<ProposalBackfillFrontierCandidate>;
+  readonly existingDependencyKeys: ReadonlySet<string>;
+}): {
+  readonly ready: ReadonlyArray<string>;
+  readonly waiting: ReadonlyArray<string>;
+} => {
+  const ready: string[] = [];
+  const waiting: string[] = [];
+  for (const candidate of input.candidates) {
+    const dependencies = candidate.dependsOn ?? [];
+    const isReady = dependencies.every((taskId) =>
+      input.existingDependencyKeys.has(
+        proposalBackfillDependencyKey(candidate.canvasName, taskId),
+      ),
+    );
+    (isReady ? ready : waiting).push(candidate.key);
+  }
+  return { ready, waiting };
+};
 
 export const planProposalBackfill = (input: {
   readonly state: ProposalBackfillState;
@@ -219,7 +257,7 @@ export const materializePendingProposal = (input: {
     history: [asBrief(input.proposal.brief, input.proposal.id)],
     ...(metadata !== undefined ? { metadata } : {}),
     ...(input.proposal.reason !== undefined ? { reason: input.proposal.reason } : {}),
-    ...(input.proposal.dependsOn !== undefined && input.proposal.dependsOn.length > 0
+    ...(input.proposal.dependsOn !== undefined
       ? { dependsOn: input.proposal.dependsOn }
       : {}),
     ...(input.proposal.finishCriteria !== undefined

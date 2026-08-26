@@ -10,8 +10,9 @@
  * - approved proposals — live work is already work_tasks at approved_task_id
  *   (possibly a different id); never rewrite those ids
  * - pending whose proposal_id already exists as a work_tasks row (resume)
- * A leftover pending card is one of those skips, or a persist that failed
- * closed (marker stays pending, next boot retries).
+ * A remaining pending row has an explicit unresolved dependency, invalid
+ * durable planning data, or a persist that failed closed. The marker stays
+ * pending and a later invocation resumes from exact durable task witnesses.
  */
 
 import { Effect } from "effect";
@@ -19,6 +20,8 @@ import {
   BACKFILL_PENDING_PROPOSALS_V1,
   materializePendingProposal,
   planProposalBackfill,
+  planProposalBackfillFrontier,
+  proposalBackfillDependencyKey,
   proposalBackfillTaskKey,
   recoverClaimsFromProposalRecordJson,
   type PendingProposalSnapshot,
@@ -36,8 +39,14 @@ export { BACKFILL_PENDING_PROPOSALS_V1 } from "@shared/pending-proposal-backfill
 
 export type PendingProposalBackfillReport = {
   readonly status: "complete" | "already-complete" | "pending";
+  /** Exact same-id task rows first witnessed during this invocation. */
   readonly materialized: number;
+  /** Pending proposals already carrying an exact same-id task row. */
   readonly skipped: number;
+  /** Rows whose decode or persist attempt failed during this invocation. */
+  readonly failed: number;
+  /** Pending proposals still missing an exact same-id task at the final witness. */
+  readonly remaining: number;
 };
 
 export class PendingProposalBackfillError extends Error {
@@ -130,6 +139,24 @@ const asActorRef = (row: ProposalScanRow): ActorRef => ({
   nodeId: row.proposer_node_id,
 });
 
+const dependsOnFromRow = (
+  row: ProposalScanRow,
+): ReadonlyArray<string> | undefined => {
+  if (row.depends_on_json === null) return undefined;
+  const value = parseJson(
+    row.depends_on_json,
+    `${row.proposal_id}.dependsOn`,
+  );
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) {
+    throw new PendingProposalBackfillError(
+      `proposal "${row.proposal_id}" dependsOn is not a string array`,
+    );
+  }
+  // Preserve the exact authored array. Repository validation owns empties,
+  // duplicates, self references, missing ids, and cycles.
+  return value;
+};
+
 const snapshotFromRow = (row: ProposalScanRow): PendingProposalSnapshot => {
   const state = row.state;
   if (state !== "pending" && state !== "approved" && state !== "rejected") {
@@ -137,12 +164,7 @@ const snapshotFromRow = (row: ProposalScanRow): PendingProposalSnapshot => {
       `proposal "${row.proposal_id}" has unknown state ${state}`,
     );
   }
-  const dependsOn =
-    row.depends_on_json === null
-      ? undefined
-      : (parseJson(row.depends_on_json, `${row.proposal_id}.dependsOn`) as
-          | ReadonlyArray<string>
-          | null);
+  const dependsOn = dependsOnFromRow(row);
   const finishCriteria =
     row.finish_criteria_json === null
       ? undefined
@@ -160,15 +182,22 @@ const snapshotFromRow = (row: ProposalScanRow): PendingProposalSnapshot => {
     brief: asMessage(parseJson(row.brief_json, `${row.proposal_id}.brief`), row.proposal_id),
     proposedBy: asActorRef(row),
     ...(row.approved_task_id !== null ? { approvedTaskId: row.approved_task_id } : {}),
-    ...(Array.isArray(dependsOn) && dependsOn.length > 0 ? { dependsOn } : {}),
+    ...(dependsOn !== undefined ? { dependsOn } : {}),
     ...(finishCriteria !== undefined ? { finishCriteria } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
     ...(row.reason !== null ? { reason: row.reason } : {}),
   };
 };
 
-const loadExistingTaskKeys = (reader: StateReader): Set<string> => {
-  if (!tableExists(reader, "work_tasks")) return new Set();
+type ExistingTaskIndex = {
+  readonly exactKeys: Set<string>;
+  readonly dependencyKeys: Set<string>;
+};
+
+const loadExistingTaskIndex = (reader: StateReader): ExistingTaskIndex => {
+  if (!tableExists(reader, "work_tasks")) {
+    return { exactKeys: new Set(), dependencyKeys: new Set() };
+  }
   const rows = reader.all<{
     readonly canvas_name: string;
     readonly node_id: string;
@@ -179,11 +208,18 @@ const loadExistingTaskKeys = (reader: StateReader): Set<string> => {
       FROM work_tasks
     `,
   );
-  return new Set(
-    rows.map((row) =>
-      proposalBackfillTaskKey(row.canvas_name, row.node_id, row.task_id),
+  return {
+    exactKeys: new Set(
+      rows.map((row) =>
+        proposalBackfillTaskKey(row.canvas_name, row.node_id, row.task_id),
+      ),
     ),
-  );
+    dependencyKeys: new Set(
+      rows.map((row) =>
+        proposalBackfillDependencyKey(row.canvas_name, row.task_id),
+      ),
+    ),
+  };
 };
 
 const loadPendingProposalRows = (reader: StateReader): ReadonlyArray<ProposalScanRow> => {
@@ -261,29 +297,143 @@ const loadCreateRecordJson = (
   }
 };
 
-const loadProposalEventsFingerprint = (
+type ProposalEventWitness = {
+  readonly eventHome: string;
+  readonly entityHome: string;
+  readonly seq: string;
+  readonly sha: string;
+  readonly json: string;
+};
+
+const loadProposalEventWitnesses = (
   reader: StateReader,
-): ReadonlyArray<{ readonly seq: string; readonly sha: string; readonly json: string }> => {
+): ReadonlyArray<ProposalEventWitness> => {
   if (!tableExists(reader, "work_proposal_events")) return [];
-  return reader.all<{
-    readonly seq: string;
-    readonly sha: string;
-    readonly json: string;
-  }>(
+  return reader.all<ProposalEventWitness>(
     `
-      SELECT seq, content_sha256 AS sha, record_json AS json
+      SELECT
+        event_home AS eventHome,
+        entity_home AS entityHome,
+        seq,
+        content_sha256 AS sha,
+        record_json AS json
       FROM work_proposal_events
       ORDER BY event_home, entity_home, length(seq), seq
     `,
   );
 };
 
+const proposalEventWitnessKey = (event: ProposalEventWitness): string =>
+  JSON.stringify([event.eventHome, event.entityHome, event.seq]);
+
+/** Existing immutable rows must remain byte-identical; concurrent appends are valid. */
+const proposalEventPrefixError = (
+  before: ReadonlyArray<ProposalEventWitness>,
+  after: ReadonlyArray<ProposalEventWitness>,
+): PendingProposalBackfillError | undefined => {
+  const afterByKey = new Map(
+    after.map((event) => [proposalEventWitnessKey(event), event] as const),
+  );
+  for (const event of before) {
+    const current = afterByKey.get(proposalEventWitnessKey(event));
+    if (
+      current === undefined ||
+      current.sha !== event.sha ||
+      current.json !== event.json
+    ) {
+      return new PendingProposalBackfillError(
+        "preexisting work_proposal_events row changed during pending-proposal backfill",
+      );
+    }
+  }
+  return undefined;
+};
+
+type ProposalScan = {
+  readonly rows: ReadonlyArray<ProposalScanRow>;
+  readonly existing: ExistingTaskIndex;
+};
+
+const loadProposalScan = (reader: StateReader): ProposalScan => ({
+  rows: loadPendingProposalRows(reader),
+  existing: loadExistingTaskIndex(reader),
+});
+
+const scanRowKey = (row: ProposalScanRow): string =>
+  proposalBackfillTaskKey(row.canvas_name, row.node_id, row.proposal_id);
+
+const classifyProposalScan = (
+  scan: ProposalScan,
+): {
+  readonly matched: ReadonlyArray<ProposalScanRow>;
+  readonly missing: ReadonlyArray<ProposalScanRow>;
+} => {
+  const matched: ProposalScanRow[] = [];
+  const missing: ProposalScanRow[] = [];
+  for (const row of scan.rows) {
+    const plan = planProposalBackfill({
+      state: row.state as PendingProposalSnapshot["state"],
+      proposalId: row.proposal_id,
+      canvasName: row.canvas_name,
+      nodeId: row.node_id,
+      ...(row.approved_task_id !== null
+        ? { approvedTaskId: row.approved_task_id }
+        : {}),
+      existingTaskKeys: scan.existing.exactKeys,
+    });
+    (plan.action === "materialize" ? missing : matched).push(row);
+  }
+  return { matched, missing };
+};
+
+/** Narrows the scan→persist race. The persist port must still recheck atomically. */
+const proposalStillPendingAndUnmaterialized = (
+  reader: StateReader,
+  row: ProposalScanRow,
+): boolean => {
+  if (!tableExists(reader, "work_task_proposals")) return false;
+  const proposal = reader.get<{ readonly state: string }>(
+    `
+      SELECT state
+      FROM work_task_proposals
+      WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
+    `,
+    [row.canvas_name, row.node_id, row.proposal_id],
+  );
+  if (proposal?.state !== "pending") return false;
+  if (!tableExists(reader, "work_tasks")) return true;
+  return reader.get(
+    `
+      SELECT task_id
+      FROM work_tasks
+      WHERE canvas_name = ? AND node_id = ? AND task_id = ?
+    `,
+    [row.canvas_name, row.node_id, row.proposal_id],
+  ) === undefined;
+};
+
+const verifyProposalEventPrefix = (
+  state: StateService,
+  before: ReadonlyArray<ProposalEventWitness>,
+): Effect.Effect<void, PendingProposalBackfillError | unknown> =>
+  state.read(
+    "work.pending-proposals.fingerprint-after",
+    loadProposalEventWitnesses,
+  ).pipe(
+    Effect.flatMap((after) => {
+      const error = proposalEventPrefixError(before, after);
+      return error === undefined ? Effect.void : Effect.fail(error);
+    }),
+  );
+
 /**
- * Run one walk. Safe every boot. Never gates startup — callers must catch
- * and leave the marker pending.
+ * Drain one durable fixed point. Safe every boot and after legacy ingress.
+ * Ordinary row failures stay pending and do not stop independent branches.
+ * Defects/interruption escape, leaving the marker pending for a later resume.
  *
- * `persist` is the GO-time seam: mint a submitted Task through WorkRepository
- * (same id, requested admission operator-gated, raisedBy = proposedBy).
+ * `persist` must atomically recheck that this exact proposal is still pending
+ * and the same-id task is absent before committing task.create. The local
+ * precheck below only narrows that cross-call race.
  */
 export const runPendingProposalBackfill = (input: {
   readonly state: StateService;
@@ -295,110 +445,169 @@ export const runPendingProposalBackfill = (input: {
 > =>
   Effect.gen(function* () {
     const backfillId = BACKFILL_PENDING_PROPOSALS_V1;
-    const marker = yield* input.installOps.getBackfill(backfillId);
-    if (marker?.status === "complete") {
-      return {
-        status: "already-complete" as const,
-        materialized: 0,
-        skipped: 0,
-      };
-    }
-
-    yield* input.installOps.ensurePending(backfillId);
+    const initialMarker = yield* input.installOps.getBackfill(backfillId);
+    const markerObjects = initialMarker?.objectsIngested ?? 0;
+    let markerStatus = initialMarker?.status;
 
     const eventsBefore = yield* input.state.read(
       "work.pending-proposals.fingerprint-before",
-      loadProposalEventsFingerprint,
+      loadProposalEventWitnesses,
     );
 
-    const scan = yield* input.state.read(
-      "work.pending-proposals.scan",
-      (reader) => ({
-        rows: loadPendingProposalRows(reader),
-        existing: loadExistingTaskKeys(reader),
-      }),
-    );
+    const attemptedKeys = new Set<string>();
+    const materializedKeys = new Set<string>();
+    const skippedKeys = new Set<string>();
 
-    let materialized = 0;
-    let skipped = 0;
+    const observe = (scan: ProposalScan) => {
+      const classified = classifyProposalScan(scan);
+      for (const row of classified.matched) {
+        const key = scanRowKey(row);
+        if (attemptedKeys.has(key)) {
+          materializedKeys.add(key);
+        } else if (!materializedKeys.has(key)) {
+          skippedKeys.add(key);
+        }
+      }
+      return classified;
+    };
 
-    for (const row of scan.rows) {
-      const plan = planProposalBackfill({
-        state: row.state as PendingProposalSnapshot["state"],
-        proposalId: row.proposal_id,
-        canvasName: row.canvas_name,
-        nodeId: row.node_id,
-        ...(row.approved_task_id !== null
-          ? { approvedTaskId: row.approved_task_id }
-          : {}),
-        existingTaskKeys: scan.existing,
-      });
-      if (plan.action === "skip") {
-        skipped += 1;
+    const report = (
+      status: PendingProposalBackfillReport["status"],
+      missing: ReadonlyArray<ProposalScanRow>,
+    ): PendingProposalBackfillReport => {
+      const missingKeys = new Set(missing.map(scanRowKey));
+      let failed = 0;
+      for (const key of attemptedKeys) {
+        if (missingKeys.has(key)) failed += 1;
+      }
+      return {
+        status,
+        materialized: materializedKeys.size,
+        skipped: skippedKeys.size,
+        failed,
+        remaining: missing.length,
+      };
+    };
+
+    while (true) {
+      const scan = yield* input.state.read(
+        "work.pending-proposals.scan",
+        loadProposalScan,
+      );
+      const classified = observe(scan);
+
+      if (classified.missing.length === 0) {
+        if (markerStatus === "complete") {
+          yield* verifyProposalEventPrefix(input.state, eventsBefore);
+          return report("already-complete", []);
+        }
+        if (markerStatus === undefined) {
+          yield* input.installOps.ensurePending(backfillId);
+          markerStatus = "pending";
+        }
+
+        yield* input.installOps.markComplete(
+          backfillId,
+          markerObjects + materializedKeys.size,
+        );
+        markerStatus = "complete";
+
+        // Marker first, witness second: an arrival in the scan→marker window is
+        // seen here, reopened, and drained in this same invocation.
+        const postMarkerScan = yield* input.state.read(
+          "work.pending-proposals.post-marker-scan",
+          loadProposalScan,
+        );
+        const postMarker = observe(postMarkerScan);
+        if (postMarker.missing.length === 0) {
+          yield* verifyProposalEventPrefix(input.state, eventsBefore);
+          return report("complete", []);
+        }
+
+        yield* input.installOps.reopenPending(backfillId);
+        markerStatus = "pending";
         continue;
       }
 
-      const recordJson = yield* input.state.read(
-        "work.pending-proposals.claims",
-        (reader) => loadCreateRecordJson(reader, row),
-      );
-      const snapshot = snapshotFromRow(row);
-      const materialization = materializePendingProposal({
-        proposal: snapshot,
-        claimsFromRecord: recoverClaimsFromProposalRecordJson(recordJson),
-      });
-      yield* input.persist({
-        canvasName: row.canvas_name,
-        nodeId: row.node_id,
-        materialization,
-      });
-      scan.existing.add(
-        proposalBackfillTaskKey(row.canvas_name, row.node_id, row.proposal_id),
-      );
-      materialized += 1;
-    }
+      if (markerStatus === "complete") {
+        // A prior completion is advisory: older ingress can append later.
+        yield* input.installOps.reopenPending(backfillId);
+        markerStatus = "pending";
+      } else if (markerStatus === undefined) {
+        yield* input.installOps.ensurePending(backfillId);
+        markerStatus = "pending";
+      }
 
-    const eventsAfter = yield* input.state.read(
-      "work.pending-proposals.fingerprint-after",
-      loadProposalEventsFingerprint,
-    );
-    if (JSON.stringify(eventsBefore) !== JSON.stringify(eventsAfter)) {
-      return yield* Effect.fail(
-        new PendingProposalBackfillError(
-          "work_proposal_events mutated during pending-proposal backfill",
-        ),
-      );
-    }
+      const candidateRows = new Map<string, ProposalScanRow>();
+      const candidates: Array<{
+        readonly key: string;
+        readonly canvasName: string;
+        readonly dependsOn?: ReadonlyArray<string>;
+      }> = [];
+      for (const row of classified.missing) {
+        const key = scanRowKey(row);
+        if (attemptedKeys.has(key)) continue;
+        try {
+          const dependsOn = dependsOnFromRow(row);
+          candidateRows.set(key, row);
+          candidates.push({
+            key,
+            canvasName: row.canvas_name,
+            ...(dependsOn !== undefined ? { dependsOn } : {}),
+          });
+        } catch {
+          // Invalid explicit planning data is a row failure, never permission
+          // to erase the edge or infer a replacement from prose.
+          attemptedKeys.add(key);
+        }
+      }
 
-    const remaining = yield* input.state.read(
-      "work.pending-proposals.remaining",
-      (reader) => {
-        const existing = loadExistingTaskKeys(reader);
-        return loadPendingProposalRows(reader).filter((row) => {
-          const plan = planProposalBackfill({
-            state: "pending",
-            proposalId: row.proposal_id,
+      const frontier = planProposalBackfillFrontier({
+        candidates,
+        existingDependencyKeys: scan.existing.dependencyKeys,
+      });
+      if (frontier.ready.length === 0) {
+        yield* verifyProposalEventPrefix(input.state, eventsBefore);
+        return report("pending", classified.missing);
+      }
+
+      for (const key of frontier.ready) {
+        const row = candidateRows.get(key);
+        if (row === undefined) continue;
+
+        const current = yield* input.state.read(
+          "work.pending-proposals.pre-persist",
+          (reader) => proposalStillPendingAndUnmaterialized(reader, row),
+        );
+        if (!current) continue;
+
+        attemptedKeys.add(key);
+        const recordJson = yield* input.state.read(
+          "work.pending-proposals.claims",
+          (reader) => loadCreateRecordJson(reader, row),
+        );
+
+        let materialization: UnadmittedMaterialization;
+        try {
+          materialization = materializePendingProposal({
+            proposal: snapshotFromRow(row),
+            claimsFromRecord: recoverClaimsFromProposalRecordJson(recordJson),
+          });
+        } catch {
+          continue;
+        }
+
+        let persist: Effect.Effect<void, unknown>;
+        try {
+          persist = input.persist({
             canvasName: row.canvas_name,
             nodeId: row.node_id,
-            existingTaskKeys: existing,
+            materialization,
           });
-          return plan.action === "materialize";
-        }).length;
-      },
-    );
-
-    if (remaining > 0) {
-      return {
-        status: "pending" as const,
-        materialized,
-        skipped,
-      };
+        } catch {
+          continue;
+        }
+        yield* persist.pipe(Effect.catch(() => Effect.void));
+      }
     }
-
-    yield* input.installOps.markComplete(backfillId, materialized);
-    return {
-      status: "complete" as const,
-      materialized,
-      skipped,
-    };
   });

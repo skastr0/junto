@@ -28,6 +28,11 @@ export type InstallOpsServiceShape = {
     id: string,
   ) => Effect.Effect<BackfillMarker | undefined, InstallOpsError>;
   readonly ensurePending: (id: string) => Effect.Effect<void, InstallOpsError>;
+  /**
+   * Reopen an existing completion witness after product-state drift is seen.
+   * Keeps the prior ingest count; only status/completedAt are reset.
+   */
+  readonly reopenPending: (id: string) => Effect.Effect<void, InstallOpsError>;
   readonly markComplete: (
     id: string,
     objectsIngested: number,

@@ -84,6 +84,15 @@ const openInstallOps = (path: string) =>
           ON CONFLICT(id) DO NOTHING
         `,
       );
+      const reopenPending = database.prepare(
+        `
+          INSERT INTO backfill_markers(id, status, objects_ingested, completed_at)
+          VALUES (?, 'pending', 0, NULL)
+          ON CONFLICT(id) DO UPDATE SET
+            status = 'pending',
+            completed_at = NULL
+        `,
+      );
       const markComplete = database.prepare(
         `
           INSERT INTO backfill_markers(id, status, objects_ingested, completed_at)
@@ -128,6 +137,13 @@ const openInstallOps = (path: string) =>
               ensurePending.run(id);
             },
             catch: (cause) => opsError("ensurePending", cause),
+          }),
+        reopenPending: (id) =>
+          Effect.try({
+            try: () => {
+              reopenPending.run(id);
+            },
+            catch: (cause) => opsError("reopenPending", cause),
           }),
         markComplete: (id, objectsIngested) =>
           Effect.try({
