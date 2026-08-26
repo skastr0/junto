@@ -74,6 +74,7 @@ import {
 } from "../src/main/vellum/station/fleet-target-repository";
 import {
   compileStationPortfolioBody,
+  decodeStationPortfolioBody,
 } from "../src/main/vellum/station/portfolio";
 import {
   bindNegotiatedStationProtocol,
@@ -473,6 +474,177 @@ const productPathDocument = (
     },
   ],
 });
+
+const remoteTaskDocument = (
+  remoteHost: HostIdValue,
+  bindingId: string,
+  includeActor = true,
+): CanvasDoc => ({
+  nodes: [
+    {
+      id: "remote-tasks",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 100,
+      text: "Remote tasks",
+      ether: { entity: { kind: "task" }, host: remoteHost },
+    },
+    ...(includeActor
+      ? [
+          {
+            id: "remote-worker",
+            type: "text" as const,
+            x: 320,
+            y: 0,
+            width: 240,
+            height: 100,
+            text: "Remote worker",
+            ether: {
+              entity: {
+                kind: "agent",
+                name: `${remoteHost}:builder`,
+              },
+              host: remoteHost,
+              terminal: {
+                bindingId,
+                harness: "codex" as const,
+                launch: {
+                  kind: "harness" as const,
+                  argv: ["codex"],
+                },
+              },
+            },
+          },
+        ]
+      : []),
+  ],
+  edges: includeActor
+    ? [
+        {
+          id: "remote-worker-to-remote-tasks",
+          fromNode: "remote-worker",
+          toNode: "remote-tasks",
+        },
+      ]
+    : [],
+});
+
+const archiveCurrentProjection = async (
+  commandCenter: InstallationHarness,
+  remote: InstallationHarness | undefined,
+  commandCenterId: InstallationIdValue,
+  remoteId: InstallationIdValue,
+  remoteHost: HostIdValue,
+) => {
+  const authority = await commandCenter.runtime.runPromise(
+    commandCenter.canvases.authoritySnapshot(),
+  );
+  const projection = await commandCenter.runtime.runPromise(
+    commandCenter.station.archiveProjection({
+      scope: "full",
+      sourceCanvasGeneration: generation(authority.generation),
+      sourceIntentSha256: projectionSha256(authority.intentSha256),
+      body: compileStationPortfolioBody(
+        authority.documents,
+        new Map([
+          ["local", commandCenterId],
+          [remoteHost, remoteId],
+        ]),
+      ),
+      createdAt: now,
+    }),
+  );
+  if (remote !== undefined) {
+    await remote.runtime.runPromise(
+      remote.api.handle(
+        ProjectRequest.make({
+          protocol: STATION_API_PROTOCOL,
+          op: "project",
+          stationInstallationId: remoteId,
+          projection,
+        }),
+        readiness,
+        { _tag: "command-center-route" },
+      ),
+    );
+  }
+  return projection;
+};
+
+const configureDirectPair = async (
+  commandCenter: InstallationHarness,
+  remote: InstallationHarness,
+  commandCenterId: InstallationIdValue,
+  remoteId: InstallationIdValue,
+  remoteHost: HostIdValue,
+  document: CanvasDoc,
+) => {
+  await commandCenter.runtime.runPromise(
+    commandCenter.settings.setStationTopology({
+      role: "command-center",
+      hostId: "local",
+      supervisedPreferred: true,
+    }),
+  );
+  await commandCenter.runtime.runPromise(
+    commandCenter.fleetTargets.bind(
+      { hostId: remoteHost, stationInstallationId: remoteId },
+      now,
+    ),
+  );
+  await commandCenter.runtime.runPromise(
+    commandCenter.canvases.write("factory", document),
+  );
+  await remote.runtime.runPromise(
+    remote.api.handle(
+      PairRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "pair",
+        commandCenterInstallationId: commandCenterId,
+        stationInstallationId: remoteId,
+        stationLabel: "Report Remote",
+        appVersion: "0.1.0",
+      }),
+      readiness,
+      { _tag: "command-center-route" },
+    ),
+  );
+  const remoteStationHost = stationHostId(remoteHost);
+  await remote.runtime.runPromise(
+    remote.api.handle(
+      ConfigureRequest.make({
+        protocol: STATION_API_PROTOCOL,
+        op: "configure",
+        installationId: remoteId,
+        configuration: {
+          role: "remote",
+          hostId: remoteStationHost,
+          agentHostId: remoteStationHost,
+          commandCenterInstallationId: commandCenterId,
+          supervisedPreferred: true,
+        },
+        host: {
+          id: remoteHost,
+          label: "Report Remote",
+          kind: "remote",
+          capabilities: ["terminal"],
+        },
+      }),
+      readiness,
+      { _tag: "command-center-route" },
+    ),
+  );
+  return archiveCurrentProjection(
+    commandCenter,
+    remote,
+    commandCenterId,
+    remoteId,
+    remoteHost,
+  );
+};
+
 
 describe("Station work authority survives Command Center downtime", () => {
   it("adopts one live-reserved CC task, progresses it offline, and reconciles by route sequence", async () => {
@@ -1783,5 +1955,824 @@ describe("Station work authority survives Command Center downtime", () => {
 
     await closeProductSessionConnection(connectionB);
   });
+
+  it("admits Remote actor task.create, replays after revocation, and fails closed without a non-leaking outcome route", async () => {
+    const commandCenterId = installation("cc-remote-create-report");
+    const remoteId = installation("remote-create-report");
+    const remoteHost = hostId("remote-create");
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const bindingId = "binding-remote-create";
+    const document = productPathDocument(remoteHost, bindingId);
+    await configureDirectPair(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+      document,
+    );
+    const actor: ActorRef = {
+      seatId: deriveActorSeatId(remoteId, bindingId),
+      canvasName: "factory",
+      nodeId: "remote-worker",
+    };
+
+    const created = await remote.runtime.runPromise(
+      remote.workService.workTaskCreate(
+        "factory",
+        "shared-tasks",
+        "create this stable Task at Command Center",
+        { details: "create this stable Task at Command Center" },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          admissionOmitted: "operator-gated",
+          raisedBy: actor,
+        },
+      ),
+    );
+    expect(created).toMatchObject({
+      ok: true,
+      disposition: "queued",
+      data: {
+        state: "submitted",
+        admission: "operator-gated",
+        raisedBy: actor,
+      },
+    });
+    if (!created.ok) throw new Error("Remote Task create did not enqueue");
+    const taskId = created.data.id;
+
+    const request = await remote.runtime.runPromise(
+      remote.api.prepareReport(commandCenterId),
+    );
+    expect(request.batch.records).toHaveLength(1);
+    expect(request.batch.records[0]).toMatchObject({
+      recordType: "command",
+      operation: "task.create",
+      id: {
+        route: { eventHome: remoteId, entityHome: commandCenterId },
+        seq: "1",
+      },
+      item: { itemId: taskId },
+      body: {
+        operation: "task.create",
+        task: {
+          id: taskId,
+          admission: "operator-gated",
+          raisedBy: actor,
+        },
+      },
+    });
+    const command = request.batch.records[0];
+    if (
+      command?.recordType !== "command" ||
+      command.body.operation !== "task.create"
+    ) {
+      throw new Error("expected the exact Remote task.create command");
+    }
+    const commandedTask = command.body.task;
+    expect(command.item.itemId).toBe(commandedTask.id);
+    expect(commandedTask).toEqual(created.data);
+
+    const response = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        request,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ),
+    );
+    if (response.op !== "report") {
+      throw new Error("Remote Task create did not produce a report response");
+    }
+    expect(response.batch.acknowledge).toEqual([
+      {
+        eventHome: remoteId,
+        entityHome: commandCenterId,
+        through: "1",
+      },
+    ]);
+    expect(
+      response.batch.records.map((record) => [
+        record.recordType,
+        record.operation,
+        record.id.seq,
+      ]),
+    ).toEqual([
+      ["fact", "task.create", "1"],
+      ["disposition", "task.create", "2"],
+    ]);
+    const returnedFact = response.batch.records[0];
+    if (
+      returnedFact?.recordType !== "fact" ||
+      returnedFact.body.operation !== "task.create"
+    ) {
+      throw new Error("expected the exact task.create result fact");
+    }
+    expect(returnedFact.body.task).toEqual(commandedTask);
+    expect(returnedFact.basis).toEqual({
+      kind: "command",
+      command: command.id,
+      commandSha256: command.contentSha256,
+    });
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items,
+    ).toEqual([commandedTask]);
+
+    const revoked: CanvasDoc = {
+      nodes: document.nodes.filter((node) => node.id === "shared-tasks"),
+      edges: [],
+    };
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write("factory", revoked),
+    );
+    await archiveCurrentProjection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+
+    const integrated = await remote.runtime.runPromise(
+      remote.api.acceptReportResponse(
+        commandCenterId,
+        request,
+        response,
+      ),
+    );
+    expect(integrated).toMatchObject({
+      accepted: 2,
+      rejected: 0,
+      receivedThrough: [
+        {
+          eventHome: commandCenterId,
+          entityHome: commandCenterId,
+          through: "2",
+        },
+      ],
+    });
+    expect(
+      (await remote.runtime.runPromise(remote.work.pendingCommands))[0],
+    ).toMatchObject({
+      command: { item: { itemId: taskId } },
+      resolution: { status: "applied" },
+    });
+
+    const outcomeAckRequest = await remote.runtime.runPromise(
+      remote.api.prepareReport(commandCenterId),
+    );
+    expect(outcomeAckRequest.batch.records).toEqual([]);
+    expect(outcomeAckRequest.batch.acknowledge).toEqual([
+      {
+        eventHome: commandCenterId,
+        entityHome: commandCenterId,
+        through: "2",
+      },
+    ]);
+    const outcomeAckResponse = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        outcomeAckRequest,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ),
+    );
+    if (outcomeAckResponse.op !== "report") {
+      throw new Error("outcome ACK did not produce a report response");
+    }
+    await remote.runtime.runPromise(
+      remote.api.acceptReportResponse(
+        commandCenterId,
+        outcomeAckRequest,
+        outcomeAckResponse,
+      ),
+    );
+
+    const replayRequest = ReportRequest.make({
+      ...request,
+      batch: {
+        ...request.batch,
+        acknowledge: outcomeAckRequest.batch.acknowledge,
+      },
+    });
+    const replayResponse = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        replayRequest,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ),
+    );
+    if (replayResponse.op !== "report") {
+      throw new Error("command replay did not produce a report response");
+    }
+    expect(replayResponse.batch.records).toEqual(response.batch.records);
+    expect(replayResponse.batch.acknowledge).toEqual(
+      response.batch.acknowledge,
+    );
+    const replayed = await remote.runtime.runPromise(
+      remote.api.acceptReportResponse(
+        commandCenterId,
+        replayRequest,
+        replayResponse,
+      ),
+    );
+    expect(replayed).toMatchObject({
+      accepted: 0,
+      idempotent: 2,
+      rejected: 0,
+    });
+
+    const unrelated = await commandCenter.runtime.runPromise(
+      commandCenter.workService.workTaskCreate(
+        "factory",
+        "shared-tasks",
+        "unrelated Command Center fact",
+        { details: "unrelated Command Center fact" },
+      ),
+    );
+    expect(unrelated).toMatchObject({ ok: true, disposition: "applied" });
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write("factory", document),
+    );
+    await archiveCurrentProjection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    const blockedCreate = await remote.runtime.runPromise(
+      remote.workService.workTaskCreate(
+        "factory",
+        "shared-tasks",
+        "do not disclose the unrelated CC prefix",
+        { details: "do not disclose the unrelated CC prefix" },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          admissionOmitted: "operator-gated",
+          raisedBy: actor,
+        },
+      ),
+    );
+    expect(blockedCreate).toMatchObject({ ok: true, disposition: "queued" });
+    if (!blockedCreate.ok) throw new Error("second Remote Task did not enqueue");
+    const blockedRequest = await remote.runtime.runPromise(
+      remote.api.prepareReport(commandCenterId),
+    );
+    const blocked = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        blockedRequest,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ).pipe(Effect.result),
+    );
+    expect(Result.isFailure(blocked)).toBe(true);
+    if (Result.isFailure(blocked)) {
+      expect(blocked.failure).toMatchObject({
+        _tag: "WorkReplicationError",
+        reason: "response-capacity",
+        message: expect.stringContaining(
+          "no contiguous non-leaking protocol-1 outcome route",
+        ),
+      });
+    }
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items.some((task) => task.id === blockedCreate.data.id),
+    ).toBe(false);
+    expect(
+      (await commandCenter.runtime.runPromise(commandCenter.station.statusFacts))
+        .receivedThrough,
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          eventHome: remoteId,
+          entityHome: commandCenterId,
+          through: "1",
+        },
+      ]),
+    );
+  });
+
+  it("admits retained exact dependency intent through the production report path", async () => {
+    const commandCenterId = installation("cc-retained-dependency-report");
+    const remoteId = installation("remote-retained-dependency-report");
+    const remoteHost = hostId("retained-dependency-remote");
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const bindingId = "binding-retained-dependency";
+    const document = remoteTaskDocument(remoteHost, bindingId);
+    const retainedProjection = await configureDirectPair(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+      document,
+    );
+    const actor: ActorRef = {
+      seatId: deriveActorSeatId(remoteId, bindingId),
+      canvasName: "factory",
+      nodeId: "remote-worker",
+    };
+    const createOptions = {
+      admission: "auto" as const,
+      admissionOmitted: "inherit" as const,
+      raisedBy: actor,
+    };
+    const prerequisite = await remote.runtime.runPromise(
+      remote.workService.workTaskCreate(
+        "factory",
+        "remote-tasks",
+        "retained prerequisite",
+        { details: "retained prerequisite" },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        createOptions,
+      ),
+    );
+    expect(prerequisite).toMatchObject({ ok: true, disposition: "applied" });
+    if (!prerequisite.ok) throw new Error("prerequisite create failed");
+    const dependent = await remote.runtime.runPromise(
+      remote.workService.workTaskCreate(
+        "factory",
+        "remote-tasks",
+        "retained dependent",
+        { details: "retained dependent" },
+        undefined,
+        undefined,
+        [prerequisite.data.id],
+        undefined,
+        undefined,
+        createOptions,
+      ),
+    );
+    expect(dependent).toMatchObject({
+      ok: true,
+      disposition: "applied",
+      data: { dependsOn: [prerequisite.data.id] },
+    });
+    if (!dependent.ok) throw new Error("dependent create failed");
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write("factory", { nodes: [], edges: [] }),
+    );
+    const currentProjection = await archiveCurrentProjection(
+      commandCenter,
+      undefined,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    expect(currentProjection.generation).not.toBe(retainedProjection.generation);
+
+    const request = await remote.runtime.runPromise(
+      remote.api.prepareReport(commandCenterId),
+    );
+    expect(
+      request.batch.records.map((record) => [
+        record.recordType,
+        record.operation,
+        record.id.seq,
+      ]),
+    ).toEqual([
+      ["fact", "task.create", "1"],
+      ["fact", "task.create", "2"],
+    ]);
+    expect(
+      request.batch.records.every(
+        (record) =>
+          record.recordType === "fact" &&
+          record.basis.kind === "projected-intent" &&
+          String(record.basis.generation) ===
+            String(retainedProjection.generation) &&
+          String(record.basis.contentSha256) ===
+            String(retainedProjection.contentSha256),
+      ),
+    ).toBe(true);
+
+    const response = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        request,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ),
+    );
+    if (response.op !== "report") {
+      throw new Error("retained dependency report did not produce a response");
+    }
+    expect(response.batch.records).toEqual([]);
+    expect(response.batch.acknowledge).toEqual([
+      { eventHome: remoteId, entityHome: remoteId, through: "2" },
+    ]);
+    const snapshot = await commandCenter.runtime.runPromise(
+      commandCenter.work.readSnapshot("factory", "remote-tasks"),
+    );
+    expect(snapshot.tasks.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: prerequisite.data.id }),
+        expect.objectContaining({
+          id: dependent.data.id,
+          dependsOn: [prerequisite.data.id],
+        }),
+      ]),
+    );
+
+    await remote.runtime.runPromise(
+      remote.api.acceptReportResponse(commandCenterId, request, response),
+    );
+    expect(
+      (await remote.runtime.runPromise(remote.station.statusFacts))
+        .peerAcknowledgedThrough,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          peerInstallationId: commandCenterId,
+          acknowledgement: {
+            eventHome: remoteId,
+            entityHome: remoteId,
+            through: "2",
+          },
+        }),
+      ]),
+    );
+  });
+
+
+  it("fails closed for retained actorless host authority without a basis-bound witness", async () => {
+    const commandCenterId = installation("cc-actorless-retained-report");
+    const remoteId = installation("remote-actorless-retained-report");
+    const remoteHost = hostId("actorless-retained-remote");
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const document = remoteTaskDocument(
+      remoteHost,
+      "unused-actorless-binding",
+      false,
+    );
+    const actorlessProjection = await configureDirectPair(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+      document,
+    );
+    expect(
+      decodeStationPortfolioBody(actorlessProjection.body).actorSeats,
+    ).toEqual([]);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.fleetTargets.get(remoteHost),
+      ),
+    ).toMatchObject({
+      hostId: remoteHost,
+      stationInstallationId: remoteId,
+    });
+    const basis = await activeIntentBasis(remote, "projected-intent");
+    const sink = { canvasName: "factory", nodeId: "remote-tasks" };
+    const taskId = "actorless-retained-task";
+    await remote.runtime.runPromise(
+      remote.work.createTask({
+        sink,
+        basis,
+        task: {
+          id: taskId,
+          state: "submitted",
+          history: [
+            message(
+              "actorless-retained-brief",
+              "user",
+              "must not invent historical host authority",
+              taskId,
+            ),
+          ],
+        },
+        originAt: now,
+        receivedAt: now,
+      }),
+    );
+    const request = await remote.runtime.runPromise(
+      remote.api.prepareReport(commandCenterId),
+    );
+    expect(request.batch.records).toHaveLength(1);
+    expect(request.batch.records[0]).toMatchObject({
+      recordType: "fact",
+      operation: "task.create",
+      id: {
+        route: { eventHome: remoteId, entityHome: remoteId },
+        seq: "1",
+      },
+      basis: {
+        kind: "projected-intent",
+        generation: String(actorlessProjection.generation),
+        contentSha256: String(actorlessProjection.contentSha256),
+      },
+    });
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write(
+        "factory",
+        remoteTaskDocument(remoteHost, "current-actor-witness"),
+      ),
+    );
+    const currentActorfulProjection = await archiveCurrentProjection(
+      commandCenter,
+      undefined,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    expect(currentActorfulProjection.generation).not.toBe(
+      actorlessProjection.generation,
+    );
+    expect(
+      decodeStationPortfolioBody(currentActorfulProjection.body).actorSeats,
+    ).toHaveLength(1);
+
+    const before = await commandCenter.runtime.runPromise(
+      commandCenter.station.statusFacts,
+    );
+    const refused = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        request,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ).pipe(Effect.result),
+    );
+    expect(Result.isFailure(refused)).toBe(true);
+    if (Result.isFailure(refused)) {
+      expect(refused.failure).toMatchObject({
+        _tag: "WorkReplicationError",
+        reason: "causal-conflict",
+        message: expect.stringContaining(
+          "projected task queue has no basis-bound host-to-installation witness",
+        ),
+      });
+    }
+    expect(
+      await commandCenter.runtime.runPromise(commandCenter.station.statusFacts),
+    ).toEqual(before);
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.work.readSnapshot("factory", "remote-tasks"),
+        )
+      ).tasks.items,
+    ).toEqual([]);
+  });
+
+
+  it("rejects an overfull mandatory response, then converges through contiguous report pages", async () => {
+    const commandCenterId = installation("cc-contiguous-report-pages");
+    const remoteId = installation("remote-contiguous-report-pages");
+    const remoteHost = hostId("contiguous-report-remote");
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const bindingId = "binding-contiguous-report";
+    const document = remoteTaskDocument(remoteHost, bindingId);
+    await configureDirectPair(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+      document,
+    );
+    const remoteBasis = await activeIntentBasis(remote, "projected-intent");
+    const sink = { canvasName: "factory", nodeId: "remote-tasks" };
+    for (let index = 1; index <= 257; index += 1) {
+      const taskId = `prefix-task-${index}`;
+      await remote.runtime.runPromise(
+        remote.work.createTask({
+          sink,
+          basis: remoteBasis,
+          task: {
+            id: taskId,
+            state: "submitted",
+            history: [],
+          },
+          originAt: now,
+          receivedAt: now,
+        }),
+      );
+    }
+    const commandedTaskId = "task-after-257-prefix-facts";
+    await commandCenter.runtime.runPromise(
+      commandCenter.work.enqueueRemoteCommand({
+        targetInstallationId: remoteId,
+        sink,
+        item: {
+          kind: "task",
+          itemId: commandedTaskId,
+          sink,
+        },
+        action: {
+          operation: "task.create",
+          task: {
+            id: commandedTaskId,
+            state: "submitted",
+            history: [],
+          },
+        },
+        originAt: now,
+        receivedAt: now,
+      }),
+    );
+
+    const overfullRequest = await commandCenter.runtime.runPromise(
+      commandCenter.api.prepareReport(remoteId),
+    );
+    expect(overfullRequest.batch.records).toHaveLength(1);
+    const overfull = await remote.runtime.runPromise(
+      remote.api.handle(
+        overfullRequest,
+        readiness,
+        { _tag: "command-center-route" },
+      ).pipe(Effect.result),
+    );
+    expect(Result.isFailure(overfull)).toBe(true);
+    if (Result.isFailure(overfull)) {
+      expect(overfull.failure).toMatchObject({
+        _tag: "WorkReplicationError",
+        reason: "response-capacity",
+      });
+    }
+    const afterRefusal = await remote.runtime.runPromise(
+      remote.work.recordsAfter({
+        route: { eventHome: remoteId, entityHome: remoteId },
+        limit: 257,
+      }),
+    );
+    expect(afterRefusal).toHaveLength(257);
+    expect(afterRefusal.at(-1)?.id.seq).toBe("257");
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot("factory", "remote-tasks"),
+        )
+      ).tasks.items.some((task) => task.id === commandedTaskId),
+    ).toBe(false);
+    expect(
+      (await remote.runtime.runPromise(remote.station.statusFacts))
+        .receivedThrough,
+    ).not.toEqual(
+      expect.arrayContaining([
+        {
+          eventHome: commandCenterId,
+          entityHome: remoteId,
+          through: "1",
+        },
+      ]),
+    );
+
+    const prefixRequest = await remote.runtime.runPromise(
+      remote.api.prepareReport(commandCenterId),
+    );
+    expect(prefixRequest.batch.records).toHaveLength(256);
+    expect(prefixRequest.batch.records[0]?.id.seq).toBe("1");
+    expect(prefixRequest.batch.records.at(-1)?.id.seq).toBe("256");
+    expect(prefixRequest.batch.hasMore).toBe(true);
+    const prefixResponse = await commandCenter.runtime.runPromise(
+      commandCenter.api.handle(
+        prefixRequest,
+        readiness,
+        { _tag: "enrolled-remote", installationId: remoteId },
+      ),
+    );
+    if (prefixResponse.op !== "report") {
+      throw new Error("prefix report did not produce a response");
+    }
+    expect(prefixResponse.batch.acknowledge).toEqual([
+      { eventHome: remoteId, entityHome: remoteId, through: "256" },
+    ]);
+    await remote.runtime.runPromise(
+      remote.api.acceptReportResponse(
+        commandCenterId,
+        prefixRequest,
+        prefixResponse,
+      ),
+    );
+
+    const retryRequest = await commandCenter.runtime.runPromise(
+      commandCenter.api.prepareReport(remoteId),
+    );
+    expect(retryRequest.batch.records).toHaveLength(1);
+    expect(retryRequest.batch.records[0]?.id).toEqual(
+      overfullRequest.batch.records[0]?.id,
+    );
+    expect(retryRequest.batch.acknowledge).toEqual([
+      { eventHome: remoteId, entityHome: remoteId, through: "256" },
+    ]);
+    const retryResponse = await remote.runtime.runPromise(
+      remote.api.handle(
+        retryRequest,
+        readiness,
+        { _tag: "command-center-route" },
+      ),
+    );
+    if (retryResponse.op !== "report") {
+      throw new Error("retry report did not produce a response");
+    }
+    expect(
+      retryResponse.batch.records.map((record) => record.id.seq),
+    ).toEqual(["257", "258", "259"]);
+    expect(
+      retryResponse.batch.records.map((record) => record.recordType),
+    ).toEqual(["fact", "fact", "disposition"]);
+    expect(retryResponse.batch.acknowledge).toEqual([
+      {
+        eventHome: commandCenterId,
+        entityHome: remoteId,
+        through: "1",
+      },
+    ]);
+    expect(retryResponse.batch.hasMore).toBe(false);
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.api.acceptReportResponse(
+        remoteId,
+        retryRequest,
+        retryResponse,
+      ),
+    );
+    expect(
+      (await commandCenter.runtime.runPromise(commandCenter.work.pendingCommands))[0],
+    ).toMatchObject({
+      command: { item: { itemId: commandedTaskId } },
+      resolution: { status: "applied" },
+    });
+    expect(
+      (await commandCenter.runtime.runPromise(commandCenter.station.statusFacts))
+        .receivedThrough,
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          eventHome: remoteId,
+          entityHome: remoteId,
+          through: "259",
+        },
+      ]),
+    );
+
+    const finalAckRequest = await commandCenter.runtime.runPromise(
+      commandCenter.api.prepareReport(remoteId),
+    );
+    expect(finalAckRequest.batch.records).toEqual([]);
+    expect(finalAckRequest.batch.acknowledge).toEqual([
+      { eventHome: remoteId, entityHome: remoteId, through: "259" },
+    ]);
+    const finalAckResponse = await remote.runtime.runPromise(
+      remote.api.handle(
+        finalAckRequest,
+        readiness,
+        { _tag: "command-center-route" },
+      ),
+    );
+    if (finalAckResponse.op !== "report") {
+      throw new Error("final ACK report did not produce a response");
+    }
+    await commandCenter.runtime.runPromise(
+      commandCenter.api.acceptReportResponse(
+        remoteId,
+        finalAckRequest,
+        finalAckResponse,
+      ),
+    );
+    expect(
+      (await remote.runtime.runPromise(remote.station.statusFacts))
+        .peerAcknowledgedThrough,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          peerInstallationId: commandCenterId,
+          acknowledgement: {
+            eventHome: remoteId,
+            entityHome: remoteId,
+            through: "259",
+          },
+        }),
+      ]),
+    );
+  });
+
 });
 

@@ -536,6 +536,71 @@ const taskDescribeCommand = (
     },
   });
 
+const agentTaskCreateCommand = (
+  raisedBy: ActorRef | null = remoteActor,
+  sinkNodeId = "tasks",
+): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: cc },
+      seq: "3",
+    },
+    recordType: "command",
+    item: {
+      kind: "task",
+      itemId: "agent-task-1",
+      sink: { canvasName: "factory", nodeId: sinkNodeId },
+    },
+    operation: "task.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "task.create",
+      task: {
+        id: "agent-task-1",
+        state: "submitted",
+        history: [],
+        ...(raisedBy === null ? {} : { raisedBy }),
+      },
+    },
+  });
+
+const localTaskFact = (seq: number): WorkFactValue => {
+  const taskId = `local-task-${seq}`;
+  return Schema.decodeUnknownSync(WorkFact, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: remote },
+      seq: String(seq),
+    },
+    recordType: "fact",
+    basis: {
+      kind: "projected-intent",
+      generation: "1",
+      contentSha256,
+    },
+    item: {
+      kind: "task",
+      itemId: taskId,
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "task.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "task.create",
+      task: {
+        id: taskId,
+        state: "submitted",
+        history: [],
+      },
+    },
+  });
+};
+
 const largeTaskCreateCommand = (
   seq: number,
 ): WorkCommandValue => {
@@ -628,6 +693,149 @@ describe("Station API v1 work routing", () => {
         commands[15]!,
       ]),
     ).toBeGreaterThan(STATION_API_MAX_REPORT_BATCH_BYTES);
+  });
+
+  it("pages the unacknowledged route prefix before mandatory outcomes", async () => {
+    const routeRecords = Array.from(
+      { length: 259 },
+      (_, index) => localTaskFact(index + 1),
+    );
+    const work = {
+      recordsAfter: (input: { readonly after?: string; readonly limit: number }) => {
+        const after = input.after === undefined ? 0n : BigInt(input.after);
+        return Effect.succeed(
+          routeRecords
+            .filter((record) => BigInt(record.id.seq) > after)
+            .slice(0, input.limit),
+        );
+      },
+    } as unknown as Parameters<typeof pageStationReport>[0];
+    const initialFacts = {
+      installationId: remote,
+      receivedThrough: [],
+      peerAcknowledgedThrough: [],
+    } as Parameters<typeof pageStationReport>[1];
+    const mandatory = routeRecords.slice(257);
+
+    const first = await runEffect(
+      pageStationReport(
+        work,
+        initialFacts,
+        remote,
+        cc,
+        [],
+        mandatory,
+        "remote",
+        false,
+      ),
+    );
+    expect(first.records.map((record) => record.id.seq)).toEqual(
+      Array.from({ length: 256 }, (_, index) => String(index + 1)),
+    );
+    expect(first.records.some((record) => record.id.seq === "258")).toBe(false);
+    expect(first.records.some((record) => record.id.seq === "259")).toBe(false);
+    expect(first.hasMore).toBe(true);
+
+    const nextFacts = {
+      ...initialFacts,
+      peerAcknowledgedThrough: [
+        {
+          peerInstallationId: cc,
+          acknowledgement: {
+            eventHome: remote,
+            entityHome: remote,
+            through: routeRecords[255]!.id.seq,
+          },
+        },
+      ],
+    } as Parameters<typeof pageStationReport>[1];
+    const second = await runEffect(
+      pageStationReport(
+        work,
+        nextFacts,
+        remote,
+        cc,
+        [],
+        mandatory,
+        "remote",
+        false,
+      ),
+    );
+    expect(second.records.map((record) => record.id.seq)).toEqual([
+      "257",
+      "258",
+      "259",
+    ]);
+    expect(second.hasMore).toBe(false);
+  });
+
+  it("admits only exact Remote actor Task creates at a Command Center queue", () => {
+    const admission = makeStationWorkAdmission(topology("command-center"));
+    expect(admission.authorizeCommand(agentTaskCreateCommand())).toEqual({
+      _tag: "admitted",
+    });
+    expect(
+      admission.authorizeCommand(agentTaskCreateCommand(null)),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "authority-mismatch",
+    });
+    expect(
+      admission.authorizeCommand(
+        agentTaskCreateCommand({
+          ...remoteActor,
+          nodeId: "forged-remote-actor",
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+    expect(
+      admission.authorizeCommand(
+        agentTaskCreateCommand(remoteActor, "other-remote-tasks"),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+    const stableIdentityMismatch = agentTaskCreateCommand();
+    expect(
+      admission.authorizeCommand({
+        ...stableIdentityMismatch,
+        item: {
+          ...stableIdentityMismatch.item,
+          itemId: "different-item",
+        },
+      }),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "identity-conflict",
+    });
+    expect(
+      makeStationWorkAdmission(
+        topology("command-center", false),
+      ).authorizeCommand(agentTaskCreateCommand()),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+    const wrongEntityHome = agentTaskCreateCommand();
+    expect(
+      admission.authorizeCommand({
+        ...wrongEntityHome,
+        id: {
+          ...wrongEntityHome.id,
+          route: {
+            ...wrongEntityHome.id.route,
+            entityHome: otherRemote,
+          },
+        },
+      }),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "authority-mismatch",
+    });
   });
 
   it("never broadcasts Command Center local facts to Remote peers", () => {

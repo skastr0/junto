@@ -735,6 +735,33 @@ export const makeStationWorkAdmission = (
           "msg.send",
         );
       }
+      if (command.body.operation === "task.create") {
+        if (sinkAuthority(topology, sink) !== topology.localInstallationId) {
+          return rejected(
+            "locality-mismatch",
+            "task creation command targets a queue not homed on Command Center",
+          );
+        }
+        if (command.body.task.raisedBy === undefined) {
+          return rejected(
+            "authority-mismatch",
+            "remote task creation requires the exact raising actor seat",
+          );
+        }
+        if (command.item.itemId !== command.body.task.id) {
+          return rejected(
+            "identity-conflict",
+            "task creation command item and stable Task identity differ",
+          );
+        }
+        return authorizeActor(
+          topology,
+          command.body.task.raisedBy,
+          topology.peerInstallationId,
+          command.item.sink,
+          "tasks.create",
+        );
+      }
       if (command.body.operation === "proposal.create") {
         return sinkAuthority(topology, sink) !== topology.localInstallationId
           ? rejected(
@@ -959,7 +986,14 @@ export const makeStationWorkAdmission = (
     }
 
     if (fact.body.operation === "task.create") {
-      return sinkAuthority(topology, sink) === sender
+      const authority = sinkAuthority(topology, sink);
+      if (authority === undefined) {
+        return rejected(
+          "projection-conflict",
+          "projected task queue has no basis-bound host-to-installation witness",
+        );
+      }
+      return authority === sender
         ? admitted()
         : rejected(
             "locality-mismatch",
@@ -1050,6 +1084,14 @@ const topologyFromHistoricalProjection = (
           cause,
         ),
     });
+    // Protocol 1 binds historical host authority only through the immutable
+    // local installation and retained actor seats. Current or retired fleet
+    // targets are not keyed to this exact projection basis and must never
+    // widen it. Actorless historical placement remains denied until a future
+    // expand-only schema captures an immutable
+    // (projection generation, hash, host, installation) witness at archive
+    // time. Existing actorless versions cannot be truthfully backfilled from
+    // current fleet rows or display timestamps.
     const installationByHostId =
       new Map<string, InstallationIdValue>([
         [current.localHostId, current.localInstallationId],
@@ -1242,30 +1284,214 @@ export const mandatoryReportResponseReservationBytes = (
     0,
   );
 
+const commandReferenceForOutcome = (
+  record: WorkRecord,
+): WorkCommand["id"] | undefined => {
+  if (record.recordType === "fact") {
+    return record.basis.kind === "command"
+      ? record.basis.command
+      : undefined;
+  }
+  return record.recordType === "disposition"
+    ? record.body.command
+    : undefined;
+};
+
+const isPeerCommandOutcome = (
+  record: WorkRecord,
+  localInstallationId: InstallationIdValue,
+  peerInstallationId: InstallationIdValue,
+): boolean => {
+  if (
+    record.id.route.eventHome !== localInstallationId ||
+    record.id.route.entityHome !== localInstallationId
+  ) {
+    return false;
+  }
+  const command = commandReferenceForOutcome(record);
+  return command !== undefined &&
+    command.route.eventHome === peerInstallationId &&
+    command.route.entityHome === localInstallationId;
+};
+
+const mergeResponseRecords = (
+  left: ReadonlyArray<WorkRecord>,
+  right: ReadonlyArray<WorkRecord>,
+): ReadonlyArray<WorkRecord> | undefined => {
+  const records = new Map<string, WorkRecord>();
+  for (const record of [...left, ...right]) {
+    const key = recordKey(record);
+    const prior = records.get(key);
+    if (
+      prior !== undefined &&
+      prior.contentSha256 !== record.contentSha256
+    ) {
+      return undefined;
+    }
+    records.set(key, record);
+  }
+  return [...records.values()].sort((leftRecord, rightRecord) => {
+    const routeOrder = compareCodeUnits(
+      routeKey(leftRecord.id.route),
+      routeKey(rightRecord.id.route),
+    );
+    if (routeOrder !== 0) return routeOrder;
+    const leftSequence = BigInt(leftRecord.id.seq);
+    const rightSequence = BigInt(rightRecord.id.seq);
+    return leftSequence < rightSequence
+      ? -1
+      : leftSequence > rightSequence
+        ? 1
+        : 0;
+  });
+};
+
+const responseRecordsAreContiguous = (
+  records: ReadonlyArray<WorkRecord>,
+  route: WorkRoute,
+  acknowledgedThrough: string | undefined,
+): boolean => {
+  let expected = acknowledgedThrough === undefined
+    ? 1n
+    : BigInt(acknowledgedThrough) + 1n;
+  for (const record of records) {
+    if (
+      record.id.route.eventHome !== route.eventHome ||
+      record.id.route.entityHome !== route.entityHome ||
+      BigInt(record.id.seq) !== expected
+    ) {
+      return false;
+    }
+    expected += 1n;
+  }
+  return true;
+};
+
+type TransactionalResponseCandidate = {
+  readonly emitted: ReadonlyArray<WorkRecord>;
+  readonly acknowledge: ReadonlyArray<RouteCursor>;
+};
+
+type TransactionalResponsePlan =
+  | {
+      readonly _tag: "admitted";
+      readonly records: ReadonlyArray<WorkRecord>;
+    }
+  | { readonly _tag: "rejected"; readonly message: string };
+
+const planTransactionalResponse = (
+  existingAcknowledge: ReadonlyArray<RouteCursor>,
+  responsePrefix: ReadonlyArray<WorkRecord>,
+  responseRoute: WorkRoute,
+  acknowledgedThrough: string | undefined,
+  localRole: StationRole,
+  localInstallationId: InstallationIdValue,
+  peerInstallationId: InstallationIdValue,
+  candidate: TransactionalResponseCandidate,
+): TransactionalResponsePlan => {
+  const acknowledged = acknowledgedThrough === undefined
+    ? 0n
+    : BigInt(acknowledgedThrough);
+  const replay = candidate.emitted.filter(
+    (record) => BigInt(record.id.seq) <= acknowledged,
+  );
+  if (
+    replay.some(
+      (record) => routeKey(record.id.route) !== routeKey(responseRoute),
+    )
+  ) {
+    return {
+      _tag: "rejected",
+      message: "mandatory report replay names an unexpected route",
+    };
+  }
+  const unacknowledged = mergeResponseRecords(
+    responsePrefix.filter(
+      (record) => BigInt(record.id.seq) > acknowledged,
+    ),
+    candidate.emitted.filter(
+      (record) => BigInt(record.id.seq) > acknowledged,
+    ),
+  );
+  if (
+    unacknowledged === undefined ||
+    !responseRecordsAreContiguous(
+      unacknowledged,
+      responseRoute,
+      acknowledgedThrough,
+    )
+  ) {
+    return {
+      _tag: "rejected",
+      message:
+        "mandatory report response is not a contiguous route prefix",
+    };
+  }
+  const records = mergeResponseRecords(replay, unacknowledged);
+  if (records === undefined) {
+    return {
+      _tag: "rejected",
+      message: "mandatory report response reuses an identity",
+    };
+  }
+  if (
+    localRole === "command-center" &&
+    records.some(
+      (record) =>
+        !isPeerCommandOutcome(
+          record,
+          localInstallationId,
+          peerInstallationId,
+        ),
+    )
+  ) {
+    return {
+      _tag: "rejected",
+      message:
+        "mandatory report response has no contiguous non-leaking protocol-1 outcome route because its prefix contains unrelated Command Center facts",
+    };
+  }
+  const decision = decideReportBatchAdmission({
+    records,
+    acknowledge: mergeCursors(
+      existingAcknowledge,
+      candidate.acknowledge,
+    ),
+    hasMore: false,
+  });
+  return decision._tag === "admitted"
+    ? { _tag: "admitted", records }
+    : {
+        _tag: "rejected",
+        message: `mandatory report response violates ${decision._tag}`,
+      };
+};
+
 const admitTransactionalResponse = (
   existingAcknowledge: ReadonlyArray<RouteCursor>,
+  responsePrefix: ReadonlyArray<WorkRecord>,
+  responseRoute: WorkRoute,
+  acknowledgedThrough: string | undefined,
+  localRole: StationRole,
+  localInstallationId: InstallationIdValue,
+  peerInstallationId: InstallationIdValue,
 ) =>
-  (candidate: {
-    readonly emitted: ReadonlyArray<WorkRecord>;
-    readonly acknowledge: ReadonlyArray<RouteCursor>;
-  }):
+  (candidate: TransactionalResponseCandidate):
     | { readonly _tag: "admitted" }
     | { readonly _tag: "rejected"; readonly message: string } => {
-    const decision = decideReportBatchAdmission({
-      records: candidate.emitted,
-      acknowledge: mergeCursors(
-        existingAcknowledge,
-        candidate.acknowledge,
-      ),
-      hasMore: false,
-    });
-    return decision._tag === "admitted"
+    const plan = planTransactionalResponse(
+      existingAcknowledge,
+      responsePrefix,
+      responseRoute,
+      acknowledgedThrough,
+      localRole,
+      localInstallationId,
+      peerInstallationId,
+      candidate,
+    );
+    return plan._tag === "admitted"
       ? { _tag: "admitted" }
-      : {
-          _tag: "rejected",
-          message:
-            `mandatory report response violates ${decision._tag}`,
-        };
+      : plan;
   };
 
 const captureTopology = (
@@ -1435,47 +1661,84 @@ export const pageStationReport = (
       routes.commands.eventHome,
       routes.commands.entityHome,
     );
-    const [localRecords, commandRecords] = yield* Effect.all([
-      routes.facts !== undefined
-        ? work.recordsAfter({
-            route: routes.facts,
-            ...(localAck === undefined ? {} : { after: localAck.through }),
-            limit: ROUTE_PAGE_LIMIT,
-          })
-        : Effect.succeed<ReadonlyArray<WorkRecord>>([]),
-      includeCommands
-        ? work.recordsAfter({
-            route: routes.commands,
-            ...(peerAck === undefined ? {} : { after: peerAck.through }),
-            limit: ROUTE_PAGE_LIMIT,
-          })
-        : Effect.succeed<ReadonlyArray<WorkRecord>>([]),
-    ]);
+    const mandatoryRoute = mandatory[0]?.id.route;
+    if (
+      mandatoryRoute !== undefined &&
+      mandatory.some(
+        (record) => routeKey(record.id.route) !== routeKey(mandatoryRoute),
+      )
+    ) {
+      return yield* invariant(
+        "report",
+        "topology-invalid",
+        "mandatory command outcomes span more than one response route",
+      );
+    }
+    const mandatorySharesLocalRoute =
+      mandatoryRoute !== undefined &&
+      routes.facts !== undefined &&
+      routeKey(mandatoryRoute) === routeKey(routes.facts);
+    const mandatorySharesCommandRoute =
+      mandatoryRoute !== undefined &&
+      routeKey(mandatoryRoute) === routeKey(routes.commands);
+    const mandatoryAck = mandatoryRoute === undefined
+      ? undefined
+      : peerAcknowledgement(
+          facts,
+          peerInstallationId,
+          mandatoryRoute.eventHome,
+          mandatoryRoute.entityHome,
+        );
+    const [localRecords, commandRecords, mandatoryPrefix] =
+      yield* Effect.all([
+        routes.facts !== undefined
+          ? work.recordsAfter({
+              route: routes.facts,
+              ...(localAck === undefined ? {} : { after: localAck.through }),
+              limit: ROUTE_PAGE_LIMIT,
+            })
+          : Effect.succeed<ReadonlyArray<WorkRecord>>([]),
+        includeCommands
+          ? work.recordsAfter({
+              route: routes.commands,
+              ...(peerAck === undefined ? {} : { after: peerAck.through }),
+              limit: ROUTE_PAGE_LIMIT,
+            })
+          : Effect.succeed<ReadonlyArray<WorkRecord>>([]),
+        mandatoryRoute !== undefined &&
+            !mandatorySharesLocalRoute &&
+            !mandatorySharesCommandRoute
+          ? work.recordsAfter({
+              route: mandatoryRoute,
+              ...(mandatoryAck === undefined
+                ? {}
+                : { after: mandatoryAck.through }),
+              limit: ROUTE_PAGE_LIMIT,
+            })
+          : Effect.succeed<ReadonlyArray<WorkRecord>>([]),
+      ]);
 
-    const records = [...mandatory];
-    const seen = new Set(records.map(recordKey));
-    let localIndex = 0;
-    let commandIndex = 0;
+    const pages = [localRecords, commandRecords, mandatoryPrefix];
+    const indexes = pages.map(() => 0);
+    const records: WorkRecord[] = [];
+    const seen = new Set<string>();
     let capacityReached = false;
 
     while (
       !capacityReached &&
-      (localIndex < localRecords.length ||
-        commandIndex < commandRecords.length)
+      pages.some((page, index) => indexes[index]! < page.length)
     ) {
-      const candidates = [
-        localRecords[localIndex],
-        commandRecords[commandIndex],
-      ];
-      if (localRecords[localIndex] !== undefined) localIndex += 1;
-      if (commandRecords[commandIndex] !== undefined) commandIndex += 1;
+      for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+        const page = pages[pageIndex]!;
+        const index = indexes[pageIndex]!;
+        const candidate = page[index];
+        if (candidate === undefined) continue;
+        indexes[pageIndex] = index + 1;
+        if (seen.has(recordKey(candidate))) continue;
 
-      for (const candidate of candidates) {
-        if (candidate === undefined || seen.has(recordKey(candidate))) {
-          continue;
-        }
         const candidateRecords = [...records, candidate];
         if (
+          includeCommands &&
           mandatoryReportResponseReservationBytes(candidateRecords) >
             STATION_API_MAX_REPORT_BATCH_BYTES
         ) {
@@ -1498,10 +1761,11 @@ export const pageStationReport = (
 
     const hasMore =
       capacityReached ||
-      localIndex < localRecords.length ||
-      commandIndex < commandRecords.length ||
-      localRecords.length === ROUTE_PAGE_LIMIT ||
-      commandRecords.length === ROUTE_PAGE_LIMIT;
+      pages.some(
+        (page, index) =>
+          indexes[index]! < page.length ||
+          page.length === ROUTE_PAGE_LIMIT,
+      );
     return reportBatch(records, acknowledge, hasMore);
   });
 
@@ -1515,6 +1779,7 @@ const acceptInboundBatch = (
     readonly accepted: AcceptRecordsResult;
     readonly acknowledge: ReadonlyArray<RouteCursor>;
     readonly facts: StationStatusFacts;
+    readonly responsePlan: ReadonlyArray<WorkRecord> | undefined;
   },
   StationApiError
 > =>
@@ -1530,6 +1795,35 @@ const acceptInboundBatch = (
       topology,
       batch.records,
     );
+    const responseRoute: WorkRoute = {
+      eventHome: topology.localInstallationId,
+      entityHome: topology.localInstallationId,
+    };
+    const storedResponseAck = peerAcknowledgement(
+      initialFacts,
+      topology.peerInstallationId,
+      responseRoute.eventHome,
+      responseRoute.entityHome,
+    );
+    const requestResponseAcks = batch.acknowledge.filter(
+      (cursor) => routeKey(cursor) === routeKey(responseRoute),
+    );
+    const effectiveResponseAck = mergeCursors(
+      storedResponseAck === undefined ? [] : [storedResponseAck],
+      requestResponseAcks,
+    ).find((cursor) => routeKey(cursor) === routeKey(responseRoute));
+    const hasCommands = batch.records.some(
+      (record) => record.recordType === "command",
+    );
+    const responsePrefix = hasCommands
+      ? yield* work.recordsAfter({
+          route: responseRoute,
+          ...(effectiveResponseAck === undefined
+            ? {}
+            : { after: effectiveResponseAck.through }),
+          limit: ROUTE_PAGE_LIMIT,
+        })
+      : [];
     const accepted = yield* work.acceptRecords({
       senderInstallationId: topology.peerInstallationId,
       records: batch.records,
@@ -1539,9 +1833,38 @@ const acceptInboundBatch = (
         topology,
         historicalAdmissions,
       ),
-      admitResponse:
-        admitTransactionalResponse(existingAcknowledge),
+      admitResponse: admitTransactionalResponse(
+        existingAcknowledge,
+        responsePrefix,
+        responseRoute,
+        effectiveResponseAck?.through,
+        topology.localRole,
+        topology.localInstallationId,
+        topology.peerInstallationId,
+      ),
     });
+    const responsePlan = hasCommands
+      ? planTransactionalResponse(
+          existingAcknowledge,
+          responsePrefix,
+          responseRoute,
+          effectiveResponseAck?.through,
+          topology.localRole,
+          topology.localInstallationId,
+          topology.peerInstallationId,
+          {
+            emitted: accepted.emitted,
+            acknowledge: accepted.acknowledge,
+          },
+        )
+      : undefined;
+    if (responsePlan?._tag === "rejected") {
+      return yield* invariant(
+        "report",
+        "topology-invalid",
+        "committed mandatory response no longer matches its admitted plan",
+      );
+    }
     const facts = yield* repository.statusFacts;
     return {
       accepted,
@@ -1550,6 +1873,7 @@ const acceptInboundBatch = (
         accepted.acknowledge,
       ),
       facts,
+      responsePlan: responsePlan?.records,
     };
   });
 
@@ -1836,16 +2160,22 @@ export const StationApiLive = Layer.effect(
           topology,
           request.batch,
         );
-        const batch = yield* pageStationReport(
-          work,
-          result.facts,
-          localInstallationId,
-          declaredPeer,
-          result.acknowledge,
-          result.accepted.emitted,
-          topology.localRole,
-          false,
-        );
+        const batch = result.responsePlan === undefined
+          ? yield* pageStationReport(
+              work,
+              result.facts,
+              localInstallationId,
+              declaredPeer,
+              result.acknowledge,
+              [],
+              topology.localRole,
+              false,
+            )
+          : reportBatch(
+              result.responsePlan,
+              result.acknowledge,
+              false,
+            );
         return ReportResponse.make({
           protocol: STATION_API_PROTOCOL,
           op: "report",
