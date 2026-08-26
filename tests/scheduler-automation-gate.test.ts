@@ -87,13 +87,7 @@ const gaugeAndTask = (): CanvasDoc =>
       },
     ],
     edges: [
-      {
-        id: "e1",
-        fromNode: "g1",
-        toNode: "t1",
-        ether: { does: { mode: "enqueue_task", data: { brief: "from gauge", metadata: { title: "from gauge", details: "from gauge" }, reason: "scheduler" } },
-        },
-      },
+      { id: "e1", fromNode: "g1", toNode: "t1", ether: { verb: "enqueues" } },
     ],
   }) as CanvasDoc;
 
@@ -163,7 +157,7 @@ describe("scheduler automation gate", () => {
       setFlag: async () => ({ ok: true }),
     });
     await runEvaluationCycle();
-    expect(enqueues).toEqual(["from gauge"]);
+    expect(enqueues).toEqual(["From gauge"]);
   });
 
   it("when paused, cron still projects nextFire without claiming fire", async () => {

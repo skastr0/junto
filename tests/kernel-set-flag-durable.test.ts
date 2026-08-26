@@ -45,14 +45,7 @@ const board = (flags: ReadonlyArray<"blocker" | "parked" | "attention"> = []): C
       },
     ],
     edges: [
-      {
-        id: "e-flag",
-        fromNode: "cron",
-        toNode: "target",
-        ether: {
-          does: { mode: "set_flag", flag: "attention", enabled: true },
-        },
-      },
+      { id: "e-flag", fromNode: "cron", toNode: "target", ether: { verb: "flags" } },
     ],
   }) as CanvasDoc;
 

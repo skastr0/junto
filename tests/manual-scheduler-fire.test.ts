@@ -72,43 +72,10 @@ const board = (): CanvasDoc =>
       },
     ],
     edges: [
-      {
-        id: "e-cron-does",
-        fromNode: "cron1",
-        toNode: "tasks-cron",
-        ether: {
-          does: {
-            mode: "enqueue_task",
-            data: {
-              brief: "from-cron",
-              metadata: { title: "from-cron", details: "from-cron" },
-              reason: "scheduler",
-            },
-          },
-        },
-      },
-      {
-        id: "e-relay-does",
-        fromNode: "relay1",
-        toNode: "tasks-relay",
-        ether: {
-          does: {
-            mode: "enqueue_task",
-            data: {
-              brief: "from-relay",
-              metadata: { title: "from-relay", details: "from-relay" },
-              reason: "scheduler",
-            },
-          },
-        },
-      },
-      // Trigger chain: cron fire cascades into the relay's does edges.
-      {
-        id: "e-trigger",
-        fromNode: "cron1",
-        toNode: "relay1",
-        ether: { slot: "trigger" },
-      },
+      { id: "e-cron-enqueues", fromNode: "cron1", toNode: "tasks-cron", ether: { verb: "enqueues" } },
+      { id: "e-relay-enqueues", fromNode: "relay1", toNode: "tasks-relay", ether: { verb: "enqueues" } },
+      // Chain: a cron fire cascades into the relay's own enqueues edge.
+      { id: "e-chain", fromNode: "cron1", toNode: "relay1", ether: { verb: "chains" } },
     ],
   }) as CanvasDoc;
 
@@ -155,7 +122,7 @@ describe("manualSchedulerFire scope", () => {
       expect(result.kind).toBe("cron");
       // cron does + cascade into relay does
       expect(result.applied).toBe(2);
-      expect(enqueues).toEqual(["from-cron", "from-relay"]);
+      expect(enqueues).toEqual(["From morning", "From relay"]);
     },
   );
 
@@ -170,7 +137,7 @@ describe("manualSchedulerFire scope", () => {
       if (!result.ok) return;
       expect(result.kind).toBe("relay");
       expect(result.applied).toBe(1);
-      expect(enqueues).toEqual(["from-relay"]);
+      expect(enqueues).toEqual(["From relay"]);
     },
   );
 
@@ -253,7 +220,7 @@ describe("manualSchedulerFire scope", () => {
       });
 
       expect(result).toMatchObject({ ok: true, applied: 1 });
-      expect(enqueues).toEqual(["from-cron"]);
+      expect(enqueues).toEqual(["From morning"]);
     },
   );
 
@@ -265,12 +232,7 @@ describe("manualSchedulerFire scope", () => {
         ...base,
         edges: [
           ...base.edges,
-          {
-            id: "e-relay-trigger-cron",
-            fromNode: "relay1",
-            toNode: "cron1",
-            ether: { slot: "trigger" },
-          },
+          { id: "e-relay-chains-cron", fromNode: "relay1", toNode: "cron1", ether: { verb: "chains" } },
         ],
       };
       expect(collectTriggerCascadeTargets(doc, "relay1")).toEqual([]);
@@ -283,7 +245,7 @@ describe("manualSchedulerFire scope", () => {
           fireKey: "relay-to-disabled-cron",
         }),
       ).resolves.toMatchObject({ applied: 1, cascaded: 0 });
-      expect(enqueues).toEqual(["from-relay"]);
+      expect(enqueues).toEqual(["From relay"]);
     },
   );
 
