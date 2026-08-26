@@ -146,12 +146,15 @@ describe("operator-gated Task dependencies", () => {
     ).toBe(false);
   });
 
-  it("rejects duplicate authored dependencies instead of silently collapsing them", () => {
+  it("rejects duplicate and noncanonical authored dependencies instead of collapsing them", () => {
     const ids = makeIds();
     const a = createPlanningTask(baseDoc(), ids, "Plan A");
 
     expect(() =>
-      createPlanningTask(a.doc, ids, "Plan B", [a.task.id, ` ${a.task.id} `]),
+      createPlanningTask(a.doc, ids, "Plan B", [a.task.id, a.task.id]),
     ).toThrow(/duplicate task/);
+    expect(() =>
+      createPlanningTask(a.doc, ids, "Plan B", [a.task.id, ` ${a.task.id} `]),
+    ).toThrow(/not canonical/);
   });
 });

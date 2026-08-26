@@ -27,6 +27,11 @@ import {
   canTransitionTaskState,
 } from "../src/shared/task";
 import {
+  PIPELINE_ADMITTED_METADATA_KEY,
+  taskAdmissionState,
+} from "../src/shared/claims";
+import { materializePendingProposal } from "../src/shared/pending-proposal-backfill";
+import {
   ActorRef,
   IntentFactBasis,
   type IntentFactBasis as IntentFactBasisValue,
@@ -161,6 +166,136 @@ describe("work pure transforms", () => {
       ids
     );
     expect(claimed.task.state).toBe("working");
+  });
+
+  it("keeps legacy proposal approval byte-stable across retries and restarts without minting ids", () => {
+    const worker = actorRef("2", "worker-2");
+    const seed = workTaskCreate(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "prepare the release",
+      { details: "prepare the release" },
+      { id: () => "task-prerequisite", messageId: () => "message-prerequisite" },
+    );
+    const media = [{
+      kind: "raw" as const,
+      bytesBase64: Buffer.from("approval-media").toString("base64"),
+      mediaType: "image/png",
+    }];
+    const claim = {
+      id: "claim-stable",
+      text: "Preserve the proposal bytes",
+      severity: "hard" as const,
+      station: "tasks",
+    };
+    const proposed = workTaskPropose(
+      seed.doc,
+      "alpha",
+      "tasks",
+      "ship the stable proposal",
+      {
+        title: "Stable proposal",
+        details: "ship the stable proposal",
+        ordinary: { nested: true },
+      },
+      { id: () => "proposal-stable", messageId: () => "message-stable" },
+      worker,
+      "operator review",
+      media,
+      [seed.task.id],
+      { description: "All proof attached", git: { minCommits: 1 } },
+      [claim],
+    );
+    const forbiddenIds = {
+      id: (): string => {
+        throw new Error("approval must not mint a Task id");
+      },
+      messageId: (): string => {
+        throw new Error("approval must not mint a message id");
+      },
+    };
+
+    const first = workTaskApproveProposal(
+      proposed.doc,
+      "alpha",
+      "tasks",
+      proposed.proposal.id,
+      forbiddenIds,
+    );
+    const restarted = workTaskApproveProposal(
+      JSON.parse(JSON.stringify(proposed.doc)) as CanvasDoc,
+      "alpha",
+      "tasks",
+      proposed.proposal.id,
+      forbiddenIds,
+    );
+    const materialized = materializePendingProposal({
+      proposal: proposed.proposal,
+    }).task;
+
+    expect(first.task).toEqual({
+      ...materialized,
+      metadata: {
+        ...(materialized.metadata ?? {}),
+        [PIPELINE_ADMITTED_METADATA_KEY]: 0,
+      },
+    });
+    expect(first.task.id).toBe(proposed.proposal.id);
+    expect(first.proposal.approvedTaskId).toBe(proposed.proposal.id);
+    expect(first.task.history[0]).toEqual({
+      ...proposed.proposal.brief,
+      taskId: proposed.proposal.id,
+    });
+    expect(first.task.history[0]?.messageId).toBe("message-stable");
+    expect(first.task.history[0]?.contextId).toBe("alpha");
+    expect(first.task.history[0]?.parts).toEqual(proposed.proposal.brief.parts);
+    expect(first.task.raisedBy).toEqual(worker);
+    expect(first.task.admission).toBe("operator-gated");
+    expect(first.task.metadata?.[PIPELINE_ADMITTED_METADATA_KEY]).toBe(0);
+    expect(taskAdmissionState(first.task, undefined, 0)).toBe("claimable");
+    expect(JSON.stringify(restarted)).toBe(JSON.stringify(first));
+  });
+
+  it("refuses an unrelated Task that collides with a pending proposal id", () => {
+    const worker = actorRef("3", "worker-3");
+    const proposed = workTaskPropose(
+      { nodes: [emptyTaskNode()], edges: [] },
+      "alpha",
+      "tasks",
+      "pending stable identity",
+      { details: "pending stable identity" },
+      { id: () => "shared-id", messageId: () => "proposal-message" },
+      worker,
+    );
+    const collided = workTaskCreate(
+      proposed.doc,
+      "alpha",
+      "tasks",
+      "unrelated executable work",
+      { details: "unrelated executable work" },
+      { id: () => proposed.proposal.id, messageId: () => "unrelated-message" },
+    );
+    const before = JSON.stringify(collided.doc);
+    const forbiddenIds = {
+      id: (): string => {
+        throw new Error("collision must not mint a Task id");
+      },
+      messageId: (): string => {
+        throw new Error("collision must not mint a message id");
+      },
+    };
+
+    expect(() =>
+      workTaskApproveProposal(
+        collided.doc,
+        "alpha",
+        "tasks",
+        proposed.proposal.id,
+        forbiddenIds,
+      )
+    ).toThrow(/unrelated same-ID Task/);
+    expect(JSON.stringify(collided.doc)).toBe(before);
   });
 
   it("rejects a pending proposal without minting a task", () => {
@@ -299,6 +434,49 @@ describe("work pure transforms", () => {
       ids,
     );
     expect(approved.task.claims).toEqual([claim]);
+  });
+
+  it("rejects noncanonical dependency ids at create and proposal authoring boundaries", () => {
+    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
+    const worker = actorRef("4", "worker-4");
+    const forbiddenIds = {
+      id: (): string => {
+        throw new Error("invalid dependencies must be rejected before id allocation");
+      },
+      messageId: (): string => {
+        throw new Error("invalid dependencies must be rejected before message allocation");
+      },
+    };
+
+    for (const dependsOn of [["   "], [" task-a "]] as const) {
+      expect(() =>
+        workTaskCreate(
+          doc,
+          "alpha",
+          "tasks",
+          "invalid dependency",
+          { details: "invalid dependency" },
+          forbiddenIds,
+          undefined,
+          undefined,
+          dependsOn,
+        )
+      ).toThrow(/non-empty|not canonical/);
+      expect(() =>
+        workTaskPropose(
+          doc,
+          "alpha",
+          "tasks",
+          "invalid proposal dependency",
+          { details: "invalid proposal dependency" },
+          forbiddenIds,
+          worker,
+          undefined,
+          undefined,
+          dependsOn,
+        )
+      ).toThrow(/non-empty|not canonical/);
+    }
   });
 
   it("rejects create and propose without a non-empty description", () => {

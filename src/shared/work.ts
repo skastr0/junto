@@ -36,6 +36,7 @@ import { dependencyScopeIndex } from "./task-dep-scope";
 import {
   normalizeDependsOn,
   taskIsClaimReady,
+  validateAuthoredTaskDependsOn,
   validateTaskDependsOn,
 } from "./task-deps";
 import {
@@ -44,6 +45,7 @@ import {
   normalizeCompletionEvidence,
   normalizeFinishCriteria,
 } from "./finish-criteria";
+import { materializePendingProposal } from "./pending-proposal-backfill";
 import {
   PIPELINE_ADMITTED_METADATA_KEY,
   carryClaimEvidence,
@@ -398,6 +400,8 @@ export const workTaskCreate = (
   const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
+  const authoredDepError = validateAuthoredTaskDependsOn(dependsOn);
+  if (authoredDepError) throw new WorkError("invalid", authoredDepError);
   const contract = sinkContractOf(node);
   const clamped = clampRequestedAdmission({
     floor: resolveSinkAdmission(contract),
@@ -523,6 +527,8 @@ export const workTaskPropose = (
   const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
+  const authoredDepError = validateAuthoredTaskDependsOn(dependsOn);
+  if (authoredDepError) throw new WorkError("invalid", authoredDepError);
   const proposalId = ids.id();
   const existing = node.ether?.tasks?.items ?? [];
   const depError = validateTaskDependsOn({
@@ -570,6 +576,11 @@ export const workTaskPropose = (
   };
 };
 
+/**
+ * @deprecated Legacy proposal-first compatibility bridge. Production approval
+ * promotes the already-stable planning Task in place. The retained signature
+ * does not consume either WorkIds generator.
+ */
 export const workTaskApproveProposal = (
   doc: CanvasDoc,
   canvasName: string,
@@ -577,6 +588,8 @@ export const workTaskApproveProposal = (
   proposalId: string,
   ids: WorkIds,
 ): WorkProposalApprovalResult => {
+  void canvasName;
+  void ids;
   const node = requireNode(doc, nodeId);
   requireSink(node, ["task"]);
   const items = node.ether?.tasks?.items ?? [];
@@ -595,41 +608,31 @@ export const workTaskApproveProposal = (
       `proposal "${proposalId}" is not pending`,
     );
   }
-  const taskId = ids.id();
+  if (items.some((task) => task.id === current.id)) {
+    throw new WorkError(
+      "invalid",
+      `task "${current.id}" already exists; proposal approval refuses an unrelated same-ID Task`,
+    );
+  }
   // Re-validate deps against region-scoped items at approve time (still not self).
   const depError = validateTaskDependsOn({
-    taskId,
+    taskId: current.id,
     dependsOn: current.dependsOn,
     byId: dependencyScopeIndex(doc, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
+  const materialized = materializePendingProposal({ proposal: current }).task;
   const task: Task = {
-    id: taskId,
-    state: "submitted",
-    history: [{
-      ...current.brief,
-      messageId: ids.messageId(),
-      taskId,
-      contextId:
-        current.brief.contextId ??
-        regionContextId(doc, nodeId, canvasName),
-    }],
-    ...(current.metadata ? { metadata: current.metadata } : {}),
-    ...(current.reason ? { reason: current.reason } : {}),
-    ...(current.dependsOn && current.dependsOn.length > 0
-      ? { dependsOn: current.dependsOn }
-      : {}),
-    ...(current.finishCriteria !== undefined
-      ? { finishCriteria: current.finishCriteria }
-      : {}),
-    ...(current.claims && current.claims.length > 0
-      ? { claims: current.claims }
-      : {}),
+    ...materialized,
+    metadata: {
+      ...(materialized.metadata ?? {}),
+      [PIPELINE_ADMITTED_METADATA_KEY]: taskEpoch(materialized),
+    },
   };
   const proposal: TaskProposal = {
     ...current,
     state: "approved",
-    approvedTaskId: taskId,
+    approvedTaskId: current.id,
   };
   const nextProposals = proposals.map((candidate, proposalIndex) =>
     proposalIndex === index ? proposal : candidate

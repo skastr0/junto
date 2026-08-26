@@ -4,6 +4,7 @@ import {
   taskDepStatus,
   taskIndexById,
   taskIsClaimReady,
+  validateAuthoredTaskDependsOn,
   validateTaskDependsOn,
 } from "../src/shared/task-deps";
 import type { Task, TaskState } from "../src/shared/work-model";
@@ -37,6 +38,23 @@ describe("task-deps", () => {
     expect(normalizeDependsOn([])).toBeUndefined();
     expect(normalizeDependsOn(["  ", ""])).toBeUndefined();
     expect(normalizeDependsOn(["a", "a", " b "])).toEqual(["a", "b"]);
+  });
+
+  it("rejects noncanonical authoring dependency ids before compatibility normalization", () => {
+    expect(validateAuthoredTaskDependsOn(undefined)).toBeUndefined();
+    expect(validateAuthoredTaskDependsOn([])).toBeUndefined();
+    expect(validateAuthoredTaskDependsOn(["   "])).toMatch(/non-empty/);
+    expect(validateAuthoredTaskDependsOn([" task-a "])).toMatch(/not canonical/);
+    expect(validateAuthoredTaskDependsOn(["task-a", "task-a"])).toMatch(
+      /duplicate/,
+    );
+    expect(validateAuthoredTaskDependsOn(["x".repeat(257)])).toMatch(/too long/);
+    expect(
+      validateAuthoredTaskDependsOn(
+        Array.from({ length: 257 }, (_, index) => `task-${index}`),
+      ),
+    ).toMatch(/maximum is 256/);
+    expect(validateAuthoredTaskDependsOn(["x".repeat(256)])).toBeUndefined();
   });
 
   it("empty dependsOn is claim-ready when submitted", () => {

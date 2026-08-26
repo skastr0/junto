@@ -38,7 +38,47 @@ const uniqueIds = (ids: ReadonlyArray<string>): string[] => {
   return out;
 };
 
-/** Normalize author input: trim, drop empties, de-dupe, preserve order. */
+const MAX_TASK_DEPENDENCY_IDS = 256;
+const MAX_TASK_ID_LENGTH = 256;
+
+/**
+ * Strict authoring boundary. New dependency IDs must already be canonical;
+ * normalization below exists only for decoded historical/read-model input.
+ */
+export const validateAuthoredTaskDependsOn = (
+  dependsOn: ReadonlyArray<string> | undefined,
+): string | undefined => {
+  if (dependsOn === undefined) return undefined;
+  if (dependsOn.length > MAX_TASK_DEPENDENCY_IDS) {
+    return `dependsOn contains ${dependsOn.length} Task ids; maximum is ${MAX_TASK_DEPENDENCY_IDS}`;
+  }
+  const seen = new Set<string>();
+  for (const value of dependsOn as ReadonlyArray<unknown>) {
+    if (typeof value !== "string" || value.length === 0) {
+      return "dependsOn entries must be non-empty canonical Task ids";
+    }
+    const canonical = value.trim();
+    if (canonical.length === 0) {
+      return "dependsOn entries must be non-empty canonical Task ids";
+    }
+    if (value !== canonical) {
+      return `dependsOn task id ${JSON.stringify(value)} is not canonical`;
+    }
+    if (value.length > MAX_TASK_ID_LENGTH) {
+      return `dependsOn task id ${JSON.stringify(value.slice(0, 32))} is too long`;
+    }
+    if (seen.has(canonical)) {
+      return `dependsOn contains duplicate task ${JSON.stringify(canonical)}`;
+    }
+    seen.add(canonical);
+  }
+  return undefined;
+};
+
+/**
+ * Normalize decoded historical/read-model input: trim, drop empties, de-dupe,
+ * and preserve order. Authoring must pass validateAuthoredTaskDependsOn first.
+ */
 export const normalizeDependsOn = (
   dependsOn: ReadonlyArray<string> | undefined,
 ): string[] | undefined => {
@@ -208,7 +248,7 @@ export const validateTaskDependsOn = (params: {
     seenAuthoredIds.add(id);
   }
   for (const id of deps) {
-    if (id.length > 256) {
+    if (id.length > MAX_TASK_ID_LENGTH) {
       return `dependsOn id too long: ${id.slice(0, 32)}…`;
     }
     if (params.requireExisting !== false && !params.byId.has(id)) {
