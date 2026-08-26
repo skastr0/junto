@@ -33,6 +33,8 @@ import {
 } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
 import { verbsForPair, type Verb } from "@shared/physics";
+import { isTaskSinkNode } from "@shared/flow-graph";
+import { stationIdentity } from "@shared/station-identity";
 import {
   ADMISSION_ORDER,
   admissionLabel,
@@ -217,11 +219,25 @@ type EdgeVerbView = {
   readonly sentence: string;
 };
 
+/**
+ * What to call an end of a relationship: the name its card wears.
+ *
+ * A task sink's live items overwrite its node text, so the plain title of one
+ * is whichever task happens to sit at the top of it — the sentence would say
+ * an agent manages "Ship the verb cut" while the card it points at says
+ * "Backlog". `stationIdentity` is the one station-name projection every other
+ * surface already reads; the edge readout owes the same word.
+ */
+const endLabel = (node: CanvasNode | undefined, fallbackId: string): string => {
+  if (!node) return fallbackId;
+  return isTaskSinkNode(node) ? stationIdentity(node).name : nodeTitle(node);
+};
+
 const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
   const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
   const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const fromLabel = fromNode ? nodeTitle(fromNode) : edge.fromNode;
-  const toLabel = toNode ? nodeTitle(toNode) : edge.toNode;
+  const fromLabel = endLabel(fromNode, edge.fromNode);
+  const toLabel = endLabel(toNode, edge.toNode);
   const verb = edge.ether?.verb;
   const sibling =
     verb === undefined
