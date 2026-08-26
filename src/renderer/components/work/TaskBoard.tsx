@@ -2863,7 +2863,7 @@ export function TaskBoard({
 
   const promoteTask = async (task: WorkTask, note?: string) => {
     if (!api) {
-      setError("Promotion is not available until the current work service is ready.");
+      setError("Approval is not available until the current work service is ready.");
       return;
     }
     setError("");

@@ -1294,7 +1294,7 @@ export const WorkLive = Layer.effect(
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
-                  "only the Command Center operator may promote arrivals",
+                  "only the Command Center operator may approve arrivals",
               });
             }
             // Local-only by design (same as workTaskPromote): Station protocol 1
@@ -1304,7 +1304,7 @@ export const WorkLive = Layer.effect(
             if (home !== context.localInstallationId) {
               return yield* new WorkServiceError({
                 code: "invalid",
-                message: "promotion executes on the task home installation",
+                message: "approval happens on the task home installation",
               });
             }
             const node = yield* requireNode(read.doc, nodeId);
@@ -1320,7 +1320,7 @@ export const WorkLive = Layer.effect(
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
-                  `task "${taskId}" effective admission is ${admission}; promotion applies to operator-gated arrivals`,
+                  `task "${taskId}" effective admission is ${admission}; approval applies to operator-gated arrivals`,
               });
             }
             const outcome = yield* local(
@@ -1575,7 +1575,7 @@ export const WorkLive = Layer.effect(
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
-                  "only the Command Center operator may promote arrivals",
+                  "only the Command Center operator may approve arrivals",
               });
             }
             // Local-only: protocol 1 has no promote action to enqueue. See
@@ -1583,7 +1583,7 @@ export const WorkLive = Layer.effect(
             if (home !== context.localInstallationId) {
               return yield* new WorkServiceError({
                 code: "invalid",
-                message: "promotion executes on the task home installation",
+                message: "approval happens on the task home installation",
               });
             }
             const node = yield* requireNode(read.doc, nodeId);
@@ -1599,7 +1599,7 @@ export const WorkLive = Layer.effect(
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
-                  `task "${taskId}" effective admission is ${admission}; promotion applies to operator-gated arrivals`,
+                  `task "${taskId}" effective admission is ${admission}; approval applies to operator-gated arrivals`,
               });
             }
             if (taskPromoted(task)) {
@@ -1607,7 +1607,7 @@ export const WorkLive = Layer.effect(
                 return yield* new WorkServiceError({
                   code: "invalid",
                   message:
-                    `task "${taskId}" is already promoted; the supplied note was not recorded`,
+                    `task "${taskId}" is already approved; the supplied note was not recorded`,
                 });
               }
               return yield* complete(canvas, {

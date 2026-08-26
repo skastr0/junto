@@ -7944,7 +7944,7 @@ export const WorkRepositoryLive = Layer.effect(
         if (authority.role !== "command-center") {
           throw authorityError(
             "authority-mismatch",
-            "only the Command Center operator may promote arrivals",
+            "only the Command Center operator may approve arrivals",
           );
         }
         const current = loadTask(writer, "task", input.sink, input.taskId);
