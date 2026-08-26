@@ -70,15 +70,15 @@ const stoppageDoc = (): CanvasDoc => ({
   edges: [
     {
       id: "e-rp",
-      fromNode: "r1",
-      toNode: "a1",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "a1",
+      toNode: "r1",
+      ether: { verb: "escalates" },
     },
     {
       id: "e-rp2",
-      fromNode: "r1",
-      toNode: "a2",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "a2",
+      toNode: "r1",
+      ether: { verb: "escalates" },
     },
   ],
 });

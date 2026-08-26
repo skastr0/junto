@@ -65,27 +65,27 @@ const twoSeedDoc = (): CanvasDoc => ({
   edges: [
     {
       id: "e-big-1",
-      fromNode: "r-big",
-      toNode: "p1",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "p1",
+      toNode: "r-big",
+      ether: { verb: "escalates" },
     },
     {
       id: "e-big-2",
-      fromNode: "r-big",
-      toNode: "p2",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "p2",
+      toNode: "r-big",
+      ether: { verb: "escalates" },
     },
     {
       id: "e-big-3",
-      fromNode: "r-big",
-      toNode: "p3",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "p3",
+      toNode: "r-big",
+      ether: { verb: "escalates" },
     },
     {
       id: "e-small-1",
-      fromNode: "r-small",
-      toNode: "s1",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "s1",
+      toNode: "r-small",
+      ether: { verb: "escalates" },
     },
     { id: "e-lead", fromNode: "lead1", toNode: "p2" },
   ],
@@ -159,7 +159,7 @@ describe("rankStoppageSeeds — blast-radius ranking", () => {
         }),
         seat("w1", "actor", { label: "Worker" }),
       ],
-      edges: [{ id: "e1", fromNode: "t1", toNode: "w1", ether: { stops: { mode: "tasks" } } }],
+      edges: [{ id: "e1", fromNode: "t1", toNode: "w1", ether: { verb: "works" } }],
     };
     const graph = deriveExecutionGraph(doc);
     const ranked = rankStoppageSeeds(doc, graph);

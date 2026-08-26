@@ -49,7 +49,7 @@ const doc: CanvasDoc = {
     },
   ],
   edges: [
-    { id: "e1", fromNode: "n1", toNode: "n2", ether: { stops: { mode: "tasks" } } },
+    { id: "e1", fromNode: "n1", toNode: "n2" },
   ],
 };
 
@@ -76,13 +76,13 @@ describe("renderCanvasSvg", () => {
     expect(renderCanvasSvg(doc)).toContain("<line");
   });
 
-  it("renders an unmasked actor↔actor edge as an amber collaboration link", () => {
+  it("renders an agent messages edge as an amber collaboration link", () => {
     const svg = renderCanvasSvg({
       nodes: [
         { id: "a1", type: "text", x: 0, y: 0, width: 120, height: 48, text: "Alpha", ether: { entity: { kind: "agent" } } },
         { id: "a2", type: "text", x: 200, y: 0, width: 120, height: 48, text: "Beta", ether: { entity: { kind: "agent" } } },
       ],
-      edges: [{ id: "a2a", fromNode: "a1", toNode: "a2" }],
+      edges: [{ id: "a2a", fromNode: "a1", toNode: "a2", ether: { verb: "messages" } }],
     });
     expect(svg).toContain('stroke="#e8a33d"');
   });

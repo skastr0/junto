@@ -133,7 +133,7 @@ describe("sinkGlance + attention", () => {
           id: "e1",
           fromNode: "t",
           toNode: "a1",
-          ether: { stops: { mode: "tasks" } },
+          ether: { verb: "works" },
         },
       ],
     }, context);
@@ -334,7 +334,7 @@ describe("selectFactoryClaims", () => {
     expect(selectFactoryClaims(doc, "c", resolverFor([actor]))).toEqual([]);
   });
 
-  it("skips a lower-id actor whose edge does not grant tasks.claim", () => {
+  it("skips a lower-id actor whose verb is manages, not contributes", () => {
     const denied = actorRef("a-denied", "1");
     const admitted = actorRef("z-admitted", "2");
     const doc: CanvasDoc = {
@@ -346,15 +346,15 @@ describe("selectFactoryClaims", () => {
       edges: [
         {
           id: "e-denied",
-          fromNode: "t",
-          toNode: "a-denied",
-          ether: { ports: ["tasks.list"] },
+          fromNode: "a-denied",
+          toNode: "t",
+          ether: { verb: "manages" },
         },
         {
           id: "e-admitted",
-          fromNode: "t",
-          toNode: "z-admitted",
-          ether: { ports: ["tasks.claim"] },
+          fromNode: "z-admitted",
+          toNode: "t",
+          ether: { verb: "contributes" },
         },
       ],
     };

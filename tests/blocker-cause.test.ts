@@ -43,9 +43,9 @@ const blockedByRequestsDoc = (): CanvasDoc => ({
   edges: [
     {
       id: "e1",
-      fromNode: "req",
-      toNode: "agent",
-      ether: { stops: { mode: "tasks" } },
+      fromNode: "agent",
+      toNode: "req",
+      ether: { verb: "escalates" },
     },
   ],
 });

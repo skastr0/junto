@@ -58,11 +58,13 @@ describe("pad physics sink", () => {
     );
   });
 
-  it("admits pad.read and pad.patch on an actor→pad access edge", () => {
+  it("admits pad.read and pad.patch on an agent edits pad edge", () => {
     const pad = makePadNode(200, 0);
     const doc: CanvasDoc = {
       nodes: [agentNode("agent"), pad],
-      edges: [{ id: "e1", fromNode: "agent", toNode: pad.id }],
+      edges: [
+        { id: "e1", fromNode: "agent", toNode: pad.id, ether: { verb: "edits" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     const read = admitPure(view, asNodeId("agent"), asNodeId(pad.id), "pad.read");

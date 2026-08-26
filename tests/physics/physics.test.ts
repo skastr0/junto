@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Result, HashMap, HashSet, Match, Option } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
+import { KIND_TO_SLOT } from "../../src/shared/managed-terminal-injection";
 import {
   ALL_PORTS,
   GrantLaw,
@@ -27,9 +28,11 @@ import {
   routeAllowed,
   seatMayBeBlocked,
   selectGrant,
+  pairIsAssignable,
   undirectedEdgeKey,
   type NodePlacement,
   type Port,
+  type Verb,
   type WellKnownKind,
 } from "../../src/shared/physics";
 
@@ -261,7 +264,9 @@ describe("physics admitPure", () => {
   it("admits actor → page browser.automate when edge-connected", () => {
     const doc: CanvasDoc = {
       nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "p1" }],
+      edges: [
+        { id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     const result = admitPure(
@@ -281,7 +286,9 @@ describe("physics admitPure", () => {
   it("admits an agent seat — the one actor kind — for browser.automate", () => {
     const doc: CanvasDoc = {
       nodes: [textNode("seat", "agent"), pageNode("p1")],
-      edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
+      edges: [
+        { id: "e1", fromNode: "seat", toNode: "p1", ether: { verb: "navigates" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     const result = admitPure(
@@ -395,7 +402,9 @@ describe("physics admitPure", () => {
   it("admits task work ports on connected agent→task edge", () => {
     const doc: CanvasDoc = {
       nodes: [textNode("agent", "agent"), textNode("task1", "task", 200, 0)],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "task1" }],
+      edges: [
+        { id: "e1", fromNode: "agent", toNode: "task1", ether: { verb: "contributes" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     for (const port of [
@@ -428,20 +437,33 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("attenuates via edge port mask when present (drops browser.automate)", () => {
+  it("a verb that never opens the port denies with no_port", () => {
     const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
+      nodes: [textNode("agent", "agent"), textNode("pad1", "pad", 200, 0)],
       edges: [
-        {
-          id: "e1",
-          fromNode: "agent",
-          toNode: "p1",
-          // Mask is only msg.send — not browser.automate (read-only-style attenuation).
-          ether: { ports: ["msg.send"] },
-        },
+        // Reading a pad is the narrow half of the pair; patching is the wide one.
+        { id: "e1", fromNode: "agent", toNode: "pad1", ether: { verb: "reads" } },
       ],
     };
     const view = canvasDocToCapabilityView(doc);
+    expect(
+      Result.isSuccess(admitPure(view, asNodeId("agent"), asNodeId("pad1"), "pad.read")),
+    ).toBe(true);
+    const denied = admitPure(view, asNodeId("agent"), asNodeId("pad1"), "pad.patch");
+    expect(Result.isFailure(denied)).toBe(true);
+    if (Result.isFailure(denied)) {
+      expect(denied.failure.reason).toBe("no_port");
+    }
+  });
+
+  it("an edge with no verb grants nothing", () => {
+    const doc: CanvasDoc = {
+      nodes: [textNode("agent", "agent"), pageNode("p1")],
+      edges: [{ id: "e1", fromNode: "agent", toNode: "p1" }],
+    };
+    const view = canvasDocToCapabilityView(doc);
+    // Connectivity is still there; the relationship just says nothing.
+    expect(HashMap.size(view.edgePortMask)).toBe(1);
     const denied = admitPure(
       view,
       asNodeId("agent"),
@@ -454,54 +476,32 @@ describe("physics admitPure", () => {
     }
   });
 
-  it("absent ports = full offers (browser.automate still admitted)", () => {
+  it("a verb the pair cannot hold grants nothing", () => {
     const doc: CanvasDoc = {
       nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "p1" }],
+      // Hand-edited or stale: `edits` belongs to pad, never to a page.
+      edges: [{ id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "edits" } }],
     };
     const view = canvasDocToCapabilityView(doc);
-    expect(HashMap.size(view.edgePortMask)).toBe(0);
-    const admitted = admitPure(
+    const denied = admitPure(
       view,
       asNodeId("agent"),
       asNodeId("p1"),
       "browser.automate",
     );
-    expect(Result.isSuccess(admitted)).toBe(true);
+    expect(Result.isFailure(denied)).toBe(true);
   });
 
-  it("invalid-only port strings yield empty mask (nothing allowed)", () => {
-    const doc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [
-        {
-          id: "e1",
-          fromNode: "agent",
-          toNode: "p1",
-          // Not a Port literal — skipped; explicit ports:[] shape remains.
-          ether: { ports: ["browser.read"] },
-        },
-      ],
-    } as unknown as CanvasDoc;
-    const view = canvasDocToCapabilityView(doc);
-    // Explicit mask present but empty after invalid tokens dropped.
-    expect(HashMap.size(view.edgePortMask)).toBe(1);
-    const admitted = admitPure(
-      view,
-      asNodeId("agent"),
-      asNodeId("p1"),
-      "browser.automate",
-    );
-    expect(Result.isSuccess(admitted)).toBe(false);
-  });
 
-  it("fresh actor↔actor, no ports → both mailbox ports are admitted by default", () => {
+  it("actor mail: the messages verb opens both mailbox ports", () => {
     const doc: CanvasDoc = {
       nodes: [
         textNode("a1", "agent"),
         textNode("a2", "agent", 200, 0),
       ],
-      edges: [{ id: "e1", fromNode: "a1", toNode: "a2" }],
+      edges: [
+        { id: "e1", fromNode: "a1", toNode: "a2", ether: { verb: "messages" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     // Discovery: undirected connectivity present
@@ -510,55 +510,31 @@ describe("physics admitPure", () => {
     if (Option.isSome(neighbors)) {
       expect(HashSet.has(neighbors.value, asNodeId("a2"))).toBe(true);
     }
+    // Symmetric: the one verb an agent pair holds reads the same both ways.
     for (const port of ["msg.send", "msg.list"] as const) {
-      const admitted = admitPure(view, asNodeId("a1"), asNodeId("a2"), port);
-      expect(Result.isSuccess(admitted), port).toBe(true);
+      expect(
+        Result.isSuccess(admitPure(view, asNodeId("a1"), asNodeId("a2"), port)),
+        port,
+      ).toBe(true);
+      expect(
+        Result.isSuccess(admitPure(view, asNodeId("a2"), asNodeId("a1"), port)),
+        port,
+      ).toBe(true);
     }
   });
 
-  it("actor↔actor with ports:[msg.send] → msg.send admits, msg.list denies", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        textNode("a1", "agent"),
-        textNode("a2", "agent", 200, 0),
-      ],
-      edges: [
-        {
-          id: "e1",
-          fromNode: "a1",
-          toNode: "a2",
-          ether: { ports: ["msg.send"] },
-        },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
-    const send = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.send");
-    expect(Result.isSuccess(send)).toBe(true);
-    const list = admitPure(view, asNodeId("a1"), asNodeId("a2"), "msg.list");
-    expect(Result.isFailure(list)).toBe(true);
-    if (Result.isFailure(list)) {
-      expect(list.failure.reason).toBe("no_port");
-    }
-  });
 
 });
 
-describe("physics mask union (I7 — multi-edge masks combine as union)", () => {
-  const portsEdge = (
+describe("physics grant union (I7 — parallel edges combine as union)", () => {
+  const verbEdge = (
     id: string,
     fromNode: string,
     toNode: string,
-    ports?: ReadonlyArray<Port>,
-  ): CanvasDoc["edges"][number] => ({
-    id,
-    fromNode,
-    toNode,
-    ...(ports !== undefined ? { ether: { ports } } : {}),
-  });
+    verb: Verb,
+  ): CanvasDoc["edges"][number] => ({ id, fromNode, toNode, ether: { verb } });
 
-  const taskDoc = (
-    edges: CanvasDoc["edges"],
-  ): CanvasDoc => ({
+  const taskDoc = (edges: CanvasDoc["edges"]): CanvasDoc => ({
     nodes: [textNode("agent", "agent"), textNode("task1", "task", 200, 0)],
     edges,
   });
@@ -577,86 +553,77 @@ describe("physics mask union (I7 — multi-edge masks combine as union)", () => 
       Result.isSuccess(admitPure(view, asNodeId("agent"), asNodeId("task1"), port)),
     );
 
-  it("no-mask: neither edge declares ports ⇒ full offers", () => {
-    const doc = taskDoc([
-      portsEdge("e1", "agent", "task1"),
-      portsEdge("e2", "task1", "agent"),
-    ]);
-    const view = canvasDocToCapabilityView(doc);
-    expect(HashMap.size(view.edgePortMask)).toBe(0);
-    expect(admittedPorts(view).sort()).toEqual(
-      ["msg.list", "msg.send", "tasks.claim", "tasks.create", "tasks.list", "tasks.update"].sort(),
+  const ALL_TASK_PORTS = [
+    "msg.list",
+    "msg.send",
+    "tasks.claim",
+    "tasks.create",
+    "tasks.list",
+    "tasks.update",
+  ].sort();
+
+  const MANAGE_ONLY = [
+    "msg.list",
+    "msg.send",
+    "tasks.create",
+    "tasks.list",
+    "tasks.update",
+  ].sort();
+
+  it("one verb: the pair admits exactly what that verb compiles", () => {
+    const view = canvasDocToCapabilityView(
+      taskDoc([verbEdge("e1", "agent", "task1", "manages")]),
     );
+    // Managing a queue never pulls from it — no tasks.claim.
+    expect(admittedPorts(view).sort()).toEqual(MANAGE_ONLY);
   });
 
-  it("one-mask: single masked edge ⇒ exactly that mask", () => {
-    const doc = taskDoc([portsEdge("e1", "agent", "task1", ["msg.list"])]);
-    const view = canvasDocToCapabilityView(doc);
-    expect(admittedPorts(view).sort()).toEqual(["msg.list"]);
-  });
-
-  it("two-mask-disjoint: masks union across edges (both ports admit)", () => {
-    const doc = taskDoc([
-      portsEdge("e1", "agent", "task1", ["msg.list"]),
-      portsEdge("e2", "task1", "agent", ["tasks.claim"]),
-    ]);
-    const view = canvasDocToCapabilityView(doc);
-    expect(admittedPorts(view).sort()).toEqual(["msg.list", "tasks.claim"].sort());
-  });
-
-  it("two-mask-overlap: union dedupes the shared port, keeps both sides' extras", () => {
-    const doc = taskDoc([
-      portsEdge("e1", "agent", "task1", ["msg.list", "tasks.claim"]),
-      portsEdge("e2", "task1", "agent", ["tasks.claim", "msg.send"]),
-    ]);
-    const view = canvasDocToCapabilityView(doc);
-    expect(admittedPorts(view).sort()).toEqual(
-      ["msg.list", "msg.send", "tasks.claim"].sort(),
+  it("two verbs on one pair union their grants", () => {
+    const view = canvasDocToCapabilityView(
+      taskDoc([
+        verbEdge("e1", "agent", "task1", "manages"),
+        verbEdge("e2", "task1", "agent", "works"),
+      ]),
     );
+    expect(admittedPorts(view).sort()).toEqual(ALL_TASK_PORTS);
   });
 
-  it("mask+unmasked: one unmasked edge restores full offers regardless of order", () => {
-    const maskedFirst = taskDoc([
-      portsEdge("e1", "agent", "task1", ["msg.list"]),
-      portsEdge("e2", "task1", "agent"),
-    ]);
-    const unmaskedFirst = taskDoc([
-      portsEdge("e1", "agent", "task1"),
-      portsEdge("e2", "task1", "agent", ["msg.list"]),
-    ]);
-    for (const doc of [maskedFirst, unmaskedFirst]) {
-      const view = canvasDocToCapabilityView(doc);
-      expect(HashMap.size(view.edgePortMask)).toBe(0);
-      expect(admittedPorts(view).sort()).toEqual(
-        ["msg.list", "msg.send", "tasks.claim", "tasks.create", "tasks.list", "tasks.update"].sort(),
-      );
-    }
-  });
-
-  it("union can never smuggle a port the target does not offer", () => {
-    // page offers only browser.automate; union of two masks that both name
-    // ports outside the target's KindSpec.offers must still deny.
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), pageNode("p1")],
-      edges: [
-        portsEdge("e1", "agent", "p1", ["msg.list"]),
-        portsEdge("e2", "p1", "agent", ["msg.send"]),
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
-    // The union mask is {msg.list, msg.send} — neither is in page's offers.
-    const mask = HashMap.get(view.edgePortMask, undirectedEdgeKey("agent", "p1"));
+  it("union dedupes the ports both verbs open", () => {
+    const view = canvasDocToCapabilityView(
+      taskDoc([
+        verbEdge("e1", "agent", "task1", "contributes"),
+        verbEdge("e2", "task1", "agent", "works"),
+      ]),
+    );
+    const mask = HashMap.get(view.edgePortMask, undirectedEdgeKey("agent", "task1"));
     expect(Option.isSome(mask)).toBe(true);
     if (Option.isSome(mask)) {
-      expect(Array.from(mask.value).sort()).toEqual(
-        ["msg.list", "msg.send"].sort(),
-      );
+      expect(Array.from(mask.value).sort()).toEqual(ALL_TASK_PORTS);
     }
-    const automate = admitPure(view, asNodeId("agent"), asNodeId("p1"), "browser.automate");
-    expect(Result.isFailure(automate)).toBe(true);
-    if (Result.isFailure(automate)) {
-      expect(automate.failure.reason).toBe("no_port");
-    }
+  });
+
+  it("a verbless edge beside a verbed one adds nothing and takes nothing", () => {
+    const view = canvasDocToCapabilityView(
+      taskDoc([
+        verbEdge("e1", "agent", "task1", "manages"),
+        { id: "e2", fromNode: "task1", toNode: "agent" },
+      ]),
+    );
+    expect(admittedPorts(view).sort()).toEqual(MANAGE_ONLY);
+  });
+
+  it("only works marks the pair assignable, whichever edge carries it", () => {
+    const contributed = canvasDocToCapabilityView(
+      taskDoc([verbEdge("e1", "agent", "task1", "contributes")]),
+    );
+    expect(pairIsAssignable(contributed, "agent", "task1")).toBe(false);
+    const worked = canvasDocToCapabilityView(
+      taskDoc([
+        verbEdge("e1", "agent", "task1", "manages"),
+        verbEdge("e2", "task1", "agent", "works"),
+      ]),
+    );
+    expect(pairIsAssignable(worked, "agent", "task1")).toBe(true);
   });
 });
 
@@ -760,7 +727,9 @@ describe("physics placement admit (I18/I19)", () => {
         withHost(textNode("cc-agent", "agent"), "local"),
         withHost(pageNode("page-b"), "station-b"),
       ],
-      edges: [{ id: "e1", fromNode: "cc-agent", toNode: "page-b" }],
+      edges: [
+        { id: "e1", fromNode: "cc-agent", toNode: "page-b", ether: { verb: "navigates" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     const result = admitPure(
@@ -778,7 +747,9 @@ describe("physics placement admit (I18/I19)", () => {
         withHost(textNode("agent-a", "agent"), "station-a"),
         withHost(pageNode("page-a"), "station-a"),
       ],
-      edges: [{ id: "e1", fromNode: "agent-a", toNode: "page-a" }],
+      edges: [
+        { id: "e1", fromNode: "agent-a", toNode: "page-a", ether: { verb: "navigates" } },
+      ],
     };
     const view = canvasDocToCapabilityView(doc);
     const result = admitPure(
@@ -816,4 +787,56 @@ describe("physics placement admit (I18/I19)", () => {
     }
   });
 
+});
+
+// ---------------------------------------------------------------------------
+// A task pipeline hop is plumbing between sinks, never a capability.
+
+describe("a task pipeline hop grants nothing", () => {
+  // seat —contributes— intake —feeds— review. The hop must add no port
+  // anywhere, and must not extend the seat's reach past its own sink.
+  const doc: CanvasDoc = {
+    nodes: [
+      textNode("seat", "agent", 0),
+      textNode("intake", "task", 200),
+      textNode("review", "task", 400),
+    ],
+    edges: [
+      { id: "access", fromNode: "seat", toNode: "intake", ether: { verb: "contributes" } },
+      { id: "hop", fromNode: "intake", toNode: "review", ether: { verb: "feeds" } },
+    ],
+  };
+
+  const held = (caller: string, target: string): ReadonlyArray<string> => {
+    const view = canvasDocToCapabilityView(doc);
+    return ALL_PORTS.filter((port) =>
+      Result.isSuccess(admitPure(view, asNodeId(caller), asNodeId(target), port)),
+    );
+  };
+
+  it("still grants the seat its own sink (the contrast case)", () => {
+    expect(held("seat", "intake")).toEqual([
+      "tasks.list",
+      "tasks.create",
+      "tasks.claim",
+      "tasks.update",
+      "msg.list",
+      "msg.send",
+    ]);
+  });
+
+  it("gives the seat no reach past the hop", () => {
+    expect(held("seat", "review")).toEqual([]);
+  });
+
+  it("gives the hop's own endpoints nothing in either direction", () => {
+    expect(held("intake", "review")).toEqual([]);
+    expect(held("review", "intake")).toEqual([]);
+  });
+
+  it("leaves the injection slot tables untouched — a hop is not a capability", () => {
+    // Slots are keyed by kind, so a hop cannot mint one; task stays "tasks".
+    expect(KIND_TO_SLOT["task"]).toBe("tasks");
+    expect(Object.keys(KIND_TO_SLOT)).not.toContain("feeds");
+  });
 });

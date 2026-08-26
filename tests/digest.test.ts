@@ -94,7 +94,7 @@ const doc: CanvasDoc = {
   ],
   edges: [
     { id: "e1", fromNode: "m1", toNode: "m2" },
-    { id: "e2", fromNode: "t1", toNode: "m3", ether: { stops: { mode: "tasks" } } },
+    { id: "e2", fromNode: "t1", toNode: "m3", ether: { verb: "works" } },
     { id: "e3", fromNode: "m3", toNode: "m1", label: "refs" },
     { id: "e4", fromNode: "m1", toNode: "m3" },
   ],
@@ -325,14 +325,9 @@ const physicsDoc: CanvasDoc = {
       id: "e-crit",
       fromNode: "agent1",
       toNode: "task1",
-      ether: { stops: { mode: "tasks" } },
+      ether: { verb: "contributes" },
     },
-    {
-      id: "e-crit2",
-      fromNode: "term1",
-      toNode: "page1",
-      ether: { stops: { mode: "tasks" } },
-    },
+    { id: "e-crit2", fromNode: "term1", toNode: "page1" },
   ],
 };
 

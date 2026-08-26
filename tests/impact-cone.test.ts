@@ -47,15 +47,15 @@ describe("impactCone — tasks / requests stoppage", () => {
       edges: [
         {
           id: "e-r1",
-          fromNode: "r1",
-          toNode: "a1",
-          ether: { stops: { mode: "tasks" } },
+          fromNode: "a1",
+          toNode: "r1",
+          ether: { verb: "escalates" },
         },
         {
           id: "e-r2",
-          fromNode: "r1",
-          toNode: "a2",
-          ether: { stops: { mode: "tasks" } },
+          fromNode: "a2",
+          toNode: "r1",
+          ether: { verb: "escalates" },
         },
       ],
     };
@@ -108,7 +108,7 @@ describe("impactCone — tasks / requests stoppage", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { stops: { mode: "tasks" } },
+          ether: { verb: "works" },
         },
       ],
     };
@@ -153,9 +153,9 @@ describe("impactCone — tasks / requests stoppage", () => {
       edges: [
         {
           id: "e1",
-          fromNode: "r1",
-          toNode: "a1",
-          ether: { stops: { mode: "tasks" } },
+          fromNode: "a1",
+          toNode: "r1",
+          ether: { verb: "escalates" },
         },
       ],
     };
@@ -179,13 +179,13 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e-bc",
           fromNode: "b",
           toNode: "c",
-          ether: { stops: { mode: "tasks" } },
+          ether: { verb: "messages" },
         },
         {
           id: "e-cd",
           fromNode: "c",
           toNode: "d",
-          ether: { stops: { mode: "tasks" } },
+          ether: { verb: "messages" },
         },
       ],
     };
@@ -218,7 +218,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e-tb",
           fromNode: "t1",
           toNode: "blocked",
-          ether: { stops: { mode: "tasks" } },
+          ether: { verb: "works" },
         },
         // Soft relates from free actor into blocked actor — attention lead.
         { id: "e-lb", fromNode: "lead", toNode: "blocked" },
@@ -252,7 +252,7 @@ describe("impactCone — seeds, relays, attention leads", () => {
           id: "e1",
           fromNode: "t1",
           toNode: "a1",
-          ether: { stops: { mode: "tasks" } },
+          ether: { verb: "works" },
         },
         { id: "e2", fromNode: "a1", toNode: "a2" }, // relates — no relay
       ],
