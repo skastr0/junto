@@ -25,7 +25,7 @@ import {
   shouldPublishCorridors,
   shouldPublishObstacles,
 } from "../../lib/loom-view";
-import { planLoom } from "../../lib/wire-loom";
+import { MIN_FAN, planLoom } from "../../lib/wire-loom";
 import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loom";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { canvasPerformance } from "../../lib/performance/canvas-performance";
@@ -186,6 +186,133 @@ function anchorOn(bounds: LoomNode, side: WireDirection): WirePoint {
   }
 }
 
+/**
+ * Two wires on one handle: split them into lanes at the anchor.
+ *
+ * A cable starts at three, so below `MIN_FAN` the loom lanes nothing — and two
+ * edges pinned to the same handle are measured off the same point, run the same
+ * final approach, and the second one paints over the first. Around a tasks card
+ * that is `manages` disappearing underneath `contributes`: the operator sees one
+ * wire reaching the card and one that stops in open space. A pair therefore
+ * arrives on two points instead of one, spread across the side it enters.
+ *
+ * Only pairs. A fan of three and up is the loom's own work, and its members are
+ * stitched back onto the live handle, which would throw a lane away and leave a
+ * jog where the wire meets the card.
+ */
+const PAIR_LANE = 7;
+/** Keep a lane off the card's own corner, however small the card is. */
+const PAIR_LANE_MARGIN = 10;
+/** Below this the split is not worth the geometry — the card has no room. */
+const PAIR_LANE_MIN = 2;
+
+type LaneEnd = "source" | "target";
+
+/** `${end}|${nodeId}|${side}` — one handle, the same key the loom fans on. */
+function laneKey(end: LaneEnd, nodeId: string, side: WireDirection): string {
+  return `${end === "source" ? "s" : "t"}|${nodeId}|${side}`;
+}
+
+/** Lanes run across the side they leave from, never along it. */
+function laneAxisOf(side: WireDirection): "x" | "y" {
+  return side === "left" || side === "right" ? "y" : "x";
+}
+
+function sideExtentOf(bounds: LoomNode, side: WireDirection): number {
+  return side === "left" || side === "right" ? bounds.height : bounds.width;
+}
+
+function laned(point: WirePoint, axis: "x" | "y", offset: number): WirePoint {
+  return axis === "x"
+    ? { x: point.x + offset, y: point.y }
+    : { x: point.x, y: point.y + offset };
+}
+
+function splitCoincidentPairs(
+  inputs: ReadonlyArray<LoomEdgeInput>,
+  byId: ReadonlyMap<string, LoomNode>,
+): LoomEdgeInput[] {
+  if (inputs.length < 2) return [...inputs];
+
+  const groups = new Map<string, number[]>();
+  const gather = (key: string, index: number): void => {
+    const held = groups.get(key);
+    if (held) held.push(index);
+    else groups.set(key, [index]);
+  };
+  inputs.forEach((edge, index) => {
+    gather(laneKey("source", edge.sourceNodeId, edge.sourceSide), index);
+    gather(laneKey("target", edge.targetNodeId, edge.targetSide), index);
+  });
+
+  const offsets = new Map<number, { source: number; target: number }>();
+  for (const [key, members] of groups) {
+    if (members.length !== 2) continue;
+    const end: LaneEnd = key.startsWith("s|") ? "source" : "target";
+    const otherKeyOf = (edge: LoomEdgeInput): string =>
+      end === "source"
+        ? laneKey("target", edge.targetNodeId, edge.targetSide)
+        : laneKey("source", edge.sourceNodeId, edge.sourceSide);
+    // A member that is a strand at its far end gets stitched to the live
+    // handle, which discards the lane. Leave such a pair coincident.
+    const standalone = members.every(
+      (index) => (groups.get(otherKeyOf(inputs[index]!))?.length ?? 0) < MIN_FAN,
+    );
+    if (!standalone) continue;
+
+    const first = inputs[members[0]!]!;
+    const side = end === "source" ? first.sourceSide : first.targetSide;
+    const nodeId = end === "source" ? first.sourceNodeId : first.targetNodeId;
+    const bounds = byId.get(nodeId);
+    if (!bounds) continue;
+    const axis = laneAxisOf(side);
+    const lane = Math.min(
+      PAIR_LANE,
+      sideExtentOf(bounds, side) / 2 - PAIR_LANE_MARGIN,
+    );
+    if (lane < PAIR_LANE_MIN) continue;
+
+    // Ordered by where the far end sits across the same axis, so the two lanes
+    // never cross each other on the way in.
+    const farAcross = (index: number): number => {
+      const edge = inputs[index]!;
+      return (end === "source" ? edge.targetAnchor : edge.sourceAnchor)[axis];
+    };
+    const ordered = [...members].sort((a, b) => {
+      const delta = farAcross(a) - farAcross(b);
+      if (delta !== 0) return delta;
+      return inputs[a]!.id < inputs[b]!.id ? -1 : 1;
+    });
+    ordered.forEach((index, order) => {
+      const held = offsets.get(index) ?? { source: 0, target: 0 };
+      const offset = order === 0 ? -lane : lane;
+      offsets.set(
+        index,
+        end === "source"
+          ? { source: offset, target: held.target }
+          : { source: held.source, target: offset },
+      );
+    });
+  }
+
+  if (offsets.size === 0) return [...inputs];
+  return inputs.map((edge, index) => {
+    const offset = offsets.get(index);
+    if (!offset) return edge;
+    return {
+      ...edge,
+      sourceAnchor:
+        offset.source === 0
+          ? edge.sourceAnchor
+          : laned(edge.sourceAnchor, laneAxisOf(edge.sourceSide), offset.source),
+      targetAnchor:
+        offset.target === 0
+          ? edge.targetAnchor
+          : laned(edge.targetAnchor, laneAxisOf(edge.targetSide), offset.target),
+    };
+  });
+}
+
 function buildInputs(
   specs: ReadonlyArray<EdgeSpec>,
   geometry: ReadonlyArray<LoomNode>,
@@ -207,7 +334,7 @@ function buildInputs(
       targetAnchor: anchorOn(to, spec.targetSide),
     });
   }
-  return inputs;
+  return splitCoincidentPairs(inputs, byId);
 }
 
 function collectObstacles(geometry: ReadonlyArray<LoomNode>): LoomObstacle[] {

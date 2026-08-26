@@ -173,7 +173,34 @@ path.vellum-edge {
   stroke-linejoin: round;
   transition:
     stroke 420ms cubic-bezier(.22,.61,.36,1),
+    filter 160ms ease-out,
     opacity 240ms ease-out;
+}
+
+/* Hover and selection — the wire deepens in its own hue.
+
+   The bottom bar is the whole edge surface now, so the canvas has to answer
+   "which wire is that sentence about". A hairline cannot answer with weight
+   without lying about the one-stroke law, and it must not answer with a colour,
+   because on this canvas a colour is a verb. So it answers with its own colour,
+   bloomed: `--wire-hue` is the stroke the edge already took (crimson included
+   when it is blocked), and neither state touches width, dash, or hue. Works in
+   both modes for the same reason the palette does — dark ground reads the bloom
+   as light, paper reads it as weight. */
+.react-flow__edge:hover path.vellum-edge {
+  filter: drop-shadow(0 0 2px color-mix(in oklab, var(--wire-hue, transparent) 50%, transparent));
+}
+/* Written against the edge group so hovering the selected wire cannot demote it
+   to the lighter hover bloom. */
+.react-flow__edge path.vellum-edge--selected {
+  opacity: 1;
+  filter:
+    drop-shadow(0 0 1px var(--wire-hue, transparent))
+    drop-shadow(0 0 5px color-mix(in oklab, var(--wire-hue, transparent) 60%, transparent));
+}
+/* Pan and zoom own the compositor: no wire filter may thrash it. */
+.react-flow.is-viewport-busy path.vellum-edge {
+  filter: none;
 }
 @media (prefers-reduced-motion: reduce) {
   path.vellum-edge { transition: none; }

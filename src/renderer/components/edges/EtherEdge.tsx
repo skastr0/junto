@@ -16,6 +16,12 @@ import { EDGE_COLOR } from "../../lib/theme";
  * the paint carries exactly one fact: which verb, in the verb's own colour.
  * State (stoppage) and selection stay structural — crimson and opacity — and
  * never mint a second stroke.
+ *
+ * Hover and selection are the two things a wire has to answer for now that the
+ * bottom bar is the whole edge surface: the canvas must say which wire the
+ * sentence down there is about. Both answer in the verb's own hue, republished
+ * as `--wire-hue` for the stylesheet to bloom. No second colour, no second
+ * stroke, no width or dash change — the hairline stays the hairline.
  */
 const WIRE_WIDTH = 1.2;
 const WIRE_OPACITY = 0.9;
@@ -30,6 +36,7 @@ export function EtherEdge({
   targetY,
   sourcePosition,
   targetPosition,
+  selected,
   data,
   markerEnd,
 }: EdgeProps<FlowEdge>) {
@@ -74,7 +81,11 @@ export function EtherEdge({
   const labelX = stitched?.labelX ?? plannedRoute?.labelX ?? fallbackLabelX;
   const labelY = stitched?.labelY ?? plannedRoute?.labelY ?? fallbackLabelY;
 
-  const className = ["vellum-edge", rippling ? "vellum-edge-ripple" : ""]
+  const className = [
+    "vellum-edge",
+    selected ? "vellum-edge--selected" : "",
+    rippling ? "vellum-edge-ripple" : "",
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -92,6 +103,9 @@ export function EtherEdge({
           stroke: color,
           strokeWidth: WIRE_WIDTH,
           opacity: impactIn ? 1 : WIRE_OPACITY,
+          // Same hue the stroke took, handed to the stylesheet so hover and
+          // selection deepen this wire rather than naming a second colour.
+          ["--wire-hue" as string]: color,
         }}
       />
       <EdgeLabelRenderer>
