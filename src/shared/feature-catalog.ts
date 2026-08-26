@@ -93,7 +93,7 @@ export const SHIP_FEATURES: FeatureSet = {
   devTools: false,
   harnessKimi: false,
   harnessMuse: false,
-  harnessFx: false,
+  harnessFx: true,
   harnessPrimeAgent: true,
   harnessSettings: false,
 };

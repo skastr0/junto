@@ -28,9 +28,10 @@ describe("compile-time feature profiles", () => {
       devTools: false,
       harnessKimi: false,
       harnessMuse: false,
-      // fx ships off: its approval dialog has never been captured and there
-      // are no corpus fixtures behind its status rules yet.
-      harnessFx: false,
+      // fx ships ON: it is the lightweight end of the range, and running many
+      // seats at once is the point of having it. The gate stays as the way
+      // back off.
+      harnessFx: true,
       harnessPrimeAgent: true,
       harnessSettings: false,
     });

@@ -96,12 +96,16 @@ export const HARNESS_MUSE_ENABLED: boolean =
     : envEnabled("VELLUM_COMMAND_HARNESS_MUSE");
 
 /**
- * Experimental fx managed seat — ship/prod off.
+ * fx managed seat — ON, with the gate kept for a fast way back off.
  *
- * Off until the pieces that need a rendered seat exist: fx's approval dialog
- * has never been captured (the attention rule is written from the binary's own
- * strings, not from a frame), and there are no corpus fixtures behind the
- * status rules yet.
+ * fx is the lightweight end of the harness range: a small native binary rather
+ * than a runtime and a dependency tree, which is what makes a lot of seats at
+ * once affordable. It is on so it can actually be run at that scale.
+ *
+ * Residual, unchanged by the flag: fx's approval dialog has never been captured,
+ * so its attention rule is written from literals in the shipped binary rather
+ * than from a rendered frame. A seat sitting on a permission prompt may read
+ * idle until that capture exists.
  */
 export const HARNESS_FX_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_FX_ENABLED__ === "boolean"
