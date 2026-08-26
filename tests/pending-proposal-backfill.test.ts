@@ -17,7 +17,7 @@ import {
 import { PIPELINE_ADMITTED_METADATA_KEY } from "../src/shared/claims";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
-import { IntentFactBasis } from "../src/shared/work-protocol";
+import { IntentFactBasis, WorkRecord } from "../src/shared/work-protocol";
 import { ActorRef } from "../src/shared/work-reference";
 import {
   runPendingProposalBackfill,
@@ -26,8 +26,13 @@ import {
 import {
   WorkRepository,
   WorkRepositoryLive,
+  workRecordContentSha256,
 } from "../src/main/vellum/work/repository";
 import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
+import {
+  appendWorkRecord,
+  rememberIncomingSequence,
+} from "../src/main/vellum/work/journal";
 import {
   makeStateEngineLive,
   StateEngine,
@@ -545,19 +550,34 @@ describe("runPendingProposalBackfill", () => {
           }),
         ),
     };
-    let persistCalled = false;
+    let persistStatus: string | undefined;
     const report = await Effect.runPromise(
       runPendingProposalBackfill({
         state: racingState,
         installOps: harness.installOps,
-        persist: () => {
-          persistCalled = true;
-          return Effect.fail(new Error("atomic persist saw non-pending"));
-        },
+        persist: (input) =>
+          harness.repository.persistUnadmittedTask({
+            sink: { canvasName: input.canvasName, nodeId: input.nodeId },
+            basis: harness.basis,
+            materialization: input.materialization,
+            dependencyScope: {
+              canvasName: input.canvasName,
+              nodeId: input.nodeId,
+              basis: harness.basis,
+              allowedTaskSinkNodeIds: [input.nodeId],
+            },
+          }).pipe(
+            Effect.tap((result) =>
+              Effect.sync(() => {
+                persistStatus = result.status;
+              })
+            ),
+            Effect.asVoid,
+          ),
       }),
     );
 
-    expect(persistCalled).toBe(true);
+    expect(persistStatus).toBe("no-longer-pending");
     expect(report).toEqual({
       status: "complete",
       materialized: 0,
@@ -580,21 +600,21 @@ describe("runPendingProposalBackfill", () => {
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "a-leaf", details: "Leaf.", dependsOn: ["m-mid"] },
+      { id: "a-leaf", details: "Leaf." },
     );
     await runtimeCreateProposal(
       harness.repository,
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "b-fan", details: "Fan-out sibling.", dependsOn: ["z-root"] },
+      { id: "b-fan", details: "Fan-out sibling." },
     );
     await runtimeCreateProposal(
       harness.repository,
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "m-mid", details: "Middle.", dependsOn: ["z-root"] },
+      { id: "m-mid", details: "Middle." },
     );
     await runtimeCreateProposal(
       harness.repository,
@@ -603,6 +623,11 @@ describe("runPendingProposalBackfill", () => {
       harness.observedAt,
       { id: "z-root", details: "Root." },
     );
+    await seedLegacyDependencies(harness, {
+      "a-leaf": ["m-mid"],
+      "b-fan": ["z-root"],
+      "m-mid": ["z-root"],
+    });
 
     const order: string[] = [];
     const report = await Effect.runPromise(
@@ -638,14 +663,14 @@ describe("runPendingProposalBackfill", () => {
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "cycle-a", details: "Cycle A.", dependsOn: ["cycle-b"] },
+      { id: "cycle-a", details: "Cycle A." },
     );
     await runtimeCreateProposal(
       harness.repository,
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "cycle-b", details: "Cycle B.", dependsOn: ["cycle-a"] },
+      { id: "cycle-b", details: "Cycle B." },
     );
     await runtimeCreateProposal(
       harness.repository,
@@ -654,6 +679,10 @@ describe("runPendingProposalBackfill", () => {
       harness.observedAt,
       { id: "independent", details: "Independent." },
     );
+    await seedLegacyDependencies(harness, {
+      "cycle-a": ["cycle-b"],
+      "cycle-b": ["cycle-a"],
+    });
     const eventsBefore = await fingerprintProposalEvents(harness.state);
 
     const report = await Effect.runPromise(
@@ -959,7 +988,7 @@ describe("runPendingProposalBackfill", () => {
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "child", details: "Child.", dependsOn: ["root"] },
+      { id: "child", details: "Child." },
     );
     await runtimeCreateProposal(
       harness.repository,
@@ -968,6 +997,7 @@ describe("runPendingProposalBackfill", () => {
       harness.observedAt,
       { id: "root", details: "Root." },
     );
+    await seedLegacyDependencies(harness, { child: ["root"] });
     const persist = repositoryPersist(harness);
     const crashingPersist: PersistUnadmittedTask = (input) =>
       input.materialization.task.id === "root"
@@ -1033,7 +1063,7 @@ describe("runPendingProposalBackfill", () => {
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "bad-shape", details: "Bad explicit shape.", dependsOn: ["missing"] },
+      { id: "bad-shape", details: "Bad explicit shape." },
     );
     await runtimeCreateProposal(
       harness.repository,
@@ -1047,11 +1077,21 @@ describe("runPendingProposalBackfill", () => {
         unjournaledWorkMutation("test.fixture-seed", () => {
           writer.run(
             `
-              UPDATE work_proposal_planning
-              SET depends_on_json = ?
-              WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
+              INSERT INTO work_proposal_planning(
+                canvas_name,
+                node_id,
+                proposal_id,
+                depends_on_json
+              ) VALUES (?, ?, ?, ?)
+              ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
+                depends_on_json = excluded.depends_on_json
             `,
-            [JSON.stringify("missing"), sink.canvasName, sink.nodeId, "bad-shape"],
+            [
+              sink.canvasName,
+              sink.nodeId,
+              "bad-shape",
+              JSON.stringify("missing"),
+            ],
           );
         }),
       ),
@@ -1327,6 +1367,126 @@ describe("pending-proposal backfill — GO fields", () => {
 
 type Harness = Awaited<ReturnType<typeof openHarness>>;
 
+/** Append a coherent historical fact; never UPDATE or DELETE immutable logs. */
+const seedLegacyDependencies = async (
+  harness: Harness,
+  entries: Readonly<Record<string, ReadonlyArray<string>>>,
+): Promise<void> => {
+  await harness.runtime.runPromise(
+    harness.state.transaction("test.seed.legacy-dependencies", (writer) =>
+      unjournaledWorkMutation("test.fixture-seed", () => {
+        const decodeRecord = Schema.decodeUnknownSync(WorkRecord, {
+          onExcessProperty: "error",
+        });
+        for (const [proposalId, dependsOn] of Object.entries(entries)) {
+          const source = writer.get<{
+            readonly event_home: string;
+            readonly entity_home: string;
+            readonly record_json: string;
+          }>(
+            `
+              SELECT
+                proposal.fact_event_home AS event_home,
+                proposal.fact_entity_home AS entity_home,
+                event.record_json
+              FROM work_task_proposals AS proposal
+              JOIN work_proposal_events AS event
+                ON event.event_home = proposal.fact_event_home
+                AND event.entity_home = proposal.fact_entity_home
+                AND event.seq = proposal.fact_seq
+              WHERE proposal.canvas_name = ?
+                AND proposal.node_id = ?
+                AND proposal.proposal_id = ?
+            `,
+            [sink.canvasName, sink.nodeId, proposalId],
+          );
+          if (source === undefined) {
+            throw new Error(`missing proposal fixture ${proposalId}`);
+          }
+          const original = decodeRecord(JSON.parse(source.record_json));
+          if (
+            original.recordType !== "fact" ||
+            original.body.operation !== "proposal.create"
+          ) {
+            throw new Error(`proposal fixture ${proposalId} has no create fact`);
+          }
+          const lastSeq = writer.get<{ readonly last_seq: string }>(
+            `
+              SELECT last_seq
+              FROM work_event_sequences
+              WHERE event_home = ? AND entity_home = ?
+            `,
+            [source.event_home, source.entity_home],
+          )?.last_seq;
+          if (lastSeq === undefined) {
+            throw new Error(`proposal fixture ${proposalId} has no route`);
+          }
+          const candidate = {
+            ...original,
+            id: {
+              ...original.id,
+              seq: (BigInt(lastSeq) + 1n).toString(),
+            },
+            body: {
+              ...original.body,
+              proposal: {
+                ...original.body.proposal,
+                dependsOn,
+              },
+            },
+          };
+          const brandedCandidate = decodeRecord(candidate);
+          const {
+            contentSha256: _oldSha,
+            originAt,
+            ...semantic
+          } = brandedCandidate;
+          const record = decodeRecord({
+            ...semantic,
+            contentSha256: workRecordContentSha256(semantic),
+            originAt,
+          });
+          rememberIncomingSequence(writer, record.id);
+          appendWorkRecord(writer, record, record.originAt);
+          writer.run(
+            `
+              UPDATE work_task_proposals
+              SET fact_event_home = ?, fact_entity_home = ?, fact_seq = ?
+              WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
+            `,
+            [
+              record.id.route.eventHome,
+              record.id.route.entityHome,
+              record.id.seq,
+              sink.canvasName,
+              sink.nodeId,
+              proposalId,
+            ],
+          );
+          writer.run(
+            `
+              INSERT INTO work_proposal_planning(
+                canvas_name,
+                node_id,
+                proposal_id,
+                depends_on_json
+              ) VALUES (?, ?, ?, ?)
+              ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
+                depends_on_json = excluded.depends_on_json
+            `,
+            [
+              sink.canvasName,
+              sink.nodeId,
+              proposalId,
+              JSON.stringify(dependsOn),
+            ],
+          );
+        }
+      }),
+    ),
+  );
+};
+
 const runtimeCreateProposal = async (
   repository: Harness["repository"],
   basis: Harness["basis"],
@@ -1349,6 +1509,12 @@ const runtimeCreateProposal = async (
     repository.createProposal({
       sink,
       basis,
+      dependencyScope: {
+        canvasName: sink.canvasName,
+        nodeId: sink.nodeId,
+        basis,
+        allowedTaskSinkNodeIds: [sink.nodeId],
+      },
       proposal: {
         id: input.id,
         state: "pending",
@@ -1375,12 +1541,16 @@ const repositoryPersist = (
   order?: string[],
 ): PersistUnadmittedTask => (input) => {
   order?.push(input.materialization.task.id);
-  return harness.repository.createTask({
+  return harness.repository.persistUnadmittedTask({
     sink: { canvasName: input.canvasName, nodeId: input.nodeId },
     basis: harness.basis,
-    task: input.materialization.task,
-    originAt: harness.observedAt,
-    receivedAt: harness.observedAt,
+    materialization: input.materialization,
+    dependencyScope: {
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      basis: harness.basis,
+      allowedTaskSinkNodeIds: [input.nodeId],
+    },
   }).pipe(Effect.asVoid);
 };
 
