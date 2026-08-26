@@ -241,6 +241,207 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
 
 // --- middle panel: kind strip ------------------------------------------------
 
+function PageKindKeys({ node }: { readonly node: CanvasNode }) {
+  const [pop, setPop] = useState<"url" | "binding" | null>(null);
+  const canvasName = use$(state$.canvasName);
+  const pageRef = (() => {
+    try {
+      return formatNodeRef({ canvasName, nodeId: node.id });
+    } catch {
+      return undefined;
+    }
+  })();
+  const session = use$(browser$.sessionByRef[pageRef ?? ""]);
+  const browser = node.ether?.browser;
+  const url = node.type === "link" ? node.url : "";
+
+  useEffect(() => {
+    setPop(null);
+  }, [node.id]);
+
+  const open = () => {
+    if (!pageRef || !browser) return;
+    void openDockBrowser(pageRef, {
+      nodeId: node.id,
+      browser,
+      url,
+      title: session?.title ?? hostOf(url),
+    });
+  };
+
+  return (
+    <>
+      <KindKey label="Open page" title="Open page" onClick={open}>
+        <Globe size={ICON} />
+      </KindKey>
+      <KindKey
+        label={pop === "url" ? "Close url" : "Page url"}
+        title="Page URL"
+        active={pop === "url"}
+        onClick={() => setPop((current) => (current === "url" ? null : "url"))}
+      >
+        <Link2 size={ICON} />
+      </KindKey>
+      <KindKey
+        label={pop === "binding" ? "Close binding" : "Browser binding"}
+        title="Host and profile"
+        active={pop === "binding"}
+        onClick={() => setPop((current) => (current === "binding" ? null : "binding"))}
+      >
+        <Server size={ICON} />
+      </KindKey>
+      {pop === "url" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <PageUrlControl node={node} />
+        </div>
+      ) : null}
+      {pop === "binding" ? (
+        <div className="rts-kind-pop rts-kind-pop--editor">
+          <PageBindingControl node={node} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
+  const [pop, setPop] = useState<"home" | "admission" | "bake" | null>(null);
+  const fleetUi =
+    FLEET_UI_ENABLED &&
+    isCommandCenterAuthoring(use$(state$.settings.station.role));
+  const contract = node.ether?.tasks?.contract;
+  const admission = resolveSinkAdmission(contract);
+  const bakeMs = contract?.inbound?.claimableAfterMs;
+
+  const writeInbound = (
+    patch: Partial<NonNullable<TasksSinkContract["inbound"]>>,
+  ) => {
+    setSinkContract(
+      node.id,
+      normalizeSinkContract({
+        ...contract,
+        inbound: { ...contract?.inbound, ...patch },
+      }),
+    );
+  };
+
+  useEffect(() => {
+    setPop(null);
+  }, [node.id]);
+
+  return (
+    <>
+      <KindKey
+        label="Open task board"
+        title="Open the task board"
+        onClick={() => openWorkDetail(node.id)}
+      >
+        <ListChecks size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Add task"
+        title="Enqueue a task"
+        onClick={() => openTaskCreateSurface(node)}
+      >
+        <Plus size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Rename"
+        title="Rename"
+        onClick={() => state$.editNodeId.set(node.id)}
+      >
+        <Pencil size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Admission"
+        title={`Admission: ${admissionLabel(admission)}`}
+        active={pop === "admission" || admission !== "auto"}
+        style={pop === "admission" || admission !== "auto" ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "admission" ? null : "admission"))}
+      >
+        <Gauge size={ICON} />
+      </KindKey>
+      <KindKey
+        label="Bake"
+        title={`Bake: ${formatBakeTime(bakeMs) || "none"}`}
+        active={pop === "bake" || bakeMs !== undefined}
+        style={pop === "bake" || bakeMs !== undefined ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "bake" ? null : "bake"))}
+      >
+        <Timer size={ICON} />
+      </KindKey>
+      {/* Queue home is pure host choice — a fleet surface. */}
+      {fleetUi ? (
+        <KindKey
+          label={pop === "home" ? "Close queue home" : "Queue home"}
+          title="Host for new tasks"
+          active={pop === "home"}
+          onClick={() => setPop((current) => (current === "home" ? null : "home"))}
+        >
+          <Server size={ICON} />
+        </KindKey>
+      ) : null}
+      {pop === "admission" ? (
+        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
+          <span className="rts-kind-pop__title">Admission</span>
+          <div className="rts-kind-pop__choices">
+            {ADMISSION_ORDER.map((value) => (
+              <Button
+                key={value}
+                size="xs"
+                variant={admission === value ? "primary" : "chrome"}
+                aria-pressed={admission === value}
+                onClick={() => {
+                  writeInbound({ admission: value as SinkAdmission });
+                  setPop(null);
+                }}
+              >
+                {admissionLabel(value)}
+              </Button>
+            ))}
+          </div>
+          <span className="rts-kind-pop__hint">Choose how arrivals become claimable.</span>
+        </div>
+      ) : null}
+      {pop === "bake" ? (
+        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Bake quick set">
+          <span className="rts-kind-pop__title">Bake</span>
+          <div className="rts-kind-pop__choices">
+            {([
+              [undefined, "None"],
+              [15 * 60_000, "15m"],
+              [60 * 60_000, "1h"],
+              [12 * 60 * 60_000, "12h"],
+              [24 * 60 * 60_000, "1d"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={label}
+                size="xs"
+                variant={bakeMs === value ? "primary" : "chrome"}
+                aria-pressed={bakeMs === value}
+                onClick={() => {
+                  writeInbound({ claimableAfterMs: value });
+                  setPop(null);
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <span className="rts-kind-pop__hint">
+            Current: {formatBakeTime(bakeMs) || "none"}. Use the board editor for a custom duration.
+          </span>
+        </div>
+      ) : null}
+      {fleetUi && pop === "home" ? (
+        <div className="rts-kind-pop rts-kind-pop--queue-home">
+          <TaskQueueHomeControl node={node} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /** Kind-specific action keys (agent/terminal/task/…). */
 export function KindActions({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
