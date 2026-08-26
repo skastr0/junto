@@ -15,7 +15,7 @@ import { join } from "node:path";
 import {
   agentTextNode,
   canvasDoc,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
@@ -49,7 +49,7 @@ const fixture = canvasDoc(
     }),
   ],
   [
-    tasksCriteriaEdge("e-sink-alpha", "sink", "alpha"),
+    worksEdge("e-sink-alpha", "sink", "alpha"),
     {
       id: "e-alpha-bravo",
       fromNode: "alpha",

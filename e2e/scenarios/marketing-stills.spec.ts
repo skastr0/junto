@@ -123,7 +123,7 @@ const hEdge = (id: string, from: string, to: string): CanvasEdge => ({
   toNode: to,
   fromSide: "right",
   toSide: "left",
-  ether: { kind: "relates" },
+
 });
 
 /** Vertical neighbor edge — clear corridor between rows. */
@@ -133,7 +133,7 @@ const vEdge = (id: string, from: string, to: string): CanvasEdge => ({
   toNode: to,
   fromSide: "bottom",
   toSide: "top",
-  ether: { kind: "relates" },
+
 });
 
 const TERM_LAUNCH = {
@@ -664,14 +664,14 @@ test("still 04 — six machine fleet manager", async () => {
           id: "local",
           label: "local",
           kind: "local",
-          capabilities: ["herdr", "hermes", "browser"],
+          capabilities: ["hermes", "browser"],
         },
         {
           id: "remote-a",
           label: "remote-a",
           kind: "remote",
           sshEndpoint: "remote-a",
-          capabilities: ["herdr", "hermes", "terminal"],
+          capabilities: ["hermes", "terminal"],
           hermesId: "remote-a",
         },
         {
@@ -679,7 +679,7 @@ test("still 04 — six machine fleet manager", async () => {
           label: "mac-studio",
           kind: "remote",
           sshEndpoint: "mac-studio",
-          capabilities: ["herdr", "hermes", "browser", "terminal"],
+          capabilities: ["hermes", "browser", "terminal"],
           appearance: { color: "#E6A94A", glyph: "remote-anchor" },
         },
         {

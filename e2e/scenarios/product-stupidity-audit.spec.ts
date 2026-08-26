@@ -91,24 +91,27 @@ const NODES: ReadonlyArray<CanvasNode> = [
 ];
 
 const EDGES: CanvasEdge[] = [
-  // access: claim lane agent1→tasks
+  // contributes: the claim lane agent1 -> tasks
   { id: "e-claim", fromNode: "agent1", toNode: "tasks", fromSide: "right", toSide: "left",
-    ether: { stops: { mode: "tasks" } } },
-  // access: bare agent mail pair (vertical)
-  { id: "e-mail", fromNode: "agent1", toNode: "agent2", fromSide: "bottom", toSide: "top" },
-  // access: board wake
-  { id: "e-wake", fromNode: "agent2", toNode: "board", fromSide: "right", toSide: "left", ether: { wake: true } },
-  // access: escalate lane so the pending request has its raiser
-  { id: "e-esc", fromNode: "agent2", toNode: "requests", fromSide: "bottom", toSide: "left" },
-  // watch: tasks→relay on completes
+    ether: { verb: "contributes" } },
+  // messages: the agent mail pair (vertical)
+  { id: "e-mail", fromNode: "agent1", toNode: "agent2", fromSide: "bottom", toSide: "top",
+    ether: { verb: "messages" } },
+  // participates: the board megaphone reaches this seat
+  { id: "e-wake", fromNode: "agent2", toNode: "board", fromSide: "right", toSide: "left",
+    ether: { verb: "participates" } },
+  // escalates: so the pending request has its raiser
+  { id: "e-esc", fromNode: "agent2", toNode: "requests", fromSide: "bottom", toSide: "left",
+    ether: { verb: "escalates" } },
+  // announces: tasks -> relay on its headline event
   { id: "e-watch", fromNode: "tasks", toNode: "relay", fromSide: "right", toSide: "left",
-    ether: { slot: "input", when: { word: "completes" } } },
-  // effect: relay→tasks2 enqueue
+    ether: { verb: "announces" } },
+  // enqueues: relay -> tasks2
   { id: "e-fire", fromNode: "relay", toNode: "tasks2", fromSide: "bottom", toSide: "top",
-    ether: { slot: "output", does: { mode: "enqueue_task", data: { brief: "review the completed work", metadata: { title: "review the completed work", details: "review the completed work" } } } } },
-  // effect: cron→tasks2 heartbeat
+    ether: { verb: "enqueues" } },
+  // enqueues: cron -> tasks2 heartbeat
   { id: "e-cron", fromNode: "cron", toNode: "tasks2", fromSide: "bottom", toSide: "right",
-    ether: { does: { mode: "enqueue_task", data: { brief: "heartbeat check", metadata: { title: "heartbeat check", details: "heartbeat check" } } } } },
+    ether: { verb: "enqueues" } },
 ];
 
 test("walk every product surface and screenshot it", async () => {

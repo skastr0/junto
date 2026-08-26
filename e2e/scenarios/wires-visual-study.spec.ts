@@ -95,26 +95,26 @@ const flagged: CanvasNode = {
 } as CanvasNode;
 
 const edges: CanvasEdge[] = [
-  // access stops — three agents into one sink, bundled
+  // contributes — three agents into one sink, bundled
   ...actors.map((actor) => ({
     id: `claim-${actor.id}`,
     fromNode: actor.id,
     toNode: "work",
     fromSide: "left" as const,
     toSide: "right" as const,
-    ether: { stops: { mode: "tasks" as const } },
+    ether: { verb: "contributes" as const },
   })),
-  // access wakes + access messages
-  { id: "wake-claude", fromNode: "claude", toNode: "board", fromSide: "left", toSide: "top", ether: { wake: true } },
-  { id: "msg-pair", fromNode: "claude", toNode: "codex", fromSide: "right", toSide: "right" },
-  // watch wires into relay
+  // participates + messages
+  { id: "wake-claude", fromNode: "claude", toNode: "board", fromSide: "left", toSide: "top", ether: { verb: "participates" } },
+  { id: "msg-pair", fromNode: "claude", toNode: "codex", fromSide: "right", toSide: "right", ether: { verb: "messages" } },
+  // announces into the relay
   {
     id: "watch-work",
     fromNode: "work",
     toNode: "relay",
     fromSide: "right",
     toSide: "left",
-    ether: { slot: "input" as const, when: { word: "completes" as const } },
+    ether: { verb: "announces" as const },
   },
   {
     id: "watch-flag",
@@ -122,19 +122,16 @@ const edges: CanvasEdge[] = [
     toNode: "relay",
     fromSide: "right",
     toSide: "top",
-    ether: { slot: "input" as const, when: { word: "flagged" as const, flag: "blocker" as const } },
+    ether: { verb: "announces" as const },
   },
-  // effect wires out
+  // fire actions out
   {
     id: "fire-review",
     fromNode: "relay",
     toNode: "review",
     fromSide: "right",
     toSide: "left",
-    ether: {
-      slot: "output" as const,
-      does: { mode: "enqueue_task" as const, data: { brief: "review the completed work", metadata: { title: "review the completed work", details: "review the completed work" } } },
-    },
+    ether: { verb: "enqueues" as const },
   },
   {
     id: "cron-fire",
@@ -142,9 +139,7 @@ const edges: CanvasEdge[] = [
     toNode: "review",
     fromSide: "right",
     toSide: "bottom",
-    ether: {
-      does: { mode: "enqueue_task" as const, data: { brief: "heartbeat check", metadata: { title: "heartbeat check", details: "heartbeat check" } } },
-    },
+    ether: { verb: "enqueues" as const },
   },
 ];
 

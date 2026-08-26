@@ -706,7 +706,8 @@ export const projectNode = (input: {
   ether: { entity: { kind: "project", name: input.name } },
 });
 
-export const tasksCriteriaEdge = (
+/** A task sink and the seat it works through: the assignable relationship. */
+export const worksEdge = (
   id: string,
   fromNode: string,
   toNode: string,
@@ -716,5 +717,5 @@ export const tasksCriteriaEdge = (
   toNode,
   fromSide: "right",
   toSide: "left",
-  ether: { stops: { mode: "tasks" } },
+  ether: { verb: "works" },
 });

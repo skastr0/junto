@@ -14,7 +14,7 @@ import {
   agentTextNode,
   canvasDoc,
   projectNode,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
   taskItem,
 } from "../harness/sandbox";
@@ -94,7 +94,7 @@ const nodes: CanvasNode[] = [
 ];
 
 const edges: CanvasEdge[] = [
-  tasksCriteriaEdge("e1", "tasks1", "agent1"),
+  worksEdge("e1", "tasks1", "agent1"),
   {
     id: "e2",
     fromNode: "proj1",
@@ -108,7 +108,6 @@ const edges: CanvasEdge[] = [
     toNode: "proj2",
     fromSide: "right",
     toSide: "left",
-    ether: { kind: "blocks" },
   },
 ];
 

@@ -15,7 +15,7 @@ import {
   taskItem,
   agentTextNode,
   canvasDoc,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
   terminalTextNode,
 } from "../harness/sandbox";
@@ -51,7 +51,7 @@ const fixtureDoc = (): CanvasDoc =>
       }),
     ],
     [
-      tasksCriteriaEdge("e-tasks-worker", "tasks", "worker"),
+      worksEdge("e-tasks-worker", "tasks", "worker"),
       {
         id: "e-soft",
         fromNode: "worker",

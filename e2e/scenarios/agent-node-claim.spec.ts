@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
   agentTextNode,
   canvasDoc,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
@@ -26,7 +26,7 @@ const fixtureDoc = canvasDoc(
       y: 260,
     }),
   ],
-  [tasksCriteriaEdge("e-tasks", "tasks", "worker")],
+  [worksEdge("e-tasks", "tasks", "worker")],
 );
 
 test("an agent node shows the task its seat has claimed", async () => {

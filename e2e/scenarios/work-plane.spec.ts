@@ -16,7 +16,7 @@ import {
   artifactsNode,
   canvasDoc,
   requestsNode,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
 } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
@@ -42,7 +42,7 @@ const fixtureDoc = canvasDoc(
     }),
   ],
   [
-    tasksCriteriaEdge("e-req", "req", "target"),
+    worksEdge("e-req", "req", "target"),
     // Actor-seat law: a claim must come from a compiled seat that is
     // connected to the sink (edge or region co-membership).
     { id: "e-target-tasks", fromNode: "target", toNode: "tasks" },

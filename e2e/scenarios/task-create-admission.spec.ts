@@ -40,19 +40,19 @@ const fixture = (): CanvasDoc =>
         id: "intake-build",
         fromNode: "intake",
         toNode: "build",
-        ether: { flow: { source: "intake", destination: "build" } },
+        ether: { verb: "feeds" },
       },
       {
         id: "build-review",
         fromNode: "build",
         toNode: "review",
-        ether: { flow: { source: "build", destination: "review" } },
+        ether: { verb: "feeds" },
       },
       {
         id: "review-ship",
         fromNode: "review",
         toNode: "ship",
-        ether: { flow: { source: "review", destination: "ship" } },
+        ether: { verb: "feeds" },
       },
     ],
   );

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import {
   agentTextNode,
   canvasDoc,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
   terminalTextNode,
 } from "../harness/sandbox";
@@ -36,7 +36,7 @@ const fixture = canvasDoc(
     }),
   ],
   [
-    tasksCriteriaEdge("e-tasks-worker", "tasks", "worker"),
+    worksEdge("e-tasks-worker", "tasks", "worker"),
     {
       id: "e-soft-shell",
       fromNode: "worker",

@@ -20,7 +20,7 @@ import {
   herdrTextNode,
   projectNode,
   requestsNode,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
@@ -117,12 +117,13 @@ const nodes: readonly CanvasNode[] = [
 ];
 
 const edges: readonly CanvasEdge[] = [
-  tasksCriteriaEdge("e-criteria", "tasks-forge", "proj-vellum"),
-  { id: "e-agent-tasks", fromNode: "a-forge", toNode: "tasks-forge", fromSide: "top", toSide: "bottom" },
-  { id: "e-agent-req", fromNode: "a-forge", toNode: "req-beacon", fromSide: "right", toSide: "left" },
-  { id: "e-depends", fromNode: "proj-vellum", toNode: "proj-launch", fromSide: "bottom", toSide: "top", ether: { kind: "relates" } },
-  { id: "e-blocks", fromNode: "note-blocker", toNode: "proj-launch", fromSide: "right", toSide: "left", ether: { kind: "blocks" } },
-  { id: "e-relates", fromNode: "h7", toNode: "note-attn", fromSide: "right", toSide: "left", ether: { kind: "relates" } },
+  worksEdge("e-works", "tasks-forge", "a-forge"),
+  { id: "e-agent-tasks", fromNode: "a-forge", toNode: "tasks-forge", fromSide: "top", toSide: "bottom", ether: { verb: "contributes" } },
+  { id: "e-agent-req", fromNode: "a-forge", toNode: "req-beacon", fromSide: "right", toSide: "left", ether: { verb: "escalates" } },
+  // Geography holds no verb: the project and note relations are plain lines.
+  { id: "e-depends", fromNode: "proj-vellum", toNode: "proj-launch", fromSide: "bottom", toSide: "top" },
+  { id: "e-blocks", fromNode: "note-blocker", toNode: "proj-launch", fromSide: "right", toSide: "left" },
+  { id: "e-relates", fromNode: "h7", toNode: "note-attn", fromSide: "right", toSide: "left" },
 ];
 
 const shot = async (page: Page, name: string) => {

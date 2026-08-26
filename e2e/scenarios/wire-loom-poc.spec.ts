@@ -92,7 +92,7 @@ const sinkEdges = (sinkId: string): CanvasEdge[] =>
     toNode: sinkId,
     fromSide: "bottom",
     toSide: "top",
-    ether: { stops: { mode: "tasks" as const } },
+    ether: { verb: "works" as const },
   }));
 
 const edges: CanvasEdge[] = [...hubEdges, ...sinkEdges("sink1"), ...sinkEdges("sink2")];

@@ -51,13 +51,13 @@ const fixture = (): CanvasDoc =>
         id: "intake-build",
         fromNode: "intake",
         toNode: "build",
-        ether: { flow: { source: "intake", destination: "build" } },
+        ether: { verb: "feeds" },
       },
       {
         id: "build-ship",
         fromNode: "build",
         toNode: "ship",
-        ether: { flow: { source: "build", destination: "ship" } },
+        ether: { verb: "feeds" },
       },
     ],
   );

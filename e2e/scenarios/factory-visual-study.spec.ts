@@ -110,7 +110,7 @@ const taskEdges: CanvasEdge[] = actors.map((actor, index) => ({
   toNode: actor.id,
   fromSide: "right",
   toSide: "left",
-  ...(index === 0 ? { ether: { stops: { mode: "tasks" as const } } } : {}),
+  ...(index === 0 ? { ether: { verb: "works" as const } } : {}),
 }));
 
 const edges: CanvasEdge[] = [

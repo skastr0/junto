@@ -20,7 +20,7 @@ import {
   herdrTextNode,
   projectNode,
   requestsNode,
-  tasksCriteriaEdge,
+  worksEdge,
   tasksNode,
   terminalTextNode,
   textNode,
@@ -341,7 +341,7 @@ const nodes: CanvasNode[] = [
 ];
 
 const edges: CanvasEdge[] = [
-  tasksCriteriaEdge("e1", "tasks1", "agent1"),
+  worksEdge("e1", "tasks1", "agent1"),
   {
     id: "e2",
     fromNode: "proj1",
@@ -355,7 +355,6 @@ const edges: CanvasEdge[] = [
     toNode: "proj2",
     fromSide: "right",
     toSide: "left",
-    ether: { kind: "blocks" },
   },
   { id: "e4", fromNode: "agent1", toNode: "req1" },
   { id: "e5", fromNode: "agent1", toNode: "art1" },
@@ -903,14 +902,14 @@ test("capture the fleet manager overlay", async () => {
         id: "local",
         label: "local",
         kind: "local",
-        capabilities: ["herdr", "hermes", "browser"],
+        capabilities: ["hermes", "browser"],
       },
       {
         id: "mac-mini",
         label: "mac-mini",
         kind: "remote",
         sshEndpoint: "mac-mini",
-        capabilities: ["herdr", "hermes", "terminal"],
+        capabilities: ["hermes", "terminal"],
         hermesId: "remote-a",
       },
       {

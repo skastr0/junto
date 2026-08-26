@@ -116,7 +116,7 @@ const hEdge = (id: string, from: string, to: string): CanvasEdge => ({
   toNode: to,
   fromSide: "right",
   toSide: "left",
-  ether: { kind: "relates" },
+
 });
 
 const vEdge = (id: string, from: string, to: string): CanvasEdge => ({
@@ -125,7 +125,7 @@ const vEdge = (id: string, from: string, to: string): CanvasEdge => ({
   toNode: to,
   fromSide: "bottom",
   toSide: "top",
-  ether: { kind: "relates" },
+
 });
 
 const note = (id: string, text: string, x: number, y: number, width = 320): TextNode => ({
@@ -372,7 +372,7 @@ test("still 00 — factory hero board", async () => {
     toNode: "a-security",
     fromSide: "left",
     toSide: "right",
-    ether: { stops: { mode: "tasks" } },
+    ether: { verb: "works" },
   });
   nodes.push(
     note(

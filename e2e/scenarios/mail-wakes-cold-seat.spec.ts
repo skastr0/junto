@@ -177,7 +177,7 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
                     toNode: toId!,
                     fromSide: "right",
                     toSide: "left",
-                    ether: { stops: { mode: "tasks" } },
+                    ether: { verb: "works" },
                   },
                 ],
               },
