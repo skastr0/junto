@@ -58,6 +58,7 @@ describe("managed-terminal templates (data)", () => {
     "cursor",
     "agy",
     "amp",
+    "fx",
   ] as const;
 
   it("exports exactly the managed harnesses", () => {
@@ -198,6 +199,14 @@ describe("managed-terminal templates (data)", () => {
       "CURSOR_CONVERSATION_ID",
       "CURSOR_AGENT_STORE_FILES_DIR",
       "CURSOR_AGENT_STORE_SHARED_PATHS",
+      // fx reads its spawn dials from the environment, so a nested fx seat
+      // would inherit the parent session's model, permission mode and step
+      // limit — and its recording knobs.
+      "FX_MODEL",
+      "FX_PERMISSION_MODE",
+      "FX_MAX_AGENT_STEPS",
+      "FX_RECORD",
+      "FX_RECORD_INPUT",
     ]);
     expect(SPAWN_ENV_SCRUB_PREFIXES).toEqual(["PRIME_AGENT_INTERNAL_"]);
     for (const t of allTemplates()) {

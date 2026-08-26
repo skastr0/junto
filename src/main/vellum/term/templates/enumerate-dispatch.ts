@@ -16,6 +16,7 @@ import {
 } from "@shared/features";
 import {
   enumerateAgyModels,
+  enumerateFxModels,
   enumerateCodexModels,
   enumerateCursorModels,
   enumerateDevinModels,
@@ -160,6 +161,19 @@ export const enumerateManagedModels = async (
         models: result.models,
         source: result.source,
         error: result.error,
+        efforts: templateEfforts as string[],
+      };
+    }
+    // fx — `fx models --json`; provider-prefixed ids, no display names.
+    if (harness === "fx") {
+      const result = await enumerateFxModels(async () =>
+        runCommand("fx", ["models", "--json"]),
+      );
+      return {
+        models: result.models,
+        source: result.source,
+        error: result.error,
+        // fx exposes no effort dial; the template's empty list is the truth.
         efforts: templateEfforts as string[],
       };
     }

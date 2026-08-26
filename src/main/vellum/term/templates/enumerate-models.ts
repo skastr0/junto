@@ -721,6 +721,71 @@ export const parseAgyModelsList = (
   }
 };
 
+/**
+ * `fx models --json` output:
+ *   {"kind":"models","count":230,"shown_count":230,"ids":["anthropic/claude-opus-5", …]}
+ *
+ * Ids are provider-prefixed and are the label too — fx ships no display names,
+ * and inventing one would be a second source of truth for what a model is
+ * called. Fail-soft: an unknown shape yields no models rather than a throw, so
+ * the picker falls back to the template instead of breaking.
+ */
+export const parseFxModelsJson = (
+  stdout: string,
+): { readonly models: ModelOption[]; readonly error?: string } => {
+  const text = stdout.trim();
+  if (!text) return { models: [], error: "fx models produced no output" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    return {
+      models: [],
+      error: err instanceof Error ? err.message : "fx models emitted invalid JSON",
+    };
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    return { models: [], error: "fx models emitted a non-object payload" };
+  }
+  const payload = parsed as { readonly kind?: unknown; readonly ids?: unknown };
+  if (payload.kind !== undefined && payload.kind !== "models") {
+    return { models: [], error: `fx models emitted kind=${String(payload.kind)}` };
+  }
+  if (!Array.isArray(payload.ids)) {
+    return { models: [], error: "fx models emitted no ids array" };
+  }
+  const seen = new Set<string>();
+  const models: ModelOption[] = [];
+  for (const raw of payload.ids) {
+    if (typeof raw !== "string") continue;
+    const id = raw.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    models.push({ id, label: id });
+  }
+  return { models };
+};
+
+export const enumerateFxModels = async (
+  run: ModelsCommandRunner = async () => "",
+): Promise<ModelEnumerateResult> => {
+  try {
+    const stdout = await run();
+    const parsed = parseFxModelsJson(stdout);
+    return {
+      models: parsed.models,
+      source: parsed.models.length > 0 ? "command" : "empty",
+      ...(parsed.error ? { error: parsed.error } : {}),
+    };
+  } catch (err) {
+    return {
+      models: [],
+      source: "empty",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
 export const enumerateAgyModels = async (
   run: ModelsCommandRunner = async () => "",
 ): Promise<ModelEnumerateResult> => {

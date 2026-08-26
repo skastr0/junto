@@ -37,6 +37,7 @@ export const HarnessId = Schema.Literals([
   "cursor",
   "agy",
   "amp",
+  "fx",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -116,6 +117,16 @@ export type ArgvSpec = {
   readonly modeFlag?: string;
   /** When set, effort is emitted as `-c <key>="<value>"` (Codex). */
   readonly effortConfigKey?: string;
+  /**
+   * Spawn dials some harnesses read from the ENVIRONMENT instead of argv (fx:
+   * `FX_MODEL`, `FX_PERMISSION_MODE`). Declared here beside their argv
+   * counterparts so a dial is template data either way, and so the resolved
+   * env — rebuilt on every launch — carries them. That rebuild is why an
+   * env-dial harness cannot suffer the "resume silently reverts the model"
+   * trap that flag-passing harnesses need `resumeReinjection` for.
+   */
+  readonly modelEnvKey?: string;
+  readonly permissionModeEnvKey?: string;
   /**
    * When set, effort is not a token at all: it rides inside the model value as
    * a bracketed option (Cursor `--model claude-opus-4-8[effort=high]`, merged
@@ -219,6 +230,17 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
   "CURSOR_CONVERSATION_ID",
   "CURSOR_AGENT_STORE_FILES_DIR",
   "CURSOR_AGENT_STORE_SHARED_PATHS",
+  // fx reads its spawn dials from the environment, so a seat launched from
+  // inside an fx session would silently inherit that session's model,
+  // permission mode, and step limit instead of the seat's own. Same family as
+  // the CLAUDE_CODE / PI_CODING_AGENT precedents: an ambient value that
+  // quietly overrides what the operator chose.
+  "FX_MODEL",
+  "FX_PERMISSION_MODE",
+  "FX_MAX_AGENT_STEPS",
+  // Recording knobs — inherited, they make a seat write tapes nobody asked for.
+  "FX_RECORD",
+  "FX_RECORD_INPUT",
 ] as const;
 
 /**
@@ -999,6 +1021,69 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
   defaultPermissionMode: undefined,
 };
 
+/**
+ * fx (Vercel Labs; binary: `fx`) — Tier B, env dials, capture session, grid feed.
+ *
+ * Probed 0.0.6 (2026-08-26) against the installed binary:
+ * - No system-prompt or session-instructions flag anywhere on the CLI surface,
+ *   so doctrine is Tier B, delivered as the first typed message.
+ * - The FIRST harness with no argv dials at all. Model and permission mode are
+ *   read from the environment (`FX_MODEL`, `FX_PERMISSION_MODE`, both present
+ *   in the shipped binary's symbol table), which is why `modelEnvKey` and
+ *   `permissionModeEnvKey` exist. Effort is a provider-profile concern, not a
+ *   dial fx exposes — omitted rather than faked.
+ * - Interactive `fx` takes no positional prompt (`fx [flags]`); `fx ask` is the
+ *   one-shot, non-interactive path and is not what a seat runs.
+ * - `fx models --json` enumerates live (`{kind:"models",count:230,ids:[…]}`,
+ *   provider-prefixed ids).
+ * - Session ids are minted by fx and never printed; `~/.fx/sessions/index.json`
+ *   maps each id to its `workspace_root` and `created_at_ms`.
+ * - Resume is `--resume <id>`, exact. Everything else fx offers resumes "the
+ *   latest workspace session" — `-c`, `--continue`, `-r`, `--resume-last`, and
+ *   a BARE `--resume` — which is a seat on whatever ran last. None may ever be
+ *   emitted.
+ *
+ * No permission default: fx's stock `auto` mode runs tool calls that cost the
+ * operator money, and picking that for them is not Vellum Command's call.
+ */
+export const FX_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "fx",
+  displayName: "fx",
+  probedVersion: "0.0.6",
+  argvSpec: {
+    binary: "fx",
+    prefix: [],
+    // No argv prompt slot: doctrine and mail both ride the drive's typed path.
+    promptMode: "none",
+    modelEnvKey: "FX_MODEL",
+    permissionModeEnvKey: "FX_PERMISSION_MODE",
+    resumeMode: "flag",
+    resumeFlag: "--resume",
+    // Untested: whether a resumed fx seat honours a typed re-brief. Unprobed
+    // is treated as frozen until somebody proves otherwise.
+    resumeReinjection: "unprobed",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "B",
+    flags: [],
+    description:
+      "No system-prompt flag — doctrine delivered as the first typed message",
+  },
+  capabilityBadges: {
+    instructionInjection: "B",
+    hooks: false,
+    effortAtSpawn: false,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "OSC title + grid (no alt screen)",
+    attentionSource: "unprobed — no approval-form capture yet",
+    labels: ["injection B", "grid", "env dials", "capture session"],
+  },
+  efforts: [],
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -1014,6 +1099,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   cursor: CURSOR_TEMPLATE,
   agy: AGY_TEMPLATE,
   amp: AMP_TEMPLATE,
+  fx: FX_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

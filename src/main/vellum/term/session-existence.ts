@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
+import { isFxSessionId } from "./templates/fx-session";
 import {
   templateFor,
   type HarnessId,
@@ -130,6 +131,8 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
         );
       case "muse":
         return museSessionExists(sessionId, home);
+      case "fx":
+        return fxSessionExists(sessionId, home);
       case "devin":
         return devinSessionExists(sessionId, home);
       case "cursor":
@@ -381,6 +384,17 @@ const kimiSessionExists = (sessionId: string, root: string): boolean => {
     if (isDir(join(root, workDirKey, sessionId))) return true;
   }
   return false;
+};
+
+/**
+ * fx sessions: ~/.fx/sessions/<id>/, flat, id-named. Proof is the directory —
+ * an id captured from the index still has to exist on disk before a seat is
+ * allowed to resume it.
+ */
+const fxSessionExists = (sessionId: string, home: string): boolean => {
+  const id = sessionId.trim();
+  if (!isFxSessionId(id)) return false;
+  return isDir(join(home, ".fx", "sessions", id));
 };
 
 /**

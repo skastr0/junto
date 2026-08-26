@@ -147,6 +147,30 @@ export const buildSpawnEnv = (
 // ── Argv construction ──────────────────────────────────────────────────────
 
 /**
+ * Spawn dials a harness reads from the environment rather than argv (fx).
+ *
+ * Emitted last, over the ambient value, so a seat launched from inside another
+ * session runs on the dials the operator picked for IT. A dial the picker left
+ * unset is omitted entirely — the harness's own default is a real answer, and
+ * inventing one here would be Vellum Command choosing a model, or a permission
+ * mode that spends money, on the operator's behalf.
+ */
+const envDials = (
+  template: ManagedTerminalTemplate,
+  choices: ManagedLaunchChoices,
+): Record<string, string> => {
+  const { argvSpec: spec } = template;
+  const dials: Record<string, string> = {};
+  const model = choices.model?.trim();
+  if (spec.modelEnvKey && model) dials[spec.modelEnvKey] = model;
+  const permissionMode = choices.permissionMode?.trim();
+  if (spec.permissionModeEnvKey && permissionMode) {
+    dials[spec.permissionModeEnvKey] = permissionMode;
+  }
+  return dials;
+};
+
+/**
  * Id-less "continue last session" flags. Not a Vellum Command feature.
  * `-c` is in this set only as a *resume* flag (Claude/Kimi/Devin continue).
  * Codex still uses `-c` for config keys — that is not resume.
@@ -156,8 +180,20 @@ const IDLESS_SESSION_CONTINUE_FLAGS: ReadonlySet<string> = new Set([
   "-c",
 ]);
 
+/**
+ * Flags that resume "whatever ran last" instead of a named session.
+ *
+ * fx adds `--resume-last` to this family, and `--resume` with no id (handled
+ * positionally below) means the same thing.
+ *
+ * NOT `-r`: it is fx's saved-session picker but the NAMED resume flag for
+ * hermes, prime-agent, devin, grok and pi, and this guard sees argv without
+ * knowing whose it is. Vellum Command never emits a bare `-r` — argv carries a
+ * resume flag only with an id attached — so banning it here would only break
+ * the harnesses that use it properly.
+ */
 export const isIdlessSessionContinueFlag = (token: string): boolean =>
-  token === "--continue";
+  token === "--continue" || token === "--resume-last";
 
 /** Non-empty session id that is not another flag. */
 export const namedHarnessSessionId = (
@@ -171,7 +207,24 @@ export const namedHarnessSessionId = (
 /** Drop `--continue` so a hand-authored argv cannot mean "resume latest". */
 export const stripIdlessSessionContinue = (
   argv: readonly string[],
-): string[] => argv.filter((token) => !isIdlessSessionContinueFlag(token));
+): string[] => {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (isIdlessSessionContinueFlag(token)) continue;
+    // `--resume last` and a trailing bare `--resume` both mean "the latest
+    // workspace session" (fx). Only `--resume <id>` survives.
+    if (token === "--resume") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("-") || next === "last") {
+        if (next === "last") i += 1;
+        continue;
+      }
+    }
+    out.push(token);
+  }
+  return out;
+};
 
 const pushFlag = (
   argv: string[],
@@ -527,7 +580,14 @@ export const resolveManagedLaunchPlan = (
   const template = resolveTemplate(harnessOrTemplate);
   const { choices: merged, plan } = applyInjectionChoices(template.harness, choices);
   const argv = buildArgv(template, merged);
-  const env = buildSpawnEnv(ambientEnv, merged.env);
+  // Dials go on AFTER the scrub, and deliberately so. The scrub exists to kill
+  // the value a nested seat would INHERIT (an fx seat launched from inside an
+  // fx session); the value the picker chose for this seat is the opposite of
+  // that — it is the answer the scrub is clearing the way for.
+  const env = {
+    ...buildSpawnEnv(ambientEnv, merged.env),
+    ...envDials(template, merged),
+  };
 
   const launch: TerminalLaunch = {
     kind: "harness",
