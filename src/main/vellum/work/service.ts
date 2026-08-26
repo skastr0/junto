@@ -3,6 +3,7 @@
 // every durable mutation goes through a specific WorkRepository verb.
 
 import {
+  Cause,
   Context,
   Effect,
   Layer,
@@ -121,8 +122,12 @@ import {
 } from "../station/session-registry";
 import { ContentService } from "../content/service";
 import { InstallOpsService } from "../install-ops/service";
+import { SettingsService } from "../settings/service";
 import { StateEngine } from "../state/engine";
-import { runPendingProposalBackfill } from "./pending-proposal-backfill";
+import {
+  runPendingProposalBackfill,
+  type PendingProposalBackfillCursor,
+} from "./pending-proposal-backfill";
 import type { ContentOwner } from "../content/manifest";
 import { admitWorkTarget, regionStackFor } from "./authz";
 import { clearSeatBlockedByRequest } from "./blocked-seat";
@@ -1189,137 +1194,206 @@ export const WorkLive = Layer.effect(
       const state = stateOption.value;
       const invalidations = yield* Queue.dropping<void>(1);
       let admissionClosed = false;
+      let invalidationEpoch = 0;
+      let continuation: PendingProposalBackfillCursor | undefined;
+      let reconciliationPersistActive = 0;
 
-      const requestReconciliation = (): void => {
+      const requestExternalReconciliation = (): void => {
         if (admissionClosed) return;
+        invalidationEpoch += 1;
+        continuation = undefined;
+        Queue.offerUnsafe(invalidations, undefined);
+      };
+
+      const requestContinuation = (
+        cursor: PendingProposalBackfillCursor,
+        epoch: number,
+      ): void => {
+        if (admissionClosed || epoch !== invalidationEpoch) return;
+        continuation = cursor;
         Queue.offerUnsafe(invalidations, undefined);
       };
 
       const persistUnadmitted = (input: {
         readonly canvasName: string;
         readonly nodeId: string;
-        readonly materialization: Parameters<
-          Context.Service.Shape<typeof WorkRepository>["persistUnadmittedTask"]
-        >[0]["materialization"];
-      }): Effect.Effect<void, unknown> =>
+        readonly proposalId: string;
+      }) =>
         Effect.gen(function* () {
-          const context = yield* stationContext;
-          if (context.configuration.role !== "command-center") {
-            return yield* Effect.fail(
-              new WorkServiceError({
-                code: "invalid",
-                message:
-                  "legacy pending proposals may be reconciled only at Command Center",
-              }),
-            );
-          }
+          yield* Effect.sync(() => {
+            reconciliationPersistActive += 1;
+          });
+          return yield* Effect.gen(function* () {
+            const context = yield* stationContext;
+            if (context.configuration.role !== "command-center") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    "legacy pending proposals may be reconciled only at Command Center",
+                }),
+              );
+            }
 
-          const read = yield* readCanvas(input.canvasName);
-          const node = yield* requireNode(read.doc, input.nodeId);
-          if (node.ether?.entity?.kind !== "task") {
-            return yield* Effect.fail(
-              new WorkServiceError({
-                code: "illegal_kind",
-                message:
-                  `legacy proposal sink ${JSON.stringify(input.nodeId)} is no longer a Task sink`,
-              }),
-            );
-          }
-          const home = yield* homeForNode(node, context);
-          if (home !== context.localInstallationId) {
-            return yield* Effect.fail(
-              new WorkServiceError({
-                code: "invalid",
-                message:
-                  `legacy proposal ${JSON.stringify(input.materialization.task.id)} is not homed on this Command Center`,
-              }),
-            );
-          }
+            const read = yield* readCanvas(input.canvasName);
+            const node = yield* requireNode(read.doc, input.nodeId);
+            if (node.ether?.entity?.kind !== "task") {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "illegal_kind",
+                  message:
+                    `legacy proposal sink ${JSON.stringify(input.nodeId)} is no longer a Task sink`,
+                }),
+              );
+            }
+            const home = yield* homeForNode(node, context);
+            if (home !== context.localInstallationId) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message:
+                    `legacy proposal ${JSON.stringify(input.proposalId)} is not homed on this Command Center`,
+                }),
+              );
+            }
 
-          const basis = intentBasis(context, read.intentWitness);
-          const dependencyScope = yield* taskDependencyScopeCapability(
-            read.doc,
-            input.canvasName,
-            input.nodeId,
-            basis,
-          );
-          const outcome = yield* repository.persistUnadmittedTask({
-            sink: sinkRef(input.canvasName, input.nodeId),
-            basis,
-            materialization: input.materialization,
-            dependencyScope,
-          }).pipe(Effect.mapError(toWorkServiceError));
-
-          switch (outcome.status) {
-            case "created":
-              return;
-            case "already-materialized":
-            case "no-longer-pending":
-              return;
-            case "invalid":
-              return yield* Effect.sync(() => {
+            const basis = intentBasis(context, read.intentWitness);
+            const dependencyScope = yield* taskDependencyScopeCapability(
+              read.doc,
+              input.canvasName,
+              input.nodeId,
+              basis,
+            );
+            const outcome = yield* repository.persistUnadmittedTask({
+              sink: sinkRef(input.canvasName, input.nodeId),
+              proposalId: input.proposalId,
+              home,
+              basis,
+              dependencyScope,
+            }).pipe(Effect.mapError(toWorkServiceError));
+            if (outcome.status === "invalid") {
+              yield* Effect.sync(() => {
                 console.error(
-                  `[work] legacy proposal ${JSON.stringify(outcome.proposalId ?? input.materialization.task.id)} deferred: ${outcome.message}`,
+                  `[work] legacy proposal ${JSON.stringify(outcome.proposalId ?? input.proposalId)} deferred: ${outcome.diagnostic.message}`,
                 );
               });
-          }
-        }).pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() => {
-              console.error(
-                `[work] legacy proposal ${JSON.stringify(input.materialization.task.id)} at ${JSON.stringify(`${input.canvasName}/${input.nodeId}`)} deferred:`,
-                error,
-              );
-            })
-          ),
-        );
-
-      const reconcilePendingProposals = Effect.gen(function* () {
-        const context = yield* stationContext;
-        if (context.configuration.role !== "command-center") return;
-
-        const report = yield* runPendingProposalBackfill({
-          state,
-          installOps,
-          persist: persistUnadmitted,
+            }
+            return outcome;
+          }).pipe(
+            Effect.tapError((error) =>
+              Effect.sync(() => {
+                console.error(
+                  `[work] legacy proposal ${JSON.stringify(input.proposalId)} at ${JSON.stringify(`${input.canvasName}/${input.nodeId}`)} deferred:`,
+                  error,
+                );
+              })
+            ),
+            Effect.ensuring(
+              Effect.sync(() => {
+                reconciliationPersistActive -= 1;
+              }),
+            ),
+          );
         });
-        if (report.status === "pending") {
-          yield* Effect.sync(() => {
-            console.error(
-              `[work] pending-proposal reconciliation deferred with ${report.remaining} remaining`,
-            );
+
+      const reconcilePendingProposals = (
+        cursor: PendingProposalBackfillCursor | undefined,
+        epoch: number,
+      ) =>
+        Effect.gen(function* () {
+          const context = yield* stationContext;
+          if (context.configuration.role !== "command-center") return;
+
+          const report = yield* runPendingProposalBackfill({
+            state,
+            installOps,
+            persist: persistUnadmitted,
+            readWitnessPage:
+              repository.legacyProposalMaterializationWitnessPage,
+            readEpoch: repository.legacyProposalMaterializationEpoch,
+            ...(cursor === undefined ? {} : { cursor }),
           });
-        }
+          if (
+            report.status === "pending" &&
+            report.reason === "budget-exhausted"
+          ) {
+            yield* Effect.sync(() => {
+              requestContinuation(report.cursor, epoch);
+            });
+            return;
+          }
+          if (report.status === "pending") {
+            yield* Effect.sync(() => {
+              console.error(
+                `[work] pending-proposal reconciliation parked at a fixed point with ${report.remaining} remaining`,
+              );
+            });
+          }
+        });
+
+      const iteration = Effect.gen(function* () {
+        yield* Queue.take(invalidations);
+        const epoch = invalidationEpoch;
+        const cursor = continuation;
+        continuation = undefined;
+        yield* reconcilePendingProposals(cursor, epoch);
       }).pipe(
-        Effect.catch((error) =>
-          Effect.sync(() => {
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterrupts(cause)) return Effect.failCause(cause);
+          return Effect.sync(() => {
             console.error(
               "[work] pending-proposal reconciliation deferred until a later change or next boot:",
-              error,
+              Cause.squash(cause),
             );
-          }),
-        ),
+          });
+        }),
       );
+      yield* Effect.forkScoped(Effect.forever(iteration));
 
-      const coordinator = Effect.forever(
-        Queue.take(invalidations).pipe(
-          Effect.andThen(reconcilePendingProposals),
-        ),
-      );
-      yield* Effect.forkScoped(coordinator);
-      const unsubscribe = repository.subscribeChanges(() => {
-        requestReconciliation();
+      const unsubscribeRepository =
+        repository.subscribeLegacyProposalMaterializationChanges(() => {
+          if (reconciliationPersistActive === 0) {
+            requestExternalReconciliation();
+          }
+        });
+      const unsubscribeCanvases = canvases.subscribeChanges((_name, detail) => {
+        if (detail !== undefined) requestExternalReconciliation();
       });
+
+      const settingsOption = yield* Effect.serviceOption(SettingsService);
+      let unsubscribeSettings = (): void => {};
+      if (Option.isSome(settingsOption)) {
+        const settings = settingsOption.value;
+        const initial = yield* settings.get.pipe(Effect.option);
+        let priorRole = Option.isSome(initial)
+          ? initial.value.station.role
+          : "";
+        unsubscribeSettings = settings.subscribe((next) => {
+          const nextRole = next.station.role;
+          const enteredCommandCenter =
+            priorRole !== "command-center" &&
+            nextRole === "command-center";
+          priorRole = nextRole;
+          if (enteredCommandCenter) requestExternalReconciliation();
+        });
+      }
+
       yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          admissionClosed = true;
-          unsubscribe();
+        Effect.gen(function* () {
+          yield* Effect.sync(() => {
+            admissionClosed = true;
+            continuation = undefined;
+            unsubscribeRepository();
+            unsubscribeCanvases();
+            unsubscribeSettings();
+          });
+          yield* Queue.shutdown(invalidations);
         })
       );
 
-      // Startup only marks the bounded worker dirty. WorkService construction
-      // and app availability never await the reconciliation walk.
-      requestReconciliation();
+      // Subscribe first, then mark the bounded worker dirty. WorkService
+      // construction and app availability never await reconciliation.
+      requestExternalReconciliation();
     }
 
     return WorkService.of({

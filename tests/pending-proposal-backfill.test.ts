@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   BACKFILL_PENDING_PROPOSALS_V1,
@@ -26,7 +26,8 @@ import {
 } from "../src/shared/work-protocol";
 import { ActorRef } from "../src/shared/work-reference";
 import {
-  runPendingProposalBackfill,
+  runPendingProposalBackfill as runPendingProposalBackfillRaw,
+  type PendingProposalBackfillReport,
   type PersistUnadmittedTask,
 } from "../src/main/vellum/work/pending-proposal-backfill";
 import {
@@ -248,6 +249,64 @@ describe("recoverClaimsFromProposalRecordJson", () => {
 
 const homes: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];
+let currentWitnessReader:
+  | Context.Service.Shape<typeof WorkRepository>["legacyProposalMaterializationWitnessPage"]
+  | undefined;
+let currentEpochReader:
+  | Context.Service.Shape<typeof WorkRepository>["legacyProposalMaterializationEpoch"]
+  | undefined;
+
+type RawBackfillInput = Parameters<typeof runPendingProposalBackfillRaw>[0];
+const runPendingProposalBackfill = (
+  input: Omit<RawBackfillInput, "readWitnessPage" | "readEpoch"> & {
+    readonly readWitnessPage?: RawBackfillInput["readWitnessPage"];
+    readonly readEpoch?: RawBackfillInput["readEpoch"];
+  },
+) => {
+  const readWitnessPage = input.readWitnessPage ?? currentWitnessReader;
+  const readEpoch = input.readEpoch ?? currentEpochReader;
+  if (readWitnessPage === undefined || readEpoch === undefined) {
+    throw new Error("test harness has no strong legacy witness reader");
+  }
+  return runPendingProposalBackfillRaw({
+    ...input,
+    readWitnessPage,
+    readEpoch,
+  });
+};
+
+const continueBackfillToBoundary = async (
+  input: Omit<RawBackfillInput, "readWitnessPage" | "readEpoch" | "cursor"> & {
+    readonly readWitnessPage?: RawBackfillInput["readWitnessPage"];
+    readonly readEpoch?: RawBackfillInput["readEpoch"];
+  },
+  initial: PendingProposalBackfillReport,
+) => {
+  let report = initial;
+  for (let pass = 0; pass < 128; pass += 1) {
+    if (
+      report.status !== "pending" ||
+      report.reason !== "budget-exhausted"
+    ) {
+      return report;
+    }
+    report = await Effect.runPromise(
+      runPendingProposalBackfill({ ...input, cursor: report.cursor }),
+    );
+  }
+  throw new Error("backfill test exceeded its continuation budget");
+};
+
+const runBackfillToBoundary = async (
+  input: Omit<RawBackfillInput, "readWitnessPage" | "readEpoch" | "cursor"> & {
+    readonly readWitnessPage?: RawBackfillInput["readWitnessPage"];
+    readonly readEpoch?: RawBackfillInput["readEpoch"];
+  },
+) =>
+  continueBackfillToBoundary(
+    input,
+    await Effect.runPromise(runPendingProposalBackfill(input)),
+  );
 
 afterEach(async () => {
   while (runtimes.length > 0) {
@@ -278,6 +337,8 @@ const openHarness = async () => {
   runtimes.push(runtime);
   const state = await runtime.runPromise(StateEngine);
   const repository = await runtime.runPromise(WorkRepository);
+  currentWitnessReader = repository.legacyProposalMaterializationWitnessPage;
+  currentEpochReader = repository.legacyProposalMaterializationEpoch;
   const installOps = await runtime.runPromise(InstallOpsService);
   await runtime.runPromise(
     state.transaction("test.seed", (writer) => {
@@ -349,7 +410,16 @@ describe("runPendingProposalBackfill", () => {
       details: "Live pending work.",
     });
 
-    const persist: PersistUnadmittedTask = () => Effect.void;
+    const persist: PersistUnadmittedTask = (input) =>
+      Effect.succeed({
+        status: "invalid" as const,
+        proposalId: input.proposalId,
+        diagnostic: {
+          code: "dependency-invalid" as const,
+          message: "test persist intentionally minted no Task",
+        },
+        message: "test persist intentionally minted no Task",
+      });
     const report = await Effect.runPromise(
       runPendingProposalBackfill({ state, installOps, persist }),
     );
@@ -402,24 +472,27 @@ describe("runPendingProposalBackfill", () => {
       };
       return repository.persistUnadmittedTask({
         sink: inputSink,
+        proposalId: input.proposalId,
+        home: Schema.decodeUnknownSync(InstallationId)("cc-pending-backfill"),
         basis,
-        materialization: input.materialization,
         dependencyScope: createTaskDependencyScopeCapability({
           topology: backfillTopology,
           basis,
           authoringSink: inputSink,
         }),
-      }).pipe(Effect.asVoid);
+      });
     };
 
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({ state, installOps, persist }),
-    );
+    const report = await runBackfillToBoundary({ state, installOps, persist });
     expect(report.status).toBe("complete");
     expect(report.materialized).toBe(1);
-    expect(captured?.materialization.admission).toBe("operator-gated");
-    expect(captured?.materialization.raisedBy).toEqual(actor);
-    expect(captured?.materialization.task.claims).toEqual([
+    expect(captured?.proposalId).toBe("prop-live");
+    const reconstructed = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    expect(reconstructed.tasks.items[0]?.admission).toBe("operator-gated");
+    expect(reconstructed.tasks.items[0]?.raisedBy).toEqual(actor);
+    expect(reconstructed.tasks.items[0]?.claims).toEqual([
       { id: "c-log", text: "From create fact", severity: "soft", station: "qa" },
     ]);
 
@@ -458,50 +531,421 @@ describe("runPendingProposalBackfill", () => {
     expect(again.materialized).toBe(0);
   });
 
-  it("counts a durable same-id pair after its proposal leaves pending", async () => {
+  it("keeps exact marker counts across approval and rejection", async () => {
+    const harness = await openHarness();
+    const { dependsOn: _ignoredDependencies, ...proposalBase } =
+      pendingSnapshot;
+    const rejected = {
+      ...proposalBase,
+      id: "materialized-then-rejected",
+      brief: {
+        ...pendingSnapshot.brief,
+        messageId: "materialized-then-rejected-brief",
+        taskId: "materialized-then-rejected",
+      },
+      proposedBy: harness.actor,
+    };
+    const approved = {
+      ...proposalBase,
+      id: "materialized-then-approved",
+      brief: {
+        ...pendingSnapshot.brief,
+        messageId: "materialized-then-approved-brief",
+        taskId: "materialized-then-approved",
+      },
+      proposedBy: harness.actor,
+    };
+    for (const source of [rejected, approved]) {
+      await harness.runtime.runPromise(
+        harness.repository.createProposal({
+          sink,
+          basis: harness.basis,
+          proposal: source,
+          originAt: harness.observedAt,
+          receivedAt: harness.observedAt,
+        }),
+      );
+    }
+
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
+    expect(report).toMatchObject({
+      status: "complete",
+      materialized: 2,
+      skipped: 0,
+      failed: 0,
+      remaining: 0,
+    });
+
+    await harness.runtime.runPromise(
+      harness.repository.rejectProposal({
+        sink,
+        basis: harness.basis,
+        proposalId: rejected.id,
+        originAt: harness.observedAt,
+        receivedAt: harness.observedAt,
+      }),
+    );
+    await harness.runtime.runPromise(
+      harness.repository.approveProposal({
+        sink,
+        basis: harness.basis,
+        proposalId: approved.id,
+        task: materializePendingProposal({ proposal: approved }).task,
+        dependencyScope: createTaskDependencyScopeCapability({
+          topology: backfillTopology,
+          basis: harness.basis,
+          authoringSink: sink,
+        }),
+        originAt: harness.observedAt,
+        receivedAt: harness.observedAt,
+      }),
+    );
+    const verifiedAgain = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
+    expect(verifiedAgain.status).toBe("already-complete");
+    expect(await taskIds(harness.state)).toEqual([
+      approved.id,
+      rejected.id,
+    ]);
+    expect(
+      await Effect.runPromise(
+        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+      ),
+    ).toMatchObject({ status: "complete", objectsIngested: 2 });
+  });
+
+  it("keeps a raw same-id collision pending and reopens an older complete marker", async () => {
+    const harness = await openHarness();
+    const initial = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
+    expect(initial.status).toBe("complete");
+
+    const { dependsOn: _ignoredDependencies, ...proposalBase } =
+      pendingSnapshot;
+    const source = {
+      ...proposalBase,
+      id: "raw-collision",
+      brief: {
+        ...pendingSnapshot.brief,
+        messageId: "raw-collision-brief",
+        taskId: "raw-collision",
+      },
+    };
+    const materialization = materializePendingProposal({ proposal: source });
+    await harness.runtime.runPromise(
+      harness.repository.createTask({
+        sink,
+        basis: harness.basis,
+        task: materialization.task,
+        dependencyScope: createTaskDependencyScopeCapability({
+          topology: backfillTopology,
+          basis: harness.basis,
+          authoringSink: sink,
+        }),
+      }),
+    );
+    await runtimeCreateProposal(
+      harness.repository,
+      harness.basis,
+      harness.actor,
+      harness.observedAt,
+      { id: source.id, details: "Unrelated Task collision." },
+    );
+
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
+    expect(report).toMatchObject({
+      status: "pending",
+      reason: "fixed-point-no-progress",
+      materialized: 0,
+      skipped: 0,
+      failed: 1,
+      remaining: 1,
+    });
+    const page = await harness.runtime.runPromise(
+      harness.repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
+    );
+    expect(
+      page.witnesses.find((entry) => entry.proposalId === source.id),
+    ).toMatchObject({
+      status: "invalid",
+      diagnostic: { code: "task-create-witness-invalid" },
+    });
+    expect(
+      await Effect.runPromise(
+        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+      ),
+    ).toMatchObject({ status: "pending", objectsIngested: 0 });
+  });
+
+  it("advances past 32 permanent collisions and materializes a later valid row", async () => {
+    const harness = await openHarness();
+    const dependencyScope = createTaskDependencyScopeCapability({
+      topology: backfillTopology,
+      basis: harness.basis,
+      authoringSink: sink,
+    });
+    const { dependsOn: _ignoredDependencies, ...proposalBase } =
+      pendingSnapshot;
+    for (let index = 0; index < 32; index += 1) {
+      const id = `a-invalid-${String(index).padStart(2, "0")}`;
+      const source = {
+        ...proposalBase,
+        id,
+        brief: {
+          ...pendingSnapshot.brief,
+          messageId: `${id}-brief`,
+          taskId: id,
+        },
+      };
+      await harness.runtime.runPromise(
+        harness.repository.createTask({
+          sink,
+          basis: harness.basis,
+          task: materializePendingProposal({ proposal: source }).task,
+          dependencyScope,
+        }),
+      );
+      await runtimeCreateProposal(
+        harness.repository,
+        harness.basis,
+        harness.actor,
+        harness.observedAt,
+        { id, details: `Permanent collision ${index}.` },
+      );
+    }
+    await runtimeCreateProposal(
+      harness.repository,
+      harness.basis,
+      harness.actor,
+      harness.observedAt,
+      { id: "z-valid", details: "Must not starve." },
+    );
+
+    const pageSizes: number[] = [];
+    const readWitnessPage: RawBackfillInput["readWitnessPage"] = (input) =>
+      harness.repository.legacyProposalMaterializationWitnessPage(input).pipe(
+        Effect.tap((page) =>
+          Effect.sync(() => pageSizes.push(page.witnesses.length))
+        ),
+      );
+    const backfillInput = {
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+      readWitnessPage,
+      limits: { maxPersistAttempts: 32, maxScanRows: 64 },
+    };
+    const first = await Effect.runPromise(
+      runPendingProposalBackfill(backfillInput),
+    );
+    expect(first).toMatchObject({
+      status: "pending",
+      reason: "budget-exhausted",
+    });
+    if (first.status !== "pending" || first.reason !== "budget-exhausted") {
+      throw new Error("expected an opaque continuation");
+    }
+    expect(Object.keys(first.cursor)).toEqual([]);
+
+    const final = await continueBackfillToBoundary(backfillInput, first);
+    expect(final).toMatchObject({
+      status: "pending",
+      reason: "fixed-point-no-progress",
+      remaining: 32,
+    });
+    expect(await taskIds(harness.state)).toContain("z-valid");
+    expect(pageSizes.every((size) => size <= 32)).toBe(true);
+    expect(
+      await Effect.runPromise(
+        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+      ),
+    ).toMatchObject({ status: "pending" });
+  });
+
+  it("bounds strong decode work independently when one persist attempt is allowed", async () => {
     const harness = await openHarness();
     await runtimeCreateProposal(
       harness.repository,
       harness.basis,
       harness.actor,
       harness.observedAt,
-      { id: "materialized-then-rejected", details: "Durable pair witness." },
+      { id: "a-valid-first", details: "Only this first page is admissible." },
     );
-    const persistTask = repositoryPersist(harness);
-    const persist: PersistUnadmittedTask = (input) =>
-      persistTask(input).pipe(
-        Effect.andThen(
-          harness.repository.rejectProposal({
-            sink,
-            basis: harness.basis,
-            proposalId: input.materialization.task.id,
-            originAt: harness.observedAt,
-            receivedAt: harness.observedAt,
-          }).pipe(Effect.asVoid),
-        ),
+    for (let index = 0; index < 79; index += 1) {
+      await runtimeCreateProposal(
+        harness.repository,
+        harness.basis,
+        harness.actor,
+        harness.observedAt,
+        {
+          id: `z-drift-${String(index).padStart(2, "0")}`,
+          details: "This later projection will be made invalid.",
+        },
       );
+    }
+    const fallbackPage = await harness.runtime.runPromise(
+      harness.repository.legacyProposalMaterializationWitnessPage({ limit: 0 }),
+    );
+    expect(fallbackPage.witnesses).toHaveLength(32);
+    expect(fallbackPage.next).toBeDefined();
+
+    await Effect.runPromise(
+      harness.state.transaction("test.drift-later-proposal-pages", (writer) =>
+        unjournaledWorkMutation("test.fixture-seed", () => {
+          writer.run(
+            `UPDATE work_task_proposals
+                SET brief_json = ?
+              WHERE proposal_id LIKE 'z-drift-%'`,
+            [
+              canonicalJson({
+                messageId: "drifted",
+                role: "user",
+                parts: [{ kind: "text", text: "different" }],
+                taskId: "drifted",
+                contextId: "factory",
+              }),
+            ],
+          );
+        }),
+      ),
+    );
 
     const report = await Effect.runPromise(
-      runPendingProposalBackfill({
+      runPendingProposalBackfillRaw({
         state: harness.state,
         installOps: harness.installOps,
-        persist,
+        persist: repositoryPersist(harness),
+        readWitnessPage:
+          harness.repository.legacyProposalMaterializationWitnessPage,
+        readEpoch: harness.repository.legacyProposalMaterializationEpoch,
+        limits: {
+          maxPasses: 1,
+          maxPersistAttempts: 1,
+          maxScanRows: 2,
+        },
       }),
     );
 
-    expect(report).toEqual({
-      status: "complete",
+    expect(report).toMatchObject({
+      status: "pending",
+      reason: "budget-exhausted",
       materialized: 1,
-      skipped: 0,
       failed: 0,
-      remaining: 0,
+      remainingExact: false,
     });
-    expect(await taskIds(harness.state)).toContain("materialized-then-rejected");
-    expect(
-      await Effect.runPromise(
-        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
-      ),
-    ).toMatchObject({ status: "complete", objectsIngested: 1 });
+    if (report.status !== "pending" || report.reason !== "budget-exhausted") {
+      throw new Error("expected one bounded continuation");
+    }
+    expect(report.cursor).toBeDefined();
+    expect(await taskIds(harness.state)).toEqual(["a-valid-first"]);
+  });
+
+  it("derives claims only from the exact proposal fact, not an earlier command decoy", async () => {
+    const harness = await openHarness();
+    const id = "decoy-claims";
+    await harness.runtime.runPromise(
+      harness.state.transaction("test.seed.proposal-command-decoy", (writer) => {
+        const decoyHome = Schema.decodeUnknownSync(InstallationId)(
+          "remote-decoy-claims",
+        );
+        writer.run(
+          `INSERT INTO station_known_installations(installation_id, registered_at)
+           VALUES (?, ?)`,
+          [decoyHome, harness.observedAt],
+        );
+        const semantic = {
+          protocol: WORK_PROTOCOL,
+          id: {
+            route: {
+              eventHome: decoyHome,
+              entityHome: harness.installationId,
+            },
+            seq: allocateSequence(
+              writer,
+              decoyHome,
+              harness.installationId,
+            ),
+          },
+          recordType: "command" as const,
+          item: { kind: "proposal" as const, itemId: id, sink },
+          operation: "proposal.create" as const,
+          predecessor: null,
+          body: {
+            operation: "proposal.create" as const,
+            proposal: {
+              id,
+              state: "pending" as const,
+              brief: {
+                messageId: `${id}-decoy-brief`,
+                role: "user" as const,
+                parts: [{ kind: "text" as const, text: "decoy" }],
+                taskId: id,
+                contextId: "factory",
+              },
+              proposedBy: harness.actor,
+              claims: [{
+                id: "poison",
+                text: "Poison claim",
+                severity: "hard" as const,
+                station: "decoy",
+              }],
+              metadata: { details: "Decoy command." },
+            },
+          },
+        };
+        const record = Schema.decodeUnknownSync(WorkRecord, {
+          onExcessProperty: "error",
+        })({
+          ...semantic,
+          contentSha256: workRecordContentSha256(semantic),
+          originAt: harness.observedAt,
+        });
+        appendWorkRecord(writer, record, harness.observedAt);
+      }),
+    );
+    await runtimeCreateProposal(
+      harness.repository,
+      harness.basis,
+      harness.actor,
+      harness.observedAt,
+      {
+        id,
+        details: "Real proposal.",
+        claims: [{
+          id: "real",
+          text: "Real claim",
+          severity: "soft",
+          station: "qa",
+        }],
+      },
+    );
+
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
+    expect(report.status).toBe("complete");
+    const snapshot = await harness.runtime.runPromise(
+      harness.repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+    expect(snapshot.tasks.items.find((task) => task.id === id)?.claims).toEqual([
+      { id: "real", text: "Real claim", severity: "soft", station: "qa" },
+    ]);
   });
 
   it("leaves the marker pending when persist fails", async () => {
@@ -547,7 +991,7 @@ describe("runPendingProposalBackfill", () => {
       }),
     );
 
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "pending",
       materialized: 0,
       skipped: 0,
@@ -571,64 +1015,35 @@ describe("runPendingProposalBackfill", () => {
       { id: "race-rejected", details: "Rejected during reconciliation." },
     );
     let rejected = false;
-    const racingState: Parameters<
-      typeof runPendingProposalBackfill
-    >[0]["state"] = {
-      read: (operation, body) =>
-        harness.state.read(operation, body).pipe(
-          Effect.tap(() => {
-            if (
-              rejected ||
-              operation !== "work.pending-proposals.pre-persist"
-            ) {
-              return Effect.void;
-            }
+    let persistStatus: string | undefined;
+    const persistTask = repositoryPersist(harness);
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: (input) =>
+        Effect.gen(function* () {
+          if (!rejected) {
             rejected = true;
-            return harness.repository.rejectProposal({
+            yield* harness.repository.rejectProposal({
               sink,
               basis: harness.basis,
-              proposalId: "race-rejected",
+              proposalId: input.proposalId,
               originAt: harness.observedAt,
               receivedAt: harness.observedAt,
-            }).pipe(Effect.asVoid);
-          }),
-        ),
-    };
-    let persistStatus: string | undefined;
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: racingState,
-        installOps: harness.installOps,
-        persist: (input) =>
-          harness.repository.persistUnadmittedTask({
-            sink: { canvasName: input.canvasName, nodeId: input.nodeId },
-            basis: harness.basis,
-            materialization: input.materialization,
-            dependencyScope: createTaskDependencyScopeCapability({
-              topology: backfillTopology,
-              basis: harness.basis,
-              authoringSink: {
-                canvasName: input.canvasName,
-                nodeId: input.nodeId,
-              },
-            }),
-          }).pipe(
-            Effect.tap((result) =>
-              Effect.sync(() => {
-                persistStatus = result.status;
-              })
-            ),
-            Effect.asVoid,
-          ),
-      }),
-    );
+            });
+          }
+          const result = yield* persistTask(input);
+          persistStatus = result.status;
+          return result;
+        }),
+    });
 
     expect(persistStatus).toBe("no-longer-pending");
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "complete",
       materialized: 0,
       skipped: 0,
-      failed: 1,
+      failed: 0,
       remaining: 0,
     });
     expect(await taskIds(harness.state)).not.toContain("race-rejected");
@@ -649,15 +1064,13 @@ describe("runPendingProposalBackfill", () => {
     ]);
 
     const order: string[] = [];
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness, order),
-      }),
-    );
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness, order),
+    });
 
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "complete",
       materialized: 4,
       skipped: 0,
@@ -684,19 +1097,18 @@ describe("runPendingProposalBackfill", () => {
     ]);
     const eventsBefore = await fingerprintProposalEvents(harness.state);
 
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
+    const report = await runBackfillToBoundary({
         state: harness.state,
         installOps: harness.installOps,
         persist: repositoryPersist(harness),
-      }),
-    );
+      });
 
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "pending",
+      reason: "fixed-point-no-progress",
       materialized: 1,
       skipped: 0,
-      failed: 0,
+      failed: 2,
       remaining: 2,
     });
     expect(await taskIds(harness.state)).toEqual(["independent"]);
@@ -722,7 +1134,7 @@ describe("runPendingProposalBackfill", () => {
     const persist: PersistUnadmittedTask = (input) => {
       const next = arrivals.shift();
       return persistTask(input).pipe(
-        Effect.andThen(
+        Effect.tap(() =>
           next === undefined
             ? Effect.void
             : Effect.promise(() =>
@@ -747,33 +1159,33 @@ describe("runPendingProposalBackfill", () => {
       }),
     );
 
-    expect(bounded).toEqual({
+    expect(bounded).toMatchObject({
       status: "pending",
-      materialized: 2,
+      reason: "budget-exhausted",
+      materialized: 1,
       skipped: 0,
       failed: 0,
-      remaining: 1,
+      remainingExact: false,
     });
-    expect(await taskIds(harness.state)).toEqual([
-      "ingress-one",
-      "ingress-seed",
-    ]);
+    expect(await taskIds(harness.state)).toEqual(["ingress-seed"]);
     expect(
       await Effect.runPromise(
         harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
       ),
     ).toMatchObject({ status: "pending" });
 
-    const continued = await Effect.runPromise(
-      runPendingProposalBackfill({
+    const continued = await continueBackfillToBoundary(
+      {
         state: harness.state,
         installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
+        persist,
+        limits: { maxPasses: 2, maxPersistAttempts: 2 },
+      },
+      bounded,
     );
     expect(continued).toMatchObject({
       status: "complete",
-      materialized: 1,
+      materialized: 3,
       remaining: 0,
     });
     expect(
@@ -785,13 +1197,11 @@ describe("runPendingProposalBackfill", () => {
 
   it("reconciles a late arrival after a prior complete marker", async () => {
     const harness = await openHarness();
-    await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
-    );
+    await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
     await runtimeCreateProposal(
       harness.repository,
       harness.basis,
@@ -800,14 +1210,12 @@ describe("runPendingProposalBackfill", () => {
       { id: "late-success", details: "Arrived after completion." },
     );
 
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
-    );
-    expect(report).toEqual({
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
+    expect(report).toMatchObject({
       status: "complete",
       materialized: 1,
       skipped: 0,
@@ -896,15 +1304,21 @@ describe("runPendingProposalBackfill", () => {
         ),
     };
 
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: racingInstallOps,
-        persist: repositoryPersist(harness),
-      }),
+    const backfillInput = {
+      state: harness.state,
+      installOps: racingInstallOps,
+      persist: repositoryPersist(harness),
+    };
+    const first = await Effect.runPromise(
+      runPendingProposalBackfill(backfillInput),
     );
+    expect(first).toMatchObject({
+      status: "pending",
+      reason: "budget-exhausted",
+    });
+    const report = await continueBackfillToBoundary(backfillInput, first);
 
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "complete",
       materialized: 1,
       skipped: 0,
@@ -917,67 +1331,115 @@ describe("runPendingProposalBackfill", () => {
     );
   });
 
-  it("discovers on the next pass an arrival after the post-marker snapshot", async () => {
+  it("reopens a completed marker when the post-marker sweep finds a collision", async () => {
     const harness = await openHarness();
+    const { dependsOn: _ignoredDependencies, ...proposalBase } =
+      pendingSnapshot;
+    const source = {
+      ...proposalBase,
+      id: "post-marker-collision",
+      brief: {
+        ...pendingSnapshot.brief,
+        messageId: "post-marker-collision-brief",
+        taskId: "post-marker-collision",
+      },
+      proposedBy: harness.actor,
+    };
     let injected = false;
-    const racingState: Parameters<
-      typeof runPendingProposalBackfill
-    >[0]["state"] = {
-      read: (operation, body) =>
-        harness.state.read(operation, body).pipe(
+    const racingInstallOps = {
+      ...harness.installOps,
+      markComplete: (id: string, count: number) =>
+        harness.installOps.markComplete(id, count).pipe(
           Effect.tap(() => {
-            if (
-              injected ||
-              operation !== "work.pending-proposals.post-marker-scan"
-            ) {
-              return Effect.void;
-            }
+            if (injected) return Effect.void;
             injected = true;
-            return Effect.promise(() =>
-              runtimeCreateProposal(
-                harness.repository,
-                harness.basis,
-                harness.actor,
-                harness.observedAt,
-                {
-                  id: "after-post-marker",
-                  details: "Arrived after the product snapshot.",
-                },
-              )
-            );
+            const materialization = materializePendingProposal({
+              proposal: source,
+            });
+            return Effect.gen(function* () {
+              yield* harness.repository.createTask({
+                sink,
+                basis: harness.basis,
+                task: materialization.task,
+                dependencyScope: createTaskDependencyScopeCapability({
+                  topology: backfillTopology,
+                  basis: harness.basis,
+                  authoringSink: sink,
+                }),
+              });
+              yield* harness.repository.createProposal({
+                sink,
+                basis: harness.basis,
+                proposal: source,
+                originAt: harness.observedAt,
+                receivedAt: harness.observedAt,
+              });
+            }).pipe(Effect.orDie);
           }),
         ),
     };
+    const input = {
+      state: harness.state,
+      installOps: racingInstallOps,
+      persist: repositoryPersist(harness),
+    };
 
-    const first = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: racingState,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
-    );
+    const first = await Effect.runPromise(runPendingProposalBackfill(input));
+    expect(first).toMatchObject({
+      status: "pending",
+      reason: "budget-exhausted",
+    });
+    expect(
+      await Effect.runPromise(
+        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+      ),
+    ).toMatchObject({ status: "pending" });
+
+    const parked = await continueBackfillToBoundary(input, first);
+    expect(parked).toMatchObject({
+      status: "pending",
+      reason: "fixed-point-no-progress",
+      failed: 1,
+      remaining: 1,
+    });
+    expect(
+      await Effect.runPromise(
+        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+      ),
+    ).toMatchObject({ status: "pending" });
+  });
+
+  it("discovers an arrival committed immediately after marker completion", async () => {
+    const harness = await openHarness();
+    const first = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
     expect(first.status).toBe("complete");
-    expect(await taskIds(harness.state)).not.toContain("after-post-marker");
 
-    const next = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
+    await runtimeCreateProposal(
+      harness.repository,
+      harness.basis,
+      harness.actor,
+      harness.observedAt,
+      {
+        id: "after-marker-completion",
+        details: "Arrived after the marker was committed.",
+      },
     );
+    const next = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
     expect(next).toMatchObject({
       status: "complete",
       materialized: 1,
       failed: 0,
       remaining: 0,
     });
-    expect(await taskIds(harness.state)).toContain("after-post-marker");
-    expect(
-      await Effect.runPromise(
-        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
-      ),
-    ).toMatchObject({ status: "complete", objectsIngested: 1 });
+    expect(await taskIds(harness.state)).toContain("after-marker-completion");
   });
 
   it("resumes after interruption without replaying the first durable task", async () => {
@@ -987,10 +1449,21 @@ describe("runPendingProposalBackfill", () => {
       { id: "root", details: "Root." },
     ]);
     const persist = repositoryPersist(harness);
-    const crashingPersist: PersistUnadmittedTask = (input) =>
-      input.materialization.task.id === "root"
-        ? persist(input)
-        : Effect.die(new Error("simulated crash"));
+    let rootCreated = false;
+    const crashingPersist: PersistUnadmittedTask = (input) => {
+      if (input.proposalId === "root") {
+        return persist(input).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              rootCreated = true;
+            })
+          ),
+        );
+      }
+      return rootCreated
+        ? Effect.die(new Error("simulated crash"))
+        : persist(input);
+    };
 
     await expect(
       Effect.runPromise(
@@ -1008,14 +1481,12 @@ describe("runPendingProposalBackfill", () => {
       ),
     ).toMatchObject({ status: "pending" });
 
-    const resumed = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist,
-      }),
-    );
-    expect(resumed).toEqual({
+    const resumed = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist,
+    });
+    expect(resumed).toMatchObject({
       status: "complete",
       materialized: 1,
       skipped: 1,
@@ -1086,15 +1557,13 @@ describe("runPendingProposalBackfill", () => {
     );
     const eventsBefore = await fingerprintProposalEvents(harness.state);
 
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
+    const report = await runBackfillToBoundary({
         state: harness.state,
         installOps: harness.installOps,
         persist: repositoryPersist(harness),
-      }),
-    );
+      });
 
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "pending",
       materialized: 1,
       skipped: 0,
@@ -1146,18 +1615,16 @@ describe("runPendingProposalBackfill", () => {
     );
 
     let persistCalled = false;
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
+    const report = await runBackfillToBoundary({
         state: harness.state,
         installOps: harness.installOps,
         persist: () => {
           persistCalled = true;
           return Effect.die(new Error("invalid row reached persist"));
         },
-      }),
-    );
+      });
 
-    expect(report).toEqual({
+    expect(report).toMatchObject({
       status: "pending",
       materialized: 0,
       skipped: 0,
@@ -1172,121 +1639,91 @@ describe("runPendingProposalBackfill", () => {
     ).toMatchObject({ status: "pending" });
   });
 
-  it("verifies full immutable rows before completion and reopens on later errors", async () => {
-    const harness = await openHarness();
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "event-witness", details: "Immutable event witness." },
-    );
-    await harness.runtime.runPromise(
-      harness.repository.rejectProposal({
-        sink,
-        basis: harness.basis,
-        proposalId: "event-witness",
-        originAt: harness.observedAt,
-        receivedAt: harness.observedAt,
+  it("brackets completion with the relevant epoch and reopens on failure or interruption", async () => {
+    const raced = await openHarness();
+    let epochReads = 0;
+    const epochRace = () => {
+      epochReads += 1;
+      return epochReads >= 4 ? 1 : 0;
+    };
+    const racedReport = await Effect.runPromise(
+      runPendingProposalBackfill({
+        state: raced.state,
+        installOps: raced.installOps,
+        persist: repositoryPersist(raced),
+        readEpoch: epochRace,
       }),
     );
-    await Effect.runPromise(
-      harness.installOps.ensurePending(BACKFILL_PENDING_PROPOSALS_V1),
-    );
-
-    const calls: string[] = [];
-    let verification = 0;
-    const stateWithSecondVerificationError: Parameters<
-      typeof runPendingProposalBackfill
-    >[0]["state"] = {
-      read: (operation, body) =>
-        harness.state.read(operation, body).pipe(
-          Effect.map((value) => {
-            if (operation !== "work.pending-proposals.fingerprint-after") {
-              return value;
-            }
-            verification += 1;
-            calls.push(`verify-${verification}`);
-            if (verification !== 2) return value;
-            const rows = value as ReadonlyArray<Record<string, unknown>>;
-            return rows.map((row, index) =>
-              index === 0
-                ? { ...row, originAt: `${String(row.originAt)}-changed` }
-                : row
-            ) as typeof value;
-          }),
-        ),
-    };
-    const loggingInstallOps = {
-      ...harness.installOps,
-      markComplete: (id: string, count: number) =>
-        Effect.sync(() => calls.push("mark")).pipe(
-          Effect.andThen(harness.installOps.markComplete(id, count)),
-        ),
-      reopenPending: (id: string) =>
-        Effect.sync(() => calls.push("reopen")).pipe(
-          Effect.andThen(harness.installOps.reopenPending(id)),
-        ),
-    };
-
-    await expect(
-      Effect.runPromise(
-        runPendingProposalBackfill({
-          state: stateWithSecondVerificationError,
-          installOps: loggingInstallOps,
-          persist: repositoryPersist(harness),
-        }),
-      ),
-    ).rejects.toThrow(/preexisting work_proposal_events row changed/);
-    expect(calls).toEqual(["verify-1", "mark", "verify-2", "reopen"]);
+    expect(racedReport).toMatchObject({
+      status: "pending",
+      reason: "budget-exhausted",
+    });
     expect(
       await Effect.runPromise(
-        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+        raced.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
       ),
     ).toMatchObject({ status: "pending" });
 
-    await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
-    );
-    calls.length = 0;
-    verification = 0;
-    const stateWithImmediateVerificationError: Parameters<
-      typeof runPendingProposalBackfill
-    >[0]["state"] = {
-      read: (operation, body) =>
-        harness.state.read(operation, body).pipe(
-          Effect.map((value) => {
-            if (operation !== "work.pending-proposals.fingerprint-after") {
-              return value;
-            }
-            verification += 1;
-            calls.push(`verify-${verification}`);
-            const rows = value as ReadonlyArray<Record<string, unknown>>;
-            return rows.map((row, index) =>
-              index === 0
-                ? { ...row, receivedAt: `${String(row.receivedAt)}-changed` }
-                : row
-            ) as typeof value;
-          }),
+    const failed = await openHarness();
+    const failedCalls: string[] = [];
+    const failingInstallOps = {
+      ...failed.installOps,
+      markComplete: (id: string, count: number) =>
+        failed.installOps.markComplete(id, count).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              failedCalls.push("mark");
+              throw new Error("post-marker verification defect");
+            })
+          ),
+        ),
+      reopenPending: (id: string) =>
+        Effect.sync(() => failedCalls.push("reopen")).pipe(
+          Effect.andThen(failed.installOps.reopenPending(id)),
         ),
     };
     await expect(
       Effect.runPromise(
         runPendingProposalBackfill({
-          state: stateWithImmediateVerificationError,
-          installOps: loggingInstallOps,
-          persist: repositoryPersist(harness),
+          state: failed.state,
+          installOps: failingInstallOps,
+          persist: repositoryPersist(failed),
         }),
       ),
-    ).rejects.toThrow(/preexisting work_proposal_events row changed/);
-    expect(calls).toEqual(["verify-1", "reopen"]);
+    ).rejects.toThrow(/post-marker verification defect/);
+    expect(failedCalls).toContain("reopen");
     expect(
       await Effect.runPromise(
-        harness.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+        failed.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+      ),
+    ).toMatchObject({ status: "pending" });
+
+    const interrupted = await openHarness();
+    let interruptedReopens = 0;
+    const interruptingInstallOps = {
+      ...interrupted.installOps,
+      markComplete: (id: string, count: number) =>
+        interrupted.installOps.markComplete(id, count).pipe(
+          Effect.andThen(Effect.interrupt),
+        ),
+      reopenPending: (id: string) =>
+        Effect.sync(() => {
+          interruptedReopens += 1;
+        }).pipe(Effect.andThen(interrupted.installOps.reopenPending(id))),
+    };
+    await expect(
+      Effect.runPromise(
+        runPendingProposalBackfill({
+          state: interrupted.state,
+          installOps: interruptingInstallOps,
+          persist: repositoryPersist(interrupted),
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(interruptedReopens).toBeGreaterThan(0);
+    expect(
+      await Effect.runPromise(
+        interrupted.installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
       ),
     ).toMatchObject({ status: "pending" });
   });
@@ -1305,13 +1742,11 @@ describe("runPendingProposalBackfill", () => {
       },
     );
 
-    const report = await Effect.runPromise(
-      runPendingProposalBackfill({
-        state: harness.state,
-        installOps: harness.installOps,
-        persist: repositoryPersist(harness),
-      }),
-    );
+    const report = await runBackfillToBoundary({
+      state: harness.state,
+      installOps: harness.installOps,
+      persist: repositoryPersist(harness),
+    });
     expect(report.status).toBe("complete");
     expect(await taskDependencies(harness.state, "prose-only")).toEqual([]);
   });
@@ -1554,11 +1989,11 @@ const repositoryPersist = (
   harness: Harness,
   order?: string[],
 ): PersistUnadmittedTask => (input) => {
-  order?.push(input.materialization.task.id);
   return harness.repository.persistUnadmittedTask({
     sink: { canvasName: input.canvasName, nodeId: input.nodeId },
+    proposalId: input.proposalId,
+    home: harness.installationId,
     basis: harness.basis,
-    materialization: input.materialization,
     dependencyScope: createTaskDependencyScopeCapability({
       topology: backfillTopology,
       basis: harness.basis,
@@ -1567,7 +2002,13 @@ const repositoryPersist = (
         nodeId: input.nodeId,
       },
     }),
-  }).pipe(Effect.asVoid);
+  }).pipe(
+    Effect.tap((result) =>
+      result.status === "created"
+        ? Effect.sync(() => order?.push(input.proposalId))
+        : Effect.void
+    ),
+  );
 };
 
 const taskIds = (state: Harness["state"]) =>

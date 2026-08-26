@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { CanvasDoc } from "../src/shared/canvas";
@@ -20,11 +20,14 @@ import {
 } from "../src/shared/station-api";
 import {
   BACKFILL_PENDING_PROPOSALS_V1,
+  materializePendingProposal,
 } from "../src/shared/pending-proposal-backfill";
 import {
   IntentFactBasis,
   LogicalSequence,
+  WORK_PROTOCOL,
   WorkCommand,
+  WorkRecord,
   type ActorRef,
   type IntentFactBasis as IntentFactBasisValue,
   type WorkCommand as WorkCommandValue,
@@ -62,6 +65,12 @@ import {
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import { canonicalJson } from "../src/main/vellum/work/canonical-json";
+import {
+  allocateSequence,
+  appendWorkRecord,
+} from "../src/main/vellum/work/journal";
+import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
 
 const strictDecode = { onExcessProperty: "error" } as const;
 const observedAt = "2026-08-26T19:00:00.000Z";
@@ -205,7 +214,15 @@ const dependencyCanvas = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
   ],
 });
 
-const makeRuntime = () => {
+type WorkRepositoryShape = Context.Service.Shape<typeof WorkRepository>;
+type CanvasesShape = Context.Service.Shape<typeof CanvasesService>;
+
+type RuntimeDecorators = {
+  readonly repository?: (repository: WorkRepositoryShape) => WorkRepositoryShape;
+  readonly canvases?: (canvases: CanvasesShape) => CanvasesShape;
+};
+
+const makeRuntime = (decorators: RuntimeDecorators = {}) => {
   const root = join(
     tmpdir(),
     `vellum-command-work-reconciliation-${randomUUID()}`,
@@ -214,9 +231,20 @@ const makeRuntime = () => {
   const stateLive = makeStateEngineLive(
     join(root, "state", "vellum-command.db"),
   );
+  const repositoryLive = decorators.repository === undefined
+    ? WorkRepositoryLive
+    : Layer.provide(
+        Layer.effect(
+          WorkRepository,
+          Effect.gen(function* () {
+            return decorators.repository!(yield* WorkRepository);
+          }),
+        ),
+        WorkRepositoryLive,
+      );
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
-      WorkRepositoryLive,
+      repositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       makeSettingsLive({ ensureDefaultCommandCenter: false }),
@@ -230,12 +258,24 @@ const makeRuntime = () => {
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );
-  const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
+  const canvasesBase = Layer.provide(CanvasesLive, repositoriesLive);
+  const canvasesLive = decorators.canvases === undefined
+    ? canvasesBase
+    : Layer.provide(
+        Layer.effect(
+          CanvasesService,
+          Effect.gen(function* () {
+            return decorators.canvases!(yield* CanvasesService);
+          }),
+        ),
+        canvasesBase,
+      );
   return ManagedRuntime.make(
     Layer.provideMerge(
       WorkLive,
       Layer.mergeAll(
         canvasesLive,
+        repositoriesLive,
         StationLivePeerRegistryLive,
       ) as never,
     ) as never,
@@ -595,7 +635,441 @@ describe("WorkService pending-proposal reconciliation scheduling", () => {
         late.id,
       );
       expect(snapshot.tasks.items.map((item) => item.id)).not.toContain(late.id);
-      expect(errorLog).toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(
+          errorLog.mock.calls.some((call) =>
+            String(call[0]).includes("parked at a fixed point")
+          ),
+        ).toBe(true);
+      });
+      const parkedLogCount = errorLog.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(errorLog.mock.calls.length).toBe(parkedLogCount);
+
+      // This authorial topology repair is the only wake. No unrelated Work row
+      // is written between the parked fixed point and materialization.
+      await runtime.runPromise(canvases.write("factory", taskCanvas));
+      await waitForTask(runtime, late.id);
+      await vi.waitFor(
+        async () => {
+          expect(
+            (await runtime.runPromise(
+              installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+            ))?.status,
+          ).toBe("complete");
+        },
+        { timeout: 5_000, interval: 10 },
+      );
+    } finally {
+      errorLog.mockRestore();
+      await runtime.dispose();
+    }
+  });
+
+  it("does not rescan for a large burst of unrelated Work history", async () => {
+    let witnessReads = 0;
+    const runtime = makeRuntime({
+      repository: (repository) => ({
+        ...repository,
+        legacyProposalMaterializationWitnessPage: (input) => {
+          witnessReads += 1;
+          return repository.legacyProposalMaterializationWitnessPage(input);
+        },
+      }),
+    });
+    try {
+      const settings = await runtime.runPromise(SettingsService);
+      await runtime.runPromise(
+        settings.setStationTopology({
+          role: "command-center",
+          hostId: "local",
+          supervisedPreferred: true,
+        }),
+      );
+      const canvases = await runtime.runPromise(CanvasesService);
+      await runtime.runPromise(canvases.write("factory", taskCanvas));
+      const repository = await runtime.runPromise(WorkRepository);
+      const basis = await authorialBasis(runtime);
+      const source = proposal(
+        "unrelated-history-task",
+        actor("9", "unrelated-history-raiser"),
+      );
+      const task = materializePendingProposal({ proposal: source }).task;
+      const dependencyScope = createTaskDependencyScopeCapability({
+        topology: Schema.decodeUnknownSync(CanvasDoc, strictDecode)(taskCanvas),
+        basis,
+        authoringSink: { canvasName: "factory", nodeId: "tasks" },
+      });
+      await runtime.runPromise(
+        repository.createTask({
+          sink: { canvasName: "factory", nodeId: "tasks" },
+          basis,
+          task,
+          dependencyScope,
+        }),
+      );
+      await runtime.runPromise(WorkService);
+      const installOps = await runtime.runPromise(InstallOpsService);
+      await vi.waitFor(
+        async () => {
+          expect(
+            (await runtime.runPromise(
+              installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+            ))?.status,
+          ).toBe("complete");
+        },
+        { timeout: 5_000, interval: 10 },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const beforeBurst = witnessReads;
+
+      for (let index = 0; index < 96; index += 1) {
+        await runtime.runPromise(
+          repository.describeTask({
+            sink: { canvasName: "factory", nodeId: "tasks" },
+            basis,
+            dependencyScope,
+            taskId: task.id,
+            message: {
+              messageId: `unrelated-description-${index}`,
+              role: "user",
+              parts: [{ kind: "text", text: `Unrelated ${index}` }],
+              taskId: task.id,
+              contextId: "factory",
+            },
+            originAt: observedAt,
+            receivedAt: observedAt,
+          }),
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(witnessReads).toBe(beforeBurst);
+      expect(repository.legacyProposalMaterializationEpoch()).toBe(1);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("wakes when an unconfigured installation becomes Command Center", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const runtime = makeRuntime();
+    try {
+      const canvases = await runtime.runPromise(CanvasesService);
+      await runtime.runPromise(canvases.write("factory", taskCanvas));
+      await runtime.runPromise(WorkService);
+      const station = await runtime.runPromise(StationRepository);
+      const cc = await runtime.runPromise(station.installationId);
+      const state = await runtime.runPromise(StateEngine);
+      const source = proposal(
+        "waiting-for-command-center-role",
+        actor("8", "pre-role-raiser"),
+      );
+      const basis = await authorialBasis(runtime);
+      await runtime.runPromise(
+        state.transaction("test.seed-pre-role-proposal", (writer) =>
+          unjournaledWorkMutation("test.fixture-seed", () => {
+            const semantic = {
+              protocol: WORK_PROTOCOL,
+              id: {
+                route: { eventHome: cc, entityHome: cc },
+                seq: allocateSequence(writer, cc, cc),
+              },
+              recordType: "fact" as const,
+              item: {
+                kind: "proposal" as const,
+                itemId: source.id,
+                sink: { canvasName: "factory", nodeId: "tasks" },
+              },
+              operation: "proposal.create" as const,
+              predecessor: null,
+              basis,
+              body: { operation: "proposal.create" as const, proposal: source },
+            };
+            const record = Schema.decodeUnknownSync(WorkRecord, strictDecode)({
+              ...semantic,
+              contentSha256: workRecordContentSha256(semantic),
+              originAt: observedAt,
+            });
+            if (
+              record.recordType !== "fact" ||
+              record.body.operation !== "proposal.create"
+            ) {
+              throw new Error("invalid pre-role proposal fixture");
+            }
+            appendWorkRecord(writer, record, observedAt);
+            writer.run(
+              `INSERT INTO work_task_proposals(
+                 canvas_name, node_id, proposal_id, entity_home,
+                 fact_event_home, fact_entity_home, fact_seq, state,
+                 brief_json, proposer_seat_id, proposer_canvas_name,
+                 proposer_node_id, approved_task_id, metadata_json, reason,
+                 created_at, updated_at, origin_at, received_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+              [
+                "factory",
+                "tasks",
+                source.id,
+                cc,
+                cc,
+                cc,
+                record.id.seq,
+                source.state,
+                canonicalJson(source.brief),
+                source.proposedBy.seatId,
+                source.proposedBy.canvasName,
+                source.proposedBy.nodeId,
+                source.metadata === undefined
+                  ? null
+                  : canonicalJson(source.metadata),
+                source.reason ?? null,
+                observedAt,
+                observedAt,
+                observedAt,
+                observedAt,
+              ],
+            );
+          }),
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(await taskExists(runtime, source.id)).toBe(false);
+
+      const settings = await runtime.runPromise(SettingsService);
+      await runtime.runPromise(
+        settings.setStationTopology({
+          role: "command-center",
+          hostId: "local",
+          supervisedPreferred: true,
+        }),
+      );
+      // The settings transition is the only signal after configuration.
+      await waitForTask(runtime, source.id);
+    } finally {
+      errorLog.mockRestore();
+      await runtime.dispose();
+    }
+  });
+
+  it("survives a defective iteration and recovers on a later Work signal", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const runtime = makeRuntime();
+    try {
+      const settings = await runtime.runPromise(SettingsService);
+      await runtime.runPromise(
+        settings.setStationTopology({
+          role: "command-center",
+          hostId: "local",
+          supervisedPreferred: true,
+        }),
+      );
+      const canvases = await runtime.runPromise(CanvasesService);
+      await runtime.runPromise(canvases.write("factory", taskCanvas));
+      const repository = await runtime.runPromise(WorkRepository);
+      const mutable = repository as unknown as {
+        legacyProposalMaterializationWitnessPage:
+          typeof repository.legacyProposalMaterializationWitnessPage;
+      };
+      const strongPage = repository.legacyProposalMaterializationWitnessPage;
+      let defectOnce = true;
+      mutable.legacyProposalMaterializationWitnessPage = (input) => {
+        if (defectOnce) {
+          defectOnce = false;
+          return Effect.die(new Error("simulated strong-index defect"));
+        }
+        return strongPage(input);
+      };
+
+      await runtime.runPromise(WorkService);
+      await vi.waitFor(() => {
+        expect(
+          errorLog.mock.calls.some((call) =>
+            String(call[1]).includes("simulated strong-index defect")
+          ),
+        ).toBe(true);
+      });
+
+      const late = proposal("after-defect", actor("7", "after-defect-raiser"));
+      await runtime.runPromise(
+        repository.createProposal({
+          sink: { canvasName: "factory", nodeId: "tasks" },
+          basis: await authorialBasis(runtime),
+          proposal: late,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+      await waitForTask(runtime, late.id);
+    } finally {
+      errorLog.mockRestore();
+      await runtime.dispose();
+    }
+  });
+
+  it("unsubscribes both invalidation sources and ignores callbacks after shutdown", async () => {
+    let repositoryCallback:
+      | Parameters<WorkRepositoryShape["subscribeLegacyProposalMaterializationChanges"]>[0]
+      | undefined;
+    let canvasCallback:
+      | Parameters<CanvasesShape["subscribeChanges"]>[0]
+      | undefined;
+    let repositoryUnsubscribes = 0;
+    let canvasUnsubscribes = 0;
+    let witnessReads = 0;
+    const runtime = makeRuntime({
+      repository: (repository) => ({
+        ...repository,
+        legacyProposalMaterializationWitnessPage: (input) => {
+          witnessReads += 1;
+          return repository.legacyProposalMaterializationWitnessPage(input);
+        },
+        subscribeLegacyProposalMaterializationChanges: (listener) => {
+          repositoryCallback = listener;
+          const unsubscribe =
+            repository.subscribeLegacyProposalMaterializationChanges(listener);
+          return () => {
+            repositoryUnsubscribes += 1;
+            unsubscribe();
+          };
+        },
+      }),
+      canvases: (canvases) => ({
+        ...canvases,
+        subscribeChanges: (listener) => {
+          canvasCallback = listener;
+          const unsubscribe = canvases.subscribeChanges(listener);
+          return () => {
+            canvasUnsubscribes += 1;
+            unsubscribe();
+          };
+        },
+      }),
+    });
+    let disposed = false;
+    try {
+      const settings = await runtime.runPromise(SettingsService);
+      await runtime.runPromise(
+        settings.setStationTopology({
+          role: "command-center",
+          hostId: "local",
+          supervisedPreferred: true,
+        }),
+      );
+      const canvases = await runtime.runPromise(CanvasesService);
+      await runtime.runPromise(canvases.write("factory", taskCanvas));
+      await runtime.runPromise(WorkService);
+      const installOps = await runtime.runPromise(InstallOpsService);
+      await vi.waitFor(
+        async () => {
+          expect(
+            (await runtime.runPromise(
+              installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+            ))?.status,
+          ).toBe("complete");
+        },
+        { timeout: 5_000, interval: 10 },
+      );
+      const beforeProjectionEcho = witnessReads;
+      canvasCallback?.("factory", undefined);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(witnessReads).toBe(beforeProjectionEcho);
+
+      await runtime.dispose();
+      disposed = true;
+      expect(repositoryUnsubscribes).toBe(1);
+      expect(canvasUnsubscribes).toBe(1);
+      const afterDispose = witnessReads;
+      repositoryCallback?.();
+      canvasCallback?.("factory", {
+        previous: undefined,
+        next: undefined,
+      });
+      canvasCallback?.("factory", undefined);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(witnessReads).toBe(afterDispose);
+    } finally {
+      if (!disposed) await runtime.dispose();
+    }
+  });
+
+  it("continues a full sweep past 32 invalid keys and then parks", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const runtime = makeRuntime();
+    try {
+      const settings = await runtime.runPromise(SettingsService);
+      await runtime.runPromise(
+        settings.setStationTopology({
+          role: "command-center",
+          hostId: "local",
+          supervisedPreferred: true,
+        }),
+      );
+      const canvases = await runtime.runPromise(CanvasesService);
+      await runtime.runPromise(canvases.write("factory", taskCanvas));
+      const repository = await runtime.runPromise(WorkRepository);
+      const station = await runtime.runPromise(StationRepository);
+      const home = await runtime.runPromise(station.installationId);
+      const basis = await authorialBasis(runtime);
+      const topology = Schema.decodeUnknownSync(CanvasDoc, strictDecode)(taskCanvas);
+      const dependencyScope = createTaskDependencyScopeCapability({
+        topology,
+        basis,
+        authoringSink: { canvasName: "factory", nodeId: "tasks" },
+      });
+
+      for (let index = 0; index < 32; index += 1) {
+        const id = `a-invalid-${String(index).padStart(2, "0")}`;
+        const source = proposal(id, actor("5", `raiser-${index}`));
+        await runtime.runPromise(
+          repository.createTask({
+            sink: { canvasName: "factory", nodeId: "tasks" },
+            basis,
+            task: materializePendingProposal({ proposal: source }).task,
+            dependencyScope,
+          }),
+        );
+        await runtime.runPromise(
+          repository.createProposal({
+            sink: { canvasName: "factory", nodeId: "tasks" },
+            basis,
+            proposal: source,
+            originAt: observedAt,
+            receivedAt: observedAt,
+          }),
+        );
+      }
+      const valid = proposal("z-valid-after-prefix", actor("6", "valid-raiser"));
+      await runtime.runPromise(
+        repository.createProposal({
+          sink: { canvasName: "factory", nodeId: "tasks" },
+          basis,
+          proposal: valid,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+
+      await runtime.runPromise(WorkService);
+      await waitForTask(runtime, valid.id);
+      const installOps = await runtime.runPromise(InstallOpsService);
+      await vi.waitFor(
+        async () => {
+          expect(
+            (await runtime.runPromise(
+              installOps.getBackfill(BACKFILL_PENDING_PROPOSALS_V1),
+            ))?.status,
+          ).toBe("pending");
+          expect(
+            errorLog.mock.calls.some((call) =>
+              String(call[0]).includes("parked at a fixed point")
+            ),
+          ).toBe(true);
+        },
+        { timeout: 10_000, interval: 10 },
+      );
+      const parked = errorLog.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(errorLog.mock.calls.length).toBe(parked);
+      expect(home).toBeTruthy();
     } finally {
       errorLog.mockRestore();
       await runtime.dispose();

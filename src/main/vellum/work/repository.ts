@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import {
@@ -124,7 +125,6 @@ import {
 } from "@shared/claims";
 import {
   materializePendingProposal,
-  type UnadmittedMaterialization,
 } from "@shared/pending-proposal-backfill";
 import {
   StateEngine,
@@ -451,15 +451,79 @@ export type CreateTaskInput = LocalWorkInput & {
 };
 
 /**
- * One legacy pending-proposal conversion. The repository reconstructs the
- * expected materialization from the durable proposal inside its write
- * transaction; callers cannot use this shape to author or rewrite a Task.
+ * One legacy pending-proposal conversion. Callers provide only the exact
+ * proposal and topology authority. The repository reconstructs the Task from
+ * immutable local history inside the write transaction.
  */
 export type PersistUnadmittedTaskInput = {
   readonly sink: SinkRefValue;
+  readonly proposalId: string;
+  readonly home: InstallationId;
   readonly basis: IntentFactBasisValue;
-  readonly materialization: UnadmittedMaterialization;
   readonly dependencyScope?: TaskDependencyScopeCapability;
+};
+
+declare const LegacyProposalMaterializationCursorTypeId: unique symbol;
+
+/** Opaque keyset continuation. It is valid only for its repository instance. */
+export type LegacyProposalMaterializationCursor = {
+  readonly [LegacyProposalMaterializationCursorTypeId]: true;
+};
+
+export type LegacyProposalMaterializationKey = {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly proposalId: string;
+};
+
+export type LegacyProposalMaterializationDiagnostic = {
+  readonly code:
+    | "proposal-missing"
+    | "proposal-home-mismatch"
+    | "proposal-create-witness-invalid"
+    | "proposal-projection-drift"
+    | "task-collision"
+    | "task-create-witness-invalid"
+    | "not-command-center"
+    | "intent-mismatch"
+    | "dependency-invalid";
+  readonly message: string;
+  readonly authorityReason?: WorkAuthorityError["reason"];
+};
+
+type LegacyProposalMaterializationWitnessBase =
+  LegacyProposalMaterializationKey & {
+    readonly proposalState: TaskProposalValue["state"];
+    readonly dependsOn?: ReadonlyArray<string>;
+  };
+
+/**
+ * A same-id pair is reported as verified only after exact immutable-history
+ * reconstruction. A raw Task collision is an invalid candidate, never a skip.
+ */
+export type LegacyProposalMaterializationWitness =
+  | (LegacyProposalMaterializationWitnessBase & {
+      readonly status: "missing";
+    })
+  | (LegacyProposalMaterializationWitnessBase & {
+      readonly status: "verified";
+      readonly taskId: string;
+    })
+  | (LegacyProposalMaterializationKey & {
+      readonly status: "invalid";
+      readonly proposalState?: TaskProposalValue["state"];
+      readonly dependsOn?: ReadonlyArray<string>;
+      readonly diagnostic: LegacyProposalMaterializationDiagnostic;
+    });
+
+export type LegacyProposalMaterializationWitnessPage = {
+  readonly witnesses: ReadonlyArray<LegacyProposalMaterializationWitness>;
+  readonly next?: LegacyProposalMaterializationCursor;
+};
+
+export type ReadLegacyProposalMaterializationWitnessPageInput = {
+  readonly after?: LegacyProposalMaterializationCursor;
+  readonly limit: number;
 };
 
 export type CreateProposalInput = LocalWorkInput & {
@@ -661,6 +725,8 @@ export type PersistUnadmittedTaskResult =
   | {
       readonly status: "invalid";
       readonly proposalId?: string;
+      readonly diagnostic: LegacyProposalMaterializationDiagnostic;
+      /** Compatibility mirror for existing logs; diagnostic is authoritative. */
       readonly message: string;
     };
 
@@ -2336,6 +2402,43 @@ const loadLaneTasks = (
     );
 };
 
+type ProposalPlanningArms = {
+  readonly dependsOn?: ReadonlyArray<string>;
+  readonly finishCriteria?: TaskProposalValue["finishCriteria"];
+};
+
+const proposalFromRow = (
+  row: ProposalRow,
+  arms: ProposalPlanningArms | undefined,
+): TaskProposalValue => ({
+  // Constructed, not decoded — see messageFromRow. proposeTask /
+  // approveProposal / rejectProposal decode the `TaskProposal` before the
+  // row exists. Field order is the `TaskProposal` schema order.
+  id: row.proposal_id,
+  state: row.state as TaskProposalValue["state"],
+  brief: briefFromJson(row.brief_json),
+  proposedBy: {
+    seatId: row.proposer_seat_id as TaskProposalValue["proposedBy"]["seatId"],
+    canvasName: row.proposer_canvas_name,
+    nodeId: row.proposer_node_id,
+  },
+  ...(row.approved_task_id === null
+    ? {}
+    : { approvedTaskId: row.approved_task_id }),
+  ...(arms?.dependsOn !== undefined ? { dependsOn: arms.dependsOn } : {}),
+  ...(arms?.finishCriteria !== undefined
+    ? { finishCriteria: arms.finishCriteria }
+    : {}),
+  ...(row.metadata_json === null
+    ? {}
+    : {
+        metadata: parseJson(
+          row.metadata_json,
+        ) as TaskProposalValue["metadata"],
+      }),
+  ...(row.reason === null ? {} : { reason: row.reason }),
+});
+
 const loadProposals = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -2360,37 +2463,7 @@ const loadProposals = (
       `,
       [sink.canvasName, sink.nodeId],
     )
-    .map((row): TaskProposalValue => {
-      const arms = planning.get(row.proposal_id);
-      // Constructed, not decoded — see messageFromRow. proposeTask /
-      // approveProposal / rejectProposal decode the `TaskProposal` before the
-      // row exists. Field order is the `TaskProposal` schema order.
-      return {
-        id: row.proposal_id,
-        state: row.state as TaskProposalValue["state"],
-        brief: briefFromJson(row.brief_json),
-        proposedBy: {
-          seatId: row.proposer_seat_id as TaskProposalValue["proposedBy"]["seatId"],
-          canvasName: row.proposer_canvas_name,
-          nodeId: row.proposer_node_id,
-        },
-        ...(row.approved_task_id === null
-          ? {}
-          : { approvedTaskId: row.approved_task_id }),
-        ...(arms?.dependsOn !== undefined ? { dependsOn: arms.dependsOn } : {}),
-        ...(arms?.finishCriteria !== undefined
-          ? { finishCriteria: arms.finishCriteria }
-          : {}),
-        ...(row.metadata_json === null
-          ? {}
-          : {
-              metadata: parseJson(
-                row.metadata_json,
-              ) as TaskProposalValue["metadata"],
-            }),
-        ...(row.reason === null ? {} : { reason: row.reason }),
-      };
-    });
+    .map((row) => proposalFromRow(row, planning.get(row.proposal_id)));
 };
 
 const loadProposalPlanningMap = (
@@ -3738,6 +3811,35 @@ const selectProposalIdentity = (
     [sink.canvasName, sink.nodeId, proposalId],
   );
 
+const proposalProjectionWithinWitnessBudget = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  proposalId: string,
+): boolean => {
+  const row = reader.get<StateRow & { readonly bytes: number }>(
+    `
+      SELECT
+        length(CAST(proposal.brief_json AS BLOB)) +
+        COALESCE(length(CAST(proposal.metadata_json AS BLOB)), 0) +
+        COALESCE(length(CAST(planning.depends_on_json AS BLOB)), 0) +
+        COALESCE(length(CAST(planning.finish_criteria_json AS BLOB)), 0)
+          AS bytes
+      FROM work_task_proposals AS proposal
+      LEFT JOIN work_proposal_planning AS planning
+        ON planning.canvas_name = proposal.canvas_name
+        AND planning.node_id = proposal.node_id
+        AND planning.proposal_id = proposal.proposal_id
+      WHERE proposal.canvas_name = ?
+        AND proposal.node_id = ?
+        AND proposal.proposal_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, proposalId],
+  );
+  return (
+    row === undefined || row.bytes <= LEGACY_WITNESS_MAX_ANCESTRY_BYTES
+  );
+};
+
 const loadProposal = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -3748,10 +3850,54 @@ const loadProposal = (
 } | undefined => {
   const row = selectProposalIdentity(reader, sink, proposalId);
   if (row === undefined) return undefined;
-  const proposal = loadProposals(reader, sink).find(
-    (candidate) => candidate.id === proposalId,
+  const detail = reader.get<
+    ProposalRow & {
+      readonly depends_on_json: string | null;
+      readonly finish_criteria_json: string | null;
+    }
+  >(
+    `
+      SELECT
+        proposal.proposal_id,
+        proposal.state,
+        proposal.brief_json,
+        proposal.proposer_seat_id,
+        proposal.proposer_canvas_name,
+        proposal.proposer_node_id,
+        proposal.approved_task_id,
+        proposal.metadata_json,
+        proposal.reason,
+        planning.depends_on_json,
+        planning.finish_criteria_json
+      FROM work_task_proposals AS proposal
+      LEFT JOIN work_proposal_planning AS planning
+        ON planning.canvas_name = proposal.canvas_name
+        AND planning.node_id = proposal.node_id
+        AND planning.proposal_id = proposal.proposal_id
+      WHERE proposal.canvas_name = ?
+        AND proposal.node_id = ?
+        AND proposal.proposal_id = ?
+    `,
+    [sink.canvasName, sink.nodeId, proposalId],
   );
-  return proposal === undefined ? undefined : { row, proposal };
+  if (detail === undefined) return undefined;
+  const arms: ProposalPlanningArms = {
+    ...(detail.depends_on_json === null
+      ? {}
+      : {
+          dependsOn: parseJson(
+            detail.depends_on_json,
+          ) as ReadonlyArray<string>,
+        }),
+    ...(detail.finish_criteria_json === null
+      ? {}
+      : {
+          finishCriteria: finishCriteriaFromJson(
+            detail.finish_criteria_json,
+          ),
+        }),
+  };
+  return { row, proposal: proposalFromRow(detail, arms) };
 };
 
 const loadTask = (
@@ -4218,7 +4364,8 @@ type StoredProposalEventRow = StateRow & {
   readonly proposal_id: string;
   readonly operation: string;
   readonly content_sha256: string;
-  readonly record_json: string;
+  readonly record_json: string | null;
+  readonly record_bytes: number;
   readonly origin_at: string;
 };
 
@@ -4255,6 +4402,12 @@ const isKnownSchemaDecodeError = (error: unknown): boolean =>
   typeof error === "object" &&
   (error as { readonly _tag?: unknown })._tag === "SchemaError";
 
+const isMissingNormalizedWorkVariantError = (error: unknown): boolean =>
+  error instanceof Error &&
+  /^(?:work command|work fact|work disposition) variant row is missing$/.test(
+    error.message,
+  );
+
 const semanticWorkRecord = (
   record: WorkRecordValue,
 ): WorkRecordSemantic => {
@@ -4283,9 +4436,22 @@ const assertStoredRecordHash = (
   }
 };
 
+const LEGACY_WITNESS_MAX_ANCESTRY_RECORDS = 128;
+const LEGACY_WITNESS_MAX_ANCESTRY_BYTES = 1_048_576;
+const LEGACY_WITNESS_MAX_PAGE_ROWS = 32;
+
 const loadStoredProposalRecord = (
   row: StoredProposalEventRow,
 ): WorkRecordValue => {
+  if (
+    row.record_bytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES ||
+    row.record_json === null
+  ) {
+    throw authorityError(
+      "causal-conflict",
+      "immutable proposal event exceeds the exact-inspection byte budget",
+    );
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(row.record_json) as unknown;
@@ -4327,22 +4493,94 @@ const loadStoredProposalRecord = (
   return record;
 };
 
+const storedWorkRecordBytes = (
+  reader: StateReader,
+  identity: WorkRecordId,
+): number | undefined =>
+  reader.get<StateRow & { readonly bytes: number }>(
+    `
+      SELECT bytes
+      FROM (
+        SELECT length(CAST(record_json AS BLOB)) AS bytes
+        FROM work_proposal_events
+        WHERE event_home = ? AND entity_home = ? AND seq = ?
+
+        UNION ALL
+
+        SELECT
+          length(CAST(event.item_id AS BLOB)) +
+          length(CAST(event.item_canvas_name AS BLOB)) +
+          length(CAST(event.item_node_id AS BLOB)) +
+          length(CAST(event.operation AS BLOB)) +
+          length(CAST(event.origin_at AS BLOB)) +
+          CASE event.record_type
+            WHEN 'command' THEN
+              COALESCE(length(CAST(command.action_json AS BLOB)), 0)
+            WHEN 'fact' THEN
+              COALESCE(length(CAST(fact.result_json AS BLOB)), 0)
+            ELSE
+              COALESCE(length(CAST(disposition.rejection_message AS BLOB)), 0)
+          END AS bytes
+        FROM work_events AS event
+        LEFT JOIN work_commands AS command
+          ON command.event_home = event.event_home
+          AND command.entity_home = event.entity_home
+          AND command.seq = event.seq
+        LEFT JOIN work_facts AS fact
+          ON fact.event_home = event.event_home
+          AND fact.entity_home = event.entity_home
+          AND fact.seq = event.seq
+        LEFT JOIN work_dispositions AS disposition
+          ON disposition.event_home = event.event_home
+          AND disposition.entity_home = event.entity_home
+          AND disposition.seq = event.seq
+        WHERE event.event_home = ?
+          AND event.entity_home = ?
+          AND event.seq = ?
+      )
+      LIMIT 1
+    `,
+    [
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+      identity.route.eventHome,
+      identity.route.entityHome,
+      identity.seq,
+    ],
+  )?.bytes;
+
 const loadStoredTaskRecord = (
   reader: StateReader,
   row: StoredTaskEventRow,
 ): WorkRecordValue => {
+  const identity = recordId(
+    row.event_home as InstallationId,
+    row.entity_home as InstallationId,
+    row.seq,
+  );
+  const storedBytes = storedWorkRecordBytes(reader, identity);
+  if (
+    storedBytes === undefined ||
+    storedBytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES
+  ) {
+    throw authorityError(
+      "causal-conflict",
+      "immutable Task event exceeds the exact-inspection byte budget",
+    );
+  }
   let record: WorkRecordValue | undefined;
   try {
     record = loadRecord(
       reader,
-      recordId(
-        row.event_home as InstallationId,
-        row.entity_home as InstallationId,
-        row.seq,
-      ),
+      identity,
     );
   } catch (error) {
-    if (error instanceof SyntaxError || isKnownSchemaDecodeError(error)) {
+    if (
+      error instanceof SyntaxError ||
+      isKnownSchemaDecodeError(error) ||
+      isMissingNormalizedWorkVariantError(error)
+    ) {
       throw authorityError(
         "causal-conflict",
         "immutable Task event violates the admitted Work history schema",
@@ -4354,6 +4592,15 @@ const loadStoredTaskRecord = (
     throw authorityError(
       "causal-conflict",
       "immutable Task event has no normalized variant",
+    );
+  }
+  if (
+    Buffer.byteLength(canonicalJson(record), "utf8") >
+      LEGACY_WITNESS_MAX_ANCESTRY_BYTES
+  ) {
+    throw authorityError(
+      "causal-conflict",
+      "immutable Task event exceeds the exact-inspection byte budget",
     );
   }
   if (
@@ -4388,6 +4635,28 @@ const sameWorkItemIdentity = (
   record.item.sink.canvasName === sink.canvasName &&
   record.item.sink.nodeId === sink.nodeId;
 
+const normalizeProposalProjectionForWitness = <
+  A extends { readonly dependsOn?: ReadonlyArray<string> },
+>(proposal: A): A | Omit<A, "dependsOn"> => {
+  if (proposal.dependsOn === undefined || proposal.dependsOn.length > 0) {
+    return proposal;
+  }
+  const { dependsOn: _emptyDependsOn, ...normalized } = proposal;
+  return normalized;
+};
+
+const normalizeTaskProjectionForWitness = (task: TaskValue): TaskValue => {
+  const normalizedHistory = task.history.map((entry) => ({
+    ...entry,
+    taskId: task.id,
+  }));
+  if (task.dependsOn === undefined || task.dependsOn.length > 0) {
+    return { ...task, history: normalizedHistory };
+  }
+  const { dependsOn: _emptyDependsOn, ...normalized } = task;
+  return { ...normalized, history: normalizedHistory };
+};
+
 const recordDescendsFrom = (
   reader: StateReader,
   currentIdentityValue: WorkRecordId,
@@ -4395,31 +4664,80 @@ const recordDescendsFrom = (
   kind: "proposal" | "task",
   sink: SinkRefValue,
   itemId: string,
+  currentProjection: TaskProposalValue | TaskValue,
 ): boolean => {
   const visited = new Set<string>();
+  let inspectedBytes = 0;
   let cursor: WorkRecordId | null = currentIdentityValue;
-  for (let depth = 0; cursor !== null && depth < 4_096; depth += 1) {
+  for (
+    let depth = 0;
+    cursor !== null && depth < LEGACY_WITNESS_MAX_ANCESTRY_RECORDS;
+    depth += 1
+  ) {
     const key = `${cursor.route.eventHome}\u0000${cursor.route.entityHome}\u0000${cursor.seq}`;
     if (visited.has(key)) return false;
     visited.add(key);
-    if (sameId(cursor, root)) return true;
+    const atRoot = sameId(cursor, root);
+    if (atRoot && depth > 0) return true;
+
+    const storedBytes = storedWorkRecordBytes(reader, cursor);
+    if (storedBytes === undefined) return false;
+    inspectedBytes += storedBytes;
+    if (inspectedBytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES) return false;
 
     let record: WorkRecordValue | undefined;
     try {
       record = loadRecord(reader, cursor);
     } catch (error) {
-      if (error instanceof SyntaxError || isKnownSchemaDecodeError(error)) {
+      if (
+        error instanceof SyntaxError ||
+        isKnownSchemaDecodeError(error) ||
+        isMissingNormalizedWorkVariantError(error)
+      ) {
         return false;
       }
       throw error;
     }
+    const storedHash = durableRecordHash(reader, cursor);
     if (
       record === undefined ||
+      storedHash === undefined ||
+      storedHash !== record.contentSha256 ||
+      workRecordContentSha256(semanticWorkRecord(record)) !==
+        record.contentSha256 ||
       record.recordType !== "fact" ||
       !sameWorkItemIdentity(record, kind, sink, itemId)
     ) {
       return false;
     }
+    if (depth === 0) {
+      if (kind === "proposal") {
+        if (!("proposal" in record.body)) return false;
+        const { claims: _recordedClaims, ...recordedProjection } =
+          record.body.proposal;
+        const { claims: _currentClaims, ...current } =
+          currentProjection as TaskProposalValue;
+        if (
+          canonicalJson(
+            normalizeProposalProjectionForWitness(recordedProjection),
+          ) !==
+          canonicalJson(normalizeProposalProjectionForWitness(current))
+        ) {
+          return false;
+        }
+      } else {
+        if (
+          !("task" in record.body) ||
+          canonicalJson(normalizeTaskProjectionForWitness(record.body.task)) !==
+            canonicalJson(
+              normalizeTaskProjectionForWitness(currentProjection as TaskValue),
+            )
+        ) {
+          return false;
+        }
+      }
+    }
+    if (atRoot) return true;
     if (record.predecessor !== null) {
       cursor = record.predecessor;
       continue;
@@ -4429,11 +4747,22 @@ const recordDescendsFrom = (
       record.body.operation === "task.claim" &&
       record.basis.kind === "command"
     ) {
+      const storedCommandBytes = storedWorkRecordBytes(
+        reader,
+        record.basis.command,
+      );
+      if (storedCommandBytes === undefined) return false;
+      inspectedBytes += storedCommandBytes;
+      if (inspectedBytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES) return false;
       let command: WorkRecordValue | undefined;
       try {
         command = loadRecord(reader, record.basis.command);
       } catch (error) {
-        if (error instanceof SyntaxError || isKnownSchemaDecodeError(error)) {
+        if (
+          error instanceof SyntaxError ||
+          isKnownSchemaDecodeError(error) ||
+          isMissingNormalizedWorkVariantError(error)
+        ) {
           return false;
         }
         throw error;
@@ -4441,6 +4770,8 @@ const recordDescendsFrom = (
       if (
         command === undefined ||
         command.recordType !== "command" ||
+        durableRecordHash(reader, record.basis.command) !==
+          command.contentSha256 ||
         command.contentSha256 !== record.basis.commandSha256 ||
         workRecordContentSha256(semanticWorkRecord(command)) !==
           command.contentSha256 ||
@@ -4482,24 +4813,26 @@ const exactProposalCreateWitness = (
         proposal_id,
         operation,
         content_sha256,
-        record_json,
+        length(CAST(record_json AS BLOB)) AS record_bytes,
+        CASE
+          WHEN length(CAST(record_json AS BLOB)) <= ? THEN record_json
+          ELSE NULL
+        END AS record_json,
         origin_at
       FROM work_proposal_events
       WHERE canvas_name = ?
         AND node_id = ?
         AND proposal_id = ?
-        AND event_home = ?
-        AND entity_home = ?
         AND record_type = 'fact'
         AND operation = 'proposal.create'
-      ORDER BY length(seq), seq
+      ORDER BY event_home, entity_home, length(seq), seq
+      LIMIT 2
     `,
     [
+      LEGACY_WITNESS_MAX_ANCESTRY_BYTES,
       sink.canvasName,
       sink.nodeId,
       proposalId,
-      expectedHome,
-      expectedHome,
     ],
   );
   if (rows.length !== 1) {
@@ -4510,6 +4843,8 @@ const exactProposalCreateWitness = (
   }
   const record = loadStoredProposalRecord(rows[0]!);
   if (
+    record.id.route.eventHome !== expectedHome ||
+    record.id.route.entityHome !== expectedHome ||
     record.recordType !== "fact" ||
     record.body.operation !== "proposal.create" ||
     record.predecessor !== null ||
@@ -4530,6 +4865,7 @@ const exactProposalCreateWitness = (
       "proposal",
       sink,
       proposalId,
+      current.proposal,
     )
   ) {
     throw authorityError(
@@ -4549,7 +4885,10 @@ const exactProposalCreateWitness = (
     approvedTaskId: _currentApprovedTaskId,
     ...currentProjection
   } = current.proposal;
-  if (canonicalJson(loggedProjection) !== canonicalJson(currentProjection)) {
+  if (
+    canonicalJson(normalizeProposalProjectionForWitness(loggedProjection)) !==
+    canonicalJson(normalizeProposalProjectionForWitness(currentProjection))
+  ) {
     throw authorityError(
       "causal-conflict",
       "durable proposal authoring fields differ from its immutable create fact",
@@ -4590,15 +4929,12 @@ const assertExactProposalTask = (
   return expected;
 };
 
-const exactTaskCreateWitness = (
+const loadTaskCreateWitnessRows = (
   reader: StateReader,
   sink: SinkRefValue,
-  expectedTask: TaskValue,
-  localInstallationId: InstallationId,
-  proposalCreate: ExactProposalCreateFact,
-  current: NonNullable<ReturnType<typeof loadTask>>,
-): ExactTaskCreateFact => {
-  const rows = reader.all<StoredTaskEventRow>(
+  taskId: string,
+): ReadonlyArray<StoredTaskEventRow> =>
+  reader.all<StoredTaskEventRow>(
     `
       SELECT
         event.event_home,
@@ -4613,50 +4949,63 @@ const exactTaskCreateWitness = (
         event.content_sha256,
         event.origin_at
       FROM work_events AS event
-      JOIN work_facts AS fact
-        ON fact.event_home = event.event_home
-        AND fact.entity_home = event.entity_home
-        AND fact.seq = event.seq
       WHERE event.item_kind = 'task'
         AND event.item_id = ?
         AND event.item_canvas_name = ?
         AND event.item_node_id = ?
-        AND event.event_home = ?
-        AND event.entity_home = ?
         AND event.record_type = 'fact'
         AND event.operation = 'task.create'
-      ORDER BY length(event.seq), event.seq
+      ORDER BY event.event_home, event.entity_home, length(event.seq), event.seq
+      LIMIT 2
     `,
-    [
-      expectedTask.id,
-      sink.canvasName,
-      sink.nodeId,
-      localInstallationId,
-      localInstallationId,
-    ],
+    [taskId, sink.canvasName, sink.nodeId],
   );
+
+const exactTaskCreateWitness = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  expectedTask: TaskValue,
+  localInstallationId: InstallationId,
+  proposalCreate: ExactProposalCreateFact,
+  current: NonNullable<ReturnType<typeof loadTask>>,
+  rows = loadTaskCreateWitnessRows(reader, sink, expectedTask.id),
+): ExactTaskCreateFact => {
   if (rows.length !== 1) {
     throw authorityError(
       "identity-conflict",
-      `task ${JSON.stringify(expectedTask.id)} collision has no unique local immutable create fact`,
+      `task ${JSON.stringify(expectedTask.id)} collision has no unique immutable create fact`,
     );
   }
-  const record = loadStoredTaskRecord(reader, rows[0]!);
+  const row = rows[0]!;
+  if (
+    row.event_home !== localInstallationId ||
+    row.entity_home !== localInstallationId
+  ) {
+    throw authorityError(
+      "identity-conflict",
+      "colliding Task create fact is not homed on the local Command Center route",
+    );
+  }
+  const record = loadStoredTaskRecord(reader, row);
   if (
     record.recordType !== "fact" ||
     record.body.operation !== "task.create" ||
     record.predecessor !== null ||
     record.basis.kind !== "authorial-intent" ||
+    record.id.route.eventHome !== localInstallationId ||
+    record.id.route.entityHome !== localInstallationId ||
     canonicalJson(record.body.task) !== canonicalJson(expectedTask) ||
     BigInt(record.id.seq) <= BigInt(proposalCreate.id.seq)
   ) {
     throw authorityError(
       "identity-conflict",
-      "colliding Task create fact does not match reconstructed identity, home, or proposal provenance",
+      "colliding Task create fact does not match reconstructed identity, home, ordering, or proposal provenance",
     );
   }
   const fact = record as ExactTaskCreateFact;
   if (
+    current.row.entity_home !== localInstallationId ||
+    current.row.fact_entity_home !== localInstallationId ||
     !recordDescendsFrom(
       reader,
       currentIdentity(current.row),
@@ -4664,6 +5013,7 @@ const exactTaskCreateWitness = (
       "task",
       sink,
       expectedTask.id,
+      current.task,
     )
   ) {
     throw authorityError(
@@ -4672,6 +5022,232 @@ const exactTaskCreateWitness = (
     );
   }
   return fact;
+};
+
+type ExactLegacyMaterializationInspection =
+  | {
+      readonly status: "missing";
+      readonly proposalState: TaskProposalValue["state"];
+      readonly materialization: ReturnType<typeof materializePendingProposal>;
+      readonly proposalCreate: ExactProposalCreateFact;
+    }
+  | {
+      readonly status: "verified";
+      readonly proposalState: TaskProposalValue["state"];
+      readonly materialization: ReturnType<typeof materializePendingProposal>;
+      readonly proposalCreate: ExactProposalCreateFact;
+      readonly taskCreate: ExactTaskCreateFact;
+    }
+  | {
+      readonly status: "invalid";
+      readonly proposalState?: TaskProposalValue["state"];
+      readonly dependsOn?: ReadonlyArray<string>;
+      readonly diagnostic: LegacyProposalMaterializationDiagnostic;
+    };
+
+const inspectionDiagnostic = (
+  code: LegacyProposalMaterializationDiagnostic["code"],
+  fallback: string,
+  error?: unknown,
+): LegacyProposalMaterializationDiagnostic => ({
+  code,
+  message:
+    error instanceof Error && error.message.trim().length > 0
+      ? error.message
+      : fallback,
+  ...(error instanceof WorkAuthorityError
+    ? { authorityReason: error.reason }
+    : {}),
+});
+
+const knownInspectionError = (error: unknown): boolean =>
+  error instanceof WorkAuthorityError ||
+  error instanceof SyntaxError ||
+  isKnownSchemaDecodeError(error);
+
+/**
+ * The only legacy proposal -> Task materialization inspector. Both the write
+ * path and the read witness index call this exact function, so collision,
+ * hash, provenance, and descent decisions cannot drift.
+ */
+const inspectExactLegacyMaterialization = (
+  reader: StateReader,
+  input: {
+    readonly sink: SinkRefValue;
+    readonly proposalId: string;
+    readonly localInstallationId: InstallationId;
+  },
+): ExactLegacyMaterializationInspection => {
+  let current: NonNullable<ReturnType<typeof loadProposal>>;
+  try {
+    if (
+      !proposalProjectionWithinWitnessBudget(
+        reader,
+        input.sink,
+        input.proposalId,
+      )
+    ) {
+      throw authorityError(
+        "causal-conflict",
+        "durable proposal projection exceeds the exact-inspection byte budget",
+      );
+    }
+    const loaded = loadProposal(reader, input.sink, input.proposalId);
+    if (loaded === undefined) {
+      return {
+        status: "invalid",
+        diagnostic: inspectionDiagnostic(
+          "proposal-missing",
+          `proposal ${JSON.stringify(input.proposalId)} does not exist at the exact sink`,
+        ),
+      };
+    }
+    current = loaded;
+    Schema.decodeUnknownSync(TaskProposal, strictDecode)(current.proposal);
+  } catch (error) {
+    if (!knownInspectionError(error)) throw error;
+    return {
+      status: "invalid",
+      diagnostic: inspectionDiagnostic(
+        "proposal-create-witness-invalid",
+        "durable proposal violates the current proposal schema",
+        error,
+      ),
+    };
+  }
+
+  const proposalState = current.proposal.state;
+  const dependsOn = current.proposal.dependsOn;
+  if (
+    current.row.entity_home !== input.localInstallationId ||
+    current.row.fact_event_home !== input.localInstallationId ||
+    current.row.fact_entity_home !== input.localInstallationId
+  ) {
+    return {
+      status: "invalid",
+      proposalState,
+      ...(dependsOn === undefined ? {} : { dependsOn }),
+      diagnostic: inspectionDiagnostic(
+        "proposal-home-mismatch",
+        `proposal ${JSON.stringify(input.proposalId)} is not homed in the local Command Center fact lane`,
+      ),
+    };
+  }
+
+  let proposalCreate: ExactProposalCreateFact;
+  let materialization: ReturnType<typeof materializePendingProposal>;
+  try {
+    proposalCreate = exactProposalCreateWitness(
+      reader,
+      input.sink,
+      input.proposalId,
+      input.localInstallationId,
+      current,
+    );
+    materialization = materializePendingProposal({
+      proposal: proposalCreate.body.proposal,
+    });
+  } catch (error) {
+    if (!knownInspectionError(error)) throw error;
+    const projectionDrift =
+      error instanceof WorkAuthorityError &&
+      error.message.includes("authoring fields differ");
+    return {
+      status: "invalid",
+      proposalState,
+      ...(dependsOn === undefined ? {} : { dependsOn }),
+      diagnostic: inspectionDiagnostic(
+        projectionDrift
+          ? "proposal-projection-drift"
+          : "proposal-create-witness-invalid",
+        "durable proposal has no exact immutable create witness",
+        error,
+      ),
+    };
+  }
+
+  const exactDependsOn = materialization.task.dependsOn;
+  let taskRows: ReadonlyArray<StoredTaskEventRow>;
+  let existing: ReturnType<typeof loadTask>;
+  try {
+    taskRows = loadTaskCreateWitnessRows(
+      reader,
+      input.sink,
+      materialization.task.id,
+    );
+    existing = loadTask(
+      reader,
+      "task",
+      input.sink,
+      materialization.task.id,
+    );
+    if (existing !== undefined) {
+      Schema.decodeUnknownSync(Task, strictDecode)(existing.task);
+    }
+  } catch (error) {
+    if (!knownInspectionError(error)) throw error;
+    return {
+      status: "invalid",
+      proposalState,
+      ...(exactDependsOn === undefined ? {} : { dependsOn: exactDependsOn }),
+      diagnostic: inspectionDiagnostic(
+        "task-collision",
+        "colliding durable Task violates the current Task schema",
+        error,
+      ),
+    };
+  }
+
+  if (existing === undefined) {
+    if (taskRows.length !== 0) {
+      return {
+        status: "invalid",
+        proposalState,
+        ...(exactDependsOn === undefined ? {} : { dependsOn: exactDependsOn }),
+        diagnostic: inspectionDiagnostic(
+          "task-collision",
+          `task ${JSON.stringify(materialization.task.id)} has an orphan immutable create fact without a current Task`,
+        ),
+      };
+    }
+    return {
+      status: "missing",
+      proposalState,
+      materialization,
+      proposalCreate,
+    };
+  }
+
+  try {
+    const taskCreate = exactTaskCreateWitness(
+      reader,
+      input.sink,
+      materialization.task,
+      input.localInstallationId,
+      proposalCreate,
+      existing,
+      taskRows,
+    );
+    return {
+      status: "verified",
+      proposalState,
+      materialization,
+      proposalCreate,
+      taskCreate,
+    };
+  } catch (error) {
+    if (!knownInspectionError(error)) throw error;
+    return {
+      status: "invalid",
+      proposalState,
+      ...(exactDependsOn === undefined ? {} : { dependsOn: exactDependsOn }),
+      diagnostic: inspectionDiagnostic(
+        "task-create-witness-invalid",
+        "colliding Task has no exact immutable create witness",
+        error,
+      ),
+    };
+  }
 };
 
 const assertTaskCreateProposalGate = (
@@ -8151,6 +8727,16 @@ export interface WorkRepositoryShape {
       nodeId: string,
       itemId: string,
     ) => Effect.Effect<InstallationId | undefined, WorkRepositoryError>;
+    /**
+     * Batched exact legacy witnesses across every proposal state. The opaque
+     * cursor advances past every visited row, including invalid collisions.
+     */
+    readonly legacyProposalMaterializationWitnessPage: (
+      input: ReadLegacyProposalMaterializationWitnessPageInput,
+    ) => Effect.Effect<
+      LegacyProposalMaterializationWitnessPage,
+      RepositoryFailure
+    >;
     readonly hasAcceptedDelivery: (
       sink: SinkRefValue,
       deliveryId: string,
@@ -8288,6 +8874,12 @@ export interface WorkRepositoryShape {
     readonly acceptRecords: (
       input: AcceptRecordsInput,
     ) => Effect.Effect<AcceptRecordsResult, ReplicationFailure>;
+    /** Process-local epoch for exact legacy proposal/Task reconciliation. */
+    readonly legacyProposalMaterializationEpoch: () => number;
+    /** Only proposal create/approve/reject and task.create commits publish here. */
+    readonly subscribeLegacyProposalMaterializationChanges: (
+      listener: () => void,
+    ) => () => void;
     readonly subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
     ) => () => void;
@@ -8304,6 +8896,26 @@ export const WorkRepositoryLive = Layer.effect(
     const state = yield* StateEngine;
     const listeners = new Set<
       (canvasName: string, nodeId: string) => void
+    >();
+    const legacyMaterializationListeners = new Set<() => void>();
+    let legacyMaterializationEpoch = 0;
+    const notifyLegacyMaterializationChange = (): void => {
+      legacyMaterializationEpoch += 1;
+      for (const listener of legacyMaterializationListeners) {
+        try {
+          listener();
+        } catch (error) {
+          console.error(
+            "[work] legacy proposal materialization listener failed:",
+            error,
+          );
+        }
+      }
+    };
+    type LegacyWitnessCursorData = LegacyProposalMaterializationKey;
+    const legacyWitnessCursors = new WeakMap<
+      object,
+      LegacyWitnessCursorData
     >();
 
     const notify = (sink: SinkRefValue): void => {
@@ -8388,6 +9000,149 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
 
+    const legacyProposalMaterializationWitnessPage = (
+      input: ReadLegacyProposalMaterializationWitnessPageInput,
+    ): Effect.Effect<
+      LegacyProposalMaterializationWitnessPage,
+      RepositoryFailure
+    > => {
+      const limit =
+        Number.isSafeInteger(input.limit) && input.limit > 0
+          ? Math.min(input.limit, LEGACY_WITNESS_MAX_PAGE_ROWS)
+          : LEGACY_WITNESS_MAX_PAGE_ROWS;
+      let after: LegacyWitnessCursorData | undefined;
+      if (input.after !== undefined) {
+        after = legacyWitnessCursors.get(input.after as object);
+        if (after === undefined) {
+          return Effect.fail(
+            authorityError(
+              "authority-mismatch",
+              "legacy proposal witness cursor is not valid for this repository process",
+            ),
+          );
+        }
+      }
+
+      return state.read(
+        "work.legacyProposalMaterializationWitnessPage",
+        (reader): LegacyProposalMaterializationWitnessPage => {
+          const authority = canonicalLocalWorkAuthority(reader);
+          if (authority.role !== "command-center") {
+            throw authorityError(
+              "authority-mismatch",
+              "legacy pending proposal witnesses are available only at Command Center",
+            );
+          }
+          const rows = reader.all<
+            StateRow & {
+              readonly canvas_name: string;
+              readonly node_id: string;
+              readonly proposal_id: string;
+              readonly state: TaskProposalValue["state"];
+            }
+          >(
+            after === undefined
+              ? `
+                  SELECT canvas_name, node_id, proposal_id, state
+                  FROM work_task_proposals
+                  ORDER BY canvas_name, node_id, proposal_id
+                  LIMIT ?
+                `
+              : `
+                  SELECT canvas_name, node_id, proposal_id, state
+                  FROM work_task_proposals
+                  WHERE canvas_name > ?
+                    OR (canvas_name = ? AND node_id > ?)
+                    OR (
+                      canvas_name = ?
+                      AND node_id = ?
+                      AND proposal_id > ?
+                    )
+                  ORDER BY canvas_name, node_id, proposal_id
+                  LIMIT ?
+                `,
+            after === undefined
+              ? [limit]
+              : [
+                  after.canvasName,
+                  after.canvasName,
+                  after.nodeId,
+                  after.canvasName,
+                  after.nodeId,
+                  after.proposalId,
+                  limit,
+                ],
+          );
+          const visited = rows;
+          const witnesses = visited.map(
+            (row): LegacyProposalMaterializationWitness => {
+              const key: LegacyProposalMaterializationKey = {
+                canvasName: row.canvas_name,
+                nodeId: row.node_id,
+                proposalId: row.proposal_id,
+              };
+              const inspection = inspectExactLegacyMaterialization(reader, {
+                sink: {
+                  canvasName: row.canvas_name,
+                  nodeId: row.node_id,
+                },
+                proposalId: row.proposal_id,
+                localInstallationId: authority.installationId,
+              });
+              if (inspection.status === "invalid") {
+                return {
+                  ...key,
+                  status: "invalid",
+                  proposalState:
+                    inspection.proposalState ?? row.state,
+                  ...(inspection.dependsOn === undefined
+                    ? {}
+                    : { dependsOn: inspection.dependsOn }),
+                  diagnostic: inspection.diagnostic,
+                };
+              }
+              const dependsOn = inspection.materialization.task.dependsOn;
+              if (inspection.status === "missing") {
+                return {
+                  ...key,
+                  status: "missing",
+                  proposalState: inspection.proposalState,
+                  ...(dependsOn === undefined ? {} : { dependsOn }),
+                };
+              }
+              return {
+                ...key,
+                status: "verified",
+                proposalState: inspection.proposalState,
+                ...(dependsOn === undefined ? {} : { dependsOn }),
+                taskId: inspection.materialization.task.id,
+              };
+            },
+          );
+
+          if (rows.length < limit || visited.length === 0) {
+            return { witnesses };
+          }
+          const last = visited[visited.length - 1]!;
+          const cursor = Object.freeze({}) as LegacyProposalMaterializationCursor;
+          legacyWitnessCursors.set(cursor as object, {
+            canvasName: last.canvas_name,
+            nodeId: last.node_id,
+            proposalId: last.proposal_id,
+          });
+          return { witnesses, next: cursor };
+        },
+      ).pipe(
+        Effect.mapError((error) =>
+          unwrapStateFailure(
+            "work.legacyProposalMaterializationWitnessPage",
+            error,
+            WorkAuthorityError as unknown as new (...args: never[]) => WorkAuthorityError,
+          )
+        ),
+      );
+    };
+
     const hasAcceptedDelivery = (
       sink: SinkRefValue,
       deliveryId: string,
@@ -8423,10 +9178,20 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
 
+    type LegacyMaterializationImpact =
+      | boolean
+      | {
+          readonly taskRefs: ReadonlyArray<{
+            readonly sink: SinkRefValue;
+            readonly taskId: string;
+          }>;
+        };
+
     const transaction = <A>(
       operation: string,
       sink: SinkRefValue,
       body: (writer: StateWriter) => A,
+      legacyMaterializationImpact: LegacyMaterializationImpact = false,
     ): Effect.Effect<A, RepositoryFailure> =>
       state
         .transaction(operation, (writer) => {
@@ -8437,10 +9202,17 @@ export const WorkRepositoryLive = Layer.effect(
           const after = writer.get<
             StateRow & { readonly total_changes: number | bigint }
           >("SELECT total_changes() AS total_changes")!.total_changes;
-          return {
-            value,
-            changed: BigInt(after) > BigInt(before),
-          };
+          const changed = BigInt(after) > BigInt(before);
+          const legacyMaterializationChanged =
+            changed &&
+            (legacyMaterializationImpact === true ||
+              (legacyMaterializationImpact !== false &&
+                legacyMaterializationImpact.taskRefs.some(
+                  (ref) =>
+                    selectProposalIdentity(writer, ref.sink, ref.taskId) !==
+                    undefined,
+                )));
+          return { value, changed, legacyMaterializationChanged };
         })
         .pipe(
           Effect.mapError((error) =>
@@ -8450,8 +9222,15 @@ export const WorkRepositoryLive = Layer.effect(
               WorkAuthorityError as unknown as new (...args: never[]) => WorkAuthorityError,
             ),
           ),
-          Effect.tap(({ changed }) =>
-            changed ? Effect.sync(() => notify(sink)) : Effect.void,
+          Effect.tap(({ changed, legacyMaterializationChanged }) =>
+            changed
+              ? Effect.sync(() => {
+                  notify(sink);
+                  if (legacyMaterializationChanged) {
+                    notifyLegacyMaterializationChange();
+                  }
+                })
+              : Effect.void,
           ),
           Effect.map(({ value }) => value),
         );
@@ -8515,7 +9294,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, true);
     };
 
     const persistUnadmittedTask = (
@@ -8527,169 +9306,80 @@ export const WorkRepositoryLive = Layer.effect(
         "work.task.persist-unadmitted",
         input.sink,
         (writer): PersistUnadmittedTaskResult => {
-          const rawMaterialization: unknown = input.materialization;
-          const rawRecord =
-            typeof rawMaterialization === "object" &&
-              rawMaterialization !== null &&
-              !Array.isArray(rawMaterialization)
-              ? rawMaterialization as Record<string, unknown>
-              : undefined;
-          const rawTask = rawRecord?.task;
-          const proposalId =
-            typeof rawTask === "object" &&
-              rawTask !== null &&
-              !Array.isArray(rawTask) &&
-              typeof (rawTask as Record<string, unknown>).id === "string"
-              ? (rawTask as Record<string, unknown>).id as string
-              : undefined;
-          const invalid = (message: string): PersistUnadmittedTaskResult => ({
+          const invalid = (
+            diagnostic: LegacyProposalMaterializationDiagnostic,
+          ): PersistUnadmittedTaskResult => ({
             status: "invalid",
-            ...(proposalId === undefined ? {} : { proposalId }),
-            message,
+            ...(input.proposalId.length === 0
+              ? {}
+              : { proposalId: input.proposalId }),
+            diagnostic,
+            message: diagnostic.message,
           });
 
           const authority = canonicalLocalWorkAuthority(writer);
           if (authority.role !== "command-center") {
             return invalid(
-              "legacy pending proposals may be materialized only at Command Center",
+              inspectionDiagnostic(
+                "not-command-center",
+                "legacy pending proposals may be materialized only at Command Center",
+              ),
+            );
+          }
+          if (input.home !== authority.installationId) {
+            return invalid(
+              inspectionDiagnostic(
+                "proposal-home-mismatch",
+                `legacy proposal ${JSON.stringify(input.proposalId)} is not homed on this Command Center`,
+              ),
             );
           }
           try {
             assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
           } catch (error) {
             if (error instanceof WorkAuthorityError) {
-              return invalid(error.message);
-            }
-            throw error;
-          }
-          if (proposalId === undefined || proposalId.length === 0) {
-            return invalid("materialization has no valid proposal Task id");
-          }
-
-          const decodedTask = Schema.decodeUnknownResult(
-            Task,
-            strictDecode,
-          )(rawTask);
-          if (Result.isFailure(decodedTask)) {
-            return invalid("materialized Task violates the current Task schema");
-          }
-          const decodedRaisedBy = Schema.decodeUnknownResult(
-            ActorRefSchema,
-            strictDecode,
-          )(rawRecord?.raisedBy);
-          if (Result.isFailure(decodedRaisedBy)) {
-            return invalid("materialized raisedBy violates the ActorRef schema");
-          }
-          if (rawRecord?.admission !== "operator-gated") {
-            return invalid(
-              "legacy pending proposal materialization must remain operator-gated",
-            );
-          }
-          const task = decodedTask.success;
-          const materialization: UnadmittedMaterialization = {
-            task,
-            admission: "operator-gated",
-            raisedBy: decodedRaisedBy.success,
-          };
-
-          let current: ReturnType<typeof loadProposal>;
-          try {
-            current = loadProposal(writer, input.sink, proposalId);
-          } catch (error) {
-            if (error instanceof SyntaxError || isKnownSchemaDecodeError(error)) {
               return invalid(
-                "durable pending proposal fields violate the current proposal schema",
+                inspectionDiagnostic(
+                  "intent-mismatch",
+                  "legacy proposal intent basis is no longer current",
+                  error,
+                ),
               );
             }
             throw error;
           }
-          if (current === undefined) {
+          if (input.proposalId.length === 0) {
             return invalid(
-              `proposal ${JSON.stringify(proposalId)} does not exist at the exact sink`,
+              inspectionDiagnostic(
+                "proposal-missing",
+                "legacy materialization has no valid proposal id",
+              ),
             );
           }
-          if (current.proposal.state !== "pending") {
+
+          const inspection = inspectExactLegacyMaterialization(writer, {
+            sink: input.sink,
+            proposalId: input.proposalId,
+            localInstallationId: authority.installationId,
+          });
+          if (inspection.status === "invalid") {
+            return invalid(inspection.diagnostic);
+          }
+          if (inspection.proposalState !== "pending") {
             return {
               status: "no-longer-pending",
-              proposalId,
-              proposalState: current.proposal.state,
+              proposalId: input.proposalId,
+              proposalState: inspection.proposalState,
             };
           }
-          if (
-            current.row.entity_home !== authority.installationId ||
-            current.row.fact_event_home !== authority.installationId ||
-            current.row.fact_entity_home !== authority.installationId
-          ) {
-            return invalid(
-              `proposal ${JSON.stringify(proposalId)} is not homed in the local Command Center fact lane`,
-            );
+          if (inspection.status === "verified") {
+            return {
+              status: "already-materialized",
+              taskId: inspection.materialization.task.id,
+            };
           }
 
-          let proposalCreate: ExactProposalCreateFact;
-          let expected: UnadmittedMaterialization;
-          try {
-            proposalCreate = exactProposalCreateWitness(
-              writer,
-              input.sink,
-              proposalId,
-              authority.installationId,
-              current,
-            );
-            expected = materializePendingProposal({
-              proposal: proposalCreate.body.proposal,
-            });
-          } catch (error) {
-            if (error instanceof WorkAuthorityError) {
-              return invalid(error.message);
-            }
-            if (error instanceof SyntaxError || isKnownSchemaDecodeError(error)) {
-              return invalid(
-                "durable proposal cannot produce a schema-valid unadmitted Task",
-              );
-            }
-            throw error;
-          }
-          if (canonicalJson(materialization) !== canonicalJson(expected)) {
-            return invalid(
-              `proposal ${JSON.stringify(proposalId)} changed before its exact Task materialization`,
-            );
-          }
-
-          let existing: ReturnType<typeof loadTask>;
-          try {
-            existing = loadTask(
-              writer,
-              "task",
-              input.sink,
-              task.id,
-            );
-          } catch (error) {
-            if (error instanceof SyntaxError || isKnownSchemaDecodeError(error)) {
-              return invalid(
-                "colliding durable Task violates the current Task schema",
-              );
-            }
-            throw error;
-          }
-          if (existing !== undefined) {
-            try {
-              exactTaskCreateWitness(
-                writer,
-                input.sink,
-                expected.task,
-                authority.installationId,
-                proposalCreate,
-                existing,
-              );
-            } catch (error) {
-              if (error instanceof WorkAuthorityError) {
-                return invalid(error.message);
-              }
-              throw error;
-            }
-            return { status: "already-materialized", taskId: task.id };
-          }
-
+          const task = inspection.materialization.task;
           try {
             assertTaskDependenciesInLocalScope(
               writer,
@@ -8701,7 +9391,13 @@ export const WorkRepositoryLive = Layer.effect(
             );
           } catch (error) {
             if (error instanceof WorkAuthorityError) {
-              return invalid(error.message);
+              return invalid(
+                inspectionDiagnostic(
+                  "dependency-invalid",
+                  "legacy proposal dependencies are not currently admissible",
+                  error,
+                ),
+              );
             }
             throw error;
           }
@@ -8719,6 +9415,7 @@ export const WorkRepositoryLive = Layer.effect(
           });
           return { status: "created", result };
         },
+        true,
       );
     };
 
@@ -8774,7 +9471,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, true);
     };
 
     const approveProposal = (
@@ -8811,28 +9508,27 @@ export const WorkRepositoryLive = Layer.effect(
             `proposal "${input.proposalId}" is not locally pending`,
           );
         }
-        const proposalCreate = exactProposalCreateWitness(
-          writer,
-          input.sink,
-          input.proposalId,
-          authority.installationId,
-          current,
-        );
-        const expectedTask = assertExactProposalTask(proposalCreate, task);
-        assertCanonicalHoldUntil(expectedTask);
-        if (
-          selectTaskIdentity(
-            writer,
-            "task",
-            input.sink,
-            expectedTask.id,
-          ) !== undefined
-        ) {
+        const inspection = inspectExactLegacyMaterialization(writer, {
+          sink: input.sink,
+          proposalId: input.proposalId,
+          localInstallationId: authority.installationId,
+        });
+        if (inspection.status === "invalid") {
           throw authorityError(
-            "identity-conflict",
-            `stable Task ${JSON.stringify(expectedTask.id)} already exists`,
+            inspection.diagnostic.authorityReason ?? "causal-conflict",
+            inspection.diagnostic.message,
           );
         }
+        if (inspection.proposalState !== "pending") {
+          throw authorityError(
+            "invalid-transition",
+            `proposal ${JSON.stringify(input.proposalId)} is no longer pending`,
+          );
+        }
+        const proposalCreate = inspection.proposalCreate;
+        const expectedTask = assertExactProposalTask(proposalCreate, task);
+        const taskAlreadyMaterialized = inspection.status === "verified";
+        assertCanonicalHoldUntil(expectedTask);
         assertTaskDependenciesInLocalScope(
           writer,
           input.sink,
@@ -8858,24 +9554,26 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-        commitLocalFact(writer, {
-          localInstallationId: authority.installationId,
-          sink: input.sink,
-          basis: input.basis,
-          item: item("task", expectedTask.id, input.sink),
-          operation: "task.create",
-          predecessor: null,
-          body: { operation: "task.create", task: expectedTask },
-          value: expectedTask,
-          originAt,
-          receivedAt,
-        });
+        if (!taskAlreadyMaterialized) {
+          commitLocalFact(writer, {
+            localInstallationId: authority.installationId,
+            sink: input.sink,
+            basis: input.basis,
+            item: item("task", expectedTask.id, input.sink),
+            operation: "task.create",
+            predecessor: null,
+            body: { operation: "task.create", task: expectedTask },
+            value: expectedTask,
+            originAt,
+            receivedAt,
+          });
+        }
         return {
           value: { proposal, task: expectedTask },
           record: proposalFact.record,
           snapshot: loadSnapshot(writer, input.sink),
         };
-      });
+      }, true);
     };
 
     const rejectProposal = (
@@ -8926,7 +9624,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, true);
     };
 
     const describeTask = (
@@ -8987,7 +9685,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
     };
 
     const transitionTask = (
@@ -9097,7 +9795,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
     };
 
     const claimLocalTask = (
@@ -9176,7 +9874,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
     };
 
     const forwardTask = (
@@ -9330,7 +10028,7 @@ export const WorkRepositoryLive = Layer.effect(
           record: sourceFact.record,
           snapshot: loadSnapshot(writer, input.sink),
         };
-      });
+      }, true);
     };
 
     const defectBackTask = (
@@ -9452,7 +10150,10 @@ export const WorkRepositoryLive = Layer.effect(
           record: rejectedFact.record,
           snapshot: loadSnapshot(writer, input.sink),
         };
-      });
+      }, { taskRefs: [
+          { sink: input.sink, taskId: input.taskId },
+          { sink: input.previous, taskId: input.taskId },
+        ] });
     };
 
     const promoteTask = (
@@ -9513,7 +10214,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
     };
 
     const stampBoarding = (
@@ -9579,7 +10280,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      });
+      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
     };
 
     const createRequest = (
@@ -10624,6 +11325,26 @@ export const WorkRepositoryLive = Layer.effect(
         ),
       );
 
+    const isLegacyMaterializationOperation = (
+      operation: WorkRecordValue["operation"],
+    ): boolean =>
+      operation === "proposal.create" ||
+      operation === "proposal.approve" ||
+      operation === "proposal.reject" ||
+      operation === "task.create";
+
+    const affectsLegacyProposalMaterialization = (
+      writer: StateReader,
+      record: WorkRecordValue,
+    ): boolean =>
+      isLegacyMaterializationOperation(record.operation) ||
+      (record.item.kind === "task" &&
+        selectProposalIdentity(
+          writer,
+          record.item.sink,
+          record.item.itemId,
+        ) !== undefined);
+
     const acceptRecords = (
       input: AcceptRecordsInput,
     ): Effect.Effect<AcceptRecordsResult, ReplicationFailure> => {
@@ -10669,6 +11390,7 @@ export const WorkRepositoryLive = Layer.effect(
           const emitted: WorkRecordValue[] = [];
           const acknowledge: RouteCursorValue[] = [];
           const changed = new Set<string>();
+          let legacyMaterializationChanged = false;
 
           for (const records of routes.values()) {
             records.sort((left, right) =>
@@ -10783,6 +11505,16 @@ export const WorkRepositoryLive = Layer.effect(
                     changed.add(
                       `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
                     );
+                    if (
+                      outcome.some((emittedRecord) =>
+                        affectsLegacyProposalMaterialization(
+                          writer,
+                          emittedRecord,
+                        ),
+                      )
+                    ) {
+                      legacyMaterializationChanged = true;
+                    }
                   } catch (error) {
                     if (!(error instanceof WorkAuthorityError)) throw error;
                     const disposition = rejectCommand(
@@ -10820,6 +11552,9 @@ export const WorkRepositoryLive = Layer.effect(
                   changed.add(
                     `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
                   );
+                  if (affectsLegacyProposalMaterialization(writer, record)) {
+                    legacyMaterializationChanged = true;
+                  }
                 }
               } else {
                 resolvePending(writer, record, observedAt);
@@ -10886,6 +11621,7 @@ export const WorkRepositoryLive = Layer.effect(
             acknowledge,
             emitted,
             changed: [...changed],
+            legacyMaterializationChanged,
           };
         })
         .pipe(
@@ -10912,9 +11648,16 @@ export const WorkRepositoryLive = Layer.effect(
                   nodeId: key.slice(separator + 1),
                 });
               }
+              if (result.legacyMaterializationChanged) {
+                notifyLegacyMaterializationChange();
+              }
             }),
           ),
-          Effect.map(({ changed: _changed, ...result }) => result),
+          Effect.map(({
+            changed: _changed,
+            legacyMaterializationChanged: _legacyMaterializationChanged,
+            ...result
+          }) => result),
         );
     };
 
@@ -10923,6 +11666,7 @@ export const WorkRepositoryLive = Layer.effect(
       snapshotsForCanvas: readSnapshotsForCanvas,
       recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
+      legacyProposalMaterializationWitnessPage,
       hasAcceptedDelivery,
       acceptedDeliveryAt,
       createTask,
@@ -10956,6 +11700,13 @@ export const WorkRepositoryLive = Layer.effect(
       recordsAfter,
       pendingCommands,
       acceptRecords,
+      legacyProposalMaterializationEpoch: () => legacyMaterializationEpoch,
+      subscribeLegacyProposalMaterializationChanges: (listener) => {
+        legacyMaterializationListeners.add(listener);
+        return () => {
+          legacyMaterializationListeners.delete(listener);
+        };
+      },
       subscribeChanges: (listener) => {
         listeners.add(listener);
         return () => {

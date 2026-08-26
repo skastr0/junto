@@ -66,11 +66,13 @@ const taskSinkNodeIds = [
   "tasks-scope-prerequisite",
   "tasks-claim-gates",
   "tasks-legacy-created",
+  "tasks-empty-dependencies",
   "tasks-legacy-rejected",
   "tasks-legacy-invalid",
   "tasks-legacy-raced",
   "tasks-legacy-remote-refusal",
   "tasks-approval-exact",
+  "tasks-ancestry-budget",
   "tasks-reservation-race",
   "tasks-floor-gated",
   "tasks-floor-owned",
@@ -78,6 +80,7 @@ const taskSinkNodeIds = [
   "tasks-notify",
   "tasks-hash-mismatch",
   "tasks-task-hash-mismatch",
+  "tasks-missing-variant",
   "tasks-bounds",
 ] as const;
 const topology: CanvasDoc = {
@@ -461,7 +464,8 @@ describe("WorkRepository transaction hardening", () => {
         sink: sink(nodeId),
         basis,
         dependencyScope,
-        materialization,
+        proposalId: materialization.task.id,
+        home: installationId,
       }),
     );
     expect(created.status).toBe("created");
@@ -473,7 +477,8 @@ describe("WorkRepository transaction hardening", () => {
         sink: sink(nodeId),
         basis,
         dependencyScope,
-        materialization,
+        proposalId: materialization.task.id,
+        home: installationId,
       }),
     );
     expect(replay).toEqual({
@@ -497,7 +502,8 @@ describe("WorkRepository transaction hardening", () => {
         sink: sink(nodeId),
         basis,
         dependencyScope,
-        materialization,
+        proposalId: materialization.task.id,
+        home: installationId,
       }),
     );
     expect(descendantReplay).toEqual({
@@ -508,6 +514,44 @@ describe("WorkRepository transaction hardening", () => {
       "message-legacy-created-described",
     );
     expect(await taskCreateCount(nodeId, source.id)).toBe(1);
+
+    const approvedAfterBackfill = await runtime.runPromise(
+      repository.approveProposal({
+        sink: sink(nodeId),
+        basis,
+        dependencyScope,
+        proposalId: source.id,
+        task: materialization.task,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    expect(approvedAfterBackfill.value.proposal.state).toBe("approved");
+    expect(await taskCreateCount(nodeId, source.id)).toBe(1);
+  });
+
+  it("verifies an explicitly empty dependency list through projection normalization", async () => {
+    const nodeId = "tasks-empty-dependencies";
+    const source = proposal("empty-dependencies", actor("0"), {
+      dependsOn: [],
+    });
+    await createProposal(nodeId, source, scope(nodeId));
+    const persisted = await runtime.runPromise(
+      repository.persistUnadmittedTask({
+        sink: sink(nodeId),
+        basis,
+        dependencyScope: scope(nodeId),
+        proposalId: source.id,
+        home: installationId,
+      }),
+    );
+    expect(persisted.status).toBe("created");
+    const page = await runtime.runPromise(
+      repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
+    );
+    expect(
+      page.witnesses.find((witness) => witness.proposalId === source.id),
+    ).toMatchObject({ status: "verified" });
   });
 
   it("returns no-longer-pending when rejection wins after the runner precheck", async () => {
@@ -546,7 +590,8 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(nodeId),
         basis,
-        materialization,
+        proposalId: materialization.task.id,
+        home: installationId,
       }),
     );
     stop();
@@ -573,7 +618,7 @@ describe("WorkRepository transaction hardening", () => {
     expect(createFactAfter).toBe(createFactBefore);
   });
 
-  it("returns typed invalid for field drift and an unrelated same-id collision", async () => {
+  it("reconstructs inside the transaction and rejects an unrelated same-id collision", async () => {
     const invalidNodeId = "tasks-legacy-invalid";
     const invalidSource = proposal("legacy-invalid", actor("8"));
     await createProposal(invalidNodeId, invalidSource);
@@ -582,47 +627,26 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(invalidNodeId),
         basis: staleBasis,
-        materialization: exact,
+        proposalId: invalidSource.id,
+        home: installationId,
       }),
     );
     expect(staleResult).toMatchObject({
       status: "invalid",
       proposalId: invalidSource.id,
+      diagnostic: { code: "intent-mismatch" },
     });
 
-    const schemaInvalid = {
-      ...exact,
-      task: { ...exact.task, state: "working" },
-    } as typeof exact;
-    const schemaResult = await runtime.runPromise(
+    const reconstructed = await runtime.runPromise(
       repository.persistUnadmittedTask({
         sink: sink(invalidNodeId),
         basis,
-        materialization: schemaInvalid,
+        proposalId: invalidSource.id,
+        home: installationId,
       }),
     );
-    expect(schemaResult).toMatchObject({
-      status: "invalid",
-      proposalId: invalidSource.id,
-    });
-
-    const drifted = {
-      ...exact,
-      task: {
-        ...exact.task,
-        reason: "changed after scan",
-      },
-    };
-    const invalid = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(invalidNodeId),
-        basis,
-        materialization: drifted,
-      }),
-    );
-    expect(invalid.status).toBe("invalid");
-    expect(await taskAt(invalidNodeId, invalidSource.id)).toBeUndefined();
-    expect(await taskCreateCount(invalidNodeId, invalidSource.id)).toBe(0);
+    expect(reconstructed.status).toBe("created");
+    expect(await taskAt(invalidNodeId, invalidSource.id)).toEqual(exact.task);
 
     const racedNodeId = "tasks-legacy-raced";
     const racedSource = proposal("legacy-raced", actor("9"));
@@ -637,11 +661,83 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(racedNodeId),
         basis,
-        materialization: racedMaterialization,
+        proposalId: racedSource.id,
+        home: installationId,
       }),
     );
-    expect(raced).toMatchObject({ status: "invalid" });
+    expect(raced).toMatchObject({
+      status: "invalid",
+      diagnostic: { code: "task-create-witness-invalid" },
+    });
     expect(await taskCreateCount(racedNodeId, racedSource.id)).toBe(1);
+
+    const page = await runtime.runPromise(
+      repository.legacyProposalMaterializationWitnessPage({ limit: 256 }),
+    );
+    expect(
+      page.witnesses.find((entry) =>
+        entry.nodeId === racedNodeId && entry.proposalId === racedSource.id
+      ),
+    ).toMatchObject({
+      status: "invalid",
+      diagnostic: { code: "task-create-witness-invalid" },
+    });
+    expect(
+      page.witnesses.some((entry) =>
+        entry.nodeId === racedNodeId &&
+        entry.proposalId === racedSource.id &&
+        entry.status === "verified"
+      ),
+    ).toBe(false);
+  });
+
+  it("parks Task ancestry beyond the exact inspector budget", async () => {
+    const nodeId = "tasks-ancestry-budget";
+    const source = proposal("ancestry-budget", actor("a"));
+    const dependencyScope = scope(nodeId);
+    await createProposal(nodeId, source, dependencyScope);
+    const materialization = materializePendingProposal({ proposal: source });
+    await runtime.runPromise(
+      repository.persistUnadmittedTask({
+        sink: sink(nodeId),
+        basis,
+        dependencyScope,
+        proposalId: source.id,
+        home: installationId,
+      }),
+    );
+    const epochBeforeDescriptions =
+      repository.legacyProposalMaterializationEpoch();
+    for (let index = 0; index < 129; index += 1) {
+      await runtime.runPromise(
+        repository.describeTask({
+          sink: sink(nodeId),
+          basis,
+          dependencyScope,
+          taskId: source.id,
+          message: {
+            ...message(source.id, `bounded ancestry ${index}`),
+            messageId: `message-ancestry-${index}`,
+          },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+    }
+
+    expect(repository.legacyProposalMaterializationEpoch()).toBe(
+      epochBeforeDescriptions + 129,
+    );
+    const page = await runtime.runPromise(
+      repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
+    );
+    expect(
+      page.witnesses.find((witness) => witness.proposalId === source.id),
+    ).toMatchObject({
+      status: "invalid",
+      diagnostic: { code: "task-create-witness-invalid" },
+    });
+    expect(await taskCreateCount(nodeId, materialization.task.id)).toBe(1);
   });
 
   it("requires the immutable proposal witness and exact stable Task on local approval", async () => {
@@ -855,10 +951,8 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
-          materialization: {
-            ...materialization,
-            task: { ...materialization.task, reason: "drift" },
-          },
+          proposalId: materialization.task.id,
+          home: remoteInstallationId,
         }),
       );
       expect(invalid.status).toBe("invalid");
@@ -868,7 +962,8 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
-          materialization,
+          proposalId: materialization.task.id,
+        home: installationId,
         }),
       );
       expect(created.status).toBe("created");
@@ -878,7 +973,8 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
-          materialization,
+          proposalId: materialization.task.id,
+        home: installationId,
         }),
       );
       expect(replay.status).toBe("already-materialized");
@@ -913,7 +1009,8 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(proposalNodeId),
         basis,
-        materialization: materializePendingProposal({ proposal: source }),
+        proposalId: source.id,
+        home: installationId,
       }),
     );
     expect(invalidProposal).toMatchObject({ status: "invalid" });
@@ -926,7 +1023,8 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(taskNodeId),
         basis,
-        materialization: taskMaterialization,
+        proposalId: taskMaterialization.task.id,
+        home: installationId,
       }),
     );
     await runtime.runPromise(
@@ -950,10 +1048,64 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(taskNodeId),
         basis,
-        materialization: taskMaterialization,
+        proposalId: taskMaterialization.task.id,
+        home: installationId,
       }),
     );
     expect(invalidTask).toMatchObject({ status: "invalid" });
+  });
+
+  it("isolates a malformed normalized fact variant and advances the witness page", async () => {
+    const nodeId = "tasks-missing-variant";
+    const corrupt = proposal("a-missing-variant", actor("8"));
+    const later = proposal("z-later-variant", actor("9"));
+    await createProposal(nodeId, corrupt);
+    await createProposal(nodeId, later);
+    await runtime.runPromise(
+      repository.persistUnadmittedTask({
+        sink: sink(nodeId),
+        basis,
+        proposalId: corrupt.id,
+        home: installationId,
+      }),
+    );
+    await runtime.runPromise(
+      state.transaction("test.malformed-task-fact-variant", (writer) => {
+        writer.run("DROP TRIGGER work_facts_immutable_update");
+        writer.run(
+          `UPDATE work_facts
+           SET result_json = '{}'
+           WHERE (event_home, entity_home, seq) IN (
+             SELECT event_home, entity_home, seq
+             FROM work_events
+             WHERE item_canvas_name = ?
+               AND item_node_id = ?
+               AND item_id = ?
+               AND record_type = 'fact'
+               AND operation = 'task.create'
+           )`,
+          ["factory", nodeId, corrupt.id],
+        );
+        writer.run(
+          `CREATE TRIGGER work_facts_immutable_update
+           BEFORE UPDATE ON work_facts
+           BEGIN SELECT RAISE(ABORT, 'work fact records are immutable'); END`,
+        );
+      }),
+    );
+
+    const page = await runtime.runPromise(
+      repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
+    );
+    expect(
+      page.witnesses.find((witness) => witness.proposalId === corrupt.id),
+    ).toMatchObject({
+      status: "invalid",
+      diagnostic: { code: "task-create-witness-invalid" },
+    });
+    expect(
+      page.witnesses.find((witness) => witness.proposalId === later.id),
+    ).toMatchObject({ status: "missing" });
   });
 
   it("rejects empty and over-limit dependencies and over-limit topology scope", async () => {
@@ -1020,7 +1172,8 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
-          materialization,
+          proposalId: materialization.task.id,
+        home: installationId,
         }),
       );
       expect(result).toMatchObject({ status: "invalid" });
