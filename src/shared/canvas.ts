@@ -126,7 +126,6 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "artifacts",
   "board",
   "pad",
-  "herdr",
   "terminal",
   "page",
   "watcher",
@@ -140,29 +139,6 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   // geography via open-vocab resolveSpec (same as label).
   "git",
 ] as const;
-
-// Bound herdr work surface (PTY pane on a host). Not a hermes agent binding;
-// metadata hydration is an explicit adapter call.
-// onDelete default is detach: removing the canvas card must not kill the pane.
-export const HerdrOnDelete = Schema.Literals(["detach", "kill-pane"]);
-export type HerdrOnDelete = typeof HerdrOnDelete.Type;
-
-export const EtherHerdr = Schema.Struct({
-  host: Schema.String,
-  session: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  workspaceId: Schema.optionalKey(Schema.String),
-  tabId: Schema.optionalKey(Schema.String),
-  // Required once bound; optional so partially-authored nodes can decode.
-  paneId: Schema.optionalKey(Schema.String),
-  terminalId: Schema.optionalKey(Schema.String),
-  label: Schema.optionalKey(Schema.String),
-  onDelete: Schema.optionalKey(HerdrOnDelete),
-});
-export type EtherHerdr = typeof EtherHerdr.Type;
-
-/** Resolve onDelete with product default `detach` when the field is omitted. */
-export const resolveHerdrOnDelete = (herdr: EtherHerdr | undefined): HerdrOnDelete =>
-  herdr?.onDelete ?? "detach";
 
 // Bound Vellum Command-owned terminal work surface (flat session binding).
 // Document stores stable bindingId + optional launch profile only.
@@ -250,7 +226,7 @@ export const EtherEntity = Schema.Struct({
 });
 export type EtherEntity = typeof EtherEntity.Type;
 
-// Authorial host stamp for executable nodes (agent, herdr, page, watcher, timer).
+// Authorial host stamp for executable nodes (agent, page, watcher, timer).
 // Same alphabet as remote-hosts HostId. Absence means "local" at resolve time
 // (see shared/station resolveNodeHostId) so existing canvases stay valid.
 export const EtherHostId = Schema.String.pipe(
@@ -262,18 +238,9 @@ export type EtherHostId = typeof EtherHostId.Type;
 
 // Spawn defaults for work-surface nodes created *inside* a region.
 // Applied only at create time (stamp source) — never a live parent scope.
-// Herdr stops before pane: pane is the instance; host/session/workspace are the place.
 // Page stamps start url + browser profile + physical host (cookies stay runtime).
 // Paths stamp actor cwd (agent/terminal) keyed by host — different machines
 // often need different absolute paths for the same logical project.
-export const EtherRegionHerdrDefaults = Schema.Struct({
-  host: Schema.String,
-  session: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  workspaceId: Schema.optionalKey(Schema.String),
-  tabId: Schema.optionalKey(Schema.String),
-});
-export type EtherRegionHerdrDefaults = typeof EtherRegionHerdrDefaults.Type;
-
 export const EtherRegionPageDefaults = Schema.Struct({
   url: Schema.optionalKey(Schema.String),
   profile: Schema.optionalKey(Schema.String),
@@ -286,7 +253,6 @@ export const EtherRegionPaths = Schema.Record(Schema.String, Schema.String);
 export type EtherRegionPaths = typeof EtherRegionPaths.Type;
 
 export const EtherRegionDefaults = Schema.Struct({
-  herdr: Schema.optionalKey(EtherRegionHerdrDefaults),
   page: Schema.optionalKey(EtherRegionPageDefaults),
   /** Per-host default working directory for agents/terminals created inside. */
   paths: Schema.optionalKey(EtherRegionPaths),
@@ -309,9 +275,9 @@ export type EtherRegionContract = typeof EtherRegionContract.Type;
 // the region — surfaced on work-control `onboard` (not auto-injected).
 // Membership itself is always DERIVED from geometry at interaction time —
 // never stored — so the document cannot go incoherent.
-// `defaults` is a create-time stamp source for herdr/page/path bags on nodes
-// placed inside the region. Herdr/page bags are bag-atomic (innermost region
-// with a bag for that kind wins). Paths are host-keyed: innermost region that
+// `defaults` is a create-time stamp source for page/path bags on nodes placed
+// inside the region. Page bags are bag-atomic (innermost region with a bag for
+// that kind wins). Paths are host-keyed: innermost region that
 // defines a path for the spawn host wins; missing hosts walk outward.
 export const EtherRegion = Schema.Struct({
   hold: Schema.optionalKey(Schema.Boolean),
@@ -381,9 +347,6 @@ export const EtherNodeExtension = Schema.Struct({
   board: Schema.optionalKey(EtherBoard),
   /** Runtime overlay for entity.kind === "pad" (glance only; SQLite owns truth). */
   pad: Schema.optionalKey(EtherPad),
-  // Geography display binding for entity.kind === "herdr". This is not a seat:
-  // a herdr pane renders and shows state, and holds no port.
-  herdr: Schema.optionalKey(EtherHerdr),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR
    * entity.kind === "agent" (managed seat). The **agent** seat requires
@@ -495,7 +458,9 @@ export const edgeKindIndex = (doc: CanvasDoc): ReadonlyMap<string, string> => {
   for (const node of doc.nodes) {
     if (node.type === "group") continue;
     const kind = node.ether?.entity?.kind;
-    if (kind !== undefined) kinds.set(node.id, kind);
+    // First node wins on a duplicated id, the same rule every `doc.nodes.find`
+    // consumer already follows.
+    if (kind !== undefined && !kinds.has(node.id)) kinds.set(node.id, kind);
   }
   return kinds;
 };
@@ -597,7 +562,8 @@ const rawKindIndex = (nodes: unknown): ReadonlyMap<string, string> => {
       continue;
     }
     const kind = (entity as Record<string, unknown>).kind;
-    if (typeof kind === "string") kinds.set(id, kind);
+    // First node wins on a duplicated id (see `edgeKindIndex`).
+    if (typeof kind === "string" && !kinds.has(id)) kinds.set(id, kind);
   }
   return kinds;
 };

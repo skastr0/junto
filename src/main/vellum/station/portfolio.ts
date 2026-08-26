@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   containsWorkProjection,
   decodeCanvasDoc,
+  scrubCanvasDocInput,
   serializeCanvas,
   type CanvasDoc,
 } from "@shared/canvas";
@@ -86,6 +87,32 @@ const actorSeatFailure = (
   throw error;
 };
 
+/**
+ * True when loading this body rewrote its edges — the one-shot conversion from
+ * the pre-verb wire areas, or an edge the grammar no longer holds at all.
+ *
+ * Such a body cannot be byte-equal to what it decodes into, and a frozen v1
+ * projection is exactly that case: AGENTS.md keeps the historical decode open
+ * for it. Everything written since the cut still has to be byte-canonical.
+ */
+const conversionRewroteEdges = (parsed: unknown): boolean => {
+  const before = (parsed as { readonly edges?: unknown }).edges;
+  const after = (scrubCanvasDocInput(parsed) as { readonly edges?: unknown })
+    .edges;
+  if (!Array.isArray(before) || !Array.isArray(after)) return false;
+  if (before.length !== after.length) return true;
+  return before.some((edge, index) => {
+    const was = edge as Record<string, unknown> | null;
+    const now = after[index] as Record<string, unknown> | null;
+    if (was === null || now === null) return was !== now;
+    return (
+      was.fromNode !== now.fromNode ||
+      was.toNode !== now.toNode ||
+      JSON.stringify(was.ether ?? null) !== JSON.stringify(now.ether ?? null)
+    );
+  });
+};
+
 const decodeCanonicalCanvas = (
   name: string,
   body: string,
@@ -112,7 +139,10 @@ const decodeCanonicalCanvas = (
       `projection canvas "${name}" violates the canvas contract`,
     );
   }
-  if (serializeCanvas(decoded.success) !== body) {
+  if (
+    serializeCanvas(decoded.success) !== body &&
+    !conversionRewroteEdges(parsed)
+  ) {
     return fail(
       "decode",
       `projection canvas "${name}" is not canonical authorial content`,
