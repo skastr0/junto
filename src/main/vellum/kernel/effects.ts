@@ -7,7 +7,7 @@ import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
 import {
   decodeEffectBoardCreateTopic,
   decodeEffectBoardPost,
-  decodeEffectTasksCreate,
+  defaultEffectTasksCreate,
   type EffectBoardCreateTopic,
   type EffectBoardPost,
   type EffectTasksCreate,
@@ -16,6 +16,7 @@ import {
   collectEffectEdgesFrom,
   defaultInjectPromptText,
   resolveMirrorFlagEnabled,
+  schedulerSourceLabel,
   validateEffectTarget,
   type EffectEdgeBinding,
 } from "@shared/scheduler-effects";
@@ -97,17 +98,13 @@ const applyOne = async (
   if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return false;
 
   if (binding.effect.mode === "enqueue_task") {
-    const decoded = decodeEffectTasksCreate(binding.effect.data);
-    if (!decoded.ok) {
-      console.error(
-        `[kernel] enqueue_task schema fail on ${binding.edge.id}: ${decoded.message}`,
-      );
-      return false;
-    }
+    // `enqueues` is the whole authored fact: the edge carries no payload, so
+    // the brief is built here from the scheduler that fired — the same
+    // provenance the injected prompt reads.
     const result = await deps.enqueueTask({
       canvasName,
       sinkNodeId: binding.target.id,
-      payload: decoded.value,
+      payload: defaultEffectTasksCreate(schedulerSourceLabel(binding.source)),
     });
     if (!result.ok) {
       console.error(

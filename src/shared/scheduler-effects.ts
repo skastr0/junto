@@ -20,7 +20,6 @@ import {
   defaultEffectTasksCreate,
   effectBoardCreateTopicValid,
   effectBoardPostValid,
-  effectTasksCreateValid,
 } from "./node-insert";
 import { resolveSpec, roleOf } from "./physics/kinds";
 import type { EdgeEffect, WatchWhen } from "./physics/verbs";
@@ -156,7 +155,8 @@ export const validateEffectTarget = (
     if (roleOf(resolveSpec({ isGroup: target.type === "group", kind })) !== "sink") {
       return "target_not_task_sink";
     }
-    if (!effectTasksCreateValid(effect.data)) return "invalid_payload";
+    // No payload check: `enqueues` carries none, and the kernel builds the
+    // brief from the firing scheduler at apply time.
     return undefined;
   }
   if (effect.mode === "board_create_topic" || effect.mode === "board_post") {
