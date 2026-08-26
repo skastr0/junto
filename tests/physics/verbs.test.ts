@@ -1,5 +1,7 @@
 import { HashSet } from "effect";
 import { describe, expect, it } from "vitest";
+import { EtherFlag } from "../../src/shared/canvas";
+import { NodeContracts } from "../../src/shared/physics/contracts";
 import { KindSpecs } from "../../src/shared/physics/kinds";
 import {
   WELL_KNOWN_KINDS,
@@ -9,6 +11,7 @@ import {
 import {
   compileVerb,
   defaultVerbForPair,
+  EdgeFlag,
   inferVerb,
   VERB_COLOR_TOKEN,
   VERBS,
@@ -253,6 +256,139 @@ describe("compiled grants", () => {
     });
   });
 
+  it("snapshots the compiled grant of every verb", () => {
+    // One canonical ordered pair per verb, stated whole. The pair matrix
+    // snapshot above fixes *which* verbs exist; this fixes what each one
+    // actually hands out, so a widened or thinned grant cannot pass by
+    // staying inside the endpoints' offers.
+    const grants: ReadonlyArray<readonly [Verb, WellKnownKind, WellKnownKind]> = [
+      ["messages", "agent", "agent"],
+      ["messages", "agent", "board"],
+      ["manages", "agent", "task"],
+      ["contributes", "agent", "task"],
+      ["works", "task", "agent"],
+      ["escalates", "agent", "requests"],
+      ["publishes", "agent", "artifacts"],
+      ["participates", "agent", "board"],
+      ["reads", "agent", "pad"],
+      ["edits", "agent", "pad"],
+      ["navigates", "agent", "page"],
+      ["feeds", "task", "task"],
+      ["fires", "agent", "relay"],
+      ["announces", "task", "relay"],
+      ["enqueues", "relay", "task"],
+      ["wakes", "relay", "agent"],
+      ["flags", "relay", "page"],
+      ["chains", "relay", "relay"],
+    ];
+    const compiled: Record<string, unknown> = {};
+    for (const [verb, source, target] of grants) {
+      compiled[`${verb} @ ${source}>${target}`] = compileVerb(
+        verb,
+        source,
+        target,
+      );
+    }
+    expect(compiled).toEqual({
+      "messages @ agent>agent": { ports: ["msg.list", "msg.send"] },
+      "messages @ agent>board": {
+        ports: ["board.list", "board.post", "board.mark_read"],
+        wake: false,
+      },
+      "manages @ agent>task": {
+        ports: [
+          "tasks.create",
+          "tasks.update",
+          "tasks.list",
+          "msg.list",
+          "msg.send",
+        ],
+      },
+      "contributes @ agent>task": {
+        ports: [
+          "tasks.create",
+          "tasks.update",
+          "tasks.list",
+          "msg.list",
+          "msg.send",
+          "tasks.claim",
+        ],
+      },
+      "works @ task>agent": {
+        ports: [
+          "tasks.list",
+          "tasks.claim",
+          "tasks.update",
+          "msg.list",
+          "msg.send",
+        ],
+        assignable: true,
+      },
+      "escalates @ agent>requests": {
+        ports: ["request.escalate", "msg.list", "msg.send"],
+      },
+      "publishes @ agent>artifacts": { ports: ["artifact.publish"] },
+      "participates @ agent>board": {
+        ports: [
+          "board.list",
+          "board.create_topic",
+          "board.post",
+          "board.mark_read",
+        ],
+        wake: true,
+      },
+      "reads @ agent>pad": { ports: ["pad.read"] },
+      "edits @ agent>pad": { ports: ["pad.read", "pad.patch"] },
+      "navigates @ agent>page": { ports: ["browser.automate"] },
+      "feeds @ task>task": { ports: [], flow: true },
+      "fires @ agent>relay": { ports: ["relay.trigger"] },
+      "announces @ task>relay": { ports: [], when: { word: "completes" } },
+      "enqueues @ relay>task": {
+        ports: [],
+        does: { mode: "enqueue_task", data: {} },
+      },
+      "wakes @ relay>agent": { ports: [], does: { mode: "inject_prompt" } },
+      "flags @ relay>page": {
+        ports: [],
+        does: { mode: "set_flag", flag: "attention", enabled: true },
+      },
+      "chains @ relay>relay": {
+        ports: [],
+        chain: true,
+        when: { word: "completes" },
+      },
+    });
+    // A new verb with no row here would otherwise ship unsnapshotted.
+    expect([...new Set(grants.map(([verb]) => verb))].sort()).toEqual(
+      [...VERBS].sort(),
+    );
+  });
+
+  it("never grants a port the far end of the wire does not offer", () => {
+    // Tighter than the union rule: an actor's own inbox must not leak into a
+    // sink or scheduler wire, so the grant is checked against the offers of the
+    // end that is not the seat.
+    for (const pair of PAIRS) {
+      const far =
+        pair[0] === "agent" && pair[1] === "agent"
+          ? "agent"
+          : pair[0] === "agent"
+            ? pair[1]
+            : pair[1] === "agent"
+              ? pair[0]
+              : undefined;
+      if (far === undefined) continue;
+      for (const { verb, ports } of grantsOf(pair)) {
+        for (const port of ports) {
+          expect(
+            HashSet.has(KindSpecs[far].offers, port),
+            `${verb} on ${pair[0]}>${pair[1]} grants ${port}, which ${far} does not offer`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   it("defaults a plain connect to the fuller relationship", () => {
     expect(defaultVerbForPair("agent", "task")).toBe("contributes");
     expect(defaultVerbForPair("agent", "board")).toBe("participates");
@@ -266,6 +402,77 @@ describe("compiled grants", () => {
       if (verbs.length === 0) continue;
       expect(verbs).toContain(defaultVerbForPair(pair[0], pair[1]));
     }
+  });
+});
+
+describe("verbs against the published node contracts", () => {
+  const NON_SCHEDULERS = WELL_KNOWN_KINDS.filter(
+    (kind) => KindSpecs[kind].role !== "scheduler",
+  );
+
+  it("gives announces to exactly the kinds that publish an event", () => {
+    for (const kind of NON_SCHEDULERS) {
+      expect(
+        verbsForPair(kind, "relay").includes("announces"),
+        `${kind} publishes ${NodeContracts[kind].events.length} events`,
+      ).toBe(NodeContracts[kind].events.length > 0);
+    }
+  });
+
+  it("announces the kind's own headline contract event", () => {
+    for (const kind of NON_SCHEDULERS) {
+      const when = compileVerb("announces", kind, "relay")?.when;
+      const headline = NodeContracts[kind].events[0];
+      if (headline === undefined) {
+        expect(when, kind).toBeUndefined();
+        continue;
+      }
+      if (when === undefined) throw new Error(`${kind} announces nothing`);
+      if (when.word === "any") throw new Error(`${kind} announces a multi-select`);
+      expect(when.word, kind).toBe(headline.word);
+      if (when.word === "flagged") {
+        expect(when.flag, kind).toBe(headline.flag);
+        continue;
+      }
+      // `equals` may be omitted where the evaluator does not read it (artifacts
+      // counts published items rather than matching a state); when it is stated
+      // it must name the headline event's variant.
+      if (when.equals !== undefined) expect(when.equals, kind).toBe(headline.equals);
+    }
+  });
+
+  it("lets only the relay take an announcement", () => {
+    for (const source of WELL_KNOWN_KINDS) {
+      for (const target of WELL_KNOWN_KINDS) {
+        if (target === "relay") continue;
+        expect(
+          verbsForPair(source, target).includes("announces"),
+          `${source}>${target}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("compiles a fire action the target contract actually accepts", () => {
+    for (const source of WELL_KNOWN_KINDS) {
+      for (const target of WELL_KNOWN_KINDS) {
+        for (const verb of verbsForPair(source, target)) {
+          const does = compileVerb(verb, source, target)?.does;
+          if (does === undefined) continue;
+          expect(
+            NodeContracts[target].inputs.map((input) => input.mode),
+            `${verb} on ${source}>${target}`,
+          ).toContain(does.mode);
+        }
+      }
+    }
+  });
+
+  it("keeps the edge flag vocabulary identical to the node one", () => {
+    // Physics declares its own flag words so it never imports the document
+    // schema. A watch or a fire that names a flag no node can carry is dead on
+    // arrival, so the two lists must stay the same set.
+    expect([...EdgeFlag.literals].sort()).toEqual([...EtherFlag.literals].sort());
   });
 });
 
