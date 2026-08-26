@@ -14,6 +14,7 @@ import {
 } from "./wire-loom";
 import {
   routeWire as defaultRouteWire,
+  type WirePoint,
   type WireRect,
   type WireRouteResult,
 } from "./wire-route";
@@ -26,8 +27,25 @@ export type LoomRoute = {
   readonly detoured: boolean;
 };
 
+/**
+ * Where a wire meets its handle, when it must not meet it dead centre.
+ *
+ * A shift in canvas units at each end, perpendicular to the side the wire
+ * leaves from. Both paint paths owe it: the planner bakes it into the anchors
+ * it routes between, and the plain smooth-step fallback — which `routeWire`
+ * hands back an open field for, so it is the common case, not a failure —
+ * applies it to the live handle coordinates.
+ */
+export type LoomLane = {
+  readonly source: WirePoint;
+  readonly target: WirePoint;
+};
+
 /** edgeId -> planned strand. Absent means the edge uses loomRoutes$ / fallback. */
 export const loomStrands$ = observable<Record<string, LoomStrand>>({});
+
+/** edgeId -> handle shift. Absent means the wire meets both handles centred. */
+export const loomLanes$ = observable<Record<string, LoomLane>>({});
 
 /**
  * edgeId -> standalone route planned once at the loom boundary.
@@ -107,6 +125,15 @@ export function samePoints(
     if (a[i]!.x !== b[i]!.x || a[i]!.y !== b[i]!.y) return false;
   }
   return true;
+}
+
+export function sameLane(a: LoomLane, b: LoomLane): boolean {
+  return (
+    a.source.x === b.source.x &&
+    a.source.y === b.source.y &&
+    a.target.x === b.target.x &&
+    a.target.y === b.target.y
+  );
 }
 
 export function sameStrand(a: LoomStrand, b: LoomStrand): boolean {
@@ -265,6 +292,21 @@ export function publishKeyedRoutes(
   };
 }
 
+/** Apply a keyed lane diff — write only what changed, delete what left. */
+export function publishKeyedLanes(next: ReadonlyMap<string, LoomLane>): void {
+  const held = loomLanes$.peek();
+  batch(() => {
+    for (const id of Object.keys(held)) {
+      if (!next.has(id)) loomLanes$[id]!.delete();
+    }
+    for (const [id, lane] of next) {
+      const prior = held[id];
+      if (prior && sameLane(prior, lane)) continue;
+      loomLanes$[id]!.set(lane);
+    }
+  });
+}
+
 /** Delete keyed strand + route residue for edges no longer in the active set. */
 export function pruneKeyedLoomEntries(activeEdgeIds: ReadonlySet<string>): void {
   batch(() => {
@@ -273,6 +315,9 @@ export function pruneKeyedLoomEntries(activeEdgeIds: ReadonlySet<string>): void 
     }
     for (const id of Object.keys(loomRoutes$.peek())) {
       if (!activeEdgeIds.has(id)) loomRoutes$[id]!.delete();
+    }
+    for (const id of Object.keys(loomLanes$.peek())) {
+      if (!activeEdgeIds.has(id)) loomLanes$[id]!.delete();
     }
   });
 }

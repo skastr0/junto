@@ -20,10 +20,12 @@ import {
   loomStrands$,
   planStandaloneRoutes,
   pruneKeyedLoomEntries,
+  publishKeyedLanes,
   publishKeyedRoutes,
   sameStrand,
   shouldPublishCorridors,
   shouldPublishObstacles,
+  type LoomLane,
 } from "../../lib/loom-view";
 import { MIN_FAN, planLoom } from "../../lib/wire-loom";
 import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loom";
@@ -187,7 +189,7 @@ function anchorOn(bounds: LoomNode, side: WireDirection): WirePoint {
 }
 
 /**
- * Two wires on one handle: split them into lanes at the anchor.
+ * Two wires on one handle: give them a lane each.
  *
  * A cable starts at three, so below `MIN_FAN` the loom lanes nothing — and two
  * edges pinned to the same handle are measured off the same point, run the same
@@ -199,6 +201,12 @@ function anchorOn(bounds: LoomNode, side: WireDirection): WirePoint {
  * Only pairs. A fan of three and up is the loom's own work, and its members are
  * stitched back onto the live handle, which would throw a lane away and leave a
  * jog where the wire meets the card.
+ *
+ * The lane is published as well as applied. `routeWire` answers `null` for an
+ * open field — a plain run is not a routing failure, it is the ordinary case —
+ * and that wire is painted by smooth-step off the live handle coordinates, so
+ * an anchor shift alone would reach only the wires that happen to need a
+ * detour.
  */
 const PAIR_LANE = 7;
 /** Keep a lane off the card's own corner, however small the card is. */
@@ -228,11 +236,19 @@ function laned(point: WirePoint, axis: "x" | "y", offset: number): WirePoint {
     : { x: point.x, y: point.y + offset };
 }
 
-function splitCoincidentPairs(
+const NO_SHIFT: WirePoint = { x: 0, y: 0 };
+
+/** A perpendicular offset, expressed on the axis the side actually moves on. */
+function shiftOn(side: WireDirection, offset: number): WirePoint {
+  return laneAxisOf(side) === "x" ? { x: offset, y: 0 } : { x: 0, y: offset };
+}
+
+function laneOffsets(
   inputs: ReadonlyArray<LoomEdgeInput>,
   byId: ReadonlyMap<string, LoomNode>,
-): LoomEdgeInput[] {
-  if (inputs.length < 2) return [...inputs];
+): Map<string, LoomLane> {
+  const lanes = new Map<string, LoomLane>();
+  if (inputs.length < 2) return lanes;
 
   const groups = new Map<string, number[]>();
   const gather = (key: string, index: number): void => {
@@ -245,7 +261,6 @@ function splitCoincidentPairs(
     gather(laneKey("target", edge.targetNodeId, edge.targetSide), index);
   });
 
-  const offsets = new Map<number, { source: number; target: number }>();
   for (const [key, members] of groups) {
     if (members.length !== 2) continue;
     const end: LaneEnd = key.startsWith("s|") ? "source" : "target";
@@ -284,46 +299,56 @@ function splitCoincidentPairs(
       return inputs[a]!.id < inputs[b]!.id ? -1 : 1;
     });
     ordered.forEach((index, order) => {
-      const held = offsets.get(index) ?? { source: 0, target: 0 };
-      const offset = order === 0 ? -lane : lane;
-      offsets.set(
-        index,
+      const edge = inputs[index]!;
+      const held = lanes.get(edge.id) ?? { source: NO_SHIFT, target: NO_SHIFT };
+      const shift = shiftOn(
+        end === "source" ? edge.sourceSide : edge.targetSide,
+        order === 0 ? -lane : lane,
+      );
+      lanes.set(
+        edge.id,
         end === "source"
-          ? { source: offset, target: held.target }
-          : { source: held.source, target: offset },
+          ? { source: shift, target: held.target }
+          : { source: held.source, target: shift },
       );
     });
   }
 
-  if (offsets.size === 0) return [...inputs];
-  return inputs.map((edge, index) => {
-    const offset = offsets.get(index);
-    if (!offset) return edge;
-    return {
-      ...edge,
-      sourceAnchor:
-        offset.source === 0
-          ? edge.sourceAnchor
-          : laned(edge.sourceAnchor, laneAxisOf(edge.sourceSide), offset.source),
-      targetAnchor:
-        offset.target === 0
-          ? edge.targetAnchor
-          : laned(edge.targetAnchor, laneAxisOf(edge.targetSide), offset.target),
-    };
-  });
+  return lanes;
+}
+
+/** The published lane, applied to the anchors the planner routes between. */
+function laneApplied(
+  edge: LoomEdgeInput,
+  lane: LoomLane | undefined,
+): LoomEdgeInput {
+  if (!lane) return edge;
+  return {
+    ...edge,
+    sourceAnchor: laned(
+      laned(edge.sourceAnchor, "x", lane.source.x),
+      "y",
+      lane.source.y,
+    ),
+    targetAnchor: laned(
+      laned(edge.targetAnchor, "x", lane.target.x),
+      "y",
+      lane.target.y,
+    ),
+  };
 }
 
 function buildInputs(
   specs: ReadonlyArray<EdgeSpec>,
   geometry: ReadonlyArray<LoomNode>,
-): LoomEdgeInput[] {
+): { inputs: LoomEdgeInput[]; lanes: Map<string, LoomLane> } {
   const byId = new Map(geometry.map((node) => [node.nodeId, node] as const));
-  const inputs: LoomEdgeInput[] = [];
+  const centred: LoomEdgeInput[] = [];
   for (const spec of specs) {
     const from = byId.get(spec.sourceNodeId);
     const to = byId.get(spec.targetNodeId);
     if (!from || !to) continue;
-    inputs.push({
+    centred.push({
       id: spec.id,
       blocked: spec.blocked,
       sourceNodeId: spec.sourceNodeId,
@@ -334,7 +359,11 @@ function buildInputs(
       targetAnchor: anchorOn(to, spec.targetSide),
     });
   }
-  return splitCoincidentPairs(inputs, byId);
+  const lanes = laneOffsets(centred, byId);
+  return {
+    inputs: centred.map((edge) => laneApplied(edge, lanes.get(edge.id))),
+    lanes,
+  };
 }
 
 function collectObstacles(geometry: ReadonlyArray<LoomNode>): LoomObstacle[] {
@@ -498,7 +527,8 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
           .map((spec) => spec.id),
       );
       if (incident.size === 0) return;
-      const inputs = buildInputs(specsNow, geometry);
+      const { inputs, lanes } = buildInputs(specsNow, geometry);
+      publishKeyedLanes(lanes);
       // Standing corridors from last full plan (or empty) — stoppage clearance.
       const corridors = loomCorridors$.peek();
       // During drag, no edge in incident set should keep a strand (deleted above
@@ -515,7 +545,8 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
       return;
     }
 
-    const inputs = buildInputs(specsNow, geometry);
+    const { inputs, lanes } = buildInputs(specsNow, geometry);
+    publishKeyedLanes(lanes);
     const planStartedAt = globalThis.performance?.now?.() ?? Date.now();
     const plan = planLoom({ edges: inputs, obstacles });
     canvasPerformance.recordLoomPlan(

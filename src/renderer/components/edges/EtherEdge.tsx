@@ -2,7 +2,7 @@ import type { EdgeProps, EdgeTypes } from "@xyflow/react";
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
-import { loomRoutes$, loomStrands$ } from "../../lib/loom-view";
+import { loomLanes$, loomRoutes$, loomStrands$ } from "../../lib/loom-view";
 import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
 import { EDGE_COLOR } from "../../lib/theme";
@@ -48,6 +48,7 @@ export function EtherEdge({
   // PERF-P2: edge-local keys only — never full obstacle/corridor arrays.
   const strand = use$(loomStrands$[id]);
   const plannedRoute = use$(loomRoutes$[id]);
+  const lane = use$(loomLanes$[id]);
 
   // Verb hue, stamped at convert. Stoppage is the one fact allowed to take a
   // wire off its verb colour, because on this canvas crimson means blocked.
@@ -66,11 +67,14 @@ export function EtherEdge({
     ? stitchStrand(strand, { sourceX, sourceY, targetX, targetY })
     : null;
 
+  // The plain run: an open field is not a routing failure, so most wires land
+  // here. The lane is applied to the live handle coordinates, because the
+  // planner's anchors never reach this path.
   const [fallbackPath, fallbackLabelX, fallbackLabelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
+    sourceX: sourceX + (lane?.source.x ?? 0),
+    sourceY: sourceY + (lane?.source.y ?? 0),
+    targetX: targetX + (lane?.target.x ?? 0),
+    targetY: targetY + (lane?.target.y ?? 0),
     sourcePosition,
     targetPosition,
     borderRadius: 8,
