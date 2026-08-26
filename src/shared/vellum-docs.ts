@@ -158,7 +158,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
 
 const KIND_NOTE: Readonly<Record<string, string>> = {
   agent: "The actor role: pulls work through edges, holds a mailbox, runs a harness.",
-  task: "The pull queue: submitted tasks are claimed by connected actor seats.",
+  task: "The pull queue: submitted tasks are assigned to connected actor seats.",
   requests: "The escalation surface: file a request to block your seat and wait for the operator.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",

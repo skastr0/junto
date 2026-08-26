@@ -1283,7 +1283,7 @@ export const workTaskClaim = (
     if (existing && existing !== actor.seatId) {
       throw new WorkError(
         "claim_contention",
-        `task "${taskId}" already claimed by "${existing}"`,
+        `task "${taskId}" already assigned to "${existing}"`,
       );
     }
     // Claims take submitted or working items only. An attention task is
@@ -1341,7 +1341,7 @@ export const workTaskClaim = (
       ...current.history,
       makeAgentMessage({
         messageId: ids.messageId(),
-        text: `claimed by ${actor.seatId}`,
+        text: `assigned to ${actor.seatId}`,
         contextId,
         taskId,
       }),

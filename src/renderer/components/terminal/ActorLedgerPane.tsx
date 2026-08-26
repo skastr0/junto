@@ -516,7 +516,7 @@ export function ActorLedgerPane({
             </div>
           ) : null}
           {claim ? (
-            <section className="actor-ledger__section" aria-label="Claimed task">
+            <section className="actor-ledger__section" aria-label="Assigned task">
               <header className="actor-ledger__section-head">
                 <span className="actor-ledger__section-title">task</span>
               </header>

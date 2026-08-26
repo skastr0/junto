@@ -235,7 +235,7 @@ test("task board supports creation, operator responses, layered status, and body
     await actionTrigger.click();
     const actionMenu = page.getByRole("menu");
     await expect(actionMenu).toBeVisible();
-    await board.getByText("Ready to be claimed", { exact: true }).click();
+    await board.getByText("Ready to be assigned", { exact: true }).click();
     await expect(actionMenu).toBeHidden();
 
     const workingCard = board.getByLabel("Open details for Working task");

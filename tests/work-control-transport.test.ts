@@ -1261,7 +1261,7 @@ describe("work control transport", () => {
         disposition: "applied",
       },
     });
-    expect(replay.data.message).toMatch(/already claimed by you/i);
+    expect(replay.data.message).toMatch(/already assigned to you/i);
   });
 
   it("publishes exact task provenance through the local control boundary", async () => {

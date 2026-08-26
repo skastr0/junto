@@ -198,7 +198,7 @@ export const tasksClaimSchema: CommandSchemaContract = {
   command_id: "tasks.claim",
   command: "tasks claim",
   schema_id: "tasks.claim.input/v1",
-  description: "Claim a task (submitted → working).",
+  description: "Assign a task to this seat (submitted → working). Op id stays tasks.claim.",
   schema: TasksClaimArgs,
   accepts_batch: true,
   input_modes: inputModes,

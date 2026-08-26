@@ -287,7 +287,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "violet",
     chipTone: "violet",
     icon: UserRound,
-    hint: "Work waiting for your approval before workers can claim it",
+    hint: "Work waiting for your approval before workers can be assigned it",
   },
   {
     id: "queue",
@@ -296,7 +296,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "amber",
     chipTone: "amber",
     icon: CircleDot,
-    hint: "Ready to be claimed",
+    hint: "Ready to be assigned",
   },
   {
     id: "working",
@@ -305,7 +305,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "cyan",
     chipTone: "cyan",
     icon: LoaderCircle,
-    hint: "Claimed work in motion",
+    hint: "Assigned work in motion",
   },
   {
     id: "input",
@@ -917,7 +917,7 @@ function TaskActionsMenu({
                 }
               >
                 {destination.id === "queue" || destination.id === "inbound"
-                  ? `Unclaim to ${destination.label}`
+                  ? `Unassign to ${destination.label}`
                   : `Move to ${destination.label}`}
               </button>
             ))
@@ -1052,7 +1052,7 @@ function TaskCard({
       aria-label={`Open details for ${brief}${
         mediaCount > 0 ? `, ${mediaCount} media attachment${mediaCount === 1 ? "" : "s"}` : ""
       }${
-        claimantRetired ? ", stalled because its claimed seat is retired" : ""
+        claimantRetired ? ", stalled because its assigned seat is retired" : ""
       }`}
       aria-current={selected ? "true" : undefined}
       onClick={(event) => {
@@ -1203,7 +1203,7 @@ function TaskCard({
             {claimantRetired ? (
               <Chip
                 tone="crimson"
-                title="Still claimed by an agent that is no longer on the canvas"
+                title="Still assigned to an agent that is no longer on the canvas"
               >
                 Stalled
               </Chip>
@@ -1227,7 +1227,7 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
           <div className="task-board-card__meta">
             <StatusDot tone={toneForState(task.state)} />
             <span className="task-board-card__claimant">
-              {claimedByOf(task) ?? "Unclaimed"}
+              {claimedByOf(task) ?? "Unassigned"}
             </span>
           </div>
         </div>
@@ -1980,7 +1980,7 @@ function TaskDetailPanel({
             {claimantRetired ? (
               <Chip
                 tone="crimson"
-                title="Still claimed by an agent that is no longer on the canvas"
+                title="Still assigned to an agent that is no longer on the canvas"
               >
                 Stalled
               </Chip>
@@ -2030,11 +2030,11 @@ function TaskDetailPanel({
                 size="xs"
                 variant="subtle"
                 disabled={pending}
-                title={`Clear this claim and return the task to ${arrivalLaneLabel}`}
+                title={`Clear this assignment and return the task to ${arrivalLaneLabel}`}
                 onClick={() => onMove(task, "submitted")}
               >
                 <RotateCcw size={12} />
-                Unclaim to {arrivalLaneLabel}
+                Unassign to {arrivalLaneLabel}
               </Button>
             ) : null}
           </div>

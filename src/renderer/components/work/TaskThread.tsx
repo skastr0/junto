@@ -57,7 +57,7 @@ export const taskThreadKind = (
 };
 
 const claimedSeatFrom = (text: string): string | undefined =>
-  /^claimed by (seat_[a-f0-9]{64})\b/iu.exec(text)?.[1];
+  /^(?:assigned to|claimed by) (seat_[a-f0-9]{64})\b/iu.exec(text)?.[1];
 
 const sourceNodeFrom = (text: string): string | undefined =>
   /^(?:forwarded|defect) from "([^"]+)"/iu.exec(text)?.[1];

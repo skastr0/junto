@@ -288,7 +288,7 @@ export const buildFactoryClaimPrompt = (
   return [
     `[factory claim] task ${task.id}: ${brief}`,
     "",
-    "You claimed this task from the factory pull queue.",
+    "This task is assigned to you.",
     `Sink target (tasks node id): ${sinkNodeId}`,
     `Task id: ${task.id}`,
     "",

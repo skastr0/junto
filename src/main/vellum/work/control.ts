@@ -339,7 +339,9 @@ const mapWorkCode = (
 ): WorkErrorBody => {
   switch (code) {
     case "claim_contention": {
-      const holder = message.match(/claimed by "([^"]+)"/)?.[1];
+      const holder =
+        message.match(/assigned to "([^"]+)"/)?.[1] ??
+        message.match(/claimed by "([^"]+)"/)?.[1];
       return {
         type: "ClaimConflict",
         message,
@@ -1079,12 +1081,12 @@ const dispatchOp = (
         return yield* Effect.fail<WorkErrorBody>({
           type: "ClaimConflict",
           message:
-            `task "${decoded.success.task}" is claimed by another agent`,
+            `task "${decoded.success.task}" is already assigned to another agent`,
           details: {
             holder: task.claimedBy,
             caller: actor.success.seatId,
             retryable: false,
-            next_step: "pick another task; only the agent that claimed this one can update it",
+            next_step: "pick another task; only the assigned agent can update it",
           },
         });
       }
@@ -1190,12 +1192,12 @@ const dispatchOp = (
         return yield* Effect.fail<WorkErrorBody>({
           type: "ClaimConflict",
           message:
-            `task "${decoded.success.task}" is claimed by another agent`,
+            `task "${decoded.success.task}" is already assigned to another agent`,
           details: {
             holder: task.claimedBy,
             caller: actor.success.seatId,
             retryable: false,
-            next_step: "pick another task; only the agent that claimed this one can board it",
+            next_step: "pick another task; only the assigned agent can board it",
           },
         });
       }

@@ -80,7 +80,7 @@ export const deadStateCopy = (input: {
 }): DeadStateCopy => ({
   headline: input.agentSeat ? "Agent stopped" : "Process stopped",
   detail: input.agentSeat
-    ? "If it still held a task, unclaim it from the task board."
+    ? "If it still held a task, unassign it from the task board."
     : "The last output stays frozen below.",
   reopenLabel: "Reopen",
   closeViewLabel: "Close view",

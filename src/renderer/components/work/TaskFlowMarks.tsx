@@ -36,14 +36,14 @@ export function ArrivalMark({
   if (glance.admission === "claimable") {
     if (!gatedStation) return null;
     return (
-      <span className="task-flow-mark" title="Admitted, workers can claim it">
+      <span className="task-flow-mark" title="Approved, workers can be assigned it">
         <Chip tone="green">Admitted</Chip>
       </span>
     );
   }
   if (glance.admission === "held") {
     return (
-      <span className="task-flow-mark" title="Baking before workers can claim it">
+      <span className="task-flow-mark" title="Baking before workers can be assigned it">
         <Chip tone="steel">
           {glance.countdown ? `Held ${glance.countdown}` : "Held"}
         </Chip>
@@ -52,7 +52,7 @@ export function ArrivalMark({
   }
   if (glance.admission === "operator-owned") {
     return (
-      <span className="task-flow-mark" title="This station is yours, no worker claims here">
+      <span className="task-flow-mark" title="This station is yours, no worker is assigned here">
         <Chip tone="cyan">Operator owned</Chip>
       </span>
     );
@@ -70,7 +70,7 @@ export function ArrivalMark({
           size="xs"
           variant="chrome"
           disabled={pending}
-          title="Admit this arrival so workers can claim it"
+          title="Approve this arrival so workers can be assigned it"
           data-testid="task-flow-promote"
           onClick={() => onPromote()}
         >

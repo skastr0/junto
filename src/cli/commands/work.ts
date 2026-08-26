@@ -94,7 +94,7 @@ const tasksClaimCommand = Command.make(
         run: (item) => callDomain("tasks.claim", item, toUndefined(timeout)),
       }),
     ),
-).pipe(Command.withDescription("Claim one or more tasks (batch-capable)"));
+).pipe(Command.withDescription("Assign one or more tasks to this seat (batch-capable)"));
 
 const tasksCreateCommand = Command.make(
   "create",

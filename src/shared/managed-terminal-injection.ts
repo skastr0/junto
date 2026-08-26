@@ -128,18 +128,18 @@ You are a **factory worker** on a Vellum Command canvas seat. The human authors 
 ### Worker loop
 
 1. **onboard** — always first, no exceptions: at session start and after every compaction. Read seat, role, region, connected targets, grants.
-2. **work** — do the work the factory assigns. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed. Never invent backlog.
+2. **work** — do the work the factory assigns. If a task is already assigned to your seat, continue it; assign only tasks that are unassigned (`tasks claim`). Never invent backlog.
 3. **update** — report state honestly: \`working\` while active, then \`completed\` / \`failed\` / \`canceled\` / \`input-required\` as appropriate.
 4. **request when blocked** — if you need human input or approval, escalate (when a requests node is connected) or set the task to \`input-required\`. Stop inventing work around the block.
 
-Repeat. When idle with no open claimable tasks, wait — do not invent new tasks.
+Repeat. When idle with no open tasks to pull, wait — do not invent new tasks.
 
-### Claim-is-factory
+### Assignment-is-factory
 
 Tasks are a **pull queue**. The factory (edges + live state) decides what is available. Do not:
 
 - invent work the board never listed
-- claim targets you are not connected to (ScopeError is correct — fix edges, not the code)
+- assign targets you are not connected to (ScopeError is correct — fix edges, not the code)
 - treat an open queue as stoppage — \`submitted\`/\`working\` means the factory is humming
 
 ### Requests block
@@ -206,7 +206,7 @@ For an unfamiliar command, in order: \`examples show <command>\` → \`schema sh
 Errors are **ground truth** — do not invent around them. Read \`type\` and \`next_step\`:
 
 - \`ScopeError\` — not connected / not authorized for that target; the fix is an edge on the canvas, not a workaround
-- \`ClaimConflict\` — task already claimed or state race; pick another task or wait for the holder
+- \`ClaimConflict\` — task already assigned to someone else, or a state race; pick another task or wait for the holder
 - \`InvalidTransition\` — illegal state change (e.g. \`completed\` without finish-criteria evidence); the message names the missing pieces
 - \`InputError\` — payload failed schema decode; \`schema show\` prints the exact shape
 - \`RuntimeDown\` / \`Paused\` — factory unavailable; wait, then re-run \`onboard\`. Do not retry-loop.
@@ -230,7 +230,7 @@ const tasksSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 | list queue | \`vellum-command tasks list '{"target":"${t}"}'\` |
 | read one task + its journey | \`vellum-command tasks show '{"target":"${t}","task":"<taskId>"}'\` |
 | propose work | \`vellum-command tasks create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'\` |
-| claim | \`vellum-command tasks claim '{"target":"${t}","task":"<taskId>"}'\` |
+| assign (op: tasks.claim) | \`vellum-command tasks claim '{"target":"${t}","task":"<taskId>"}'\` |
 | standing claims + readiness | \`vellum-command tasks claims '{"target":"${t}","task":"<taskId>"}'\` |
 | run this move's boarding checks | \`vellum-command tasks board '{"target":"${t}","task":"<taskId>"}'\` — add \`"next":"<station>"\` when the station forwards to more than one |
 | progress / settle / block task | \`vellum-command tasks update '{"target":"${t}","task":"<taskId>","state":"<state>"}'\` — states: \`working\`, \`completed\`, \`failed\`, \`canceled\`, \`input-required\` |

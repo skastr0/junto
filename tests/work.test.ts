@@ -702,7 +702,7 @@ describe("work pure transforms", () => {
     expect(described.task.history[0]?.role).toBe("user");
     expect(described.task.history.at(-1)?.parts[0]).toEqual({
       kind: "text",
-      text: `claimed by ${actorRef("1", "worker-1").seatId}`,
+      text: `assigned to ${actorRef("1", "worker-1").seatId}`,
     });
     expect(described.task.state).toBe("working");
     expect((doc.nodes[0] as { text: string }).text).toBe("ship the docs site");

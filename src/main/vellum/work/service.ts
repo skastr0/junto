@@ -2102,7 +2102,7 @@ export const WorkLive = Layer.effect(
                 message:
                   "Task " +
                   JSON.stringify(taskId) +
-                  " is already claimed by you; continue working on it.",
+                  " is already assigned to you; continue working on it.",
               });
             }
             if (actorHome !== context.localInstallationId) {

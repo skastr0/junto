@@ -214,7 +214,7 @@ function BakeTimeField({
       <span className="inspector-detail normal-case tracking-normal">
         {invalid
           ? "Use a duration like 90m, 12h, or 7d. Empty means claimable on arrival."
-          : "How long an arrival waits before any seat may claim it."}
+          : "How long an arrival waits before any seat may be assigned it."
       </span>
     </label>
   );

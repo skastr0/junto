@@ -184,7 +184,7 @@ export const recentOpLabel = (op: WorkSeatRecentOp): string => {
         ? `published ${summary.name}`
         : "published an artifact";
     case "task.claim":
-      return "claimed a task";
+      return "was assigned a task";
     case "proposal.create":
       return "proposed a task";
     case "request.create":

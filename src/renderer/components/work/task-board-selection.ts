@@ -35,7 +35,7 @@ const TRANSITION_BULK: ReadonlyArray<{
   readonly state: TaskState;
   readonly label: string;
 }> = [
-  { state: "submitted", label: "Unclaim to Queue" },
+  { state: "submitted", label: "Unassign to Queue" },
   { state: "working", label: "Move to Working" },
   { state: "completed", label: "Complete" },
   { state: "failed", label: "Mark failed" },
@@ -143,7 +143,7 @@ export const resolveTaskBoardBulkActions = (
           : option.state === "canceled"
             ? `Cancel ${items.length}`
             : option.state === "submitted"
-              ? `Unclaim ${items.length} to Queue`
+              ? `Unassign ${items.length} to Queue`
               : `${option.label} (${items.length})`;
     actions.push({
       kind: "transition",
