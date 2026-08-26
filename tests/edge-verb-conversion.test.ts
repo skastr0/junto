@@ -237,6 +237,18 @@ describe("legacy edge conversion", () => {
     expect(Object.keys(edges.get("mixed")?.ether ?? {})).toEqual(["verb"]);
   });
 
+  it("drops an authored verb the pair cannot hold rather than reading across", () => {
+    // The wire already grants nothing in memory — `compileVerb` refuses a verb
+    // its pair does not hold — so the load must not quietly re-read it as the
+    // neighbouring relationship and mint pad writes the document never had.
+    const edges = converted([
+      { id: "alien", fromNode: "seat", toNode: "sheet", ether: { verb: "publishes" } },
+      { id: "kind-changed", fromNode: "seat", toNode: "sheet", ether: { verb: "contributes" } },
+    ]);
+
+    expect(edges.size).toBe(0);
+  });
+
   it("drops what the grammar cannot hold", () => {
     const edges = converted([
       // Geography end: a region note holds no verb.

@@ -622,7 +622,10 @@ const pairHolds = (
  * edge keeps its authored verb — re-inference would silently widen a narrow
  * choice (`messages` back into `participates`) on every load. An edge whose
  * endpoints cannot hold a verb — geography, an unknown kind, a missing node,
- * a pairing the grammar never admitted — does not survive the pass.
+ * a pairing the grammar never admitted — does not survive the pass, and
+ * neither does an authored verb the pair cannot hold: that edge already grants
+ * nothing in memory, so converting it into an adjacent verb would mint a
+ * capability at load time that the live document never had.
  *
  * Surviving edges are stored in the verb's own order: `fromNode` is the verb's
  * source end, with side and end metadata carried across the swap.
@@ -693,14 +696,19 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
             ? (etherIn as Record<string, unknown>)
             : undefined;
         const authored = eth?.verb;
-        const verb =
-          isVerb(authored) && pairHolds(authored, fromKind, toKind)
+        // A verb its endpoints cannot hold is corrupt, not legacy: it names a
+        // relationship this pair has never had. Dropping it is the same answer
+        // `compileVerb` already gives in memory — re-inference would hand the
+        // edge an adjacent capability on reload that it did not have before.
+        const verb = isVerb(authored)
+          ? pairHolds(authored, fromKind, toKind)
             ? authored
-            : inferVerb(
-                eth === undefined ? undefined : readLegacyEdgeEther(eth),
-                fromKind,
-                toKind,
-              );
+            : undefined
+          : inferVerb(
+              eth === undefined ? undefined : readLegacyEdgeEther(eth),
+              fromKind,
+              toKind,
+            );
         if (verb === undefined) return [];
         // Store in the verb's own order. A pair that reads both ways keeps the
         // drawn order, except a legacy flow config, which named its direction.
