@@ -3,12 +3,12 @@ import { Result } from "effect";
 import {
   containsWorkProjection,
   decodeCanvasDoc,
-  edgeFlow,
+  edgeVerb,
   resolveSinkAdmission,
   serializeCanvas,
 } from "../src/shared/canvas";
 
-// Region + sink contracts and the task-flow wire: authorial ether additions.
+// Region + sink contracts and the task pipeline hop: authorial ether additions.
 // The JSON Canvas invariant must hold — stripping ether leaves a valid doc.
 
 const node = (id: string) => ({
@@ -88,13 +88,13 @@ const rawDoc = {
       id: "flow-1",
       fromNode: "sink-a",
       toNode: "sink-b",
-      ether: { flow: { source: "sink-a", destination: "sink-b" } },
+      ether: { verb: "feeds" },
     },
   ],
 };
 
 describe("pipeline claims canvas contract", () => {
-  it("decodes region contract, sink contract and edge flow and round-trips", () => {
+  it("decodes region contract, sink contract and edge verb and round-trips", () => {
     const decoded = Result.getOrThrow(decodeCanvasDoc(rawDoc));
 
     const region = decoded.nodes.find((n) => n.id === "region-1");
@@ -116,10 +116,11 @@ describe("pipeline claims canvas contract", () => {
     expect(again).toEqual(decoded);
   });
 
-  it("edge flow survives the input scrub (decode whitelist)", () => {
+  it("the pipeline hop survives the input scrub as its verb", () => {
     const decoded = Result.getOrThrow(decodeCanvasDoc(rawDoc));
-    const flow = edgeFlow(decoded.edges[0]?.ether);
-    expect(flow).toEqual({ source: "sink-a", destination: "sink-b" });
+    expect(edgeVerb(decoded.edges[0]?.ether)).toBe("feeds");
+    // The verb is the whole edge ether — nothing else rides along.
+    expect(decoded.edges[0]?.ether).toEqual({ verb: "feeds" });
   });
 
   it("still decodes once every ether key is stripped (JSON Canvas invariant)", () => {
@@ -156,23 +157,6 @@ describe("pipeline claims canvas contract", () => {
         },
       ],
       edges: [],
-    };
-    expect(Result.isFailure(decodeCanvasDoc(doc))).toBe(true);
-  });
-
-  it("rejects excess keys on the edge flow config", () => {
-    const doc = {
-      nodes: [node("sink-a"), node("sink-b")],
-      edges: [
-        {
-          id: "flow-1",
-          fromNode: "sink-a",
-          toNode: "sink-b",
-          ether: {
-            flow: { source: "sink-a", destination: "sink-b", rejoin: true },
-          },
-        },
-      ],
     };
     expect(Result.isFailure(decodeCanvasDoc(doc))).toBe(true);
   });

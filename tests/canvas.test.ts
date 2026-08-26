@@ -21,9 +21,19 @@ const rawDoc = {
       height: 80,
       color: "2",
       ether: {
-        entity: { kind: "project" },
+        entity: { kind: "agent" },
         flags: ["blocker"],
       },
+    },
+    {
+      id: "t2",
+      type: "text",
+      text: "Peer",
+      x: 0,
+      y: 100,
+      width: 200,
+      height: 80,
+      ether: { entity: { kind: "agent" } },
     },
     {
       id: "f1",
@@ -62,11 +72,12 @@ const rawDoc = {
     {
       id: "e1",
       fromNode: "t1",
-      toNode: "f1",
+      toNode: "t2",
       fromSide: "right",
       toSide: "left",
       color: "3",
       label: "link",
+      ether: { verb: "messages" },
     },
   ],
 };
@@ -225,80 +236,16 @@ describe("canvas contract", () => {
     expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
   });
 
-  it.each(["glyphs", "wip"] as const)(
-    "rejects retired edge criteria mode %s",
-    (mode) => {
-      const legacy = {
-        nodes: [
-          {
-            id: "source",
-            type: "text",
-            text: "source",
-            x: 0,
-            y: 0,
-            width: 200,
-            height: 80,
-          },
-          {
-            id: "target",
-            type: "text",
-            text: "target",
-            x: 300,
-            y: 0,
-            width: 200,
-            height: 80,
-          },
-        ],
-        edges: [
-          {
-            id: "legacy",
-            fromNode: "source",
-            toNode: "target",
-            ether: { stops: { mode } },
-          },
-        ],
-      };
-
-      expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
-    },
-  );
-
-  it("rejects retired edge kind depends", () => {
-    const legacy = {
-      nodes: [
-        {
-          id: "node",
-          type: "text",
-          text: "node",
-          x: 0,
-          y: 0,
-          width: 200,
-          height: 80,
-        },
-      ],
-      edges: [
-        {
-          id: "legacy",
-          fromNode: "node",
-          toNode: "node",
-          ether: { kind: "depends" },
-        },
-      ],
-    };
-
-    expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
-  });
-
-  it("applyMirrorLaw mirrors color only and leaves labels authorial", () => {
+  it("applyMirrorLaw mirrors the blocker flag to color and leaves edges alone", () => {
     const doc: CanvasDoc = {
       nodes: [
         { id: "n1", type: "text", text: "Blocker", x: 0, y: 0, width: 200, height: 80, ether: { flags: ["blocker"] } },
         { id: "n2", type: "text", text: "Plain", x: 0, y: 100, width: 200, height: 80 },
       ],
       edges: [
-        { id: "e-blocks", fromNode: "n1", toNode: "n2", ether: { kind: "blocks", stops: { mode: "tasks" } } },
-        { id: "e-relates", fromNode: "n1", toNode: "n2", ether: { kind: "relates", stops: { mode: "tasks" } } },
-        { id: "e-relates-labeled", fromNode: "n1", toNode: "n2", label: "kept", ether: { kind: "relates" } },
+        { id: "e-verbed", fromNode: "n1", toNode: "n2", ether: { verb: "messages" } },
+        { id: "e-labeled", fromNode: "n1", toNode: "n2", label: "kept" },
+        { id: "e-colored", fromNode: "n1", toNode: "n2", color: "4" },
         { id: "e-plain", fromNode: "n1", toNode: "n2" },
       ],
     };
@@ -310,53 +257,9 @@ describe("canvas contract", () => {
     const plainNode = mirrored.nodes.find((n) => n.id === "n2");
     expect(plainNode?.color).toBeUndefined();
 
-    const blocksEdge = mirrored.edges.find((e) => e.id === "e-blocks");
-    expect(blocksEdge?.label).toBeUndefined();
-    expect(blocksEdge?.color).toBe("1");
-
-    // Phase never projects into the authorial label field.
-    const relatesEdge = mirrored.edges.find((e) => e.id === "e-relates");
-    expect(relatesEdge?.label).toBeUndefined();
-    expect(relatesEdge?.color).toBeUndefined();
-
-    const labeledEdge = mirrored.edges.find((e) => e.id === "e-relates-labeled");
-    expect(labeledEdge?.label).toBe("kept");
-
-    const plainEdge = mirrored.edges.find((e) => e.id === "e-plain");
-    expect(plainEdge?.label).toBeUndefined();
-    expect(plainEdge?.color).toBeUndefined();
-  });
-
-  it("applyMirrorLaw demotes stuck blocks color 1 when kind is no longer blocks", () => {
-    const doc: CanvasDoc = {
-      nodes: [{ id: "n1", type: "text", text: "A", x: 0, y: 0, width: 100, height: 50 }],
-      edges: [
-        {
-          id: "e-stuck",
-          fromNode: "n1",
-          toNode: "n1",
-          label: "depends",
-          color: "1",
-          ether: { kind: "relates", stops: { mode: "tasks" } },
-        },
-        {
-          id: "e-soft",
-          fromNode: "n1",
-          toNode: "n1",
-          label: "free",
-          color: "4",
-        },
-      ],
-    };
-    const mirrored = applyMirrorLaw(doc);
-    const stuck = mirrored.edges.find((e) => e.id === "e-stuck");
-    expect(stuck?.color).toBeUndefined();
-    // Native labels are authorial text, including retired extension vocabulary.
-    expect(stuck?.label).toBe("depends");
-    // Soft relates with no kind mirror: leave user color alone.
-    const soft = mirrored.edges.find((e) => e.id === "e-soft");
-    expect(soft?.color).toBe("4");
-    expect(soft?.label).toBe("free");
+    // There is no phase mirror on an edge any more: the verb is the whole
+    // authored fact, and label and color stay exactly as the operator left them.
+    expect(mirrored.edges).toEqual(doc.edges);
   });
 
   it("serializeCanvas produces a stable key order and is idempotent", () => {
