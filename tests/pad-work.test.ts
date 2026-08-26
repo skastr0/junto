@@ -989,9 +989,10 @@ describe("pad inbound-actor roster", () => {
 
   /**
    * Every shape the roster has to get right in one document: a plain inbound
-   * actor, a duplicated id where the FIRST node decides, a non-actor source,
-   * an outbound-only seat, a group carrying an actor kind, an edge from a node
-   * that does not exist, and a self edge.
+   * actor, a duplicated id where the FIRST node decides, a non-actor source, a
+   * seat drawn pad-first (the verb stores it agent-first either way), a group
+   * carrying an actor kind, an edge from a node that does not exist, and a self
+   * edge.
    */
   const trickyDoc = {
     nodes: [
@@ -1017,8 +1018,8 @@ describe("pad inbound-actor roster", () => {
 
   /** Same pad, a different seat wired in — the version the index must follow. */
   const rewiredDoc = {
-    nodes: [node("actor-in", "agent"), node("actor-out", "agent"), node("pad-1", "pad")],
-    edges: [{ id: "r1", fromNode: "actor-out", toNode: "pad-1" }],
+    nodes: [node("actor-late", "agent"), node("pad-1", "pad")],
+    edges: [{ id: "r1", fromNode: "actor-late", toNode: "pad-1" }],
   };
 
   const intentOf = (generation: string): string =>
@@ -1124,7 +1125,9 @@ describe("pad inbound-actor roster", () => {
     expect(Result.isSuccess(decoded)).toBe(true);
     if (Result.isFailure(decoded)) return;
     const expected = inboundActorNodeIds(decoded.success, "pad-1");
-    expect([...expected].sort()).toEqual(["actor-in", "dup"]);
+    // actor-out is drawn pad-first; the verb stores it agent-first, so a seat
+    // cannot be wired to a pad and stay outside its mention roster.
+    expect([...expected].sort()).toEqual(["actor-in", "actor-out", "dup"]);
 
     const candidates = [
       "actor-in",
@@ -1148,11 +1151,11 @@ describe("pad inbound-actor roster", () => {
     // Same pad node, same sink, repeated patches: whatever the roster is
     // cached under must be the document, not the sink.
     expect(await mentionRefusal("1", "before-a", "actor-in")).toBeUndefined();
-    expect(await mentionRefusal("1", "before-b", "actor-out")).toMatch(/mention/i);
+    expect(await mentionRefusal("1", "before-b", "actor-late")).toMatch(/mention/i);
 
     await runtime.runPromise(commitCanvas("2", rewiredDoc));
 
-    expect(await mentionRefusal("2", "after-a", "actor-out")).toBeUndefined();
+    expect(await mentionRefusal("2", "after-a", "actor-late")).toBeUndefined();
     expect(await mentionRefusal("2", "after-b", "actor-in")).toMatch(/mention/i);
   });
 });

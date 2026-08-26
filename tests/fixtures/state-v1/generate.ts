@@ -122,7 +122,7 @@ const commandCenterCanvas = (): CanvasDoc => ({
       id: "claim-edge",
       fromNode: "tasks",
       toNode: "agent",
-      ether: { ports: ["tasks.list", "tasks.claim"] },
+      ether: { verb: "works" },
     },
   ],
 });
@@ -177,7 +177,7 @@ const remoteCanvas = (): CanvasDoc => ({
       id: "claim-edge",
       fromNode: "tasks",
       toNode: "agent",
-      ether: { ports: ["tasks.list", "tasks.claim"] },
+      ether: { verb: "works" },
     },
     {
       id: "timer-edge",
