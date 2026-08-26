@@ -1,0 +1,30 @@
+{
+  "contract": "vellum-command/planning-task-package-characterization/v1",
+  "olderPublicPackage": {
+    "tasksCreateSchemaId": "tasks.create.input/v2",
+    "stateSchemaVersion": 18,
+    "taskCreateSemantics": "pending-proposal-mints-new-task-on-approval"
+  },
+  "candidatePackage": {
+    "tasksCreateSchemaId": "tasks.create.input/v3",
+    "stateSchemaVersion": 20,
+    "taskCreateSemantics": "stable-task-id-with-operator-gated-admission"
+  },
+  "unreleasedSameSchemaIntermediate": {
+    "stateSchemaVersion": 20,
+    "readsTaskAdmissionMetadata": false,
+    "provenance": "unreleased-unsupported"
+  },
+  "station": {
+    "baseline": 1,
+    "support": {
+      "preferred": 1,
+      "compatibleFrom": 1,
+      "warnBelow": 1
+    },
+    "session": "vellum-command/station-session/v1",
+    "api": "vellum-command/station-api/v1",
+    "control": "vellum-command/station-control/v1",
+    "work": "vellum/work/v2"
+  }
+}
