@@ -37,15 +37,7 @@ const pageRelayDoc = (): CanvasDoc =>
       },
     ],
     edges: [
-      {
-        id: "e-watch",
-        fromNode: "page-1",
-        toNode: "relay-1",
-        ether: {
-          slot: "input",
-          when: { word: "completes", equals: "ready" },
-        },
-      },
+      { id: "e-watch", fromNode: "page-1", toNode: "relay-1", ether: { verb: "announces" } },
     ],
   }) as CanvasDoc;
 
@@ -107,33 +99,5 @@ describe("page→relay watch sensor", () => {
       detail: "page loaded",
     });
     expect(getWatchers().get("board::relay-1")?.lastFiredAt).toBeTypeOf("number");
-  });
-
-  it("satisfies page failed watch when load fails", async () => {
-    const base = pageRelayDoc();
-    const edge = base.edges[0]!;
-    const doc: CanvasDoc = {
-      ...base,
-      edges: [
-        {
-          ...edge,
-          ether: {
-            ...edge.ether,
-            when: { word: "completes", equals: "failed" },
-          },
-        },
-      ],
-    };
-    setDocs(new Map([["board", doc]]));
-    __setPageLoadForTest({
-      snapshot: () =>
-        new Map([[pageLoadMapKey("board", "page-1"), "failed" as const]]),
-    });
-    await runEvaluationCycle();
-    // Baseline pass does not fire; status is still satisfied for projection.
-    expect(getWatchers().get("board::relay-1")).toMatchObject({
-      status: "satisfied",
-      detail: "page failed to load",
-    });
   });
 });

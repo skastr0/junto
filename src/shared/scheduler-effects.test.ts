@@ -45,22 +45,9 @@ describe("scheduler-effects", () => {
         },
       ],
       edges: [
-        {
-          id: "e1",
-          fromNode: "c1",
-          toNode: "t1",
-          ether: {
-            does: { mode: "enqueue_task", data: { brief: "review overnight", metadata: { title: "review overnight", details: "review overnight" } } },
-          },
-        },
-        {
-          id: "e2",
-          fromNode: "t1",
-          toNode: "c1",
-          ether: {
-            does: { mode: "enqueue_task", data: { brief: "wrong way", metadata: { title: "wrong way", details: "wrong way" } } },
-          },
-        },
+        { id: "e1", fromNode: "c1", toNode: "t1", ether: { verb: "enqueues" } },
+        // Pointing the other way is the sink announcing, never a fire action.
+        { id: "e2", fromNode: "t1", toNode: "c1", ether: { verb: "announces" } },
       ],
     });
     const bindings = collectEffectEdgesFrom(canvas, "c1");
@@ -376,7 +363,7 @@ describe("scheduler-effects", () => {
     ).toBe("satisfied");
   });
 
-  it("collectWatchEdgesInto defaults when on sink→relay without authored when", () => {
+  it("collectWatchEdgesInto compiles the sink's headline event off announces", () => {
     const canvas = doc({
       nodes: [
         {
@@ -407,7 +394,7 @@ describe("scheduler-effects", () => {
           },
         },
       ],
-      edges: [{ id: "e1", fromNode: "t1", toNode: "r1" }],
+      edges: [{ id: "e1", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } }],
     });
     const edges = collectWatchEdgesInto(canvas, "r1");
     expect(edges).toHaveLength(1);
@@ -417,7 +404,7 @@ describe("scheduler-effects", () => {
     );
   });
 
-  it("collectWatchEdgesInto skips non-input slots and non-sink without authored when", () => {
+  it("collectWatchEdgesInto keeps announces and skips every other relay wire", () => {
     const canvas = doc({
       nodes: [
         {
@@ -452,36 +439,22 @@ describe("scheduler-effects", () => {
         },
       ],
       edges: [
-        // effect-shaped wire into relay — not a watch input
-        {
-          id: "e-out",
-          fromNode: "t1",
-          toNode: "r1",
-          ether: { slot: "output", when: { word: "completes" } },
-        },
-        // agent with no when — not a watch
-        { id: "e-agent", fromNode: "a1", toNode: "r1" },
-        // agent with authored when — still counts
-        {
-          id: "e-agent-when",
-          fromNode: "a1",
-          toNode: "r1",
-          ether: { when: { word: "flagged", flag: "blocker" } },
-        },
-        // sink with explicit input slot
-        {
-          id: "e-in",
-          fromNode: "t1",
-          toNode: "r1",
-          ether: { slot: "input" },
-        },
+        // The agent fires the relay by hand — a trigger, never a watch.
+        { id: "e-fires", fromNode: "a1", toNode: "r1", ether: { verb: "fires" } },
+        // No verb at all: the relationship says nothing to watch.
+        { id: "e-bare", fromNode: "a1", toNode: "r1" },
+        // Announcing agents and sinks are the watch inputs.
+        { id: "e-agent", fromNode: "a1", toNode: "r1", ether: { verb: "announces" } },
+        { id: "e-in", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } },
       ],
     });
     const edges = collectWatchEdgesInto(canvas, "r1");
-    expect(edges.map((e) => e.edge.id).sort()).toEqual([
-      "e-agent-when",
-      "e-in",
-    ]);
+    expect(edges.map((e) => e.edge.id).sort()).toEqual(["e-agent", "e-in"]);
+    // The agent's headline news is its attention flag, not a completion.
+    expect(edges.find((e) => e.edge.id === "e-agent")?.when).toEqual({
+      word: "flagged",
+      flag: "attention",
+    });
   });
 
   it("collectWatchEdgesInto keeps OR multi-input sinks", () => {
@@ -519,8 +492,8 @@ describe("scheduler-effects", () => {
         },
       ],
       edges: [
-        { id: "e1", fromNode: "t1", toNode: "r1" },
-        { id: "e2", fromNode: "p1", toNode: "r1" },
+        { id: "e1", fromNode: "t1", toNode: "r1", ether: { verb: "announces" } },
+        { id: "e2", fromNode: "p1", toNode: "r1", ether: { verb: "announces" } },
       ],
     });
     const edges = collectWatchEdgesInto(canvas, "r1");

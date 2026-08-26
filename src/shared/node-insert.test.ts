@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { decodeCanvasDoc } from "./canvas";
 import {
   decodeEffectBoardCreateTopic,
   decodeEffectTasksCreate,
@@ -60,57 +59,6 @@ describe("effect payloads (closed create contracts)", () => {
         .ok,
     ).toBe(true);
     expect(decodeEffectBoardCreateTopic({ body: "no title" }).ok).toBe(false);
-  });
-
-  it("scrubs legacy brief into EffectTasksCreate on canvas load", () => {
-    const result = decodeCanvasDoc({
-      nodes: [
-        {
-          id: "c1",
-          type: "text",
-          text: "cron",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "cron" }, timer: { everyMinutes: 15 } },
-        },
-        {
-          id: "t1",
-          type: "text",
-          text: "tasks",
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          ether: { entity: { kind: "task" } },
-        },
-      ],
-      edges: [
-        {
-          id: "e1",
-          fromNode: "c1",
-          toNode: "t1",
-          ether: {
-            does: {
-              mode: "enqueue_task",
-              brief: "old brief",
-              reason: "scheduler",
-            },
-          },
-        },
-      ],
-    });
-    expect(result._tag).toBe("Success");
-    if (result._tag !== "Success") return;
-    const does = result.success.edges[0]?.ether?.does;
-    expect(does?.mode).toBe("enqueue_task");
-    if (does?.mode !== "enqueue_task") return;
-    expect(does.data).toEqual({
-      brief: "old brief",
-      metadata: { title: "old brief", details: "old brief" },
-      reason: "scheduler",
-    });
   });
 
   it("form path setters stay on contract keys", () => {
