@@ -170,30 +170,31 @@ const document = (connected: boolean) =>
             id: "actor-tasks",
             fromNode: remoteActor.nodeId,
             toNode: "tasks",
+            ether: { verb: "contributes" },
           },
           {
             id: "actor-mailbox",
             fromNode: remoteActor.nodeId,
             toNode: "cc-recipient",
-            ether: { ports: ["msg.send"] },
+            ether: { verb: "messages" },
           },
           {
             id: "actor-artifacts",
             fromNode: remoteActor.nodeId,
             toNode: "artifacts",
+            ether: { verb: "publishes" },
           },
           {
             id: "actor-board",
             fromNode: remoteActor.nodeId,
             toNode: "board",
-            ether: {
-              ports: ["board.create_topic", "board.post", "board.list"],
-            },
+            ether: { verb: "participates" },
           },
           {
             id: "cc-actor-tasks",
             fromNode: commandCenterActor.nodeId,
             toNode: "tasks",
+            ether: { verb: "contributes" },
           },
         ]
       : [],
@@ -802,12 +803,12 @@ describe("Station API v1 work routing", () => {
       reason: "authority-mismatch",
     });
 
-    // Attenuated edge: post only — create must fail, post must pass.
+    // The narrow board verb: post and read, never open a topic.
     const postOnlyDoc = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
       ...document(true),
       edges: document(true).edges.map((edge) =>
         edge.id === "actor-board"
-          ? { ...edge, ether: { ports: ["board.post"] } }
+          ? { ...edge, ether: { verb: "messages" } }
           : edge
       ),
     });

@@ -51,7 +51,7 @@ describe("claim tick under pause", () => {
       },
       seat("w1", "actor"),
     ],
-    edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+    edges: [{ id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } }],
   });
 
   it("a paused worker never claims; a paused sink never drains", () => {

@@ -1474,14 +1474,24 @@ describe("WorkService — concurrent ops", () => {
           },
         ],
         edges: [
-          { id: "edge-request", fromNode: "sender", toNode: "requests" },
+          {
+            id: "edge-request",
+            fromNode: "sender",
+            toNode: "requests",
+            ether: { verb: "escalates" },
+          },
           {
             id: "edge-message",
             fromNode: "sender",
             toNode: "recipient",
-            ether: { ports: ["msg.send"] },
+            ether: { verb: "messages" },
           },
-          { id: "edge-artifact", fromNode: "sender", toNode: "artifacts" },
+          {
+            id: "edge-artifact",
+            fromNode: "sender",
+            toNode: "artifacts",
+            ether: { verb: "publishes" },
+          },
         ],
       })
     );
@@ -1706,17 +1716,19 @@ describe("WorkService — concurrent ops", () => {
             id: "request",
             fromNode: "remote-sender",
             toNode: "requests",
+            ether: { verb: "escalates" },
           },
           {
             id: "message",
             fromNode: "remote-sender",
             toNode: "recipient",
-            ether: { ports: ["msg.send"] },
+            ether: { verb: "messages" },
           },
           {
             id: "artifact",
             fromNode: "remote-sender",
             toNode: "artifacts",
+            ether: { verb: "publishes" },
           },
         ],
       })
@@ -1865,17 +1877,19 @@ describe("WorkService — concurrent ops", () => {
                   id: "mail",
                   fromNode: "sender",
                   toNode: "recipient",
-                  ether: { ports: ["msg.send"] },
+                  ether: { verb: "messages" },
                 },
                 {
                   id: "request",
                   fromNode: "sender",
                   toNode: "requests",
+                  ether: { verb: "escalates" },
                 },
                 {
                   id: "artifact",
                   fromNode: "sender",
                   toNode: "artifacts",
+                  ether: { verb: "publishes" },
                 },
               ],
             } satisfies CanvasDoc,
@@ -2117,7 +2131,7 @@ describe("WorkService — pipeline", () => {
             id: "flow-1",
             fromNode: "s1",
             toNode: "s2",
-            ether: { flow: { source: "s1", destination: "s2" } },
+            ether: { verb: "feeds" },
           },
         ],
       })
@@ -2233,7 +2247,7 @@ describe("WorkService — pipeline", () => {
             id: "flow-h",
             fromNode: "h1",
             toNode: "h2",
-            ether: { flow: { source: "h1", destination: "h2" } },
+            ether: { verb: "feeds" },
           },
           { id: "e-w", fromNode: "worker-1", toNode: "h2" },
         ],
@@ -2437,7 +2451,7 @@ describe("WorkService — pipeline", () => {
             id: "flow-v",
             fromNode: "v1",
             toNode: "v2",
-            ether: { flow: { source: "v1", destination: "v2" } },
+            ether: { verb: "feeds" },
           },
         ],
       })

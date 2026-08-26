@@ -1725,7 +1725,7 @@ describe("work control transport", () => {
             id: "e-flow-tasks-review",
             fromNode: "tasks",
             toNode: "review",
-            ether: { flow: { source: "tasks", destination: "review" } },
+            ether: { verb: "feeds" },
           },
         ],
       }),

@@ -193,7 +193,7 @@ describe("selectFactoryClaims", () => {
         tasksNode("t", [taskItem("i1", "ship", "submitted")]),
         seat("w1", "actor", { label: "worker" }),
       ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } }],
     };
     const before = structuredClone(doc);
     const selected = selectFactoryClaims(
@@ -226,8 +226,8 @@ describe("selectFactoryClaims", () => {
         seat("w2", "actor"),
       ],
       edges: [
-        { id: "e1", fromNode: "t", toNode: "w1" },
-        { id: "e2", fromNode: "t", toNode: "w2" },
+        { id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } },
+        { id: "e2", fromNode: "t", toNode: "w2", ether: { verb: "works" } },
       ],
     };
     const w1 = actorRef("w1", "1");
@@ -256,7 +256,7 @@ describe("selectFactoryClaims", () => {
         ),
         seat("w1", "actor", { label: "worker" }),
       ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } }],
     };
     const selected = selectFactoryClaims(doc, "c", resolverFor([worker]));
     expect(selected.map((claim) => claim.task.itemId)).toEqual(["i1"]);
@@ -272,7 +272,7 @@ describe("selectFactoryClaims", () => {
         ),
         seat("w1", "actor", { label: "worker" }),
       ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } }],
     };
     const after = selectFactoryClaims(unlocked, "c", resolverFor([worker]));
     expect(after.map((claim) => claim.task.itemId)).toEqual(["i2"]);
@@ -289,8 +289,8 @@ describe("selectFactoryClaims", () => {
         seat("actor-a", "actor"),
       ],
       edges: [
-        { id: "edge-b", fromNode: "sink-b", toNode: "actor-b" },
-        { id: "edge-a", fromNode: "sink-a", toNode: "actor-a" },
+        { id: "edge-b", fromNode: "sink-b", toNode: "actor-b", ether: { verb: "works" } },
+        { id: "edge-a", fromNode: "sink-a", toNode: "actor-a", ether: { verb: "works" } },
       ],
     };
 
@@ -328,7 +328,7 @@ describe("selectFactoryClaims", () => {
         ]),
         seat("actor", "actor"),
       ],
-      edges: [{ id: "edge", fromNode: "sink", toNode: "actor" }],
+      edges: [{ id: "edge", fromNode: "sink", toNode: "actor", ether: { verb: "works" } }],
     };
 
     expect(selectFactoryClaims(doc, "c", resolverFor([actor]))).toEqual([]);
@@ -392,8 +392,8 @@ describe("selectFactoryClaims", () => {
         seat("w1-alias", "actor"),
       ],
       edges: [
-        { id: "e1", fromNode: "t", toNode: "w1" },
-        { id: "e2", fromNode: "t", toNode: "w1-alias" },
+        { id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } },
+        { id: "e2", fromNode: "t", toNode: "w1-alias", ether: { verb: "works" } },
       ],
     };
     const primary = actorRef("w1", "1");
@@ -415,7 +415,7 @@ describe("selectFactoryClaims", () => {
         tasksNode("t", [taskItem("i1", "ship", "submitted")]),
         seat("w1", "actor"),
       ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } }],
     };
 
     expect(selectFactoryClaims(doc, "c", resolverFor([]))).toEqual([]);
@@ -435,7 +435,7 @@ describe("selectFactoryClaims", () => {
         tasksNode("t", [taskItem("i1", "ship", "submitted")]),
         seat("w1", "actor"),
       ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "w1" }],
+      edges: [{ id: "e1", fromNode: "t", toNode: "w1", ether: { verb: "works" } }],
     };
 
     const result = selectFactoryClaims(

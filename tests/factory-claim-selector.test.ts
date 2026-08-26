@@ -57,7 +57,9 @@ const doc: CanvasDoc = {
       },
     },
   ],
-  edges: [{ id: "e1", fromNode: "worker", toNode: "tasks" }],
+  edges: [
+    { id: "e1", fromNode: "worker", toNode: "tasks", ether: { verb: "contributes" } },
+  ],
 };
 
 describe("factory claim selector", () => {
@@ -107,7 +109,7 @@ describe("factory claim selector", () => {
       ],
       edges: [
         ...doc.edges,
-        { id: "e2", fromNode: "peer", toNode: "tasks" },
+        { id: "e2", fromNode: "peer", toNode: "tasks", ether: { verb: "contributes" } },
       ],
     };
     const selected = selectFactoryClaims(
@@ -145,7 +147,10 @@ describe("factory claim selector", () => {
           },
         },
       ],
-      edges: [...doc.edges, { id: "e2", fromNode: "peer", toNode: "tasks" }],
+      edges: [
+        ...doc.edges,
+        { id: "e2", fromNode: "peer", toNode: "tasks", ether: { verb: "contributes" } },
+      ],
     };
     const resolve = (ref: { readonly nodeId: string }) =>
       ref.nodeId === "worker" ? worker : ref.nodeId === "peer" ? peer : undefined;

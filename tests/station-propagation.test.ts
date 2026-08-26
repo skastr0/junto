@@ -361,30 +361,10 @@ describe("StationPropagation", () => {
         node("other-sink", "artifacts", "remote-two"),
       ],
       edges: [
-        {
-          id: "e1",
-          fromNode: "remote-actor",
-          toNode: "remote-sink",
-          ether: { ports: ["request.escalate"] },
-        },
-        {
-          id: "e2",
-          fromNode: "remote-actor",
-          toNode: "cc-sink",
-          ether: { ports: ["tasks.claim"] },
-        },
-        {
-          id: "e3",
-          fromNode: "cc-actor",
-          toNode: "remote-sink",
-          ether: { ports: ["request.escalate"] },
-        },
-        {
-          id: "e4",
-          fromNode: "remote-actor",
-          toNode: "other-sink",
-          ether: { ports: ["artifact.publish"] },
-        },
+        { id: "e1", fromNode: "remote-actor", toNode: "remote-sink", ether: { verb: "escalates" } },
+        { id: "e2", fromNode: "remote-actor", toNode: "cc-sink", ether: { verb: "contributes" } },
+        { id: "e3", fromNode: "cc-actor", toNode: "remote-sink", ether: { verb: "escalates" } },
+        { id: "e4", fromNode: "remote-actor", toNode: "other-sink", ether: { verb: "publishes" } },
         { id: "e5", fromNode: "missing", toNode: "remote-sink" },
       ],
     };

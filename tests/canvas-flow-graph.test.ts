@@ -6,12 +6,11 @@ import {
   flowDestinations,
   flowHops,
   flowSources,
-  isFlowEdgeAligned,
   reachableStations,
   validateFlowDag,
 } from "../src/shared/flow-graph";
 
-// Pure BFS/DFS helpers over edge ether.flow configs.
+// Pure BFS/DFS helpers over the `feeds` hops between task sinks.
 
 const node = (id: string) => ({
   id,
@@ -21,19 +20,15 @@ const node = (id: string) => ({
   y: 0,
   width: 200,
   height: 80,
+  ether: { entity: { kind: "task" } },
 });
 
-const flowEdge = (
-  id: string,
-  fromNode: string,
-  toNode: string,
-  source = fromNode,
-  destination = toNode,
-) => ({
+/** A hop's direction is the edge's own order: fromNode is upstream. */
+const flowEdge = (id: string, fromNode: string, toNode: string) => ({
   id,
   fromNode,
   toNode,
-  ether: { flow: { source, destination } },
+  ether: { verb: "feeds" },
 });
 
 const doc = (nodes: string[], edges: unknown[]): CanvasDoc =>
@@ -61,8 +56,18 @@ describe("validateFlowDag", () => {
     expect(validateFlowDag(d)).toBeUndefined();
   });
 
-  it("accepts a document with no flow edges", () => {
-    const d = doc(["a", "b"], [{ id: "plain", fromNode: "a", toNode: "b" }]);
+  it("accepts a document whose only edge is not a hop", () => {
+    const d = Result.getOrThrow(
+      decodeCanvasDoc({
+        nodes: [
+          node("a"),
+          { ...node("seat"), ether: { entity: { kind: "agent" } } },
+        ],
+        edges: [
+          { id: "plain", fromNode: "seat", toNode: "a", ether: { verb: "contributes" } },
+        ],
+      }),
+    );
     expect(validateFlowDag(d)).toBeUndefined();
     expect(flowHops(d)).toEqual([]);
   });
@@ -103,9 +108,8 @@ describe("validateFlowDag", () => {
 });
 
 describe("flowDestinations / flowSources", () => {
-  it("follows the authored flow direction, not the draw direction", () => {
-    // Edge drawn b -> a, flow authored a -> b.
-    const d = doc(["a", "b"], [flowEdge("e1", "b", "a", "a", "b")]);
+  it("follows the hop's own direction", () => {
+    const d = doc(["a", "b"], [flowEdge("e1", "a", "b")]);
     expect(flowDestinations(d, "a")).toEqual(["b"]);
     expect(flowDestinations(d, "b")).toEqual([]);
     expect(flowSources(d, "b")).toEqual(["a"]);
@@ -156,27 +160,5 @@ describe("reachableStations", () => {
       [flowEdge("e1", "a", "b"), flowEdge("e2", "b", "a")],
     );
     expect([...reachableStations(cyclic, "a")].sort()).toEqual(["a", "b"]);
-  });
-});
-
-describe("isFlowEdgeAligned", () => {
-  it("accepts both orientations and edges without flow", () => {
-    const d = doc(
-      ["a", "b"],
-      [
-        flowEdge("forward", "a", "b", "a", "b"),
-        flowEdge("reversed", "a", "b", "b", "a"),
-        { id: "plain", fromNode: "a", toNode: "b" },
-      ],
-    );
-    expect(d.edges.every(isFlowEdgeAligned)).toBe(true);
-  });
-
-  it("rejects a flow config naming a node that is not an endpoint", () => {
-    const d = doc(
-      ["a", "b", "c"],
-      [flowEdge("stray", "a", "b", "a", "c")],
-    );
-    expect(isFlowEdgeAligned(d.edges[0]!)).toBe(false);
   });
 });

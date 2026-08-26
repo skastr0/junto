@@ -268,8 +268,8 @@ describe("kernel actor and delivery identity", () => {
         live,
       ],
       edges: [
-        { id: "e-offline", fromNode: "tasks", toNode: offline.id },
-        { id: "e-live", fromNode: "tasks", toNode: live.id },
+        { id: "e-offline", fromNode: "tasks", toNode: offline.id, ether: { verb: "works" } },
+        { id: "e-live", fromNode: "tasks", toNode: live.id, ether: { verb: "works" } },
       ],
     };
     const actorRefs = [

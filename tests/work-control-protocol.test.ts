@@ -185,7 +185,7 @@ describe("work authz — edges as capability", () => {
         ether: { region: { hold: false, instruction: "ship work" } },
       },
     ],
-    [{ id: "e1", fromNode: "agent", toNode: "tasks" }],
+    [{ id: "e1", fromNode: "agent", toNode: "tasks", ether: { verb: "contributes" } }],
   );
 
   it("detects undirected edges", () => {

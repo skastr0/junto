@@ -29,7 +29,7 @@ const flowEdge = (id: string, fromNode: string, toNode: string) => ({
   id,
   fromNode,
   toNode,
-  ether: { flow: { source: fromNode, destination: toNode } },
+  ether: { verb: "feeds" },
 });
 
 const doc = (nodes: string[], edges: unknown[]): CanvasDoc =>
