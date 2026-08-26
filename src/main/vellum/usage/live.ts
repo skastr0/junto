@@ -16,12 +16,15 @@ import { UsageServiceLive } from "./usage-service";
 // over the operator provider-credential reader, which itself requires
 // SettingsService (the leftover requirement propagates to the composition
 // root — see runtime.ts / remote-runtime.ts).
+// `Layer.provideMerge(self, that)` feeds `that`'s output into `self`'s
+// requirements: the consumer is the FIRST argument. The service consumes the
+// registry; the registry consumes the credential reader.
 export const UsageLive = Layer.provideMerge(
+  UsageServiceLive,
   Layer.provideMerge(
     Layer.mergeAll(StationUsageSourcesLive, UsageCacheLive),
     makeOperatorProviderCredentialsLive,
   ),
-  UsageServiceLive,
 );
 
 /** Re-exported for runtimes that must satisfy the SettingsService link. */
