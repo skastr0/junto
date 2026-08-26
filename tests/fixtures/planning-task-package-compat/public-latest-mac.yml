@@ -1,0 +1,11 @@
+version: 0.1.14
+files:
+  - url: Vellum-Command-0.1.14-arm64-mac.zip
+    sha512: vACmL001sTgBRCe45SNkxDtflhyuuhi+30bWGDwn51vXpz5ELDbv3lnOEKkFgmKLObjAvvdmYermcM9dsZQYvQ==
+    size: 176039073
+  - url: Vellum-Command-0.1.14-arm64-mac.dmg
+    sha512: W8Rd6VxpLUuS3rnH89KxsPRW/UvgNEA2xawF0dl5GvgWRL4mZ9DsOJWFr4X9q6vbP/aCYqm7DeQyetIH2/1y2g==
+    size: 175651905
+path: Vellum-Command-0.1.14-arm64-mac.zip
+sha512: vACmL001sTgBRCe45SNkxDtflhyuuhi+30bWGDwn51vXpz5ELDbv3lnOEKkFgmKLObjAvvdmYermcM9dsZQYvQ==
+releaseDate: '2026-08-14T20:21:02.294Z'

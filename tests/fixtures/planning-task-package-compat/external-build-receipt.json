@@ -1,0 +1,232 @@
+{
+  "contract": "vellum-command/planning-task-package-build-receipt/v1",
+  "recordedAt": "2026-08-26T21:18:00Z",
+  "runtime": {
+    "os": "macOS 26.5.2 (25F84)",
+    "kernel": "Darwin 25.5.0",
+    "architecture": "arm64",
+    "git": "2.55.0",
+    "bun": "1.3.13+bf2e2cecf",
+    "node": "26.7.0"
+  },
+  "driver": {
+    "path": "qualification-entry.ts.fixture",
+    "bytes": 3736,
+    "sha256": "2b85b6feb0d51b3a081fd36b7637a7375d9c9a901f592d9a7cb8310ecce593d1",
+    "description": "A driver only. Every Schema and decoder is imported from the exact archived cohort. It does not re-author Task."
+  },
+  "archiveBuildProcedure": [
+    "git archive --format=tar <commit> | tar -xf - -C <temporary-directory>",
+    "mise x bun@1.3.13 -- bun install --frozen-lockfile --ignore-scripts",
+    "copy the SHA-256-pinned qualification-entry.ts.fixture into the archive root",
+    "mise x bun@1.3.13 -- bun build qualification-entry.ts --target=node --format=esm --minify --outfile <cohort>.mjs",
+    "node <cohort>.mjs matrix < decoder-matrix-input.json"
+  ],
+  "cohorts": {
+    "released-0.1.14": {
+      "commit": "1719b8d04576fe85332f4a1bbc8eb0d8814c470c",
+      "treeOidSha1": "335aef843a3d9a5f34c061dd953e9c8bddfc3be1",
+      "commitObjectSha256": "543c98ef0762cc62b97bf698f9871914f7d570e66d768aea577fdc28cfcd5ab9",
+      "parents": [
+        "3c73762f700e06dacb21b611330c91f52a9b61f8"
+      ],
+      "authorDate": "2026-08-14T17:06:51-03:00",
+      "committerDate": "2026-08-14T17:06:51-03:00",
+      "subject": "chore(release): bump 0.1.14",
+      "tagsPointingAt": [],
+      "tagsContaining": [],
+      "archive": {
+        "format": "git-archive-tar",
+        "bytes": 93102080,
+        "sha256": "a9996ccdc16abee320dd003a56e7e205d1c2137bf8e6bdd23dacc8aac6a129ef"
+      },
+      "dependencyInstall": {
+        "command": "mise x bun@1.3.13 -- bun install --frozen-lockfile --ignore-scripts",
+        "exitCode": 0,
+        "installedPackages": 799
+      },
+      "decoderBundleBuild": {
+        "command": "mise x bun@1.3.13 -- bun build qualification-entry.ts --target=node --format=esm --minify --outfile <output>.mjs",
+        "exitCode": 0,
+        "bundledModules": 156,
+        "path": "bundles/released-0.1.14-decoder.mjs.gz",
+        "compression": "gzip",
+        "compressedBytes": 191677,
+        "compressedSha256": "63553944cfafa8ed50add6db0e465dbd0ed04cf8f8faf503a728c9abd48db2bd",
+        "executableBytes": 779771,
+        "executableSha256": "a7314e9ed1a767426f16021c90be5b3709d1d45325e503a8bc95bddb61ada86d",
+        "artifactKind": "archive-built-source-decoder-bundle",
+        "isReleasedPackage": false,
+        "deterministicRebuildVerified": true,
+        "repeatBuildExecutableSha256": "a7314e9ed1a767426f16021c90be5b3709d1d45325e503a8bc95bddb61ada86d"
+      }
+    },
+    "unreleased-protocol1-v2": {
+      "commit": "57571f60ba1d2033ec27dc536a151f60c8fc8e87",
+      "treeOidSha1": "7e62be161016a7165184a899c617e3da8f5ba661",
+      "commitObjectSha256": "ff51d227ceb91323ea3a7ff022c3fb5d42d82c7dd5b02d0d4822fad85b43d17e",
+      "parents": [
+        "6e94a8f8ba50bcd4fa1f7250fa1c93bc672a6865"
+      ],
+      "authorDate": "2026-08-25T11:20:41-03:00",
+      "committerDate": "2026-08-25T11:20:41-03:00",
+      "subject": "feat(work): journey referential integrity as a pure projection",
+      "tagsPointingAt": [],
+      "tagsContaining": [],
+      "archive": {
+        "format": "git-archive-tar",
+        "bytes": 95160320,
+        "sha256": "95c5c94159543a346861c2250fb9e64b948d268aedd691b84cd926cccd0f6ee6"
+      },
+      "dependencyInstall": {
+        "command": "mise x bun@1.3.13 -- bun install --frozen-lockfile --ignore-scripts",
+        "exitCode": 0,
+        "installedPackages": 800
+      },
+      "decoderBundleBuild": {
+        "command": "mise x bun@1.3.13 -- bun build qualification-entry.ts --target=node --format=esm --minify --outfile <output>.mjs",
+        "exitCode": 0,
+        "bundledModules": 163,
+        "path": "bundles/unreleased-protocol1-v2-decoder.mjs.gz",
+        "compression": "gzip",
+        "compressedBytes": 201175,
+        "compressedSha256": "48acbc5ae07e4950dd91229084e805fee3d85e2414cbbfb89d526edb19d770f2",
+        "executableBytes": 827815,
+        "executableSha256": "209389b4c431d1304aaf3518e0a85af6cac561a8f38399f66fcac6f77ae1bf10",
+        "artifactKind": "archive-built-source-decoder-bundle",
+        "isReleasedPackage": false,
+        "deterministicRebuildVerified": true,
+        "repeatBuildExecutableSha256": "209389b4c431d1304aaf3518e0a85af6cac561a8f38399f66fcac6f77ae1bf10"
+      }
+    },
+    "current-v3": {
+      "commit": "e020eb03bd2caf895796f240dc88909983894c8d",
+      "treeOidSha1": "76835a52d5372338c788845555ba1fd4751d16b6",
+      "commitObjectSha256": "bb438390e3804cffd2a0eba8e9731a699127d1b4523bad8955c5cd141de293ad",
+      "parents": [
+        "11fcd094afacd29ecd184849541ac294b5ea17aa"
+      ],
+      "authorDate": "2026-08-26T17:58:26-03:00",
+      "committerDate": "2026-08-26T17:58:26-03:00",
+      "subject": "fix(station): converge remote task creation safely",
+      "tagsPointingAt": [],
+      "tagsContaining": [],
+      "archive": {
+        "format": "git-archive-tar",
+        "bytes": 101806080,
+        "sha256": "0e0a6a89b4939e269150fb8a0771e3a5b3ecf553a7d6a269189ebac30c5a50e9"
+      },
+      "dependencyInstall": {
+        "command": "mise x bun@1.3.13 -- bun install --frozen-lockfile --ignore-scripts",
+        "exitCode": 0,
+        "installedPackages": 800
+      },
+      "decoderBundleBuild": {
+        "command": "mise x bun@1.3.13 -- bun build qualification-entry.ts --target=node --format=esm --minify --outfile <output>.mjs",
+        "exitCode": 0,
+        "bundledModules": 163,
+        "path": "bundles/current-v3-decoder.mjs.gz",
+        "compression": "gzip",
+        "compressedBytes": 200949,
+        "compressedSha256": "72d1d1daad1f864a18374c3adbbf4916d3dd0ed03f7c0c8292a0b510b08ded78",
+        "executableBytes": 826433,
+        "executableSha256": "5e62fd2f5b74f04b67a463245bae7bcdd225c1bde074cd87d6e79477167901f9",
+        "artifactKind": "archive-built-source-decoder-bundle",
+        "isReleasedPackage": false,
+        "deterministicRebuildVerified": true,
+        "repeatBuildExecutableSha256": "5e62fd2f5b74f04b67a463245bae7bcdd225c1bde074cd87d6e79477167901f9"
+      }
+    }
+  },
+  "standaloneCliBuilds": {
+    "unreleased-protocol1-v2": {
+      "command": "mise x bun@1.3.13 -- bun run cli:build",
+      "exitCode": 0,
+      "bundledModules": 331,
+      "observedBinaryBytes": 65002018,
+      "observedBinarySha256NonReproducible": "2f49e92c2a2de5e75dd01b6cc5334b51014bea9af6edcb73ebf3d6ed4fc3d5dc",
+      "tasksCreateSchema": {
+        "argv": [
+          "dist/vellum-command",
+          "schema",
+          "show",
+          "tasks.create"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "1ec1b81d6cbb235b78d3f2162b2af85b5ceb745c9dfe625a96caab2166d0fb14",
+        "schemaId": "tasks.create.input/v2",
+        "description": "Create a proposal on a connected task node for operator review. Same authoring fields as executable tasks (brief, required metadata.details description, reason, media, dependsOn, finishCriteria); approval mints a submitted Task.",
+        "properties": [
+          "brief",
+          "claims",
+          "dependsOn",
+          "finishCriteria",
+          "media",
+          "metadata",
+          "reason",
+          "target"
+        ]
+      }
+    },
+    "current-v3": {
+      "command": "mise x bun@1.3.13 -- bun run cli:build",
+      "exitCode": 0,
+      "bundledModules": 331,
+      "observedBinaryBytes": 65002018,
+      "observedBinarySha256NonReproducible": "1f724cf37245f1135a29ae824ef410bb52a91b330d6adf25e46a7430a3a11347",
+      "tasksCreateSchema": {
+        "argv": [
+          "dist/vellum-command",
+          "schema",
+          "show",
+          "tasks.create"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "b158b9091ac5c9f8a1e871e89524763d66fe38bf383ac3653bbb81be0f3a64fd",
+        "schemaId": "tasks.create.input/v3",
+        "description": "Create one Task with a stable TaskId on a connected sink. dependsOn accepts existing TaskIds only and persists before approval. Omitted admission persists operator-gated (clamped to the sink floor); local Command Center approval promotes that same TaskId instead of minting a replacement. Station protocol 1 has no Task approval action, so effective operator-gated creation refuses a Remote home. Legacy proposal events remain immutable: reconciliation materializes pending rows as same-ID gated Tasks and never infers dependencies or auto-rewires documentary proposals. holdFor (\"12h\", \"7d\", or ms) bakes the origin arrival.",
+        "properties": [
+          "admission",
+          "brief",
+          "claims",
+          "dependsOn",
+          "finishCriteria",
+          "holdFor",
+          "media",
+          "metadata",
+          "reason",
+          "target"
+        ]
+      }
+    }
+  },
+  "releasedPackageInstrument": {
+    "sourceZipSha256": "e47a0edb0eb1642b517a7916855dae1f911d4c6006bfe9e31c356b3621a6670e",
+    "sourceAppAsarSha256": "11ccaee77152f1e9024c1ac24048370173a058f840c0bd9b6cd25332e5953bbf",
+    "sourceMainBundleSha256": "9564bbabfc5ce075951e70d1a80520ba58454adb27384d6b67bd2594af01ee66",
+    "rawReleasedMainPrefixSha256": "91a339895ab8cb96d964285e60d590fb2c1407cb4f7740d54449e54dfd05f8a3",
+    "instrumentedSourceSha256": "70acdecc4829c015b5bc3b3bb0a0d6790fb00bf5e2652eccf9201b3db1ca2170",
+    "command": "mise x bun@1.3.13 -- bun build released-main-prefix-probe.mjs --target=node --format=esm --minify --outfile released-package-instrumented-decoder.mjs",
+    "bundledModules": 143,
+    "output": {
+      "path": "bundles/released-package-instrumented-decoder.mjs.gz",
+      "compression": "gzip",
+      "compressedBytes": 164648,
+      "compressedSha256": "3d71f4602af38ab20906f0f281509db1023269de136f08f7c2617caee4a7a0f3",
+      "executableBytes": 523049,
+      "executableSha256": "9cb000ee40f237cd6f33278ad1f031f5a0d052d8150ca9a5d15bfe38c16a33ed",
+      "artifactKind": "instrumented-released-package-decoder-bundle",
+      "isReleasedPackage": false,
+      "releasedMainPrefixSha256": "91a339895ab8cb96d964285e60d590fb2c1407cb4f7740d54449e54dfd05f8a3",
+      "instrumentedSourceSha256": "70acdecc4829c015b5bc3b3bb0a0d6790fb00bf5e2652eccf9201b3db1ca2170",
+      "deterministicRebuildVerified": true,
+      "repeatBuildExecutableSha256": "9cb000ee40f237cd6f33278ad1f031f5a0d052d8150ca9a5d15bfe38c16a33ed"
+    },
+    "qualificationLabel": "Derived executable evidence from exact released compiled bytes. This is not the unmodified signed package."
+  },
+  "limitations": [
+    "Standalone Bun compiled binary hashes contain a temporary PID path and are observations, not reproducible provenance pins.",
+    "The current v3 and protocol-1 v2 cohorts are untagged, unreleased source archives. Their bundles are never labeled released packages.",
+    "No released older Remote artifact exists. A native released-Remote pairing must be performed by the dedicated later qualification task."
+  ]
+}
