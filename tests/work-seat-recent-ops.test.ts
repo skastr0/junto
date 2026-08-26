@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
+import type { CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -20,6 +21,7 @@ import {
   WORK_SEAT_RECENT_OP_MAX_LIMIT,
 } from "../src/shared/work-recent-ops";
 import {
+  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -57,6 +59,25 @@ const actor = (digit: string, nodeId = `actor-${digit}`): ActorRef => ({
 const atMinute = (minute: number): string =>
   new Date(Date.UTC(2026, 7, 12, 12, minute)).toISOString();
 
+const factoryTopology: CanvasDoc = {
+  nodes: [
+    {
+      id: "tasks",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 100,
+      text: "Tasks",
+      ether: { entity: { kind: "task" } },
+    },
+  ],
+  edges: [],
+};
+const factoryCanvasBody = JSON.stringify(factoryTopology);
+const factoryCanvasSha256 = createHash("sha256")
+  .update(factoryCanvasBody, "utf8")
+  .digest("hex");
 const emptyCanvasBody = JSON.stringify({ nodes: [], edges: [] });
 const emptyCanvasSha256 = createHash("sha256")
   .update(emptyCanvasBody, "utf8")
@@ -133,6 +154,9 @@ const openRepository = async (
         [atMinute(0), "test recent seat operations", intentSha256],
       );
       for (const name of [canvasName, otherCanvasName]) {
+        const body = name === canvasName ? factoryCanvasBody : emptyCanvasBody;
+        const sha256 =
+          name === canvasName ? factoryCanvasSha256 : emptyCanvasSha256;
         writer.run(
           `
             INSERT INTO canvas_generation_documents(
@@ -143,7 +167,7 @@ const openRepository = async (
               modified_at
             ) VALUES ('1', ?, ?, ?, ?)
           `,
-          [name, emptyCanvasBody, emptyCanvasSha256, atMinute(0)],
+          [name, body, sha256, atMinute(0)],
         );
       }
       writer.run(
@@ -261,6 +285,11 @@ describe("WorkRepository recent actor-seat operations", () => {
       repository.claimLocalTask({
         sink: taskSink,
         basis,
+        dependencyScope: createTaskDependencyScopeCapability({
+          topology: factoryTopology,
+          basis,
+          authoringSink: taskSink,
+        }),
         taskId: "task-1",
         actor: seat,
         originAt: atMinute(3),

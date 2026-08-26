@@ -32,6 +32,7 @@ import { makeHostsRegistry } from "../../src/main/vellum/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import {
+  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../../src/main/vellum/work/repository";
@@ -183,13 +184,19 @@ export const writeFixtureCanvas = async (
         }
 
         yield* canvasService.write(name, doc);
-        const intentWitness = yield* canvasService.activeIntentWitness();
+        const authority = yield* canvasService.authoritySnapshot();
+        const topology = authority.documents.get(name);
+        if (topology === undefined) {
+          throw new Error(
+            `fixture ${JSON.stringify(name)} is absent from authorial intent`,
+          );
+        }
         const basis = Schema.decodeUnknownSync(IntentFactBasis, {
           onExcessProperty: "error",
         })({
           kind: "authorial-intent",
-          generation: intentWitness.generation,
-          contentSha256: intentWitness.contentSha256,
+          generation: authority.generation,
+          contentSha256: authority.intentSha256,
         });
 
         const actorRefs: ReadonlyArray<ActorRef> =
@@ -248,6 +255,11 @@ export const writeFixtureCanvas = async (
         for (const node of doc.nodes) {
           const sink = { canvasName: name, nodeId: node.id };
           for (const task of node.ether?.tasks?.items ?? []) {
+            const dependencyScope = createTaskDependencyScopeCapability({
+              topology,
+              basis,
+              authoringSink: sink,
+            });
             const {
               state: targetState,
               claimedBy: targetClaimant,
@@ -261,6 +273,7 @@ export const writeFixtureCanvas = async (
             yield* workRepository.createTask({
               sink,
               basis,
+              dependencyScope,
               task: {
                 ...submittedBody,
                 state: "submitted",
@@ -278,6 +291,7 @@ export const writeFixtureCanvas = async (
               yield* workRepository.claimLocalTask({
                 sink,
                 basis,
+                dependencyScope,
                 taskId: task.id,
                 actor: actorForTask(node.id, task),
               });

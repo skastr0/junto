@@ -11,19 +11,23 @@ import {
 } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
+import type { CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
+import { materializePendingProposal } from "../src/shared/pending-proposal-backfill";
 import {
   AuthorialIntentFactBasis,
   ProjectedIntentFactBasis,
   RouteCursor,
   WorkRecord,
+  type IntentFactBasis as IntentFactBasisValue,
   type WorkCommand as WorkCommandValue,
   type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
 import {
+  createTaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkReplicationError,
   WorkRepository,
@@ -37,13 +41,39 @@ import {
 } from "../src/main/vellum/state/engine";
 
 const observedAt = "2026-07-27T18:00:00.000Z";
-const authorialBody = JSON.stringify({ nodes: [], edges: [] });
+const fixtureTaskSinkNodeIds: ReadonlyArray<string> = [
+  "tasks",
+  "remote-tasks",
+  "cc-tasks",
+  "shared-tasks",
+  "replay-tasks",
+  "integrity-tasks",
+  "artifact-tasks",
+];
+const fixtureTaskNode = (
+  id: string,
+  index: number,
+): CanvasDoc["nodes"][number] => ({
+  id,
+  type: "text",
+  x: 0,
+  y: index * 120,
+  width: 240,
+  height: 100,
+  text: id,
+  ether: { entity: { kind: "task" } },
+});
+const fixtureTopology: CanvasDoc = {
+  nodes: fixtureTaskSinkNodeIds.map(fixtureTaskNode),
+  edges: [],
+};
+const authorialBody = JSON.stringify(fixtureTopology);
 const authorialIntentSha256 = "a".repeat(64);
 const authorialDocumentSha256 = createHash("sha256")
   .update(authorialBody, "utf8")
   .digest("hex");
 const projectedBody = compileStationPortfolioBody(
-  new Map([["factory", { nodes: [], edges: [] }]]),
+  new Map([["factory", fixtureTopology]]),
   new Map(),
 );
 const projectedContentSha256 =
@@ -62,6 +92,16 @@ const projectedBasis = Schema.decodeUnknownSync(
   generation: "1",
   contentSha256: projectedContentSha256,
 });
+
+const dependencyScope = (
+  sink: { readonly canvasName: string; readonly nodeId: string },
+  basis: IntentFactBasisValue,
+) =>
+  createTaskDependencyScopeCapability({
+    topology: fixtureTopology,
+    basis,
+    authoringSink: sink,
+  });
 const opened: Array<{
   readonly root: string;
   readonly dispose: () => Promise<void>;
@@ -305,7 +345,7 @@ const reseal = (
 };
 
 describe("WorkRepository v2 report reconciliation", () => {
-  it("keeps a Remote actor proposal non-executable until CC approval mints a task", async () => {
+  it("keeps a Remote actor proposal non-executable until CC approval preserves its stable Task identity", async () => {
     const cc = installation("cc-proposal");
     const remote = installation("remote-proposal");
     const commandCenter = await openInstallation(
@@ -411,37 +451,27 @@ describe("WorkRepository v2 report reconciliation", () => {
       }),
     ]);
 
+    const stableTask = materializePendingProposal({ proposal }).task;
     const approved = await commandCenter.runtime.runPromise(
       commandCenter.repository.approveProposal({
         sink,
         basis: commandCenter.basis,
         proposalId: proposal.id,
-        task: {
-          id: "approved-task",
-          state: "submitted",
-          history: [
-            message(
-              "approved-task-brief",
-              "user",
-              "Add keyboard navigation",
-              "approved-task",
-            ),
-          ],
-        },
+        task: stableTask,
         originAt: observedAt,
         receivedAt: observedAt,
       }),
     );
     expect(approved.value.proposal).toMatchObject({
       state: "approved",
-      approvedTaskId: "approved-task",
+      approvedTaskId: proposal.id,
     });
     expect(approved.snapshot.tasks.items).toEqual([
-      expect.objectContaining({ id: "approved-task", state: "submitted" }),
+      expect.objectContaining({ id: proposal.id, state: "submitted" }),
     ]);
   });
 
-  it("promotes a Remote-home proposal through one correlated approval command", async () => {
+  it("refuses Remote-home proposal approval while Station protocol 1 cannot conditionally materialize its stable Task", async () => {
     const cc = installation("cc-remote-proposal");
     const remote = installation("remote-home-proposal");
     const commandCenter = await openInstallation(
@@ -474,19 +504,9 @@ describe("WorkRepository v2 report reconciliation", () => {
     await commandCenter.runtime.runPromise(
       accept(commandCenter.repository, remote, [created.record]),
     );
-    const task = {
-      id: "remote-approved-task",
-      state: "submitted" as const,
-      history: [
-        message(
-          "remote-approved-brief",
-          "user",
-          "Keep the worker online",
-          "remote-approved-task",
-        ),
-      ],
-    };
-    await commandCenter.runtime.runPromise(
+
+    const stableTask = materializePendingProposal({ proposal }).task;
+    const refused = await commandCenter.runtime.runPromise(
       commandCenter.repository.enqueueRemoteProposalApproval({
         targetInstallationId: remote,
         sink,
@@ -494,79 +514,48 @@ describe("WorkRepository v2 report reconciliation", () => {
         action: {
           operation: "proposal.approve",
           proposalId: proposal.id,
-          task,
+          task: stableTask,
         },
         originAt: observedAt,
         receivedAt: observedAt,
-      }),
+      }).pipe(Effect.result),
     );
-    const outbound = await commandCenter.runtime.runPromise(
-      commandCenter.repository.recordsAfter({
-        route: { eventHome: cc, entityHome: remote },
-      }),
-    );
-    const applied = await station.runtime.runPromise(
-      accept(station.repository, cc, outbound),
-    );
-    expect(applied.emitted.map((record) => record.operation)).toEqual([
-      "proposal.approve",
-      "proposal.approve",
-      "task.create",
-      "task.create",
-    ]);
-    const approvalFact = applied.emitted.find(
-      (record) =>
-        record.recordType === "fact" &&
-        record.operation === "proposal.approve",
-    );
-    if (approvalFact === undefined) {
-      throw new Error("proposal approval fact was not emitted");
+    expect(Result.isFailure(refused)).toBe(true);
+    if (Result.isFailure(refused)) {
+      expect(refused.failure).toMatchObject({
+        reason: "invalid-transition",
+        message:
+          "remote proposal approval is retired because Station protocol 1 cannot conditionally materialize its stable Task",
+      });
     }
-    const duplicateApprovalFact = reseal({
-      ...approvalFact,
-      id: {
-        ...approvalFact.id,
-        seq: String(BigInt(approvalFact.id.seq) + 1n) as typeof approvalFact.id.seq,
-      },
-    });
-    const duplicate = await commandCenter.runtime.runPromise(
-      accept(
-        commandCenter.repository,
-        remote,
-        [approvalFact, duplicateApprovalFact],
-      ).pipe(Effect.result),
-    );
-    expect(Result.isFailure(duplicate)).toBe(true);
-    if (Result.isFailure(duplicate)) {
-      expect(duplicate.failure).toMatchObject({ reason: "causal-conflict" });
-    }
-    expect(
-      (
-        await commandCenter.runtime.runPromise(
-          commandCenter.repository.readSnapshot(
-            sink.canvasName,
-            sink.nodeId,
-          ),
-        )
-      ).tasks.proposals?.[0]?.state,
-    ).toBe("pending");
 
-    await commandCenter.runtime.runPromise(
-      accept(commandCenter.repository, remote, applied.emitted),
-    );
-    const snapshot = await commandCenter.runtime.runPromise(
-      commandCenter.repository.readSnapshot("factory", "remote-tasks"),
-    );
-    expect(snapshot.tasks.proposals).toEqual([
-      expect.objectContaining({
-        id: proposal.id,
-        state: "approved",
-        approvedTaskId: task.id,
-      }),
-    ]);
-    expect(snapshot.tasks.items).toEqual([
-      expect.objectContaining({ id: task.id, state: "submitted" }),
-    ]);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.repository.recordsAfter({
+          route: { eventHome: cc, entityHome: remote },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.repository.pendingCommands,
+      ),
+    ).toEqual([]);
+    for (const installationHarness of [commandCenter, station]) {
+      const snapshot = await installationHarness.runtime.runPromise(
+        installationHarness.repository.readSnapshot(
+          sink.canvasName,
+          sink.nodeId,
+        ),
+      );
+      expect(snapshot.tasks.proposals).toEqual([
+        expect.objectContaining({
+          id: proposal.id,
+          state: "pending",
+        }),
+      ]);
+      expect(snapshot.tasks.items).toEqual([]);
+    }
   });
 
   it("commits peer acknowledgement only with the inbound records it accepts", async () => {
@@ -1109,6 +1098,8 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
+        basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         taskId: created.value.id,
         actor: worker,
         originAt: observedAt,
@@ -1139,6 +1130,8 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
+        basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         taskId: decoyTask.value.id,
         actor: actor("b", "remote-decoy-worker"),
         originAt: observedAt,
@@ -1430,6 +1423,8 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
+        basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         taskId: created.value.id,
         actor: worker,
         originAt: observedAt,
@@ -1539,6 +1534,8 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
+        basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         taskId: created.value.id,
         actor: worker,
         originAt: observedAt,
@@ -1815,6 +1812,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       station.repository.claimLocalTask({
         sink: taskSink,
         basis: station.basis,
+        dependencyScope: dependencyScope(taskSink, station.basis),
         taskId: taskCreated.value.id,
         actor: taskClaimant,
         originAt: observedAt,

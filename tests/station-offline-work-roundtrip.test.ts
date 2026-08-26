@@ -104,6 +104,7 @@ import {
   WorkService,
 } from "../src/main/vellum/work/service";
 import {
+  createTaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkAuthorityError,
   WorkRepository,
@@ -638,6 +639,29 @@ describe("Station work authority survives Command Center downtime", () => {
       remote,
       "projected-intent",
     );
+    const commandCenterAuthorial = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.readNodeStructure(
+        sink.canvasName,
+        sink.nodeId,
+      ),
+    );
+    const remoteProjected = await remote.runtime.runPromise(
+      remote.canvases.readNodeStructure(sink.canvasName, sink.nodeId),
+    );
+    if (commandCenterAuthorial === undefined || remoteProjected === undefined) {
+      throw new Error("expected the shared Task sink in both live intent topologies");
+    }
+    const commandCenterDependencyScope =
+      createTaskDependencyScopeCapability({
+        topology: commandCenterAuthorial.structure,
+        basis: commandCenterBasis,
+        authoringSink: sink,
+      });
+    const remoteDependencyScope = createTaskDependencyScopeCapability({
+      topology: remoteProjected.structure,
+      basis: remoteBasis,
+      authoringSink: sink,
+    });
     await commandCenter.runtime.runPromise(
       commandCenter.work.createTask({
         sink,
@@ -682,6 +706,8 @@ describe("Station work authority survives Command Center downtime", () => {
       commandCenter.work.reserveRemoteTaskClaim({
         targetInstallationId: remoteId,
         sink,
+        basis: commandCenterBasis,
+        dependencyScope: commandCenterDependencyScope,
         taskId: firstTaskId,
         actor,
         originAt: now,
@@ -878,6 +904,7 @@ describe("Station work authority survives Command Center downtime", () => {
         taskId: secondTaskId,
         actor,
         basis: remoteBasis,
+        dependencyScope: remoteDependencyScope,
         originAt: now,
         receivedAt: now,
       }).pipe(Effect.result),

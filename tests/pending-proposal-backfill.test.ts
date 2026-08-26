@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,22 +16,30 @@ import {
 } from "../src/shared/pending-proposal-backfill";
 import { PIPELINE_ADMITTED_METADATA_KEY } from "../src/shared/claims";
 import { ActorSeatId } from "../src/shared/actor-seat";
+import type { CanvasDoc } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
-import { IntentFactBasis, WorkRecord } from "../src/shared/work-protocol";
+import {
+  IntentFactBasis,
+  WORK_PROTOCOL,
+  WorkRecord,
+  type WorkFact as WorkFactValue,
+} from "../src/shared/work-protocol";
 import { ActorRef } from "../src/shared/work-reference";
 import {
   runPendingProposalBackfill,
   type PersistUnadmittedTask,
 } from "../src/main/vellum/work/pending-proposal-backfill";
 import {
+  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
   workRecordContentSha256,
 } from "../src/main/vellum/work/repository";
+import { canonicalJson } from "../src/main/vellum/work/canonical-json";
 import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
 import {
+  allocateSequence,
   appendWorkRecord,
-  rememberIncomingSequence,
 } from "../src/main/vellum/work/journal";
 import {
   makeStateEngineLive,
@@ -44,6 +52,26 @@ import {
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 
 const proposedBy = actorRefFixture("agent-1");
+
+const backfillTopology: CanvasDoc = {
+  nodes: [
+    {
+      id: "tasks-1",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 100,
+      text: "Tasks",
+      ether: { entity: { kind: "task" } },
+    },
+  ],
+  edges: [],
+};
+const backfillTopologyBody = JSON.stringify(backfillTopology);
+const backfillTopologySha256 = createHash("sha256")
+  .update(backfillTopologyBody, "utf8")
+  .digest("hex");
 
 const pendingSnapshot = {
   id: "prop-1",
@@ -279,8 +307,8 @@ const openHarness = async () => {
       writer.run(
         `INSERT INTO canvas_generation_documents(
            generation, name, body, sha256, modified_at
-         ) VALUES ('1', 'factory', '{}', ?, ?)`,
-        ["1".repeat(64), observedAt],
+         ) VALUES ('1', 'factory', ?, ?, ?)`,
+        [backfillTopologyBody, backfillTopologySha256, observedAt],
       );
       writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
     }),
@@ -298,7 +326,16 @@ const openHarness = async () => {
     canvasName: "factory",
     nodeId: "agent-1",
   });
-  return { runtime, state, repository, installOps, basis, actor, observedAt };
+  return {
+    runtime,
+    state,
+    repository,
+    installOps,
+    basis,
+    actor,
+    observedAt,
+    installationId: cc,
+  };
 };
 
 const sink = { canvasName: "factory", nodeId: "tasks-1" } as const;
@@ -359,12 +396,19 @@ describe("runPendingProposalBackfill", () => {
     let captured: Parameters<PersistUnadmittedTask>[0] | undefined;
     const persist: PersistUnadmittedTask = (input) => {
       captured = input;
-      return repository.createTask({
-        sink: { canvasName: input.canvasName, nodeId: input.nodeId },
+      const inputSink = {
+        canvasName: input.canvasName,
+        nodeId: input.nodeId,
+      };
+      return repository.persistUnadmittedTask({
+        sink: inputSink,
         basis,
-        task: input.materialization.task,
-        originAt: observedAt,
-        receivedAt: observedAt,
+        materialization: input.materialization,
+        dependencyScope: createTaskDependencyScopeCapability({
+          topology: backfillTopology,
+          basis,
+          authoringSink: inputSink,
+        }),
       }).pipe(Effect.asVoid);
     };
 
@@ -560,12 +604,14 @@ describe("runPendingProposalBackfill", () => {
             sink: { canvasName: input.canvasName, nodeId: input.nodeId },
             basis: harness.basis,
             materialization: input.materialization,
-            dependencyScope: {
-              canvasName: input.canvasName,
-              nodeId: input.nodeId,
+            dependencyScope: createTaskDependencyScopeCapability({
+              topology: backfillTopology,
               basis: harness.basis,
-              allowedTaskSinkNodeIds: [input.nodeId],
-            },
+              authoringSink: {
+                canvasName: input.canvasName,
+                nodeId: input.nodeId,
+              },
+            }),
           }).pipe(
             Effect.tap((result) =>
               Effect.sync(() => {
@@ -595,39 +641,12 @@ describe("runPendingProposalBackfill", () => {
 
   it("drains reverse-order chains and fan-out to a fixed point in one invocation", async () => {
     const harness = await openHarness();
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "a-leaf", details: "Leaf." },
-    );
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "b-fan", details: "Fan-out sibling." },
-    );
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "m-mid", details: "Middle." },
-    );
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
+    await seedLegacyProposals(harness, [
+      { id: "a-leaf", details: "Leaf.", dependsOn: ["m-mid"] },
+      { id: "b-fan", details: "Fan-out sibling.", dependsOn: ["z-root"] },
+      { id: "m-mid", details: "Middle.", dependsOn: ["z-root"] },
       { id: "z-root", details: "Root." },
-    );
-    await seedLegacyDependencies(harness, {
-      "a-leaf": ["m-mid"],
-      "b-fan": ["z-root"],
-      "m-mid": ["z-root"],
-    });
+    ]);
 
     const order: string[] = [];
     const report = await Effect.runPromise(
@@ -658,31 +677,11 @@ describe("runPendingProposalBackfill", () => {
 
   it("materializes independent branches while cycles remain pending", async () => {
     const harness = await openHarness();
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "cycle-a", details: "Cycle A." },
-    );
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "cycle-b", details: "Cycle B." },
-    );
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
+    await seedLegacyProposals(harness, [
+      { id: "cycle-a", details: "Cycle A.", dependsOn: ["cycle-b"] },
+      { id: "cycle-b", details: "Cycle B.", dependsOn: ["cycle-a"] },
       { id: "independent", details: "Independent." },
-    );
-    await seedLegacyDependencies(harness, {
-      "cycle-a": ["cycle-b"],
-      "cycle-b": ["cycle-a"],
-    });
+    ]);
     const eventsBefore = await fingerprintProposalEvents(harness.state);
 
     const report = await Effect.runPromise(
@@ -983,21 +982,10 @@ describe("runPendingProposalBackfill", () => {
 
   it("resumes after interruption without replaying the first durable task", async () => {
     const harness = await openHarness();
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
-      { id: "child", details: "Child." },
-    );
-    await runtimeCreateProposal(
-      harness.repository,
-      harness.basis,
-      harness.actor,
-      harness.observedAt,
+    await seedLegacyProposals(harness, [
+      { id: "child", details: "Child.", dependsOn: ["root"] },
       { id: "root", details: "Root." },
-    );
-    await seedLegacyDependencies(harness, { child: ["root"] });
+    ]);
     const persist = repositoryPersist(harness);
     const crashingPersist: PersistUnadmittedTask = (input) =>
       input.materialization.task.id === "root"
@@ -1367,120 +1355,147 @@ describe("pending-proposal backfill — GO fields", () => {
 
 type Harness = Awaited<ReturnType<typeof openHarness>>;
 
-/** Append a coherent historical fact; never UPDATE or DELETE immutable logs. */
-const seedLegacyDependencies = async (
+/** Seed one exact legacy proposal.create fact per immutable identity. */
+type LegacyProposalSeed = {
+  readonly id: string;
+  readonly details: string;
+  readonly dependsOn?: ReadonlyArray<string>;
+};
+
+const seedLegacyProposals = async (
   harness: Harness,
-  entries: Readonly<Record<string, ReadonlyArray<string>>>,
+  entries: ReadonlyArray<LegacyProposalSeed>,
 ): Promise<void> => {
+  const decodeRecord = Schema.decodeUnknownSync(WorkRecord, {
+    onExcessProperty: "error",
+  });
   await harness.runtime.runPromise(
-    harness.state.transaction("test.seed.legacy-dependencies", (writer) =>
+    harness.state.transaction("test.seed.legacy-proposals", (writer) =>
       unjournaledWorkMutation("test.fixture-seed", () => {
-        const decodeRecord = Schema.decodeUnknownSync(WorkRecord, {
-          onExcessProperty: "error",
-        });
-        for (const [proposalId, dependsOn] of Object.entries(entries)) {
-          const source = writer.get<{
-            readonly event_home: string;
-            readonly entity_home: string;
-            readonly record_json: string;
-          }>(
-            `
-              SELECT
-                proposal.fact_event_home AS event_home,
-                proposal.fact_entity_home AS entity_home,
-                event.record_json
-              FROM work_task_proposals AS proposal
-              JOIN work_proposal_events AS event
-                ON event.event_home = proposal.fact_event_home
-                AND event.entity_home = proposal.fact_entity_home
-                AND event.seq = proposal.fact_seq
-              WHERE proposal.canvas_name = ?
-                AND proposal.node_id = ?
-                AND proposal.proposal_id = ?
-            `,
-            [sink.canvasName, sink.nodeId, proposalId],
-          );
-          if (source === undefined) {
-            throw new Error(`missing proposal fixture ${proposalId}`);
-          }
-          const original = decodeRecord(JSON.parse(source.record_json));
-          if (
-            original.recordType !== "fact" ||
-            original.body.operation !== "proposal.create"
-          ) {
-            throw new Error(`proposal fixture ${proposalId} has no create fact`);
-          }
-          const lastSeq = writer.get<{ readonly last_seq: string }>(
-            `
-              SELECT last_seq
-              FROM work_event_sequences
-              WHERE event_home = ? AND entity_home = ?
-            `,
-            [source.event_home, source.entity_home],
-          )?.last_seq;
-          if (lastSeq === undefined) {
-            throw new Error(`proposal fixture ${proposalId} has no route`);
-          }
-          const candidate = {
-            ...original,
+        for (const entry of entries) {
+          const semantic: Omit<
+            WorkFactValue,
+            "contentSha256" | "originAt"
+          > = {
+            protocol: WORK_PROTOCOL,
             id: {
-              ...original.id,
-              seq: (BigInt(lastSeq) + 1n).toString(),
+              route: {
+                eventHome: harness.installationId,
+                entityHome: harness.installationId,
+              },
+              seq: allocateSequence(
+                writer,
+                harness.installationId,
+                harness.installationId,
+              ),
             },
+            recordType: "fact",
+            item: {
+              kind: "proposal",
+              itemId: entry.id,
+              sink,
+            },
+            operation: "proposal.create",
+            predecessor: null,
+            basis: harness.basis,
             body: {
-              ...original.body,
+              operation: "proposal.create",
               proposal: {
-                ...original.body.proposal,
-                dependsOn,
+                id: entry.id,
+                state: "pending",
+                brief: {
+                  messageId: `${entry.id}-brief`,
+                  role: "agent",
+                  parts: [{ kind: "text", text: entry.id }],
+                  taskId: entry.id,
+                  contextId: "factory",
+                },
+                proposedBy: harness.actor,
+                metadata: { details: entry.details },
+                ...(entry.dependsOn === undefined
+                  ? {}
+                  : { dependsOn: entry.dependsOn }),
               },
             },
           };
-          const brandedCandidate = decodeRecord(candidate);
-          const {
-            contentSha256: _oldSha,
-            originAt,
-            ...semantic
-          } = brandedCandidate;
           const record = decodeRecord({
             ...semantic,
             contentSha256: workRecordContentSha256(semantic),
-            originAt,
+            originAt: harness.observedAt,
           });
-          rememberIncomingSequence(writer, record.id);
+          if (
+            record.recordType !== "fact" ||
+            record.body.operation !== "proposal.create"
+          ) {
+            throw new Error(`invalid legacy proposal fixture ${entry.id}`);
+          }
+          const proposal = record.body.proposal;
           appendWorkRecord(writer, record, record.originAt);
           writer.run(
             `
-              UPDATE work_task_proposals
-              SET fact_event_home = ?, fact_entity_home = ?, fact_seq = ?
-              WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-            `,
-            [
-              record.id.route.eventHome,
-              record.id.route.entityHome,
-              record.id.seq,
-              sink.canvasName,
-              sink.nodeId,
-              proposalId,
-            ],
-          );
-          writer.run(
-            `
-              INSERT INTO work_proposal_planning(
+              INSERT INTO work_task_proposals(
                 canvas_name,
                 node_id,
                 proposal_id,
-                depends_on_json
-              ) VALUES (?, ?, ?, ?)
-              ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
-                depends_on_json = excluded.depends_on_json
+                entity_home,
+                fact_event_home,
+                fact_entity_home,
+                fact_seq,
+                state,
+                brief_json,
+                proposer_seat_id,
+                proposer_canvas_name,
+                proposer_node_id,
+                approved_task_id,
+                metadata_json,
+                reason,
+                created_at,
+                updated_at,
+                origin_at,
+                received_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?)
             `,
             [
               sink.canvasName,
               sink.nodeId,
-              proposalId,
-              JSON.stringify(dependsOn),
+              proposal.id,
+              record.id.route.entityHome,
+              record.id.route.eventHome,
+              record.id.route.entityHome,
+              record.id.seq,
+              proposal.state,
+              canonicalJson(proposal.brief),
+              proposal.proposedBy.seatId,
+              proposal.proposedBy.canvasName,
+              proposal.proposedBy.nodeId,
+              proposal.metadata === undefined
+                ? null
+                : canonicalJson(proposal.metadata),
+              record.originAt,
+              record.originAt,
+              record.originAt,
+              record.originAt,
             ],
           );
+          if ((proposal.dependsOn?.length ?? 0) > 0) {
+            writer.run(
+              `
+                INSERT INTO work_proposal_planning(
+                  canvas_name,
+                  node_id,
+                  proposal_id,
+                  depends_on_json,
+                  finish_criteria_json
+                ) VALUES (?, ?, ?, ?, NULL)
+              `,
+              [
+                sink.canvasName,
+                sink.nodeId,
+                proposal.id,
+                canonicalJson(proposal.dependsOn),
+              ],
+            );
+          }
         }
       }),
     ),
@@ -1509,12 +1524,11 @@ const runtimeCreateProposal = async (
     repository.createProposal({
       sink,
       basis,
-      dependencyScope: {
-        canvasName: sink.canvasName,
-        nodeId: sink.nodeId,
+      dependencyScope: createTaskDependencyScopeCapability({
+        topology: backfillTopology,
         basis,
-        allowedTaskSinkNodeIds: [sink.nodeId],
-      },
+        authoringSink: sink,
+      }),
       proposal: {
         id: input.id,
         state: "pending",
@@ -1545,12 +1559,14 @@ const repositoryPersist = (
     sink: { canvasName: input.canvasName, nodeId: input.nodeId },
     basis: harness.basis,
     materialization: input.materialization,
-    dependencyScope: {
-      canvasName: input.canvasName,
-      nodeId: input.nodeId,
+    dependencyScope: createTaskDependencyScopeCapability({
+      topology: backfillTopology,
       basis: harness.basis,
-      allowedTaskSinkNodeIds: [input.nodeId],
-    },
+      authoringSink: {
+        canvasName: input.canvasName,
+        nodeId: input.nodeId,
+      },
+    }),
   }).pipe(Effect.asVoid);
 };
 

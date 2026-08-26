@@ -32,6 +32,7 @@ import {
   makeContentServiceLive,
 } from "../src/main/vellum/content/service";
 import {
+  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -113,6 +114,35 @@ const authorialBasis = async (
     kind: "authorial-intent",
     ...witness,
   });
+};
+
+const taskDependencyAuthority = async (
+  runtime: ReturnType<typeof makeWorkTestRuntime>,
+  sink: { readonly canvasName: string; readonly nodeId: string },
+) => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  const authority = await runtime.runPromise(canvases.authoritySnapshot());
+  const topology = authority.documents.get(sink.canvasName);
+  if (topology === undefined) {
+    throw new Error(
+      `missing authorial canvas ${JSON.stringify(sink.canvasName)}`,
+    );
+  }
+  const basis = Schema.decodeUnknownSync(IntentFactBasis, {
+    onExcessProperty: "error",
+  })({
+    kind: "authorial-intent",
+    generation: authority.generation,
+    contentSha256: authority.intentSha256,
+  });
+  return {
+    basis,
+    dependencyScope: createTaskDependencyScopeCapability({
+      topology,
+      basis,
+      authoringSink: sink,
+    }),
+  };
 };
 
 const deferred = <A>() => {
@@ -1332,10 +1362,16 @@ describe("work control transport", () => {
     const caller = await projectedProcessActor();
     const other = actorRefFixture("other-agent", "work-cli");
     const repository = await runtime.runPromise(WorkRepository);
+    const sink = { canvasName: "work-cli", nodeId: "tasks" };
+    const { basis, dependencyScope } = await taskDependencyAuthority(
+      runtime,
+      sink,
+    );
     await runtime.runPromise(
       repository.claimLocalTask({
-        sink: { canvasName: "work-cli", nodeId: "tasks" },
-        basis: await authorialBasis(runtime),
+        sink,
+        basis,
+        dependencyScope,
         taskId: "t1",
         actor: other,
       }),
@@ -1382,10 +1418,16 @@ describe("work control transport", () => {
     const caller = await projectedProcessActor();
     const other = actorRefFixture("other-agent", "work-cli");
     const repository = await runtime.runPromise(WorkRepository);
+    const sink = { canvasName: "work-cli", nodeId: "tasks" };
+    const { basis, dependencyScope } = await taskDependencyAuthority(
+      runtime,
+      sink,
+    );
     await runtime.runPromise(
       repository.claimLocalTask({
-        sink: { canvasName: "work-cli", nodeId: "tasks" },
-        basis: await authorialBasis(runtime),
+        sink,
+        basis,
+        dependencyScope,
         taskId: "t1",
         actor: other,
       }),

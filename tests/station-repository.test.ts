@@ -45,6 +45,7 @@ import {
   type StateRow,
 } from "../src/main/vellum/state/engine";
 import {
+  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -186,6 +187,33 @@ const portfolioBody = (text: string): string =>
     new Map([["factory", canvasDocument(text)]]),
     new Map(),
   );
+
+const workCanvasDocument = (text: string): CanvasDoc => ({
+  nodes: [
+    ...canvasDocument(text).nodes,
+    {
+      id: "tasks",
+      type: "text",
+      x: 0,
+      y: 140,
+      width: 240,
+      height: 100,
+      text: "Remote tasks",
+      ether: { entity: { kind: "task" } },
+    },
+    {
+      id: "artifacts",
+      type: "text",
+      x: 280,
+      y: 140,
+      width: 240,
+      height: 100,
+      text: "Remote artifacts",
+      ether: { entity: { kind: "artifacts" } },
+    },
+  ],
+  edges: [],
+});
 
 describe("StationRepository", () => {
   it("mints one stable installation identity in the shared database", async () => {
@@ -1035,10 +1063,14 @@ describe("StationRepository", () => {
     const repository = await runtime.runPromise(StationRepository);
     const work = await runtime.runPromise(WorkRepository);
     const state = await runtime.runPromise(StateEngine);
+    const initialDocument = workCanvasDocument("initial Remote intent");
     const initial = projectRequest(
       local,
       "41",
-      portfolioBody("initial Remote intent"),
+      compileStationPortfolioBody(
+        new Map([["factory", initialDocument]]),
+        new Map(),
+      ),
     );
 
     await runtime.runPromise(repository.pair(pairRequest(local, cc)));
@@ -1091,6 +1123,11 @@ describe("StationRepository", () => {
       work.claimLocalTask({
         sink: tasks,
         basis,
+        dependencyScope: createTaskDependencyScopeCapability({
+          topology: initialDocument,
+          basis,
+          authoringSink: tasks,
+        }),
         taskId: created.value.id,
         actor,
         originAt: "2026-07-27T12:03:00.000Z",

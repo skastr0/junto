@@ -1133,6 +1133,7 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
+  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -1929,9 +1930,15 @@ describe("WorkService — concurrent ops", () => {
         runtime,
         "projected-intent"
       );
+      const taskSink = { canvasName, nodeId: "tasks" };
+      const dependencyScope = createTaskDependencyScopeCapability({
+        topology: read.doc,
+        basis,
+        authoringSink: taskSink,
+      });
       await runtime.runPromise(
         remoteRepository.createTask({
-          sink: { canvasName, nodeId: "tasks" },
+          sink: taskSink,
           task: {
             id: "remote-operator-response",
             state: "submitted",
@@ -1950,10 +1957,11 @@ describe("WorkService — concurrent ops", () => {
       );
       await runtime.runPromise(
         remoteRepository.claimLocalTask({
-          sink: { canvasName, nodeId: "tasks" },
+          sink: taskSink,
           taskId: "remote-operator-response",
           actor: sender,
           basis,
+          dependencyScope,
         })
       );
       await runtime.runPromise(

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,12 +12,14 @@ import {
 } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
+import type { CanvasDoc } from "../src/shared/canvas";
 import { ContentRef } from "../src/shared/content";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
+  createTaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkAuthorityError,
   WorkRepository,
@@ -27,7 +29,10 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
-import { IntentFactBasis } from "../src/shared/work-protocol";
+import {
+  IntentFactBasis,
+  type IntentFactBasis as IntentFactBasisValue,
+} from "../src/shared/work-protocol";
 
 const root = join(tmpdir(), `vellum-command-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -69,6 +74,51 @@ const projectedBasis = decodeIntentFactBasis({
   generation: "1",
   contentSha256: currentIntentSha256,
 });
+const fixtureTaskSinkNodeIds: ReadonlyArray<string> = [
+  "content-task-sink",
+  "unconfigured-tasks",
+  "basis-rejections",
+  "tasks-local",
+  "tasks-release",
+  "tasks-qa-rejection",
+  "basis-roundtrip",
+  "tasks-remote",
+  "tasks-pending",
+  "artifact-source-tasks",
+  "thread-tasks",
+  "tasks-authority",
+  "tasks-archive",
+];
+const fixtureTaskNode = (
+  id: string,
+  index: number,
+): CanvasDoc["nodes"][number] => ({
+  id,
+  type: "text",
+  x: 0,
+  y: index * 120,
+  width: 240,
+  height: 100,
+  text: id,
+  ether: { entity: { kind: "task" } },
+});
+const fixtureTopology: CanvasDoc = {
+  nodes: fixtureTaskSinkNodeIds.map(fixtureTaskNode),
+  edges: [],
+};
+const fixtureTopologyBody = JSON.stringify(fixtureTopology);
+const fixtureTopologySha256 = createHash("sha256")
+  .update(fixtureTopologyBody, "utf8")
+  .digest("hex");
+const dependencyScope = (
+  sink: { readonly canvasName: string; readonly nodeId: string },
+  basis: IntentFactBasisValue = authorialBasis,
+) =>
+  createTaskDependencyScopeCapability({
+    topology: fixtureTopology,
+    basis,
+    authoringSink: sink,
+  });
 const actor = {
   seatId: Schema.decodeUnknownSync(ActorSeatId)(
     `seat_${"a".repeat(64)}`,
@@ -171,9 +221,9 @@ const seedInstallations = (
             body,
             sha256,
             modified_at
-          ) VALUES (?, 'factory', '{}', ?, ?)
+          ) VALUES (?, 'factory', ?, ?, ?)
         `,
-        [generation, generation.repeat(64), observedAt],
+        [generation, fixtureTopologyBody, fixtureTopologySha256, observedAt],
       );
     }
     writer.run(
@@ -546,6 +596,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         taskId: created.value.id,
         actor,
         originAt: observedAt,
@@ -633,6 +684,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         taskId: created.value.id,
         actor,
         originAt: observedAt,
@@ -684,6 +736,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         taskId: created.value.id,
         actor,
         originAt: observedAt,
@@ -841,6 +894,8 @@ describe("WorkRepository v2 local authority", () => {
       repository.reserveRemoteTaskClaim({
         targetInstallationId: remote,
         sink,
+        basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         taskId: created.value.id,
         actor,
         originAt: observedAt,
@@ -907,6 +962,7 @@ describe("WorkRepository v2 local authority", () => {
         .claimLocalTask({
           sink: pendingSink,
           basis: authorialBasis,
+          dependencyScope: dependencyScope(pendingSink),
           taskId: "task-pending-actor",
           actor,
           originAt: observedAt,
@@ -1159,6 +1215,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.claimLocalTask({
         sink: taskSink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(taskSink),
         taskId: created.value.id,
         actor: artifactClaimant,
         originAt: observedAt,
@@ -1840,6 +1897,7 @@ describe("WorkRepository board CC-homed facts", () => {
       repository.claimLocalTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         taskId: created.value.id,
         actor: archiveActor,
         originAt: observedAt,
