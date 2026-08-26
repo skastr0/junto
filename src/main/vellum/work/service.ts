@@ -952,6 +952,37 @@ export const WorkLive = Layer.effect(
       );
     };
 
+    /**
+     * Station protocol 1 has no Task approval action. Keep operator-gated
+     * creation at Command Center instead of emitting a Task that its Remote
+     * home can persist but can never admit. This is containment, not a codec
+     * fallback: the existing Station protocol stays unchanged.
+     */
+    const requireTaskAdmissionHomeSupport = (
+      node: CanvasNode,
+      task: Task,
+      home: InstallationIdValue,
+      context: StationContext,
+    ): Effect.Effect<void, WorkServiceError> => {
+      const admission = effectiveTaskAdmission(task, sinkContractOf(node));
+      if (admission !== "operator-gated") return Effect.void;
+
+      const remoteHomed = context.configuration.role === "remote"
+        ? home === context.localInstallationId
+        : home !== context.localInstallationId;
+      return remoteHomed
+        ? Effect.fail(
+          new WorkServiceError({
+            code: "invalid",
+            message:
+              "operator-gated Task creation cannot target a Remote home because " +
+              "Station protocol 1 cannot carry Task approval; move the Task sink " +
+              "to Command Center before creating the Task",
+          }),
+        )
+        : Effect.void;
+    };
+
     const requireLocalActor = (
       read: CanvasReadResult,
       actor: ActorRef,
@@ -1184,13 +1215,19 @@ export const WorkLive = Layer.effect(
                 options,
               )
             );
+            const home = yield* homeForNode(node, context);
+            yield* requireTaskAdmissionHomeSupport(
+              node,
+              policy.task,
+              home,
+              context,
+            );
             const task = yield* externalizeTask(policy.task, {
               kind: "task",
               canvasName: canvas,
               nodeId,
               recordId: policy.task.id,
             });
-            const home = yield* homeForNode(node, context);
             const outcome = home === context.localInstallationId
               ? yield* local(
                 repository.createTask({
@@ -1256,13 +1293,19 @@ export const WorkLive = Layer.effect(
                 },
               )
             );
+            const home = yield* homeForNode(node, context);
+            yield* requireTaskAdmissionHomeSupport(
+              node,
+              policy.task,
+              home,
+              context,
+            );
             const task = yield* externalizeTask(policy.task, {
               kind: "task",
               canvasName: canvas,
               nodeId,
               recordId: policy.task.id,
             });
-            const home = yield* homeForNode(node, context);
             const outcome = home === context.localInstallationId
               ? yield* local(
                 repository.createTask({
@@ -1298,9 +1341,8 @@ export const WorkLive = Layer.effect(
               });
             }
             // Local-only by design (same as workTaskPromote): Station protocol 1
-            // has no promote action, so this cannot enqueue the way task.create
-            // does. ProposeOperator may still queue a create onto a remote-homed
-            // sink; those arrivals wait until the row lives on Command Center.
+            // has no promote action. Creation refuses operator-gated Tasks whose
+            // home is a Remote, so this never needs a codec fallback.
             if (home !== context.localInstallationId) {
               return yield* new WorkServiceError({
                 code: "invalid",
