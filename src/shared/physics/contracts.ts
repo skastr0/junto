@@ -1,18 +1,17 @@
 /**
- * Node contracts — published surfaces every wire family operates against.
+ * Node contracts — what a kind publishes to the rest of the factory.
  *
- * ports  → access attenuates
- * events → watch subscribes (OR within a wire)
- * inputs → effect delivers into
- * state  → display-only (flags, agent state); never authorable on wires
+ * ports  → the capability facets an access verb may open
+ * events → the news a relay may hear (`announces` compiles the default one)
+ * inputs → the fire actions a scheduler verb may land here
  *
- * New kinds extend the system by publishing a contract; connect, sheet, and
- * grammar stay fixed. See wire-grammar artifact sheet law.
+ * A verb never reads this table to decide what it grants — `physics/verbs.ts`
+ * compiles that. Contracts are the published surface a new kind declares so the
+ * grammar can reach it at all, plus the operator-facing explainer copy.
  */
 import { Schema } from "effect";
 import { isWellKnownKind, type Port, type WellKnownKind } from "./schema";
 import { KindSpecs } from "./kinds";
-import type { WireFamily, WireWord } from "./wires";
 
 /** A named event a sink/scheduler/actor announces for watch subscription. */
 export const ContractEvent = Schema.Struct({
@@ -272,99 +271,38 @@ export const contractOf = (
   return NodeContracts[kind];
 };
 
-/** Sheet sections the edge form may render — family + kinds decide, never a hand list. */
-export type SheetSection =
-  | { readonly _tag: "ports" }
-  | { readonly _tag: "wake" }
-  | {
-      readonly _tag: "when";
-      readonly events: ReadonlyArray<ContractEvent>;
-    }
-  | {
-      readonly _tag: "does";
-      readonly inputs: ReadonlyArray<ContractInput>;
-    }
-  | { readonly _tag: "trigger_readout" }
-  | { readonly _tag: "delete" };
+// ---------------------------------------------------------------------------
+// Catalog explainer
+//
+// The node catalog tells the operator what a kind can be wired for before any
+// edge exists, so it reads the three published surfaces above rather than a
+// verb (there is no pair yet to compile one against). `WireFamily` is that
+// explainer's grouping label and nothing more — it is not a document field, not
+// a connect rule, and no verb consults it.
+
+/** Which published surface a catalog explainer line came from. */
+export type WireFamily = "access" | "watch" | "effect";
 
 /**
- * Sheet law: a setting exists only where physics cannot derive the answer.
- * Sections come from family; options come from the kind contracts.
+ * Fixed hue token per explainer line. Renderers map the token to a theme hue.
  *
- * - access → ports (+ wake when board is either end)
- * - watch  → when events from the source sink's contract
- * - effect → does inputs from the target's contract
- * - trigger → readout only (no settings)
- * - flow → no contract options; the sheet renders the hop's direction toggle
- *   directly, since direction is document state rather than a kind contract
- * Always ends with delete.
- *
- * Task stoppage is derived (access + task|requests + claimed attention) —
- * never an authorable Hold section.
+ * The return type still names `violet`, which no live family reaches: the node
+ * catalog's hue record enumerates it, and TypeScript reads a missing member as
+ * an excess key there. It goes when that record is cut over.
  */
-export const sheetSectionsFor = (input: {
-  readonly family: WireFamily;
-  readonly fromKind?: string;
-  readonly toKind?: string;
-}): ReadonlyArray<SheetSection> => {
-  const { family, fromKind, toKind } = input;
-  const sections: SheetSection[] = [];
-  if (family === "access") {
-    sections.push({ _tag: "ports" });
-    if (fromKind === "board" || toKind === "board") {
-      sections.push({ _tag: "wake" });
-    }
-  } else if (family === "watch") {
-    // Watch observes the source (sink → relay). Events from source contract.
-    const source = contractOf(fromKind);
-    const events = source?.events ?? [];
-    sections.push({ _tag: "when", events });
-  } else if (family === "effect") {
-    // Effect lands on the target. Inputs from target contract.
-    const target = contractOf(toKind);
-    const inputs = target?.inputs ?? [flagInput];
-    sections.push({ _tag: "does", inputs });
-  } else if (family === "trigger") {
-    sections.push({ _tag: "trigger_readout" });
-  }
-  sections.push({ _tag: "delete" });
-  return sections;
-};
-
-/** Title for the edge sheet from family. */
-export const sheetTitleFor = (family: WireFamily): string => {
+export const familyColorToken = (
+  family: WireFamily,
+): "steel" | "cyan" | "violet" | "amber" => {
   switch (family) {
     case "access":
-      return "Access";
+      return "steel";
     case "watch":
-      return "Watch";
-    case "trigger":
-      return "Trigger";
+      return "cyan";
     case "effect":
-      return "When this fires";
-    case "flow":
-      return "Task flow";
+      return "amber";
     default: {
       const _exhaustive: never = family;
       return _exhaustive;
     }
-  }
-};
-
-/** Which lexicon word a sheet section authors (for sentence preview). */
-export const wordForSheetSection = (
-  section: SheetSection,
-): WireWord | undefined => {
-  switch (section._tag) {
-    case "wake":
-      return "wakes";
-    case "when":
-      return section.events[0]?.word;
-    case "does":
-      return section.inputs.some((i) => i.mode === "enqueue_task")
-        ? "enqueues"
-        : "flags";
-    default:
-      return undefined;
   }
 };

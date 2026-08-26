@@ -16,8 +16,6 @@
 import type { CanvasDoc, CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
 import { compileEdgeGrant, edgeKindIndex } from "./canvas";
 import {
-  defaultEffectBoardCreateTopic,
-  defaultEffectTasksCreate,
   effectBoardCreateTopicValid,
   effectBoardPostValid,
 } from "./node-insert";
@@ -83,24 +81,6 @@ export type WatchEdgeBinding = {
   readonly when: WatchWhen;
   readonly source: CanvasNode;
   readonly scheduler: CanvasNode;
-};
-
-/**
- * DYING IN SURFACE BATCH — authoring-side default only.
- *
- * The kernel reads the predicate off the compiled verb (`announces`), which is
- * the single table now. This one survives for the renderer draw path until that
- * is cut over.
- */
-export const defaultWatchWhenForSource = (
-  source: CanvasNode,
-): WatchWhen | undefined => {
-  const kind = source.ether?.entity?.kind;
-  if (kind === "task" || kind === "requests") return { word: "completes" };
-  if (kind === "page") return { word: "completes", equals: "ready" };
-  if (kind === "board") return { word: "completes", equals: "post" };
-  if (kind === "artifacts") return { word: "completes" };
-  return undefined;
 };
 
 export const NO_WATCH_YET_DETAIL =
@@ -188,38 +168,6 @@ export const schedulerSourceLabel = (source: CanvasNode): string => {
     return source.text.trim().split("\n")[0]!;
   }
   return source.ether?.entity?.kind ?? "scheduler";
-};
-
-/**
- * DYING IN SURFACE BATCH — authoring-side draw helper only. The kernel reads
- * the fire action off the compiled verb.
- */
-export const inferSchedulerEdgeEffect = (
-  fromNode: CanvasNode | undefined,
-  toNode: CanvasNode | undefined,
-): EdgeEffect | undefined => {
-  if (!isSchedulerNode(fromNode)) return undefined;
-  const toKind = toNode?.ether?.entity?.kind;
-  if (toKind === "task") {
-    return {
-      mode: "enqueue_task",
-      data: defaultEffectTasksCreate(schedulerSourceLabel(fromNode!)),
-    };
-  }
-  if (toKind === "board") {
-    return {
-      mode: "board_create_topic",
-      data: defaultEffectBoardCreateTopic(schedulerSourceLabel(fromNode!)),
-    };
-  }
-  if (toKind === "agent") {
-    return { mode: "inject_prompt" };
-  }
-  // Flag sinks: bare draw is a real product effect, not a silent no-op.
-  if (toKind === "requests" || toKind === "artifacts" || toKind === "page") {
-    return { mode: "set_flag", flag: "attention", enabled: true };
-  }
-  return undefined;
 };
 
 /** Default inject text when the wire carries no authored template. */

@@ -1,5 +1,6 @@
 // Factory physics — pure capability kernel (edges as ocaps, roles derived from kind).
-// Phase (criteria) stays in execution-graph.ts. Occupancy / process-bind are live planes.
+// An edge authors one verb; every grant is compiled (verbs.ts). Phase stays in
+// execution-graph.ts. Occupancy / process-bind are live planes.
 
 export {
   ACTOR_KINDS,
@@ -140,52 +141,10 @@ export type {
   WatchWhenAtom,
 } from "./verbs";
 
-export {
-  PORTS_HIDDEN_FROM_CHIPS,
-  WIRE_FAMILIES,
-  WIRE_SLOTS,
-  WIRE_WORDS,
-  chipPortsFromOffers,
-  connectCheck,
-  connectable,
-  defaultSlotForDraw,
-  familiesForPair,
-  familyColorToken,
-  familyFromSlot,
-  familyStroke,
-  formatWireSentence,
-  isAccessDisabled,
-  isWorded,
-  offerPortsForAccessWire,
-  sentenceOf,
-  wirePresentation,
-  wireRolePair,
-  wordsOfEdge,
-} from "./wires";
-export type {
-  ConnectOk,
-  ConnectRefusal,
-  FamilyStroke,
-  WireEtherView,
-  WireFamily,
-  WirePairKinds,
-  WirePresentation,
-  WireRolePair,
-  WireSentence,
-  WireSlot,
-  WireWord,
-} from "./wires";
-
-export {
-  NodeContracts,
-  contractOf,
-  sheetSectionsFor,
-  sheetTitleFor,
-  wordForSheetSection,
-} from "./contracts";
+export { NodeContracts, contractOf, familyColorToken } from "./contracts";
 export type {
   ContractEvent,
   ContractInput,
   NodeContract,
-  SheetSection,
+  WireFamily,
 } from "./contracts";

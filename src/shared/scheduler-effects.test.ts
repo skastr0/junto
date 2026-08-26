@@ -5,7 +5,6 @@ import {
   collectEffectEdgesFrom,
   collectWatchEdgesInto,
   evaluateWatchWhen,
-  inferSchedulerEdgeEffect,
   mergePageLoadStatus,
   NO_WATCH_YET_DETAIL,
   pageLoadMapKey,
@@ -88,71 +87,6 @@ describe("scheduler-effects", () => {
         agent,
       ),
     ).toBe("target_not_task_sink");
-  });
-
-  it("infers enqueue when connecting cron to task", () => {
-    const cron: import("./canvas").CanvasNode = {
-      id: "c1",
-      type: "text",
-      text: "cron",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "cron" }, timer: { expression: "0 9 * * *" } },
-    };
-    const task: import("./canvas").CanvasNode = {
-      id: "t1",
-      type: "text",
-      text: "tasks",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "task" } },
-    };
-    expect(inferSchedulerEdgeEffect(cron, task)?.mode).toBe("enqueue_task");
-  });
-
-  it("infers board_create_topic for scheduler→board; set_flag for page/requests/artifacts", () => {
-    const relay: import("./canvas").CanvasNode = {
-      id: "r1",
-      type: "text",
-      text: "relay",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "relay" } },
-    };
-    const board: import("./canvas").CanvasNode = {
-      id: "board",
-      type: "text",
-      text: "board",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: { entity: { kind: "board" } },
-    };
-    expect(inferSchedulerEdgeEffect(relay, board)?.mode).toBe("board_create_topic");
-    for (const kind of ["page", "requests", "artifacts"] as const) {
-      const target: import("./canvas").CanvasNode = {
-        id: kind,
-        type: "text",
-        text: kind,
-        x: 0,
-        y: 0,
-        width: 1,
-        height: 1,
-        ether: { entity: { kind } },
-      };
-      expect(inferSchedulerEdgeEffect(relay, target)).toEqual({
-        mode: "set_flag",
-        flag: "attention",
-        enabled: true,
-      });
-    }
   });
 
   it("OR-evaluates multi-select watch any", () => {
