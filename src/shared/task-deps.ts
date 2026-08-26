@@ -198,6 +198,15 @@ export const validateTaskDependsOn = (params: {
   if (deps.includes(params.taskId)) {
     return `task "${params.taskId}" cannot depend on itself`;
   }
+  const seenAuthoredIds = new Set<string>();
+  for (const rawId of params.dependsOn ?? []) {
+    const id = rawId.trim();
+    if (id.length === 0) continue;
+    if (seenAuthoredIds.has(id)) {
+      return `dependsOn contains duplicate task "${id}"`;
+    }
+    seenAuthoredIds.add(id);
+  }
   for (const id of deps) {
     if (id.length > 256) {
       return `dependsOn id too long: ${id.slice(0, 32)}…`;

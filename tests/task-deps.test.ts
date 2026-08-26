@@ -132,13 +132,16 @@ describe("task-deps", () => {
     });
   });
 
-  it("validate rejects self, missing, and cycles", () => {
+  it("validate rejects self, duplicate, missing, and cycles", () => {
     const a = withDeps(taskItem("a", "a"), ["b"]);
     const b = taskItem("b", "b");
     const byId = taskIndexById([a, b]);
     expect(
       validateTaskDependsOn({ taskId: "x", dependsOn: ["x"], byId }),
     ).toMatch(/itself/);
+    expect(
+      validateTaskDependsOn({ taskId: "x", dependsOn: ["a", " a "], byId }),
+    ).toMatch(/duplicate/);
     expect(
       validateTaskDependsOn({ taskId: "x", dependsOn: ["missing"], byId }),
     ).toMatch(/missing/);

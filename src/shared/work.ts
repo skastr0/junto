@@ -412,13 +412,13 @@ export const workTaskCreate = (
   );
   const taskId = ids.id();
   const existing = node.ether?.tasks?.items ?? [];
-  const normalizedDeps = normalizeDependsOn(dependsOn);
   const depError = validateTaskDependsOn({
     taskId,
-    dependsOn: normalizedDeps,
+    dependsOn,
     byId: dependencyScopeIndex(doc, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
+  const normalizedDeps = normalizeDependsOn(dependsOn);
   let criteria: FinishCriteria | undefined;
   try {
     criteria = normalizeFinishCriteria(finishCriteria);
@@ -525,13 +525,13 @@ export const workTaskPropose = (
   if (mediaError) throw new WorkError("invalid", mediaError);
   const proposalId = ids.id();
   const existing = node.ether?.tasks?.items ?? [];
-  const normalizedDeps = normalizeDependsOn(dependsOn);
   const depError = validateTaskDependsOn({
     taskId: proposalId,
-    dependsOn: normalizedDeps,
+    dependsOn,
     byId: dependencyScopeIndex(doc, nodeId),
   });
   if (depError) throw new WorkError("invalid", depError);
+  const normalizedDeps = normalizeDependsOn(dependsOn);
   let criteria: FinishCriteria | undefined;
   try {
     criteria = normalizeFinishCriteria(finishCriteria);
