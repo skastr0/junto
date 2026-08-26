@@ -1,6 +1,6 @@
 import type { CanvasDoc, CanvasNode } from "../canvas";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
-import { impactCone } from "./cone";
+import { impactCone, stoppageEnds } from "./cone";
 
 // Reverse path from a blocked node to its stoppage seed/apex, listing each
 // relay hop. Walks cone.pathToSeed and attaches reasonsByNodeId at every hop.
@@ -65,9 +65,11 @@ export const waitingOnPath = (
     return { nodeId, hops: [], seedNodeId: undefined };
   }
 
+  const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   const generatesFrom = new Set<string>();
   for (const edge of doc.edges) {
-    if (graph.edgeEvalById.get(edge.id)?.generates) generatesFrom.add(edge.fromNode);
+    if (!graph.edgeEvalById.get(edge.id)?.generates) continue;
+    generatesFrom.add(stoppageEnds(byId, edge).causeId);
   }
 
   const cone = impactCone(doc, graph, nodeId);

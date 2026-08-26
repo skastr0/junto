@@ -310,7 +310,10 @@ export const deriveExecutionGraph = (
       {
         kind: "edge",
         edgeId: edge.id,
-        fromNodeId: edge.fromNode,
+        // The generator is the work sink, whichever end holds it: an edge is
+        // stored in its verb's own order (agent-first for agent→sink access),
+        // so `fromNode` is not the cause.
+        fromNodeId: workSinkOf(from, to)?.id ?? edge.fromNode,
         detail: evaluation.detail,
       },
       edge.id,

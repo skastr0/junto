@@ -1,5 +1,6 @@
-import type { CanvasDoc, CanvasNode } from "../canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "../canvas";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
+import { stoppageActorOf } from "../execution-graph";
 import { seatMayBeBlocked } from "../physics/phase-membership";
 
 // Pure stoppage impact cone: derived from (document + ExecutionGraph).
@@ -67,6 +68,24 @@ const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
     return 0;
   });
 
+/**
+ * Causal ends of an edge for stoppage: which node generates the stop and which
+ * seat takes it. An edge is stored in its verb's own order — agent-first for
+ * agent→sink access — so raw `fromNode`/`toNode` is not the causal direction.
+ * This mirrors how `deriveExecutionGraph` attributes a block.
+ */
+export const stoppageEnds = (
+  byId: ReadonlyMap<string, CanvasNode>,
+  edge: CanvasEdge,
+): { readonly causeId: string; readonly actorId: string } => {
+  const actor = stoppageActorOf(byId.get(edge.fromNode), byId.get(edge.toNode));
+  const actorId = actor?.id ?? edge.toNode;
+  return {
+    causeId: actorId === edge.toNode ? edge.fromNode : edge.toNode,
+    actorId,
+  };
+};
+
 const reasonKey = (reason: BlockedReason): string => {
   if (reason.kind === "work") return `work:${reason.requestId}`;
   if (reason.kind === "edge") return `edge:${reason.edgeId}`;
@@ -96,18 +115,19 @@ export const impactCone = (
 
   for (const edge of doc.edges) {
     const evaluation = graph.edgeEvalById.get(edge.id);
+    const { causeId, actorId } = stoppageEnds(byId, edge);
     if (evaluation?.generates) {
-      const list = generatesFrom.get(edge.fromNode) ?? [];
-      list.push({ edgeId: edge.id, nodeId: edge.toNode });
-      generatesFrom.set(edge.fromNode, list);
+      const list = generatesFrom.get(causeId) ?? [];
+      list.push({ edgeId: edge.id, nodeId: actorId });
+      generatesFrom.set(causeId, list);
     }
     if (!graph.blockedEdgeIds.has(edge.id)) continue;
-    const out = forward.get(edge.fromNode) ?? [];
-    out.push({ edgeId: edge.id, nodeId: edge.toNode });
-    forward.set(edge.fromNode, out);
-    const inn = reverse.get(edge.toNode) ?? [];
-    inn.push({ edgeId: edge.id, nodeId: edge.fromNode });
-    reverse.set(edge.toNode, inn);
+    const out = forward.get(causeId) ?? [];
+    out.push({ edgeId: edge.id, nodeId: actorId });
+    forward.set(causeId, out);
+    const inn = reverse.get(actorId) ?? [];
+    inn.push({ edgeId: edge.id, nodeId: causeId });
+    reverse.set(actorId, inn);
   }
 
   const rootIsSeed = graph.seedNodeIds.has(rootNodeId);

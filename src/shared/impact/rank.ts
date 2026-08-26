@@ -3,7 +3,7 @@ import { claimedByOf, taskBrief } from "../task";
 import { needsHuman } from "../attention";
 import type { ExecutionGraph } from "../execution-graph";
 import type { OccupancySpectrumName } from "../occupancy";
-import { impactCone, type ImpactCone } from "./cone";
+import { impactCone, stoppageEnds, type ImpactCone } from "./cone";
 
 // Rank stoppage seeds (apex generators + manual blockers) by blast-radius
 // cone size. Pure: document + ExecutionGraph (+ optional occupancy for lead
@@ -45,9 +45,10 @@ export const collectStoppageSeedIds = (
 ): ReadonlyArray<string> => {
   const ids = new Set<string>();
   for (const id of graph.seedNodeIds) ids.add(id);
+  const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
   for (const edge of doc.edges) {
     const evaluation = graph.edgeEvalById.get(edge.id);
-    if (evaluation?.generates) ids.add(edge.fromNode);
+    if (evaluation?.generates) ids.add(stoppageEnds(byId, edge).causeId);
   }
   // Deterministic document order.
   return doc.nodes.map((n) => n.id).filter((id) => ids.has(id));
