@@ -146,34 +146,33 @@ test("five-stop fork renders one compact line-wide law", async ({}, testInfo) =>
     await expect(branch).toContainText("Security");
     await expect(
       strip.getByText(
-        "Open a stop to add a check there. A skipped branch waives only its own checks.",
+        "Open a stop to add a claim there. A skipped branch waives only its own claims.",
         { exact: true },
       ),
     ).toHaveCount(1);
-    await expect(strip.getByLabel("Check strength")).toContainText(
+    await expect(strip.getByLabel("Claim strength")).toContainText(
       "hard must be answered",
     );
-    await expect(strip.getByLabel("Check strength")).toContainText(
+    await expect(strip.getByLabel("Claim strength")).toContainText(
       "soft may be waived",
     );
 
     await strip.getByRole("button", { name: /^Build,/ }).click();
     const details = strip.getByTestId("task-metro-stop-detail");
     await expect(details).toBeVisible();
-    await expect(details.getByText("Checks at Build", { exact: true })).toBeVisible();
-    await expect(details.getByRole("button", { name: "Add check" })).toBeVisible();
+    await expect(details.getByText("Claims at Build", { exact: true })).toBeVisible();
+    await expect(details.getByRole("button", { name: "Add claim" })).toBeVisible();
     await expect(
-      details.getByRole("button", { name: "Copy an existing check" }),
+      details.getByRole("button", { name: "Copy an existing claim" }),
     ).toContainText("copy existing 1");
-    await expect(details.getByRole("button", { name: /claim/i })).toHaveCount(0);
-    await details.getByRole("button", { name: "Copy an existing check" }).click();
+    await details.getByRole("button", { name: "Copy an existing claim" }).click();
     await expect(details.getByRole("button", { name: "this line 1" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
     await expect(details.getByRole("button", { name: "entire canvas 1" })).toBeVisible();
     await expect(details).toContainText(
-      "Showing checks from stations and regions on this line.",
+      "Showing claims from stations and regions on this line.",
     );
     await creator.locator("*").evaluateAll((elements) => {
       for (const element of elements) {

@@ -124,10 +124,10 @@ export function TaskMetroMap({
       {onPinsChange ? (
         <div className="task-metro__authoring-guide">
           <p className="task-metro__pin-primer">
-            Open a stop to add a check there. A skipped branch waives only its own checks.
+            Open a stop to add a claim there. A skipped branch waives only its own claims.
           </p>
-          <div className="task-metro__severity-legend" aria-label="Check strength">
-            <strong>Check strength</strong>
+          <div className="task-metro__severity-legend" aria-label="Claim strength">
+            <strong>Claim strength</strong>
             <span><Chip tone="amber">hard</Chip> must be answered</span>
             <span><Chip tone="steel">soft</Chip> may be waived</span>
           </div>
@@ -144,9 +144,9 @@ export function TaskMetroMap({
             <ClaimList
               ownerNodeId={activeStop.nodeId}
               claims={claimsAt(pinned, activeStop.nodeId)}
-              label={`Checks at ${activeStop.label}`}
+              label={`Claims at ${activeStop.label}`}
               scopeNodeIds={lineNodeIds}
-              vocabulary="check"
+              vocabulary="claim"
               onChange={(claims: ReadonlyArray<ClaimDef>) =>
                 onPinsChange(replacePinsAt(pinned, activeStop.nodeId, claims))
               }
