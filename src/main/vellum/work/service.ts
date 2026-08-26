@@ -2,7 +2,16 @@
 // plane. Canvas documents are read-only topology plus runtime projections;
 // every durable mutation goes through a specific WorkRepository verb.
 
-import { Context, Effect, Option, Result, Layer, Match, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Queue,
+  Result,
+  Schema,
+} from "effect";
 import type {
   Artifact,
   CanvasDoc,
@@ -126,7 +135,9 @@ import {
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryError,
+  createTaskDependencyScopeCapability,
   type PendingCommand,
+  type TaskDependencyScopeCapability,
   type TaskPipelinePatch,
 } from "./repository";
 
@@ -369,6 +380,31 @@ const nodeById = (
   nodeId: string,
 ): CanvasNode | undefined =>
   doc.nodes.find((node) => node.id === nodeId);
+
+/**
+ * Process-local proof of the exact Task sinks visible from one server-owned
+ * canvas read. This value never enters a Work or Station record.
+ */
+const taskDependencyScopeCapability = (
+  doc: CanvasDoc,
+  canvasName: string,
+  nodeId: string,
+  basis: IntentFactBasisValue,
+): Effect.Effect<TaskDependencyScopeCapability, WorkServiceError> =>
+  Effect.try({
+    try: () =>
+      createTaskDependencyScopeCapability({
+        topology: doc,
+        basis,
+        authoringSink: sinkRef(canvasName, nodeId),
+      }),
+    catch: (error) =>
+      new WorkServiceError({
+        code: "invalid",
+        message:
+          `Task dependency scope is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+  });
 
 /**
  * Work-plane service contract (effect v4).
@@ -1149,43 +1185,141 @@ export const WorkLive = Layer.effect(
     const installOpsOption = yield* Effect.serviceOption(InstallOpsService);
     const stateOption = yield* Effect.serviceOption(StateEngine);
     if (Option.isSome(installOpsOption) && Option.isSome(stateOption)) {
-      yield* runPendingProposalBackfill({
-        state: stateOption.value,
-        installOps: installOpsOption.value,
-        persist: (input) =>
-          Effect.gen(function* () {
-            const [context, read] = yield* Effect.all([
-              stationContext,
-              readCanvas(input.canvasName),
-            ]);
-            yield* repository.createTask({
-              sink: {
-                canvasName: input.canvasName,
-                nodeId: input.nodeId,
-              },
-              basis: intentBasis(context, read.intentWitness),
-              task: input.materialization.task,
-            }).pipe(Effect.mapError(toWorkServiceError));
-          }).pipe(
-            Effect.catch((error) =>
-              Effect.sync(() => {
-                console.error(
-                  "[work] pending-proposal persist deferred:",
-                  error,
-                );
+      const installOps = installOpsOption.value;
+      const state = stateOption.value;
+      const invalidations = yield* Queue.dropping<void>(1);
+      let admissionClosed = false;
+
+      const requestReconciliation = (): void => {
+        if (admissionClosed) return;
+        Queue.offerUnsafe(invalidations, undefined);
+      };
+
+      const persistUnadmitted = (input: {
+        readonly canvasName: string;
+        readonly nodeId: string;
+        readonly materialization: Parameters<
+          Context.Service.Shape<typeof WorkRepository>["persistUnadmittedTask"]
+        >[0]["materialization"];
+      }): Effect.Effect<void, unknown> =>
+        Effect.gen(function* () {
+          const context = yield* stationContext;
+          if (context.configuration.role !== "command-center") {
+            return yield* Effect.fail(
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  "legacy pending proposals may be reconciled only at Command Center",
               }),
-            ),
+            );
+          }
+
+          const read = yield* readCanvas(input.canvasName);
+          const node = yield* requireNode(read.doc, input.nodeId);
+          if (node.ether?.entity?.kind !== "task") {
+            return yield* Effect.fail(
+              new WorkServiceError({
+                code: "illegal_kind",
+                message:
+                  `legacy proposal sink ${JSON.stringify(input.nodeId)} is no longer a Task sink`,
+              }),
+            );
+          }
+          const home = yield* homeForNode(node, context);
+          if (home !== context.localInstallationId) {
+            return yield* Effect.fail(
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  `legacy proposal ${JSON.stringify(input.materialization.task.id)} is not homed on this Command Center`,
+              }),
+            );
+          }
+
+          const basis = intentBasis(context, read.intentWitness);
+          const dependencyScope = yield* taskDependencyScopeCapability(
+            read.doc,
+            input.canvasName,
+            input.nodeId,
+            basis,
+          );
+          const outcome = yield* repository.persistUnadmittedTask({
+            sink: sinkRef(input.canvasName, input.nodeId),
+            basis,
+            materialization: input.materialization,
+            dependencyScope,
+          }).pipe(Effect.mapError(toWorkServiceError));
+
+          switch (outcome.status) {
+            case "created":
+              return;
+            case "already-materialized":
+            case "no-longer-pending":
+              return;
+            case "invalid":
+              return yield* Effect.sync(() => {
+                console.error(
+                  `[work] legacy proposal ${JSON.stringify(outcome.proposalId ?? input.materialization.task.id)} deferred: ${outcome.message}`,
+                );
+              });
+          }
+        }).pipe(
+          Effect.tapError((error) =>
+            Effect.sync(() => {
+              console.error(
+                `[work] legacy proposal ${JSON.stringify(input.materialization.task.id)} at ${JSON.stringify(`${input.canvasName}/${input.nodeId}`)} deferred:`,
+                error,
+              );
+            })
           ),
+        );
+
+      const reconcilePendingProposals = Effect.gen(function* () {
+        const context = yield* stationContext;
+        if (context.configuration.role !== "command-center") return;
+
+        const report = yield* runPendingProposalBackfill({
+          state,
+          installOps,
+          persist: persistUnadmitted,
+        });
+        if (report.status === "pending") {
+          yield* Effect.sync(() => {
+            console.error(
+              `[work] pending-proposal reconciliation deferred with ${report.remaining} remaining`,
+            );
+          });
+        }
       }).pipe(
         Effect.catch((error) =>
           Effect.sync(() => {
             console.error(
-              "[work] pending-proposal backfill deferred to next boot:",
+              "[work] pending-proposal reconciliation deferred until a later change or next boot:",
               error,
             );
           }),
         ),
       );
+
+      const coordinator = Effect.forever(
+        Queue.take(invalidations).pipe(
+          Effect.andThen(reconcilePendingProposals),
+        ),
+      );
+      yield* Effect.forkScoped(coordinator);
+      const unsubscribe = repository.subscribeChanges(() => {
+        requestReconciliation();
+      });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          admissionClosed = true;
+          unsubscribe();
+        })
+      );
+
+      // Startup only marks the bounded worker dirty. WorkService construction
+      // and app availability never await the reconciliation walk.
+      requestReconciliation();
     }
 
     return WorkService.of({
@@ -1222,6 +1356,13 @@ export const WorkLive = Layer.effect(
               home,
               context,
             );
+            const basis = intentBasis(context, read.intentWitness);
+            const dependencyScope = yield* taskDependencyScopeCapability(
+              read.doc,
+              canvas,
+              nodeId,
+              basis,
+            );
             const task = yield* externalizeTask(policy.task, {
               kind: "task",
               canvasName: canvas,
@@ -1232,7 +1373,8 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.createTask({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis,
+                  dependencyScope,
                   task,
                 }),
               )
@@ -1300,6 +1442,13 @@ export const WorkLive = Layer.effect(
               home,
               context,
             );
+            const basis = intentBasis(context, read.intentWitness);
+            const dependencyScope = yield* taskDependencyScopeCapability(
+              read.doc,
+              canvas,
+              nodeId,
+              basis,
+            );
             const task = yield* externalizeTask(policy.task, {
               kind: "task",
               canvasName: canvas,
@@ -1310,7 +1459,8 @@ export const WorkLive = Layer.effect(
               ? yield* local(
                 repository.createTask({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis,
+                  dependencyScope,
                   task,
                 }),
               )
@@ -2255,12 +2405,20 @@ export const WorkLive = Layer.effect(
                 });
               }
             }
+            const basis = intentBasis(context, read.intentWitness);
+            const dependencyScope = yield* taskDependencyScopeCapability(
+              read.doc,
+              canvas,
+              nodeId,
+              basis,
+            );
             let outcome: WorkMutationOutcome<Task>;
             if (actorHome === context.localInstallationId) {
               outcome = yield* local(
                 repository.claimLocalTask({
                   sink: sinkRef(canvas, nodeId),
-                  basis: intentBasis(context, read.intentWitness),
+                  basis,
+                  dependencyScope,
                   taskId,
                   actor,
                 }),
@@ -2294,6 +2452,8 @@ export const WorkLive = Layer.effect(
                 witness,
                 repository.reserveRemoteTaskClaim({
                   sink: sinkRef(canvas, nodeId),
+                  basis,
+                  dependencyScope,
                   taskId,
                   actor,
                   targetInstallationId: actorHome,

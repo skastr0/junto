@@ -27,8 +27,10 @@ import {
   type StationReadiness,
 } from "@shared/station-api";
 import {
+  IntentFactBasis,
   WORK_PROTOCOL_MAX_RECORD_BYTES,
   type ActorRef,
+  type IntentFactBasis as IntentFactBasisValue,
   type MessageAppendDestination,
   type RouteCursor,
   type SinkRef,
@@ -53,7 +55,9 @@ import {
 } from "../canvases";
 import {
   WorkRepository,
+  createTaskDependencyScopeCapability,
   type AcceptRecordsResult,
+  type TaskDependencyScopeCapability,
   type WorkAuthorityError,
   type WorkCommandAuthorization,
   type WorkFactAuthorization,
@@ -86,6 +90,17 @@ const REPORT_RESPONSE_FIXED_RESERVE_BYTES =
   WORK_PROTOCOL_MAX_RECORD_BYTES;
 const REPORT_RESPONSE_BYTES_PER_COMMAND =
   WORK_PROTOCOL_MAX_RECORD_BYTES * 2;
+
+const capturedIntentBasis = (
+  kind: Exclude<IntentFactBasisValue["kind"], "command">,
+  generation: string,
+  contentSha256: string,
+): IntentFactBasisValue =>
+  Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+    kind,
+    generation,
+    contentSha256,
+  });
 
 export type StationApiPeerContext =
   | {
@@ -151,6 +166,8 @@ type CapturedWorkTopology = {
   readonly peerInstallationId: InstallationIdValue;
   readonly localRole: "command-center" | "remote";
   readonly localHostId: string;
+  /** Exact coherent current/retained intent identity; never Station wire data. */
+  readonly intentBasis?: IntentFactBasisValue;
   readonly documents: ReadonlyMap<string, CanvasDoc>;
   readonly actorSeats: ReadonlyArray<ProjectedActorSeat>;
   readonly installationByHostId: ReadonlyMap<string, InstallationIdValue>;
@@ -337,7 +354,129 @@ const rejected = (
   message,
 });
 
-const admitted = (): WorkCommandAuthorization => ({ _tag: "admitted" });
+const admitted = (
+  taskDependencyScope?: TaskDependencyScopeCapability,
+): WorkCommandAuthorization =>
+  taskDependencyScope === undefined
+    ? { _tag: "admitted" }
+    : { _tag: "admitted", taskDependencyScope };
+
+const commandDependencies = (
+  command: WorkCommand,
+): ReadonlyArray<string> | undefined => {
+  switch (command.body.operation) {
+    case "proposal.create":
+      return command.body.proposal.dependsOn;
+    case "proposal.approve":
+      return command.body.task.dependsOn;
+    case "task.create":
+      return command.body.task.dependsOn;
+    case "task.claim":
+      return command.body.sourceTask.dependsOn;
+    default:
+      return undefined;
+  }
+};
+
+const factDependencies = (
+  fact: WorkFact,
+): ReadonlyArray<string> | undefined => {
+  switch (fact.body.operation) {
+    case "proposal.create":
+      return fact.body.proposal.dependsOn;
+    case "proposal.approve":
+    case "task.create":
+    case "task.claim":
+      return fact.body.task.dependsOn;
+    default:
+      return undefined;
+  }
+};
+
+const sameIntentBasis = (
+  left: IntentFactBasisValue,
+  right: IntentFactBasisValue,
+): boolean =>
+  left.kind === right.kind &&
+  left.generation === right.generation &&
+  left.contentSha256 === right.contentSha256;
+
+/**
+ * Decorate a geometry-admitted dependent record with its process-local scope.
+ * The document and exact intent basis were captured before the repository
+ * transaction. Neither the capability nor its hidden scope enters wire bytes.
+ */
+const admitDependencyScope = (
+  topology: CapturedWorkTopology,
+  sink: SinkRef,
+  basis: IntentFactBasisValue | undefined,
+): WorkCommandAuthorization => {
+  if (basis === undefined) {
+    return rejected(
+      "projection-conflict",
+      "dependent Work admission has no exact captured intent basis",
+    );
+  }
+  const document = topology.documents.get(sink.canvasName);
+  if (document === undefined) {
+    return rejected(
+      "projection-conflict",
+      `canvas ${JSON.stringify(sink.canvasName)} is absent from captured intent`,
+    );
+  }
+  try {
+    return admitted(
+      createTaskDependencyScopeCapability({
+        topology: document,
+        basis,
+        authoringSink: sink,
+      }),
+    );
+  } catch (error) {
+    return rejected(
+      "projection-conflict",
+      `dependent Work scope is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
+
+const decorateCommandDependencyScope = (
+  topology: CapturedWorkTopology,
+  command: WorkCommand,
+  authorization: WorkCommandAuthorization,
+): WorkCommandAuthorization =>
+  authorization._tag === "rejected" ||
+      (commandDependencies(command)?.length ?? 0) === 0
+    ? authorization
+    : admitDependencyScope(topology, command.item.sink, topology.intentBasis);
+
+const decorateFactDependencyScope = (
+  topology: CapturedWorkTopology,
+  fact: WorkFact,
+  authorization: WorkFactAuthorization,
+): WorkFactAuthorization => {
+  if (
+    authorization._tag === "rejected" ||
+    (factDependencies(fact)?.length ?? 0) === 0
+  ) {
+    return authorization;
+  }
+  if (fact.basis.kind === "command") {
+    // The repository proves and consumes the exact durable command or claim
+    // reservation. Mutable topology must not strand that correlated result.
+    return authorization;
+  }
+  if (
+    topology.intentBasis === undefined ||
+    !sameIntentBasis(topology.intentBasis, fact.basis)
+  ) {
+    return rejected(
+      "projection-conflict",
+      "dependent fact does not name the exact captured intent basis",
+    );
+  }
+  return admitDependencyScope(topology, fact.item.sink, topology.intentBasis);
+};
 
 const findSink = (
   topology: CapturedWorkTopology,
@@ -564,7 +703,7 @@ const authorizeFactRoute = (
 export const makeStationWorkAdmission = (
   topology: CapturedWorkTopology,
 ): StationWorkAdmission => {
-  const authorizeCommand = (
+  const authorizeCommandGeometry = (
     command: WorkCommand,
   ): WorkCommandAuthorization => {
     const sink = findSink(topology, command.item.sink, command.item.kind);
@@ -762,7 +901,7 @@ export const makeStationWorkAdmission = (
     }
   };
 
-  const authorizeFact = (fact: WorkFact): WorkFactAuthorization => {
+  const authorizeFactGeometry = (fact: WorkFact): WorkFactAuthorization => {
     const route = authorizeFactRoute(topology, fact);
     if (route._tag === "rejected") return route;
     const sink = findSink(topology, fact.item.sink, fact.item.kind);
@@ -863,6 +1002,29 @@ export const makeStationWorkAdmission = (
         );
   };
 
+  const authorizeCommand = (
+    command: WorkCommand,
+  ): WorkCommandAuthorization =>
+    decorateCommandDependencyScope(
+      topology,
+      command,
+      authorizeCommandGeometry(command),
+    );
+
+  const authorizeFact = (fact: WorkFact): WorkFactAuthorization => {
+    // Exact command-basis facts use the unresolved durable command as their
+    // prior authorization. Admit only the authenticated peer route here;
+    // mutable topology must not strand a byte-exact correlated response.
+    if (fact.basis.kind === "command") {
+      return authorizeFactRoute(topology, fact);
+    }
+    return decorateFactDependencyScope(
+      topology,
+      fact,
+      authorizeFactGeometry(fact),
+    );
+  };
+
   return { authorizeCommand, authorizeFact };
 };
 
@@ -873,6 +1035,10 @@ const projectionBasisKey = (
 const topologyFromHistoricalProjection = (
   current: CapturedWorkTopology,
   body: string,
+  intentBasis: Extract<
+    IntentFactBasisValue,
+    { readonly kind: "projected-intent" }
+  >,
 ): Effect.Effect<CapturedWorkTopology, StationApiError> =>
   Effect.gen(function* () {
     const portfolio = yield* Effect.try({
@@ -907,6 +1073,7 @@ const topologyFromHistoricalProjection = (
     }
     return {
       ...current,
+      intentBasis,
       documents: portfolio.documents,
       actorSeats: portfolio.actorSeats,
       installationByHostId,
@@ -928,6 +1095,7 @@ const historicalFactAuthorization = (
     if (route._tag === "rejected") return route;
     switch (fact.basis.kind) {
       case "command":
+        // Exact durable command correlation is the prior authorization.
         return admitted();
       case "authorial-intent":
         return rejected(
@@ -990,6 +1158,7 @@ const loadHistoricalFactAdmissions = (
       const historical = yield* topologyFromHistoricalProjection(
         topology,
         projection.body,
+        reference,
       );
       admissions.set(key, makeStationWorkAdmission(historical));
     }
@@ -1155,6 +1324,11 @@ const captureTopology = (
         peerInstallationId,
         localRole: "remote" as const,
         localHostId: configuration.configuration.hostId,
+        intentBasis: capturedIntentBasis(
+          "projected-intent",
+          projection.generation,
+          projection.contentSha256,
+        ),
         documents: portfolio.documents,
         actorSeats: portfolio.actorSeats,
         installationByHostId,
@@ -1219,6 +1393,11 @@ const captureTopology = (
       peerInstallationId,
       localRole: "command-center" as const,
       localHostId: configuration.configuration.hostId,
+      intentBasis: capturedIntentBasis(
+        "authorial-intent",
+        authority.generation,
+        authority.intentSha256,
+      ),
       documents: authority.documents,
       actorSeats,
       installationByHostId,

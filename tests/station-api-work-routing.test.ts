@@ -865,20 +865,20 @@ describe("Station API v1 work routing", () => {
     });
   });
 
-  it("admits the correlated CC mailbox fact only for the same local Remote actor edge", () => {
+  it("keeps an exact correlated CC mailbox fact admitted after edge removal", () => {
     const admitted = makeStationWorkAdmission(topology("remote"));
     expect(admitted.authorizeFact(messageFact())).toEqual({
       _tag: "admitted",
     });
 
+    // The unresolved durable command is the prior authorization. Mutable
+    // topology cannot strand its byte-exact response; repository correlation
+    // rejects a forged command id, hash, route, operation, or result.
     const disconnected = makeStationWorkAdmission(
       topology("remote", false),
     );
-    expect(
-      disconnected.authorizeFact(messageFact()),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
+    expect(disconnected.authorizeFact(messageFact())).toEqual({
+      _tag: "admitted",
     });
   });
 
