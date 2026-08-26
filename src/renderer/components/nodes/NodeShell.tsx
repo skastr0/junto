@@ -1,5 +1,12 @@
-import { useEffect, type ReactNode } from "react";
-import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
+import {
+  Handle,
+  NodeResizer,
+  NodeToolbar,
+  Position,
+  useConnection,
+  useUpdateNodeInternals,
+} from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import {
   Ban,
@@ -25,7 +32,8 @@ import { nodeBlockPresentation } from "../../lib/node-block-state";
 import { attentionOf } from "@shared/attention";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
-import { roleOf } from "@shared/physics";
+import { roleOf, VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
+import { verbHandleId, verbsForDraw } from "../../lib/edge-mutations";
 import { deriveOccupancy } from "@shared/occupancy";
 import {
   useNodeAttentionReasons,
@@ -94,8 +102,95 @@ function PreambleBubble({
   );
 }
 
-function ConnectionHandles() {
-  return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`vellum-handle vellum-handle--source vellum-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`vellum-handle vellum-handle--target vellum-handle--${name}`} />)}</>;
+/**
+ * Landing zones bleed past the card so the choice is made by approach, not by
+ * pixel aim: the two halves already catch the wire before it reaches the edge.
+ */
+const VERB_ZONE_BLEED = 16;
+
+const NO_CONNECTION_DRAG = { fromId: "", fromKind: "" } as const;
+
+const NO_VERBS: ReadonlyArray<Verb> = [];
+
+/**
+ * Zone paint. The hue is the verb's own CSS custom property; the fallback only
+ * has to keep the two halves apart until the stylesheet names them, so it is
+ * positional rather than a second claim about what the verb means.
+ */
+const verbZoneStyle = (verb: Verb, first: boolean): CSSProperties => {
+  const hue = `var(${VERB_COLOR_TOKEN[verb]}, ${first ? HUE.cyan : HUE.violet})`;
+  const shared: CSSProperties = {
+    position: "absolute",
+    top: -VERB_ZONE_BLEED,
+    bottom: -VERB_ZONE_BLEED,
+    width: `calc(50% + ${VERB_ZONE_BLEED}px)`,
+    height: "auto",
+    minWidth: 0,
+    minHeight: 0,
+    transform: "none",
+    borderRadius: 10,
+    border: `1px solid color-mix(in oklab, ${hue} 72%, transparent)`,
+    background: `color-mix(in oklab, ${hue} 16%, transparent)`,
+    opacity: 1,
+    zIndex: 20,
+    cursor: "crosshair",
+  };
+  return first
+    ? { ...shared, left: -VERB_ZONE_BLEED }
+    : { ...shared, right: -VERB_ZONE_BLEED };
+};
+
+/**
+ * The two-verb choice, made by where the wire lands. A pair with one verb
+ * needs no choice and shows nothing; a pair with none never gets here.
+ *
+ * Lives in its own component so the hooks that follow a live connection
+ * re-render a drop target, never the whole card.
+ */
+function VerbLandingZones({ node }: { readonly node: CanvasNode }) {
+  const updateNodeInternals = useUpdateNodeInternals();
+  const drag = useConnection((connection) =>
+    connection.inProgress && connection.fromNode
+      ? {
+          fromId: connection.fromNode.id,
+          fromKind:
+            (connection.fromNode.data as unknown as { readonly node?: CanvasNode })
+              .node?.ether?.entity?.kind ?? "",
+        }
+      : NO_CONNECTION_DRAG,
+  );
+  const offered =
+    drag.fromId === "" || drag.fromId === node.id
+      ? NO_VERBS
+      : verbsForDraw(drag.fromKind, node.ether?.entity?.kind).verbs;
+  const zones = offered.length === 2 ? offered : NO_VERBS;
+  // Handles that appear mid-drag are invisible to React Flow until the node's
+  // internals are measured again.
+  const zoneKey = zones.join(",");
+  useEffect(() => {
+    updateNodeInternals(node.id);
+  }, [node.id, updateNodeInternals, zoneKey]);
+  if (zones.length === 0) return null;
+  return (
+    <>
+      {zones.map((verb, index) => (
+        <Handle
+          key={verb}
+          id={verbHandleId(verb)}
+          type="target"
+          position={index === 0 ? Position.Left : Position.Right}
+          className="vellum-handle vellum-verb-zone"
+          data-verb={verb}
+          aria-label={`Connect as ${verb}`}
+          style={verbZoneStyle(verb, index === 0)}
+        />
+      ))}
+    </>
+  );
+}
+
+function ConnectionHandles({ node }: { readonly node: CanvasNode }) {
+  return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`vellum-handle vellum-handle--source vellum-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`vellum-handle vellum-handle--target vellum-handle--${name}`} />)}<VerbLandingZones node={node} /></>;
 }
 
 function MinimalNodeToolbar({
@@ -504,7 +599,7 @@ export function NodeShell({
           {openIcon ?? <ExternalLink size={12} />}
         </button>
       ) : null}
-      {showHandles ? <ConnectionHandles /> : null}
+      {showHandles ? <ConnectionHandles node={node} /> : null}
       {toolbar === "minimal" ? (
         <MinimalNodeToolbar selected={selected} nodeId={node.id} />
       ) : (

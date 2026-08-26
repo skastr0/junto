@@ -52,8 +52,7 @@ import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
-import { addEdge, connectAllToTarget, deleteEdges } from "../lib/edge-mutations";
-import { connectCheck, resolveSpec, roleOf } from "@shared/physics";
+import { addEdge, connectAllToTarget, connectAllowed, deleteEdges } from "../lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
@@ -268,7 +267,7 @@ function applyStructuralRebuild(
     (edge) =>
       visibleIds.has(edge.source) &&
       visibleIds.has(edge.target) &&
-      (!edgeFilter || (edge.data?.phase ?? edge.data?.edge.ether?.kind ?? "relates") === edgeFilter),
+      (!edgeFilter || (edge.data?.phase ?? "relates") === edgeFilter),
   );
   // Selection + impact cone classes live on the RF shell (not Flow data).
   const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, nodeIds, edgeId);
@@ -505,19 +504,18 @@ function useCanvasInteractions(
   pendingRebuildRef: React.MutableRefObject<boolean>,
   flushRebuild: () => void,
 ) {
+  // Live validity while dragging — the verb grammar, read on the pair. A pair
+  // no verb speaks to never lights up, so a landing zone only ever appears
+  // where the drop would actually commit.
   const isValidConnection = useCallback((connection: Connection | { source: string | null; target: string | null }) => {
     const sourceId = connection.source;
     const targetId = connection.target;
     if (!sourceId || !targetId || sourceId === targetId) return false;
     const doc = state$.doc.peek();
-    const from = doc.nodes.find((n) => n.id === sourceId);
-    const to = doc.nodes.find((n) => n.id === targetId);
-    if (!from || !to || from.type === "group" || to.type === "group") return false;
-    const fromKind = from.ether?.entity?.kind;
-    const toKind = to.ether?.entity?.kind;
-    const fromRole = roleOf(resolveSpec({ isGroup: false, kind: fromKind }));
-    const toRole = roleOf(resolveSpec({ isGroup: false, kind: toKind }));
-    return connectCheck(fromRole, toRole, { fromKind, toKind }).ok;
+    return connectAllowed(
+      doc.nodes.find((n) => n.id === sourceId),
+      doc.nodes.find((n) => n.id === targetId),
+    );
   }, []);
   const onConnect = useCallback((connection: Connection) => addEdge(connection), []);
   // Dropping a connection on a card body (not a handle) still creates the
@@ -614,10 +612,12 @@ function useCanvasInteractions(
     deleteNodes(deleted.map((node) => node.id));
   }, [dragInProgressRef, finishDrag]);
   const onEdgesDelete = useCallback((deleted: ReadonlyArray<FlowEdge>) => deleteEdges(deleted.map((edge) => edge.id)), []);
+  // Selection only. A verb is authored by drawing the wire, so there is no
+  // settings surface behind a double click.
   const onEdgeDoubleClick: EdgeMouseHandler<FlowEdge> = useCallback((event, edge) => {
     event.preventDefault();
     event.stopPropagation();
-    selectEdge(edge.id, { openSettings: true });
+    selectEdge(edge.id);
   }, []);
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { readonly nodes: ReadonlyArray<FlowNode>; readonly edges: ReadonlyArray<FlowEdge> }) => {
     // React Flow emits empty selections while the graph remounts. A pane
@@ -639,9 +639,6 @@ function useCanvasInteractions(
       return;
     }
     const nextSelectedEdgeId = selectedNodes.length === 0 ? selectedEdges[0]?.id ?? "" : "";
-    if (state$.edgeSettingsRequestId.peek() && state$.edgeSettingsRequestId.peek() !== nextSelectedEdgeId) {
-      state$.edgeSettingsRequestId.set("");
-    }
     replaceSelection({
       nodeId: nextSelectedNodeId,
       nodeIds: nextSelectedNodeIds,
@@ -651,7 +648,6 @@ function useCanvasInteractions(
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     if (event.detail === 1) {
       clearSelection();
-      state$.edgeSettingsRequestId.set("");
       state$.connectionFocusNodeId.set("");
       return;
     }
