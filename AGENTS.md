@@ -225,20 +225,42 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
   } }
 ```
 
-Edges: `{ "id", "fromNode", "toNode", "ether": { "ports"?: Port[], "wake"?: boolean, "slot"?: WireSlot, "when"?: WatchWhen, "does"?: EdgeEffect } }`.
+Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 
-Canonical edge ether words: **`ports`, `wake`, `does`, `when`, `slot`**. One word per area. Writers emit only these; decode may scrub old dual keys once (`criteria`/`stops` retired, `notify`→`wake`, `effect`→`does`) — migration hygiene, not product authoring.
+**`verb` is the one authored fact on an edge** — what the relationship *is*. Everything else (ports, assignability, board wake, watch predicates, scheduler fire actions, pipeline flow, scheduler chaining) is **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`) — never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`task --works--> agent`, never the reverse).
 
-**Edge product (ports for capability; wake/when/does/slot for wires; stoppage derived):**
-- **Access** is ports (and board `wake`). No Hold control. No authorable stop-when / proof / approval on the wire sheet.
-- **Stoppage is derived**, not authored on the edge: an access edge between an **actor** and **task|requests** plus a **claimed** item in `input-required` / `auth-required` on that sink generates **blocks** on that actor seat only. Open queue (`submitted`/`working`) never blocks. No automatic multi-hop fan-out. Multi-hop is an explicit **relay** node plus watch/effect wires only. (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.)
-- Lexicon word **stops** may appear in wire sentences when that derived stoppage applies — it is speech, not a document field to set.
-- `wake` on board-linked edges — default **ON** (absent/true); explicit `false` opts the seat out of operator megaphone. Agent posts never wake.
-- `when` on sink→relay **input** wires (watch predicate: completes / flagged / any-OR).
-- `does` on scheduler **output** wires (fire actions).
-- `slot` assigns the wire end at the scheduler (`input` | `output` | `trigger` | `recipient`).
-- **Retired (scrubbed / not product):** authorial `stops` / Hold UI; `proof` / `approval` edge modes; `criteria` / `notify` / `effect` dual keys; `ether.relayState` cascade; node-body `ether.relay`; `glyphs`/`wip` stop modes; glyph watcher kinds; private-source watchers; `ether.view` project slices; `depends` phase; automatic dependency cascade. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
-- Live **phase** is only `blocks` | `relates` (derived). Optional `ether.kind` is a phase mirror for offline JSON Canvas readers — never authorial input.
+**The verb table** — at most two verbs per ordered kind pair; a pair absent from the table refuses connect:
+
+| source → target | verbs | compiled |
+|---|---|---|
+| agent → agent | `messages` | msg ports |
+| agent → task | `manages` \| `contributes` | task ports (`contributes` adds `tasks.claim`) |
+| agent → requests | `escalates` | `request.escalate` + msg ports |
+| agent → artifacts | `publishes` | `artifact.publish` |
+| agent → board | `messages` \| `participates` | board ports; `wake` false / true |
+| agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |
+| agent → page | `navigates` | `browser.automate` |
+| agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the agent's own attention flag |
+| task → agent | `works` | task ports; `assignable: true` — the factory tick's claim selector reads this |
+| task → task | `feeds` | no ports; `flow: true`, DAG-guarded pipeline hop |
+| {task,requests,artifacts,board,pad,page} → relay | `announces` | watch on that sink's own headline event |
+| {relay,clock} → agent | `wakes` \| `flags` | `inject_prompt` \| `set_flag` |
+| {relay,clock} → task | `enqueues` \| `flags` | `enqueue_task` \| `set_flag` |
+| {relay,clock} → other sinks | `flags` | `set_flag` |
+| {relay,clock} → {relay,clock} | `chains` | `chain: true`, cycle-guarded |
+| terminal (either side) | — | no verb reaches it yet |
+
+`clock` is the shared row for the non-relay schedulers (`cron`, `timer`, `watcher`) — they push identically; only `relay` also takes `announces` inbound (the only scheduler that evaluates a watch predicate). Plain connect (no picker) defaults to the fuller relationship on a two-verb pair: `contributes`, `participates`, `edits`, `fires`, `enqueues`, `wakes`.
+
+**Stoppage is still derived, not authored** — an actor holding a claimed item in `input-required` / `auth-required` on a connected task/requests sink generates **blocks** on that actor seat only. Open queue (`submitted`/`working`) never blocks. No automatic multi-hop fan-out — multi-hop stoppage is an explicit **relay** node (`announces` in, an effect verb out). (Blockability is `role === "actor"` only — see [`architecture-factory-physics.md`](docs/architecture-factory-physics.md) §2a.) Lexicon word **stops** may appear in wire sentences when derived stoppage applies — speech, never a document field.
+
+There is **no edge dialog**. Edges are authored and read from the RTS bottom bar (`EdgeCommandCard`, `src/renderer/components/rts/RtsControls.tsx`) as a plain sentence ("Planner manages Backlog"), painted in a fixed per-verb hue (`--wire-verb-*` custom properties, [`factory-grammar.css`](src/renderer/styles/factory-grammar.css)) — solid strokes only; no dash, width, or arrowhead carries meaning.
+
+**One-shot legacy conversion:** `scrubCanvasDocInput` (`src/shared/canvas.ts`) reads a legacy edge's retired wire fields (`ports`, `stops`, `wake`, `slot`, `when`, `does`, `flow`, the node-body `ether.relay`) exactly once on decode, infers the verb it always meant (`inferVerb`), and re-stores the edge as `{ verb }` in the verb's own semantic order — never both. An edge whose endpoints cannot hold any inferred verb (geography, unknown kind, a missing node, a pairing the grammar never admitted) is **dropped**, not defaulted; a hand-edited `verb` the pair cannot hold is dropped the same way. There are no users, so this is the only conversion the format ever gets.
+
+**Retired (scrubbed on load, dead as product surface):** `ports` / `stops` / `wake` / `slot` / `when` / `does` / `flow` as authored edge fields; the derived `ether.kind` phase mirror on edges; the edge dialog / wire sheet; `criteria` / `notify` / `effect` dual keys; `proof` / `approval` edge modes and Hold UI; `ether.relayState` cascade; node-body `ether.relay`; `glyphs`/`wip` stop modes; glyph watcher kinds; private-source watchers; `ether.view` project slices; `depends` phase; automatic dependency cascade. `project` is no longer well-known, though the open `entity.kind` vocabulary still permits it as inert furniture.
+
+Live **phase** is only `blocks` | `relates` (derived) — projected onto the edge's native `color`/`label`, never onto `ether`.
 
 **Two invariants** (enforced on every app/CLI write):
 1. **Graceful degradation** — strip every `ether` key and the file is still valid, readable JSON Canvas 1.0.
@@ -259,36 +281,34 @@ commas, em dashes, or plain spaces. Derived wire sentences are spoken compounds
 ("access stops", "watch completes") — never dotted. This is an operator hard
 invariant; reintroducing a middot is a defect.
 
-## Kernel: cron, relay (+ dormant gauge) — wires
+## Kernel: cron, relay (+ dormant gauge) — verbs
 
-Region pulse inject is **retired**. Edges are **wires**: configuration only,
-never runtime state. Closed families: `access | watch | trigger | effect`.
-Only schedulers push; actors pull. Connect refused for sink–sink and geography.
+Region pulse inject is **retired**. An edge into or out of a scheduler authors
+only a **verb**; the watch predicate and fire action it produces are compiled,
+never stored. Only schedulers push; actors pull. Connect refused for any pair
+absent from the verb table (sink–sink, geography).
 
 **Product scheduler plane:**
 
 | Kind | How it binds | Fire |
 |---|---|---|
-| **cron** | `ether.timer` expression | Durable due → effect wires (`does`) |
-| **relay** | **input wire** sink→relay carries `when`; **output wire** relay→target carries `does` | Rising edge on watch → apply effects |
+| **cron** | `ether.timer` expression | Durable due → the outbound verb's compiled effect (`enqueues` / `wakes` / `flags`) |
+| **relay** | inbound `announces` edges (watch, OR-combined across parallel edges); outbound `enqueues` / `wakes` / `flags` edges (effects) | Rising edge on watch → apply the outbound edges' effects |
 
-**Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant.
+**Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant; it shares the `clock` scheduler row with `cron`/`timer` but has no palette entry.
 
-**Wire areas:** `ports` - `wake` - `slot` - `when` - `does`. Product shape is
-one word per area (no dual-read product law). Stoppage is **derived** (not an
-authorable `stops` field). Scrub may map old dual keys once on load. No
-`relayState` cascade — multi-hop stoppage is a **relay** node + `when` /
-`does` wires only.
-
-**Effects (v1):** `enqueue_task` - `set_flag` - `inject_prompt`. Claim assignment
-stays the factory tick.
+**Effects (v1):** `enqueue_task` - `set_flag` - `inject_prompt` — the compiled
+facets of `enqueues` / `flags` / `wakes`. Claim assignment stays the factory
+tick (`works`'s compiled `assignable` grant, not an effect). No `relayState`
+cascade — multi-hop stoppage is a **relay** node, `announces` in and an
+effect verb out, only.
 
 **Scheduler laws**: (1) Sensor truth is derived. (2) Single-home evaluation.
 (3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
 configured and the canvas is playing** — otherwise project status/`nextFire`
 but do not consume rising-edge memory or durable cron firing slots.
-(5) **`set_flag` / `flagOnUnsatisfied` are Command Center only** (Remote refuses
-authorial canvas mutate; fail closed, no silent success).
+(5) **`set_flag` effects / `flagOnUnsatisfied` are Command Center only**
+(Remote refuses authorial canvas mutate; fail closed, no silent success).
 
 ## Sources (read-only adapters)
 

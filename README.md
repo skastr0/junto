@@ -27,7 +27,7 @@
 - [Quick start](#quick-start)
 - [Canvas & document](#canvas--document)
 - [Node types](#node-types)
-- [Edges & criteria](#edges--criteria)
+- [Edges & verbs](#edges--verbs)
 - [Work plane & CLI](#work-plane--cli)
 - [Browser automation](#browser-automation)
 - [Kernel: regions, watchers, timers](#kernel-regions-watchers-timers)
@@ -165,18 +165,23 @@ survive quit. Put durable work on a **Remote** station instead.
 
 ---
 
-## Edges & criteria
+## Edges & verbs
 
-| Mode | Behavior |
+An edge authors exactly one fact — its **verb**, the semantic relationship
+("Planner **manages** Backlog", "Builder **contributes to** Backlog"). Ports,
+assignability, board wake, watch predicates, and scheduler effects are all
+compiled from the verb plus the two endpoint kinds — there is nothing else to
+author, and no edge dialog: pick and read the verb as a plain sentence from
+the bottom bar.
+
+| Verb reaching a task/requests sink | Behavior |
 |---|---|
-| **No criteria** | Soft **relates** — never generates stoppage |
-| **`tasks`** | Attention only: `input-required` on the source task or requests sink blocks its connected actor. `submitted` / `working` never block |
-| **`proof`** | Blocks the connected actor until the matching runtime proof stamp exists |
-| **`approval`** | Blocks the connected actor until the matching human grant exists |
+| No edge | Soft **relates** — never generates stoppage |
+| **`manages`** / **`contributes`** / **`works`** / **`escalates`** | Attention only: a **claimed** `input-required` / `auth-required` item on the connected sink blocks that actor. `submitted` / `working` never block |
 
-Live phase is **derived** (`blocks` \| `relates`). Optional `ether.kind` is only
-an offline mirror — never author phase by hand. There is no actor-to-actor
-relay or multi-hop stoppage cascade.
+Live phase is **derived** (`blocks` \| `relates`) — never authored. There is no
+actor-to-actor relay bypass or multi-hop stoppage cascade; propagating
+stoppage beyond the direct claimant is an explicit **relay** node.
 
 ---
 
@@ -550,12 +555,13 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 
 #### Edges
 
-| Mode | Behavior |
+| Verb | Role |
 |---|---|
 | none | Soft relates |
-| `tasks` | Attention-only stoppage on a connected actor |
-| `proof` | Blocks until the matching runtime proof stamp |
-| `approval` | Blocks until the matching human grant |
+| `manages` / `contributes` / `works` / `escalates` | Attention-only stoppage on a connected actor (claimed item only) |
+| `publishes` / `participates` / `messages` / `reads` / `edits` / `navigates` | Access only — never generates stoppage |
+| `feeds` | Directed task→task pipeline hop (DAG-guarded) |
+| `fires` / `announces` / `enqueues` / `wakes` / `flags` / `chains` | Scheduler wiring — watch predicate or fire action, compiled from the verb |
 
 ---
 

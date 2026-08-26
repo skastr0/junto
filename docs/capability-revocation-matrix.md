@@ -53,15 +53,15 @@ protected routes. No product path treats client-supplied nodeRef as the seat.
 | Property | Target | Current | Status | Evidence |
 |----------|--------|---------|--------|----------|
 | Per-call graph admit | Fresh canvas + undirected edge + port | `dispatchOp` reads canvas via `CanvasesService`, then `admitWorkTarget` → `admitPure` + `portForWorkOp` | **Met** | `work/control.ts`, `work/authz.ts`, `shared/physics/*` |
-| Port facets | Op requires matching port on sink | KindSpecs offers ∩ role law ∩ optional `edge.ether.ports` mask | **Met** | `physics/kinds.ts`, `physics/view.ts`, `physics/work-ports.ts` |
+| Port facets | Op requires matching port on sink | KindSpecs offers ∩ role law ∩ compiled verb grant (`compileVerb`) — ports are no longer authored, only compiled from the edge's verb | **Met** | `physics/kinds.ts`, `physics/view.ts`, `physics/verbs.ts` |
 | Region membership | Visibility only, never host power | `regionVisibility` / co-members listed; admit returns `not_connected` without edge | **Met** | `work/authz.ts` `visibilityOf`, `admitPure` |
 | Meta ops | ping / doctor / capabilities / onboard without edge | Explicitly not ported; still require process-bind | **Met** | `work-ports.ts`, `requiresConnection` |
 | Kind ops surface | Agent may only exercise ops sink offers | `OPS_BY_KIND` + physics offers; wrong kind → ScopeError | **Met** | `work/authz.ts` |
 | Discovery for agents | Onboard lists connected grants | `capabilities` / `onboard` return connected nodes, roles, held ports | **Met** | `work/control.ts` capabilities/onboard handlers |
 
 **Verdict:** work mutations and full target reads are edge+port gated on every
-request against the live document. Soft relates (no criteria) still mint
-capability reach; criteria remain phase-only.
+request against the live document. Soft relates (no claimed blocking item)
+still mint capability reach; stoppage remains phase-only.
 
 ---
 
@@ -72,7 +72,7 @@ capability reach; criteria remain phase-only.
 | Work control | Immediate next op fails closed | Canvas re-read every op; missing edge → `ScopeError` | **Met** | No long-lived work capability secret beyond process seat |
 | Browser control (new request) | Immediate next HTTP protected route denied | `canvases.subscribeChanges` → `edgeGrant.invalidateCanvas` revokes cached grants; next `admitSocket` re-resolves edges | **Met** | `src/main/index.ts` wiring; `edge-grant.ts` change sequence blocks mid-admit races |
 | Browser control (in-flight lease) | Aborted when ocap revoked | `capabilities.revoke(handle)` terminates records / aborts leases | **Partial** | Revoke is best-effort on invalidate; generation checks on session ops add a second gate, but in-flight handlers that already passed admit can race until terminate |
-| Soft phase only | Edge delete must not leave phantom phase | Phase is derived; edge gone → no criteria evaluation | **Met** | Factory physics phase plane |
+| Soft phase only | Edge delete must not leave phantom phase | Phase is derived; edge gone → no stoppage evaluation | **Met** | Factory physics phase plane |
 
 **Verdict:** work path is pure next-action. Browser path is next-request +
 cache revoke; treat residual in-flight races as hardening debt, not a second
@@ -131,7 +131,7 @@ into a host-destructive call without minting OwnedProcess at spawn.
 | Surface | What operator sees | Status |
 |---------|-------------------|--------|
 | Edge inspector | Derived roles + effective port chips (offers ∩ mask); mask label | **Met** (read-only) — `InspectorFields.tsx` `EdgeCapabilitySection` |
-| Edge ports authoring | `setEdgePorts` / edge mutations can write `ether.ports` | **Partial** — attenuation supported; not a full “edit ports” product flow everywhere |
+| Edge verb authoring | Bottom-bar sentence picks the verb (`swapEdgeVerb`, `RtsControls.tsx`); ports are compiled from it, not separately edited | **Met** — attenuation is no longer a product surface; ports are all-or-nothing per verb |
 | Node inventory | Connected ops summary for work agents via CLI `onboard` / `capabilities` | **Met** for agents; **Partial** for canvas operator view |
 | Actor tier / residual risk | Doctrine wants tier + residual risk honest | **Gap** — no unified operator “capability residual” badge on nodes |
 | Digest / SVG | Read-only board projection; no process-bind leakage | **Met** by design |
@@ -144,7 +144,7 @@ into a host-destructive call without minting OwnedProcess at spawn.
 |---------------|---------------|------------|---------------|---------------|
 | Draw edge | Mint ocap | Next op can admit | Next admit can mint edge-grant | Unchanged |
 | Delete edge | Revoke next action | **Met** (re-read) | **Met** (invalidate + re-admit) | Unchanged |
-| Attenuate `ether.ports` | Narrow next admit | **Met** | **Met** (`browser.automate` maskable) | Unchanged |
+| Change edge verb | Narrow/widen next admit | **Met** | **Met** (`browser.automate` gated by the `navigates` verb) | Unchanged |
 | Delete page node | Close owned session | N/A (no work ports on page) | **Gap** default detach | Session stop only if policy |
 | Delete agent node | Revoke + terminate OwnedProcess | Seat card gone → caller resolve fails (**Partial** revoke) | Same if process still bound until unbind | **Gap** no terminate |
 | Close chat / process exit | Unbind identity | **Met** | Edge-grant subscribe revokes cache on principal change | Terminate via chat teardown when owned |

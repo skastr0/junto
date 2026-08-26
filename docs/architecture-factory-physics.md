@@ -27,22 +27,22 @@ that reaches that power.
 | Plane | Question it answers | Lives in | Mutated by |
 |-------|---------------------|----------|------------|
 | **Capability** | What may this principal reach? | Drawn edges + ports + process-bind | Human draw/delete; admit/release of bound process |
-| **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from `stops` + live worker/trust state | Recomputed; never authorial `ether.kind` input |
+| **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from the connected sink's claimed item state + live worker/trust state | Recomputed; never authorial input |
 | **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
 
 Laws of plane separation:
 
 1. **Capability does not imply phase.** An open edge lets you reach a sink; it
    does not mean work is unblocked.
-2. **Phase does not imply attention.** Cleared `stops` do not mean the
+2. **Phase does not imply attention.** Resolved stoppage does not mean the
    operator is looking.
 3. **Attention does not mint capability.** Focusing a node never grants edges.
 4. **Cross-plane leakage is a bug.** Do not encode occupancy in document
    grants, or ACL lists in phase labels.
 
 ```text
-human draws edge ──► capability (ocap exists)
-stops + live data ──► phase (blocks | relates)  // no depends / no edge cascade
+human draws edge, picks verb ──► capability (ocap exists)
+connected sink's claimed state ──► phase (blocks | relates)  // no depends / no edge cascade
 bound process + live work ──► occupancy (empty…gone)
 operator trust / focus ──► attention (org vs personal)
 ```
@@ -58,10 +58,10 @@ No “same region ⇒ power.”
 
 | Action | Effect |
 |--------|--------|
-| Human **draws** edge | Mint ocap (document records the capability) |
-| Edge **ports** | Attenuate what the ocap may do (access filter) |
+| Human **draws** edge, picks a **verb** | Mint ocap; verb selects the relationship (`src/shared/physics/verbs.ts`) |
+| Compiled **ports** | Ports, `assignable`, `wake`, and scheduler facets are all derived from the verb (access filter) — never authored separately |
 | Human **deletes** edge | Revoke ocap immediately |
-| Soft edge (no `stops`) | Capability to *relate*; never invents stoppage |
+| Edge reaching a sink with no claimed blocking item | Capability to *relate*; never invents stoppage |
 
 Wielding requires **process-bind**: a live registered descendant process of the
 host-local actor seat, admitted by Unix peer PID (+ PPID walk). The document
@@ -113,7 +113,8 @@ unclaimed attention item is inventory for a human — it stops nobody. Claims
 address the vellum node id (names are display labels, roles are routing tags).
 Manual `blocker` flags mark that actor only.
 There is **no** `depends` phase and **no** automatic multi-hop dependency
-cascade on edges. Clear `stops` → soft **relates**.
+cascade on edges. No claimed blocking item on the connected sink → soft
+**relates**.
 
 **Multi-hop stoppage is a relay node, not an edge flag.** There is no
 `ether.relayState` (or any cascade property on edges). To propagate stoppage
@@ -126,21 +127,27 @@ further hops are wire automation, not phase cascade.
 `glyphs` / `wip`; `depends` phase; edge cascade flags (`relayState`); dual
 product keys `criteria` / `notify` / `effect` (scrub may map them once on
 decode — not authoring); node-body `ether.relay`; automatic dependency cascade
-between packet-sinks or actors.
+between packet-sinks or actors; the whole authored `ports` / `stops` / `wake` /
+`slot` / `when` / `does` / `flow` field set itself — an edge now authors a
+single `verb`, and every one of those is compiled from it (`src/shared/physics/verbs.ts`).
 
 ### 3. Ports vs derived stoppage
 
-Two planes on the same edge geometry; different jobs. Sibling wire areas:
-`wake` (board megaphone, default ON), `when` / `does` / `slot` (scheduler
-wires). There is **no authorable Hold / stops field** on the product sheet.
+Two planes on the same edge geometry; different jobs. An edge authors exactly
+one fact, its **verb**; ports, `assignable`, `wake` (board megaphone), and the
+scheduler facets (`when` / `does` / `flow` / `chain`) are all **compiled**
+from the verb plus the two endpoint kinds (`compileVerb`,
+`src/shared/physics/verbs.ts`). There is **no authorable Hold / stops field**
+on the product sheet — nor an authorable ports/wake/when/does/slot field at
+all; every one of those is derived, never written.
 
-| | **Ports** | **Stoppage (derived)** |
+| | **Ports (compiled)** | **Stoppage (derived)** |
 |---|-----------|-----------|
 | Plane | Capability (access) | Phase (attention) |
 | Question | May this actor invoke this op on this sink? | Does claimed work still need this seat? |
-| Absence | No port match → no access (fail closed on protected ops) | Soft **relates** — never generates blocks |
-| Rule | Attenuation of the ocap | Access edge actor ↔ task\|requests + claimed `input-required` / `auth-required` on that sink → blocks that actor only |
-| Authoring | Port chips on the access sheet | **None** — relationship + work state; lexicon word “stops” is speech only |
+| Absence | No verb, or a verb the pair cannot hold → no ports, no access (fail closed on protected ops) | Soft **relates** — never generates blocks |
+| Rule | `compileVerb(verb, source, target).ports` | Access edge actor ↔ task\|requests + claimed `input-required` / `auth-required` on that sink → blocks that actor only |
+| Authoring | Draw the edge, pick the verb (bottom-bar sentence, or the pair's default on a plain connect) | **None** — relationship + work state; lexicon word "stops" is speech only |
 
 Ports never substitute for process-bind identity. Open queues never block.
 
@@ -159,7 +166,7 @@ Occupancy spectrum (live, derived — not stored as permanent document truth):
 | `idle` | Bound; no active work item |
 | `working` | Bound; active task / session in flight |
 | `attention` | Needs operator input (permission, review, focus) |
-| `activity_blocked` | Bound but phase plane says blocked (`stops` stoppage on this seat) |
+| `activity_blocked` | Bound but phase plane says blocked (derived stoppage on this seat) |
 | `stalled` | Expected progress missing (timeout / heartbeat gap) |
 | `parked` | Intentionally held (flag / operator park) |
 | `gone` | Former occupant exited; seat vacant until rebind |
@@ -255,7 +262,7 @@ the act can touch the OS.
 | **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
 | **Client-supplied identity** | Process-bind only; no `VELLUM_COMMAND_NODE_REF` claims |
 | **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
-| **Stops as access control** | `stops` filter phase/stoppage only |
+| **Stops as access control** | Derived stoppage filters phase only, never access |
 | **Attention as authz** | Operator focus never mints edges |
 
 ---
@@ -264,10 +271,10 @@ the act can touch the OS.
 
 | Surface | Factory physics reading |
 |---------|-------------------------|
-| Human draws edge in Command Center | Mint ocap |
-| `ether.stops` on edge | Phase filter (stoppage) |
-| `ether.wake` on board edges | Operator megaphone eligibility (default ON) |
-| `ether.when` / `ether.does` / `ether.slot` | Scheduler watch / effect / wire-end role |
+| Human draws edge, picks verb, in Command Center | Mint ocap |
+| `ether.verb` on edge | Sole authored fact; compiles ports, stoppage-eligibility, wake, and every scheduler facet |
+| Compiled `wake` (board verbs) | Operator megaphone eligibility (`participates` on, `messages` off) |
+| Compiled `when` / `does` / `flow` / `chain` | Scheduler watch predicate / fire action / pipeline hop / chain — all from the verb |
 | Work control socket + token | Transport; not identity |
 | Process-bind (peer PID) | Occupant admission to seat |
 | `authz` / `ScopeError` | Capability plane enforcement |
@@ -286,8 +293,9 @@ they are not degraded through a compatibility rewrite. Unknown
 
 | Area | Module |
 |------|--------|
-| Document + stops / wire areas | `src/shared/canvas.ts` (`EtherEdgeExtension`) |
-| Execution graph (phase from stops) | `src/shared/execution-graph.ts` |
+| Document + verb | `src/shared/canvas.ts` (`EtherEdgeExtension`) |
+| Verb table + compile | `src/shared/physics/verbs.ts` (`VERB_TABLE`, `compileVerb`) |
+| Execution graph (phase from claimed sink state) | `src/shared/execution-graph.ts` |
 | Derived graph / phase | `src/shared/graph.ts` |
 | Work control authz | `src/main/vellum/work/authz.ts` |
 | Control socket + ScopeError | `src/main/vellum/work/control.ts` |
@@ -302,7 +310,7 @@ they are not degraded through a compatibility rewrite. Unknown
 Vellum Command is a **premium station**. The factory floor is legible:
 
 - what an agent can do is **what you drew**
-- what is stuck is **what `stops` + live data say**
+- what is stuck is **what claimed work + live data say**
 - what needs you is **occupancy and attention**, not a hidden ACL
 - host power still sits behind machine-safety seals
 
