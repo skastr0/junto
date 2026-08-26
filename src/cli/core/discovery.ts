@@ -209,7 +209,7 @@ export const tasksCreateSchema: CommandSchemaContract = {
   command: "tasks create",
   schema_id: "tasks.create.input/v3",
   description:
-    "Create a task on a connected sink. Same authoring fields as before, plus optional admission (auto | operator-gated | operator-owned; omit persists operator-gated, clamped to the sink floor) and holdFor (\"12h\", \"7d\", or ms) to bake the origin arrival.",
+    "Create one Task with a stable TaskId on a connected sink. dependsOn accepts existing TaskIds only and persists before approval. Omitted admission persists operator-gated (clamped to the sink floor); local Command Center approval promotes that same TaskId instead of minting a replacement. Station protocol 1 has no Task approval action, so effective operator-gated creation refuses a Remote home. Legacy proposal events remain immutable: reconciliation materializes pending rows as same-ID gated Tasks and never infers dependencies or auto-rewires documentary proposals. holdFor (\"12h\", \"7d\", or ms) bakes the origin arrival.",
   schema: TasksCreateCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -585,8 +585,9 @@ export const allExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "tasks.create",
     command: "tasks create",
-    name: "propose work",
-    description: "Create an attributed proposal for operator review.",
+    name: "create an operator-gated Task",
+    description:
+      "Create one stable-ID Task for local Command Center operator approval. Omitting admission persists operator-gated.",
     input: {
       target: "n7",
       brief: "Add keyboard navigation",
@@ -604,9 +605,9 @@ export const allExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "tasks.create",
     command: "tasks create",
-    name: "propose with deps and finish criteria",
+    name: "create with TaskId dependencies and finish criteria",
     description:
-      "Same authoring contract as task create: dependsOn + finishCriteria carry onto the minted Task on approve.",
+      "dependsOn names existing TaskIds only. The dependency edges and this TaskId persist before approval; approval promotes the same Task.",
     input: {
       target: "n7",
       brief: "Ship media migration graph",

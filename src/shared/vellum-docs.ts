@@ -87,9 +87,9 @@ type NodeDoc = {
 
 const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   task: [
-    "task.create — a proposal is minted into a submitted Task on approval",
-    "task.claim — submitted → working, claim packet delivered to the seat",
-    "task.transition — state changes with optional evidence (completionEvidence)",
+    "task.create — one submitted Task is persisted immediately with a stable TaskId; omitted admission is operator-gated",
+    "task.claim — submitted → working only after admission and every dependsOn TaskId is completed",
+    "task.transition — local Command Center approval promotes the same TaskId; state changes may carry completionEvidence",
     "content.* — ContentRef materialization events for task media",
   ],
   requests: [
@@ -142,7 +142,7 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
-  task: "Tasks sink: items (Task[]) with a state machine + optional proposals. Finish criteria + completionEvidence gate the completed transition.",
+  task: "Tasks sink: planning persists one stable TaskId immediately. Omitted admission is operator-gated, and local Command Center approval promotes that same Task. dependsOn contains TaskIds only and gates claim until every prerequisite completes. Station protocol 1 has no Task approval action, so Remote-home operator-gated creation is refused. Legacy proposal events stay immutable history: reconciliation materializes only pending rows as same-ID gated Tasks, leaves approved and rejected documentary proposals alone, and never infers or rewires dependencies from prose. Finish criteria + completionEvidence gate the completed transition.",
   requests: "Requests sink: items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts sink: items (Artifact[]) published through the admitted, process-bound path.",
   board: "Board sink: topics with posts; glance strip in ether, full posts on list/detail.",

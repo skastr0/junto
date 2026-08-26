@@ -450,6 +450,50 @@ Terminal states are:
 completed | canceled | failed | rejected
 ```
 
+### Stable planning identity, admission, and dependencies
+
+A planning create is a Task create, not a separate proposal identity that later
+turns into a Task. The stable contract is:
+
+1. Creation allocates one `TaskId` and persists the submitted Task immediately.
+   Review, approval, claim, and later transitions retain that same identity.
+2. `dependsOn` contains `TaskId` values only. It does not admit `ProposalId` or
+   infer a prerequisite from a brief, reason, or other prose. The dependency
+   edges persist in the same create transaction, before approval. Creation
+   refuses a missing Task, a Task outside the same-region dependency scope, a
+   duplicate, self-dependency, or a cycle instead of silently changing the
+   authored list.
+3. When an agent omits `admission`, Vellum Command persists `operator-gated`,
+   clamped to the sink's admission floor. An unpromoted gated Task is submitted
+   but not claimable.
+4. Approval is a local Command Center operation on the Command Center-homed
+   Task. It stamps promotion on the existing Task; it does not mint a
+   replacement Task or change the `TaskId`. Only a completed prerequisite
+   satisfies `dependsOn`. A rejected, failed, or canceled prerequisite appears
+   as a derived broken root without changing the dependent Task's authored
+   state.
+5. Station protocol 1 has no Task approval action. Creation refuses an
+   effectively `operator-gated` Task whose home is a Remote before content,
+   Work, or command emission. Move that Task sink to Command Center rather than
+   down-converting or adding a protocol path.
+
+Older installed states can contain proposal rows from the retired
+proposal-first creation model. They are reconciled under these rules:
+
+- proposal events remain immutable history;
+- a pending proposal is materialized at Command Center as one submitted,
+  unpromoted `operator-gated` Task with the same identifier, preserving its
+  explicit authoring fields;
+- reconciliation walks explicit `dependsOn` Task IDs to a fixed point, resumes
+  safely after interruption, and reopens its install-local marker for late
+  arrivals;
+- approved proposals that already name a Task and rejected proposals remain
+  documentary history. They are not rematerialized or auto-rewired;
+- reconciliation never infers an edge from proposal prose and never retargets
+  a dependency from a documentary proposal to another Task. Missing, cyclic,
+  or malformed explicit references remain visible reconciliation work rather
+  than being guessed away.
+
 ### Finish criteria and completion evidence
 
 Optional first-class fields on `Task` (see `src/shared/work-model.ts`):
@@ -2105,8 +2149,14 @@ Station protocol 1 is the sole live, unreleased Station contract in source. Its
 current implementation surface is:
 
 - the wire has exactly `pair | configure | project | report | status`;
-- task proposals are typed, non-executable Work entities; only a correlated
-  Command Center approval may mint a submitted task;
+- planning creation persists one submitted Task with a stable `TaskId`;
+  omitted admission is `operator-gated`, and local Command Center approval
+  promotes that same Task at its home instead of minting a replacement;
+- `dependsOn` is TaskId-only and is persisted before approval; legacy proposal
+  events remain immutable while pending rows reconcile to same-ID gated Tasks
+  without inferring dependencies or auto-rewiring documentary proposals;
+- Station protocol 1 carries no Task approval action, so an effectively
+  `operator-gated` Remote-home creation is refused before emission;
 - every request, response, Work record, handshake, frame, cursor, and
   disposition is strictly decoded with bounded Effect schemas;
 - negotiation selects the highest common exact Station protocol from declared
