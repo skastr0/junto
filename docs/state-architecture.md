@@ -70,12 +70,14 @@ its version, name, input witness, and behavior are immutable. A repair is a new
 forward migration, never an edit to history, because an installation may skip
 any number of releases before applying the chain.
 
-The current schema is version 3. Its immutable released chain is:
-
-| Step | Name | Expansion |
-|---|---|---|
-| `1 → 2` | `add-license-activation` | Add the first installation-local license activation table |
-| `2 → 3` | `bind-license-entitlement-to-dodo-product` | Add the current seller/product-bound entitlement table while retaining the version-2 representation |
+The current source/runtime schema is version 20. `CURRENT_STATE_SCHEMA_VERSION`
+and `STATE_SCHEMA_MIGRATIONS` in
+`src/main/vellum/state/migrations.ts` are the sole head and chain authority, so
+this document does not duplicate the migration table. The public macOS 0.1.14
+package remains historical evidence for schema version 18; it does not define
+the current source/runtime head. The frozen `18 → 19` and `19 → 20` migrations
+must never be edited, squashed, renumbered, or reused. The next schema change
+must append `20 → 21`.
 
 The frozen version-1 Command Center and Remote fixtures carry representative
 canvas, topology, projection, Work, cursor, and scheduler rows. Tests hash the
