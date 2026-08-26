@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { unlinkSync, writeFileSync } from "node:fs";
 import {
+  chmod,
   link,
   mkdir,
   readFile,
@@ -18,17 +19,19 @@ const sqliteControl = vi.hoisted(() => ({
   prepareCalls: 0,
   failExecAt: undefined as number | undefined,
   failPrepareAt: undefined as number | undefined,
-  onConstruct: undefined as ((path: string) => void) | undefined,
-  instances: [] as Array<{ closeCalls: number }>,
+  onConstruct: undefined as ((path: string | URL) => void) | undefined,
+  instances: [] as Array<{ closeCalls: number; readonly readOnly: boolean }>,
 }));
 
 vi.mock("node:sqlite", () => ({
   DatabaseSync: class DatabaseSync {
     closeCalls = 0;
+    readonly readOnly: boolean;
     private schemaSql: string | undefined;
     private userVersion = 0;
 
-    constructor(path: string) {
+    constructor(path: string | URL, options?: { readonly readOnly?: boolean }) {
+      this.readOnly = options?.readOnly === true;
       sqliteControl.instances.push(this);
       sqliteControl.onConstruct?.(path);
     }
@@ -54,22 +57,48 @@ vi.mock("node:sqlite", () => ({
           if (sql.includes("PRAGMA user_version")) {
             return { user_version: this.userVersion };
           }
-          if (sql.includes("PRAGMA quick_check")) {
-            return { quick_check: "ok" };
+          if (sql.includes("PRAGMA application_id")) {
+            return { application_id: 0 };
+          }
+          if (sql.includes("PRAGMA journal_mode")) {
+            return { journal_mode: "delete" };
           }
           return undefined;
         },
-        all: () =>
-          this.schemaSql === undefined
+        all: () => {
+          if (sql.includes("PRAGMA quick_check")) {
+            return [{ quick_check: "ok" }];
+          }
+          if (sql.includes("PRAGMA integrity_check")) {
+            return [{ integrity_check: "ok" }];
+          }
+          return this.schemaSql === undefined
             ? []
-            : [{
-              type: "table",
-              name: "backfill_markers",
-              tbl_name: "backfill_markers",
-              sql: this.schemaSql,
-            }],
+            : [
+              {
+                type: "index",
+                name: "sqlite_autoindex_backfill_markers_1",
+                tbl_name: "backfill_markers",
+                sql: null,
+              },
+              {
+                type: "table",
+                name: "backfill_markers",
+                tbl_name: "backfill_markers",
+                sql: this.schemaSql,
+              },
+            ];
+        },
         run: () => undefined,
       };
+    }
+
+    serialize(): Uint8Array {
+      const bytes = Buffer.alloc(100);
+      Buffer.from("SQLite format 3\0").copy(bytes);
+      bytes[18] = 1;
+      bytes[19] = 1;
+      return bytes;
     }
 
     close(): void {
@@ -155,7 +184,7 @@ describe("InstallOpsLive acquisition", () => {
   });
 
   it("degrades after statement preparation failure and preserves the setup cause", async () => {
-    sqliteControl.failPrepareAt = 3;
+    sqliteControl.failPrepareAt = 20;
     const { runtime } = await openRuntime();
 
     const service = await runtime.runPromise(InstallOpsService);
@@ -187,12 +216,25 @@ describe("InstallOpsLive acquisition", () => {
     ]);
     expect(first).toBe(second);
     expect(first.availability).toEqual({ status: "available" });
-    expect(sqliteControl.instances).toHaveLength(1);
-    expect(sqliteControl.instances[0]?.closeCalls).toBe(0);
+    expect(sqliteControl.instances).toHaveLength(3);
+    expect(sqliteControl.instances[0]).toMatchObject({
+      readOnly: false,
+      closeCalls: 1,
+    });
+    expect(sqliteControl.instances[1]).toMatchObject({
+      readOnly: true,
+      closeCalls: 1,
+    });
+    expect(sqliteControl.instances[2]).toMatchObject({
+      readOnly: false,
+      closeCalls: 0,
+    });
 
     await runtime.dispose();
     runtimes.pop();
     expect(sqliteControl.instances[0]?.closeCalls).toBe(1);
+    expect(sqliteControl.instances[1]?.closeCalls).toBe(1);
+    expect(sqliteControl.instances[2]?.closeCalls).toBe(1);
   });
 
   it("rejects a symlink and hard link before SQLite construction", async () => {
@@ -225,7 +267,12 @@ describe("InstallOpsLive acquisition", () => {
   it("detects pathname substitution after SQLite opens and before any PRAGMA", async () => {
     const home = await makeHome();
     const path = join(home, "install-ops.db");
-    await writeFile(path, "admitted");
+    const admitted = Buffer.alloc(100);
+    Buffer.from("SQLite format 3\0").copy(admitted);
+    admitted[18] = 1;
+    admitted[19] = 1;
+    await writeFile(path, admitted);
+    await chmod(path, 0o600);
     sqliteControl.onConstruct = (openedPath) => {
       unlinkSync(openedPath);
       writeFileSync(openedPath, "replacement");
