@@ -154,7 +154,12 @@ const twoPageDoc = (
       },
     },
   ],
-  edges: edges.map((e) => ({ id: e.id, fromNode: e.from, toNode: e.to })),
+  edges: edges.map((e) => ({
+    id: e.id,
+    fromNode: e.from,
+    toNode: e.to,
+    ether: { verb: "navigates" as const },
+  })),
 });
 
 describe("edge-revocation pure helpers", () => {

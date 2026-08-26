@@ -86,9 +86,9 @@ describe("browser edge authz", () => {
       text("tasks", "task"),
     ],
     [
-      { id: "e1", fromNode: "agent", toNode: "p1" },
+      { id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } },
       { id: "e2", fromNode: "p2", toNode: "herdr" },
-      { id: "e3", fromNode: "term", toNode: "p1" },
+      { id: "e3", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } },
     ],
   );
 
@@ -165,7 +165,7 @@ describe("browser edge authz", () => {
 describe("process-bind (browser canvas resolution)", () => {
   const board = doc(
     [text("agent", "agent", "local:default"), page("p1")],
-    [{ id: "e1", fromNode: "agent", toNode: "p1" }],
+    [{ id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } }],
   );
 
   it("maps a process principal to edge-reachable pages", () => {
@@ -214,7 +214,7 @@ describe("process-bind (browser canvas resolution)", () => {
   it("admits an agent process principal edged to a page — role decides, not a kind ACL", () => {
     const terminalBoard = doc(
       [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
-      [{ id: "e1", fromNode: "term", toNode: "p1" }],
+      [{ id: "e1", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
       bindingId: "bind-xyz",
@@ -232,7 +232,7 @@ describe("process-bind (browser canvas resolution)", () => {
   it("resolves an agent principal by bindingId with no node anchor", () => {
     const terminalBoard = doc(
       [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
-      [{ id: "e1", fromNode: "term", toNode: "p1" }],
+      [{ id: "e1", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
       bindingId: "bind-xyz",
@@ -244,7 +244,7 @@ describe("process-bind (browser canvas resolution)", () => {
   it("refuses a terminal principal whose binding matches no terminal node", () => {
     const terminalBoard = doc(
       [text("term", "agent", "local:term", { bindingId: "bind-xyz" }), page("p1")],
-      [{ id: "e1", fromNode: "term", toNode: "p1" }],
+      [{ id: "e1", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } }],
     );
     const resolved = resolveBrowserCallerFromProcess(terminalBoard, "work", {
       bindingId: "some-other-binding",

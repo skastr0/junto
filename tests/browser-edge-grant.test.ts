@@ -115,7 +115,9 @@ const canvasDoc = (withEdge: boolean): CanvasDoc => ({
       ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
     },
   ],
-  edges: withEdge ? [{ id: "e1", fromNode: "agent", toNode: "p1" }] : [],
+  edges: withEdge
+    ? [{ id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } }]
+    : [],
 });
 
 const stationAuthority = (hostId: string): BrowserHostCapabilityAuthority => ({
@@ -161,7 +163,9 @@ const terminalCanvasDoc = (): CanvasDoc => ({
       ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
     },
   ],
-  edges: [{ id: "e1", fromNode: "terminal", toNode: "p1" }],
+  edges: [
+    { id: "e1", fromNode: "terminal", toNode: "p1", ether: { verb: "navigates" } },
+  ],
 });
 
 describe("browser edge-grant process-bind dual admit", () => {

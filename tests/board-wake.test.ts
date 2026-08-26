@@ -67,24 +67,10 @@ describe("board wake set", () => {
         },
       ],
       edges: [
-        {
-          id: "e1",
-          fromNode: "agent-a",
-          toNode: "board-1",
-          // notify absent = ON (default)
-        },
-        {
-          id: "e2",
-          fromNode: "agent-b",
-          toNode: "board-1",
-          ether: { wake: false },
-        },
-        {
-          id: "e3",
-          fromNode: "agent-c",
-          toNode: "board-1",
-          ether: { wake: true },
-        },
+        // participates joins the megaphone; messages is the opted-out half.
+        { id: "e1", fromNode: "agent-a", toNode: "board-1", ether: { verb: "participates" } },
+        { id: "e2", fromNode: "agent-b", toNode: "board-1", ether: { verb: "messages" } },
+        { id: "e3", fromNode: "agent-c", toNode: "board-1", ether: { verb: "participates" } },
       ],
     });
 

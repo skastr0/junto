@@ -68,13 +68,9 @@ describe("resolveBoardConnectedActors", () => {
         },
       ],
       edges: [
-        { id: "e1", fromNode: "agent-a", toNode: "board-1" },
-        {
-          id: "e2",
-          fromNode: "agent-b",
-          toNode: "board-1",
-          ether: { wake: false },
-        },
+        { id: "e1", fromNode: "agent-a", toNode: "board-1", ether: { verb: "participates" } },
+        // The narrow board verb reads the board without joining the megaphone.
+        { id: "e2", fromNode: "agent-b", toNode: "board-1", ether: { verb: "messages" } },
         { id: "e3", fromNode: "note", toNode: "board-1" },
       ],
     });
@@ -119,7 +115,7 @@ describe("board tags", () => {
 });
 
 describe("resolvePadInboundActors", () => {
-  it("lists inbound actors only and keeps wake", () => {
+  it("lists inbound actors only, and none of them wake", () => {
     const canvas = doc({
       nodes: [
         {
@@ -173,14 +169,9 @@ describe("resolvePadInboundActors", () => {
         },
       ],
       edges: [
-        { id: "e-in", fromNode: "agent-in", toNode: "pad-1" },
+        { id: "e-in", fromNode: "agent-in", toNode: "pad-1", ether: { verb: "edits" } },
         { id: "e-out", fromNode: "pad-1", toNode: "agent-out" },
-        {
-          id: "e-quiet",
-          fromNode: "agent-quiet",
-          toNode: "pad-1",
-          ether: { wake: false },
-        },
+        { id: "e-quiet", fromNode: "agent-quiet", toNode: "pad-1", ether: { verb: "reads" } },
       ],
     });
     const actors = resolvePadInboundActors(canvas, "pad-1");
@@ -188,12 +179,9 @@ describe("resolvePadInboundActors", () => {
       "agent-in",
       "agent-quiet",
     ]);
-    expect(actors.find((actor) => actor.nodeId === "agent-in")?.wake).toBe(true);
-    expect(actors.find((actor) => actor.nodeId === "agent-quiet")?.wake).toBe(
-      false,
-    );
-    expect(tagNotifyNodeIds(["agent-in", "agent-quiet"], actors)).toEqual([
-      "agent-in",
-    ]);
+    // Wake is a board fact: only `participates` opens the megaphone, and no
+    // pad verb carries it, so a pad mention never injects.
+    expect(actors.every((actor) => actor.wake === false)).toBe(true);
+    expect(tagNotifyNodeIds(["agent-in", "agent-quiet"], actors)).toEqual([]);
   });
 });
