@@ -9,6 +9,7 @@ import {
   CANVAS_GENERATION_COMPACTION_SLACK,
   CanvasesLive,
   CanvasesService,
+  type CanvasAuthorityStoredDocument,
 } from "../src/main/vellum/canvases";
 import { makeStateEngineLive } from "../src/main/vellum/state/engine";
 import { StateEngine } from "../src/main/vellum/state/service";
@@ -31,8 +32,12 @@ import {
 import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
 import {
   applyMirrorLaw,
+  serializeCanvas,
   type CanvasDoc,
 } from "../src/shared/canvas";
+import {
+  verifyCanvasIntentMaterial,
+} from "../src/main/vellum/canvas-intent-identity";
 
 const noteDoc = (text: string): CanvasDoc =>
   applyMirrorLaw({
@@ -190,6 +195,46 @@ describe("CanvasesService SQLite authority", () => {
 
     const readBeta = await runtime.runPromise(canvases.read("beta"));
     expect(readBeta.doc.nodes).toEqual([]);
+  });
+
+  it("exposes coherent stored authority material with detached caller maps", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
+    await runtime.runPromise(canvases.create("beta"));
+
+    const material = await runtime.runPromise(
+      canvases.authorityMaterialSnapshot(),
+    );
+    expect(material.generation).toBe("2");
+    expect([...material.documents.keys()]).toEqual(["alpha", "beta"]);
+    expect([...material.storedDocuments.keys()]).toEqual(["alpha", "beta"]);
+    expect(material.storedDocuments.get("alpha")?.rawBody).toBe(
+      serializeCanvas(material.documents.get("alpha")!),
+    );
+    expect(() => verifyCanvasIntentMaterial(material)).not.toThrow();
+
+    const legacy = await runtime.runPromise(canvases.authoritySnapshot());
+    expect(legacy).toMatchObject({
+      generation: material.generation,
+      intentSha256: material.intentSha256,
+    });
+    expect(legacy.documents).toEqual(material.documents);
+    expect(legacy).not.toHaveProperty("storedDocuments");
+
+    (material.documents as Map<string, CanvasDoc>).clear();
+    expect(material.storedDocuments.size).toBe(2);
+    (
+      material.storedDocuments as Map<string, CanvasAuthorityStoredDocument>
+    ).clear();
+
+    const reread = await runtime.runPromise(
+      canvases.authorityMaterialSnapshot(),
+    );
+    expect([...reread.documents.keys()]).toEqual(["alpha", "beta"]);
+    expect([...reread.storedDocuments.keys()]).toEqual(["alpha", "beta"]);
+    expect(() => verifyCanvasIntentMaterial(reread)).not.toThrow();
   });
 
   it("reloads the live map from SQLite across restart", async () => {

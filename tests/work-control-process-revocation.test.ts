@@ -29,6 +29,9 @@ import {
   type WorkControlServer,
 } from "../src/main/vellum/work/control";
 import { createMainAuthoringGate } from "../src/main/vellum/main-authoring-gate";
+import {
+  canvasAuthorityMaterialFixture,
+} from "./helpers/canvas-authority-material";
 
 const PEER_PID = 71_003;
 const NEAR_ANCHOR_PID = 71_002;
@@ -182,6 +185,10 @@ const canvasesService = CanvasesService.of({
       intentSha256: "a".repeat(64),
       documents: new Map([["revocation", doc]]),
     }),
+  authorityMaterialSnapshot: () =>
+    Effect.sync(() =>
+      canvasAuthorityMaterialFixture("1", new Map([["revocation", doc]])),
+    ),
   activeIntentWitness: () =>
     Effect.succeed({
       generation: "1",

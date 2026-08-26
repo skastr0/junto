@@ -20,6 +20,10 @@ import {
   CanvasesService,
 } from "../src/main/vellum/canvases";
 import {
+  verifyCanvasIntentMaterial,
+} from "../src/main/vellum/canvas-intent-identity";
+import { serializeCanvas } from "../src/shared/canvas";
+import {
   makeSchedulerRepositoryLive,
   SchedulerRepository,
 } from "../src/main/vellum/scheduler/repository";
@@ -315,7 +319,9 @@ const assertCommandCenterRepositories = async (
       };
     }),
   );
-  const authority = await runtime.runPromise(canvases.authoritySnapshot());
+  const authority = await runtime.runPromise(
+    canvases.authorityMaterialSnapshot(),
+  );
   const status = await runtime.runPromise(station.statusFacts);
   const targets = await runtime.runPromise(fleet.list);
   const records = await runtime.runPromise(
@@ -332,6 +338,15 @@ const assertCommandCenterRepositories = async (
     documents: expect.any(Map),
   });
   expect(authority.documents.get("factory")?.nodes).toHaveLength(2);
+  expect(() => verifyCanvasIntentMaterial(authority)).not.toThrow();
+  const storedFactory = authority.storedDocuments.get("factory");
+  expect(storedFactory?.rawBody).toContain('"ports"');
+  expect(storedFactory?.rawBody).not.toBe(
+    serializeCanvas(storedFactory!.document),
+  );
+  expect(storedFactory?.document.edges[0]?.ether).toEqual({
+    verb: "contributes",
+  });
   expect(status).toMatchObject({
     installationId: COMMAND_CENTER_ID,
     configuration: {

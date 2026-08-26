@@ -35,6 +35,9 @@ import {
 } from "../src/main/vellum/canvas-control/server";
 import { SnapshotsService } from "../src/main/vellum/snapshots";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
+import {
+  canvasAuthorityMaterialFixture,
+} from "./helpers/canvas-authority-material";
 
 const roots: string[] = [];
 const servers: CanvasControlServer[] = [];
@@ -126,6 +129,8 @@ const makeRuntime = (input: {
         intentSha256: "a".repeat(64),
         documents: new Map(documents),
       })),
+    authorityMaterialSnapshot: () =>
+      Effect.sync(() => canvasAuthorityMaterialFixture("1", documents)),
     activeIntentWitness: () =>
       Effect.succeed({
         generation: "1",

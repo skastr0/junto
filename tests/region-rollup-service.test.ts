@@ -16,6 +16,9 @@ import {
 } from "./helpers/actor-ref-fixtures";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 import { taskItem } from "./helpers/task-fixtures";
+import {
+  canvasAuthorityMaterialFixture,
+} from "./helpers/canvas-authority-material";
 
 const noSpawn: SpawnFn = () => { throw new Error("unexpected ACP spawn"); };
 
@@ -188,6 +191,8 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
           intentSha256: "a".repeat(64),
           documents: new Map(docs),
         }),
+      authorityMaterialSnapshot: () =>
+        Effect.sync(() => canvasAuthorityMaterialFixture("0", docs)),
       activeIntentWitness: () =>
         Effect.succeed({
           generation: "0",

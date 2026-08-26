@@ -52,6 +52,9 @@ import {
   StationRepository,
   stationProjectionContentSha256,
 } from "../src/main/vellum/station/repository";
+import {
+  canvasAuthorityMaterialFixture,
+} from "./helpers/canvas-authority-material";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
@@ -128,6 +131,8 @@ const canvases = (
         intentSha256: AUTHORITY_SHA256,
         documents,
       }),
+    authorityMaterialSnapshot: () =>
+      Effect.sync(() => canvasAuthorityMaterialFixture(generation, documents)),
     activeIntentWitness: () =>
       Effect.succeed({
         generation,

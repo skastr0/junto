@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
@@ -57,6 +56,11 @@ import {
   archiveAllCanvasEntities,
   syncCanvasEntities,
 } from "./entities/sync";
+import {
+  canvasBodySha256Of,
+  intentSha256Of,
+  type StoredCanvasIntentDocument,
+} from "./canvas-intent-identity";
 
 export class CanvasError extends Schema.TaggedErrorClass<CanvasError>()("CanvasError", {
   message: Schema.String,
@@ -92,11 +96,24 @@ export type CanvasChangeDetail = {
   readonly next: CanvasDoc | undefined;
 };
 
-/** One transactionally coherent view of the protected document authority. */
+/** One transactionally coherent semantic view of the protected document authority. */
 export type CanvasAuthoritySnapshot = {
   readonly generation: string;
   readonly intentSha256: string;
   readonly documents: ReadonlyMap<string, CanvasDoc>;
+};
+
+export type CanvasAuthorityStoredDocument = StoredCanvasIntentDocument;
+
+/**
+ * One transactionally coherent authorial view with the exact stored bytes that
+ * produced each semantic document and the portfolio intent identity.
+ */
+export type CanvasAuthorityMaterialSnapshot = CanvasAuthoritySnapshot & {
+  readonly storedDocuments: ReadonlyMap<
+    string,
+    CanvasAuthorityStoredDocument
+  >;
 };
 
 export type ActiveIntentWitness = {
@@ -244,9 +261,18 @@ export class CanvasesService extends Context.Service<CanvasesService,
      * projection versions allocate their own monotonic generation.
      */
     readonly liveAuthorityGeneration: () => Effect.Effect<string, CanvasError>;
-    /** Generation and documents read in one SQLite snapshot. */
+    /** Generation and semantic documents read in one SQLite snapshot. */
     readonly authoritySnapshot: () => Effect.Effect<
       CanvasAuthoritySnapshot,
+      CanvasError
+    >;
+    /**
+     * Generation, semantic documents, and exact stored bodies read from one
+     * StateEngine snapshot. Security-sensitive authority derivation uses this
+     * required material view rather than reconstructing bytes from documents.
+     */
+    readonly authorityMaterialSnapshot: () => Effect.Effect<
+      CanvasAuthorityMaterialSnapshot,
       CanvasError
     >;
     /**
@@ -278,7 +304,7 @@ const canvasLabel = (name: CanvasName) => `canvas "${name}"`;
 type StoredCanvas = {
   readonly doc: CanvasDoc;
   readonly body: string;
-  readonly revision: string;
+  readonly revisionSha256: string;
   readonly modifiedAt: string;
 };
 
@@ -332,34 +358,14 @@ const DOCUMENTS_SQL = `
   ORDER BY name
 `;
 
-const revisionOf = (raw: string): string =>
-  createHash("sha256").update(raw, "utf8").digest("hex");
-
-const intentSha256Of = (
-  documents: ReadonlyMap<string, StoredCanvas>,
-): string => {
-  const hash = createHash("sha256");
-  for (const [name, entry] of [...documents].sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
-    hash.update(String(Buffer.byteLength(name, "utf8")));
-    hash.update("\0");
-    hash.update(name, "utf8");
-    hash.update("\0");
-    hash.update(entry.revision, "ascii");
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-};
-
 const decodeStoredCanvas = (
   name: CanvasName,
   body: string,
   expectedSha256: string,
   modifiedAt: string,
 ): StoredCanvas => {
-  const revision = revisionOf(body);
-  if (revision !== expectedSha256) {
+  const revisionSha256 = canvasBodySha256Of(body);
+  if (revisionSha256 !== expectedSha256) {
     throw new CanvasError({
       message: `canvas database body hash mismatch: ${canvasLabel(name)}`,
     });
@@ -387,7 +393,7 @@ const decodeStoredCanvas = (
       message: `${canvasLabel(name)} in the database failed validation: ${decoded.failure.message}`,
     });
   }
-  return { doc: decoded.success, body, revision, modifiedAt };
+  return { doc: decoded.success, body, revisionSha256, modifiedAt };
 };
 
 const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
@@ -589,7 +595,7 @@ const readStationProjection = (
       actorRefs: [],
     };
   }
-  const contentSha256 = revisionOf(row.body);
+  const contentSha256 = canvasBodySha256Of(row.body);
   if (contentSha256 !== row.content_sha256) {
     throw new CanvasError({
       message:
@@ -604,7 +610,7 @@ const readStationProjection = (
     documents.set(canonicalName, {
       doc,
       body,
-      revision: revisionOf(body),
+      revisionSha256: canvasBodySha256Of(body),
       modifiedAt: row.received_at,
     });
   }
@@ -887,7 +893,7 @@ const insertFullGeneration = (
       `INSERT INTO canvas_generation_documents(
         generation, name, body, sha256, modified_at
       ) VALUES (?, ?, ?, ?, ?)`,
-      [generation, name, entry.body, entry.revision, entry.modifiedAt],
+      [generation, name, entry.body, entry.revisionSha256, entry.modifiedAt],
     );
   }
   writer.run(
@@ -1192,7 +1198,7 @@ const normalizeCanvas = (
   return {
     doc: nextDoc,
     body,
-    revision: revisionOf(body),
+    revisionSha256: canvasBodySha256Of(body),
     modifiedAt,
   };
 };
@@ -1399,7 +1405,7 @@ export const CanvasesLive = Layer.effect(
                 actorRefs: snapshot.actorRefs.filter(
                   (actor) => actor.canvasName === canonicalName,
                 ),
-                revision: entry.revision,
+                revision: entry.revisionSha256,
                 workRevision: projected.workRevision,
               },
               intentWitness: intentWitnessFromSnapshot(snapshot),
@@ -1455,7 +1461,7 @@ export const CanvasesLive = Layer.effect(
                   name: canonicalName,
                   node,
                   structure: entry.doc,
-                  revision: entry.revision,
+                  revision: entry.revisionSha256,
                 };
           if (probe !== undefined) perfProbe?.endRead(probe, result?.node);
           return result;
@@ -1478,7 +1484,8 @@ export const CanvasesLive = Layer.effect(
         const previous = current.documents.get(canonicalName);
         if (
           expectedRevision !== undefined &&
-          (previous === undefined || previous.revision !== expectedRevision)
+          (previous === undefined ||
+            previous.revisionSha256 !== expectedRevision)
         ) {
           throw new CanvasError({
             message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
@@ -1492,7 +1499,7 @@ export const CanvasesLive = Layer.effect(
           "write",
         );
         const nextEntry =
-          candidate.revision === previous?.revision
+          candidate.revisionSha256 === previous?.revisionSha256
             ? { ...candidate, modifiedAt: previous.modifiedAt }
             : candidate;
         const documents = new Map(current.documents);
@@ -1522,7 +1529,7 @@ export const CanvasesLive = Layer.effect(
           }),
         );
       }
-      return { revision: outcome.nextEntry.revision };
+      return { revision: outcome.nextEntry.revisionSha256 };
     });
 
   const mutate = (
@@ -1550,7 +1557,7 @@ export const CanvasesLive = Layer.effect(
           "mutate",
         );
         const nextEntry =
-          candidate.revision === previous.revision
+          candidate.revisionSha256 === previous.revisionSha256
             ? { ...candidate, modifiedAt: previous.modifiedAt }
             : candidate;
         const documents = new Map(current.documents);
@@ -1741,30 +1748,61 @@ export const CanvasesLive = Layer.effect(
     }
   });
 
+  const readAuthorityMaterialSnapshot = (
+    operation: string,
+    missingHeadMessage: string,
+  ): Effect.Effect<CanvasAuthorityMaterialSnapshot, CanvasError> =>
+    readAuthority(operation).pipe(
+      Effect.flatMap((snapshot) => {
+        if (!snapshot.hasHead || snapshot.intentSha256 === undefined) {
+          return Effect.fail(
+            new CanvasError({ message: missingHeadMessage }),
+          );
+        }
+        const documents = new Map<string, CanvasDoc>();
+        const storedDocuments = new Map<
+          string,
+          CanvasAuthorityStoredDocument
+        >();
+        for (const [name, entry] of snapshot.documents) {
+          documents.set(name, entry.doc);
+          storedDocuments.set(name, {
+            document: entry.doc,
+            rawBody: entry.body,
+            revisionSha256: entry.revisionSha256,
+          });
+        }
+        return Effect.succeed({
+          generation: snapshot.generation,
+          intentSha256: snapshot.intentSha256,
+          documents,
+          storedDocuments,
+        });
+      }),
+    );
+
+  const authorityMaterialSnapshot = (): Effect.Effect<
+    CanvasAuthorityMaterialSnapshot,
+    CanvasError
+  > =>
+    readAuthorityMaterialSnapshot(
+      "canvas.authority-material-snapshot",
+      "cannot read canvas authority material without an active authorial head",
+    );
+
   const authoritySnapshot = (): Effect.Effect<
     CanvasAuthoritySnapshot,
     CanvasError
   > =>
-    readAuthority("canvas.authority-snapshot").pipe(
-      Effect.flatMap((snapshot) =>
-        snapshot.hasHead && snapshot.intentSha256 !== undefined
-          ? Effect.succeed({
-              generation: snapshot.generation,
-              intentSha256: snapshot.intentSha256,
-              documents: new Map(
-                [...snapshot.documents].map(([name, entry]) => [
-                  name,
-                  entry.doc,
-                ]),
-              ),
-            })
-          : Effect.fail(
-              new CanvasError({
-                message:
-                  "cannot read canvas authority snapshot without an active authorial head",
-              }),
-            )
-      ),
+    readAuthorityMaterialSnapshot(
+      "canvas.authority-snapshot",
+      "cannot read canvas authority snapshot without an active authorial head",
+    ).pipe(
+      Effect.map(({ generation, intentSha256, documents }) => ({
+        generation,
+        intentSha256,
+        documents: new Map(documents),
+      })),
     );
 
   const activeIntentWitness = (): Effect.Effect<
@@ -1848,6 +1886,7 @@ export const CanvasesLive = Layer.effect(
     liveDocuments,
     liveAuthorityGeneration,
     authoritySnapshot,
+    authorityMaterialSnapshot,
     activeIntentWitness,
     activeActorRefs,
   });
