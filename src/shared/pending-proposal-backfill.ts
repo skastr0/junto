@@ -11,16 +11,17 @@
  * are not this module. This file has no SQL.
  */
 
+import { Schema } from "effect";
 import { PIPELINE_ADMITTED_METADATA_KEY } from "./claims";
 import type { ActorRef } from "./work-reference";
-import type {
-  FinishCriteria,
-  Message,
-  SinkAdmission,
+import {
   Task,
   TaskClaim,
   TaskProposal,
-  WorkMetadata,
+  type FinishCriteria,
+  type Message,
+  type SinkAdmission,
+  type WorkMetadata,
 } from "./work-model";
 
 /** Install-ops ledger id. Completeness lives in install-ops.db, never product rows. */
@@ -65,6 +66,17 @@ export type UnadmittedMaterialization = {
   readonly admission: typeof PENDING_PROPOSAL_BACKFILL_ADMISSION;
   readonly raisedBy: ActorRef;
 };
+
+const STRICT_DECODE_OPTIONS = { onExcessProperty: "error" } as const;
+const decodeTaskProposal = Schema.decodeUnknownSync(
+  TaskProposal,
+  STRICT_DECODE_OPTIONS,
+);
+const decodeTask = Schema.decodeUnknownSync(Task, STRICT_DECODE_OPTIONS);
+const decodeTaskClaims = Schema.decodeUnknownSync(
+  Schema.Array(TaskClaim),
+  STRICT_DECODE_OPTIONS,
+);
 
 const isPlainObject = (
   value: unknown,
@@ -215,6 +227,24 @@ export const recoverClaimsFromProposalRecordJson = (
   return claimsFromUnknown(proposal?.claims);
 };
 
+/**
+ * Backfill-only recovery. Once an immutable record exposes a claims field, its
+ * complete historical shape must decode or that proposal remains a row-level
+ * failure. Missing records and records from older shapes that never carried
+ * claims remain valid and yield no claims.
+ */
+export const recoverClaimsFromProposalRecordJsonStrict = (
+  recordJson: unknown,
+): ReadonlyArray<TaskClaim> | undefined => {
+  const parsed = typeof recordJson === "string"
+    ? JSON.parse(recordJson) as unknown
+    : recordJson;
+  if (parsed === undefined) return undefined;
+  const proposal = findProposalObject(parsed);
+  if (proposal?.claims === undefined) return undefined;
+  return decodeTaskClaims(proposal.claims);
+};
+
 const stripReservedPipelineMetadata = (
   metadata: WorkMetadata | undefined,
 ): WorkMetadata | undefined => {
@@ -241,35 +271,39 @@ export const materializePendingProposal = (input: {
   readonly proposal: PendingProposalSnapshot;
   readonly claimsFromRecord?: ReadonlyArray<TaskClaim>;
 }): UnadmittedMaterialization => {
-  if (input.proposal.state !== "pending") {
+  const proposal = decodeTaskProposal(input.proposal);
+  if (proposal.state !== "pending") {
     throw new Error(
-      `materializePendingProposal requires pending, got ${input.proposal.state}`,
+      `materializePendingProposal requires pending, got ${proposal.state}`,
     );
   }
+  const recoveredClaims = input.claimsFromRecord === undefined
+    ? undefined
+    : decodeTaskClaims(input.claimsFromRecord);
   const claims =
-    input.proposal.claims !== undefined && input.proposal.claims.length > 0
-      ? input.proposal.claims
-      : input.claimsFromRecord;
-  const metadata = stripReservedPipelineMetadata(input.proposal.metadata);
-  const task: Task = {
-    id: input.proposal.id,
+    proposal.claims !== undefined && proposal.claims.length > 0
+      ? proposal.claims
+      : recoveredClaims;
+  const metadata = stripReservedPipelineMetadata(proposal.metadata);
+  const task = decodeTask({
+    id: proposal.id,
     state: "submitted",
-    history: [asBrief(input.proposal.brief, input.proposal.id)],
+    history: [asBrief(proposal.brief, proposal.id)],
     ...(metadata !== undefined ? { metadata } : {}),
-    ...(input.proposal.reason !== undefined ? { reason: input.proposal.reason } : {}),
-    ...(input.proposal.dependsOn !== undefined
-      ? { dependsOn: input.proposal.dependsOn }
+    ...(proposal.reason !== undefined ? { reason: proposal.reason } : {}),
+    ...(proposal.dependsOn !== undefined
+      ? { dependsOn: proposal.dependsOn }
       : {}),
-    ...(input.proposal.finishCriteria !== undefined
-      ? { finishCriteria: input.proposal.finishCriteria }
+    ...(proposal.finishCriteria !== undefined
+      ? { finishCriteria: proposal.finishCriteria }
       : {}),
     ...(claims !== undefined && claims.length > 0 ? { claims } : {}),
     admission: PENDING_PROPOSAL_BACKFILL_ADMISSION,
-    raisedBy: input.proposal.proposedBy,
-  };
+    raisedBy: proposal.proposedBy,
+  });
   return {
     task,
     admission: PENDING_PROPOSAL_BACKFILL_ADMISSION,
-    raisedBy: input.proposal.proposedBy,
+    raisedBy: proposal.proposedBy,
   };
 };
