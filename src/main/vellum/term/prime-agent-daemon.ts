@@ -492,6 +492,9 @@ const scrubPrimeAgentDaemonEnv = (
     if (key.startsWith("PRIME_AGENT_INTERNAL_")) continue;
     scrubbed[key] = value;
   }
+  // Prime Agent's built-in reporter reads these exact variable names to find
+  // its socket. Third-party protocol, matched verbatim — not an integration
+  // Vellum Command owns.
   scrubbed.HERDR_ENV = "1";
   scrubbed.HERDR_SOCKET_PATH = registration.socketPath;
   scrubbed.HERDR_PANE_ID = registration.paneId;

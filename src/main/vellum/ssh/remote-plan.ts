@@ -201,7 +201,6 @@ emit "$present"
 export const compileLinuxUserlandObserve = (): Effect.Effect<RemoteCommand, SshInputError> =>
   makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandObserveSource(), "vellum-plan:linux-userland-observe"]);
 
-const HERDR_NAME = /^vellum-command-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
 
 export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
   typeof script === "string" &&
