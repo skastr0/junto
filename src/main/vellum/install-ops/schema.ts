@@ -10,9 +10,7 @@ export const INSTALL_OPS_SCHEMA_VERSION = 1 as const;
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
 
 export const INSTALL_OPS_SCHEMA_SQL = `
-  PRAGMA user_version = ${INSTALL_OPS_SCHEMA_VERSION};
-
-  CREATE TABLE IF NOT EXISTS backfill_markers (
+  CREATE TABLE backfill_markers (
     id TEXT PRIMARY KEY
       CHECK (length(id) BETWEEN 1 AND 128),
     status TEXT NOT NULL

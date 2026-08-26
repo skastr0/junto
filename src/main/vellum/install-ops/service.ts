@@ -19,24 +19,55 @@ export class InstallOpsError extends Schema.TaggedErrorClass<InstallOpsError>()(
 ) {}
 
 /**
+ * The install-local ledger could not be acquired safely on this boot. Backfill
+ * work must defer. Product state and the rest of the runtime remain available.
+ */
+export class InstallOpsDeferredError extends Schema.TaggedErrorClass<InstallOpsDeferredError>()(
+  "InstallOpsDeferredError",
+  {
+    path: Schema.String,
+    operation: Schema.String,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
+
+export type InstallOpsServiceError =
+  | InstallOpsError
+  | InstallOpsDeferredError;
+
+export type InstallOpsAvailability =
+  | { readonly status: "available" }
+  | {
+    readonly status: "unavailable";
+    readonly reason: InstallOpsDeferredError;
+  };
+
+/**
  * Implementation shape for {@link InstallOpsService}.
  * Named so the V4 swap is a one-line Tag→Service change, not a reshape.
  */
 export type InstallOpsServiceShape = {
   readonly path: string;
+  /** Explicit status for Doctor and other operational reporting surfaces. */
+  readonly availability: InstallOpsAvailability;
   readonly getBackfill: (
     id: string,
-  ) => Effect.Effect<BackfillMarker | undefined, InstallOpsError>;
-  readonly ensurePending: (id: string) => Effect.Effect<void, InstallOpsError>;
+  ) => Effect.Effect<BackfillMarker | undefined, InstallOpsServiceError>;
+  readonly ensurePending: (
+    id: string,
+  ) => Effect.Effect<void, InstallOpsServiceError>;
   /**
    * Reopen an existing completion witness after product-state drift is seen.
    * Keeps the prior ingest count; only status/completedAt are reset.
    */
-  readonly reopenPending: (id: string) => Effect.Effect<void, InstallOpsError>;
+  readonly reopenPending: (
+    id: string,
+  ) => Effect.Effect<void, InstallOpsServiceError>;
   readonly markComplete: (
     id: string,
     objectsIngested: number,
-  ) => Effect.Effect<void, InstallOpsError>;
+  ) => Effect.Effect<void, InstallOpsServiceError>;
 };
 
 /**
