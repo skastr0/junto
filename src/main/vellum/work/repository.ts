@@ -113,7 +113,14 @@ import {
   evaluateFinishCriteria,
   normalizeCompletionEvidence,
 } from "@shared/finish-criteria";
-import { carryClaimEvidence } from "@shared/claims";
+import {
+  carryClaimEvidence,
+  taskAdmissionState,
+} from "@shared/claims";
+import {
+  materializePendingProposal,
+  type UnadmittedMaterialization,
+} from "@shared/pending-proposal-backfill";
 import {
   StateEngine,
   type StateReader,
@@ -147,34 +154,6 @@ const strictDecode = { onExcessProperty: "error" } as const;
 
 const now = (): DisplayTimestampValue =>
   Schema.decodeUnknownSync(DisplayTimestamp)(new Date().toISOString());
-
-/**
- * DependsOn + verified content receipts. Media bytes are not in Work rows;
- * claimability requires a local verified receipt for every ContentRef.
- */
-const assertTaskClaimReady = (
-  reader: StateReader,
-  task: TaskValue,
-  canvasName: string,
-): void => {
-  // Canvas-wide index: cross-sink dependsOn may point at other task nodes.
-  // Pure policy already rejected cross-region at create/propose time.
-  if (!taskIsClaimReady(task, taskIndexById(loadCanvasTasks(reader, canvasName)))) {
-    throw authorityError(
-      "invalid-transition",
-      `task "${task.id}" is not claim-ready (unsatisfied dependsOn)`,
-    );
-  }
-  const content = taskContentReadiness(task, (ref) =>
-    manifestAvailability(reader, ref),
-  );
-  if (content.kind === "pending") {
-    throw authorityError(
-      "invalid-transition",
-      taskContentPendingMessage(task.id, content),
-    );
-  }
-};
 
 const timestamp = (
   value: string | undefined,
@@ -341,12 +320,38 @@ export type WorkRepositoryInput = {
   readonly receivedAt?: string;
 };
 
+/**
+ * Internal proof of the Task sink nodes visible in one authoring sink's
+ * same-region dependency scope under one exact intent basis. WorkService mints
+ * it from its server-owned CanvasReadResult. It is never decoded from client
+ * input or serialized on the Work/Station wire.
+ */
+export type TaskDependencyScopeWitness = {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly basis: IntentFactBasisValue;
+  readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
+};
+
 export type LocalWorkInput = WorkRepositoryInput & {
   readonly basis: IntentFactBasisValue;
+  readonly dependencyScope?: TaskDependencyScopeWitness;
 };
 
 export type CreateTaskInput = LocalWorkInput & {
   readonly task: TaskValue;
+};
+
+/**
+ * One legacy pending-proposal conversion. The repository reconstructs the
+ * expected materialization from the durable proposal inside its write
+ * transaction; callers cannot use this shape to author or rewrite a Task.
+ */
+export type PersistUnadmittedTaskInput = {
+  readonly sink: SinkRefValue;
+  readonly basis: IntentFactBasisValue;
+  readonly materialization: UnadmittedMaterialization;
+  readonly dependencyScope?: TaskDependencyScopeWitness;
 };
 
 export type CreateProposalInput = LocalWorkInput & {
@@ -501,6 +506,9 @@ export type ApplyPadPatchInput = LocalWorkInput & {
 };
 
 export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
+  /** Internal intent witness required when the claimed Task has dependencies. */
+  readonly basis?: IntentFactBasisValue;
+  readonly dependencyScope?: TaskDependencyScopeWitness;
   readonly taskId: string;
   readonly actor: ActorRef;
   readonly targetInstallationId: InstallationId;
@@ -526,6 +534,26 @@ export type LocalFactResult<A> = {
   readonly record: WorkFactValue;
   readonly snapshot: WorkSnapshotValue;
 };
+
+export type PersistUnadmittedTaskResult =
+  | {
+      readonly status: "created";
+      readonly result: LocalFactResult<TaskValue>;
+    }
+  | {
+      readonly status: "already-materialized";
+      readonly taskId: string;
+    }
+  | {
+      readonly status: "no-longer-pending";
+      readonly proposalId: string;
+      readonly proposalState: TaskProposalValue["state"];
+    }
+  | {
+      readonly status: "invalid";
+      readonly proposalId?: string;
+      readonly message: string;
+    };
 
 export type ProposalApprovalValue = {
   readonly proposal: TaskProposalValue;
@@ -553,8 +581,19 @@ export type PendingCommand = {
     | undefined;
 };
 
+export type AuthorizedTaskDependencyScope = {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly basis: IntentFactBasisValue;
+  readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
+};
+
 export type WorkCommandAuthorization =
-  | { readonly _tag: "admitted" }
+  | {
+      readonly _tag: "admitted";
+      /** Captured current/retained server scope; process-local, never wire data. */
+      readonly taskDependencyScope?: AuthorizedTaskDependencyScope;
+    }
   | {
       readonly _tag: "rejected";
       readonly reason: WorkRejectionReason;
@@ -857,6 +896,239 @@ const assertCurrentIntentBasis = (
       "causal-conflict",
       "projected intent changed before the local Work mutation committed",
     );
+  }
+};
+
+const assertCanonicalDependsOn = (
+  dependsOn: ReadonlyArray<string> | undefined,
+): void => {
+  for (const taskId of dependsOn ?? []) {
+    if (taskId !== taskId.trim()) {
+      throw authorityError(
+        "invalid-transition",
+        `dependsOn task id ${JSON.stringify(taskId)} is not canonical`,
+      );
+    }
+  }
+};
+
+const assertProposalDependenciesPreserved = (
+  proposal: TaskProposalValue,
+  task: TaskValue,
+): void => {
+  if (
+    canonicalJson(proposal.dependsOn ?? []) !==
+      canonicalJson(task.dependsOn ?? [])
+  ) {
+    throw authorityError(
+      "invalid-transition",
+      `proposal ${JSON.stringify(proposal.id)} approval must preserve its exact Task dependencies`,
+    );
+  }
+};
+
+const assertLocalDependencyWitness = (
+  sink: SinkRefValue,
+  basis: IntentFactBasisValue | undefined,
+  dependsOn: ReadonlyArray<string> | undefined,
+  witness: TaskDependencyScopeWitness | undefined,
+): ReadonlySet<string> => {
+  assertCanonicalDependsOn(dependsOn);
+  if (dependsOn === undefined || dependsOn.length === 0) return new Set();
+  if (
+    basis === undefined ||
+    witness === undefined ||
+    witness.canvasName !== sink.canvasName ||
+    witness.nodeId !== sink.nodeId ||
+    canonicalJson(witness.basis) !== canonicalJson(basis)
+  ) {
+    throw authorityError(
+      "authority-mismatch",
+      "Task dependencies require a server-derived scope witness for the exact intent basis and sink",
+    );
+  }
+  return new Set(witness.allowedTaskSinkNodeIds);
+};
+
+const assertAuthorizedDependencyWitness = (
+  sink: SinkRefValue,
+  dependsOn: ReadonlyArray<string> | undefined,
+  witness: AuthorizedTaskDependencyScope | undefined,
+  expectedBasis?: IntentFactBasisValue,
+): ReadonlySet<string> => {
+  assertCanonicalDependsOn(dependsOn);
+  if (dependsOn === undefined || dependsOn.length === 0) return new Set();
+  if (
+    witness === undefined ||
+    witness.canvasName !== sink.canvasName ||
+    witness.nodeId !== sink.nodeId ||
+    (expectedBasis !== undefined &&
+      canonicalJson(witness.basis) !== canonicalJson(expectedBasis))
+  ) {
+    throw authorityError(
+      "authority-mismatch",
+      "replicated Task dependencies require server-derived scope for the exact admitted intent basis and sink",
+    );
+  }
+  return new Set(witness.allowedTaskSinkNodeIds);
+};
+
+const scopedTaskIndex = (
+  reader: StateReader,
+  canvasName: string,
+  allowedTaskSinkNodeIds: ReadonlySet<string>,
+): Map<string, TaskValue> => {
+  const tasks: TaskValue[] = [];
+  for (const nodeId of [...allowedTaskSinkNodeIds].sort()) {
+    tasks.push(
+      ...loadLaneTasks(reader, { canvasName, nodeId }, "task"),
+    );
+  }
+  return taskIndexById(tasks);
+};
+
+const assertTaskDependenciesInLocalScope = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  basis: IntentFactBasisValue,
+  taskId: string,
+  dependsOn: ReadonlyArray<string> | undefined,
+  witness: TaskDependencyScopeWitness | undefined,
+): void => {
+  const allowed = assertLocalDependencyWitness(
+    sink,
+    basis,
+    dependsOn,
+    witness,
+  );
+  const error = validateTaskDependsOn({
+    taskId,
+    dependsOn,
+    byId: scopedTaskIndex(reader, sink.canvasName, allowed),
+  });
+  if (error !== undefined) {
+    throw authorityError("invalid-transition", error);
+  }
+};
+
+const assertDependenciesFromAuthorization = (
+  reader: StateReader,
+  sink: SinkRefValue,
+  taskId: string,
+  dependsOn: ReadonlyArray<string> | undefined,
+  witness: AuthorizedTaskDependencyScope | undefined,
+  expectedBasis?: IntentFactBasisValue,
+): void => {
+  const allowed = assertAuthorizedDependencyWitness(
+    sink,
+    dependsOn,
+    witness,
+    expectedBasis,
+  );
+  const error = validateTaskDependsOn({
+    taskId,
+    dependsOn,
+    byId: scopedTaskIndex(reader, sink.canvasName, allowed),
+  });
+  if (error !== undefined) {
+    throw authorityError("invalid-transition", error);
+  }
+};
+
+const assertTaskClaimReady = (
+  reader: StateReader,
+  task: TaskValue,
+  sink: SinkRefValue,
+  basis: IntentFactBasisValue | undefined,
+  witness: TaskDependencyScopeWitness | undefined,
+): void => {
+  const allowed = assertLocalDependencyWitness(
+    sink,
+    basis,
+    task.dependsOn,
+    witness,
+  );
+  if (
+    !taskIsClaimReady(
+      task,
+      scopedTaskIndex(reader, sink.canvasName, allowed),
+    )
+  ) {
+    throw authorityError(
+      "invalid-transition",
+      `task "${task.id}" is not claim-ready (unsatisfied dependsOn)`,
+    );
+  }
+  const content = taskContentReadiness(task, (ref) =>
+    manifestAvailability(reader, ref),
+  );
+  if (content.kind === "pending") {
+    throw authorityError(
+      "invalid-transition",
+      taskContentPendingMessage(task.id, content),
+    );
+  }
+};
+
+const assertTaskClaimReadyFromAuthorization = (
+  reader: StateReader,
+  task: TaskValue,
+  sink: SinkRefValue,
+  witness: AuthorizedTaskDependencyScope | undefined,
+  expectedBasis?: IntentFactBasisValue,
+): void => {
+  const allowed = assertAuthorizedDependencyWitness(
+    sink,
+    task.dependsOn,
+    witness,
+    expectedBasis,
+  );
+  if (
+    !taskIsClaimReady(
+      task,
+      scopedTaskIndex(reader, sink.canvasName, allowed),
+    )
+  ) {
+    throw authorityError(
+      "invalid-transition",
+      `task "${task.id}" is not claim-ready (unsatisfied dependsOn)`,
+    );
+  }
+  const content = taskContentReadiness(task, (ref) =>
+    manifestAvailability(reader, ref),
+  );
+  if (content.kind === "pending") {
+    throw authorityError(
+      "invalid-transition",
+      taskContentPendingMessage(task.id, content),
+    );
+  }
+};
+
+/** Recheck the admission and hold fields loaded from the durable Task row. */
+const assertTaskAdmissionReady = (
+  task: TaskValue,
+  sink: SinkRefValue,
+): void => {
+  const admission = taskAdmissionState(task, undefined, Date.now());
+  switch (admission) {
+    case "claimable":
+      return;
+    case "operator-owned":
+      throw authorityError(
+        "claim-contention",
+        `sink ${JSON.stringify(sink.nodeId)} is operator-owned; no actor may claim its Tasks`,
+      );
+    case "operator-gated":
+      throw authorityError(
+        "invalid-transition",
+        `task ${JSON.stringify(task.id)} awaits operator approval at sink ${JSON.stringify(sink.nodeId)}`,
+      );
+    case "held":
+      throw authorityError(
+        "invalid-transition",
+        `task ${JSON.stringify(task.id)} is not assignable before ${task.holdUntil ?? "its durable hold expires"}`,
+      );
   }
 };
 
@@ -1835,33 +2107,6 @@ const loadLaneTasks = (
         threads.get(row.item_id) ?? [],
       ),
     );
-};
-
-/**
- * All tasks on a canvas — used for dependsOn existence / claim-ready so
- * cross-sink prereqs (same region at the policy layer) resolve in SQLite.
- * Region geometry is enforced by pure work policy before commit.
- */
-const loadCanvasTasks = (
-  reader: StateReader,
-  canvasName: string,
-): ReadonlyArray<TaskValue> => {
-  const nodes = reader.all<StateRow & { readonly node_id: string }>(
-    `
-      SELECT DISTINCT node_id
-      FROM work_tasks
-      WHERE canvas_name = ?
-      ORDER BY node_id
-    `,
-    [canvasName],
-  );
-  const items: TaskValue[] = [];
-  for (const { node_id } of nodes) {
-    items.push(
-      ...loadLaneTasks(reader, { canvasName, nodeId: node_id }, "task"),
-    );
-  }
-  return items;
 };
 
 const loadProposals = (
@@ -4843,6 +5088,7 @@ const predecessorForAction = (
 const resultForCommand = (
   writer: StateWriter,
   command: WorkCommandValue,
+  taskDependencyScope?: AuthorizedTaskDependencyScope,
 ): {
   readonly body: WorkResult;
 } => {
@@ -4861,6 +5107,13 @@ const resultForCommand = (
           `proposal "${command.item.itemId}" already exists`,
         );
       }
+      assertDependenciesFromAuthorization(
+        writer,
+        command.item.sink,
+        action.proposal.id,
+        action.proposal.dependsOn,
+        taskDependencyScope,
+      );
       return {
         body: {
           operation: "proposal.create",
@@ -4900,6 +5153,14 @@ const resultForCommand = (
           "proposal approval must mint one new submitted unclaimed task",
         );
       }
+      assertProposalDependenciesPreserved(current!.proposal, action.task);
+      assertDependenciesFromAuthorization(
+        writer,
+        command.item.sink,
+        action.task.id,
+        action.task.dependsOn,
+        taskDependencyScope,
+      );
       return {
         body: {
           operation: "proposal.approve",
@@ -4953,6 +5214,13 @@ const resultForCommand = (
           `task "${command.item.itemId}" already exists`,
         );
       }
+      assertDependenciesFromAuthorization(
+        writer,
+        command.item.sink,
+        action.task.id,
+        action.task.dependsOn,
+        taskDependencyScope,
+      );
       return {
         body: { operation: "task.create", task: action.task },
       };
@@ -6118,11 +6386,13 @@ const validateIncomingFact = (
   local: InstallationId,
   sender: InstallationId,
   fact: WorkFactValue,
+  taskDependencyScope?: AuthorizedTaskDependencyScope,
 ): void => {
   const correlatedCommand =
     fact.basis.kind === "command"
       ? exactPendingCommandForFact(writer, local, sender, fact)
       : undefined;
+  const intentBasis = fact.basis.kind === "command" ? undefined : fact.basis;
   if (fact.basis.kind === "command") {
     if (correlatedCommand === undefined) {
       throw authorityError(
@@ -6152,6 +6422,14 @@ const validateIncomingFact = (
           `proposal "${fact.item.itemId}" already exists`,
         );
       }
+      assertDependenciesFromAuthorization(
+        writer,
+        fact.item.sink,
+        fact.body.proposal.id,
+        fact.body.proposal.dependsOn,
+        taskDependencyScope,
+        intentBasis,
+      );
       return;
     }
     case "proposal.approve": {
@@ -6181,6 +6459,15 @@ const validateIncomingFact = (
           "proposal approval fact must promote the exact pending proposal",
         );
       }
+      assertProposalDependenciesPreserved(current!.proposal, fact.body.task);
+      assertDependenciesFromAuthorization(
+        writer,
+        fact.item.sink,
+        fact.body.task.id,
+        fact.body.task.dependsOn,
+        taskDependencyScope,
+        intentBasis,
+      );
       return;
     }
     case "proposal.reject": {
@@ -6233,6 +6520,14 @@ const validateIncomingFact = (
           `task "${fact.item.itemId}" already exists`,
         );
       }
+      assertDependenciesFromAuthorization(
+        writer,
+        fact.item.sink,
+        fact.body.task.id,
+        fact.body.task.dependsOn,
+        taskDependencyScope,
+        intentBasis,
+      );
       return;
     }
     case "task.claim": {
@@ -6283,13 +6578,14 @@ const validateIncomingFact = (
             "first task adoption does not match its reserved source snapshot",
           );
         }
-        {
-          assertTaskClaimReady(
-            writer,
-            current.task,
-            fact.item.sink.canvasName,
-          );
-        }
+        assertTaskAdmissionReady(current.task, fact.item.sink);
+        assertTaskClaimReadyFromAuthorization(
+          writer,
+          current.task,
+          fact.item.sink,
+          taskDependencyScope,
+          intentBasis,
+        );
         return;
       }
       const current = loadTask(
@@ -6835,8 +7131,13 @@ const applyCommand = (
   local: InstallationId,
   command: WorkCommandValue,
   observedAt: DisplayTimestampValue,
+  taskDependencyScope?: AuthorizedTaskDependencyScope,
 ): ReadonlyArray<WorkRecordValue> => {
-  const result = resultForCommand(writer, command);
+  const result = resultForCommand(
+    writer,
+    command,
+    taskDependencyScope,
+  );
   const predecessor =
     command.body.operation === "task.claim"
       ? null
@@ -6912,6 +7213,9 @@ export interface WorkRepositoryShape {
     readonly createTask: (
       input: CreateTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
+    readonly persistUnadmittedTask: (
+      input: PersistUnadmittedTaskInput,
+    ) => Effect.Effect<PersistUnadmittedTaskResult, RepositoryFailure>;
     readonly createProposal: (
       input: CreateProposalInput,
     ) => Effect.Effect<
@@ -7189,8 +7493,9 @@ export const WorkRepositoryLive = Layer.effect(
       const receivedAt = timestamp(input.receivedAt);
       const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
       return transaction("work.task.create", input.sink, (writer) => {
-        const { installationId: localInstallationId } =
-          canonicalLocalWorkAuthority(writer);
+        const authority = canonicalLocalWorkAuthority(writer);
+        const localInstallationId = authority.installationId;
+        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
         if (task.state !== "submitted" || task.claimedBy !== undefined) {
           throw authorityError(
             "invalid-transition",
@@ -7218,18 +7523,14 @@ export const WorkRepositoryLive = Layer.effect(
             `task "${task.id}" already exists`,
           );
         }
-        if (task.dependsOn !== undefined && task.dependsOn.length > 0) {
-          const depError = validateTaskDependsOn({
-            taskId: task.id,
-            dependsOn: task.dependsOn,
-            byId: taskIndexById(
-              loadCanvasTasks(writer, input.sink.canvasName),
-            ),
-          });
-          if (depError !== undefined) {
-            throw authorityError("invalid-transition", depError);
-          }
-        }
+        assertTaskDependenciesInLocalScope(
+          writer,
+          input.sink,
+          input.basis,
+          task.id,
+          task.dependsOn,
+          input.dependencyScope,
+        );
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
@@ -7245,6 +7546,245 @@ export const WorkRepositoryLive = Layer.effect(
       });
     };
 
+    const persistUnadmittedTask = (
+      input: PersistUnadmittedTaskInput,
+    ): Effect.Effect<PersistUnadmittedTaskResult, RepositoryFailure> => {
+      const originAt = timestamp(undefined);
+      const receivedAt = originAt;
+      return transaction(
+        "work.task.persist-unadmitted",
+        input.sink,
+        (writer): PersistUnadmittedTaskResult => {
+          const rawMaterialization: unknown = input.materialization;
+          const rawRecord =
+            typeof rawMaterialization === "object" &&
+              rawMaterialization !== null &&
+              !Array.isArray(rawMaterialization)
+              ? rawMaterialization as Record<string, unknown>
+              : undefined;
+          const rawTask = rawRecord?.task;
+          const proposalId =
+            typeof rawTask === "object" &&
+              rawTask !== null &&
+              !Array.isArray(rawTask) &&
+              typeof (rawTask as Record<string, unknown>).id === "string"
+              ? (rawTask as Record<string, unknown>).id as string
+              : undefined;
+          const invalid = (message: string): PersistUnadmittedTaskResult => ({
+            status: "invalid",
+            ...(proposalId === undefined ? {} : { proposalId }),
+            message,
+          });
+
+          const authority = canonicalLocalWorkAuthority(writer);
+          if (authority.role !== "command-center") {
+            return invalid(
+              "legacy pending proposals may be materialized only at Command Center",
+            );
+          }
+          try {
+            assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
+          } catch (error) {
+            if (error instanceof WorkAuthorityError) {
+              return invalid(error.message);
+            }
+            throw error;
+          }
+          if (proposalId === undefined || proposalId.length === 0) {
+            return invalid("materialization has no valid proposal Task id");
+          }
+
+          const decodedTask = Schema.decodeUnknownResult(
+            Task,
+            strictDecode,
+          )(rawTask);
+          if (Result.isFailure(decodedTask)) {
+            return invalid("materialized Task violates the current Task schema");
+          }
+          const decodedRaisedBy = Schema.decodeUnknownResult(
+            ActorRefSchema,
+            strictDecode,
+          )(rawRecord?.raisedBy);
+          if (Result.isFailure(decodedRaisedBy)) {
+            return invalid("materialized raisedBy violates the ActorRef schema");
+          }
+          if (rawRecord?.admission !== "operator-gated") {
+            return invalid(
+              "legacy pending proposal materialization must remain operator-gated",
+            );
+          }
+          const task = decodedTask.success;
+          const materialization: UnadmittedMaterialization = {
+            task,
+            admission: "operator-gated",
+            raisedBy: decodedRaisedBy.success,
+          };
+
+          let current: ReturnType<typeof loadProposal>;
+          try {
+            current = loadProposal(writer, input.sink, proposalId);
+          } catch {
+            return invalid(
+              "durable pending proposal fields violate the current proposal schema",
+            );
+          }
+          if (current === undefined) {
+            return invalid(
+              `proposal ${JSON.stringify(proposalId)} does not exist at the exact sink`,
+            );
+          }
+          if (current.proposal.state !== "pending") {
+            return {
+              status: "no-longer-pending",
+              proposalId,
+              proposalState: current.proposal.state,
+            };
+          }
+          if (
+            current.row.entity_home !== authority.installationId ||
+            current.row.fact_event_home !== authority.installationId ||
+            current.row.fact_entity_home !== authority.installationId
+          ) {
+            return invalid(
+              `proposal ${JSON.stringify(proposalId)} is not homed in the local Command Center fact lane`,
+            );
+          }
+
+          const createRecord = writer.get<
+            StateRow & { readonly record_json: string }
+          >(
+            `
+              SELECT event.record_json
+              FROM work_task_proposals AS proposal
+              JOIN work_proposal_events AS event
+                ON event.event_home = proposal.fact_event_home
+                AND event.entity_home = proposal.fact_entity_home
+                AND event.seq = proposal.fact_seq
+              WHERE proposal.canvas_name = ?
+                AND proposal.node_id = ?
+                AND proposal.proposal_id = ?
+                AND proposal.entity_home = ?
+                AND proposal.state = 'pending'
+                AND proposal.approved_task_id IS NULL
+                AND event.event_home = ?
+                AND event.entity_home = ?
+                AND event.record_type = 'fact'
+                AND event.operation = 'proposal.create'
+            `,
+            [
+              input.sink.canvasName,
+              input.sink.nodeId,
+              proposalId,
+              authority.installationId,
+              authority.installationId,
+              authority.installationId,
+            ],
+          );
+          if (createRecord === undefined) {
+            return invalid(
+              `proposal ${JSON.stringify(proposalId)} has no exact local immutable create fact`,
+            );
+          }
+
+          let parsedRecord: unknown;
+          try {
+            parsedRecord = JSON.parse(createRecord.record_json) as unknown;
+          } catch {
+            return invalid("immutable proposal create fact is not valid JSON");
+          }
+          const decodedRecord = decodeWorkRecord(parsedRecord);
+          if (Result.isFailure(decodedRecord)) {
+            return invalid(
+              "immutable proposal create fact violates the admitted Work history schema",
+            );
+          }
+          const createFact = decodedRecord.success;
+          if (
+            createFact.recordType !== "fact" ||
+            createFact.body.operation !== "proposal.create" ||
+            createFact.item.kind !== "proposal" ||
+            createFact.item.itemId !== proposalId ||
+            createFact.item.sink.canvasName !== input.sink.canvasName ||
+            createFact.item.sink.nodeId !== input.sink.nodeId ||
+            createFact.id.route.eventHome !== authority.installationId ||
+            createFact.id.route.entityHome !== authority.installationId ||
+            createFact.id.seq !== current.row.fact_seq
+          ) {
+            return invalid(
+              "immutable proposal create fact does not match the exact pending projection row",
+            );
+          }
+          const { claims: loggedClaims, ...loggedProjection } =
+            createFact.body.proposal;
+          if (
+            canonicalJson(loggedProjection) !== canonicalJson(current.proposal)
+          ) {
+            return invalid(
+              "durable proposal authoring fields differ from its immutable create fact",
+            );
+          }
+
+          let expected: UnadmittedMaterialization;
+          try {
+            expected = materializePendingProposal({
+              proposal: {
+                ...current.proposal,
+                ...(loggedClaims === undefined ? {} : { claims: loggedClaims }),
+              },
+            });
+          } catch {
+            return invalid(
+              "durable proposal cannot produce a schema-valid unadmitted Task",
+            );
+          }
+          if (canonicalJson(materialization) !== canonicalJson(expected)) {
+            return invalid(
+              `proposal ${JSON.stringify(proposalId)} changed before its exact Task materialization`,
+            );
+          }
+          try {
+            assertTaskDependenciesInLocalScope(
+              writer,
+              input.sink,
+              input.basis,
+              task.id,
+              task.dependsOn,
+              input.dependencyScope,
+            );
+          } catch (error) {
+            if (error instanceof WorkAuthorityError) {
+              return invalid(error.message);
+            }
+            throw error;
+          }
+          if (
+            selectTaskIdentity(
+              writer,
+              "task",
+              input.sink,
+              task.id,
+            ) !== undefined
+          ) {
+            return { status: "already-materialized", taskId: task.id };
+          }
+
+          const result = commitLocalFact(writer, {
+            localInstallationId: authority.installationId,
+            sink: input.sink,
+            basis: input.basis,
+            item: item("task", task.id, input.sink),
+            operation: "task.create",
+            predecessor: null,
+            body: { operation: "task.create", task },
+            value: task,
+            originAt,
+            receivedAt,
+          });
+          return { status: "created", result };
+        },
+      );
+    };
+
     const createProposal = (
       input: CreateProposalInput,
     ): Effect.Effect<
@@ -7258,8 +7798,9 @@ export const WorkRepositoryLive = Layer.effect(
         strictDecode,
       )(input.proposal);
       return transaction("work.proposal.create", input.sink, (writer) => {
-        const { installationId: localInstallationId } =
-          canonicalLocalWorkAuthority(writer);
+        const authority = canonicalLocalWorkAuthority(writer);
+        const localInstallationId = authority.installationId;
+        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
         if (proposal.state !== "pending") {
           throw authorityError(
             "invalid-transition",
@@ -7276,6 +7817,14 @@ export const WorkRepositoryLive = Layer.effect(
             `proposal "${proposal.id}" already exists`,
           );
         }
+        assertTaskDependenciesInLocalScope(
+          writer,
+          input.sink,
+          input.basis,
+          proposal.id,
+          proposal.dependsOn,
+          input.dependencyScope,
+        );
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
@@ -7308,6 +7857,7 @@ export const WorkRepositoryLive = Layer.effect(
             "only the Command Center operator may approve proposals",
           );
         }
+        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
         const current = loadProposal(writer, input.sink, input.proposalId);
         if (current === undefined) {
           throw authorityError(
@@ -7335,6 +7885,15 @@ export const WorkRepositoryLive = Layer.effect(
             "proposal approval must mint one new submitted unclaimed task",
           );
         }
+        assertProposalDependenciesPreserved(current.proposal, task);
+        assertTaskDependenciesInLocalScope(
+          writer,
+          input.sink,
+          input.basis,
+          task.id,
+          task.dependsOn,
+          input.dependencyScope,
+        );
         const proposal: TaskProposalValue = {
           ...current.proposal,
           state: "approved",
@@ -7600,8 +8159,9 @@ export const WorkRepositoryLive = Layer.effect(
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
       return transaction("work.task.claim-local", input.sink, (writer) => {
-        const { installationId: localInstallationId } =
-          canonicalLocalWorkAuthority(writer);
+        const authority = canonicalLocalWorkAuthority(writer);
+        const localInstallationId = authority.installationId;
+        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
         const current = loadTask(
           writer,
           "task",
@@ -7629,9 +8189,14 @@ export const WorkRepositoryLive = Layer.effect(
             `task "${input.taskId}" is not available to start`,
           );
         }
-        {
-          assertTaskClaimReady(writer, current.task, input.sink.canvasName);
-        }
+        assertTaskAdmissionReady(current.task, input.sink);
+        assertTaskClaimReady(
+          writer,
+          current.task,
+          input.sink,
+          input.basis,
+          input.dependencyScope,
+        );
         assertActorAvailable(writer, input.actor.seatId);
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
           ...current.task,
@@ -8738,8 +9303,22 @@ export const WorkRepositoryLive = Layer.effect(
         "work.task.reserve-remote-claim",
         input.sink,
         (writer) => {
-          const { installationId: localInstallationId } =
-            canonicalLocalWorkAuthority(writer);
+          const authority = canonicalLocalWorkAuthority(writer);
+          const localInstallationId = authority.installationId;
+          if (authority.role !== "command-center") {
+            throw authorityError(
+              "authority-mismatch",
+              "only Command Center may reserve a claim for a Remote actor",
+            );
+          }
+          if (input.basis !== undefined) {
+            assertCurrentIntentBasis(
+              writer,
+              authority,
+              input.sink,
+              input.basis,
+            );
+          }
           if (
             input.targetInstallationId === localInstallationId
           ) {
@@ -8770,9 +9349,14 @@ export const WorkRepositoryLive = Layer.effect(
               "only a locally owned submitted task may be claimed remotely",
             );
           }
-          {
-            assertTaskClaimReady(writer, current.task, input.sink.canvasName);
-          }
+          assertTaskAdmissionReady(current.task, input.sink);
+          assertTaskClaimReady(
+            writer,
+            current.task,
+            input.sink,
+            input.basis,
+            input.dependencyScope,
+          );
           assertActorAvailable(writer, input.actor.seatId);
           const action = Schema.decodeUnknownSync(
             WorkAction,
@@ -8811,8 +9395,8 @@ export const WorkRepositoryLive = Layer.effect(
         `work.${input.action.operation}.enqueue`,
         input.sink,
         (writer) => {
-          const { installationId: localInstallationId } =
-            canonicalLocalWorkAuthority(writer);
+          const authority = canonicalLocalWorkAuthority(writer);
+          const localInstallationId = authority.installationId;
           if (
             input.targetInstallationId === localInstallationId
           ) {
@@ -8879,8 +9463,8 @@ export const WorkRepositoryLive = Layer.effect(
         "work.proposal.approve.enqueue",
         input.sink,
         (writer) => {
-          const { installationId: localInstallationId } =
-            canonicalLocalWorkAuthority(writer);
+          const authority = canonicalLocalWorkAuthority(writer);
+          const localInstallationId = authority.installationId;
           if (input.targetInstallationId === localInstallationId) {
             throw authorityError(
               "target-mismatch",
@@ -9223,6 +9807,7 @@ export const WorkRepositoryLive = Layer.effect(
                   localInstallationId,
                   input.senderInstallationId,
                   record,
+                  admission.taskDependencyScope,
                 );
               } else if (record.recordType === "disposition") {
                 validateDisposition(writer, record);
@@ -9250,6 +9835,7 @@ export const WorkRepositoryLive = Layer.effect(
                       localInstallationId,
                       record,
                       observedAt,
+                      admission.taskDependencyScope,
                     );
                     emitted.push(...outcome);
                     accepted += 1;
@@ -9399,6 +9985,7 @@ export const WorkRepositoryLive = Layer.effect(
       hasAcceptedDelivery,
       acceptedDeliveryAt,
       createTask,
+      persistUnadmittedTask,
       createProposal,
       approveProposal,
       rejectProposal,
