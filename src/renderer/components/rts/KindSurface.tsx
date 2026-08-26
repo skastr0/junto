@@ -1,9 +1,12 @@
 /**
  * Middle RTS third — kind surface.
  *
- * Identity + live glance + kind action keys live here. Dense node/edge field
+ * Identity + live glance + kind action keys live here. Dense node field
  * editors open in a FocusSurface form (not a sidebar). Reuses pristine
  * InspectorFields editors as-is; this file is glue only.
+ *
+ * Relations get no form at all: an edge carries one word, so the pair strip
+ * reads it, speaks it, and offers the pair's other verb where there is one.
  *
  * Regions: ops on the command card. Kind strip is field keys only —
  * briefing, page defaults, folder paths. No plate, no placement.
