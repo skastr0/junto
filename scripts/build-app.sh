@@ -113,6 +113,11 @@ if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
 fi
 
 cd "$REPO_ROOT"
+if [[ "$COMPILE_ONLY" -eq 0 ]]; then
+  printf 'vellum-command: package source provenance preflight …\n'
+  "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
+    preflight --target "$TARGET"
+fi
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ "$TARGET" == "linux" ]]; then

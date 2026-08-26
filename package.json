@@ -88,6 +88,7 @@
     "cli:build": "bun scripts/build-standalone-cli.ts vellum-command",
     "cli:build:dev": "bun scripts/build-standalone-cli.ts vellum-command-dev",
     "remote:build": "bun scripts/build-vellum-remote.ts",
+    "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
   },
   "dependencies": {
@@ -164,6 +165,7 @@
     ],
     "files": [
       "out/**",
+      "!out/remote{,/**/*}",
       "station/**",
       "package.json",
       "!node_modules/@parcel/watcher{,/**/*}",
@@ -216,6 +218,7 @@
       "icon": "assets/brand/vellum-command-icon.png",
       "files": [
         "out/**",
+        "!out/remote{,/**/*}",
         "station/**",
         "package.json",
         "!node_modules/node-pty/prebuilds/darwin-*/**",

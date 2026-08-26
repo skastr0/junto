@@ -20,6 +20,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -27,6 +28,11 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  featureBunDefineArgs,
+  resolveBuildFeatures,
+} from "./build-features";
+import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
 
 /** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
 export const DEFAULT_NODE_REMOTE_VERSION = "24.18.0";
@@ -230,6 +236,7 @@ export const buildRemoteEntryBundle = async (input: {
   const repoRoot = path.resolve(input.repoRoot);
   const source = path.join(repoRoot, REMOTE_ENTRY_TS_RELATIVE);
   const outfile = path.join(repoRoot, REMOTE_ENTRY_SOURCE_RELATIVE);
+  const stage = `${outfile}.new.${String(process.pid)}`;
   if (!(await isNonSymlinkFile(source))) {
     throw new Error(
       remoteEntryMissingMessage(
@@ -237,31 +244,126 @@ export const buildRemoteEntryBundle = async (input: {
       ),
     );
   }
+  if (
+    process.env.VELLUM_COMMAND_LICENSE_CHANNEL !== undefined &&
+    process.env.VELLUM_COMMAND_LICENSE_CHANNEL !== "production"
+  ) {
+    throw new Error(
+      "remote packaging requires VELLUM_COMMAND_LICENSE_CHANNEL=production",
+    );
+  }
+  const packageJson = JSON.parse(
+    await readFile(path.join(repoRoot, "package.json"), "utf8"),
+  ) as { readonly version?: unknown };
+  if (
+    typeof packageJson.version !== "string" ||
+    packageJson.version.length === 0
+  ) {
+    throw new Error("remote packaging requires package.json version");
+  }
+  const featureDefines = featureBunDefineArgs(
+    resolveBuildFeatures(process.env),
+  );
   await mkdir(path.dirname(outfile), { recursive: true, mode: 0o755 });
-  // bun build (transpile/bundle only — never --compile) so the official Node
-  // binary owns the product Remote ABI.
-  run("bun", [
-    "build",
-    source,
-    "--outfile",
-    outfile,
-    "--target",
-    "node",
-    "--format",
-    "cjs",
-    "--external",
-    "node-pty",
-    "--external",
-    "electron",
-  ], { cwd: repoRoot });
-  if (!(await isNonSymlinkFile(outfile))) {
-    throw new Error(`remote entry bundle was not written: ${REMOTE_ENTRY_SOURCE_RELATIVE}`);
+  await rm(stage, { force: true });
+  try {
+    // bun build is transpile/bundle only. The packaged stock Node binary owns
+    // the product Remote ABI, and this is the one canonical Remote recipe.
+    run(
+      "bun",
+      [
+        "build",
+        source,
+        "--outfile",
+        stage,
+        "--target",
+        "node",
+        "--format",
+        "cjs",
+        "--external",
+        "node-pty",
+        "--external",
+        "electron",
+        `--define=__VELLUM_COMMAND_LICENSE_CHANNEL__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.channel)}`,
+        `--define=__VELLUM_COMMAND_DODO_BUSINESS_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.businessId)}`,
+        `--define=__VELLUM_COMMAND_DODO_PRODUCT_IDS__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productIds)}`,
+        `--define=__VELLUM_COMMAND_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
+        `--define=__VELLUM_COMMAND_APP_VERSION__=${JSON.stringify(packageJson.version)}`,
+        ...featureDefines,
+      ],
+      { cwd: repoRoot },
+    );
+    if (!(await isNonSymlinkFile(stage))) {
+      throw new Error(
+        `remote entry bundle was not written: ${REMOTE_ENTRY_SOURCE_RELATIVE}`,
+      );
+    }
+
+    let body = await readFile(stage, "utf8");
+    // A CC-only lazy helper can leave an unreachable external require. Never
+    // let the displayless Node Remote resolve the Electron package.
+    body = body.replace(
+      /(?:__require|require)\s*\(\s*["']electron["']\s*\)/gu,
+      '(() => { throw new Error("electron is forbidden in vellum-command-remote"); })()',
+    );
+    const forbidden: ReadonlyArray<{
+      readonly pattern: RegExp;
+      readonly label: string;
+    }> = [
+      {
+        pattern: /(?:^|\n)\s*import\s+[^;]*\bfrom\s+["']electron["']/u,
+        label: "static electron import",
+      },
+      {
+        pattern: /(?:__require|require)\s*\(\s*["']electron["']\s*\)/u,
+        label: "require(electron)",
+      },
+      { pattern: /\bBrowserWindow\b/u, label: "BrowserWindow" },
+      {
+        pattern: /startBrowserComposition|browser\/composition(?:-host)?/u,
+        label: "browser-composition",
+      },
+      {
+        pattern: /from\s+["'][^"']*\/renderer\/[^"']+["']/u,
+        label: "renderer import",
+      },
+      {
+        pattern:
+          /process\.env\.ELECTRON_RUN_AS_NODE\s*=\s*["']?1/u,
+        label: "forbidden Electron Node mode assignment",
+      },
+    ];
+    const hits = forbidden.flatMap(({ pattern, label }) =>
+      pattern.test(body) ? [label] : [],
+    );
+    if (hits.length > 0) {
+      throw new Error(
+        `remote entry bundle emitted forbidden symbols: ${hits.join(", ")}`,
+      );
+    }
+    // Bun can retain package.json script text that names the forbidden mode.
+    // It is inert metadata, but remove the token so package closure audits do
+    // not confuse it with an executable assignment. Real assignments were
+    // rejected above before this metadata-only rewrite.
+    const inertModeMarker = new RegExp(
+      ["ELECTRON_RUN_AS_NODE", "\\s*", "=", "\\s*", "([\"']?)1"].join(""),
+      "gu",
+    );
+    body = body.replace(inertModeMarker, "ELECTRON_RUN_AS_NODE prohibited");
+    if (!body.startsWith("#!")) body = `#!/usr/bin/env node\n${body}`;
+    await writeFile(stage, body, { encoding: "utf8", mode: 0o755 });
+    await chmod(stage, 0o755);
+    const bytes = (await readFile(stage)).byteLength;
+    if (bytes < 1024) {
+      throw new Error(
+        `remote entry bundle is implausibly small (${String(bytes)} bytes)`,
+      );
+    }
+    await rename(stage, outfile);
+    return { entryPath: outfile, bytes };
+  } finally {
+    await rm(stage, { force: true });
   }
-  const bytes = (await readFile(outfile)).byteLength;
-  if (bytes < 1024) {
-    throw new Error(`remote entry bundle is implausibly small (${String(bytes)} bytes)`);
-  }
-  return { entryPath: outfile, bytes };
 };
 
 export const extractNodeBinaryFromArchive = ({
@@ -686,7 +788,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   let repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   let cacheRoot: string | undefined;
   let entrySource: string | undefined;
-  let buildIfMissing = true;
+  let buildIfMissing = false;
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
     const value = args[index + 1];

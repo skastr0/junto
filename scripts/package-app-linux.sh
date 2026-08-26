@@ -39,6 +39,11 @@ if [[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]; then
   exit 1
 fi
 
+# This exact owned path is reset and rebuilt on every package invocation. The
+# command also binds both runtime payload hashes to one clean source commit.
+printf 'vellum-command: rebuilding Remote and binding package provenance …\n'
+bun "$SCRIPT_DIR/package-runtime-provenance.ts" prepare --target linux
+
 # Rebuild only the one native production dependency. install-app-deps and
 # electron-builder's default npmRebuild also traverse unrelated development
 # addons, so the package command disables that broader second pass explicitly.
@@ -76,11 +81,22 @@ bunx --no-install electron-builder --linux dir --x64 \
 
 # Displayless product Remote: official Node linux-x64 + node-pty for that ABI +
 # resources/bin/vellum-command-remote. Never ELECTRON_RUN_AS_NODE; never Bun-compile remote.
-# Fails closed when out/remote/vellum-command-remote.js is missing.
+# The staged entry must be the just-built default. Missing output is fatal.
 printf 'vellum-command: staging Linux remote runtime (bundled Node + node-pty Node ABI) …\n'
 bun "$SCRIPT_DIR/build-linux-remote-runtime.ts" \
   --runtime "$SCRIPT_DIR/../release/linux-unpacked" \
-  --repo "$SCRIPT_DIR/.."
+  --repo "$SCRIPT_DIR/.." \
+  --no-build-entry
+REMOTE_PROVENANCE_SOURCE="$SCRIPT_DIR/../out/remote/package-runtime-provenance.json"
+REMOTE_PROVENANCE_DESTINATION="$SCRIPT_DIR/../release/linux-unpacked/resources/app-remote/package-runtime-provenance.json"
+if [[ ! -f "$REMOTE_PROVENANCE_SOURCE" || -L "$REMOTE_PROVENANCE_SOURCE" ]]; then
+  printf 'vellum-command: error: fresh Remote provenance is missing\n' >&2
+  exit 1
+fi
+install -m 0644 -- "$REMOTE_PROVENANCE_SOURCE" "$REMOTE_PROVENANCE_DESTINATION"
+bun "$SCRIPT_DIR/package-runtime-provenance.ts" verify-package \
+  --target linux \
+  --runtime "$SCRIPT_DIR/../release/linux-unpacked"
 
 finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
 runtime="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
