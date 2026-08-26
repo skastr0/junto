@@ -107,7 +107,7 @@ describe("Box Fleet service ownership", () => {
       sshEndpoint: "user@203.0.113.8",
       sshIdentityFile: "/Users/operator/.ssh/ascii_box_ed25519",
       sshHostKeyPolicy: "accept-new",
-      capabilities: ["terminal", "browser", "herdr", "hermes"],
+      capabilities: ["terminal", "browser", "hermes"],
     });
     expect(await Effect.runPromise(repository.list)).toHaveLength(1);
     expect(create).toHaveBeenCalledWith({

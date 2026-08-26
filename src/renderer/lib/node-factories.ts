@@ -1,7 +1,6 @@
 import { ulid } from "ulid";
 import type {
   EtherBrowser,
-  EtherHerdr,
   EtherTerminalLaunch,
   FileNode,
   GroupNode,
@@ -339,37 +338,6 @@ export const makePadNode = (x: number, y: number): TextNode => ({
   },
 });
 
-// A herdr work-surface node — binds a live herdr pane (local or remote).
-// Not a hermes agent: no EntitySource binding, no ACP, no pulse target.
-export const makeHerdrNode = (
-  x: number,
-  y: number,
-  herdr: EtherHerdr,
-  label?: string,
-): TextNode => {
-  const title =
-    label?.trim() ||
-    herdr.label?.trim() ||
-    [herdr.host, herdr.paneId].filter(Boolean).join(" - ") ||
-    "herdr";
-  return {
-    id: `herdr-${ulid()}`,
-    type: "text",
-    text: title,
-    x: Math.round(x),
-    y: Math.round(y),
-    width: 260,
-    height: 110,
-    ether: {
-      entity: { kind: "herdr" },
-      host: herdr.host,
-      herdr: {
-        ...herdr,
-        onDelete: herdr.onDelete ?? "detach",
-      },
-    },
-  };
-};
 
 /** Vellum Command-owned terminal node. Session starts on create / open (no card Start). */
 export const makeTerminalNode = (

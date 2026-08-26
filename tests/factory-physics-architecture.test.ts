@@ -52,7 +52,7 @@ describe("factory physics architecture", () => {
     // actor/sink kinds. Work-item `.kind` and open-vocab furniture (e.g. board)
     // are outside this probe; ports still go through role/physics.
     const kindComparison =
-      /\.entity\?\.kind\s*(?:===|!==)\s*["'`](?:agent|terminal|herdr|page|task|requests|artifacts|watcher|timer)["'`]/u;
+      /\.entity\?\.kind\s*(?:===|!==)\s*["'`](?:agent|terminal|page|task|requests|artifacts|watcher|timer)["'`]/u;
     const violations = planes.flatMap((path) => {
       const source = readFileSync(path, "utf8");
       return kindComparison.test(source) ? [display(path)] : [];
@@ -84,7 +84,7 @@ describe("factory physics architecture", () => {
       // Reserved as a KIND, not as a word: a fixture node may still be labelled
       // "worker". What must not appear is worker-as-a-node-kind.
       [
-        /kind:\s*["'`]worker["'`]|\bWorkerKind\b|["'`]worker["'`]\s*(?:\||,)\s*["'`](?:agent|terminal|herdr)["'`]/u,
+        /kind:\s*["'`]worker["'`]|\bWorkerKind\b|["'`]worker["'`]\s*(?:\||,)\s*["'`](?:agent|terminal)["'`]/u,
         "`worker` is reserved for the future native agent UI",
       ],
     ];
@@ -121,16 +121,4 @@ describe("factory physics architecture", () => {
     expect(claimPrompt).toContain('"task"');
   });
 
-  it("permits geography to DISPLAY agent state — display is not a factory power", () => {
-    // Operator ruling, 2026-07-26: a herdr pane keeps its live badge after
-    // becoming geography. This test exists so the permission is deliberate
-    // rather than a hole someone later "fixes" by banning state reads.
-    // Geography is denied a seat, ports, an inbox, and a work claim by the
-    // type system; reading state for the renderer is none of those.
-    const renderer = filesUnder("src", "renderer");
-    const readsState = renderer.some((path) =>
-      /herdr/u.test(readFileSync(path, "utf8")),
-    );
-    expect(readsState).toBe(true);
-  });
 });

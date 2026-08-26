@@ -89,7 +89,6 @@ describe("verb table", () => {
   it("wires geography and unknown kinds to nothing", () => {
     expect(verbsForPair("group", "agent")).toEqual([]);
     expect(verbsForPair("agent", undefined)).toEqual([]);
-    expect(defaultVerbForPair("agent", "herdr")).toBeUndefined();
   });
 
   it("snapshots the whole pair matrix", () => {

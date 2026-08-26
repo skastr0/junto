@@ -43,7 +43,6 @@
     "OverlayHeader": "src/renderer/components/ui/OverlayHeader.tsx",
     "PauseScopeKey": "src/renderer/components/rts/RtsControls.tsx",
     "RegionBriefingEditor": "src/renderer/components/InspectorFields.tsx",
-    "RegionHerdrDefaultsControl": "src/renderer/components/InspectorFields.tsx",
     "RegionHoldControl": "src/renderer/components/InspectorFields.tsx",
     "RegionPageDefaultsControl": "src/renderer/components/InspectorFields.tsx",
     "RegionPauseDot": "src/renderer/components/rts/RtsControls.tsx",

@@ -47,7 +47,6 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
-  HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -60,9 +59,6 @@ const FleetOverlay = __VELLUM_COMMAND_FLEET_UI_ENABLED__
       return { default: mod.FleetOverlay };
     })
   : () => null;
-import { HerdrWizard } from "./components/herdr/HerdrWizard";
-import { HerdrTerminalModal } from "./components/herdr/HerdrTerminalModal";
-import { HerdrToast } from "./components/herdr/HerdrToast";
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
@@ -552,14 +548,6 @@ export function App() {
           >
             <FleetOverlay />
           </Suspense>
-        ) : null}
-        {HERDR_ENABLED ? (
-          <>
-            <HerdrWizard />
-            {/* HerdrTerminalModal is fallback only — WorkFocusShell owns herdr when registered. */}
-            <HerdrTerminalModal />
-            <HerdrToast />
-          </>
         ) : null}
         <DemoLayer />
         </div>

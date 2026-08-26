@@ -1,7 +1,7 @@
 // Viewport busy gate — freeze *non-chrome* canvas work while the operator pans/zooms.
 //
 // Does NOT hide UI chrome (MiniMap stays mounted and live). It only defers
-// setNodes rebuilds, herdr meta IPC, rollup publishes, and CSS transitions so
+// setNodes rebuilds, rollup publishes, and CSS transitions so
 // the RF transform path stays free of competing React work.
 //
 // Mark on move start / continuous move; release after a short hold past

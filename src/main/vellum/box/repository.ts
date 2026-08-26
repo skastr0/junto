@@ -127,7 +127,7 @@ const hostForMachine = (
     sshEndpoint: `user@${machine.ip}`,
     sshIdentityFile: identityFile,
     sshHostKeyPolicy: "accept-new",
-    capabilities: ["terminal", "browser", "herdr", "hermes"],
+    capabilities: ["terminal", "browser", "hermes"],
     appearance: { glyph: "compute-tower" },
   };
 };

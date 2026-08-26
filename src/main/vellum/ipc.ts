@@ -24,12 +24,10 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-import { registerHerdrIpc } from "./herdr/ipc";
 import { KernelService } from "./kernel/service";
 import { RegionRollupService } from "./region-rollup";
 import { registerHostsIpc } from "./hosts/ipc";
@@ -63,7 +61,6 @@ import { extractPromptBoxText } from "./term/observer/interaction";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
-import { HerdrPlane } from "./herdr/plane";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
 import {
@@ -293,13 +290,6 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
 
 export const registerVellumIpc = (): void => {
   const privilegedIpc = licensedRendererIpc(ipcMain);
-  if (HERDR_ENABLED) {
-    registerHerdrIpc(privilegedIpc, () =>
-      BrowserWindow.getAllWindows()
-        .map((window) => window.webContents)
-        .filter(isTrustedMainWebContents),
-    );
-  }
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
     ensureHostAvailable: ensureBoxHostAvailable,
@@ -1256,7 +1246,6 @@ export const registerVellumIpc = (): void => {
       const snapshots = yield* SnapshotsService;
       const usage = yield* UsageService;
       const kernel = yield* KernelService;
-      const herdr = yield* HerdrPlane;
       const pause = yield* PausePlane;
       const settingsForSeed = yield* SettingsService;
       const fleetPropagation = yield* StationFleetPropagation;
@@ -1795,7 +1784,7 @@ export const registerVellumIpc = (): void => {
       canvases.start();
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
-      // codexbar can take ~15-20s so it never blocks window open.
+      // provider fetches can take tens of seconds so it never blocks window open.
       if (USAGE_ENABLED) usage.start();
       // V4-KERNEL + V4-PROGRAM: host-owned ManagedRuntime entry; factory
       // program is runFork (Effect control plane, not async IIFE).

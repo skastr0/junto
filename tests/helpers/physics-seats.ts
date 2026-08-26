@@ -1,6 +1,6 @@
 /**
  * Board / phase-graph fixtures in **physics vocabulary**.
- * Kind strings are registry plumbing only — never name seats as agent/herdr/…
+ * Kind strings are registry plumbing only — never name seats as agent/terminal/…
  * in product or board-rule tests. ACP-specific tests may use kind directly.
  */
 import type { CanvasNode, TextNode } from "../../src/shared/canvas";

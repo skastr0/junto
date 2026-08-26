@@ -109,10 +109,10 @@ import {
 } from "@shared/station-identity";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
-  extractHerdrClipboardImage,
-  fileToHerdrClipboardImage,
-  type HerdrClipboardImage,
-} from "../../lib/herdr-clipboard-image";
+  extractClipboardImage,
+  fileToClipboardImage,
+  type ClipboardImage,
+} from "../../lib/clipboard-image";
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
@@ -196,7 +196,7 @@ const mediaTypeFromExtension = (extension: string): string =>
   EXT_TO_MEDIA_TYPE[extension.toLowerCase()] ?? `image/${extension.toLowerCase()}`;
 
 const draftFromClipboardImage = (
-  image: HerdrClipboardImage,
+  image: ClipboardImage,
   label: string,
 ): TaskMediaDraft => {
   const mediaType = mediaTypeFromExtension(image.extension);
@@ -1341,7 +1341,7 @@ export function TaskCreateDialog({
 
   const ingestClipboardOrFiles = async (data: DataTransfer | null | undefined) => {
     if (!data) return false;
-    const image = await extractHerdrClipboardImage(data);
+    const image = await extractClipboardImage(data);
     if (image === null) return false;
     if ("error" in image) {
       setMediaError(image.error);
@@ -1354,7 +1354,7 @@ export function TaskCreateDialog({
   const ingestFileList = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
-      const image = await fileToHerdrClipboardImage(file);
+      const image = await fileToClipboardImage(file);
       if ("error" in image) {
         setMediaError(image.error);
         continue;
@@ -2571,8 +2571,8 @@ export function TaskBoard({
   }, [node.id, shape, stationName, tasksByLane]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
-  // Proposals are display-mapped WorkTasks (not in items) — resolve both lists so
-  // clicking a proposal opens the same detail panel as a normal task.
+  // Approval candidates are display-mapped WorkTasks (not in items) — resolve
+  // both lists so clicking one opens the same detail panel as a normal task.
   const selectedTask = selectedTaskId
     ? (items.find((task) => task.id === selectedTaskId) ??
       proposalTasks.find((task) => task.id === selectedTaskId))
@@ -2709,7 +2709,7 @@ export function TaskBoard({
         setError(result.message);
         return;
       }
-      setAnnouncement(`Added ${title.trim()} for approval.`);
+      setAnnouncement(`Proposed ${title.trim()} for planning.`);
       setCreating(null);
       setCreationPins([]);
       setSelectedTaskId(result.data.id);
@@ -3083,7 +3083,7 @@ export function TaskBoard({
         return;
       }
       setSelectedTaskId(null);
-      setAnnouncement(`Rejected proposal ${taskTitle(task)}.`);
+      setAnnouncement(`Removed ${taskTitle(task)} from awaiting approval.`);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);

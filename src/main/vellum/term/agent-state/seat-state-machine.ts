@@ -2,7 +2,7 @@
  * Per-binding seat state machine.
  * Feeds ObserverGridSnapshot → debounced AgentSeatStateEvent stream.
  *
- * Debounce (herdr design values, reimplemented):
+ * Debounce:
  * - base tick 300ms (caller cadence — we accept feeds as they arrive)
  * - only low-confidence Working→Idle is held
  * - 3 consecutive confirmations OR a real 700ms cap timer
@@ -23,7 +23,7 @@ import {
 } from "../../../../shared/managed-terminal-templates";
 import type { SeatEvaluation } from "./types";
 
-/** Debounce constants — ported from herdr agent_detection design (values only). */
+/** Debounce constants for agent-state detection. */
 export const SEAT_DEBOUNCE = {
   /** Confirmations required for low-confidence working→idle. */
   pendingIdleConfirmations: 3,

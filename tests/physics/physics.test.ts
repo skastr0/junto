@@ -300,9 +300,9 @@ describe("physics admitPure", () => {
     expect(Result.isSuccess(result)).toBe(true);
   });
 
-  it("denies browser.automate to geography — a herdr pane is not an actor", () => {
+  it("denies browser.automate to geography — a raw shell is not an actor", () => {
     const doc: CanvasDoc = {
-      nodes: [textNode("seat", "herdr"), pageNode("p1")],
+      nodes: [textNode("seat", "terminal"), pageNode("p1")],
       edges: [{ id: "e1", fromNode: "seat", toNode: "p1" }],
     };
     const view = canvasDocToCapabilityView(doc);

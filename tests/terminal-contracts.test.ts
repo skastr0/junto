@@ -89,27 +89,6 @@ describe("resolveTerminalBinding", () => {
     expect(resolveNodeHostId(node)).toBe("remote-a");
   });
 
-  it("resolves legacy herdr without collapsing into terminal", () => {
-    const node = {
-      id: "n2",
-      type: "text" as const,
-      text: "h",
-      x: 0,
-      y: 0,
-      width: 1,
-      height: 1,
-      ether: {
-        entity: { kind: "herdr" },
-        herdr: { host: "local", paneId: "p1", terminalId: "t1" },
-      },
-    } satisfies CanvasNode;
-    const b = resolveTerminalBinding(node);
-    expect(b?.kind).toBe("herdr");
-    if (b?.kind === "herdr") {
-      expect(b.herdr.paneId).toBe("p1");
-      expect(b.onDelete).toBe("detach");
-    }
-  });
 
   it("does not invent a binding without bindingId", () => {
     const node = {

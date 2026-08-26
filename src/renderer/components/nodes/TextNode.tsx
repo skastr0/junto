@@ -29,7 +29,6 @@ import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { agentSeat$ } from "../../lib/agent-seat-state";
-import { HERDR_ENABLED } from "@shared/features";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import {
@@ -39,11 +38,9 @@ import {
 import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
-import { HerdrCard } from "../herdr/HerdrCard";
-import { HarnessMark } from "../herdr/HarnessMark";
+import { HarnessMark } from "../HarnessMark";
 import { TerminalCard } from "../terminal/TerminalCard";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
-import { HerdrToolbarActions } from "../herdr/HerdrToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { IconButton } from "../ui";
@@ -375,8 +372,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   const text = node.type === "text" ? node.text : "";
   const isLabel = isLabelNode(node);
   const isFreeNote = !node.ether?.entity;
-  // When herdr product surface is off, historical herdr nodes are inert furniture.
-  const isHerdr = HERDR_ENABLED && node.ether?.entity?.kind === "herdr";
   const isTerminal = node.ether?.entity?.kind === "terminal";
   const isAgent = node.ether?.entity?.kind === "agent";
   const managedTerminal =
@@ -417,7 +412,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     else if (isFreeNote) openNoteSurface(node);
     // Seat/shell/sink cards: rename first line (not full note textarea).
     else if (
-      isHerdr ||
       isTerminal ||
       isAgent ||
       managedTerminal ||
@@ -430,7 +424,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     isEditTarget,
     node.id,
     isFreeNote,
-    isHerdr,
     isTerminal,
     isAgent,
     managedTerminal,
@@ -487,9 +480,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
       toolbarExtras={
-        isHerdr ? (
-          <HerdrToolbarActions node={node} />
-        ) : managedTerminal ? (
+        managedTerminal ? (
           <TerminalToolbarActions node={node} />
         ) : isAgent && !ACP_CHAT_SURFACE_HIDDEN ? (
           <AgentChatToolbarActions node={node} />
@@ -596,7 +587,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           </div>
         )
       ) : editing &&
-        !isHerdr &&
         !managedTerminal &&
         !isWorkSurface ? (
 
@@ -630,7 +620,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             event.stopPropagation();
             // Actors / terminals / sinks: open the live surface (same as
             // command-group re-tap activate). Cron keeps its schedule modal.
-            if (isHerdr || managedTerminal || isAgent || isWorkSurface) {
+            if (managedTerminal || isAgent || isWorkSurface) {
               const result = activateNodeSurface(node);
               if (result.opened) return;
               // Work surfaces also open via local state when the trigger path
@@ -699,14 +689,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             <GitCard
               node={node}
               renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
-          ) : entityKind === "herdr" ? (
-            <HerdrCard
-              node={node}
-              selected={selected}
-              renaming={renaming}
-              onRequestRename={() => setRenaming(true)}
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "terminal" ? (

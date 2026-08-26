@@ -9,9 +9,7 @@ import { edgeSheetTitle, WireSheetBody } from "./edges/WireSheet";
 import { clearSelection, state$ } from "../lib/state";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
-import { HERDR_ENABLED } from "@shared/features";
-import { connectionStateOf, herdr$, refreshHerdrMeta } from "../lib/herdr-state";
-import { HarnessMark } from "./herdr/HarnessMark";
+import { HarnessMark } from "./HarnessMark";
 import { NoteMarkdown } from "../lib/note-markdown";
 import { WaitingOnSection } from "./WaitingOnSection";
 
@@ -59,66 +57,7 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-// Herdr inspector: glance essentials only (host + status + agent).
-function HerdrSections({ node }: { readonly node: CanvasNode }) {
-  const herdr = node.ether?.herdr;
-  const metaCache = use$(herdr$.metaByNodeId[node.id]);
-  const conn = use$(herdr$.connectionByNodeId[node.id]);
-  if (!herdr) return null;
-  const meta = metaCache?.meta;
-  const connState = conn?.state ?? connectionStateOf(node.id);
-  const reconnects = conn?.reconnectAttempts ?? 0;
-  const status =
-    reconnects > 0
-      ? `${connState} - ${reconnects} reconnect${reconnects === 1 ? "" : "s"}`
-      : connState;
-  const agent = meta?.agent
-    ? meta.agentStatus
-      ? `${meta.agent} - ${meta.agentStatus}`
-      : meta.agent
-    : undefined;
 
-  return <div className="inspector-section">
-    <div className="inspector-section__label">herdr</div>
-    <div className="inspector-bindings mt-2">
-      {herdr.host ? (
-        <div className="inspector-binding" title={herdr.host}>
-          <span className="inspector-binding__source">host</span>
-          <span>{herdr.host}</span>
-        </div>
-      ) : null}
-      <div className="inspector-binding" title={status}>
-        <span className="inspector-binding__source">status</span>
-        <span>{status}</span>
-      </div>
-      {agent ? (
-        <div className="inspector-binding" key="agent" title={agent} style={{ alignItems: "center" }}>
-          <span className="inspector-binding__source">agent</span>
-          <span className="flex min-w-0 items-center gap-1.5">
-            <HarnessMark agent={meta?.agent} size={20} focused={meta?.focused === true} />
-            <span className="truncate">{agent}</span>
-          </span>
-        </div>
-      ) : null}
-    </div>
-    <div className="mt-2 flex items-center gap-2">
-      <button
-        type="button"
-        className="rounded-md border px-2 py-1 text-[9px] uppercase tracking-[.12em] transition hover:bg-white/5"
-        style={{ borderColor: "var(--color-stroke)", color: DIM }}
-        onClick={() => void refreshHerdrMeta(node.id, herdr)}
-      >
-        refresh
-      </button>
-      {metaCache?.status === "loading" ? (
-        <span className="text-[9px]" style={{ color: DIM }}>loading…</span>
-      ) : null}
-    </div>
-    {metaCache?.status === "error" && metaCache.error ? (
-      <div className="mt-1 text-[9px]" style={{ color: withAlpha(HUE.crimson, 0.75) }}>{metaCache.error}</div>
-    ) : null}
-  </div>;
-}
 
 // Node accent / flags / focus / connect / delete / copy-ref live in the RTS
 // command bar (lower-left). This panel keeps surface-specific detail only.
@@ -137,8 +76,6 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
     <div className="inspector-body">
       {isLabel ? (
         <div className="inspector-detail">Bare map text - color and size from the canvas controls</div>
-      ) : HERDR_ENABLED && isEntity && node.ether?.entity?.kind === "herdr" ? (
-        <HerdrSections key={node.id} node={node} />
       ) : isAgent ? (
         <AgentSeatSection key={node.id} node={node} />
       ) : !isEntity && node.type === "text" ? (

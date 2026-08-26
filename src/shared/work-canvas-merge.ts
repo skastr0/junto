@@ -47,7 +47,7 @@ const mergeEther = (
     ...(work?.messages !== undefined ? { messages: work.messages } : {}),
     ...(work?.board !== undefined ? { board: work.board } : {}),
     // Preserve local entity when present; else take work entity so a tasks
-    // node stays typed. Work ops never author flags/view/herdr/etc.
+    // node stays typed. Work ops never author flags/view/etc.
     ...(!local?.entity && work?.entity ? { entity: work.entity } : {}),
   };
   return Object.keys(next).length > 0 ? next : undefined;

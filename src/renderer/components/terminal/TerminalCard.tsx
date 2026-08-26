@@ -42,7 +42,7 @@ const launchSummary = (
 /**
  * Terminal node body — identity + status only.
  * Open via double-click or the selection toolbar (TerminalToolbarActions).
- * No Start/Open/Kill buttons on the card (herdr pattern).
+ * No Start/Open/Kill buttons on the card.
  * Managed-agent seat state paints attention (amber + !) / working (cyan).
  */
 export function TerminalCard({

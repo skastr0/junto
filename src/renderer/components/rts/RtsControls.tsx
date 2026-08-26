@@ -32,7 +32,6 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERDR_ENABLED,
   RELAY_ENABLED,
   productNodeKindEnabled,
 } from "@shared/features";
@@ -58,18 +57,10 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
-import {
-  herdr$,
-  markHerdrPaneSeenLocal,
-  markHerdrPaneSeenRemote,
-  openHerdrTerminal,
-} from "../../lib/herdr-state";
-import { killHerdrPane } from "../../lib/herdr-actions";
 import { deleteEdges, toggleEdgeArrow } from "../../lib/edge-mutations";
 import { hostOf, nodeTitle } from "../../lib/presentation";
 import { browser$ } from "../../lib/browser-state";
 import { formatNodeRef } from "@shared/node-ref";
-import { OpenHerdrMark } from "../herdr/OpenHerdrMark";
 import {
   PageBindingControl,
   PageUrlControl,
@@ -250,290 +241,7 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
 
 // --- middle panel: kind strip ------------------------------------------------
 
-const KILL_ARM_MS = 3000;
-
-function HerdrKindKeys({ node }: { readonly node: CanvasNode }) {
-  const herdrMeta = use$(herdr$.metaByNodeId[node.id]);
-  const [killArmed, setKillArmed] = useState(false);
-  const killTimer = useRef<number | null>(null);
-  const herdr = node.ether?.herdr;
-
-  useEffect(() => {
-    setKillArmed(false);
-    if (killTimer.current !== null) {
-      window.clearTimeout(killTimer.current);
-      killTimer.current = null;
-    }
-  }, [node.id]);
-  useEffect(() => {
-    return () => {
-      if (killTimer.current !== null) window.clearTimeout(killTimer.current);
-    };
-  }, []);
-
-  if (!herdr) return null;
-  const agentStatus = herdrMeta?.meta?.agentStatus;
-  const canMarkSeen = Boolean(herdr.paneId) && agentStatus === "done";
-  const canKill = Boolean(herdr.paneId);
-
-  const fireKill = () => {
-    if (!killArmed) {
-      setKillArmed(true);
-      if (killTimer.current !== null) window.clearTimeout(killTimer.current);
-      killTimer.current = window.setTimeout(() => {
-        killTimer.current = null;
-        setKillArmed(false);
-      }, KILL_ARM_MS);
-      return;
-    }
-    if (killTimer.current !== null) {
-      window.clearTimeout(killTimer.current);
-      killTimer.current = null;
-    }
-    setKillArmed(false);
-    void killHerdrPane(node.id, herdr);
-  };
-
-  return (
-    <>
-      <KindKey
-        label="Open work surface"
-        title={`open — ${herdr.host}`}
-        onClick={() => openHerdrTerminal(node.id, herdr, nodeTitle(node))}
-      >
-        <OpenHerdrMark size={ICON} />
-      </KindKey>
-      {canMarkSeen ? (
-        <KindKey
-          label="Mark seen"
-          title="Mark seen"
-          style={{ color: HUE.amber }}
-          onClick={() => {
-            markHerdrPaneSeenLocal(node.id, herdr);
-            void markHerdrPaneSeenRemote(herdr, node.id);
-          }}
-        >
-          <CheckCheck size={ICON} />
-        </KindKey>
-      ) : null}
-      {canKill ? (
-        <KindKey
-          label={killArmed ? "Confirm kill pane" : "Kill pane"}
-          title={killArmed ? "Click again to kill the pane" : "Kill the pane, click again to confirm"}
-          danger
-          active={killArmed}
-          style={killArmed ? { color: HUE.crimson } : undefined}
-          onClick={fireKill}
-        >
-          <SquareX size={ICON} />
-        </KindKey>
-      ) : null}
-    </>
-  );
-}
-
-function PageKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [pop, setPop] = useState<"url" | "binding" | null>(null);
-  const canvasName = use$(state$.canvasName);
-  const pageRef = (() => {
-    try {
-      return formatNodeRef({ canvasName, nodeId: node.id });
-    } catch {
-      return undefined;
-    }
-  })();
-  const session = use$(browser$.sessionByRef[pageRef ?? ""]);
-  const browser = node.ether?.browser;
-  const url = node.type === "link" ? node.url : "";
-
-  useEffect(() => {
-    setPop(null);
-  }, [node.id]);
-
-  const open = () => {
-    if (!pageRef || !browser) return;
-    void openDockBrowser(pageRef, {
-      nodeId: node.id,
-      browser,
-      url,
-      title: session?.title ?? hostOf(url),
-    });
-  };
-
-  return (
-    <>
-      <KindKey label="Open page" title="Open page" onClick={open}>
-        <Globe size={ICON} />
-      </KindKey>
-      <KindKey
-        label={pop === "url" ? "Close url" : "Page url"}
-        title="Page URL"
-        active={pop === "url"}
-        onClick={() => setPop((current) => (current === "url" ? null : "url"))}
-      >
-        <Link2 size={ICON} />
-      </KindKey>
-      <KindKey
-        label={pop === "binding" ? "Close binding" : "Browser binding"}
-        title="Host and profile"
-        active={pop === "binding"}
-        onClick={() => setPop((current) => (current === "binding" ? null : "binding"))}
-      >
-        <Server size={ICON} />
-      </KindKey>
-      {pop === "url" ? (
-        <div className="rts-kind-pop rts-kind-pop--editor">
-          <PageUrlControl node={node} />
-        </div>
-      ) : null}
-      {pop === "binding" ? (
-        <div className="rts-kind-pop rts-kind-pop--editor">
-          <PageBindingControl node={node} />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [pop, setPop] = useState<"home" | "admission" | "bake" | null>(null);
-  const fleetUi =
-    FLEET_UI_ENABLED &&
-    isCommandCenterAuthoring(use$(state$.settings.station.role));
-  const contract = node.ether?.tasks?.contract;
-  const admission = resolveSinkAdmission(contract);
-  const bakeMs = contract?.inbound?.claimableAfterMs;
-
-  const writeInbound = (
-    patch: Partial<NonNullable<TasksSinkContract["inbound"]>>,
-  ) => {
-    setSinkContract(
-      node.id,
-      normalizeSinkContract({
-        ...contract,
-        inbound: { ...contract?.inbound, ...patch },
-      }),
-    );
-  };
-
-  useEffect(() => {
-    setPop(null);
-  }, [node.id]);
-
-  return (
-    <>
-      <KindKey
-        label="Open task board"
-        title="Open the task board"
-        onClick={() => openWorkDetail(node.id)}
-      >
-        <ListChecks size={ICON} />
-      </KindKey>
-      <KindKey
-        label="Add task"
-        title="Enqueue a task"
-        onClick={() => openTaskCreateSurface(node)}
-      >
-        <Plus size={ICON} />
-      </KindKey>
-      <KindKey
-        label="Rename"
-        title="Rename"
-        onClick={() => state$.editNodeId.set(node.id)}
-      >
-        <Pencil size={ICON} />
-      </KindKey>
-      <KindKey
-        label="Admission"
-        title={`Admission: ${admissionLabel(admission)}`}
-        active={pop === "admission" || admission !== "auto"}
-        style={pop === "admission" || admission !== "auto" ? { color: HUE.amber } : undefined}
-        onClick={() => setPop((current) => (current === "admission" ? null : "admission"))}
-      >
-        <Gauge size={ICON} />
-      </KindKey>
-      <KindKey
-        label="Bake"
-        title={`Bake: ${formatBakeTime(bakeMs) || "none"}`}
-        active={pop === "bake" || bakeMs !== undefined}
-        style={pop === "bake" || bakeMs !== undefined ? { color: HUE.amber } : undefined}
-        onClick={() => setPop((current) => (current === "bake" ? null : "bake"))}
-      >
-        <Timer size={ICON} />
-      </KindKey>
-      {/* Queue home is pure host choice — a fleet surface. */}
-      {fleetUi ? (
-        <KindKey
-          label={pop === "home" ? "Close queue home" : "Queue home"}
-          title="Host for new tasks"
-          active={pop === "home"}
-          onClick={() => setPop((current) => (current === "home" ? null : "home"))}
-        >
-          <Server size={ICON} />
-        </KindKey>
-      ) : null}
-      {pop === "admission" ? (
-        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
-          <span className="rts-kind-pop__title">Admission</span>
-          <div className="rts-kind-pop__choices">
-            {ADMISSION_ORDER.map((value) => (
-              <Button
-                key={value}
-                size="xs"
-                variant={admission === value ? "primary" : "chrome"}
-                aria-pressed={admission === value}
-                onClick={() => {
-                  writeInbound({ admission: value as SinkAdmission });
-                  setPop(null);
-                }}
-              >
-                {admissionLabel(value)}
-              </Button>
-            ))}
-          </div>
-          <span className="rts-kind-pop__hint">Choose how arrivals become claimable.</span>
-        </div>
-      ) : null}
-      {pop === "bake" ? (
-        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Bake quick set">
-          <span className="rts-kind-pop__title">Bake</span>
-          <div className="rts-kind-pop__choices">
-            {([
-              [undefined, "None"],
-              [15 * 60_000, "15m"],
-              [60 * 60_000, "1h"],
-              [12 * 60 * 60_000, "12h"],
-              [24 * 60 * 60_000, "1d"],
-            ] as const).map(([value, label]) => (
-              <Button
-                key={label}
-                size="xs"
-                variant={bakeMs === value ? "primary" : "chrome"}
-                aria-pressed={bakeMs === value}
-                onClick={() => {
-                  writeInbound({ claimableAfterMs: value });
-                  setPop(null);
-                }}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-          <span className="rts-kind-pop__hint">
-            Current: {formatBakeTime(bakeMs) || "none"}. Use the board editor for a custom duration.
-          </span>
-        </div>
-      ) : null}
-      {fleetUi && pop === "home" ? (
-        <div className="rts-kind-pop rts-kind-pop--queue-home">
-          <TaskQueueHomeControl node={node} />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-/** Kind-specific action keys (agent/herdr/terminal/task/…). */
+/** Kind-specific action keys (agent/terminal/task/…). */
 export function KindActions({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   switch (kind) {
@@ -578,8 +286,6 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         </>
       );
     }
-    case "herdr":
-      return HERDR_ENABLED ? <HerdrKindKeys node={node} /> : null;
     case "terminal":
       return (
         <KindKey
@@ -817,7 +523,7 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
 
 /**
  * Middle-bar kind surface: selected node's kind-specific actions (agent /
- * herdr / terminal / tasks / requests / watcher / timer), or the selected
+ * terminal / tasks / requests / watcher / timer), or the selected
  * relation's pair controls. Empty selection and geography get a quiet cue —
  * never invent controls for a kind that has none.
  */
@@ -873,7 +579,6 @@ export function KindStrip() {
   if (
     ![
       "agent",
-      ...(HERDR_ENABLED ? (["herdr"] as const) : []),
       "terminal",
       "task",
       "requests",

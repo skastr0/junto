@@ -1,7 +1,7 @@
 /**
  * Pi seat rules — grid-primary. The OSC 0 title is static ("π - <name> - <cwd>",
  * no spinner) and OSC 9;4 progress is off by default, so the grid carries the
- * pack: working = status line above the editor ("Working..." family — herdr
+ * pack: working = status line above the editor ("Working..." family
  * literal), attention = project-trust selector + inline confirm dialogs,
  * idle = static title with no status line. No alt screen, so the grid includes
  * scrollback — working/attention rules scope to the bottom status area so
@@ -9,7 +9,7 @@
  * message (prompt markers) but the region vocabulary has no osc133 slice and
  * pi's bordered editor is not a ─── rule box, so prompt_box_body is not
  * expressible here.
- * Patterns from docs/research/agent-cli-sweep/pi.md + herdr pi.toml
+ * Patterns from docs/research/agent-cli-sweep/pi.md
  * (rewritten; not vendored).
  */
 
@@ -51,7 +51,7 @@ export const piRules: SeatRulePack = {
         any: [{ contains: ["confirm"] }, { contains: ["cancel"] }],
       },
     },
-    // herdr working_literal, scoped to the status area above the editor
+    // working literal, scoped to the status area above the editor
     // (bottom of screen). Covers "Working... (esc to interrupt)".
     {
       id: "working_literal",

@@ -18,7 +18,7 @@ import type { Socket } from "node:net";
 
 const text = (
   id: string,
-  kind: "agent" | "herdr" | "task" | "terminal",
+  kind: "agent" | "task" | "terminal",
   name?: string,
   extra?: { readonly bindingId?: string },
 ): CanvasDoc["nodes"][number] => ({
@@ -34,8 +34,8 @@ const text = (
       kind,
       ...(kind === "agent" && name !== undefined ? { name } : {}),
     },
-    ...(kind === "herdr"
-      ? { herdr: { host: "local", paneId: "pane-1" } }
+    ...(kind === "terminal"
+      ? { terminal: { bindingId: "local:shell-1" } }
       : {}),
     ...(kind === "agent" || kind === "terminal"
       ? { terminal: { bindingId: extra?.bindingId ?? "term-bind-1", harness: "claude" as const } }
@@ -79,7 +79,6 @@ describe("browser edge authz", () => {
   const board = doc(
     [
       text("agent", "agent", "local:default"),
-      text("herdr", "herdr"),
       text("term", "agent", "local:term"),
       page("p1"),
       page("p2"),
@@ -87,12 +86,11 @@ describe("browser edge authz", () => {
     ],
     [
       { id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } },
-      { id: "e2", fromNode: "p2", toNode: "herdr" },
       { id: "e3", fromNode: "term", toNode: "p1", ether: { verb: "navigates" } },
     ],
   );
 
-  it("resolves the agent seat via physics actors; herdr and raw terminals are geography", () => {
+  it("resolves the agent seat via physics actors; raw terminals are geography", () => {
     const agent = resolveBrowserCaller(board, "work", "agent");
     expect(agent.ok).toBe(true);
     if (agent.ok) {
@@ -100,10 +98,6 @@ describe("browser edge authz", () => {
       expect(agent.principal.agentKey).toBe("local:default");
     }
 
-    // herdr is geography — edged to a page and still not a browser caller.
-    const herdr = resolveBrowserCaller(board, "work", "herdr");
-    expect(herdr.ok).toBe(false);
-    if (!herdr.ok) expect(herdr.denial).toBe("caller_wrong_kind");
 
     const term = resolveBrowserCaller(board, "work", "term");
     expect(term.ok).toBe(true);
@@ -121,7 +115,6 @@ describe("browser edge authz", () => {
     expect(isBrowserCallerKind("agent")).toBe(true);
     // A raw user-opened terminal is geography, not a caller.
     expect(isBrowserCallerKind("terminal")).toBe(false);
-    expect(isBrowserCallerKind("herdr")).toBe(false);
     expect(isBrowserCallerKind("page")).toBe(false);
     expect(isBrowserCallerKind("task")).toBe(false);
     expect(isBrowserCallerKind(undefined)).toBe(false);
@@ -253,21 +246,6 @@ describe("process-bind (browser canvas resolution)", () => {
     if (!resolved.ok) expect(resolved.denial).toBe("not_found");
   });
 
-  it("refuses a herdr node as a process-bound browser caller", () => {
-    const herdrBoard = doc(
-      [text("herdr", "herdr"), page("p1")],
-      [{ id: "e1", fromNode: "herdr", toNode: "p1" }],
-    );
-    // Geography holds no seat: the only principal kinds are the actor kinds,
-    // and a herdr node matches neither.
-    const resolved = resolveBrowserCallerFromProcess(herdrBoard, "work", {
-      bindingId: "pane-1",
-      canvasName: "work",
-      nodeId: "herdr",
-    });
-    expect(resolved.ok).toBe(false);
-    if (!resolved.ok) expect(resolved.denial).toBe("not_found");
-  });
 });
 
 describe("process identity map", () => {

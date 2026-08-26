@@ -1,8 +1,8 @@
 /**
  * Design-audit capture — NOT a correctness spec. Drives every reachable UI
- * surface with seeded fixtures + the fake herdr/hermes binaries and
+ * surface with seeded fixtures + the fake hermes binary and
  * screenshots each one to test-results/design-audit/ for visual review.
- *   VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help/herdr surfaces
+ *   VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * A plain ship-profile build hides those surfaces and fails this spec.
  * The screenshots are the artifact; assertions only prove a surface appeared.
@@ -12,12 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import type { UsageState } from "../../src/shared/usage";
-import { writeScenario as writeHerdrScenario } from "../fakes/scenario";
 import {
   agentTextNode,
   artifactsNode,
   canvasDoc,
-  herdrTextNode,
   projectNode,
   requestsNode,
   worksEdge,
@@ -329,15 +327,6 @@ const nodes: CanvasNode[] = [
     x: 940,
     y: 460,
   }),
-  herdrTextNode({
-    id: "herdr1",
-    host: "local",
-    paneId: "w1:p1",
-    terminalId: "term_1",
-    label: "audit herdr pane",
-    x: 940,
-    y: 620,
-  }),
 ];
 
 const edges: CanvasEdge[] = [
@@ -366,84 +355,8 @@ test("capture every surface for design review", async () => {
   // enough to need a budget above the default 90s worker timeout.
   test.setTimeout(300_000);
   const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-audit-"));
-  const herdrScenario = join(scenarioDir, "herdr.json");
   await mkdir(SHOTS, { recursive: true });
 
-  const world = {
-    workspaces: [
-      {
-        workspace_id: "w1",
-        label: "demo",
-        tab_count: 1,
-        pane_count: 1,
-        agent_status: "working",
-        focused: true,
-        number: 1,
-      },
-    ],
-    tabs: [
-      {
-        tab_id: "w1:t1",
-        workspace_id: "w1",
-        label: "1",
-        pane_count: 1,
-        agent_status: "working",
-        focused: true,
-        number: 1,
-      },
-    ],
-    panes: [
-      {
-        pane_id: "w1:p1",
-        workspace_id: "w1",
-        tab_id: "w1:t1",
-        terminal_id: "term_1",
-        cwd: "/proj/vellum",
-        foreground_cwd: "/proj/vellum",
-        agent: "claude",
-        agent_status: "working",
-        focused: true,
-        revision: 0,
-      },
-    ],
-    agents: [
-      {
-        pane_id: "w1:p1",
-        workspace_id: "w1",
-        tab_id: "w1:t1",
-        terminal_id: "term_1",
-        cwd: "/proj/vellum",
-        agent: "claude",
-        agent_status: "working",
-        focused: true,
-      },
-    ],
-    layouts: [
-      {
-        workspace_id: "w1",
-        tab_id: "w1:t1",
-        panes: [],
-        splits: [],
-        zoomed: false,
-      },
-    ],
-    focused_workspace_id: "w1",
-    focused_tab_id: "w1:t1",
-    focused_pane_id: "w1:p1",
-    protocol: 16,
-    version: "0.7.3",
-  } as const;
-
-  await writeHerdrScenario(herdrScenario, {
-    world,
-    frames: {
-      term_1: [
-        { text: "● claude - forging design tokens\r\n" },
-        { text: "$ bun run typecheck && bun run test\r\n" },
-        { text: "✓ 187 tests passed\r\n" },
-      ],
-    },
-  });
   // Usage rail paint: seeded through the durable `usage_state` seam so the
   // audit still captures frames 18/19 against native sources.
   const auditUsage: UsageState = {
@@ -490,7 +403,6 @@ test("capture every surface for design review", async () => {
     seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
     seedUsage: auditUsage,
     extraEnv: {
-      FAKE_HERDR_SCENARIO: herdrScenario,
     },
   });
 
@@ -532,7 +444,6 @@ test("capture every surface for design review", async () => {
     };
     await closeup("Field notes", "02-node-note");
     await closeup("release checklist", "03-node-blocker");
-    await closeup("audit herdr pane", "04-node-herdr");
     await closeup("audit native term", "05-node-terminal-card");
 
     // The dock intentionally obscures the lower part of the canvas. React
@@ -658,31 +569,6 @@ test("capture every surface for design review", async () => {
     // ACP chat is intentionally retired; agent seats use managed terminals.
     // The terminal focus capture below covers the remaining live-seat surface.
 
-    // Herdr terminal modal: single click on the card hero (pointerdown opens
-    // when the card is not selected).
-    if (await fit.isVisible().catch(() => false)) await fit.click();
-    await page.waitForTimeout(600);
-    const herdrNode = page.locator(".react-flow__node", {
-      hasText: "audit herdr pane",
-    });
-    await page
-      .locator(".react-flow__pane")
-      .click({ position: { x: 24, y: 24 } });
-    await herdrNode
-      .getByRole("button", { name: "audit herdr pane" })
-      .dispatchEvent("pointerdown");
-    const herdrPanel = page.locator(".herdr-terminal-panel");
-    await expect(herdrPanel).toBeVisible({ timeout: 30_000 });
-    await expect(
-      herdrPanel.getByRole("status", { name: "connected" }),
-    ).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.waitForTimeout(700);
-    await shot(page, "10-herdr-terminal-modal");
-    await herdrPanel.getByRole("button", { name: "Close" }).click();
-    await page.waitForTimeout(400);
-
     // Settings panel. The Hosts section was retired; Browser is the
     // deepest product section in an all-on build.
     await page.getByRole("button", { name: "Open settings" }).click();
@@ -771,21 +657,6 @@ test("capture every surface for design review", async () => {
         await shot(page, "21-terminal-wizard");
         // FocusSurface-backed now — Escape closes.
         await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
-      }
-      await addItem.click();
-      const reopenedDeck = page.getByRole("region", {
-        name: "Add canvas item",
-      });
-      const herdrWiz = reopenedDeck.getByRole("button", {
-        name: /Herdr/,
-      });
-      if (await herdrWiz.isVisible().catch(() => false)) {
-        await herdrWiz.click();
-        await page.waitForTimeout(600);
-        await shot(page, "22-herdr-wizard");
-        // Closes on backdrop click or its cancel button — no Escape handler.
-        await page.getByRole("button", { name: "cancel" }).click();
         await page.waitForTimeout(300);
       }
     }

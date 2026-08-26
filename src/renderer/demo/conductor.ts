@@ -1,5 +1,5 @@
 import { observable } from "@legendapp/state";
-import type { DemoCommand, DemoEdl, DemoEdlEntry, DemoOp, DemoScenario } from "@shared/demo";
+import type { DemoEdl, DemoEdlEntry, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
 import { EMPTY_DOC } from "../lib/state";
 import { loadDoc } from "../lib/mutations";
@@ -19,17 +19,6 @@ export const demo$ = observable({
 
 let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
-const commandTag = (command: DemoCommand): string => {
-  switch (command.kind) {
-    case "ensure-pane":
-      return `ensure-pane:${command.pane.host}:${command.pane.paneId}`;
-    case "set-status":
-      return `set-status:${command.paneId}:${command.status}`;
-    case "reset-host":
-      return `reset-host:${command.host}`;
-  }
-};
-
 const opTag = (op: DemoOp): string => {
   switch (op.kind) {
     case "add-nodes":
@@ -42,8 +31,6 @@ const opTag = (op: DemoOp): string => {
       return `flag:${op.flag}:${op.on ? "on" : "off"}:${op.nodeIds.length}`;
     case "select":
       return `select:${op.nodeIds.length}`;
-    case "herdr":
-      return `herdr:${commandTag(op.command)}`;
     case "camera-fit":
       return `camera-fit:${op.nodeIds ? op.nodeIds.length : "all"}`;
     case "camera-center":
@@ -56,22 +43,13 @@ const opTag = (op: DemoOp): string => {
       return `tween-nodes:${op.moves.length}`;
     case "alert-cycle":
       return "alert-cycle";
-    case "open-terminal":
-      return `open-terminal:${op.nodeId}`;
-    case "close-terminal":
-      return "close-terminal";
     case "page-open":
       return `page-open:${op.nodeId}`;
   }
 };
 
-const resetHost = (host: string): Promise<unknown> =>
-  window.vellumCommand?.demoCommand({ kind: "reset-host", host }).catch(() => undefined) ??
-  Promise.resolve(undefined);
-
 const runTake = async (scenario: DemoScenario): Promise<void> => {
   loadDoc(EMPTY_DOC);
-  await Promise.allSettled([resetHost("local"), resetHost("remote-a")]);
   // stopTake() may have fired while the resets were in flight — don't start
   // the clock on a take that was already cancelled.
   if (!demo$.running.peek()) return;

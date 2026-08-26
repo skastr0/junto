@@ -437,10 +437,7 @@ export class TerminalRouter extends EventEmitter {
   async listAll(): Promise<readonly TerminalSessionSummary[]> {
     const out: TerminalSessionSummary[] = [...this.local.list()];
     const seen = new Set<string>(["local"]);
-    const candidates = [
-      ...hostsWithCapability(TERMINAL_HOST_CAPABILITY),
-      ...hostsWithCapability("herdr"),
-    ];
+    const candidates = [...hostsWithCapability(TERMINAL_HOST_CAPABILITY)];
     for (const host of candidates) {
       if (isLocalHost(host) || seen.has(host.id)) continue;
       seen.add(host.id);
@@ -1050,7 +1047,7 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<RemoteEntry> {
 
     // Own a forked scope so the SSH forward finalizers stay alive until we
-    // explicitly closeRemotes() — same pattern as herdr mirror forwards.
+    // explicitly closeRemotes().
     const rootScope = await runScopePromise(Scope.make());
     let scope: Scope.Closeable;
     try {

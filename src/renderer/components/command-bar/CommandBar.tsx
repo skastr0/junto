@@ -56,7 +56,6 @@ const LIST_CAP = 100;
 const KIND_ICONS: Record<string, typeof Bot> = {
   agent: Bot,
   terminal: SquareTerminal,
-  herdr: SquareTerminal,
   task: ListTodo,
   requests: Inbox,
   artifacts: Package,
@@ -78,7 +77,6 @@ const TYPE_ICONS: Record<string, typeof Bot> = {
 const KIND_TONES: Record<string, ChipTone> = {
   agent: "amber",
   terminal: "cyan",
-  herdr: "cyan",
   task: "steel",
   requests: "violet",
   artifacts: "green",

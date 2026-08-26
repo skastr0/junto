@@ -35,7 +35,7 @@ import { Schema } from "effect";
 // Harness "idle" | "unknown" | undefined never elevates above idle.
 //
 // Later main plug (optional, not required for this module): process-bind
-// registry → hasOccupant + lastSeenAtMs; WorkSurfaceActivity / ACP / herdr →
+// registry → hasOccupant + lastSeenAtMs; WorkSurfaceActivity / ACP →
 // activity.harness; canvas ether.flags → flags.parked | flags.attention.
 // See src/main/vellum/region-rollup.ts for an existing live-activity gatherer.
 

@@ -8,12 +8,11 @@ import { agentSeat$, terminalStatusByNodeIdFromSeats } from "./agent-seat-state"
 import { state$ } from "./state";
 import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
-import { herdr$ } from "./herdr-state";
 import { viewportBusy$ } from "./viewport-busy";
 
 // Coarse poll of window.vellumCommand.regionRollups for main-process graph enrichment.
-// Client always re-derives with herdr$ meta + chat activity so chips match
-// HerdrCard/inspector (same status source). Live IPC never blanks herdr.
+// Client always re-derives with the live seat + chat planes so chips match the
+// cards (same status source). Live IPC never blanks them.
 
 const DEBOUNCE_MS = 300;
 
@@ -34,23 +33,9 @@ const chatCoarseKey = (
     .sort()
     .join("|");
 
-const herdrCoarseKey = (
-  meta: Record<string, { status?: string; meta?: { agentStatus?: string } }>,
-  mirrors: Record<string, { fresh?: boolean; lastSyncAt?: number }>,
-): string => {
-  const metaPart = Object.entries(meta)
-    .map(([id, slot]) => `${id}:${slot?.status ?? ""}:${slot?.meta?.agentStatus ?? ""}`)
-    .sort()
-    .join("|");
-  const mirrorPart = Object.entries(mirrors)
-    .map(([host, m]) => `${host}:${m?.fresh ? 1 : 0}:${m?.lastSyncAt ?? 0}`)
-    .sort()
-    .join("|");
-  return `${metaPart}#${mirrorPart}`;
-};
 
 /**
- * Per-region, per-member: keep the worse severity between `client` (herdr/chat)
+ * Per-region, per-member: keep the worse severity between `client` (seat/chat)
  * and `live` (main IPC graph). Region severity/counts recomputed.
  */
 export const fuseRegionRollups = (
@@ -147,13 +132,6 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     { status?: string; pendingPermissionId?: string; turnBusy?: boolean }
   >;
   const chatKey = chatCoarseKey(chat ?? {});
-  const herdrMeta = use$(herdr$.metaByNodeId) as Record<
-    string,
-    { status?: string; meta?: { agentStatus?: string } }
-  >;
-  const herdrMirrors = use$(herdr$.mirrorByHost) as Record<string, { fresh?: boolean; lastSyncAt?: number }>;
-  const herdrKey = herdrCoarseKey(herdrMeta ?? {}, herdrMirrors ?? {});
-
   // ACP chat plane for hermes agent nodes (keyed by agent key).
   const agentActivity = useMemo(() => {
     const m = new Map<string, { sessionLive?: boolean; permissionPending?: boolean }>();
@@ -198,21 +176,11 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
         agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>,
         agentSeat$.needsLookByBindingId.peek() as Record<string, boolean | undefined>,
       );
-      // Herdr "done" (Idle + !seen) is the same fact as a seat's needsLook:
-      // finished work nobody has read. The main adapter maps it too, but only
-      // for hosts with a live mirror — the renderer already holds the per-node
-      // meta, so the ready tier does not wait on a mirror sync. Only the ready
-      // fact is read here; every other herdr state stays main's to report.
-      for (const [nodeId, slot] of Object.entries(herdrMeta ?? {})) {
-        if (map.has(nodeId)) continue;
-        if ((slot?.meta?.agentStatus ?? "").toLowerCase() !== "done") continue;
-        map.set(nodeId, { session: "running", harness: "idle", ready: true, source: "herdr" });
-      }
       return map;
     },
     // seatKey captures state changes; docVersion/docEpoch capture node binds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [docVersion, docEpoch, seatKey, needsLookKey, herdrKey],
+    [docVersion, docEpoch, seatKey, needsLookKey],
   );
   const vacantSeatNodeIds = useMemo(
     () =>
@@ -224,7 +192,7 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
     [terminalStatusByNodeId],
   );
 
-  // Client derive — always has herdr/chat/flags/seat; no IPC required for those.
+  // Client derive — always has chat/flags/seat; no IPC required for those.
   const client = useMemo(
     () =>
       deriveRegionRollups({
@@ -233,9 +201,9 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
         agentActivity,
         terminalStatusByNodeId,
       }),
-    // docVersion/docEpoch bound doc identity; herdr/chat/seat via maps above.
+    // docVersion/docEpoch bound doc identity; chat/seat via maps above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [actorRefs, docVersion, docEpoch, canvasName, herdrKey, agentActivity, terminalStatusByNodeId],
+    [actorRefs, docVersion, docEpoch, canvasName, agentActivity, terminalStatusByNodeId],
   );
 
   const [live, setLive] = useState<ReadonlyArray<RegionRollup>>([]);
@@ -275,14 +243,14 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
         });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [canvasName, docEpoch, snapshots, executionRev, chatKey, herdrKey]);
+  }, [canvasName, docEpoch, snapshots, executionRev, chatKey]);
 
   useEffect(() => {
     if (canvasName) return;
     setLive([]);
   }, [canvasName]);
 
-  // Fuse: live can win on graph severity; client always contributes herdr/chat.
+  // Fuse: live can win on graph severity; client always contributes seat/chat.
   return useMemo(
     () => fuseRegionRollups(client, live, vacantSeatNodeIds),
     [client, live, vacantSeatNodeIds],

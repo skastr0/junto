@@ -6,11 +6,9 @@
  * and other furniture return false (caller still focuses/selects).
  */
 import type { CanvasNode } from "@shared/canvas";
-import { HERDR_ENABLED } from "@shared/features";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentChatSurface } from "./dock-state";
-import { openHerdrTerminal } from "./herdr-state";
 import { openTerminal } from "./terminal-actions";
 import { openWorkDetail } from "./work-detail-open";
 
@@ -24,9 +22,8 @@ export type ActivateNodeSurfaceResult =
  */
 export function nodeSurfaceKind(
   node: CanvasNode,
-): "terminal" | "herdr" | "chat" | "work" | null {
+): "terminal" | "chat" | "work" | null {
   const kind = node.ether?.entity?.kind;
-  if (kind === "herdr") return HERDR_ENABLED ? "herdr" : null;
   if (kind === "terminal" || kind === "agent") {
     if (resolveTerminalBinding(node)?.kind === "native") return "terminal";
     if (kind === "agent" && !ACP_CHAT_SURFACE_HIDDEN) return "chat";
@@ -56,14 +53,6 @@ export function activateNodeSurface(node: CanvasNode): ActivateNodeSurfaceResult
   }
 
   switch (surface) {
-    case "herdr": {
-      const binding = node.ether?.herdr;
-      if (!binding) return { opened: false, reason: "unavailable" };
-      const title =
-        (node.type === "text" ? node.text : "").split("\n")[0] || "herdr";
-      openHerdrTerminal(node.id, binding, title);
-      return { opened: true, kind: "herdr" };
-    }
     case "terminal": {
       void openTerminal(node);
       return { opened: true, kind: "terminal" };

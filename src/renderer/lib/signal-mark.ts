@@ -10,7 +10,7 @@
  * re-derive membership or severity.
  *
  * Tones for blocked/attention/working/idle must match SEVERITY_TONE in
- * activity.ts so HerdrCard spinners, chips, and minimap never disagree.
+ * activity.ts so card spinners, chips, and minimap never disagree.
  */
 
 import type { MemberSeverity, MemberStatus } from "@shared/region-rollup";
@@ -96,9 +96,6 @@ export const signalMarkForMember = (member: Pick<MemberStatus, "severity" | "rea
   // Map machine reasons to short aria/tooltips without inventing severity.
   if (reason === "permission:pending") return { ...base, label: "awaiting permission", symbol: "?" };
   if (reason === "session:live") return { ...base, label: "session live" };
-  if (reason === "herdr:working") return { ...base, label: "herdr working" };
-  if (reason === "herdr:blocked") return { ...base, label: "herdr blocked" };
-  if (reason === "herdr:done") return { ...base, label: "herdr done" };
   if (reason === "activity:ready") return { ...base, label: "ready to read" };
   if (reason.startsWith("flag:")) return { ...base, label: reason.slice("flag:".length) };
   if (reason.startsWith("edge:")) return { ...base, label: reason.slice("edge:".length) };
@@ -116,7 +113,6 @@ const KIND_HUE: Readonly<Record<string, string>> = {
   skill: HUE.gold,
   watcher: HUE.amber,
   timer: HUE.steel,
-  herdr: HUE.orange,
   page: HUE.cyan,
   node: HUE.steel,
 };

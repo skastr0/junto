@@ -1,4 +1,4 @@
-/** Closed SSH programs for deployment and confined Herdr transfers. */
+/** Closed SSH programs for deployment. */
 import { Effect } from "effect";
 import { makeRemoteCommand, type RemoteCommand, SshInputError } from "./domain";
 
@@ -201,14 +201,7 @@ emit "$present"
 export const compileLinuxUserlandObserve = (): Effect.Effect<RemoteCommand, SshInputError> =>
   makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandObserveSource(), "vellum-plan:linux-userland-observe"]);
 
-export const HERDR_IMAGE_STAGE_DIR = "/tmp/vellum-command-herdr-images" as const;
 const HERDR_NAME = /^vellum-command-clip-[a-z0-9]{1,24}-[a-f0-9]{8}\.(png|jpg|gif|webp|bmp)$/u;
-export const confineHerdrStagePath = (name: string): Effect.Effect<string, SshInputError> =>
-  typeof name === "string" && HERDR_NAME.test(name) && !name.includes("..")
-    ? Effect.succeed(`${HERDR_IMAGE_STAGE_DIR}/${name}`)
-    : Effect.fail(new SshInputError({ message: "herdr stage basename is not a product token" }));
-export const compileHerdrImageStage = (name: string): Effect.Effect<{ readonly command: RemoteCommand; readonly path: string }, SshInputError> =>
-  confineHerdrStagePath(name).pipe(Effect.flatMap((path) => makeRemoteCommand("/bin/sh", ["-c", `set -eu; umask 077; mkdir -p ${quote(HERDR_IMAGE_STAGE_DIR)}; cat > ${quote(path)}; chmod 600 ${quote(path)}`, "vellum-plan:herdr-image-stage"]).pipe(Effect.map((command) => ({ command, path })))));
 
 export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>
   typeof script === "string" &&

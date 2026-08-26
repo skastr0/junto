@@ -25,7 +25,6 @@ describe("compile-time feature profiles", () => {
       helpMap: false,
       audio: false,
       hermesIntegration: false,
-      herdr: false,
       devTools: false,
       harnessKimi: false,
       harnessMuse: false,

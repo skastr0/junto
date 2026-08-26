@@ -63,10 +63,8 @@ import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
 import {
   BROWSER_ENABLED,
-  HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
 } from "@shared/features";
-import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
@@ -358,9 +356,7 @@ let stationControl: StationControlServer | undefined;
 let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
 let operatorControl: OperatorControlServer | undefined;
-type HerdrPlaneService = Context.Service.Shape<typeof HerdrPlane>;
 type HermesPlaneService = Context.Service.Shape<typeof HermesPlane>;
-let herdrPlaneService: HerdrPlaneService | undefined;
 let hermesPlaneService: HermesPlaneService | undefined;
 type KernelServiceShape = Context.Service.Shape<typeof KernelService>;
 type StationFleetPropagationShape = Context.Service.Shape<
@@ -396,7 +392,6 @@ let hostOperationsDrain:
   | Promise<Awaited<ReturnType<typeof hostOperationsShutdown.drainOnQuit>>>
   | undefined;
 let termPlaneShutdown: Promise<Awaited<ReturnType<typeof termPlane.drainOnQuit>>> | undefined;
-let herdrShutdown: Promise<Awaited<ReturnType<HerdrPlaneService["drainOnQuit"]>>> | undefined;
 let hermesShutdown:
   | Promise<Awaited<ReturnType<HermesPlaneService["shutdown"]["drainOnQuit"]>>>
   | undefined;
@@ -411,8 +406,6 @@ const signalQuitState = createSignalQuitState();
 const quitPreparationArbiter = createQuitPreparationArbiter();
 const signalQuiescedWindows = new WeakSet<BrowserWindow>();
 let signalRendererDestroyInProgress = false;
-/** Active herdr control-stream count provider for the quit live-work gate. */
-let herdrActiveControlCount: () => number = () => 0;
 let closeWindowsWithoutCanvasFlush = false;
 /** Explicit quit confirmed by the operator (or skipped: signal / headless / idle). */
 let quitConfirmed = false;
@@ -1618,27 +1611,18 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    const [herdr, chat, hermes] = await Promise.all([
-      AppRuntime.runPromise(HerdrPlane),
+    const [chat, hermes] = await Promise.all([
       AppRuntime.runPromise(ChatServiceContext),
       AppRuntime.runPromise(HermesPlane),
     ]);
     void chat;
-    // Plane stays in the Effect Layer graph (TerminalSessions), but product
-    // start/warm/IPC are compile-gated when Herdr is off.
-    herdrPlaneService = HERDR_ENABLED ? herdr : undefined;
     hermesPlaneService = HERMES_INTEGRATION_ENABLED ? hermes : undefined;
     if (shutdownAdmissionClosed) {
-      if (HERDR_ENABLED) herdr.beginShutdown();
       if (HERMES_INTEGRATION_ENABLED) {
         hermesShutdown ??= hermes.shutdown.drainOnQuit();
       }
       return;
     }
-  if (HERDR_ENABLED) {
-    herdrActiveControlCount = () => herdr.sessions.activeControlCount();
-    await AppRuntime.runPromise(herdr.start);
-  }
     try {
       canvasControl = await startCanvasControlServer({
         home: termControlHome,
@@ -1709,13 +1693,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       void (async () => {
         await coordinator.wakeMonitoring();
         if (productRuntimeSuspended) return;
-        if (HERDR_ENABLED) {
-          void AppRuntime.runPromise(
-            Effect.flatMap(HerdrPlane, (plane) => plane.warm),
-          ).catch(() => {
-            console.error("[herdr] resume warm failed");
-          });
-        }
         try {
           browserComposition?.registry.reapAfterResume();
         } catch {
@@ -1976,7 +1953,6 @@ const beginShutdownAdmission = (reason: string): void => {
   stationControl?.beginShutdown();
   hostOperationsShutdown.beginShutdown();
   termPlane.beginShutdown(reason);
-  herdrPlaneService?.beginShutdown();
   appProcessPlane.beginShutdown();
 };
 
@@ -2206,18 +2182,6 @@ const requireCleanTermPlaneShutdown = async (reason: string): Promise<void> => {
   throw new Error(`terminal plane shutdown retained ${detail}`);
 };
 
-const requireCleanHerdrShutdown = async (): Promise<void> => {
-  if (herdrPlaneService === undefined && herdrShutdown === undefined) return;
-  const receipt = await (herdrShutdown ??= herdrPlaneService?.drainOnQuit());
-  if (receipt === undefined) return;
-  if (!receipt.clean) {
-    herdrShutdown = undefined;
-    throw new Error(
-      `herdr shutdown retained ${receipt.retained} component resource(s)`,
-    );
-  }
-};
-
 const requireCleanHermesShutdown = async (): Promise<void> => {
   if (hermesPlaneService === undefined && hermesShutdown === undefined) return;
   const receipt = await (hermesShutdown ??= hermesPlaneService?.shutdown.drainOnQuit());
@@ -2264,7 +2228,6 @@ const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
   await requireCleanHostOperationsShutdown();
   await requireCleanBrowserShutdown(reason);
   await requireCleanHermesShutdown();
-  await requireCleanHerdrShutdown();
   await requireCleanAdapterShutdown();
   await requireCleanAppProcessShutdown();
 };
@@ -2377,7 +2340,6 @@ const quiesceSignalRenderer = (generation: number): void => {
 
 const collectLiveWorkSnapshot = () =>
   assessLiveWork({
-    attachedHerdrStreamCount: herdrActiveControlCount(),
     localTerminalSessionCount: termPlane.router.runningCount(),
   });
 
@@ -2495,7 +2457,7 @@ app.on("before-quit", (event) => {
     return;
   }
 
-  // Honest quit: one confirm naming what pauses vs what survives (herdr never killed).
+  // Honest quit: one confirm naming what pauses vs what stops.
   // Dialog does not set quitPreparation — signals must be able to supersede it.
   const prompt = buildQuitConfirmPrompt(live);
   const parent = trustedMainWindow;

@@ -4,35 +4,11 @@ import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { deriveRegionRollups, type AgentActivity, type RegionRollup } from "@shared/region-rollup";
 import { CanvasesService, type CanvasError } from "./canvases";
 import { ChatServiceContext, type ChatService } from "./chat/service";
-import { HerdrPlane } from "./herdr/plane";
 import { SnapshotsService } from "./snapshots";
-import type { WorkSurfaceActivity } from "@shared/terminal";
 import { liveSeatBlocksForCanvas } from "./work/blocked-seat";
 
-/**
- * Herdr vocabulary stops at this adapter boundary.
- *
- * Ready/complete (`done` = Idle+!seen) rides as `ready` beside `harness: idle`:
- * it earns the green ready tier on cards and region chips, and it still must
- * not reach the notify-strip attention pills (needs-input / blocked only).
- */
-export const herdrAgentStatusActivity = (status: string): WorkSurfaceActivity => {
-  const normalized = status.toLowerCase();
-  const harness = normalized === "working" || normalized === "blocked"
-    ? normalized
-    : normalized === "done" || normalized === "idle"
-      ? "idle"
-      : "unknown";
-  return {
-    session: "running",
-    harness,
-    ...(normalized === "done" ? { ready: true } : {}),
-    source: "herdr",
-  };
-};
-
 // Region severity rollups for the RTS bottom bar. Derived per request from
-// the document + snapshots + ACP chat plane + herdr mirrors.
+// the document + snapshots + ACP chat plane.
 export class RegionRollupService extends Context.Service<RegionRollupService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
@@ -41,13 +17,12 @@ export class RegionRollupService extends Context.Service<RegionRollupService,
 
 export const makeRegionRollupLive = (
   chatService: ChatService,
-): Layer.Layer<RegionRollupService, never, CanvasesService | SnapshotsService | HerdrPlane> =>
+): Layer.Layer<RegionRollupService, never, CanvasesService | SnapshotsService> =>
   Layer.effect(
     RegionRollupService,
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       const snapshots = yield* SnapshotsService;
-      const herdrPlane = yield* HerdrPlane;
 
       return RegionRollupService.of({
         doctor: Effect.succeed({
@@ -72,28 +47,12 @@ export const makeRegionRollupLive = (
               });
             }
 
-            const terminalStatusByNodeId = new Map<string, WorkSurfaceActivity>();
-            for (const node of doc.nodes) {
-              const herdr = node.ether?.herdr;
-              if (herdr?.paneId === undefined || herdr.paneId.length === 0) continue;
-              const mirror = herdrPlane.mirrors.mirrorFor(herdr.host);
-              if (mirror === undefined) continue;
-              const rec = mirror.lookupPane(herdr.paneId);
-              if (rec === undefined) continue;
-              const status =
-                (typeof rec.agent_status === "string" && rec.agent_status) ||
-                (typeof rec.agentStatus === "string" && rec.agentStatus) ||
-                undefined;
-              if (status) terminalStatusByNodeId.set(node.id, herdrAgentStatusActivity(status));
-            }
-
             return deriveRegionRollups({
               doc,
               ...executionGraphContextFromActorRefs(canvasName, actorRefs),
               workBlockedSeats: liveSeatBlocksForCanvas(canvasName, doc),
               snapshots: state,
               agentActivity,
-              terminalStatusByNodeId,
             });
           }),
       });

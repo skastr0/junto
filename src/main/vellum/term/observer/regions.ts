@@ -1,6 +1,6 @@
 /**
  * Grid region extractors for harness state rules.
- * Port of herdr *region concepts* (not their strings): viewport-sized tail,
+ * Region concepts: viewport-sized tail,
  * horizontal-rule slices, prompt-box body between ─── rules.
  */
 

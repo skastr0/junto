@@ -5,13 +5,13 @@ import { worstWindow } from "@shared/usage";
 import { state$ } from "../lib/state";
 import { GREEN, HUE } from "../lib/theme";
 import { FocusSurface } from "./FocusSurface";
-import { HarnessMark } from "./herdr/HarnessMark";
+import { HarnessMark } from "./HarnessMark";
 import "./UsageHud.css";
 
 // Compact station usage rail: one [glyph / bar] cell per quota (vertical
-// split — icon above meter). Beta = codexbar only (natives unwired).
-// Fail open: paint only when there are quotas; hide entirely when codexbar
-// is missing or the poll has nothing to show (no loading/error chrome).
+// split — icon above meter). Sources are the native strategy pipelines.
+// Fail open: paint only when there are quotas; hide entirely when no source
+// reports data or the poll has nothing to show (no loading/error chrome).
 
 const EMPTY_USAGE: UsageState = { snapshots: [] };
 

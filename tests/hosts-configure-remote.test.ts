@@ -54,14 +54,14 @@ const remoteHost: RemoteHost = {
   label: "Studio",
   kind: "remote",
   sshEndpoint: "studio-box",
-  capabilities: ["herdr", "hermes", "browser"],
+  capabilities: ["hermes", "browser"],
 };
 
 const localHost: RemoteHost = {
   id: "local",
   label: "local",
   kind: "local",
-  capabilities: ["herdr", "hermes"],
+  capabilities: ["hermes"],
 };
 
 const statusResponse = StatusResponse.make({
@@ -345,7 +345,7 @@ describe("configureRemoteHost", () => {
         label: "Studio",
         kind: "remote",
         hermesId: "fleet-studio",
-        capabilities: ["herdr", "hermes", "browser"],
+        capabilities: ["hermes", "browser"],
       },
     });
     expect(result).toMatchObject({

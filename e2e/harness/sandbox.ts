@@ -524,37 +524,6 @@ export const terminalTextNode = (input: {
   },
 });
 
-/** A herdr-bound node matching the shape the demo engine's own scenarios use
- * (src/renderer/demo/scenarios/trailer-60.ts) — single fixed workspace/tab. */
-export const herdrTextNode = (input: {
-  readonly id: string;
-  readonly host: string;
-  readonly paneId: string;
-  readonly terminalId: string;
-  readonly label: string;
-  readonly x?: number;
-  readonly y?: number;
-}): TextNode => ({
-  id: input.id,
-  type: "text",
-  text: input.label,
-  x: input.x ?? 0,
-  y: input.y ?? 0,
-  width: 260,
-  height: 110,
-  ether: {
-    entity: { kind: "herdr" },
-    herdr: {
-      host: input.host,
-      session: null,
-      workspaceId: "w1",
-      tabId: "w1:t1",
-      paneId: input.paneId,
-      terminalId: input.terminalId,
-      label: input.label,
-    },
-  },
-});
 
 /** A managed agent seat for scripted scenarios.
  * `key` is the process-bind agent key (`<host>:<profile>`); the same stable

@@ -21,7 +21,7 @@ const facts = (over: Partial<SeatFacts> & { readonly nodeId?: string }): SeatFac
 });
 
 describe("seatFactsForNode", () => {
-  it("joins node id, seat, session, flags, and herdr into one object", () => {
+  it("joins node id, seat, session, and flags into one object", () => {
     expect(
       seatFactsForNode({
         nodeId: "a",
@@ -31,7 +31,6 @@ describe("seatFactsForNode", () => {
         flags: ["attention"],
         attentionReasons: ["permission:pending"],
         managedSeat: true,
-        herdrAgentStatus: "idle",
       }),
     ).toMatchObject({
       nodeId: "a",
@@ -47,14 +46,6 @@ describe("seatFactsForNode", () => {
     });
   });
 
-  it("maps herdr blocked onto graphBlocked when no seat event", () => {
-    expect(
-      seatFactsForNode({
-        nodeId: "h",
-        herdrAgentStatus: "blocked",
-      }),
-    ).toMatchObject({ graphBlocked: true, seatState: undefined });
-  });
 });
 
 describe("cardMark", () => {

@@ -2,7 +2,6 @@
  * Compile-time defines injected by electron-vite / bun build.
  * Optional so bare `tsc` / vitest without define still typecheck.
  */
-declare const __VELLUM_COMMAND_HERDR_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_CRON_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_RELAY_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;

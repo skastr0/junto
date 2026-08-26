@@ -40,12 +40,8 @@ import { PrismLive, PrismService } from "./services/prism";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plane";
 import { HermesTransportLive } from "./vellum/hermes/transport";
-import { HerdrPlaneLive } from "./vellum/herdr/plane";
-import { HerdrTransportLive } from "./vellum/herdr/transport";
-import { TerminalSessions } from "./vellum/term/sessions";
 import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
 import { termPlane } from "./vellum/term/plane";
-import { HerdrPlane } from "./vellum/herdr/plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
@@ -266,25 +262,15 @@ const BoxActivityPolicyWithFleetLive = Layer.provideMerge(
 
 // HostsServiceLive loads the durable registry while acquiring HostsWithSshLive.
 // Making that complete input feed the host-aware transports is the boot-order
-// barrier: no Herdr/Hermes plane can construct before synchronous routing has
+// barrier: no Hermes plane can construct before synchronous routing has
 // the persisted host inventory.
 const ProductTransportsLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrTransportLive, HermesTransportLive),
+  HermesTransportLive,
   HostsWithSshLive,
 );
 
-// TerminalSessions is plane.sessions — one instance, no dual path.
-const TerminalSessionsLive = Layer.effect(
-  TerminalSessions,
-  Effect.map(HerdrPlane, (plane) => plane.sessions),
-);
-const HerdrWithSessionsLive = Layer.provideMerge(
-  TerminalSessionsLive,
-  HerdrPlaneLive,
-);
-
 export const ProductPlanesLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrWithSessionsLive, HermesPlaneLive),
+  HermesPlaneLive,
   ProductTransportsLive,
 );
 

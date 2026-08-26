@@ -110,7 +110,7 @@ const remoteConfigurationRequest = (
   commandCenter: InstallationIdValue,
   options: {
     readonly capabilities?: ReadonlyArray<
-      "terminal" | "browser" | "herdr" | "hermes"
+      "terminal" | "browser" | "hermes"
     >;
     readonly supervisedPreferred?: boolean;
   } = {},

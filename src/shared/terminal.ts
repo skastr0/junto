@@ -4,8 +4,8 @@
 
 import { Schema } from "effect";
 import { actorDeliverySurfaceOf } from "./actor-surface";
-import type { CanvasNode, EtherHerdr, EtherTerminal, EtherTerminalLaunch, TerminalOnDelete } from "./canvas";
-import { resolveHerdrOnDelete, resolveTerminalOnDelete } from "./canvas";
+import type { CanvasNode, EtherTerminal, EtherTerminalLaunch, TerminalOnDelete } from "./canvas";
+import { resolveTerminalOnDelete } from "./canvas";
 
 // Re-export canvas terminal schema pieces for runtime consumers.
 export type { EtherTerminal, EtherTerminalLaunch, TerminalOnDelete } from "./canvas";
@@ -31,13 +31,13 @@ export const WorkSurfaceActivity = Schema.Struct({
   session: TerminalSessionStatus,
   harness: Schema.optionalKey(TerminalHarnessState),
   /**
-   * Finished a turn, operator has not looked yet (seat idle + needsLook, herdr
-   * "done"). Rides beside `harness: "idle"` rather than becoming a harness
+   * Finished a turn, operator has not looked yet (seat idle + needsLook).
+   * Rides beside `harness: "idle"` rather than becoming a harness
    * state: ready asks for a glance, never for input, so needs-input surfaces
    * keep ignoring it while the region ladder can still show it.
    */
   ready: Schema.optionalKey(Schema.Boolean),
-  source: Schema.optionalKey(Schema.Literals(["vellum-command", "herdr", "native"])),
+  source: Schema.optionalKey(Schema.Literals(["vellum-command", "native"])),
 });
 export type WorkSurfaceActivity = typeof WorkSurfaceActivity.Type;
 
@@ -95,7 +95,7 @@ export const TerminalCapabilities = Schema.Struct({
   graphics: Schema.Boolean,
   durable: Schema.Boolean,
   ownsKill: Schema.Boolean,
-  presentation: Schema.Literals(["xterm", "herdr-stream"]),
+  presentation: Schema.Literal("xterm"),
 });
 export type TerminalCapabilities = typeof TerminalCapabilities.Type;
 
@@ -109,22 +109,12 @@ export const xtermCapabilities = (): TerminalCapabilities => ({
   presentation: "xterm",
 });
 
-export const herdrStreamCapabilities = (): TerminalCapabilities => ({
-  mouse: false,
-  selectionNative: false,
-  ime: false,
-  graphics: false,
-  durable: true,
-  ownsKill: false,
-  presentation: "herdr-stream",
-});
-
 // ── Surface kinds ─────────────────────────────────────────────────────────
 
-export type TerminalSurfaceKind = "native" | "herdr";
+export type TerminalSurfaceKind = "native";
 
 export type ResolvedTerminalBinding =
-  | {
+  {
       readonly kind: "native";
       readonly hostId: string;
       readonly bindingId: string;
@@ -135,39 +125,7 @@ export type ResolvedTerminalBinding =
       readonly harness?: string;
       /** Agent key when the card is entity.kind agent. */
       readonly agentKey?: string;
-    }
-  | {
-      readonly kind: "herdr";
-      readonly hostId: string;
-      readonly herdr: EtherHerdr;
-      readonly onDelete: ReturnType<typeof resolveHerdrOnDelete>;
     };
-
-/**
- * A herdr pane is geography: it renders and shows live state, but holds no
- * actor delivery surface. Its binding is read straight off the authored
- * `ether.herdr`, never through the actor sum.
- */
-const herdrBinding = (
-  node: CanvasNode,
-): Extract<ResolvedTerminalBinding, { readonly kind: "herdr" }> | undefined => {
-  if (node.ether?.entity?.kind !== "herdr") return undefined;
-  const herdr = node.ether.herdr;
-  if (!herdr || !herdr.terminalId?.trim()) return undefined;
-  const herdrHost = herdr.host?.trim();
-  const nodeHost = typeof node.ether.host === "string" ? node.ether.host.trim() : "";
-  return {
-    kind: "herdr",
-    hostId:
-      herdrHost && herdrHost.length > 0
-        ? herdrHost
-        : nodeHost.length > 0
-          ? nodeHost
-          : "local",
-    herdr,
-    onDelete: resolveHerdrOnDelete(herdr),
-  };
-};
 
 /**
  * A raw user-opened terminal: geography, not an actor. It hosts a PTY and
@@ -191,16 +149,12 @@ const rawTerminalBinding = (node: CanvasNode): ResolvedTerminalBinding | undefin
 };
 
 /**
- * Resolve a canvas node to a terminal surface binding: the two geography panes
- * (herdr, raw terminal) first, then the one actor seat. No "if terminal OR
- * agent OR acp".
+ * Resolve a canvas node to a terminal surface binding: the geography pane (raw
+ * terminal) first, then the one actor seat. No "if terminal OR agent OR acp".
  */
 export const resolveTerminalBinding = (
   node: CanvasNode,
 ): ResolvedTerminalBinding | undefined => {
-  const herdr = herdrBinding(node);
-  if (herdr) return herdr;
-
   const raw = rawTerminalBinding(node);
   if (raw) return raw;
 

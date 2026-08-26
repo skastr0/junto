@@ -880,7 +880,7 @@ describe("SshTransport", () => {
     const value = await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
-        const remote = yield* makeRemoteCommand("herdr", ["server"]);
+        const remote = yield* makeRemoteCommand("hermes", ["server"]);
         return yield* (yield* SshTransport).handoff(
           daemonHandoff(endpoint, remote),
           (confirm) => Effect.succeed(confirm("healthy")),

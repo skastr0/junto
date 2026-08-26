@@ -30,7 +30,6 @@
 - [Edges & criteria](#edges--criteria)
 - [Work plane & CLI](#work-plane--cli)
 - [Browser automation](#browser-automation)
-- [Herdr terminals](#herdr-terminals)
 - [Kernel: regions, watchers, timers](#kernel-regions-watchers-timers)
 - [Station roles & multi-host fleet](#station-roles--multi-host-fleet)
 - [Settings & install](#settings--install)
@@ -52,12 +51,11 @@ Managing agents is overwhelming.
 
 ## The station
 
-**Vellum Command** lays your Hermes fleet, Herdr terminals, browser pages, and agent work on one portable spatial canvas — so **you author the board** and the fleet acts through a real work plane.
+**Vellum Command** lays your Hermes fleet, terminals, browser pages, and agent work on one portable spatial canvas — so **you author the board** and the fleet acts through a real work plane.
 
 ### Why operators choose it
 
 - **One spatial board for the whole fleet** — agents, work, and regions as geography, not a pile of windows
-- **Herdr terminals made legible** — operable on the canvas, not buried in a dock of tabs
 - **Hermes multi-agent presence** — who is up, blocked, waiting, or done, live on the board
 - **Multi-host / multi-fleet over SSH** — without a second remote tool to babysit
 - **A2A work plane** — tasks, requests, input-required, messages, and artifacts with protocol, not chat chaos
@@ -85,7 +83,7 @@ Cloudflare Worker configured in
 [src/main/vellum/update/compiled-config.ts](src/main/vellum/update/compiled-config.ts),
 not GitHub Releases.
 
-Requirements: **macOS 13+** (arm64 primary). Install **Hermes** and **Herdr** for live fleet and terminal features; browser nodes ship with the station.
+Requirements: **macOS 13+** (arm64 primary). Install **Hermes** for live fleet features; browser nodes ship with the station.
 
 Authorized maintainers with repository access use the internal development and
 release instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -135,7 +133,6 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 |---|---|---|---|
 | **agent** | text | Hermes profile card; key `<host>:<profile>`; ACP chat | Live agent presence and managed-terminal seat |
 | **terminal** | text | Native Vellum Command PTY session (`ether.terminal`) | Default local terminal work surface |
-| **herdr** | text | Optional legacy bound PTY pane | Compatibility with existing herdr fleets |
 | **page** | link | Bound browser page + profile name | Browser as a first-class fleet surface |
 | **task** | text | Address for a normalized SQLite task sink | Protocol tasks, not chat chaos |
 | **requests** | text | Address for a normalized input-required shelf | Operator attention queue |
@@ -151,7 +148,7 @@ Derived state (blocked seats, region membership, binding health, live phase) is 
 | **Flags** | `blocker` - `parked` - `attention` — visual + graph seed |
 | **View slice** | retired — project slice lens removed |
 | **Host stamp** | `ether.host` — multi-fleet execution locality |
-| **Region defaults** | Create-time defaults for herdr/page inside a region |
+| **Region defaults** | Create-time defaults for page nodes inside a region |
 | **Region hold / instruction** | Structural container + onboard briefing text (`vellum-command onboard` → `region.instruction`) |
 
 Work contents never persist in authorial `ether`; task, request, message,
@@ -164,9 +161,7 @@ nodes can receive stoppage.
 Native `terminal` nodes are the default terminal path. Vellum Command owns their local
 processes through the app-scoped TermPlane and presents them with xterm. Quitting
 Vellum Command kills every local native terminal session; detached local sessions do not
-survive quit. Put durable work on a **Remote** station instead. Herdr remains
-available as **Herdr (legacy)** for existing panes and is optional for a healthy
-local station; quitting Vellum Command detaches its surfaces rather than deleting herdr.
+survive quit. Put durable work on a **Remote** station instead.
 
 ---
 
@@ -213,7 +208,7 @@ vellum-command artifact publish
 
 Build the CLI: `bun run cli:build` → `dist/vellum-command`.
 
-**Process-bind:** the principal is the live ACP/herdr child PID — no freeform nodeRef identity claim. Draw edges from the agent to targets so authorization is spatial and honest.
+**Process-bind:** the principal is the live ACP child PID — no freeform nodeRef identity claim. Draw edges from the agent to targets so authorization is spatial and honest.
 
 **Task states:** `submitted` - `working` - `input-required` - `completed` - `canceled` - `failed` - `rejected` — legal transitions enforced.
 
@@ -254,19 +249,6 @@ App must be running. Control home: `~/.vellum-command/browser/` (override `VELLU
 
 ---
 
-## Herdr terminals
-
-| | |
-|---|---|
-| **What** | Canvas cards bound to Herdr PTY panes (local or remote) |
-| **Why** | Terminals become geography — legible status, multi-host, multi-pane |
-| **Bind** | Herdr wizard: host → session → workspace → tab → pane |
-| **Delete** | Default **detach** (panes survive); optional kill-pane |
-| **Quit** | Detaches control streams only — fleet keeps running |
-| **Hosts** | Settings → Hosts; registry rows live in `vellum-command.db`; local is seeded with herdr+hermes |
-
-Connection states: connected - degraded - lost - failed - reconnect. Clipboard image paste supported (bounded).
-
 ---
 
 ## Kernel: regions, watchers, timers
@@ -297,7 +279,7 @@ Role is **never inferred** — you pick it. `hostId` identifies this machine (de
 | Config | Contract |
 |---|---|
 | Host registry | App-owned rows in `vellum-command.db` (max 32) |
-| Local host | Auto-seeded with herdr + hermes |
+| Local host | Auto-seeded with terminal, browser, and hermes |
 | Remote host | SSH endpoint + capabilities; optional hermesId remap |
 | Fleet sync | `pair` / `configure` / `project` / `report` / `status` through `vellum-command station-stdio` |
 | Tailscale | Optional serve/peer catalog in Settings → Hosts |
@@ -357,7 +339,7 @@ vellum-command artifact publish
 | Socket | `~/.vellum-command/work/control.sock` |
 | Token | `~/.vellum-command/work/token` |
 | Authz | **Edges** — agent only acts on connected nodes |
-| Identity | Process-bind (live ACP/herdr PID), not freeform node claims |
+| Identity | Process-bind (live ACP PID), not freeform node claims |
 
 Build: `bun run cli:build` → `dist/vellum-command`.
 
@@ -383,12 +365,6 @@ vellum-command browser goto | eval | shot | close | stop
 ```
 
 ---
-
-## Herdr terminals
-
-Canvas cards bind to Herdr PTY panes (local or remote). Wizard bind: host →
-session → workspace → tab → pane. Default delete = **detach** (panes survive).
-Quit detaches control streams only. Hosts are enrolled through Settings.
 
 ---
 
@@ -464,7 +440,7 @@ vellum-command artifact publish
 | Socket | `~/.vellum-command/work/control.sock` |
 | Token | `~/.vellum-command/work/token` |
 | Authz | Edges — act only on connected nodes |
-| Identity | Process-bind (live ACP/herdr PID) |
+| Identity | Process-bind (live ACP PID) |
 
 ---
 
@@ -488,12 +464,6 @@ vellum-command browser goto | eval | shot | close | stop
 ```
 
 ---
-
-## Herdr terminals
-
-Canvas cards bind to Herdr PTY panes (local or remote). Wizard: host → session
-→ workspace → tab → pane. Default delete = **detach**. Quit detaches streams
-only. Hosts are enrolled through Settings.
 
 ---
 
@@ -548,7 +518,6 @@ serve catalog lives in Settings.
 | **group / region** | Operational geography |
 | **agent** | Hermes profile + ACP chat |
 | **terminal** | Native PTY session; local sessions end on app quit |
-| **herdr** | Optional legacy bound PTY pane |
 | **task / requests / artifacts** | A2A work stores |
 | **watcher / timer** | Kernel sensors / clocks |
 
@@ -571,7 +540,6 @@ See [Node types](#node-types) detail in prior sections of this README (native ty
 |---|---|
 | **agent** | Hermes / managed agent seat |
 | **terminal** | Native PTY binding; default terminal surface; onDelete detach \| kill |
-| **herdr** | Legacy PTY pane binding; onDelete detach \| kill-pane |
 | **page** | Browser page + profile; cookies persist |
 | **task** | A2A task list |
 | **requests** | Input-required shelf |
@@ -634,9 +602,8 @@ vellum-command browser goto | eval | shot | close | stop
 
 ---
 
-## Herdr - Kernel - Stations - Hosts
+## Kernel - Stations - Hosts
 
-- **Herdr** — canvas cards bound to PTY panes; wizard bind; detach-on-quit; multi-host registry
 - **Kernel** — regions, watchers, timers (status/clock only; no region pulse inject)
 - **Stations** — Command Center vs Remote (never inferred); complete Station API projections
 - **Hosts** — app-owned SQLite registry; optional Tailscale serve catalog

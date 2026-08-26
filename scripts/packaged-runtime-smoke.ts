@@ -116,7 +116,6 @@ export const boundedProcessKind = (command: string): string => {
   for (const kind of [
     "grok",
     "hermes",
-    "herdr",
     "zsh",
     "bash",
     "ssh",

@@ -318,11 +318,11 @@ Each row was real code once; none of it is representable now.
 
 | refused | why it was wrong |
 |---|---|
-| a second actor kind | three kinds carried `role: "actor"`, and ~12 call sites re-decided which was which — they disagreed about herdr. `ActorKind` is now one literal. |
+| a second actor kind | three kinds carried `role: "actor"`, and ~12 call sites re-decided which was which. `ActorKind` is now one literal. |
 | an actor whose kind depends on a live process | managed-ness was recomputed per open from `harness \|\| launch.kind`. A node is what it was authored as. |
 | an actor that silently becomes a shell | an unresolvable launch fell back to a login shell, so a dead agent looked like a working terminal. It is an error state; the shell is a different variant. |
 | a decoder that rewrites the document | `sanitizeActorSurfacePorts` deleted an actor's entity to satisfy a cross-kind rule. The document is the product: it is decoded, never corrected. |
-| geography with a seat, ports, an inbox, or a work claim | herdr held message offers while being hidden behind a `legacy-surfaces` flag. Re-kind, never hide. **Display is exempt** — a geography node may show agent state. |
+| geography with a seat, ports, an inbox, or a work claim | a geography kind once held message offers while hidden behind a flag. Re-kind, never hide. **Display is exempt** — a geography node may show agent state. |
 | a second admission path | route tokens minted seat identity for callers with no local Vellum Command. One path: the work-file token proves reach, process-bind proves who. |
 | a port gated by a tier number | `PORT_TIER_FLOOR` crossed a 1–4 scale with each port. Placement is data; admission is role-pair law × kind offers × authorial mask. |
 | a principal that resolves to nothing | three principal kinds × three optional ids, one of which matched no node. One shape, at least one anchor, canvas-pinned when it has no agent key. |

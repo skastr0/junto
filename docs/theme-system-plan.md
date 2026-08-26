@@ -171,7 +171,7 @@ decoration.
 ### 5. Runtime consumers to make mode-aware
 
 - `lib/terminal-theme.ts` — build both xterm themes from the source;
-  `TerminalSurface` / `HerdrTerminalModal` swap on mode change.
+  `TerminalSurface` swaps on mode change.
 - `components/fleet/FleetRenderer.tsx` — Three.js colors from
   `themeFor(mode)`; kills the `#f0a12e` drift.
 - `components/CanvasMagnifier.tsx` — canvas-2D paint via `themeFor(mode)`.
@@ -201,7 +201,7 @@ Each swarm agent gets: the taxonomy table, the literal→token mapping rules
 (ink-alpha → `stroke`/`overlay-N`, white overlay → `overlay-N`, black scrim →
 `backdrop`, hue-alpha → `color-mix` of the role token), and one chunk:
 
-1. `styles.css` part A (base, focus-surface, workbench, herdr, dock)
+1. `styles.css` part A (base, focus-surface, workbench, dock)
 2. `styles.css` part B (station bar, dialogs, help-map)
 3. `styles.css` part C (field-status/legend/hint, filter tray, inspector)
 4. `styles.css` remainder (whatever the first pass leaves)

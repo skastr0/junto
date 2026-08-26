@@ -124,12 +124,12 @@ const denyingEdgeGrant = (): EdgeGrantService => ({
   admitSocket: async () => ({
     ok: false,
     denial: "process_unbound",
-    message: "connecting process is not a registered agent or herdr process",
+    message: "connecting process is not a registered agent process — open the agent in Vellum Command first",
   }),
   admitPrincipal: async () => ({
     ok: false,
     denial: "process_unbound",
-    message: "connecting process is not a registered agent or herdr process",
+    message: "connecting process is not a registered agent process — open the agent in Vellum Command first",
   }),
   clear: () => {},
   invalidateCanvas: () => Object.freeze([]),
@@ -861,7 +861,7 @@ describe("browser control Unix transport", () => {
       ok: false,
       error: {
         _tag: "unauthorized",
-        message: "connecting process is not a registered agent or herdr process",
+        message: "connecting process is not a registered agent process — open the agent in Vellum Command first",
       },
     });
 
@@ -902,7 +902,7 @@ describe("browser control Unix transport", () => {
         ok: false,
         error: {
           _tag: "unauthorized",
-          message: "connecting process is not a registered agent or herdr process",
+          message: "connecting process is not a registered agent process — open the agent in Vellum Command first",
         },
       });
     }

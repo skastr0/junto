@@ -138,7 +138,7 @@ records are reconciled.
 - **Always** consume the stable production release that normal users install (npm/registry tag, published CLI version, released binary — not a local checkout with private patches).
 - If a capability exists only on a patched/nightly/unofficial line, **do not build the feature**. Cap the product at what stable production exposes. Wait for upstream stable, or drop the capability.
 
-**Example — herdr:** Vellum Command’s herdr integration must target **stable production herdr only**. Do not design, implement, or ship browser/terminal/agent features against a custom fork, patched daemon, or nightly protocol surface. If stable herdr cannot do X, Vellum Command cannot do X via herdr until stable does.
+**Example — Hermes:** Vellum Command’s Hermes integration must target **stable production Hermes only**. Do not design, implement, or ship browser/terminal/agent features against a custom fork, patched daemon, or nightly protocol surface. If stable Hermes cannot do X, Vellum Command cannot do X via Hermes until stable does.
 
 This is non-negotiable for agents and humans. Violating it creates unshippable private-stack debt.
 
@@ -169,10 +169,10 @@ to an exported document or the database:
 |---|---|
 | CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
 | Socket | `~/.vellum-command/work/control.sock` + bearer token `~/.vellum-command/work/token` |
-| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) or herdr pane process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
+| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
 | Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`) |
 
-**How to use:** open the agent chat (or refresh local herdr pane meta) in Vellum Command so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat in Vellum Command so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
 Browser control (`vellum-command browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client
@@ -220,7 +220,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 ```jsonc
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "worker",
   "ether": {
-    "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known product: agent|terminal|herdr|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
+    "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known product: agent|terminal|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
     "flags": ["blocker"]                                     // blocker|parked|attention
   } }
 ```
@@ -301,8 +301,7 @@ authorial canvas mutate; fail closed, no silent success).
 **Native terminals** — `terminal` is the default terminal entity. TermPlane owns
 local sessions and app quit stops local sessions only through the sealed
 process-signal capability plane (never bare `process.kill(pid)`); use a Remote
-station when work must survive Command Center quit. Herdr is an optional legacy
-bridge for existing panes and must not be required for local health.
+station when work must survive Command Center quit.
 
 **Seat occupancy law** — occupancy is independent of process liveness.
 - A seat is vacant or occupied.
@@ -319,13 +318,13 @@ or it starts fresh. There is no "continue whatever was last." Harness
 Vellum Command feature and must never be emitted. Code:
 `src/shared/managed-terminal-launch.ts`.
 
-**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one herdr pane, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
+**Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one terminal, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
 
 | measure | width intent | use |
 |---|---|---|
 | `prose` | ~65ch reading line | long copy |
 | `document` | ~760px, resizable | session-shaped readers when present |
-| `terminal` | ~140 mono cells @ 13px (~1100px) | herdr agent PTY |
+| `terminal` | ~140 mono cells @ 13px (~1100px) | agent PTY |
 | `workspace` | ~1280px immersive | focused browser / multi-pane still framed |
 | `form` | ~448px fit | wizards |
 
@@ -338,10 +337,10 @@ The renderer has one visual language with two modes — `dark` (default) and `br
 - **Tokens** — `src/shared/theme/` is the single source of truth: OKLCH primitives (`primitives.ts`) assigned meaning per mode in the semantic layer (`semantic.ts`). `bun run theme:build` projects it to `src/renderer/styles/theme.generated.css`, which registers the palette as Tailwind v4 utilities (`text-ink`, `text-dim`, `text-faint`, `bg-ground/raise/raise-2/inset/well`, `border-stroke`, `text-amber/cyan/violet/crimson/…`, `font-mono`, `font-display`) plus `html[data-theme="bright"]` overrides. `src/renderer/lib/theme.ts` re-exports the same source for runtime consumers (canvas paint, inline styles); `src/shared/svg.ts` imports it for the SVG export. Never hardcode palette hex/rgba — edit the source and regenerate.
 - **Primitives** — `src/renderer/components/ui/`: `Button` (chrome/primary/subtle/danger - xs/sm/md), `IconButton`, `Eyebrow`, `StatusDot`, `Chip`, `Input`/`Select`/`FieldLabel`, `OverlayHeader` (eyebrow/title/status/actions chrome header for every work-surface panel), `ToolbarPill` (floating node toolbar), `Kbd` (hotkey/gesture chip), `HelpMap` + `HelpMapGroup` / `HelpMapKeys` / `HelpMapPrimer` / `HelpMapPrimerBlock` (protocol & interaction maps — compose anywhere; canvas fill lives in `components/help/CanvasInteractionMap.tsx`). New surfaces compose these; do not hand-roll buttons, headers, status dots, or help chrome.
 - **Canvas card law — no action buttons on nodes.** Cards are glance + identity only. Open via double-click or RTS kind-strip keys; config via kind-strip pops; flags/delete/pause live on the selection toolbar / RTS command card. The only on-card controls allowed are pure instrumentation (enqueue + on tasks glance, activity marks). Never put "open" / "stop" / "detach" / form CTAs on the card body.
-- **Terminal look** — `src/renderer/lib/terminal-theme.ts` (`VELLUM_XTERM_THEME`, font family/size) is the one xterm theme for every terminal surface (native + herdr).
+- **Terminal look** — `src/renderer/lib/terminal-theme.ts` (`VELLUM_XTERM_THEME`, font family/size) is the one xterm theme for every terminal surface.
 - **Overlays** — one backdrop recipe everywhere: `rgba(0,0,0,0.72)` + `blur(2px)`. New single-subject overlays go through `FocusSurface`; panel headers go through `OverlayHeader`.
 
-The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake herdr/hermes/codexbar and screenshots them to `test-results/design-audit/` — run it after any visual change and read the frames.
+The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake hermes/codexbar and screenshots them to `test-results/design-audit/` — run it after any visual change and read the frames.
 
 ## Structure
 

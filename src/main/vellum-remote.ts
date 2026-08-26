@@ -46,9 +46,8 @@ import {
   KernelService,
   type KernelHost,
 } from "./vellum/kernel/service";
-import { HerdrPlane } from "./vellum/herdr/plane";
 import { HermesPlane } from "./vellum/hermes/plane";
-import { HERDR_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { termPlane } from "./vellum/term/plane";
 import { startTransportJournal } from "./vellum/observability";
@@ -118,10 +117,6 @@ type Handles = {
   stationControl?: StationControlServer;
   stationRemoteReportPump?: StationRemoteReportPump;
   licenseCoordinator?: LicenseCoordinator;
-  herdr?: {
-    readonly start: Effect.Effect<void, unknown, never>;
-    readonly beginShutdown: (reason?: string) => void;
-  };
   hermes?: {
     readonly shutdown: { readonly drainOnQuit: () => Promise<unknown> };
   };
@@ -159,7 +154,6 @@ const runProductBoot = async (): Promise<void> => {
     void handles.stationRemoteReportPump?.close();
     handles.stationControl?.beginShutdown();
     termPlane.beginShutdown(reason);
-    handles.herdr?.beginShutdown();
     void handles.hermes?.shutdown.drainOnQuit();
   };
 
@@ -345,15 +339,8 @@ const runProductBoot = async (): Promise<void> => {
     return;
   }
 
-  const [herdr, hermes] = await Promise.all([
-    HERDR_ENABLED
-      ? RemoteRuntime.runPromise(HerdrPlane)
-      : Promise.resolve(undefined),
-    RemoteRuntime.runPromise(HermesPlane),
-  ]);
-  handles.herdr = herdr;
+  const hermes = await RemoteRuntime.runPromise(HermesPlane);
   handles.hermes = HERMES_INTEGRATION_ENABLED ? hermes : undefined;
-  if (herdr) await RemoteRuntime.runPromise(herdr.start);
 
   try {
     const kernel = await RemoteRuntime.runPromise(KernelService);

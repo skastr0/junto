@@ -13,7 +13,7 @@ const sourceFiles = (directory: string): ReadonlyArray<string> =>
     if (entry.isDirectory()) return sourceFiles(path);
     const extension = extname(path);
     return [".ts", ".tsx", ".js", ".mjs", ".sh", ".py"].includes(extension) ||
-      path.endsWith("/e2e/fakes/bin/herdr") || path.endsWith("/e2e/fakes/bin/ssh")
+      path.endsWith("/e2e/fakes/bin/ssh")
       ? [path]
       : [];
   });
@@ -219,18 +219,6 @@ describe("tooling process-safety architecture", () => {
     )).toBe(true);
   });
 
-  it("shuts down sandbox herdr through its fake-only RPC without pid discovery", () => {
-    const source = ts.createSourceFile(
-      "launch.ts",
-      readFileSync(join(root, "e2e", "harness", "launch.ts"), "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    );
-    expect(shutdownRequest(source)).toBe(true);
-    expect(readFileSync(join(root, "e2e", "harness", "launch.ts"), "utf8")).not.toMatch(/\blsof\b/u);
-    expect(processKillAccesses(source)).toEqual([]);
-  });
 
   it("rejects process.kill aliases, destructuring, element access, call, and apply", () => {
     const source = ts.createSourceFile(

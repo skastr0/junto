@@ -13,9 +13,7 @@ import {
   type WorkSurface,
   type WorkZone,
 } from "../../lib/surface-registry";
-import { HerdrTerminalPanel } from "../herdr/HerdrTerminalModal";
 import { BrowserSurfaceSlot } from "./BrowserSurfaceSlot";
-import { parseHerdrNodeId } from "./surface-label";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { registerTerminalSlot } from "../../lib/terminal-state";
 import { Button } from "../ui";
@@ -24,58 +22,6 @@ import { TaskEnqueueSurface } from "../work/TaskEnqueueSurface";
 import { NoteSurface } from "./NoteSurface";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { BROWSER_ENABLED } from "@shared/features";
-
-function HerdrSurfaceSlot({
-  surface,
-  zone,
-  visible,
-  onActivate,
-}: {
-  readonly surface: WorkSurface;
-  readonly zone: WorkZone;
-  readonly visible: boolean;
-  readonly onActivate?: () => void;
-}) {
-  const nodeId = parseHerdrNodeId(surface.id);
-  const pinned = zone === "pinned";
-
-  if (!nodeId) {
-    return (
-      <section className="dock-slot workbench-surface">
-        <div className="workbench-surface__placeholder">herdr - unbound</div>
-      </section>
-    );
-  }
-
-  return (
-    <section
-      className="dock-slot dock-slot--herdr workbench-surface"
-      aria-label="Herdr terminal surface"
-      aria-hidden={!visible}
-      onMouseDown={activateSurfaceOnMouseDown(onActivate)}
-    >
-      {visible ? (
-        <div className="workbench-surface__herdr-actions" data-herdr-chrome>
-          <Button
-            size="xs"
-            variant="chrome"
-            title={pinned ? "Move to focus shell" : "Pin to side dock"}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (pinned) unpinWorkbenchSurface(surface.id);
-              else pinWorkbenchSurface(surface.id);
-            }}
-          >
-            {pinned ? "Unpin" : "Pin"}
-          </Button>
-        </div>
-      ) : null}
-      {/* Keep mounted when tabbed away so the control stream survives. */}
-      <HerdrTerminalPanel variant="dock" nodeId={nodeId} />
-    </section>
-  );
-}
 
 function resolveSurfaceBody(
   surface: WorkSurface,
@@ -88,16 +34,6 @@ function resolveSurfaceBody(
     return (
       <BrowserSurfaceSlot
         pageRef={surface.id}
-        zone={zone}
-        visible={visible}
-        onActivate={onActivate}
-      />
-    );
-  }
-  if (surface.kind === "herdr") {
-    return (
-      <HerdrSurfaceSlot
-        surface={surface}
         zone={zone}
         visible={visible}
         onActivate={onActivate}
@@ -200,7 +136,7 @@ const WorkbenchPane = memo(function WorkbenchPane({
 
 /**
  * Renders every surface in the zone (keep-alive). Visible panes fill the
- * layout; surplus surfaces park offscreen so browser bounds zero and herdr
+ * layout; surplus surfaces park offscreen so browser bounds zero and
  * streams stay open.
  */
 export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {

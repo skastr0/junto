@@ -28,7 +28,6 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
-import { HERDR_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
 import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
@@ -77,14 +76,7 @@ import {
   multiSelectionLabel,
 } from "../../lib/multi-selection";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { herdr$ } from "../../lib/herdr-state";
 import { chatCoarse$ } from "../../lib/chat-state";
-import {
-  deriveIdleHerdrQueue,
-  nextIdleHerdrNodeId,
-  type IdleHerdrEntry,
-  type IdleHerdrInput,
-} from "../../lib/idle-herdr-queue";
 import {
   commandSelectionKind,
   hotbarSlotIndexOf,
@@ -287,7 +279,6 @@ const seatFactsOf = (
     readonly chatByAgent?: Readonly<
       Record<string, { readonly pendingPermissionId?: string } | undefined>
     >;
-    readonly herdrAgentStatus?: string | null;
     readonly needsLook?: boolean;
   } = {},
 ): SeatFacts => {
@@ -304,7 +295,6 @@ const seatFactsOf = (
     attentionReasons: liveAttentionReasons(node, extra.chatByAgent),
     managedSeat: managedSeatOf(node),
     needsLook: extra.needsLook,
-    herdrAgentStatus: extra.herdrAgentStatus,
   });
 };
 
@@ -655,7 +645,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  const herdrMeta = use$(herdr$.metaByNodeId[nodeId]);
   const [connectOpen, setConnectOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
@@ -676,14 +665,12 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
       graph.blocked.has(node.id) ||
       graph.seedNodeIds.has(node.id) ||
       ((node.ether?.flags?.includes("blocker") ?? false) &&
-        isBlockableNode(node)) ||
-      (node.ether?.entity?.kind === "herdr" &&
-        herdrMeta?.meta?.agentStatus === "blocked");
+        isBlockableNode(node));
     if (!shellBlocked) return null;
     const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
     return resolveBlockerCause(doc, graph, node.id, { blockedActorSeatId });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick
-  }, [actorRefs, canvasName, doc, execution, executionRev, herdrMeta?.meta?.agentStatus, node]);
+  }, [actorRefs, canvasName, doc, execution, executionRev, node]);
 
   if (!node) {
     return (
@@ -698,24 +685,17 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   // Document truth only — same ether.flags the node flag rail chips use for
   // operator flags (not kernel flagOverrides, not occupancy/live chrome).
   const flags = node.ether?.flags ?? [];
-  const herdr = node.ether?.herdr;
   const kind = commandSelectionKind(node);
   const entityKind = node.ether?.entity?.kind;
-  const agentStatus = herdrMeta?.meta?.agentStatus;
   // Physics role from the kind registry — never hardcoded per node.
   const role = roleOf(specOf(node));
   const executableRole = role === "actor" || role === "sink" || role === "scheduler";
-  // Kind-specific actions (herdr open/mark-seen/kill etc.) live in the
-  // middle-bar kind strip now; the left card keeps type/base + slot cue.
-  const primary = kind === "herdr" ? (["slot-cue"] as const) : primaryCommandActions(kind);
+  // Kind-specific actions live in the middle-bar kind strip now; the left
+  // card keeps type/base + slot cue.
+  const primary = primaryCommandActions(kind);
 
   // Optional subtitle under the title (host/status) — never a kind/shell eyebrow.
-  const subtitle = (() => {
-    if (kind === "herdr" && herdr) {
-      return agentStatus ? `${herdr.host} (${agentStatus})` : herdr.host;
-    }
-    return "";
-  })();
+  const subtitle = "";
 
   const copyReference = async (): Promise<void> => {
     const request = copyRequest.current + 1;
@@ -897,32 +877,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   );
 }
 
-/** Build pure queue inputs from canvas nodes + herdr meta (v1: done only). */
-const collectIdleHerdrInputs = (
-  nodes: ReadonlyArray<CanvasNode>,
-  metaByNodeId: Record<
-    string,
-    { meta?: { agentStatus?: string }; pendingSeen?: boolean } | undefined
-  >,
-): ReadonlyArray<IdleHerdrInput> => {
-  const out: IdleHerdrInput[] = [];
-  for (const node of nodes) {
-    const isHerdr =
-      node.ether?.herdr !== undefined || node.ether?.entity?.kind === "herdr";
-    if (!isHerdr) continue;
-    const cache = metaByNodeId[node.id];
-    out.push({
-      nodeId: node.id,
-      isHerdr: true,
-      agentStatus: cache?.meta?.agentStatus,
-      pendingSeen: cache?.pendingSeen === true,
-      // ACP permission is hermes-plane; herdr PTY has no chat binding in v1.
-      permissionPending: false,
-    });
-  }
-  return out;
-};
-
 const focusNode = (nodeId: string): void => {
   focusCanvasNode(nodeId);
   recomputeHotbar();
@@ -937,51 +891,6 @@ const focusAndActivate = (
   const node = nodes.find((n) => n.id === nodeId);
   if (node) activateNodeSurface(node);
 };
-
-const cycleIdleHerdr = (queue: ReadonlyArray<IdleHerdrEntry>): void => {
-  if (queue.length === 0) return;
-  const current =
-    state$.focusNodeId.peek() ||
-    state$.selectedNodeId.peek() ||
-    undefined;
-  const next = nextIdleHerdrNodeId(queue, current);
-  if (!next) return;
-  focusNode(next);
-  playAlert("cycle");
-};
-
-function useIdleHerdrQueue(): ReadonlyArray<IdleHerdrEntry> {
-  const doc = use$(state$.doc);
-  const metaByNodeId = use$(herdr$.metaByNodeId) as Record<
-    string,
-    { meta?: { agentStatus?: string }; pendingSeen?: boolean } | undefined
-  >;
-  return useMemo(
-    () => deriveIdleHerdrQueue(collectIdleHerdrInputs(doc.nodes, metaByNodeId ?? {})),
-    // metaByNodeId is an observable object; re-read when identity/content changes via use$
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [doc.nodes, metaByNodeId],
-  );
-}
-
-/** SC2 idle-worker badge — count of needs-you herdr nodes; click cycles focus. */
-function IdleHerdrButton({ queue }: { readonly queue: ReadonlyArray<IdleHerdrEntry> }) {
-  const count = queue.length;
-  if (count === 0) return null;
-  return (
-    <button
-      type="button"
-      className="rts-idle-herdr"
-      style={{ color: HUE.amber, borderColor: withAlpha(HUE.amber, 0.45) }}
-      title={`Idle herdr — ${count} need you — F1 or .`}
-      aria-label={`Idle herdr: ${count} need you. Cycle focus. Hotkey F1 or period.`}
-      onClick={() => cycleIdleHerdr(queue)}
-    >
-      <HardHat size={11} aria-hidden />
-      <span className="rts-idle-herdr__count">{count}</span>
-    </button>
-  );
-}
 
 /**
  * Hotbar chip: slot digit + name + signal motion.
@@ -1109,11 +1018,9 @@ function HotbarChip({
  */
 function HotbarStrip({
   byId,
-  idleQueue,
   severityByNodeId,
 }: {
   readonly byId: ReadonlyMap<string, RegionRollup>;
-  readonly idleQueue: ReadonlyArray<IdleHerdrEntry>;
   readonly severityByNodeId: ReadonlyMap<string, MemberSeverity>;
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
@@ -1121,7 +1028,6 @@ function HotbarStrip({
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
   const seatRev = use$(agentSeat$.rev);
-  const herdrMetaByNodeId = use$(herdr$.metaByNodeId);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
   const chatByAgent = use$(chatCoarse$) as
@@ -1165,14 +1071,12 @@ function HotbarStrip({
       }
       const isRegion = node.type === "group";
       const rollup = byId.get(slot.nodeId);
-      const herdrStatus = herdrMetaByNodeId[slot.nodeId]?.meta?.agentStatus;
       const blocked = new Set(execution?.blocked ?? []);
       const severity = isHotbarLeaseActor(node)
         ? digitHue(
             seatFactsOf(node, {
               graphBlocked: blocked.has(slot.nodeId),
               chatByAgent,
-              herdrAgentStatus: herdrStatus,
             }),
           )
         : hotbarNodeSeverity(node, {
@@ -1183,7 +1087,6 @@ function HotbarStrip({
               : liveActivitySeverity({
                   seatState: seatEventForNode(node)?.state,
                   seatNeedsLook: seatNeedsLook(bindingIdForNode(node)),
-                  herdrAgentStatus: herdrStatus,
                 }),
           });
       return {
@@ -1204,7 +1107,6 @@ function HotbarStrip({
     byId,
     severityByNodeId,
     seatRev,
-    herdrMetaByNodeId,
     execution,
     executionRev,
     chatByAgent,
@@ -1245,7 +1147,6 @@ function HotbarStrip({
           />
         ))}
       </div>
-      {HERDR_ENABLED ? <IdleHerdrButton queue={idleQueue} /> : null}
     </div>
   );
 }
@@ -1343,7 +1244,6 @@ function OperatorAttentionPills({
         seatFactsOf(node, {
           graphBlocked: graph.blocked.has(node.id),
           chatByAgent,
-          herdrAgentStatus: herdr$.metaByNodeId[node.id].peek()?.meta?.agentStatus,
         }),
       );
     }
@@ -1425,30 +1325,11 @@ function NotifyStrip({ rollups }: { readonly rollups: ReadonlyArray<RegionRollup
   );
 }
 
-function useHotbarHotkeys(idleQueue: ReadonlyArray<IdleHerdrEntry>): void {
-  // Keep latest queue without rebinding the listener every meta tick.
-  const idleQueueRef = useRef(idleQueue);
-  idleQueueRef.current = idleQueue;
-
+function useHotbarHotkeys(): void {
   useEffect(() => {
     let retap: RegionRetapMemory | null = null;
     const onKey = (event: KeyboardEvent) => {
       if (isTextEditing(event.target)) return;
-
-      // SC2 idle-worker: F1 (and `.`) cycles needs-you herdr nodes.
-      if (
-        HERDR_ENABLED &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        (event.key === "F1" || event.key === ".")
-      ) {
-        const queue = idleQueueRef.current;
-        if (queue.length === 0) return;
-        event.preventDefault();
-        cycleIdleHerdr(queue);
-        return;
-      }
 
       const digit = event.key >= "1" && event.key <= "9" ? Number(event.key) : null;
       if (digit === null) return;
@@ -1558,8 +1439,7 @@ const severityRank = (s: MemberSeverity): number =>
             : 5;
 
 export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
-  const idleQueue = useIdleHerdrQueue();
-  useHotbarHotkeys(idleQueue);
+  useHotbarHotkeys();
   const rollups = useRegionRollups();
   useAlertAttention(rollups);
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
@@ -1591,11 +1471,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
       {/* Above notify + minimap cluster (bottom-right stack). */}
       <CompletedTaskNotifyStack />
       {/* Top row: ops strip spans command+kind; notify strip sits over minimap. */}
-      <HotbarStrip
-        byId={byId}
-        idleQueue={idleQueue}
-        severityByNodeId={severityMap}
-      />
+      <HotbarStrip byId={byId} severityByNodeId={severityMap} />
       <NotifyStrip rollups={rollups} />
       <CommandCard regionRollup={selectedRegion} />
       <KindMiddle />

@@ -31,10 +31,6 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HERMES",
     define: "__VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__",
   },
-  herdr: {
-    env: "VELLUM_COMMAND_HERDR",
-    define: "__VELLUM_COMMAND_HERDR_ENABLED__",
-  },
   /**
    * Advanced diagnostics for developers: install provenance (build/updater,
    * update feed URL, host id, data path), logs explorer chrome. Never on
@@ -90,7 +86,6 @@ export const SHIP_FEATURES: FeatureSet = {
   helpMap: false,
   audio: false,
   hermesIntegration: false,
-  herdr: false,
   devTools: false,
   harnessKimi: false,
   harnessMuse: false,
@@ -107,7 +102,6 @@ export const ALL_FEATURES: FeatureSet = {
   helpMap: true,
   audio: true,
   hermesIntegration: true,
-  herdr: true,
   devTools: true,
   harnessKimi: true,
   harnessMuse: true,

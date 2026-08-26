@@ -62,9 +62,6 @@ const makeOperations = (
   order: string[],
   overrides: Partial<HarnessCleanupOperations> = {},
 ): HarnessCleanupOperations => ({
-  shutdownHerdr: async () => {
-    order.push("herdr.shutdown");
-  },
   destroySandbox: async () => {
     order.push("sandbox.destroy");
   },
@@ -130,7 +127,6 @@ describe("Vellum Command e2e harness cleanup", () => {
     expect(order).toEqual([
       "app.close",
       "server.close",
-      "herdr.shutdown",
       "sandbox.destroy",
       "sandbox.exists",
     ]);
@@ -170,7 +166,6 @@ describe("Vellum Command e2e harness cleanup", () => {
     expect(order).toEqual([
       "app.close",
       "server.close",
-      "herdr.shutdown",
       "sandbox.destroy",
       "sandbox.exists",
     ]);
@@ -209,7 +204,7 @@ describe("Vellum Command e2e harness cleanup", () => {
     expect((error as AggregateError).message).toContain(
       `sandbox preserved at ${sandbox.root}`,
     );
-    expect(order).toEqual(["app.close", "server.close", "herdr.shutdown"]);
+    expect(order).toEqual(["app.close", "server.close"]);
     expect(destroySandbox).not.toHaveBeenCalled();
   });
 
@@ -278,7 +273,6 @@ describe("Vellum Command e2e harness cleanup", () => {
     expect(order).toEqual([
       "app.close",
       "server.close",
-      "herdr.shutdown",
       "sandbox.destroy",
       "sandbox.exists",
     ]);
@@ -309,11 +303,11 @@ describe("Vellum Command e2e harness cleanup", () => {
     expect((error as AggregateError).message).toContain(
       `sandbox preserved at ${sandbox.root}`,
     );
-    expect(order).toEqual(["server.close", "herdr.shutdown"]);
+    expect(order).toEqual(["server.close"]);
     expect(destroySandbox).not.toHaveBeenCalled();
   });
 
-  it("bounds a stuck renderer close without skipping herdr or safe sandbox cleanup", async () => {
+  it("bounds a stuck renderer close without skipping safe sandbox cleanup", async () => {
     const order: string[] = [];
     const app = new FakeElectronApplication();
     app.closeImplementation = async () => {
@@ -340,7 +334,6 @@ describe("Vellum Command e2e harness cleanup", () => {
     expect(order).toEqual([
       "app.close",
       "server.close",
-      "herdr.shutdown",
       "sandbox.destroy",
       "sandbox.exists",
     ]);

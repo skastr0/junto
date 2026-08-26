@@ -3,14 +3,13 @@
 // a point is inside a region if it lies within the region's axis-aligned rect;
 // when regions nest, the smallest-area (innermost) region wins.
 // Defaults bags are bag-atomic per kind: the innermost region that defines
-// `defaults.herdr` (or `defaults.page`) supplies the whole bag — no field merge.
+// `defaults.page` supplies the whole bag — no field merge.
 // Paths are host-keyed: innermost region with a non-empty path for that host.
 
 import type {
   CanvasDoc,
   CanvasNode,
   EtherRegionDefaults,
-  EtherRegionHerdrDefaults,
   EtherRegionPageDefaults,
   EtherRegionPaths,
   GroupNode,
@@ -59,12 +58,6 @@ export const findContainingRegion = (
   y: number,
 ): GroupNode | undefined => findInnermostGroup(doc, x, y, () => true);
 
-/** True when the region bag has a non-empty herdr host string. */
-const regionHasHerdrHost = (group: GroupNode): boolean => {
-  const host = group.ether?.region?.defaults?.herdr?.host;
-  return typeof host === "string" && host.trim().length > 0;
-};
-
 /** True when the region bag has a non-empty page url, profile, or host. */
 const regionHasPageSpawnFields = (group: GroupNode): boolean => {
   const page = group.ether?.region?.defaults?.page;
@@ -91,31 +84,6 @@ const regionHasPathForHost = (group: GroupNode, hostId: string): boolean => {
   if (!host) return false;
   const path = group.ether?.region?.defaults?.paths?.[host]?.trim() ?? "";
   return path.length > 0;
-};
-
-/**
- * Bag-atomic herdr spawn defaults from the innermost region that defines them.
- * Returns undefined when no containing region has a herdr defaults bag.
- * Does not invent hosts/workspaces; callers fail-loud at bind time.
- */
-export const resolveHerdrSpawnDefaults = (
-  doc: CanvasDoc,
-  x: number,
-  y: number,
-): EtherRegionHerdrDefaults | undefined => {
-  const region = findInnermostGroup(doc, x, y, regionHasHerdrHost);
-  const herdr = region?.ether?.region?.defaults?.herdr;
-  if (!herdr?.host?.trim()) return undefined;
-  const host = herdr.host.trim();
-  const workspaceId = herdr.workspaceId?.trim();
-  const tabId = herdr.tabId?.trim();
-  return {
-    host,
-    // Preserve explicit null (default unnamed session) vs absent.
-    ...(herdr.session !== undefined ? { session: herdr.session } : {}),
-    ...(workspaceId ? { workspaceId } : {}),
-    ...(tabId ? { tabId } : {}),
-  };
 };
 
 /**
@@ -183,7 +151,7 @@ export const resolveRegionDefaults = (
   const region = findInnermostGroup(doc, x, y, (g) => {
     const d = g.ether?.region?.defaults;
     if (!d) return false;
-    return regionHasHerdrHost(g) || regionHasPageSpawnFields(g) || regionHasPaths(g);
+    return regionHasPageSpawnFields(g) || regionHasPaths(g);
   });
   return stripEmptyRegionDefaults(region?.ether?.region?.defaults);
 };
@@ -193,18 +161,6 @@ export const stripEmptyRegionDefaults = (
   defaults: EtherRegionDefaults | undefined,
 ): EtherRegionDefaults | undefined => {
   if (!defaults) return undefined;
-  const herdrHost = defaults.herdr?.host?.trim();
-  const herdrWorkspace = defaults.herdr?.workspaceId?.trim();
-  const herdrTab = defaults.herdr?.tabId?.trim();
-  let herdr: EtherRegionHerdrDefaults | undefined;
-  if (herdrHost) {
-    herdr = {
-      host: herdrHost,
-      ...(defaults.herdr?.session !== undefined ? { session: defaults.herdr.session } : {}),
-      ...(herdrWorkspace ? { workspaceId: herdrWorkspace } : {}),
-      ...(herdrTab ? { tabId: herdrTab } : {}),
-    };
-  }
   const pageUrl = defaults.page?.url?.trim();
   const pageProfile = defaults.page?.profile?.trim();
   const pageHost = defaults.page?.host?.trim();
@@ -217,9 +173,8 @@ export const stripEmptyRegionDefaults = (
     };
   }
   const paths = stripEmptyRegionPaths(defaults.paths);
-  if (!herdr && !page && !paths) return undefined;
+  if (!page && !paths) return undefined;
   return {
-    ...(herdr ? { herdr } : {}),
     ...(page ? { page } : {}),
     ...(paths ? { paths } : {}),
   };

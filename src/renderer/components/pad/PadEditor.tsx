@@ -49,7 +49,7 @@ import {
   type Camera,
 } from "@shared/pad-geom";
 import { themeMode$ } from "../../lib/theme-mode";
-import { fileToHerdrClipboardImage } from "../../lib/herdr-clipboard-image";
+import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
 import { IconButton, Kbd } from "../ui";
 import { PadGlyph } from "./PadGlyph";
@@ -459,7 +459,7 @@ export function PadEditor({
 
   const ingestImageFile = useCallback(
     async (file: File, pending: PendingImage): Promise<boolean> => {
-      const image = await fileToHerdrClipboardImage(file);
+      const image = await fileToClipboardImage(file);
       if ("error" in image) {
         setHint(image.error);
         return false;

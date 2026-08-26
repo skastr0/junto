@@ -25,8 +25,8 @@ import type { WorkSurfaceActivity } from "./terminal";
 
 // The severity ladder, worst first. A member lands in the WORST tier it
 // matches; its reasons collect every match, in ladder order.
-// `ready` is finished work nobody has read yet (seat idle + needsLook, herdr
-// "done"). It sits below working on purpose: it asks for a glance, never for
+// `ready` is finished work nobody has read yet (seat idle + needsLook).
+// It sits below working on purpose: it asks for a glance, never for
 // input, so notify pills and attention alerts must keep ignoring it.
 export const MemberSeverity = Schema.Literals([
   "blocked",
@@ -174,7 +174,7 @@ const deriveMember = (
   terminalStatusByNodeId: ReadonlyMap<string, WorkSurfaceActivity> | undefined,
 ): MemberStatus => {
   const entity = node.ether?.entity;
-  // The authored entity kind, or none. Presence of a binding key (ether.herdr)
+  // The authored entity kind, or none. Presence of a runtime binding key
   // is not a kind — a node is what it was authored as, never what a live
   // attachment implies.
   const kind = entity?.kind ?? "node";

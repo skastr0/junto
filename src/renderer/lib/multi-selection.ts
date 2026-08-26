@@ -7,7 +7,6 @@ import type { CanvasNode } from "@shared/canvas";
 export type MultiSurfaceKey =
   | "region"
   | "kind:agent"
-  | "kind:herdr"
   | "kind:terminal"
   | "kind:task"
   | "kind:requests"
@@ -42,8 +41,6 @@ export function multiSurfaceKey(node: CanvasNode): MultiSurfaceKey {
   if (typeof kind === "string" && kind.length > 0) {
     return `kind:${kind}` as MultiSurfaceKey;
   }
-  // Legacy herdr binding without entity.kind still counts as herdr surface.
-  if (node.ether?.herdr) return "kind:herdr";
   return `type:${node.type}` as MultiSurfaceKey;
 }
 

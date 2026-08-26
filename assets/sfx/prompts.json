@@ -8,10 +8,6 @@
     "text": "short bright two-tone UI chime for permission needed, clean game interface, mono, no reverb tail, no music, no voice, urgent but polite, half second"
   },
   {
-    "id": "herdr-done",
-    "text": "UI game interface success chime: two soft ascending sine blips, gentle and warm, short 300ms, medium pitch, dry no reverb tail, no music, no voice, pleasant agent finished notification, clean digital interface"
-  },
-  {
     "id": "orphan",
     "text": "dry grit click for an orphaned arm warning, clean UI error tick, mono, no reverb tail, no music, no voice, half second"
   },

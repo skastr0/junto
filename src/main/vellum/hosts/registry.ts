@@ -24,17 +24,17 @@ import {
 const HERMES_CAPABILITY_BIT = 8;
 const MAX_HOSTS = 32;
 
+// Bit 4 belonged to a retired capability; the numbering stays fixed so stored
+// masks keep decoding the capabilities that are still real.
 const CAPABILITY_BITS = {
   terminal: 1,
   browser: 2,
-  herdr: 4,
   hermes: HERMES_CAPABILITY_BIT,
 } as const satisfies Record<HostCapability, number>;
 
 const CAPABILITIES_IN_STORAGE_ORDER = [
   "terminal",
   "browser",
-  "herdr",
   "hermes",
 ] as const satisfies ReadonlyArray<HostCapability>;
 

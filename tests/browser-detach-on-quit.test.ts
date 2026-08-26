@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Static product-lock tests (mirrors herdr-detach-on-quit): the quit path must
+ * Static product-lock tests (mirrors detach-on-quit): the quit path must
  * detach browser views only — never destroy sessions or wipe profile
  * partitions. Runtime Electron is not exercised here.
  */
@@ -17,7 +17,7 @@ describe("browser detach-on-quit product lock", () => {
   it("main process quit path detaches browser sessions", () => {
     expect(indexSrc).toMatch(/beginShutdownAdmission[\s\S]*browserComposition\?\.drainOnQuit/);
     expect(indexSrc).toMatch(/requireCleanBrowserShutdown/);
-    // Browser aggregate drain and scoped Herdr/SSH disposal share the same quit fan-out.
+    // Browser aggregate drain and scoped SSH disposal share the same quit fan-out.
     expect(indexSrc).toMatch(/drainRuntimeOnQuit[\s\S]*requireCleanBrowserShutdown/);
     expect(indexSrc).toMatch(/AppRuntime\.dispose\(\)/);
   });

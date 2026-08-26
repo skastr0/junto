@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Static product-lock wiring for Task 4 (background continuity).
- * Does not replace canvas-quit-flush / herdr-detach / process-signal suites —
+ * Does not replace canvas-quit-flush / process-signal suites —
  * only asserts the new gate + windowless darwin stay beside them.
  */
 describe("background continuity wiring", () => {

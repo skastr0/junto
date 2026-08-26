@@ -4,7 +4,6 @@ import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
 import { formatNodeRef } from "@shared/node-ref";
 import { cycleAlertFocus } from "../lib/alert-attention";
-import { closeHerdrTerminal, openHerdrTerminal } from "../lib/herdr-state";
 import { commitDoc } from "../lib/mutations";
 import { selectNodes, state$ } from "../lib/state";
 import { playAlert } from "../lib/sfx";
@@ -13,7 +12,7 @@ import { demoCamera } from "./camera-bridge";
 // Demo/scripting engine only. Applies one scenario beat's ops against the
 // live app: doc-mutating ops fold into a single commitDoc (no undo entry —
 // this is a film set, not an editable document), the rest drive selection,
-// sfx, the herdr transport, the HUD badge, and the camera.
+// sfx, the HUD badge, and the camera.
 
 /** hud op toggles this; DemoLayer renders nothing while it's false. */
 export const demoHud$ = observable(true);
@@ -72,18 +71,11 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
     commitDoc(applyDocOps(state$.doc.peek(), beat.ops), true, false);
   }
 
-  const herdrPromises: Array<Promise<unknown>> = [];
-
   for (const op of beat.ops) {
     switch (op.kind) {
       case "select":
         selectNodes(op.nodeIds);
         break;
-      case "herdr": {
-        const result = window.vellumCommand?.demoCommand(op.command);
-        if (result) herdrPromises.push(result.catch(() => undefined));
-        break;
-      }
       case "sfx":
         playAlert(op.id);
         break;
@@ -126,20 +118,6 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
       case "alert-cycle":
         cycleAlertFocus();
         break;
-      case "open-terminal": {
-        const node = state$.doc.peek().nodes.find((candidate) => candidate.id === op.nodeId);
-        const herdr = node?.ether?.herdr;
-        if (!node || !herdr) break;
-        const title =
-          ("text" in node && typeof node.text === "string" && node.text.trim()) ||
-          herdr.label?.trim() ||
-          "herdr";
-        openHerdrTerminal(node.id, herdr, title);
-        break;
-      }
-      case "close-terminal":
-        closeHerdrTerminal();
-        break;
       case "page-open": {
         try {
           const ref = formatNodeRef({
@@ -157,6 +135,4 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
         break;
     }
   }
-
-  if (herdrPromises.length > 0) void Promise.allSettled(herdrPromises);
 };

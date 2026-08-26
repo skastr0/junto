@@ -1,7 +1,7 @@
 /**
  * Auto-copy selected xterm text to the system clipboard on selection end.
  *
- * Shared by native TerminalSurface and herdr PTY display. Selection is the
+ * Used by the native TerminalSurface. Selection is the
  * only product copy path for PTYs — there is no careful user/assistant turn
  * segmentation in a raw terminal buffer, so we do not offer a "copy session
  * turns" control (that would invent structure that is not there).

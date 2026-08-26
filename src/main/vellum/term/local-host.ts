@@ -262,7 +262,7 @@ type SessionRec = {
   epoch: string;
   hostId: string;
   /**
-   * Product session phase (shared domain with herdr control).
+   * Product session phase.
    * Write only while Live; Broken still "running" for inventory until exit.
    */
   phase: SessionPhaseT;

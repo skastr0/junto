@@ -5,7 +5,7 @@ export const LOCAL_BROWSER_TEST_HOST = Object.freeze({
   id: "local",
   label: "local",
   kind: "local",
-  capabilities: ["browser", "terminal", "herdr", "hermes"] as const,
+  capabilities: ["browser", "terminal", "hermes"] as const,
 } satisfies RemoteHost);
 
 /** Explicit physical identity for tests that exercise local browser creation. */

@@ -43,17 +43,6 @@ export type SeatFactsInput = {
   readonly attentionReasons?: ReadonlyArray<string>;
   readonly managedSeat?: boolean;
   readonly needsLook?: boolean;
-  /** Herdr pane status when no native seat event exists. */
-  readonly herdrAgentStatus?: string | null;
-};
-
-const herdrSeatState = (
-  status: string | null | undefined,
-): AgentSeatState | undefined => {
-  if (status === "working") return "working";
-  if (status === "attention") return "attention";
-  if (status === "idle" || status === "done") return "idle";
-  return undefined;
 };
 
 const attentionElevated = (facts: SeatFacts): boolean =>
@@ -131,14 +120,13 @@ export function liveAttentionReasons(
 
 /** Assemble one SeatFacts from the live planes a call site already holds. */
 export function seatFactsForNode(input: SeatFactsInput): SeatFacts {
-  const herdr = input.herdrAgentStatus ?? undefined;
   const status = input.session?.status;
   return {
     nodeId: input.nodeId,
-    seatState: input.seatEvent?.state ?? herdrSeatState(herdr),
+    seatState: input.seatEvent?.state,
     seatReason: input.seatEvent?.reason,
     needsLook: input.needsLook,
-    graphBlocked: input.graphBlocked === true || herdr === "blocked",
+    graphBlocked: input.graphBlocked === true,
     flags: input.flags,
     managedSeat: input.managedSeat,
     running: status === "running" || status === "starting",

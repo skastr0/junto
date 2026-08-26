@@ -32,7 +32,6 @@ export type SfxClipKey = keyof SfxClipsSettings;
 export const SFX_CLIP_KEYS: ReadonlyArray<SfxClipKey> = [
   "blocked",
   "permission",
-  "herdrDone",
   "orphan",
   "cycle",
 ];

@@ -264,7 +264,7 @@ describe("ready/working cycle order", () => {
 describe("shouldCycleAlertOnKey / isTypingSurface", () => {
   const bare = { repeat: false, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, key: " ", code: "Space", target: null as EventTarget | null };
   const stubSurface = (match: boolean): EventTarget => ({
-    closest: (selector: string) => match && (selector.includes(".xterm") || selector.includes("textarea") || selector.includes("native-terminal") || selector.includes("herdr-")) ? {} : null,
+    closest: (selector: string) => match && (selector.includes(".xterm") || selector.includes("textarea") || selector.includes("native-terminal")) ? {} : null,
   }) as unknown as EventTarget;
 
   it("allows bare Space on the canvas", () => {

@@ -8,44 +8,12 @@ import type { CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
 //
 // Clock model: ONE conductor (renderer) owns musical time. A scenario is a
 // beat-indexed op list at a fixed BPM; the conductor schedules ops against
-// performance.now() and drives main-side herdr state over IPC so the real
-// mirror -> IPC -> renderer pipeline runs unchanged.
+// performance.now() and drives the real UI unchanged.
 
 export const DEMO_BPM_DEFAULT = 110;
 
 /** Milliseconds per beat at a given tempo. */
 export const beatMs = (bpm: number): number => 60_000 / bpm;
-
-export type DemoHerdrStatus = "idle" | "working" | "blocked" | "done";
-
-export interface DemoHerdrPaneSpec {
-  readonly host: string;
-  readonly paneId: string;
-  /** Harness name rendered on the card (claude | codex | kimi | ...). */
-  readonly agent: string;
-  readonly cwd?: string;
-  readonly label?: string;
-}
-
-/** Conductor -> main mutations of the scripted herdr world. */
-export type DemoCommand =
-  | {
-      readonly kind: "ensure-pane";
-      readonly pane: DemoHerdrPaneSpec;
-      readonly status?: DemoHerdrStatus;
-    }
-  | {
-      readonly kind: "set-status";
-      readonly host: string;
-      readonly paneId: string;
-      readonly status: DemoHerdrStatus;
-    }
-  | { readonly kind: "reset-host"; readonly host: string };
-
-export interface DemoCommandResult {
-  readonly ok: boolean;
-  readonly error?: string;
-}
 
 export interface DemoStateInfo {
   readonly active: boolean;
@@ -83,7 +51,6 @@ export type DemoOp =
       readonly on: boolean;
     }
   | { readonly kind: "select"; readonly nodeIds: ReadonlyArray<string> }
-  | { readonly kind: "herdr"; readonly command: DemoCommand }
   | {
       readonly kind: "camera-fit";
       /** Absent = fit everything currently on the canvas. */
@@ -111,11 +78,6 @@ export type DemoOp =
     }
   /** Product Space-cycle: jump camera to the next alerted node (plays its own sfx). */
   | { readonly kind: "alert-cycle" }
-  /** Opens the herdr terminal modal on a node. CAMEO ONLY: the stream path
-   * execs the real herdr binary, so use exclusively on nodes bound to REAL
-   * panes — never on scripted/synthetic ones. */
-  | { readonly kind: "open-terminal"; readonly nodeId: string }
-  | { readonly kind: "close-terminal" }
   /** Opens the real browser surface (WebContentsView) for a page node. */
   | { readonly kind: "page-open"; readonly nodeId: string };
 
@@ -127,7 +89,7 @@ export interface DemoEdlEntry {
   readonly beat: number;
   readonly plannedMs: number;
   readonly actualMs: number;
-  /** Compact op tag, e.g. "add-nodes:12" or "herdr:set-status:h07:blocked". */
+  /** Compact op tag, e.g. "add-nodes:12" or "camera-fit". */
   readonly op: string;
 }
 

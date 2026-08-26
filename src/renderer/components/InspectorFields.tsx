@@ -14,7 +14,6 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERDR_ENABLED,
   RELAY_ENABLED,
 } from "@shared/features";
 import { isGroup } from "@shared/graph";
@@ -500,12 +499,9 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
         </div>
       : null}
     {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input data-focus-owner="canvas-draft" aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
-    {/* Region dense fields: kind-strip keys are preferred (briefing / herdr /
-        page / paths). Hold stays on the command card; plate + placement are gone. */}
+    {/* Region dense fields: kind-strip keys are preferred (briefing / page /
+        paths). Hold stays on the command card; plate + placement are gone. */}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
-    {HERDR_ENABLED && node.type === "group" ? (
-      <RegionHerdrDefaultsControl node={node} />
-    ) : null}
     {BROWSER_ENABLED && node.type === "group" ? <RegionPageDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
   </>;
@@ -708,132 +704,6 @@ export function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-/** Defaults for new herdr nodes created inside this region. Paths are separate. */
-export function RegionHerdrDefaultsControl({ node }: { readonly node: CanvasNode }) {
-  const stored = node.ether?.region?.defaults;
-  const storedHost = stored?.herdr?.host ?? "";
-  const [host, setHost] = useState(storedHost);
-  const [session, setSession] = useState(
-    stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""),
-  );
-  const [workspaceId, setWorkspaceId] = useState(stored?.herdr?.workspaceId ?? "");
-  const [tabId, setTabId] = useState(stored?.herdr?.tabId ?? "");
-  useEffect(() => {
-    setHost(storedHost);
-    setSession(stored?.herdr?.session === null ? "default" : (stored?.herdr?.session ?? ""));
-    setWorkspaceId(stored?.herdr?.workspaceId ?? "");
-    setTabId(stored?.herdr?.tabId ?? "");
-  }, [node.id, storedHost, stored?.herdr?.session, stored?.herdr?.workspaceId, stored?.herdr?.tabId]);
-
-  const writeHerdr = (
-    nextHost: string,
-    nextSession: string,
-    nextWorkspace: string,
-    nextTab: string,
-  ) => {
-    const hostTrim = nextHost.trim();
-    const sessionTrim = nextSession.trim();
-    let sessionValue: string | null | undefined;
-    if (hostTrim) {
-      if (!sessionTrim || sessionTrim === "default") sessionValue = null;
-      else sessionValue = sessionTrim;
-    }
-    const paths = stored?.paths;
-    const page = stored?.page;
-    const herdr = hostTrim
-      ? {
-          host: hostTrim,
-          session: sessionValue ?? null,
-          ...(nextWorkspace.trim() ? { workspaceId: nextWorkspace.trim() } : {}),
-          ...(nextTab.trim() ? { tabId: nextTab.trim() } : {}),
-        }
-      : undefined;
-    const next: EtherRegionDefaults = {
-      ...(herdr ? { herdr } : {}),
-      ...(page ? { page } : {}),
-      ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
-    };
-    setRegionDefaults(node.id, Object.keys(next).length > 0 ? next : undefined);
-  };
-
-  const commit = () => writeHerdr(host, session, workspaceId, tabId);
-
-  const clearHerdr = () => {
-    setHost("");
-    setSession("");
-    setWorkspaceId("");
-    setTabId("");
-    writeHerdr("", "", "", "");
-  };
-
-  const onEnter = commitOnEnter(commit);
-  const hasHerdrDefaults = Boolean(stored?.herdr?.host);
-
-  return (
-    <div className="inspector-section">
-      <div className="inspector-detail mb-1">
-        Applied when a new herdr node is created inside this region. Edit the node after create to override.
-      </div>
-      {FLEET_UI_ENABLED ? (
-        <label className="inspector-editor">
-          <span>host</span>
-          <EnrolledHostSelect
-            ariaLabel="Region herdr host default"
-            value={host}
-            onChange={(next) => {
-              setHost(next);
-              writeHerdr(next, session, workspaceId, tabId);
-            }}
-          />
-        </label>
-      ) : null}
-      <label className="inspector-editor">
-        <span>session</span>
-        <input
-          data-focus-owner="canvas-draft"
-          aria-label="Region herdr session default"
-          value={session}
-          placeholder="default (unnamed)"
-          onChange={(e) => setSession(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onEnter}
-        />
-      </label>
-      <label className="inspector-editor">
-        <span>workspace id</span>
-        <input
-          data-focus-owner="canvas-draft"
-          aria-label="Region herdr workspace default"
-          value={workspaceId}
-          placeholder="workspace id from herdr"
-          onChange={(e) => setWorkspaceId(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onEnter}
-        />
-      </label>
-      <label className="inspector-editor">
-        <span>tab id</span>
-        <input
-          data-focus-owner="canvas-draft"
-          aria-label="Region herdr tab default"
-          value={tabId}
-          placeholder="optional tab id"
-          onChange={(e) => setTabId(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onEnter}
-        />
-      </label>
-      {hasHerdrDefaults ? (
-        <div className="inspector-flags" style={{ marginTop: 14 }}>
-          <button type="button" className="inspector-flag-toggle" onClick={clearHerdr}>
-            clear herdr defaults
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /** Defaults for new page nodes created inside this region. */
 export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode }) {
   const stored = node.ether?.region?.defaults;
@@ -849,7 +719,6 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
 
   const writePage = (url: string, profile: string, host: string) => {
     const paths = stored?.paths;
-    const herdr = stored?.herdr;
     const page =
       url.trim() || profile.trim() || host.trim()
         ? {
@@ -859,7 +728,6 @@ export function RegionPageDefaultsControl({ node }: { readonly node: CanvasNode 
           }
         : undefined;
     const next: EtherRegionDefaults = {
-      ...(herdr ? { herdr } : {}),
       ...(page ? { page } : {}),
       ...(paths && Object.keys(paths).length > 0 ? { paths } : {}),
     };

@@ -8,7 +8,7 @@ import {
 } from "@shared/remote-hosts";
 import { getDefaultHostsRegistry } from "./registry";
 
-/** Process-local snapshot so herdr/hermes hot paths stay sync. */
+/** Process-local snapshot so hermes hot paths stay sync. */
 let snapshot: ReadonlyArray<RemoteHost> = defaultRemoteHostsDocument().hosts;
 const listeners = new Set<(
   hosts: ReadonlyArray<RemoteHost>,

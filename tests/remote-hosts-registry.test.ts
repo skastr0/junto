@@ -32,14 +32,12 @@ import {
 import { StateEngine } from "../src/main/vellum/state/service";
 import {
   findHostByHermesId,
+  findHostById,
+  hostsSnapshot,
   hostsWithCapability,
   setHostsSnapshot,
   subscribeHostsSnapshot,
 } from "../src/main/vellum/hosts/snapshot";
-import { isKnownHerdrHost, listHerdrHosts } from "../src/main/vellum/herdr/hosts";
-import { HerdrPlane } from "../src/main/vellum/herdr/plane";
-import { HerdrMirrorRegistry } from "../src/main/vellum/herdr/mirrors";
-import type { MirrorTransport } from "../src/main/vellum/herdr/mirror-transport";
 import { SshTransport } from "../src/main/vellum/ssh/service";
 import { acpVerboseLogging } from "../src/main/vellum/chat/acp-client";
 import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propagation";
@@ -94,7 +92,7 @@ describe("remote hosts registry", () => {
     const hosts = await registry.list();
     expect(hosts.map((host) => host.id)).toEqual(["local"]);
     expect(hosts[0]?.capabilities).toEqual(
-      expect.arrayContaining(["terminal", "browser", "herdr", "hermes"]),
+      expect.arrayContaining(["terminal", "browser", "hermes"]),
     );
   });
 
@@ -110,11 +108,11 @@ describe("remote hosts registry", () => {
       sshEndpoint: "studio",
       sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
       sshHostKeyPolicy: "accept-new",
-      capabilities: ["hermes", "herdr"],
+      capabilities: ["hermes"],
       appearance: { color: "amber", glyph: "S" },
     });
     expect(written.find((host) => host.id === "studio")).toMatchObject({
-      capabilities: ["herdr", "hermes"],
+      capabilities: ["hermes"],
       sshIdentityFile: "/Users/operator/.ssh/studio_ed25519",
       sshHostKeyPolicy: "accept-new",
       appearance: { color: "amber", glyph: "S" },
@@ -136,7 +134,7 @@ describe("remote hosts registry", () => {
     });
     const local = await cold.get("local");
     expect(local?.label).toBe("This machine");
-    expect(local?.capabilities).toHaveLength(4);
+    expect(local?.capabilities).toHaveLength(3);
     await expect(
       cold.upsert({
         id: "local",
@@ -160,7 +158,7 @@ describe("remote hosts registry", () => {
       label: "Render updated",
       kind: "remote",
       sshEndpoint: "render",
-      capabilities: ["terminal", "herdr"],
+      capabilities: ["terminal"],
     });
     await cold.upsert({
       id: "build",
@@ -225,7 +223,7 @@ describe("remote hosts registry", () => {
         label: "Render",
         kind: "remote",
         sshEndpoint: "shared",
-        capabilities: ["herdr"],
+        capabilities: ["terminal"],
       }),
     ).rejects.toMatchObject({
       code: "validation",
@@ -298,22 +296,17 @@ describe("remote hosts registry", () => {
         label: "Fleet One",
         kind: "remote",
         sshEndpoint: "fleet-1",
-        capabilities: ["herdr", "hermes"],
+        capabilities: ["hermes"],
         hermesId: "f1",
       },
     ]);
     const host = findHostByHermesId("f1");
     expect(host?.id).toBe("fleet-1");
     expect(hermesKeyFor(host!)).toBe("f1");
-    expect(hostsWithCapability("herdr").map((row) => row.id)).toEqual([
+    expect(hostsWithCapability("hermes").map((row) => row.id)).toEqual([
       "local",
       "fleet-1",
     ]);
-    expect(listHerdrHosts().map((row) => row.id)).toEqual([
-      "local",
-      "fleet-1",
-    ]);
-    expect(isKnownHerdrHost("studio")).toBe(false);
   });
 
   it("hydrates persisted hosts before the first normal-boot route", async () => {
@@ -329,7 +322,7 @@ describe("remote hosts registry", () => {
         label: "Studio",
         kind: "remote",
         sshEndpoint: "studio-ssh",
-        capabilities: ["herdr", "hermes"],
+        capabilities: ["hermes"],
       });
     } finally {
       await setupRuntime.dispose();
@@ -337,7 +330,7 @@ describe("remote hosts registry", () => {
     resetDefaultHostsRegistryForTests();
     // Stale local-only snapshot — route must not appear until SQLite hydrates.
     setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-    expect(isKnownHerdrHost("studio")).toBe(false);
+    expect(findHostById("studio") !== undefined).toBe(false);
 
     const reopen = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
@@ -349,7 +342,7 @@ describe("remote hosts registry", () => {
         unusedFleet,
       );
       const listed = await Effect.runPromise(service.list);
-      const firstRoute = isKnownHerdrHost("studio");
+      const firstRoute = findHostById("studio") !== undefined;
       await Effect.runPromise(service.remove("studio"));
       await Effect.runPromise(
         service.upsert({
@@ -357,7 +350,7 @@ describe("remote hosts registry", () => {
           label: "Render",
           kind: "remote",
           sshEndpoint: "render-ssh",
-          capabilities: ["herdr"],
+          capabilities: ["terminal"],
         }),
       );
       const rejected = await Effect.runPromise(
@@ -367,7 +360,7 @@ describe("remote hosts registry", () => {
             label: "Duplicate",
             kind: "remote",
             sshEndpoint: "render-ssh",
-            capabilities: ["herdr"],
+            capabilities: ["terminal"],
           }),
         ),
       );
@@ -377,8 +370,8 @@ describe("remote hosts registry", () => {
         listedIds: listed.map((host) => host.id).sort(),
         rejected: rejected._tag,
         reloadedIds: reloaded.map((host) => host.id).sort(),
-        oldRoute: isKnownHerdrHost("studio"),
-        newRoute: isKnownHerdrHost("render"),
+        oldRoute: findHostById("studio") !== undefined,
+        newRoute: findHostById("render") !== undefined,
       }).toEqual({
         firstRoute: true,
         listedIds: ["local", "studio"],
@@ -426,7 +419,7 @@ describe("remote hosts registry", () => {
         label: "Studio",
         kind: "remote",
         sshEndpoint: "studio",
-        capabilities: ["herdr"],
+        capabilities: ["terminal"],
       }),
     );
     await started;
@@ -438,7 +431,7 @@ describe("remote hosts registry", () => {
       "local",
       "studio",
     ]);
-    expect(listHerdrHosts().map((host) => host.id)).toEqual([
+    expect(hostsSnapshot().map((host) => host.id)).toEqual([
       "local",
       "studio",
     ]);
@@ -463,7 +456,7 @@ describe("remote hosts registry", () => {
             label: "Studio",
             kind: "remote",
             sshEndpoint: "studio-ssh",
-            capabilities: ["herdr"],
+            capabilities: ["terminal"],
           },
         ])
       ).not.toThrow();
@@ -481,56 +474,6 @@ describe("remote hosts registry", () => {
     }
   });
 
-  it("restarts live Herdr mirrors on add, endpoint edit, and removal", () => {
-    setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-    const started: string[] = [];
-    const disposed: string[] = [];
-    const mirrors = new HerdrMirrorRegistry((hostId): MirrorTransport => ({
-      request: async () => {
-        started.push(hostId);
-        return { snapshot: {} };
-      },
-      openEvents: async () => () => undefined,
-      dispose: () => {
-        disposed.push(hostId);
-      },
-    }));
-
-    try {
-      mirrors.startAll();
-      expect(started).toEqual(["local"]);
-
-      const withStudio = [
-        ...defaultRemoteHostsDocument().hosts,
-        {
-          id: "studio",
-          label: "Studio",
-          kind: "remote" as const,
-          sshEndpoint: "studio-a",
-          capabilities: ["herdr" as const],
-        },
-      ];
-      setHostsSnapshot(withStudio);
-      expect(started).toEqual(["local", "local", "studio"]);
-      expect(disposed).toEqual(["local"]);
-
-      setHostsSnapshot(withStudio.map((host) => ({ ...host })));
-      expect(started).toHaveLength(3);
-
-      setHostsSnapshot(withStudio.map((host) =>
-        host.id === "studio" ? { ...host, sshEndpoint: "studio-b" } : host,
-      ));
-      expect(started.slice(-2)).toEqual(["local", "studio"]);
-      expect(disposed.slice(-2)).toEqual(["local", "studio"]);
-
-      setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-      expect(started.at(-1)).toBe("local");
-      expect(disposed.at(-1)).toBe("studio");
-      expect(mirrors.mirrorFor("studio")).toBeUndefined();
-    } finally {
-      mirrors.stopAll();
-    }
-  });
 
   it("rejects malformed endpoints while preserving direct IPv6 destinations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-endpoint-"));
@@ -543,7 +486,7 @@ describe("remote hosts registry", () => {
         label: "Wrong port",
         kind: "remote",
         sshEndpoint: "example.com:2222",
-        capabilities: ["herdr"],
+        capabilities: ["terminal"],
       }),
     ).rejects.toMatchObject({
       code: "validation",
@@ -555,7 +498,7 @@ describe("remote hosts registry", () => {
         label: "Empty user",
         kind: "remote",
         sshEndpoint: "@example.com",
-        capabilities: ["herdr"],
+        capabilities: ["terminal"],
       }),
     ).rejects.toMatchObject({ code: "validation" });
     await expect(
@@ -583,7 +526,7 @@ describe("remote hosts registry", () => {
       label: "Scoped IPv6",
       kind: "remote",
       sshEndpoint: "ops@fe80::1%lo0",
-      capabilities: ["herdr"],
+      capabilities: ["terminal"],
     });
     expect(
       scopedIpv6.find((host) => host.id === "scoped-ipv6")?.sshEndpoint,

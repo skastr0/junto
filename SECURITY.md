@@ -36,7 +36,7 @@ In scope:
 - Vellum Command desktop app (Electron main, preload, renderer)
 - Packaged release artifacts served from the Vellum Command download page and
   Cloudflare Worker/R2 update feed
-- Local control sockets, capability grants, browser/herdr/hermes integration as shipped
+- Local control sockets, capability grants, browser/hermes integration as shipped
 
 Out of scope:
 

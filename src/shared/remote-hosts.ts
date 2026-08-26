@@ -12,7 +12,7 @@ export const REMOTE_HOSTS_VERSION = remoteStationContractVersion(
 
 export const TERMINAL_HOST_CAPABILITY = "terminal" as const;
 export const BROWSER_HOST_CAPABILITY = "browser" as const;
-export const HostCapability = Schema.Literals([BROWSER_HOST_CAPABILITY, "herdr",
+export const HostCapability = Schema.Literals([BROWSER_HOST_CAPABILITY,
 "hermes",
 TERMINAL_HOST_CAPABILITY,]);
 export type HostCapability = typeof HostCapability.Type;
@@ -115,7 +115,6 @@ export const LOCAL_HOST_ID = "local" as const;
 export const LOCAL_STATION_CAPABILITIES: ReadonlyArray<HostCapability> = [
   TERMINAL_HOST_CAPABILITY,
   BROWSER_HOST_CAPABILITY,
-  "herdr",
   "hermes",
 ];
 

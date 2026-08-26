@@ -33,7 +33,6 @@ describe("canvas continuous motion (discrete clock, no interpolating CSS)", () =
     expect(css).not.toMatch(/@keyframes\s+vellumBlockerFlagPulse\b/);
     expect(css).not.toMatch(/@keyframes\s+vellumStatusDotPulse\b/);
     expect(css).not.toMatch(/@keyframes\s+vellum-dot-pulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellum-herdr-working-pulse\b/);
     expect(css).not.toMatch(/@keyframes\s+vellumPulse\b/);
     expect(css).not.toMatch(/@keyframes\s+vellumDash\b/);
     expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionPulse\b/);

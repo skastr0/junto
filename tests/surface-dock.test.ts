@@ -23,7 +23,6 @@ import {
   closeWorkbenchSurface,
   chatSurfaceId,
   dock$,
-  herdrSurfaceId,
   noteSurfaceId,
   openAgentChatSurface,
   openDockBrowser,
@@ -32,12 +31,10 @@ import {
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
   stopDockBrowser,
-  syncHerdrWorkbenchSlot,
   taskCreateSurfaceId,
   terminalSurfaceId,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
-import { herdr$ } from "../src/renderer/lib/herdr-state";
 import { openTerminalSurface, terminal$ } from "../src/renderer/lib/terminal-state";
 import type { CanvasNode } from "../src/shared/canvas";
 import {
@@ -49,7 +46,6 @@ import { state$ } from "../src/renderer/lib/state";
 // --- pure registry ---------------------------------------------------------
 
 const browserSlot = (id: string) => ({ id, kind: "browser" as const });
-const herdrSlot = (id: string) => ({ id, kind: "herdr" as const });
 
 describe("surface-registry (pure workbench)", () => {
   it("opens unlimited browser surfaces into focus (tabs, no eviction)", () => {
@@ -71,32 +67,13 @@ describe("surface-registry (pure workbench)", () => {
     expect(again.state.surfaces.map((s) => s.id).sort()).toEqual(["a", "b"]);
   });
 
-  it("allows multiple herdr surfaces (no global interactive eviction)", () => {
-    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
-    t = openSurface(t.state, herdrSlot("herdr:n1"));
-    t = openSurface(t.state, herdrSlot("herdr:n2"));
-    expect(t.evicted).toEqual([]);
-    expect(t.state.surfaces.filter((s) => s.kind === "herdr").map((s) => s.id).sort()).toEqual([
-      "herdr:n1",
-      "herdr:n2",
-    ]);
-    expect(workbenchBrowserSurfaces(t.state).map((s) => s.id)).toEqual(["a"]);
-    expect(workbenchInteractiveSurface(t.state)?.id).toBe("herdr:n1");
-  });
 
-  it("a browser never evicts herdr surfaces", () => {
-    let t = openSurface(initialWorkbenchState(), herdrSlot("herdr:n1"));
-    t = openSurface(t.state, browserSlot("a"));
-    t = openSurface(t.state, browserSlot("b"));
-    expect(t.evicted).toEqual([]);
-    expect(t.state.surfaces.map((s) => s.id)).toEqual(["herdr:n1", "a", "b"]);
-  });
 
   it("same id changing kind replaces the stale slot (evicted for cleanup)", () => {
     const t0 = openSurface(initialWorkbenchState(), browserSlot("x"));
-    const t = openSurface(t0.state, herdrSlot("x"));
+    const t = openSurface(t0.state, { id: "x", kind: "terminal" as const });
     expect(t.evicted.map((s) => s.id)).toEqual(["x"]);
-    expect(t.state.surfaces).toEqual([{ id: "x", kind: "herdr", zone: "focus" }]);
+    expect(t.state.surfaces).toEqual([{ id: "x", kind: "terminal", zone: "focus" }]);
   });
 
   it("closeSurface removes the slot; unknown ids are a no-op", () => {
@@ -150,9 +127,8 @@ describe("surface-registry (pure workbench)", () => {
     expect(focused.evicted).toEqual([]);
   });
 
-  it("classifies browser as non-interactive; herdr/chat/task-create as interactive", () => {
+  it("classifies browser as non-interactive; chat/task-create as interactive", () => {
     expect(isInteractiveSurface("browser")).toBe(false);
-    expect(isInteractiveSurface("herdr")).toBe(true);
     expect(isInteractiveSurface("chat")).toBe(true);
     expect(isInteractiveSurface("task-create")).toBe(true);
     expect(isInteractiveSurface("note")).toBe(true);
@@ -299,8 +275,6 @@ function resetDock(): void {
   dock$.stopErrorByRef.set({});
   dock$.configHydrated.set(false);
   browser$.sessionByRef.set({});
-  herdr$.terminals.set({});
-  herdr$.focusedNodeId.set(null);
   terminal$.openByNodeId.set({});
   terminal$.preferredZoneByNodeId.set({});
   terminal$.lastOpenNodeId.set(null);
@@ -713,96 +687,6 @@ describe("dock-state", () => {
     expect(dock$.browserByRef[detachedRef].peek()).toBeUndefined();
   });
 
-  describe("herdr workbench sync — multi terminal, focus by default", () => {
-    const openTerminal = (nodeId = "h1") => {
-      herdr$.terminals[nodeId].set({
-        nodeId,
-        herdr: { host: "local" } as never,
-        title: "term",
-      });
-      herdr$.focusedNodeId.set(nodeId);
-    };
-
-    it("registers every open terminal into the focus zone (no browser required)", () => {
-      openTerminal("h1");
-      syncHerdrWorkbenchSlot();
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: herdrSurfaceId("h1"), kind: "herdr", zone: "focus" },
-      ]);
-    });
-
-    it("registers multiple herdr surfaces for multiple terminals", () => {
-      openTerminal("h1");
-      openTerminal("h2");
-      syncHerdrWorkbenchSlot();
-      const herdrIds = dock$.registry
-        .peek()
-        .surfaces.filter((s) => s.kind === "herdr")
-        .map((s) => s.id)
-        .sort();
-      expect(herdrIds).toEqual([herdrSurfaceId("h1"), herdrSurfaceId("h2")].sort());
-    });
-
-    it("removes the workbench slot when the terminal closes", () => {
-      openTerminal("h1");
-      syncHerdrWorkbenchSlot();
-      expect(dock$.registry.peek().surfaces.some((s) => s.kind === "herdr")).toBe(true);
-
-      herdr$.terminals.set({});
-      herdr$.focusedNodeId.set(null);
-      syncHerdrWorkbenchSlot();
-      expect(dock$.registry.peek().surfaces.some((s) => s.kind === "herdr")).toBe(false);
-    });
-
-    it("preserves pin zone across re-sync", () => {
-      openTerminal("h1");
-      syncHerdrWorkbenchSlot();
-      pinWorkbenchSurface(herdrSurfaceId("h1"));
-      expect(
-        dock$.registry.peek().surfaces.find((s) => s.id === herdrSurfaceId("h1"))?.zone,
-      ).toBe("pinned");
-      syncHerdrWorkbenchSlot();
-      expect(
-        dock$.registry.peek().surfaces.find((s) => s.id === herdrSurfaceId("h1"))?.zone,
-      ).toBe("pinned");
-    });
-
-    it("docking the terminal never spawns a second herdr slot on re-sync", () => {
-      openTerminal("h1");
-      syncHerdrWorkbenchSlot();
-      syncHerdrWorkbenchSlot();
-      const herdrSlots = dock$.registry.peek().surfaces.filter((s) => s.kind === "herdr");
-      expect(herdrSlots).toHaveLength(1);
-    });
-
-    it("browser + herdr coexist without eviction", async () => {
-      installMockVellum();
-      const ref = refOf("n1");
-      await openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"));
-      openTerminal("h1");
-      syncHerdrWorkbenchSlot();
-      expect(dock$.registry.peek().surfaces.map((s) => s.id).sort()).toEqual(
-        [ref, herdrSurfaceId("h1")].sort(),
-      );
-    });
-
-    it("observe registers herdr surfaces without an explicit sync call", () => {
-      // dock-state binds observe(herdr$.terminals) at module load.
-      openTerminal("h1");
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: herdrSurfaceId("h1"), kind: "herdr", zone: "focus" },
-      ]);
-    });
-
-    it("closeWorkbenchSurface drops the herdr slot immediately", () => {
-      openTerminal("h1");
-      const id = herdrSurfaceId("h1");
-      expect(dock$.registry.peek().surfaces.some((s) => s.id === id)).toBe(true);
-      closeWorkbenchSurface(id);
-      expect(dock$.registry.peek().surfaces.some((s) => s.id === id)).toBe(false);
-      expect(herdr$.terminals["h1"].peek()).toBeUndefined();
-    });
-  });
 
   describe("native terminal open zone", () => {
     it("opens into focus by default", () => {

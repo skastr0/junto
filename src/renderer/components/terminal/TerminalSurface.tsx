@@ -264,7 +264,7 @@ const SCROLL_FAST_MULTIPLE = 5;
  * Normal-buffer agents feel the option because the viewport scroller applies
  * it natively — that asymmetry is the bug this closes.
  *
- * The cure is the one the old herdr control stream used: fan the gesture out
+ * The cure: fan the gesture out
  * into N whole notches. Each notch re-enters xterm as its own wheel event and
  * produces one report through xterm's own protocol encoder — CoreMouseService
  * stays the only writer of mouse bytes.
@@ -1065,7 +1065,7 @@ export function TerminalSurface({
     };
     host.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
 
-    // Drag-select → system clipboard on mouseup (shared with herdr PTY).
+    // Drag-select → system clipboard on mouseup.
     const detachAutoCopy = attachXtermAutoCopy(host, term);
 
     // Live appearance protocol: OSC 10/11 via xterm theme; CSI ?996n / ?2031

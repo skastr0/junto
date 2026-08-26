@@ -19,12 +19,11 @@ const text = (over: Partial<CanvasNode> & { id?: string } = {}): CanvasNode =>
   }) as CanvasNode;
 
 describe("multiSurfaceKey", () => {
-  it("maps region, entity kind, herdr legacy, and type", () => {
+  it("maps region, entity kind, and type", () => {
     expect(multiSurfaceKey({ ...base, type: "group", label: "ops" })).toBe("region");
     expect(multiSurfaceKey(text({ ether: { entity: { kind: "agent", name: "h:p" } } }))).toBe(
       "kind:agent",
     );
-    expect(multiSurfaceKey(text({ ether: { herdr: { host: "local" } } }))).toBe("kind:herdr");
     expect(multiSurfaceKey(text())).toBe("type:text");
     expect(multiSurfaceKey({ ...base, type: "link", url: "https://x.com" })).toBe("type:link");
   });

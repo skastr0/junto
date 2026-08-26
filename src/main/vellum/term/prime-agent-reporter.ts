@@ -1,5 +1,5 @@
 /**
- * Owner-local receiver for Prime Agent's stock Herdr-compatible reporter.
+ * Owner-local receiver for Prime Agent's stock reporter socket.
  *
  * Prime Agent 0.7.1 opens one Unix connection per JSON request, writes one
  * newline-terminated frame, and waits for any response before disconnecting.
@@ -39,6 +39,8 @@ export const PRIME_AGENT_REPORTER_MAX_SESSION_ID_BYTES = 256;
 export const PRIME_AGENT_REPORTER_MAX_SESSION_PATH_BYTES = 4 * 1024;
 export const PRIME_AGENT_REPORTER_MAX_CLIENTS = 16;
 
+// Wire tag Prime Agent stamps on every report. Third-party protocol value —
+// matched verbatim, never authored by Vellum Command.
 const PRIME_AGENT_SOURCE = "herdr:pi";
 const PRIME_AGENT_LABEL = "prime-agent";
 const DEFAULT_SHUTDOWN_GRACE_MS = 100;

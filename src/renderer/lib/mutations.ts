@@ -747,20 +747,7 @@ const deleteNodesInternal = async (
     return;
   }
 
-  // Herdr default is detach-only (never session stop). Kill-pane onDelete
-  // is handled async without blocking other non-herdr deletions.
-  const herdrIds = existingNodes
-    .filter((n) => n.ether?.entity?.kind === "herdr")
-    .map((n) => n.id);
   const sideEffects: Array<Promise<void>> = [];
-  if (herdrIds.length > 0) {
-    sideEffects.push(
-      import("./herdr-actions").then(async ({ handleHerdrNodeDelete }) => {
-        if (!canvasMutationAdmissionOpen) return;
-        await Promise.all(herdrIds.map((id) => handleHerdrNodeDelete(id)));
-      }),
-    );
-  }
 
   // Agent delete: Main-owned lease locks keys, admits chatOpen tombstones,
   // and awaits verified close BEFORE document mutation. Finish releases the
@@ -946,12 +933,9 @@ const deleteNodesInternal = async (
     );
   }
 
-  const nonHerdr = new Set(
-    existingNodes.filter((n) => n.ether?.entity?.kind !== "herdr").map((n) => n.id),
-  );
-  removeNodesFromSelection(new Set(existingNodes.map((node) => node.id)));
-  if (nonHerdr.size === 0) {
-    // Pure herdr delete — async path owns the doc mutation.
+  const doomed = new Set(existingNodes.map((node) => node.id));
+  removeNodesFromSelection(doomed);
+  if (doomed.size === 0) {
     await finishDeleteLeases("aborted");
     await Promise.all(sideEffects);
     return;
@@ -961,12 +945,12 @@ const deleteNodesInternal = async (
   const liveDoc = state$.doc.peek();
   removeEdgesFromSelection(new Set(
     liveDoc.edges
-      .filter((edge) => nonHerdr.has(edge.fromNode) || nonHerdr.has(edge.toNode))
+      .filter((edge) => doomed.has(edge.fromNode) || doomed.has(edge.toNode))
       .map((edge) => edge.id),
   ));
   commitDoc({
-    nodes: liveDoc.nodes.filter((n) => !nonHerdr.has(n.id)),
-    edges: liveDoc.edges.filter((e) => !nonHerdr.has(e.fromNode) && !nonHerdr.has(e.toNode)),
+    nodes: liveDoc.nodes.filter((n) => !doomed.has(n.id)),
+    edges: liveDoc.edges.filter((e) => !doomed.has(e.fromNode) && !doomed.has(e.toNode)),
   });
   // Release only after the document commit so reopen cannot race the card.
   await finishDeleteLeases("committed");
@@ -1318,7 +1302,7 @@ export const setRegionHold = (id: string, hold: boolean): void => {
 };
 
 // Region spawn defaults (group nodes only). Create-time stamp source for
-// herdr/page nodes placed inside the region — never live rebind.
+// page nodes placed inside the region — never live rebind.
 // Merges into ether.region so hold + instruction survive. Empty bags strip.
 export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | undefined): void => {
   const doc = state$.doc.peek();

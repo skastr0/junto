@@ -20,7 +20,7 @@ import type {
   Task,
   TextNode,
 } from "@shared/canvas";
-import type { DemoBeat, DemoHerdrStatus, DemoOp, DemoScenario } from "@shared/demo";
+import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 
 // --- beat accumulator ---------------------------------------------------------
 // Exactly one DemoBeat per distinct `.at` — ops sharing a beat are merged.
@@ -102,38 +102,14 @@ const crewNode = (spec: CrewSpec): TextNode => ({
   width: 260,
   height: 110,
   ether: {
-    entity: { kind: "herdr" },
-    herdr: {
-      host: spec.host,
-      session: null,
-      workspaceId: "w1",
-      tabId: "w1:t1",
-      paneId: spec.paneId,
-      terminalId: spec.terminalId,
-      label: spec.label,
-    },
+    entity: { kind: "terminal" },
+    host: spec.host,
+    terminal: { bindingId: spec.terminalId, label: spec.label },
   },
 });
 
-const ensureOp = (spec: CrewSpec, status: DemoHerdrStatus): DemoOp => ({
-  kind: "herdr",
-  command: {
-    kind: "ensure-pane",
-    pane: { host: spec.host, paneId: spec.paneId, agent: spec.agent, label: spec.label },
-    status,
-  },
-});
-
-const statusOp = (spec: CrewSpec, status: DemoHerdrStatus): DemoOp => ({
-  kind: "herdr",
-  command: { kind: "set-status", host: spec.host, paneId: spec.paneId, status },
-});
-
-/** Spawn = canvas card + scripted pane in one beat. */
-const spawn = (spec: CrewSpec, status: DemoHerdrStatus): readonly DemoOp[] => [
-  addNodesOp([crewNode(spec)]),
-  ensureOp(spec, status),
-];
+/** Spawn = the crew card entering on its beat. */
+const spawn = (spec: CrewSpec): readonly DemoOp[] => [addNodesOp([crewNode(spec)])];
 
 // --- the crew roster ----------------------------------------------------------
 // Region A: build lane (local). Region B: deep research (local).
@@ -332,7 +308,7 @@ const plainEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => 
 // Rung 8  b74   finale growth + slow pullback        [close card]
 
 // Rung 1 — open small.
-at(0, hudOp(false), addNodesOp([regionA, noteBrief]), ...spawn(A[0], "working"), ...spawn(A[1], "idle"));
+at(0, hudOp(false), addNodesOp([regionA, noteBrief]), ...spawn(A[0]), ...spawn(A[1]));
 at(0.5, cameraFit(["demo-g-h01", "demo-g-h02", "demo-g-note1"], 1.5, 0.22, 1.05));
 at(6, addNodesOp([noteScratch]));
 
@@ -349,19 +325,19 @@ at(
 );
 
 // Rung 3 — play: the two wake, then the row fills on its own.
-at(14, statusOp(A[1], "working"), sfxOp("wake"));
-at(16, ...spawn(A[2], "working"));
-at(17.5, ...spawn(A[3], "working"));
-at(19, ...spawn(A[4], "working"));
-at(20.5, ...spawn(A[5], "working"));
-at(22, ...spawn(A[6], "working"), ...spawn(A[7], "working"));
+at(14, sfxOp("wake"));
+at(16, ...spawn(A[2]));
+at(17.5, ...spawn(A[3]));
+at(19, ...spawn(A[4]));
+at(20.5, ...spawn(A[5]));
+at(22, ...spawn(A[6]), ...spawn(A[7]));
 at(23, cameraFit(undefined, 2, 0.16));
 
 // Rung 4 — second region, more crew, then the first blocker.
 at(26, addNodesOp([regionB]));
-at(28, ...spawn(B[0], "working"), ...spawn(B[1], "working"));
-at(30, ...spawn(B[2], "working"), ...spawn(B[3], "working"));
-at(32, ...spawn(B[4], "working"));
+at(28, ...spawn(B[0]), ...spawn(B[1]));
+at(30, ...spawn(B[2]), ...spawn(B[3]));
+at(32, ...spawn(B[4]));
 at(
   33,
   addEdgesOp([
@@ -370,8 +346,8 @@ at(
   ]),
   cameraFit(undefined, 2, 0.16),
 );
-at(36, statusOp(A[5], "blocked"), flagOp(["demo-g-h06"], "blocker", true), sfxOp("alert"));
-at(40, statusOp(B[4], "blocked"), flagOp(["demo-g-h13"], "blocker", true));
+at(36, flagOp(["demo-g-h06"], "blocker", true), sfxOp("alert"));
+at(40, flagOp(["demo-g-h13"], "blocker", true));
 
 // Rung 5 — the question surfaces, gets answered, the fleet re-greens.
 at(
@@ -382,8 +358,8 @@ at(
   cameraFit(["demo-g-h06", "demo-g-requests", "demo-g-tasks"], 1.5, 0.2),
   sfxOp("request"),
 );
-at(46, statusOp(A[5], "working"), flagOp(["demo-g-h06"], "blocker", false), sfxOp("clear"));
-at(48, statusOp(B[4], "working"), flagOp(["demo-g-h13"], "blocker", false));
+at(46, flagOp(["demo-g-h06"], "blocker", false), sfxOp("clear"));
+at(48, flagOp(["demo-g-h13"], "blocker", false));
 at(49, flagOp(["demo-g-requests"], "attention", false), selectOp([]));
 at(50, cameraFit(undefined, 2.5, 0.16));
 
@@ -394,23 +370,20 @@ at(
   addEdgesOp([plainEdge("demo-g-e5", "demo-g-h03", "demo-g-artifacts")]),
   sfxOp("artifact"),
 );
-at(58, statusOp(A[2], "done"), statusOp(A[1], "done"));
 
 // Rung 7 — the second machine joins the same board.
 at(62, addNodesOp([regionC]), cameraFit(undefined, 2, 0.15));
-at(64, ...spawn(C[0], "working"), ...spawn(C[1], "working"));
-at(66, ...spawn(C[2], "working"), ...spawn(C[3], "working"));
-at(68, ...spawn(C[4], "working"), ...spawn(C[5], "working"));
+at(64, ...spawn(C[0]), ...spawn(C[1]));
+at(66, ...spawn(C[2]), ...spawn(C[3]));
+at(68, ...spawn(C[4]), ...spawn(C[5]));
 at(70, cameraFit(undefined, 2, 0.15));
 
 // Rung 8 — the factory hums; one last ambient block clears; slow pullback.
-at(74, ...spawn(FINALE[0], "working"), ...spawn(FINALE[1], "working"));
-at(76, ...spawn(FINALE[2], "working"), statusOp(B[0], "done"));
-at(80, statusOp(C[1], "blocked"), flagOp(["demo-g-h15"], "blocker", true));
-at(82, statusOp(C[1], "working"), flagOp(["demo-g-h15"], "blocker", false), sfxOp("clear"));
-at(84, statusOp(A[4], "done"), statusOp(C[0], "done"));
+at(74, ...spawn(FINALE[0]), ...spawn(FINALE[1]));
+at(76, ...spawn(FINALE[2]));
+at(80, flagOp(["demo-g-h15"], "blocker", true));
+at(82, flagOp(["demo-g-h15"], "blocker", false), sfxOp("clear"));
 at(86, cameraFit(undefined, 6, 0.2));
-at(93, statusOp(B[2], "done"));
 
 // --- assemble -----------------------------------------------------------------
 

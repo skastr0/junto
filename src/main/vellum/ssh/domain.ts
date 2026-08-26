@@ -231,7 +231,7 @@ const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): nu
  * - `ssh/remote-plan.ts` (named plan compilers)
  * - `ssh/read-commands.ts` (closed allowlisted read constructors)
  * - SSH kernel tests (deep-import this module)
- * may call this. Product modules under hosts/, hermes/, herdr/,
+ * may call this. Product modules under hosts/, hermes/,
  * term/, browser/ must use named factories — never this function.
  *
  * Residual (Cut 3, deliberate): one WeakMap command brand for all recipes

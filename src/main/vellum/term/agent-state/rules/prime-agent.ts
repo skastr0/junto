@@ -1,5 +1,5 @@
 /**
- * Prime Agent seat rules — grid/OSC net. The built-in herdr socket reporter is
+ * Prime Agent seat rules — grid/OSC net. The built-in socket reporter is
  * the real feed (idle/working/blocked + session id); this pack covers the
  * screen fallback only: OSC 9;4;3 progress (working), OSC 0 static title
  * (idle), ◇◈◆◈ in-place tool markers (working), the "Working..." manifest
@@ -8,7 +8,7 @@
  * empty (no token/model line to sniff). OSC 133 A/B/C zones wrap message
  * blocks but the region vocabulary has no osc133 slice — OSC 9 + grid carry
  * the pack.
- * Patterns from docs/research/agent-cli-sweep/prime-agent.md + herdr pi.toml
+ * Patterns from docs/research/agent-cli-sweep/prime-agent.md
  * (rewritten; not vendored).
  */
 

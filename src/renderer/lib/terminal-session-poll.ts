@@ -7,7 +7,7 @@ type SessionListener = (session: TerminalSessionSummary | undefined) => void;
 const POLL_MS = 2500;
 /**
  * Circuit breaker: a host whose batch read keeps failing drops to a 60s
- * cadence instead of being retried every 2.5s forever. Mirrors the herdr
+ * cadence instead of being retried every 2.5s forever. Mirrors the
  * meta poller's degraded tier. One unreachable Station must not charge the
  * canvas an IPC + host-activation attempt every tick indefinitely.
  */

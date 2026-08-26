@@ -1,5 +1,5 @@
 // Pure workbench slot logic. No observables, no IPC, no DOM — dock-state.ts
-// applies these transitions and performs side effects (browser detach, herdr
+// applies these transitions and performs side effects (browser detach,
 // stream release) for closed/evicted interactive surfaces.
 //
 // Product model:
@@ -8,12 +8,10 @@
 // - Per-zone layout: solo | split-v | split-h (1 or 2 visible panes).
 // - Surplus surfaces become tabs via an MRU stack (front = active).
 // - No hard maxVisible UI eviction — tabs replace detach-on-overflow.
-// - Multiple herdr surfaces allowed (focus-on-click routes keyboard).
 //   Per-terminal control exclusivity is host-side; not a global UI lock.
 
 export type SurfaceKind =
   | "browser"
-  | "herdr"
   | "terminal"
   | "chat"
   | "task-create"
@@ -138,7 +136,7 @@ export const visiblePanes = (state: WorkbenchState, zone: WorkZone): VisiblePane
  * Open (or re-focus) a surface into a zone. Default zone is focus.
  * Re-requesting an already-open surface moves it to the front of its current
  * zone MRU (zone argument ignored when already open, unless kinds clash).
- * Multiple herdr/browser surfaces coexist — no global interactive eviction.
+ * Multiple browser surfaces coexist — no global interactive eviction.
  */
 export const openSurface = (
   state: WorkbenchState,
@@ -286,7 +284,7 @@ export const workFocusSizeKeyForSurfaces = (
   focusSurfaces: ReadonlyArray<WorkSurface>,
 ): WorkFocusSizeKey => {
   if (focusSurfaces.length === 0) return "workspace";
-  if (focusSurfaces.every((s) => s.kind === "herdr" || s.kind === "terminal")) {
+  if (focusSurfaces.every((s) => s.kind === "terminal")) {
     return "terminal";
   }
   if (focusSurfaces.every((s) => s.kind === "chat")) return "chat";

@@ -22,7 +22,7 @@ const host: RemoteHost = {
   label: "Studio",
   kind: "remote",
   sshEndpoint: "studio-box",
-  capabilities: ["herdr", "hermes", "browser"],
+  capabilities: ["hermes", "browser"],
 };
 
 const readyPackage: DeployRemoteResult = {

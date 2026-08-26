@@ -699,7 +699,7 @@ export class SessionObserver {
     };
   }
 
-  // Region helpers for state-machine consumers (no string copies from herdr).
+  // Region helpers for state-machine consumers.
   regionWhole(lines: readonly string[] = this.snapshotNow().lines): readonly string[] {
     return lines;
   }

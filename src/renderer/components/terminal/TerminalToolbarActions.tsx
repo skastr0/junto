@@ -14,7 +14,7 @@ import { IconButton } from "../ui";
 /**
  * Selection-toolbar actions for native terminal nodes.
  * Open is one-click; open-pinned lands in the side dock; stop is two-click arm
- * (same pattern as HerdrToolbarActions). Never on the card body.
+ * Never on the card body.
  *
  * Icons share the toolbar steel chrome (IconButton default) — no per-action
  * accent colors. Crimson is reserved for the armed stop confirm only.

@@ -67,7 +67,7 @@ describe("node palette catalog contract", () => {
     expect(NO_WIRES_COPY[id]).toBe("No wires — sits on the map.");
   });
 
-  it.each(["terminal", "herdr"])("keeps %s hands-on with no wires", (id) => {
+  it.each(["terminal"])("keeps %s hands-on with no wires", (id) => {
     expect(catalogWireLines(id)).toEqual([]);
     expect(NO_WIRES_COPY[id]).toBe("No wires — open it and work by hand.");
   });

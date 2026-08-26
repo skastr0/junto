@@ -1,6 +1,4 @@
-import { parseHerdrSurfaceId } from "../../lib/dock-state";
 import { dock$ } from "../../lib/dock-state";
-import { getHerdrTerminal } from "../../lib/herdr-state";
 import type { WorkbenchState, WorkSurface } from "../../lib/surface-registry";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
@@ -14,15 +12,6 @@ export function surfaceLabel(
   if (surface.kind === "browser") {
     const payload = dock$.browserByRef[surface.id].peek();
     return payload?.title ?? payload?.url ?? "page";
-  }
-  if (surface.kind === "herdr") {
-    const nodeId = parseHerdrSurfaceId(surface.id);
-    if (nodeId) {
-      const terminal = getHerdrTerminal(nodeId);
-      if (terminal) return terminal.title || "herdr";
-      return "herdr";
-    }
-    return "herdr";
   }
   if (surface.kind === "terminal") {
     const nodeId = parseTerminalSurfaceId(surface.id);
@@ -41,9 +30,4 @@ export function surfaceLabel(
     return dock$.noteById[surface.id].peek()?.title ?? "Note";
   }
   return surface.kind;
-}
-
-/** herdr surface id → nodeId. Canonical form is `herdr:${nodeId}` only. */
-export function parseHerdrNodeId(surfaceId: string): string | undefined {
-  return parseHerdrSurfaceId(surfaceId) ?? undefined;
 }

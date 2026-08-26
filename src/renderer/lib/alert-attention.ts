@@ -28,17 +28,16 @@ import {
   type AlertQueue,
   type AlertSignal,
 } from "./alert-queue";
-import { herdr$ } from "./herdr-state";
 import { nodeTitle } from "./presentation";
 import { playAlert } from "./sfx";
 import { selectNode, state$ } from "./state";
 
 const TYPING_SURFACE_SELECTOR =
-  "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, .herdr-xterm, .herdr-terminal-panel, [data-terminal-surface]";
+  "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, [data-terminal-surface]";
 
 /**
  * Surfaces where Space must type, not cycle alerts.
- * Includes xterm (native + herdr display) — the helper textarea is a real
+ * Includes xterm — the helper textarea is a real
  * <textarea>, but focus can also land on .xterm chrome / host wrappers.
  * Uses duck-typed `closest` so node unit tests can stub without DOM globals.
  */
@@ -120,7 +119,7 @@ export const collectAlertSignals = (
 };
 
 /**
- * Canvas-wide cycle targets from managed seats, herdr, and authorial flags.
+ * Canvas-wide cycle targets from managed seats and authorial flags.
  *
  * Region rollups only cover group members — freestanding agents outside every
  * region still need Space/` to land on them (parity with the notify strip).
@@ -131,16 +130,6 @@ export const collectReadyWorkingSignals = (
   nodes: ReadonlyArray<CanvasNode>,
   seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
   needsLookByBindingId: Readonly<Record<string, boolean | undefined>>,
-  herdrMetaByNodeId: Readonly<
-    Record<
-      string,
-      | {
-          readonly meta?: { readonly agentStatus?: string };
-          readonly pendingSeen?: boolean;
-        }
-      | undefined
-    >
-  >,
 ): ReadonlyArray<AlertSignal> => {
   const byId = new Map<string, AlertSignal>();
   const push = (signal: AlertSignal): void => {
@@ -201,46 +190,6 @@ export const collectReadyWorkingSignals = (
       });
     }
 
-    const herdr = herdrMetaByNodeId[node.id];
-    if (!herdr) continue;
-    const status = herdr.meta?.agentStatus;
-    if (status === "done" && herdr.pendingSeen !== true) {
-      push({
-        id: alertId.node(node.id),
-        kind: "ready",
-        subjectKey: node.id,
-        nodeId: node.id,
-        label,
-        level: KIND_LEVEL.ready,
-      });
-    } else if (status === "blocked") {
-      push({
-        id: alertId.node(node.id),
-        kind: "blocked",
-        subjectKey: node.id,
-        nodeId: node.id,
-        label,
-        level: KIND_LEVEL.blocked,
-      });
-    } else if (status === "attention") {
-      push({
-        id: alertId.node(node.id),
-        kind: "attention",
-        subjectKey: node.id,
-        nodeId: node.id,
-        label,
-        level: KIND_LEVEL.attention,
-      });
-    } else if (status === "working") {
-      push({
-        id: alertId.node(node.id),
-        kind: "working",
-        subjectKey: node.id,
-        nodeId: node.id,
-        label,
-        level: KIND_LEVEL.working,
-      });
-    }
   }
 
   return [...byId.values()];
@@ -308,32 +257,23 @@ const collectLiveCycleSignals = (
     string,
     boolean | undefined
   >;
-  const herdrMeta = herdr$.metaByNodeId.peek() as Record<
-    string,
-    | {
-        readonly meta?: { readonly agentStatus?: string };
-        readonly pendingSeen?: boolean;
-      }
-    | undefined
-  >;
   return mergeCycleSignals(
     collectAlertSignals(rollups),
-    collectReadyWorkingSignals(nodes, seats, needsLook, herdrMeta ?? {}),
+    collectReadyWorkingSignals(nodes, seats, needsLook),
   );
 };
 
 /**
  * Mount in RTS chrome: subscribe live planes, observe queue, bind Space / `.
  * Rollups come from the parent (already computed for chips). Ready/working
- * seats and herdr done come from live stores so completes enter the tour.
+ * seats come from live stores so completes enter the tour.
  */
 export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   const rollupsRef = useRef(rollups);
   rollupsRef.current = rollups;
-  // Re-run observe when seats / herdr / doc identity change (ready+working).
+  // Re-run observe when seats / doc identity change (ready+working).
   const seatByBinding = use$(agentSeat$.byBindingId);
   const needsLookByBinding = use$(agentSeat$.needsLookByBindingId);
-  const herdrMetaByNodeId = use$(herdr$.metaByNodeId);
   const docNodes = use$(state$.doc.nodes);
 
   useEffect(() => {
@@ -348,10 +288,10 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rollups via ref; see comment above
   }, []);
 
-  // Re-observe when rollups or seat/herdr planes change without wiping baseline.
+  // Re-observe when rollups or the seat plane change without wiping baseline.
   useEffect(() => {
     observeAlertSignals(collectLiveCycleSignals(rollupsRef.current));
-  }, [rollups, seatByBinding, needsLookByBinding, herdrMetaByNodeId, docNodes]);
+  }, [rollups, seatByBinding, needsLookByBinding, docNodes]);
 
   // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
   // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).

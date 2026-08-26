@@ -21,7 +21,6 @@ import {
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
-  HERDR_ENABLED,
   RELAY_ENABLED,
 } from "@shared/features";
 import { HUE } from "../../lib/theme";
@@ -95,7 +94,6 @@ export const NO_WIRES_COPY: Partial<Record<string, string>> = {
   label: "No wires — sits on the map.",
   region: "No wires — sits on the map.",
   terminal: "No wires — open it and work by hand.",
-  herdr: "No wires — open it and work by hand.",
   git: "No wires — visualization only.",
 };
 
@@ -142,11 +140,6 @@ export const catalogWireLines = (entryId: string): readonly CatalogWireLine[] =>
   return lines;
 };
 
-const HERDR_CATALOG_ENTRY: NodeCatalogEntry = {
-  id: "herdr", category: "shell", label: "Herdr", subtitle: "attach an existing pane",
-  icon: PanelTop,
-  purpose: "Shows an existing terminal pane on the canvas without taking it over.",
-};
 
 export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   {
@@ -154,7 +147,6 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: SquareTerminal,
     purpose: "A shell on the selected machine for commands, logs, and hands-on work.",
   },
-  ...(HERDR_ENABLED ? [HERDR_CATALOG_ENTRY] : []),
   {
     id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared work queue",
     icon: Blocks,

@@ -40,107 +40,13 @@ export const ACTIVITY_TONE_HEX: Record<ActivityTone, string> = {
   steel: HUE.steel,
 };
 
-/** Severity → activity tone. Single map for herdr/chat busy states. */
+/** Severity → activity tone. Single map for seat/chat busy states. */
 export const SEVERITY_TONE = {
   blocked: "crimson",
   attention: "amber",
   working: "cyan",
   idle: "steel",
 } as const satisfies Record<string, ActivityTone>;
-
-// --- herdr -------------------------------------------------------------------
-
-export type HerdrAgentStatus =
-  "idle" | "working" | "blocked" | "done" | "unknown" | string;
-export type HerdrMetaStatus = "idle" | "loading" | "ok" | "error" | string;
-export type HerdrConnState =
-  "connected" | "degraded" | "lost" | "failed" | "unknown" | string;
-
-/**
- * Herdr agent_status is (AgentState, seen):
- *   Idle+!seen → "done"  (finished turn, waiting for you to look)
- *   Idle+seen  → "idle"  (you've looked; quiet)
- *   Working / Blocked / Unknown map 1:1.
- *
- * Precedence: meta loading (cyan diagonal, first fetch only) → working/blocked
- * → done (green pulse — ready until open marks seen) → connection degraded
- * → lost/failed → idle (static steel — no animation; fleet-safe) → unknown green.
- *
- * Tones follow SEVERITY_TONE (same as chips/minimap). Patterns distinguish
- * states that share a hue (e.g. loading diagonal vs working snake, both cyan).
- * Ready/complete is green pulse — never amber and never the working clockwise.
- */
-export function herdrActivity(input: {
-  readonly agentStatus?: HerdrAgentStatus | null;
-  readonly metaStatus?: HerdrMetaStatus | null;
-  readonly connState?: HerdrConnState | null;
-}): ActivitySpec {
-  // First-hydrate must stay static. A fleet of unbound cards all hit
-  // metaStatus:"loading" together — waving every card pegs the renderer
-  // (~70% CPU idle on an 80-pane board). Working/blocked still wave.
-  if (input.metaStatus === "loading") {
-    return {
-      mode: "static",
-      tone: SEVERITY_TONE.working,
-      label: "loading meta",
-    };
-  }
-  const agent = input.agentStatus ?? "unknown";
-  if (agent === "working") {
-    return {
-      mode: "wave",
-      tone: SEVERITY_TONE.working,
-      pattern: "snake",
-      label: "working",
-    };
-  }
-  if (agent === "blocked") {
-    return {
-      mode: "wave",
-      tone: SEVERITY_TONE.blocked,
-      pattern: "arrow-up",
-      label: "blocked",
-    };
-  }
-  // Unseen idle: herdr's "done" = ready/complete. Green pulse until open
-  // marks the pane seen (done → idle). Never amber (that's needs-input) and
-  // never working-cyan (would lie the agent is still running).
-  if (agent === "done") {
-    return {
-      mode: "pulse",
-      tone: "green",
-      label: "Done — waiting for review",
-    };
-  }
-  if (input.connState === "degraded") {
-    return {
-      mode: "wave",
-      tone: "steel",
-      pattern: "diagonal",
-      label: "degraded",
-    };
-  }
-  if (
-    input.connState === "lost" ||
-    input.connState === "failed" ||
-    input.metaStatus === "error"
-  ) {
-    return {
-      mode: "static",
-      tone: SEVERITY_TONE.blocked,
-      label: input.metaStatus === "error" ? "error" : String(input.connState),
-    };
-  }
-  // Seen idle: quiet. Static — never animate every idle card in a fleet.
-  if (agent === "idle") {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
-  }
-  // Quiet healthy card: green static (connected, no agent report).
-  if (agent === "unknown" || !agent) {
-    return { mode: "static", tone: "green", label: "connected" };
-  }
-  return { mode: "static", tone: SEVERITY_TONE.idle, label: agent };
-}
 
 // --- native terminal / managed seat -----------------------------------------
 
@@ -203,7 +109,7 @@ export const isActiveProcessLabel = (
 export function terminalActivity(input: {
   readonly seatState?: AgentSeatState | null;
   /**
-   * Idle + needsLook → ready/complete (herdr "done"): finished turn, operator
+   * Idle + needsLook → ready/complete: finished turn, operator
    * has not opened the seat yet. Never a physics state — presentation only.
    */
   readonly needsLook?: boolean;
@@ -300,7 +206,7 @@ export function terminalActivity(input: {
       label: `process — ${processLabel}`,
     };
   }
-  // Ready/complete: idle after work, operator has not looked (herdr done).
+  // Ready/complete: idle after work, operator has not looked.
   // Green pulse — distinct from attention amber (needs operator input).
   if (input.seatState === "idle" && input.needsLook === true) {
     return {

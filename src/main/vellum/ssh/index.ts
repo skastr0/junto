@@ -46,7 +46,6 @@ export {
   // Darwin freeform deploy compiler is intentionally not public: beta keeps
   // Darwin Remote deploy capability-gated, and the freeform bash -lc mint must
   // not be reachable from the product barrel (hosts deep-import remote-plan).
-  compileHerdrImageStage,
   compileLinuxUserlandDeploy,
   compileLinuxUserlandDeploySource,
   compileLinuxUserlandObserve,
@@ -55,13 +54,10 @@ export {
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandRestart,
   compileLinuxUserlandRestartSource,
-  confineHerdrStagePath,
-  HERDR_IMAGE_STAGE_DIR,
 } from "./remote-plan";
 export {
   remoteCat,
   remoteHermesCli,
-  remoteHerdrCli,
   remoteHostProbe,
   remoteLinuxCapabilityDoctor,
   remoteLsofTcpListen,

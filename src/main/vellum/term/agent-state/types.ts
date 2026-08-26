@@ -1,6 +1,6 @@
 /**
  * Internal rule-pack types for the agent seat state engine.
- * Patterns are rewritten from probe captures + herdr design notes — not vendored.
+ * Patterns are rewritten from probe captures — not vendored.
  */
 
 import type { AgentSeatState } from "../../../../shared/agent-seat-state";

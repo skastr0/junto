@@ -1,13 +1,12 @@
 /**
- * Extract image payloads from browser ClipboardEvent / drag-drop DataTransfer
- * for the herdr terminal attach path. Main stages a temp file on the herdr host
- * and pastes the absolute path via stock terminal.input (no herdr forks).
+ * Extract image payloads from browser ClipboardEvent / drag-drop DataTransfer,
+ * then hand them to the content store (pad, task board, note surfaces).
  */
 
 /** Align with main `VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES` (16 MiB). */
 export const VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
 
-export interface HerdrClipboardImage {
+export interface ClipboardImage {
   readonly extension: string;
   readonly dataBase64: string;
   readonly byteLength: number;
@@ -52,9 +51,9 @@ export const uint8ToBase64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 
-export const fileToHerdrClipboardImage = async (
+export const fileToClipboardImage = async (
   file: File,
-): Promise<HerdrClipboardImage | { readonly error: string }> => {
+): Promise<ClipboardImage | { readonly error: string }> => {
   const extension = resolvedExtension(file);
   if (!extension) {
     const hint = file.type.trim() || file.name.trim() || "(unknown)";
@@ -84,9 +83,9 @@ export const fileToHerdrClipboardImage = async (
  * Returns null when no image is present so callers can fall through to text paste.
  * Unmappable image/* (e.g. HEIC/SVG/TIFF) returns an error — never defaults to png.
  */
-export const extractHerdrClipboardImage = async (
+export const extractClipboardImage = async (
   data: DataTransfer | null | undefined,
-): Promise<HerdrClipboardImage | { readonly error: string } | null> => {
+): Promise<ClipboardImage | { readonly error: string } | null> => {
   if (!data) return null;
 
   const candidates: File[] = [];
@@ -115,8 +114,8 @@ export const extractHerdrClipboardImage = async (
     }
   }
   if (candidates.length === 0) {
-    if (unmappableImage) return fileToHerdrClipboardImage(unmappableImage);
+    if (unmappableImage) return fileToClipboardImage(unmappableImage);
     return null;
   }
-  return fileToHerdrClipboardImage(candidates[0]!);
+  return fileToClipboardImage(candidates[0]!);
 };

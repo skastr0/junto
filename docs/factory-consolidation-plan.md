@@ -31,7 +31,7 @@ type FactoryRole = "actor" | "sink" | "scheduler" | "geography"
 type ActorKind     = "agent"                                      // Vellum Command-spawned template terminal
 type SinkKind      = "task" | "requests" | "artifacts" | "page"
 type SchedulerKind = "watcher" | "timer"
-type GeographyKind = "note" | "file" | "link" | "region" | "herdr" | "terminal"
+type GeographyKind = "note" | "file" | "link" | "region" | "terminal"
 //                                                        ↑ geography, not legacy
 //                                                                  ↑ raw user-opened terminal
 
@@ -85,7 +85,7 @@ gradient — not policed, structurally impossible):
 | an actor that is not an `agent` | 3 kinds carry `role: "actor"` (`physics/kinds.ts:38-40`) |
 | an actor with no binding or no harness | `harness`/`bindingId` optional (`canvas.ts:103`) |
 | a harness with no template | `harness: Schema.String` (`canvas.ts:103`) |
-| geography holding ports, a seat, or an inbox | herdr offers `msgOffers` (`kinds.ts:40`) |
+| geography holding ports, a seat, or an inbox | a geography kind once offered `msgOffers` |
 | a node whose role depends on a live process | `managed = Boolean(harness) \|\| launch?.kind === "harness"` recomputed per open (`term/local-host.ts:381`) |
 | an actor silently becoming a shell | `argv.length === 0` → `defaultShell()` `-l` (`term/local-host.ts:311-317`) |
 | a caller principal that resolves to nothing | 3 kinds × 3 optional ids (`process-identity.ts:19-32`) |

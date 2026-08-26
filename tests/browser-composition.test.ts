@@ -92,7 +92,6 @@ describe("browser composition (no ceremony)", () => {
       "src/main/vellum/browser/agent-authority.ts",
       "src/main/vellum/browser/agent-confirmation.ts",
       "src/main/vellum/browser/agent-ipc.ts",
-      "src/main/vellum/browser/herdr-agent-delivery.ts",
     ]) {
       expect(() => readFileSync(join(root, rel))).toThrow();
     }

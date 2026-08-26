@@ -4,7 +4,7 @@
  *
  * Pure: OccupancySpectrum -> { CSS hook, accessible label }. Rendered via a
  * `data-occupancy` attribute (see NodeShell.tsx), the same pattern already
- * used for `data-blocked` / `data-herdr-blocked` — CSS in styles.css keys
+ * used for `data-blocked` — CSS in styles.css keys
  * off the attribute so this module never touches the DOM or React itself.
  *
  * I12: three vocabularies must never collapse into one badge — "needs

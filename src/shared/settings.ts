@@ -200,7 +200,7 @@ export const StationSettings = StationSettingsValue;
 export type StationSettings = typeof StationSettings.Type;
 
 // RTS UI SFX — per-clip enable + volume under a master mute/gain.
-// `permission`, `herdrDone`, and `orphan` remain durable compatibility keys;
+// `permission` and `orphan` remain durable compatibility keys;
 // the active renderer catalog presents the generic node-state vocabulary.
 const unitInterval = Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 1 })));
 
@@ -213,7 +213,6 @@ export type SfxClipPrefs = typeof SfxClipPrefs.Type;
 export const SfxClipsSettings = Schema.Struct({
   blocked: SfxClipPrefs,
   permission: SfxClipPrefs,
-  herdrDone: SfxClipPrefs,
   orphan: SfxClipPrefs,
   cycle: SfxClipPrefs,
 });
@@ -646,7 +645,6 @@ export type SfxClipPatch = typeof SfxClipPatch.Type;
 export const SfxClipsPatch = Schema.Struct({
   blocked: Schema.optionalKey(SfxClipPatch),
   permission: Schema.optionalKey(SfxClipPatch),
-  herdrDone: Schema.optionalKey(SfxClipPatch),
   orphan: Schema.optionalKey(SfxClipPatch),
   cycle: Schema.optionalKey(SfxClipPatch),
 });
@@ -725,8 +723,9 @@ export const defaultHarnesses = (): HarnessesSettings => ({
  *   VELLUM_XTERM_FONT_FAMILY, and the hardcoded 1.2 in TerminalSurface)
  * - scrollSensitivity / scrollback — the SCROLL_SENSITIVITY and scrollback
  *   constants the surface passed to xterm
- * - cursorStyle / minimumContrastRatio / letterSpacing / screenReaderMode —
+ * - cursorStyle / letterSpacing / screenReaderMode —
  *   xterm's own effective defaults, which the surface never overrode
+ * - minimumContrastRatio — default 4.5 (WCAG AA) so TrueColor and ANSI text auto-adjust contrast
  * - cursorBlink — true, because the surface blinks whenever the terminal is
  *   visible; the preference gates that, it does not replace it
  * - bell — "off", because nothing subscribes to xterm's onBell today
@@ -741,7 +740,7 @@ export const defaultTerminal = (): TerminalSettings => ({
   cursorStyle: "block",
   scrollback: 10_000,
   cursorBlink: true,
-  minimumContrastRatio: 1,
+  minimumContrastRatio: 4.5,
   lineHeight: 1.2,
   letterSpacing: 0,
   screenReaderMode: false,
@@ -765,7 +764,6 @@ const defaultClip = (volume: number): SfxClipPrefs => ({ enabled: true, volume }
 export const defaultSfxClips = (): SfxClipsSettings => ({
   blocked: defaultClip(0.55),
   permission: defaultClip(0.55),
-  herdrDone: defaultClip(0.5),
   orphan: defaultClip(0.5),
   // Cycle is navigation chrome — keep quiet by default.
   cycle: defaultClip(0.18),
@@ -983,7 +981,7 @@ export class SettingsError extends Schema.TaggedErrorClass<SettingsError>()("Set
   code: SettingsErrorCode,
 }) {}
 
-// Wire result for IPC. Same ok/code/message shape as browser/herdr ops, with a
+// Wire result for IPC. Same ok/code/message shape as browser ops, with a
 // monomorphic `settings` payload (always the full aggregate, never generic data).
 export interface SettingsOpResult {
   readonly ok: boolean;

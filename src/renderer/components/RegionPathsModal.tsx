@@ -163,7 +163,6 @@ export function RegionPathsModal({
     const paths = stripEmptyRegionPaths(map);
     const current = node.ether?.region?.defaults;
     const next = {
-      ...(current?.herdr ? { herdr: current.herdr } : {}),
       ...(current?.page ? { page: current.page } : {}),
       ...(paths ? { paths } : {}),
     };

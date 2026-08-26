@@ -10,7 +10,7 @@ describe("FleetHostForm feature policy", () => {
     expect(
       fleetEnrollCapabilities().map((capability) => capability.id),
     ).toEqual(
-      productHostCapabilities(["terminal", "browser", "herdr", "hermes"]),
+      productHostCapabilities(["terminal", "browser", "hermes"]),
     );
   });
 

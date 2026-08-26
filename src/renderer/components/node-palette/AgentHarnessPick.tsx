@@ -17,7 +17,7 @@ import {
 import { harnessVisibleInPalette } from "@shared/harness-settings";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { state$ } from "../../lib/state";
-import { HarnessMark } from "../herdr/HarnessMark";
+import { HarnessMark } from "../HarnessMark";
 import type { AgentConfigurationChoices } from "./agent-launch-model";
 import { AgentCascadeMenu } from "./AgentCascadeMenu";
 

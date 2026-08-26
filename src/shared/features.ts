@@ -18,7 +18,6 @@ declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HERDR_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
@@ -32,19 +31,6 @@ const envEnabled = (key: string): boolean => {
     return false;
   }
 };
-
-/**
- * Product surface for Herdr (legacy pane attach, wizard, host capability,
- * serve-catalog IPC, idle-herdr queue, region herdr defaults, …).
- *
- * When false: no authoring UI, no host-cap chips/checkboxes, no herdr IPC
- * registration, no herdr plane start/warm. Durable schema still decodes
- * historical `herdr` rows; they render as inert furniture.
- */
-export const HERDR_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HERDR_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HERDR_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HERDR");
 
 export const CRON_ENABLED: boolean =
   typeof __VELLUM_COMMAND_CRON_ENABLED__ === "boolean"
@@ -132,7 +118,6 @@ export const BUILD_FEATURES = {
   helpMap: HELP_MAP_ENABLED,
   audio: AUDIO_ENABLED,
   hermesIntegration: HERMES_INTEGRATION_ENABLED,
-  herdr: HERDR_ENABLED,
   devTools: DEV_TOOLS_ENABLED,
   harnessKimi: HARNESS_KIMI_ENABLED,
   harnessMuse: HARNESS_MUSE_ENABLED,
@@ -150,7 +135,6 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "cron" || kind === "timer") return CRON_ENABLED;
   if (kind === "relay" || kind === "watcher" || kind === "gauge") return RELAY_ENABLED;
   if (kind === "page") return BROWSER_ENABLED;
-  if (kind === "herdr") return HERDR_ENABLED;
   return true;
 };
 
@@ -171,7 +155,6 @@ export const managedHarnessEnabled = (harness: string): boolean => {
 export const productHostCapabilities = <T extends string>(
   capabilities: ReadonlyArray<T>,
 ): ReadonlyArray<T> => capabilities.filter((capability) => {
-  if (!HERDR_ENABLED && capability === "herdr") return false;
   if (!BROWSER_ENABLED && capability === "browser") return false;
   if (!HERMES_INTEGRATION_ENABLED && capability === "hermes") return false;
   return true;

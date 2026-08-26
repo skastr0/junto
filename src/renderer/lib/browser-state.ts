@@ -12,8 +12,8 @@ export const browser$ = observable({
 
 // getVellumCommandApi() narrows its return type to VellumCommandApi proper; every browser
 // method lives on the sibling VellumCommandBrowserApi slice that global.d.ts merges
-// onto window.vellumCommand at runtime. Cast per-call like herdr-state.ts already
-// does for herdrGetMeta — Partial<> so a not-yet-landed method degrades to
+// onto window.vellumCommand at runtime. Cast per-call — Partial<> so a
+// not-yet-landed method degrades to
 // undefined rather than a type error.
 type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
 

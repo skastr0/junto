@@ -73,7 +73,6 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
     await expect(
       deck.getByRole("button", { name: /terminal/i }),
     ).toBeVisible();
-    await expect(deck.getByRole("button", { name: /herdr/i })).toBeVisible();
 
     await deck.getByRole("tab", { name: "Schedule", exact: true }).click();
     // Gauge (hermes stat_threshold) is palette-hidden — cron and relay are

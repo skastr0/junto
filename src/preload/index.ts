@@ -3,9 +3,6 @@ import {
   IPC_CHANNELS,
   type ChassisApi,
   type ChatEvent,
-  type HerdrMirrorEvent,
-  type HerdrStreamEvent,
-  type HerdrStreamOpenInput,
   type BrowserOpenInput,
   type BrowserProfileWipeInput,
   type BrowserSessionInfo,
@@ -19,7 +16,6 @@ import {
   type VellumCommandChatApi,
   type VellumCommandDemoApi,
   type VellumCommandGitApi,
-  type VellumCommandHerdrApi,
   type VellumCommandHermesIntegrationApi,
   type VellumCommandHostsApi,
   type VellumCommandSchedulerApi,
@@ -38,7 +34,6 @@ import {
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
-  HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   RELAY_ENABLED,
   USAGE_ENABLED,
@@ -70,9 +65,9 @@ const IPC_TIMEOUT_MS = 45_000;
 /** Box-backed host interaction may include provider resume + SSH verification. */
 const HOST_ACTIVATION_IPC_TIMEOUT_MS = 360_000;
 
-// Dual codexbar fan-out (enabled providers + codex --all-accounts) can take
-// well over 45s when vendor web endpoints are slow. getUsage stays on the
-// default ceiling — it only reads in-memory state.
+// Multi-source native fan-out can take well over 45s when vendor web
+// endpoints are slow. getUsage stays on the default ceiling — it only reads
+// in-memory state.
 const USAGE_REFRESH_TIMEOUT_MS = 120_000;
 
 // agentMessage fires a real (up to 180s) hermes turn; give it headroom above
@@ -707,63 +702,6 @@ const chatApi: VellumCommandChatApi = {
   onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
 };
 
-const herdrApi: VellumCommandHerdrApi = {
-  herdrHosts: () => invoke(IPC_CHANNELS.herdrHosts, IPC_TIMEOUT_MS),
-  herdrEnsureServer: (hostId, session) =>
-    invoke(IPC_CHANNELS.herdrEnsureServer, IPC_TIMEOUT_MS, hostId, session),
-  herdrListSessions: (hostId) => invoke(IPC_CHANNELS.herdrListSessions, IPC_TIMEOUT_MS, hostId),
-  herdrListWorkspaces: (hostId, session) =>
-    invoke(IPC_CHANNELS.herdrListWorkspaces, IPC_TIMEOUT_MS, hostId, session),
-  herdrListTabs: (hostId, session, workspaceId) =>
-    invoke(IPC_CHANNELS.herdrListTabs, IPC_TIMEOUT_MS, hostId, session, workspaceId),
-  herdrListPanes: (hostId, session, workspaceId) =>
-    invoke(IPC_CHANNELS.herdrListPanes, IPC_TIMEOUT_MS, hostId, session, workspaceId),
-  herdrListAgents: (hostId, session) =>
-    invoke(IPC_CHANNELS.herdrListAgents, IPC_TIMEOUT_MS, hostId, session),
-  herdrGetMeta: (hostId, session, paneId) =>
-    invoke(IPC_CHANNELS.herdrGetMeta, IPC_TIMEOUT_MS, hostId, session, paneId),
-  herdrServiceMapGet: (hostId, session, paneId) =>
-    invoke(IPC_CHANNELS.herdrServiceMapGet, IPC_TIMEOUT_MS, hostId, session, paneId),
-  herdrServiceMapProbe: (hostId, session, paneId) =>
-    invoke(IPC_CHANNELS.herdrServiceMapProbe, IPC_TIMEOUT_MS, hostId, session, paneId),
-  onHerdrServiceMapEvent: (listener) =>
-    subscribe(IPC_CHANNELS.herdrServiceMapEvent, listener),
-  herdrServeCatalogGet: (hostId) =>
-    invoke(IPC_CHANNELS.herdrServeCatalogGet, IPC_TIMEOUT_MS, hostId),
-  herdrServeCatalogRefresh: (hostId) =>
-    invoke(IPC_CHANNELS.herdrServeCatalogRefresh, IPC_TIMEOUT_MS, hostId),
-  herdrMarkPaneSeen: (hostId, session, paneId) =>
-    invoke(IPC_CHANNELS.herdrMarkPaneSeen, IPC_TIMEOUT_MS, hostId, session, paneId),
-  herdrCreateWorkspace: (hostId, session, input) =>
-    invoke(IPC_CHANNELS.herdrCreateWorkspace, IPC_TIMEOUT_MS, hostId, session, input),
-  herdrCreateTab: (hostId, session, input) =>
-    invoke(IPC_CHANNELS.herdrCreateTab, IPC_TIMEOUT_MS, hostId, session, input),
-  herdrCreatePane: (hostId, session, input) =>
-    invoke(IPC_CHANNELS.herdrCreatePane, IPC_TIMEOUT_MS, hostId, session, input),
-  herdrKillPane: (hostId, session, paneId) =>
-    invoke(IPC_CHANNELS.herdrKillPane, IPC_TIMEOUT_MS, hostId, session, paneId),
-  herdrKillTab: (hostId, session, tabId) =>
-    invoke(IPC_CHANNELS.herdrKillTab, IPC_TIMEOUT_MS, hostId, session, tabId),
-  herdrStreamOpen: (input: HerdrStreamOpenInput) =>
-    invoke(IPC_CHANNELS.herdrStreamOpen, IPC_TIMEOUT_MS, input),
-  herdrStreamInput: (streamId, dataBase64) =>
-    invoke(IPC_CHANNELS.herdrStreamInput, IPC_TIMEOUT_MS, streamId, dataBase64),
-  herdrStreamPasteImage: (streamId, extension, dataBase64) =>
-    invoke(IPC_CHANNELS.herdrStreamPasteImage, IPC_TIMEOUT_MS, streamId, extension, dataBase64),
-  herdrStreamResize: (streamId, cols, rows) =>
-    invoke(IPC_CHANNELS.herdrStreamResize, IPC_TIMEOUT_MS, streamId, cols, rows),
-  herdrStreamScroll: (streamId, delta, at) =>
-    invoke(IPC_CHANNELS.herdrStreamScroll, IPC_TIMEOUT_MS, streamId, delta, at),
-  herdrStreamClose: (streamId) => invoke(IPC_CHANNELS.herdrStreamClose, IPC_TIMEOUT_MS, streamId),
-  herdrObserveTouch: (input) => invoke(IPC_CHANNELS.herdrObserveTouch, IPC_TIMEOUT_MS, input),
-  herdrObserveRetained: (terminalId) =>
-    invoke(IPC_CHANNELS.herdrObserveRetained, IPC_TIMEOUT_MS, terminalId),
-  onHerdrStreamEvent: (listener) => subscribe<HerdrStreamEvent>(IPC_CHANNELS.herdrStreamEvent, listener),
-  herdrMirrorState: () => invoke(IPC_CHANNELS.herdrMirrorState, IPC_TIMEOUT_MS),
-  onHerdrMirrorEvent: (listener) =>
-    subscribe<HerdrMirrorEvent>(IPC_CHANNELS.herdrMirrorEvent, listener),
-};
-
 const browserApi: VellumCommandBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
@@ -861,7 +799,6 @@ const gitApi: VellumCommandGitApi = {
 
 const demoApi: VellumCommandDemoApi = {
   demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
-  demoCommand: (command) => invoke(IPC_CHANNELS.demoCommand, IPC_TIMEOUT_MS, command),
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
 };
 
@@ -917,7 +854,6 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),
     ...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {}),
-    ...(HERDR_ENABLED ? herdrApi : {}),
     ...(FLEET_UI_ENABLED ? hostsApi : {}),
     ...terminalApi,
     ...gitApi,

@@ -1,7 +1,7 @@
-import { markTileFor, marks, type MarksService } from "../../lib/harness-icons";
-import { withAlpha } from "../../lib/theme";
+import { markTileFor, marks, type MarksService } from "../lib/harness-icons";
+import { withAlpha } from "../lib/theme";
 
-// Brand identity chip for a herdr agent harness: the harness glyph when brand
+// Brand identity chip for an agent harness: the harness glyph when brand
 // path data exists, else a monogram on the agent's deterministic hue. An
 // absent agent never monograms the word "agent" — it gets a quiet terminal
 // prompt mark in DIM. Purely presentational — pointer-events none so the hero
@@ -32,7 +32,7 @@ export function HarnessMark({
   const title =
     titleProp === false
       ? undefined
-      : (titleProp ?? `${tile.displayName}${focused ? " - focused in herdr" : ""}`);
+      : (titleProp ?? `${tile.displayName}${focused ? " - focused" : ""}`);
   return (
     <span
       aria-hidden

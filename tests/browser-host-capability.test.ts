@@ -27,7 +27,7 @@ const authority = (
 
 describe("browser HostCapability admission", () => {
   it("admits a declared browser capability only on the exact physical station", () => {
-    const local = host("local", ["terminal", "browser", "herdr", "hermes"]);
+    const local = host("local", ["terminal", "browser", "hermes"]);
     expect(admitBrowserHostCapability("local", authority([local]))).toEqual({
       ok: true,
       host: local,

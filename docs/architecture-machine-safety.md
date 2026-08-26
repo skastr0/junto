@@ -190,7 +190,7 @@ process-group signal primitive.
   destination.
 - The Electron quit transaction synchronously closes authoring and resource
   admission, then awaits the canvas, browser, work-control, terminal, host,
-  Hermes/Herdr, launchctl, and central process drains before deciding whether
+  Hermes, launchctl, and central process drains before deciding whether
   shutdown is clean.
 - Architecture fitness tests inventory every asynchronous spawn,
   `process.kill`, direct `.kill`, detached group creation, and the SSH process

@@ -1,6 +1,6 @@
 /**
  * Claude Code seat rules — OSC title braille spinner, prompt-box idle, grid permission forms.
- * Patterns from managed-terminal probes + herdr design (rewritten; not vendored).
+ * Patterns from managed-terminal probes (rewritten; not vendored).
  */
 
 import type { SeatRulePack } from "../types";

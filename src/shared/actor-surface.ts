@@ -7,7 +7,7 @@
  *   agent    → managed terminal seat (bindingId required; harness required)
  *   terminal → raw shell geography (bindingId required; not an agent factory seat)
  *
- * Geography has no delivery surface at all — herdr is geography, so it holds
+ * Geography has no delivery surface at all, so it holds
  * no inbox and appears in no arm below.
  *
  * ACP is not a tag. It is not a port. It is not a fallback.

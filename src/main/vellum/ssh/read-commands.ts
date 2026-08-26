@@ -1,7 +1,7 @@
 /**
  * Closed allowlisted remote command constructors for product modules.
  *
- * Product code (hosts/, hermes/, herdr/, term/, browser/) must
+ * Product code (hosts/, hermes/, term/, browser/) must
  * mint RemoteCommands only through these factories or named plan compilers in
  * remote-plan.ts. Free-form executable+args (including
  * `/bin/sh -c …`) is unrepresentable here — that is the seal.
@@ -314,24 +314,10 @@ export const remoteHermesCli = (
     Effect.flatMap((safe) => makeRemoteCommand("hermes", safe)),
   );
 
-/**
- * Product Herdr CLI on the remote PATH.
- * Executable is fixed to `herdr`; args are revalidated tokens only.
- */
-export const remoteHerdrCli = (
-  args: ReadonlyArray<string>,
-): Effect.Effect<RemoteCommand, SshInputError> =>
-  admitCliArgs(args).pipe(
-    Effect.flatMap((safe) => makeRemoteCommand("herdr", safe)),
-  );
-
 /** Version probe for doctor: fixed argv per product binary. */
 export const remoteProductVersion = (
-  binary: "herdr" | "hermes",
-): Effect.Effect<RemoteCommand, SshInputError> =>
-  binary === "herdr"
-    ? remoteHerdrCli(["--version"])
-    : remoteHermesCli(["version"]);
+  _binary: "hermes",
+): Effect.Effect<RemoteCommand, SshInputError> => remoteHermesCli(["version"]);
 
 /*
  * One fixed, read-only host fact program for Linux capability Doctor.
@@ -647,7 +633,7 @@ export const remoteLinuxCapabilityDoctor = (): Effect.Effect<
 > => makeRemoteCommand("/bin/sh", ["-c", LINUX_CAPABILITY_DOCTOR_PROGRAM]);
 
 /**
- * Fixed host LISTEN probe used by herdr service-map.
+ * Fixed host LISTEN probe for host service discovery.
  * `pidList` must be a comma-joined positive integer list only.
  */
 export const remoteLsofTcpListen = (
@@ -682,7 +668,7 @@ export const remoteTailscaleServeStatus = (): Effect.Effect<
 > => makeRemoteCommand("tailscale", ["serve", "status", "--json"]);
 
 /**
- * Closed host-shell argv admission for herdr plane probes.
+ * Closed host-shell argv admission for host probes.
  * Only the two product LISTEN / serve shapes are representable.
  */
 export const remoteHostProbe = (

@@ -61,7 +61,7 @@ export const areConnected = (doc: CanvasDoc, a: string, b: string): boolean => {
 
 /**
  * Actor seat eligibility via physics roleOf/resolveSpec — not a hard-coded
- * BROWSER_CALLER_KINDS ACL table. Geography (herdr, regions, notes) is not an
+ * BROWSER_CALLER_KINDS ACL table. Geography (regions, notes) is not an
  * actor, so it is refused here with no edit to this file.
  */
 export const isBrowserCallerNode = (node: CanvasNode | undefined): boolean => {
@@ -202,7 +202,7 @@ export const browserAuthzMessage = (denial: BrowserAuthzDenial): string => {
     case "caller_missing":
       return "caller node not found on canvas — process is bound to a missing node";
     case "caller_wrong_kind":
-      return "caller must be an actor node — geography (herdr, regions, notes) holds no browser grant";
+      return "caller must be an actor node — geography (regions, notes) holds no browser grant";
     case "not_connected":
       return "missing edge between caller and page — draw an edge in Vellum Command";
     case "page_missing":

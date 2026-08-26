@@ -63,7 +63,6 @@ export type FleetSelection =
 const CAPABILITY_TONE: Record<string, ChipTone> = {
   terminal: "cyan",
   browser: "violet",
-  herdr: "amber",
   hermes: "green",
 };
 

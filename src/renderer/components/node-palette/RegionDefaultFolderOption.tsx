@@ -14,7 +14,6 @@ export const savePathAsRegionDefault = (
   else delete paths[host];
   const cleanedPaths = stripEmptyRegionPaths(paths);
   const next: EtherRegionDefaults = {
-    ...(defaults?.herdr ? { herdr: defaults.herdr } : {}),
     ...(defaults?.page ? { page: defaults.page } : {}),
     ...(cleanedPaths ? { paths: cleanedPaths } : {}),
   };

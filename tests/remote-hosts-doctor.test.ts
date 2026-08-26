@@ -230,7 +230,7 @@ describe("remote hosts doctor", () => {
     expect(OPENSSH_CLIENT_EXECUTABLE).toBe("/usr/bin/ssh");
   });
 
-  it("executes exact local Herdr and Hermes version argv", async () => {
+  it("executes the exact local Hermes version argv", async () => {
     const run = vi.fn<HostCliRunner>(
       async (command): Promise<CliResult> => ({
         ok: true,
@@ -245,10 +245,7 @@ describe("remote hosts doctor", () => {
       runRemoteHostsDoctor(registry, unusedSsh, unusedFleet, run),
     );
 
-    expect(run.mock.calls).toEqual([
-      ["herdr", ["--version"], 5_000],
-      ["hermes", ["version"], 5_000],
-    ]);
+    expect(run.mock.calls).toEqual([["hermes", ["version"], 5_000]]);
     expect(report.status).toBe("ok");
     expect(report.metadata).toEqual({
       hostCount: "1",
@@ -288,13 +285,13 @@ describe("remote hosts doctor", () => {
 
   it("derives local connection success only from structured probes", async () => {
     const failedRun: HostCliRunner = async (command) =>
-      command === "herdr"
+      command === "hermes"
         ? {
             ok: false,
             stdout: "",
             error: "probe exited unsuccessfully",
           }
-        : { ok: true, stdout: "hermes ready" };
+        : { ok: true, stdout: "ready" };
 
     const failed = await Effect.runPromise(
       testHostConnection(

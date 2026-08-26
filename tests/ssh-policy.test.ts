@@ -158,7 +158,6 @@ describe("SSH policy surface", () => {
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand(
-          "herdr",
           ["--session", "team one", "it's", "$(touch /tmp/pwn)"],
         );
         yield* (yield* SshTransport).run(oneShot(endpoint, remote));
@@ -344,7 +343,7 @@ describe("SSH policy surface", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("remote-a");
-          const remote = yield* parseRemoteUnixSocketPath("/Users/ops/.herdr/herdr.sock");
+          const remote = yield* parseRemoteUnixSocketPath("/Users/ops/.hermes/hermes.sock");
           const lease = yield* (yield* SshTransport).forward(unixForward(endpoint, remote));
           ownedSocket = String(lease.localSocket);
           expect(String(lease.localSocket)).toContain("/control/f-");
@@ -380,7 +379,7 @@ describe("SSH policy surface", () => {
     expect(requestArgs).toContain("ForkAfterAuthentication=no");
     expect(requestArgs).toContain("StdinNull=no");
     expect(requestArgs[requestArgs.indexOf("-L") + 1]).toMatch(
-      /\/control\/f-[a-f0-9]{32}:\/Users\/ops\/\.herdr\/herdr\.sock/u,
+      /\/control\/f-[a-f0-9]{32}:\/Users\/ops\/\.hermes\/hermes\.sock/u,
     );
     expect(calls).toHaveLength(callsBeforeClose);
     expect(
@@ -403,7 +402,7 @@ describe("SSH policy surface", () => {
     await runPromise(
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
-        const remote = yield* makeRemoteCommand("herdr", ["--session", "red; echo bad", "server"]);
+        const remote = yield* makeRemoteCommand("hermes", ["--session", "red; echo bad", "server"]);
         yield* (yield* SshTransport).handoff(
           daemonHandoff(endpoint, remote),
           (confirm) => Effect.succeed(confirm("healthy")),
@@ -412,7 +411,7 @@ describe("SSH policy surface", () => {
     );
 
     const script = calls.map(sshArgs).map((args) => args.at(-1) ?? "").find((arg) => arg.includes("nohup")) ?? "";
-    expect(script).toContain("nohup 'herdr' '--session' 'red; echo bad' 'server'");
+    expect(script).toContain("nohup 'hermes' '--session' 'red; echo bad' 'server'");
     expect(script).toContain(`printf '%s\\n' "$!"`);
   });
 });

@@ -26,8 +26,6 @@ import type {
 import type { SinkAdmission, TaskPipelineArm } from "./work-model";
 import type { ContentRef } from "./content";
 import type {
-  DemoCommand,
-  DemoCommandResult,
   DemoEdl,
   DemoStateInfo,
   DemoWriteEdlResult,
@@ -136,39 +134,6 @@ export const IPC_CHANNELS = {
   workBoardNotify: "vellum-command:work-board-notify",
   workPadRead: "vellum-command:work-pad-read",
   workPadPatch: "vellum-command:work-pad-patch",
-  // herdr work surface
-  herdrHosts: "vellum-command:herdr-hosts",
-  herdrEnsureServer: "vellum-command:herdr-ensure-server",
-  herdrListSessions: "vellum-command:herdr-list-sessions",
-  herdrListWorkspaces: "vellum-command:herdr-list-workspaces",
-  herdrListTabs: "vellum-command:herdr-list-tabs",
-  herdrListPanes: "vellum-command:herdr-list-panes",
-  herdrListAgents: "vellum-command:herdr-list-agents",
-  herdrGetMeta: "vellum-command:herdr-get-meta",
-  /** Marks pane seen (done → idle). Stock: herdr agent focus <pane_id>. */
-  herdrMarkPaneSeen: "vellum-command:herdr-mark-pane-seen",
-  herdrCreateWorkspace: "vellum-command:herdr-create-workspace",
-  herdrCreateTab: "vellum-command:herdr-create-tab",
-  herdrCreatePane: "vellum-command:herdr-create-pane",
-  herdrKillPane: "vellum-command:herdr-kill-pane",
-  herdrKillTab: "vellum-command:herdr-kill-tab",
-  herdrMirrorState: "vellum-command:herdr-mirror-state",
-  herdrStreamOpen: "vellum-command:herdr-stream-open",
-  herdrStreamInput: "vellum-command:herdr-stream-input",
-  herdrStreamPasteImage: "vellum-command:herdr-stream-paste-image",
-  herdrStreamResize: "vellum-command:herdr-stream-resize",
-  herdrStreamScroll: "vellum-command:herdr-stream-scroll",
-  herdrStreamClose: "vellum-command:herdr-stream-close",
-  herdrObserveTouch: "vellum-command:herdr-observe-touch",
-  herdrObserveRetained: "vellum-command:herdr-observe-retained",
-  /** Host-scoped process→port→URL projection (read cache). */
-  herdrServiceMapGet: "vellum-command:herdr-service-map-get",
-  /** Intent probe (open/sync) — rate-limited host queue. */
-  herdrServiceMapProbe: "vellum-command:herdr-service-map-probe",
-  herdrServiceMapEvent: "vellum-command:herdr-service-map-event",
-  /** Host Tailscale Serve / SVC catalog (cached). */
-  herdrServeCatalogGet: "vellum-command:herdr-serve-catalog-get",
-  herdrServeCatalogRefresh: "vellum-command:herdr-serve-catalog-refresh",
   // browser work surface (partitioned WebContentsView sessions)
   browserProfiles: "vellum-command:browser-profiles",
   browserOpen: "vellum-command:browser-open",
@@ -181,7 +146,6 @@ export const IPC_CHANNELS = {
   browserSurfaceConfig: "vellum-command:browser-surface-config",
   // demo/scripting engine (--vellum-demo only; inert otherwise)
   demoState: "vellum-command:demo-state",
-  demoCommand: "vellum-command:demo-command",
   demoWriteEdl: "vellum-command:demo-write-edl",
   // user settings plane (app-owned SQLite state)
   settingsGet: "vellum-command:settings-get",
@@ -259,8 +223,6 @@ export const IPC_CHANNELS = {
   settingsChanged: "vellum-command:settings-changed",
   chatEvent: "vellum-command:chat-event",
   kernelChanged: "vellum-command:kernel-changed",
-  herdrStreamEvent: "vellum-command:herdr-stream-event",
-  herdrMirrorEvent: "vellum-command:herdr-mirror-event",
   terminalList: "vellum-command:terminal-list",
   terminalCreate: "vellum-command:terminal-create",
   terminalGet: "vellum-command:terminal-get",
@@ -944,7 +906,7 @@ export interface HostsOpResult {
     readonly label: string;
     readonly kind: "local" | "remote";
     readonly sshEndpoint?: string;
-    readonly capabilities: ReadonlyArray<"browser" | "terminal" | "herdr" | "hermes">;
+    readonly capabilities: ReadonlyArray<"browser" | "terminal" | "hermes">;
     readonly hermesId?: string;
     readonly appearance?: {
       readonly color?: string;
@@ -1108,322 +1070,6 @@ export type {
 // preload bridge alongside VellumCommandApi.
 export interface VellumCommandChatApi extends ChatApi {}
 
-// --- herdr work surface (PTY panes; not hermes ACP) -------------------------
-
-export interface HerdrHostInfo {
-  readonly id: string;
-  readonly label: string;
-}
-
-export interface HerdrOpResult<T = unknown> {
-  readonly ok: boolean;
-  readonly data?: T;
-  readonly code?: string;
-  readonly message?: string;
-}
-
-export interface HerdrSessionInfo {
-  readonly name: string;
-  readonly default?: boolean;
-  readonly running?: boolean;
-}
-
-export interface HerdrWorkspaceInfo {
-  readonly workspaceId: string;
-  readonly label?: string;
-  readonly tabCount?: number;
-  readonly paneCount?: number;
-  readonly agentStatus?: string;
-}
-
-export interface HerdrTabInfo {
-  readonly tabId: string;
-  readonly workspaceId?: string;
-  readonly label?: string;
-  readonly paneCount?: number;
-  readonly agentStatus?: string;
-}
-
-export interface HerdrAgentSessionInfo {
-  readonly agent?: string;
-  readonly kind?: string;
-  readonly source?: string;
-  readonly value?: string;
-}
-
-export interface HerdrPaneScrollInfo {
-  readonly offsetFromBottom?: number;
-  readonly maxOffsetFromBottom?: number;
-  readonly viewportRows?: number;
-}
-
-export interface HerdrProcessInfo {
-  readonly name?: string;
-  readonly cmdline?: string;
-  readonly pid?: number;
-}
-
-/** Projected host service (dev server) state for a herdr pane — never from herdr alone. */
-export type HerdrServiceHealth =
-  | "unknown"
-  | "pending"
-  | "live"
-  | "stale"
-  | "dead"
-  | "skipped";
-
-export interface HerdrServicePortInfo {
-  readonly port: number;
-  readonly protocol?: "tcp" | "udp";
-  readonly address?: string;
-}
-
-export interface HerdrServiceMapInfo {
-  readonly hostId: string;
-  readonly session?: string | null;
-  readonly paneId: string;
-  readonly health: HerdrServiceHealth;
-  readonly processes?: ReadonlyArray<HerdrProcessInfo>;
-  readonly interesting?: boolean;
-  readonly ports?: ReadonlyArray<HerdrServicePortInfo>;
-  readonly url?: string;
-  readonly hostBase?: string;
-  readonly serveLabel?: string;
-  readonly serveJoined?: boolean;
-  readonly checkedAt?: number;
-  readonly error?: string;
-}
-
-export type HerdrServeEntryKind = "svc" | "web" | "tcp-forward";
-
-export interface HerdrServeEntryInfo {
-  readonly kind: HerdrServeEntryKind;
-  readonly id: string;
-  readonly label: string;
-  readonly publicUrl?: string;
-  readonly publicHost?: string;
-  readonly publicPort?: number;
-  readonly path?: string;
-  readonly localPort?: number;
-  readonly https?: boolean;
-}
-
-export interface HerdrServeCatalogInfo {
-  readonly hostId: string;
-  readonly entries: ReadonlyArray<HerdrServeEntryInfo>;
-  readonly services: ReadonlyArray<HerdrServeEntryInfo>;
-  readonly fetchedAt?: number;
-  readonly error?: string;
-}
-
-export interface HerdrPaneInfo {
-  readonly paneId: string;
-  readonly workspaceId?: string;
-  readonly tabId?: string;
-  readonly terminalId?: string;
-  readonly cwd?: string;
-  readonly foregroundCwd?: string;
-  readonly agent?: string;
-  readonly agentStatus?: string;
-  readonly agentSession?: HerdrAgentSessionInfo;
-  readonly label?: string;
-  readonly focused?: boolean;
-  readonly preview?: string;
-  readonly revision?: number;
-  readonly scroll?: HerdrPaneScrollInfo;
-  readonly workspaceLabel?: string;
-  readonly tabLabel?: string;
-  readonly processes?: ReadonlyArray<HerdrProcessInfo>;
-  /** Optional service projection (process→port→url); sticky in renderer cache. */
-  readonly service?: HerdrServiceMapInfo;
-}
-
-export interface HerdrStreamOpenInput {
-  readonly hostId: string;
-  readonly session?: string | null;
-  readonly terminalId: string;
-  readonly cols: number;
-  readonly rows: number;
-  readonly takeover?: boolean;
-}
-
-export interface HerdrRetainedPayload {
-  readonly frames: ReadonlyArray<string>;
-  readonly cols?: number;
-  readonly rows?: number;
-}
-
-export interface HerdrStreamOpenResult {
-  readonly ok: boolean;
-  readonly streamId?: string;
-  readonly message?: string;
-  /** Retained observe frames (base64 ANSI, [full, ...deltas] in order) —
-   * painted synchronously before live control frames arrive. */
-  readonly retained?: HerdrRetainedPayload;
-}
-
-/** Warm a pooled read-only observe stream for a terminal (LRU-touch). */
-export interface HerdrObserveTouchInput {
-  readonly hostId: string;
-  readonly session?: string | null;
-  readonly terminalId: string;
-  readonly cols: number;
-  readonly rows: number;
-}
-
-/**
- * Pointer position in terminal cells for wheel/mouse forwarding.
- * herdr routes wheel by app mode: mouse-reporting apps get an SGR wheel event
- * at this cell, so a missing/wrong cell scrolls the wrong region (or nothing).
- * `modifiers` uses crossterm bits: SHIFT=1, CONTROL=2, ALT=4.
- */
-export interface HerdrPointerCell {
-  readonly column: number;
-  readonly row: number;
-  readonly modifiers: number;
-}
-
-/** High-frequency main→renderer stream push (not request/response per frame). */
-export interface HerdrStreamEvent {
-  readonly streamId: string;
-  readonly type: "frame" | "closed" | "error";
-  readonly bytes?: string;
-  readonly encoding?: string;
-  readonly full?: boolean;
-  readonly width?: number;
-  readonly height?: number;
-  readonly seq?: number;
-  readonly reason?: string;
-  readonly message?: string;
-  /**
-   * Domain recovery code (SessionRecoveryCode). Prefer for reconnect policy
-   * over freeform `reason` strings.
-   */
-  readonly code?: string;
-}
-
-/** Main → renderer push when a host's mirror state changes. `kind: "state"`
- * marks a freshness flip (fresh↔stale); `kind: "change"` is a data change. */
-export interface HerdrMirrorEvent {
-  readonly hostId: string;
-  readonly kind: "change" | "state";
-  readonly fresh: boolean;
-}
-
-export interface HerdrMirrorStateInfo {
-  readonly hostId: string;
-  readonly fresh: boolean;
-  readonly lastSyncAt?: number;
-}
-
-export interface VellumCommandHerdrApi {
-  readonly herdrHosts: () => Promise<ReadonlyArray<HerdrHostInfo>>;
-  readonly herdrEnsureServer: (
-    hostId: string,
-    session?: string | null,
-  ) => Promise<HerdrOpResult<{ readonly running: boolean; readonly started: boolean }>>;
-  readonly herdrListSessions: (hostId: string) => Promise<HerdrOpResult<ReadonlyArray<HerdrSessionInfo>>>;
-  readonly herdrListWorkspaces: (
-    hostId: string,
-    session?: string | null,
-  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrWorkspaceInfo>>>;
-  readonly herdrListTabs: (
-    hostId: string,
-    session?: string | null,
-    workspaceId?: string,
-  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrTabInfo>>>;
-  readonly herdrListPanes: (
-    hostId: string,
-    session?: string | null,
-    workspaceId?: string,
-  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrPaneInfo>>>;
-  readonly herdrListAgents: (
-    hostId: string,
-    session?: string | null,
-  ) => Promise<HerdrOpResult<ReadonlyArray<HerdrPaneInfo>>>;
-  readonly herdrGetMeta: (
-    hostId: string,
-    session: string | null | undefined,
-    paneId: string,
-  ) => Promise<HerdrOpResult<HerdrPaneInfo>>;
-  readonly herdrServiceMapGet: (
-    hostId: string,
-    session: string | null | undefined,
-    paneId: string,
-  ) => Promise<HerdrOpResult<HerdrServiceMapInfo | null>>;
-  /** Enqueue intent probe (Sync / open terminal / open page). */
-  readonly herdrServiceMapProbe: (
-    hostId: string,
-    session: string | null | undefined,
-    paneId: string,
-  ) => Promise<HerdrOpResult<HerdrServiceMapInfo>>;
-  readonly onHerdrServiceMapEvent: (
-    listener: (event: HerdrServiceMapInfo) => void,
-  ) => () => void;
-  readonly herdrServeCatalogGet: (
-    hostId: string,
-  ) => Promise<HerdrOpResult<HerdrServeCatalogInfo>>;
-  readonly herdrServeCatalogRefresh: (
-    hostId: string,
-  ) => Promise<HerdrOpResult<HerdrServeCatalogInfo>>;
-  /** Marks the pane seen so herdr agent_status transitions done → idle. */
-  readonly herdrMarkPaneSeen: (
-    hostId: string,
-    session: string | null | undefined,
-    paneId: string,
-  ) => Promise<HerdrOpResult<{ readonly agentStatus?: string; readonly paneId: string }>>;
-  readonly herdrCreateWorkspace: (
-    hostId: string,
-    session: string | null | undefined,
-    input: { readonly cwd: string; readonly label?: string },
-  ) => Promise<HerdrOpResult<{ readonly workspaceId: string; readonly tabId?: string; readonly paneId?: string; readonly terminalId?: string }>>;
-  readonly herdrCreateTab: (
-    hostId: string,
-    session: string | null | undefined,
-    input: { readonly workspaceId: string; readonly label?: string },
-  ) => Promise<HerdrOpResult<{ readonly tabId: string; readonly paneId?: string; readonly terminalId?: string }>>;
-  readonly herdrCreatePane: (
-    hostId: string,
-    session: string | null | undefined,
-    input: { readonly paneId?: string; readonly direction?: "right" | "down"; readonly cwd?: string },
-  ) => Promise<HerdrOpResult<{ readonly paneId: string; readonly terminalId?: string; readonly tabId?: string; readonly workspaceId?: string }>>;
-  readonly herdrKillPane: (
-    hostId: string,
-    session: string | null | undefined,
-    paneId: string,
-  ) => Promise<HerdrOpResult<{ readonly closed: true }>>;
-  readonly herdrKillTab: (
-    hostId: string,
-    session: string | null | undefined,
-    tabId: string,
-  ) => Promise<HerdrOpResult<{ readonly closed: true }>>;
-  readonly herdrStreamOpen: (input: HerdrStreamOpenInput) => Promise<HerdrStreamOpenResult>;
-  readonly herdrStreamInput: (streamId: string, dataBase64: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  /**
-   * Stage a clipboard/dropped image on the herdr host (local write or ssh),
-   * then paste the absolute path via stock `terminal.input`. No herdr forks.
-   * `dataBase64` is raw image bytes (not a data URL). Cap 16 MiB.
-   */
-  readonly herdrStreamPasteImage: (
-    streamId: string,
-    extension: string,
-    dataBase64: string,
-  ) => Promise<{ readonly ok: boolean; readonly error?: string; readonly path?: string }>;
-  readonly herdrStreamResize: (streamId: string, cols: number, rows: number) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  readonly herdrStreamScroll: (
-    streamId: string,
-    delta: number,
-    at?: HerdrPointerCell,
-  ) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  readonly herdrStreamClose: (streamId: string) => Promise<{ readonly ok: boolean; readonly error?: string }>;
-  readonly herdrObserveTouch: (input: HerdrObserveTouchInput) => Promise<{ readonly pooled: boolean }>;
-  /** Retained observe frames for a terminal — preview paint without opening a stream. */
-  readonly herdrObserveRetained: (terminalId: string) => Promise<HerdrRetainedPayload>;
-  readonly onHerdrStreamEvent: (listener: (event: HerdrStreamEvent) => void) => () => void;
-  readonly herdrMirrorState: () => Promise<ReadonlyArray<HerdrMirrorStateInfo>>;
-  readonly onHerdrMirrorEvent: (listener: (event: HerdrMirrorEvent) => void) => () => void;
-}
-
 /**
  * Open the terminal surface declared by this exact canvas node.
  *
@@ -1581,7 +1227,6 @@ export interface VellumCommandTerminalApi {
 
 export interface VellumCommandDemoApi {
   readonly demoState: () => Promise<DemoStateInfo>;
-  readonly demoCommand: (command: DemoCommand) => Promise<DemoCommandResult>;
   readonly demoWriteEdl: (edl: DemoEdl) => Promise<DemoWriteEdlResult>;
 }
 

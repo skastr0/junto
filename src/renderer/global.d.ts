@@ -4,7 +4,6 @@ import type {
   VellumCommandBrowserApi,
   VellumCommandChatApi,
   VellumCommandDemoApi,
-  VellumCommandHerdrApi,
   VellumCommandHermesIntegrationApi,
   VellumCommandHostsApi,
   VellumCommandSchedulerApi,
@@ -25,7 +24,6 @@ declare global {
       VellumCommandGitApi &
       VellumCommandDemoApi &
       Partial<
-        VellumCommandHerdrApi &
           VellumCommandBrowserApi &
           VellumCommandUsageApi &
           VellumCommandSchedulerApi &

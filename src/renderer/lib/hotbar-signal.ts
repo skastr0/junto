@@ -25,28 +25,22 @@ export const worseMemberSeverity = (
 ): MemberSeverity => (SEVERITY_RANK[a] <= SEVERITY_RANK[b] ? a : b);
 
 /**
- * Map live managed-seat / herdr agent status → chip severity.
+ * Map live managed-seat status → chip severity.
  *
  * Idle is an **authoritative quiet** for harness activity — return "idle" so
  * hotbar can demote lagging rollup attention/working (seat is truth for that
- * plane). A seat that finished a turn nobody has read (seat idle + needsLook,
- * herdr "done") is "ready": green on the chip, never chip attention.
+ * plane). A seat that finished a turn nobody has read (seat idle + needsLook)
+ * is "ready": green on the chip, never chip attention.
  */
 export function liveActivitySeverity(input: {
   readonly seatState?: AgentSeatState;
   /** Seat settled after work and the operator has not looked yet. */
   readonly seatNeedsLook?: boolean;
-  readonly herdrAgentStatus?: string | null;
 }): MemberSeverity | undefined {
   if (input.seatState === "attention") return "attention";
   if (input.seatState === "working") return "working";
   if (input.seatState === "idle") return input.seatNeedsLook === true ? "ready" : "idle";
   if (input.seatState === "gone") return "idle";
-  const herdr = input.herdrAgentStatus ?? undefined;
-  if (herdr === "blocked") return "blocked";
-  if (herdr === "working") return "working";
-  if (herdr === "done") return "ready";
-  if (herdr === "idle") return "idle";
   return undefined;
 }
 
@@ -54,7 +48,7 @@ export function liveActivitySeverity(input: {
  * Severity for a hotbar chip.
  * Priority merge: region rollup / member map / flags / sinks / live seat, worst wins.
  *
- * `liveSeverity` is the freestanding seat plane (managed terminal / herdr) so
+ * `liveSeverity` is the freestanding managed-terminal seat plane so
  * chips stay synchronized with canvas ActivityMark even when the node is
  * outside every region or rollup lags inventory joins.
  */

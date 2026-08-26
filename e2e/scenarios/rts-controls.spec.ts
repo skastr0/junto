@@ -3,7 +3,7 @@
  *
  * Layout: region strip (1–9) above the whole bar; left = type/base actions
  * per physics role (pause, flags, region arm/pulse); middle = kind actions
- * (agent chat, herdr terminal, task board, …); right = minimap. Node/region
+ * (agent chat, terminal, task board, …); right = minimap. Node/region
  * pause toggles live on left / chips.
  *
  * Boards install at runtime via window.vellumCommand (authority-only boot); pattern

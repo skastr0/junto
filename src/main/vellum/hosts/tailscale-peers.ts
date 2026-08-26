@@ -94,5 +94,5 @@ export class TailscalePeerCache {
   }
 }
 
-/** Process-wide cache shared by HerdrPlane service map. */
+/** Process-wide cache for host peer lookups. */
 export const tailscalePeerCache = new TailscalePeerCache();

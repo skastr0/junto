@@ -5,19 +5,18 @@
  * test-results/marketing-shots/ for the landing site and store plates.
  *   bun run test:e2e:fast e2e/scenarios/marketing-shots.spec.ts
  * The screenshots are the artifact; assertions only prove surfaces appeared.
- * All fleet state is scripted (VELLUM_COMMAND_DEMO=1 + demoCommand) — no wall-clock
+ * All fleet state is seeded through the canvas fixtures — no wall-clock
  * scenario, so every frame is reproducible.
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { demoCommand } from "../harness/demo";
 import {
   taskItem,
   agentTextNode,
   artifactsNode,
   canvasDoc,
-  herdrTextNode,
+  terminalTextNode,
   projectNode,
   requestsNode,
   worksEdge,
@@ -25,7 +24,6 @@ import {
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 import type { CanvasEdge, CanvasNode, GroupNode } from "../../src/shared/canvas";
-import type { DemoHerdrStatus } from "../../src/shared/demo";
 
 // Playwright wipes test-results/ on every run (any spec, any agent) — point
 // MARKETING_SHOTS_DIR somewhere durable when the frames matter.
@@ -42,8 +40,7 @@ interface FleetPane {
   readonly terminalId: string;
   readonly agent: string;
   readonly label: string;
-  readonly status: DemoHerdrStatus;
-  readonly x: number;
+    readonly x: number;
   readonly y: number;
 }
 
@@ -51,14 +48,14 @@ interface FleetPane {
 // Agent names are the house avatar-crew names (assets/agent-avatars/library),
 // NOT harness brands — marketing frames carry no third-party marks.
 const fleet: readonly FleetPane[] = [
-  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum - typecheck", status: "working", x: 0, y: 0 },
-  { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "brisk", label: "ssh kernel", status: "working", x: 300, y: 0 },
-  { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "mote", label: "canvas sync", status: "done", x: 600, y: 0 },
-  { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "ward", label: "release notes", status: "idle", x: 0, y: 180 },
-  { id: "h5", host: "local", paneId: "w1:p05", terminalId: "term-p05", agent: "relay", label: "landing copy pass", status: "working", x: 0, y: 580 },
-  { id: "h6", host: "local", paneId: "w1:p06", terminalId: "term-p06", agent: "vector", label: "og plates", status: "blocked", x: 300, y: 580 },
-  { id: "h7", host: "remote-a", paneId: "w1:p07", terminalId: "term-p07", agent: "gauge", label: "quasar mining", status: "working", x: 940, y: 580 },
-  { id: "h8", host: "local", paneId: "w1:p08", terminalId: "term-p08", agent: "folio", label: "session digests", status: "done", x: 940, y: 760 },
+  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum - typecheck", x: 0, y: 0 },
+  { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "brisk", label: "ssh kernel", x: 300, y: 0 },
+  { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "mote", label: "canvas sync", x: 600, y: 0 },
+  { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "ward", label: "release notes", x: 0, y: 180 },
+  { id: "h5", host: "local", paneId: "w1:p05", terminalId: "term-p05", agent: "relay", label: "landing copy pass", x: 0, y: 580 },
+  { id: "h6", host: "local", paneId: "w1:p06", terminalId: "term-p06", agent: "vector", label: "og plates", x: 300, y: 580 },
+  { id: "h7", host: "remote-a", paneId: "w1:p07", terminalId: "term-p07", agent: "gauge", label: "quasar mining", x: 940, y: 580 },
+  { id: "h8", host: "local", paneId: "w1:p08", terminalId: "term-p08", agent: "folio", label: "session digests", x: 940, y: 760 },
 ];
 
 const regions: readonly GroupNode[] = [
@@ -92,12 +89,12 @@ const notes: readonly CanvasNode[] = [
 ];
 
 // The forge lane carries one agent seat so the seeded work plane has a
-// compiled local actor to raise claims and requests (herdr panes are
+// compiled local actor to raise claims and requests (shell panes are
 // geography and hold no seat).
 const nodes: readonly CanvasNode[] = [
   ...regions,
   ...fleet.map((p) =>
-    herdrTextNode({ id: p.id, host: p.host, paneId: p.paneId, terminalId: p.terminalId, label: p.label, x: p.x, y: p.y }),
+    terminalTextNode({ id: p.id, host: p.host, bindingId: p.terminalId, label: p.label, x: p.x, y: p.y }),
   ),
   tasksNode({
     id: "tasks-forge",
@@ -156,15 +153,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
 
     // Light the fleet: scripted mirror transport per host, same pipeline real
-    // herdr status uses. Statuses are set synchronously — no timers to race.
-    for (const p of fleet) {
-      const result = await demoCommand(page, {
-        kind: "ensure-pane",
-        pane: { host: p.host, paneId: p.paneId, agent: p.agent, label: p.label, cwd: "~/Projects/vellum" },
-        status: p.status,
-      });
-      expect(result.ok, `ensure-pane ${p.paneId} on ${p.host}`).toBe(true);
-    }
+    // Statuses are set synchronously — no timers to race.
 
     // The demo HUD chip is film-set chrome, not product UI — keep it out of
     // marketing frames.

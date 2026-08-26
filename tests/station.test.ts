@@ -10,7 +10,6 @@ import {
 } from "../src/shared/station";
 import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
 import {
-  makeHerdrNode,
   makeManagedAgentNode,
   makePageNode,
   makeTasksNode,
@@ -45,17 +44,10 @@ describe("node host assignment", () => {
     const page = makePageNode(0, 0, "https://example.com");
     const tasks = makeTasksNode(0, 0, "remote-a");
     const watcher = makeGaugeNode(0, 0, "remote-a");
-    const herdr = makeHerdrNode(0, 0, {
-      host: "remote-a",
-      paneId: "w1:p1",
-    });
-
     expect(agent.ether?.host).toBe("local");
     expect(page.ether?.host).toBe("local");
     expect(tasks.ether?.host).toBe("remote-a");
     expect(watcher.ether?.host).toBe("remote-a");
-    expect(herdr.ether?.host).toBe("remote-a");
-    expect(resolveNodeHostId(herdr)).toBe("remote-a");
   });
 
   it("refuses to create a tasks sink with an implicit or malformed queue home", () => {
@@ -119,22 +111,6 @@ describe("node host assignment", () => {
     expect(isNodeEligibleOnStation(node, "local")).toBe(false);
   });
 
-  it("herdr.host fills resolve when ether.host absent", () => {
-    const node = {
-      id: "n2",
-      type: "text",
-      text: "herdr",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 80,
-      ether: {
-        entity: { kind: "herdr" },
-        herdr: { host: "remote-a", paneId: "w1:p2" },
-      },
-    } as CanvasNode;
-    expect(resolveNodeHostId(node)).toBe("remote-a");
-  });
 });
 
 describe("watcher target rules", () => {

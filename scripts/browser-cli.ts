@@ -41,7 +41,7 @@ usage:
   bun run browser <command> [args] [--json]
 
 auth:
-  process-bind only — run as a child of a live Vellum Command agent (ACP) or herdr pane
+  process-bind only — run as a child of a live Vellum Command agent (ACP)
   doctor needs only the owner-local transport token
 
 commands:

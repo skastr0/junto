@@ -1,6 +1,6 @@
 // Message delivery — one-way nudge from ether.messages onto live transports.
 // Actor targets come from kind-discriminated surfaces (managed terminal seats
-// and raw geography shells). Geography holds no inbox, so a herdr pane is not
+// and raw geography shells). Geography holds no inbox, so a raw shell is not
 // a delivery target. No delivery daemon, no retry queue, no polling.
 //
 // Durable stop condition is work_delivery_receipts (delivery.accepted), not a

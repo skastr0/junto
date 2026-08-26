@@ -19,28 +19,25 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { Page } from "@playwright/test";
-import { demoCommand } from "../harness/demo";
 import {
   agentTextNode,
   artifactsNode,
   canvasDoc,
   claimByNodeId,
-  herdrTextNode,
+  terminalTextNode,
   requestsNode,
   taskItem,
   tasksNode,
-  terminalTextNode,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 import type { Artifact, CanvasEdge, CanvasNode, GroupNode, Task } from "../../src/shared/canvas";
-import type { DemoHerdrStatus } from "../../src/shared/demo";
 
 const SHOTS =
   process.env.MARKETING_SHOTS_DIR ?? join(process.cwd(), "test-results", "marketing-stills");
 
 const FRAME = { width: 1760, height: 1100 };
 
-/** Column pitch from the widest card (herdr 260). Heights vary (tasks 120). */
+/** Column pitch from the widest card (260). Heights vary (tasks 120). */
 const CW = 260;
 const CH = 120; // max card height so regions never clip tasks sinks
 /** Horizontal gap between card right edge and next card left edge. */
@@ -187,34 +184,18 @@ interface Pane {
   readonly terminalId: string;
   readonly agent: string;
   readonly label: string;
-  readonly status: DemoHerdrStatus;
-  readonly x: number;
+    readonly x: number;
   readonly y: number;
 }
 
 const lightPanes = async (page: Page, panes: readonly Pane[]) => {
-  for (const p of panes) {
-    const result = await demoCommand(page, {
-      kind: "ensure-pane",
-      pane: {
-        host: p.host,
-        paneId: p.paneId,
-        agent: p.agent,
-        label: p.label,
-        cwd: "~/Projects/vellum",
-      },
-      status: p.status,
-    });
-    expect(result.ok, `ensure-pane ${p.paneId} @ ${p.host}`).toBe(true);
-  }
 };
 
 const paneNode = (p: Pane) =>
-  herdrTextNode({
+  terminalTextNode({
     id: p.id,
     host: p.host,
-    paneId: p.paneId,
-    terminalId: p.terminalId,
+    bindingId: p.terminalId,
     label: p.label,
     x: p.x,
     y: p.y,
@@ -228,8 +209,8 @@ test("still 01 — one region factory close", async () => {
   // Absolute content origin
   const ox = 0;
   const oy = 0;
-  // Three columns, one row: herdr → tasks → agent → requests
-  // Optional second herdr under first column, connected up via vertical? Skip —
+  // Three columns, one row: shell → tasks → agent → requests
+  // Optional second shell under first column, connected up via vertical? Skip —
   // keep one row only so every edge is a horizontal right→left hop.
   const c0 = ox + PAD;
   const c1 = c0 + COL;
@@ -245,7 +226,6 @@ test("still 01 — one region factory close", async () => {
       terminalId: "term-p01",
       agent: "rivet",
       label: "typecheck",
-      status: "working",
       x: c0,
       y: y0,
     },
@@ -322,7 +302,7 @@ test("still 01 — one region factory close", async () => {
 test("still 02 — multi-host work board", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  // Each region: herdr → tasks → agent  (3 nodes, 2 edges)
+  // Each region: shell → tasks → agent  (3 nodes, 2 edges)
   // Stacked vertically with a clear gap between regions (no edges between them).
   const regionH = PAD + CH + PAD; // one row + pad
   const regionW = PAD + 3 * CW + 2 * GAP_X + PAD;
@@ -372,7 +352,6 @@ test("still 02 — multi-host work board", async () => {
       terminalId: "term-p01",
       agent: "rivet",
       label: "typecheck",
-      status: "working",
       x: f0,
       y: fy0,
     },
@@ -383,7 +362,6 @@ test("still 02 — multi-host work board", async () => {
       terminalId: "term-p02",
       agent: "ward",
       label: "release notes",
-      status: "blocked",
       x: b0,
       y: by0,
     },
@@ -458,7 +436,7 @@ test("still 02 — multi-host work board", async () => {
 test("still 03 — five region factory map", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  // Each region: herdr → tasks → agent
+  // Each region: shell → tasks → agent
   // Grid: 3 on top row, 2 on bottom row centered under the top three.
   const regionW = PAD + 3 * CW + 2 * GAP_X + PAD; // ~896
   const regionH = PAD + CH + PAD; // ~206
@@ -472,8 +450,7 @@ test("still 03 — five region factory map", async () => {
     readonly agent: string;
     readonly agentKey: string;
     readonly agentLabel: string;
-    readonly status: DemoHerdrStatus;
-    readonly workLabel: string;
+        readonly workLabel: string;
     readonly taskBrief: string;
     readonly taskState: Task["state"];
     readonly col: number; // 0..2 top, 0..1 bottom
@@ -488,7 +465,6 @@ test("still 03 — five region factory map", async () => {
       agent: "rivet",
       agentKey: "local:builder",
       agentLabel: "builder",
-      status: "working",
       workLabel: "typecheck",
       taskBrief: "ship tokens",
       taskState: "working",
@@ -502,7 +478,6 @@ test("still 03 — five region factory map", async () => {
       agent: "ward",
       agentKey: "remote-a:release",
       agentLabel: "release",
-      status: "idle",
       workLabel: "release",
       taskBrief: "pricing lock",
       taskState: "input-required",
@@ -516,7 +491,6 @@ test("still 03 — five region factory map", async () => {
       agent: "gauge",
       agentKey: "remote-a:research",
       agentLabel: "research",
-      status: "working",
       workLabel: "quasar",
       taskBrief: "mine sessions",
       taskState: "working",
@@ -530,7 +504,6 @@ test("still 03 — five region factory map", async () => {
       agent: "relay",
       agentKey: "local:writer",
       agentLabel: "writer",
-      status: "working",
       workLabel: "landing",
       taskBrief: "factory section",
       taskState: "submitted",
@@ -544,7 +517,6 @@ test("still 03 — five region factory map", async () => {
       agent: "mote",
       agentKey: "local:ops",
       agentLabel: "ops",
-      status: "blocked",
       workLabel: "health",
       taskBrief: "station probe",
       taskState: "input-required",
@@ -576,7 +548,7 @@ test("still 03 — five region factory map", async () => {
     const c1 = c0 + COL;
     const c2 = c1 + COL;
     const y0 = ry + PAD;
-    const herdrId = `h-${o.id}`;
+    const shellId = `h-${o.id}`;
     const tasksId = `t-${o.id}`;
     const agentId = `a-${o.id}`;
     const paneId = `w1:p${String(i + 1).padStart(2, "0")}`;
@@ -593,13 +565,12 @@ test("still 03 — five region factory map", async () => {
     });
 
     panes.push({
-      id: herdrId,
+      id: shellId,
       host: o.host,
       paneId,
       terminalId: `term-${o.id}`,
       agent: o.agent,
       label: o.workLabel,
-      status: o.status,
       x: c0,
       y: y0,
     });
@@ -629,7 +600,7 @@ test("still 03 — five region factory map", async () => {
       }),
     );
 
-    edges.push(hEdge(`e-${o.id}-1`, herdrId, tasksId), hEdge(`e-${o.id}-2`, tasksId, agentId));
+    edges.push(hEdge(`e-${o.id}-1`, shellId, tasksId), hEdge(`e-${o.id}-2`, tasksId, agentId));
   }
 
   const allNodes: CanvasNode[] = [...regions, ...panes.map(paneNode), ...nodes];
@@ -738,7 +709,7 @@ test("still 04 — six machine fleet manager", async () => {
 test("still 05 — five regions agent square", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  // Small satellite regions: herdr → agent (2 nodes). Large forge: 2×2 agents
+  // Small satellite regions: shell → agent (2 nodes). Large forge: 2×2 agents
   // on the left, sink column (tasks / requests / artifacts) on the right.
   // Only the right-column agents edge into sinks so corridors stay empty;
   // left-column agents join via the square ring.
@@ -758,7 +729,6 @@ test("still 05 — five regions agent square", async () => {
     agent: string;
     agentKey: string;
     agentLabel: string;
-    status: DemoHerdrStatus;
     work: string;
     col: number;
   }> = [
@@ -769,7 +739,6 @@ test("still 05 — five regions agent square", async () => {
       agent: "ward",
       agentKey: "remote-a:release",
       agentLabel: "release",
-      status: "idle",
       work: "release",
       col: 0,
     },
@@ -780,7 +749,6 @@ test("still 05 — five regions agent square", async () => {
       agent: "gauge",
       agentKey: "remote-a:research",
       agentLabel: "research",
-      status: "working",
       work: "quasar",
       col: 1,
     },
@@ -791,7 +759,6 @@ test("still 05 — five regions agent square", async () => {
       agent: "relay",
       agentKey: "local:writer",
       agentLabel: "writer",
-      status: "working",
       work: "landing",
       col: 2,
     },
@@ -807,7 +774,7 @@ test("still 05 — five regions agent square", async () => {
     const c0 = rx + PAD;
     const c1 = c0 + COL;
     const y0 = ry + PAD;
-    const herdrId = `h-${s.id}`;
+    const shellId = `h-${s.id}`;
     const agentId = `a-${s.id}`;
     nodes.push({
       id: `rg-${s.id}`,
@@ -820,13 +787,12 @@ test("still 05 — five regions agent square", async () => {
       ether: { region: { hold: true } },
     });
     panes.push({
-      id: herdrId,
+      id: shellId,
       host: s.host,
       paneId: `w1:p${String(i + 1).padStart(2, "0")}`,
       terminalId: `term-${s.id}`,
       agent: s.agent,
       label: s.work,
-      status: s.status,
       x: c0,
       y: y0,
     });
@@ -840,7 +806,7 @@ test("still 05 — five regions agent square", async () => {
         y: y0,
       }),
     );
-    edges.push(hEdge(`e-${s.id}`, herdrId, agentId));
+    edges.push(hEdge(`e-${s.id}`, shellId, agentId));
   }
 
   // Large forge below, left-aligned under the top row span
@@ -984,7 +950,6 @@ test("still 05 — five regions agent square", async () => {
     terminalId: "term-oracle",
     agent: "mote",
     label: "health",
-    status: "blocked",
     x: oracleX + PAD,
     y: oracleY + PAD,
   });

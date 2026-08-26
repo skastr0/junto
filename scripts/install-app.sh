@@ -21,13 +21,11 @@
 #
 # Safety:
 #   - Unloads LaunchAgent before replacing the binary
-#   - Soft-quits running app so herdr control streams can detach (never pane-kill)
+#   - Soft-quits the running app so live sessions detach cleanly
 #   - Validates .app structure + bundle id before ditto
 #   - Crosses one explicit one-way boundary only after quiescence
 #   - Retains the current candidate for forward repair after that boundary
-#   - Never runs herdr pane close / session stop
 #
-# Herdr: quitting Vellum Command detaches control streams only — your herdr sessions survive.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -364,7 +362,6 @@ fi
 STAGED_APP_ID="$(path_identity "$STAGE")"
 
 # Detach before binary swap: launchd unload + soft quit so before-quit runs
-# and herdrStreams.detachAllOnQuit releases control (panes stay alive).
 bind_unsupervised_incumbent
 unload_launchd
 quit_running_app

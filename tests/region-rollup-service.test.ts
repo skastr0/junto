@@ -5,13 +5,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { CanvasesService, CanvasError } from "../src/main/vellum/canvases";
 import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum/chat/acp-client";
 import { ChatService } from "../src/main/vellum/chat/service";
-import { HerdrPlane } from "../src/main/vellum/herdr/plane";
-import type { HerdrMirrorRegistry } from "../src/main/vellum/herdr/mirrors";
-import type { HerdrObservePool } from "../src/main/vellum/herdr/observe-pool";
-import type { HerdrService } from "../src/main/vellum/herdr/service";
-import type { HerdrStreamManager } from "../src/main/vellum/herdr/stream";
 import {
-  herdrAgentStatusActivity,
   makeRegionRollupLive,
   RegionRollupService,
 } from "../src/main/vellum/region-rollup";
@@ -214,36 +208,6 @@ const fakeSnapshots = Layer.succeed(
   }),
 );
 
-const fakeHerdr = Layer.succeed(
-  HerdrPlane,
-  HerdrPlane.of({
-    service: {} as HerdrService,
-    mirrors: { mirrorFor: () => undefined } as unknown as HerdrMirrorRegistry,
-    observePool: {} as HerdrObservePool,
-    sessions: {} as never,
-    streams: {} as HerdrStreamManager,
-    serviceMap: { stop: () => {}, get: () => undefined, observeProcesses: () => {}, requestProbe: () => ({ health: "unknown" }) } as never,
-    serveCatalog: { peekOrEmpty: () => ({ hostId: "local", entries: [] }), refresh: async () => ({ hostId: "local", entries: [] }), preferredUrl: () => undefined } as never,
-    serverLifetime: "daemon-outlives-app",
-    beginShutdown: () => undefined,
-    drainOnQuit: async () => ({
-      clean: true,
-      retained: 0,
-      causes: [],
-      components: {},
-      server: {
-        clean: true,
-        retained: 0,
-        excluded: true,
-        lifetime: "daemon-outlives-app",
-        reason: "independent-daemon-never-app-owned",
-      },
-    }),
-    isQuiescing: () => false,
-    start: Effect.void,
-    warm: Effect.void,
-  }),
-);
 
 const makeRuntime = (
   chatService: ChatService,
@@ -252,7 +216,7 @@ const makeRuntime = (
   ManagedRuntime.make(
     Layer.provide(
       makeRegionRollupLive(chatService),
-      Layer.mergeAll(fakeCanvases(docs), fakeSnapshots, fakeHerdr),
+      Layer.mergeAll(fakeCanvases(docs), fakeSnapshots),
     ),
   );
 
@@ -260,17 +224,6 @@ const rollups = (runtime: ReturnType<typeof makeRuntime>, canvasName: string) =>
   runtime.runPromise(Effect.flatMap(RegionRollupService, (service) => service.rollups(canvasName)));
 
 describe("RegionRollupService — activity wiring", () => {
-  it("translates herdr agent_status only at the main adapter boundary", () => {
-    expect(herdrAgentStatusActivity("working")).toMatchObject({ harness: "working", source: "herdr" });
-    expect(herdrAgentStatusActivity("blocked").harness).toBe("blocked");
-    // Ready/complete stays out of the harness state (needs-input surfaces read
-    // that) and travels as `ready` for the region ladder.
-    expect(herdrAgentStatusActivity("done").harness).toBe("idle");
-    expect(herdrAgentStatusActivity("done").ready).toBe(true);
-    expect(herdrAgentStatusActivity("idle").harness).toBe("idle");
-    expect(herdrAgentStatusActivity("idle").ready).toBeUndefined();
-    expect(herdrAgentStatusActivity("other").harness).toBe("unknown");
-  });
 
   it("isLive does not fabricate harness work", async () => {
     const { spawnFn, children } = fakeSpawn();

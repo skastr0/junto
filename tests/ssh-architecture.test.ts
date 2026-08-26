@@ -91,8 +91,6 @@ describe("SSH architecture", () => {
 
   it("reserves private SSH constructors for product policy renderers", () => {
     const renderers = new Set([
-      "src/main/vellum/herdr/transport.ts",
-      "src/main/vellum/herdr/plane.ts",
       "src/main/vellum/hermes/transport.ts",
       "src/main/vellum/hosts/doctor.ts",
       // Host configure is product policy over the shared SSH kernel.

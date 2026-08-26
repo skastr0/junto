@@ -8,7 +8,7 @@
  *   3. joins bindingId → canvas nodeId when known (document terminal bind
  *      or terminal inventory session.canvasName/nodeId)
  *   4. feeds occupancy / card chrome (attention amber, working cyan)
- *   5. derives presentation "done" as idle + needsLook (herdr Idle+!seen)
+ *   5. derives presentation "done" as idle + needsLook
  *
  * Never writes the canvas. Absent bridge degrades to a no-op subscribe.
  */
@@ -36,7 +36,7 @@ export type AgentSeatStore = {
   readonly bindingIdByNodeId: Record<string, string | undefined>;
   /**
    * Idle after work, operator has not looked yet → present as done (not idle).
-   * Mirrors herdr's Idle+!seen. Cleared by markAgentSeatSeen (open path).
+   * Cleared by markAgentSeatSeen (open path).
    */
   readonly needsLookByBindingId: Record<string, boolean | undefined>;
   /**

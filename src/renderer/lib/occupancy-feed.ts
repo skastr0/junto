@@ -13,8 +13,7 @@
  * on what "attention" / "working" / "blocked" means for an agent seat.
  * Terminal seats use `clueFromAgentSeat` (same harness vocabulary).
  *
- * PTY/herdr producers stay a separate, hot-owned lane: this file imports
- * nothing from herdr-state.
+ * PTY producers stay a separate, hot-owned lane.
  */
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";

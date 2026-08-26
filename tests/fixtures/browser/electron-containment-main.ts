@@ -691,7 +691,7 @@ void app.whenReady().then(async () => {
 
   // The dedicated Electron binary is launched by node_modules/electron/cli.js,
   // whose parent is this probe. Register that observed, live launcher process
-  // in the same main-owned map production uses for ACP/herdr children. No PID,
+  // in the same main-owned map production uses for ACP children. No PID,
   // node ref, host, or capability is accepted from a control request.
   const probePeerPid = readParentPid(process.ppid);
   if (probePeerPid === undefined) {

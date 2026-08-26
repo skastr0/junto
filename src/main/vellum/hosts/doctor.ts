@@ -6,7 +6,6 @@ import type { ServiceCheck } from "@shared/contracts";
 import {
   BROWSER_ENABLED,
   FLEET_UI_ENABLED,
-  HERDR_ENABLED,
   HERMES_INTEGRATION_ENABLED,
 } from "@shared/features";
 import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
@@ -98,10 +97,7 @@ const routeObservation = (
   ...(status.nextRetryAt === undefined ? {} : { nextRetryAt: status.nextRetryAt }),
 });
 
-const binaryVersionArgs = (
-  binary: "herdr" | "hermes",
-): ReadonlyArray<string> =>
-  binary === "herdr" ? ["--version"] : ["version"];
+const binaryVersionArgs = (_binary: "hermes"): ReadonlyArray<string> => ["version"];
 
 const classifySshFailure = (message: string): string => {
   if (/Permission denied|publickey|Authentication failed/i.test(message)) {
@@ -172,7 +168,7 @@ const probeSshNetwork = (
   );
 
 const localBinary = async (
-  binary: "herdr" | "hermes",
+  binary: "hermes",
   run: HostCliRunner,
 ): Promise<{ ok: boolean; detail: string }> => {
   const result = await run(binary, binaryVersionArgs(binary), 5_000).catch(
@@ -199,7 +195,7 @@ const localBinary = async (
 const remoteBinary = (
   ssh: Ssh,
   host: RemoteHost,
-  binary: "herdr" | "hermes",
+  binary: "hermes",
 ): Effect.Effect<{ ok: boolean; detail: string }> =>
   parseHostSshRoute(host).pipe(
     Effect.flatMap((parsed) =>
@@ -425,11 +421,6 @@ const probeSshHost = (
     if (hostHasCapability(host, "browser")) {
       parts.push("browser capability declared");
     }
-    if (HERDR_ENABLED && hostHasCapability(host, "herdr")) {
-      const herdr = yield* remoteBinary(ssh, host, "herdr");
-      parts.push(herdr.detail);
-      if (!herdr.ok) raise("warning", herdr.detail);
-    }
     if (HERMES_INTEGRATION_ENABLED && hostHasCapability(host, "hermes")) {
       const hermes = yield* remoteBinary(ssh, host, "hermes");
       parts.push(hermes.detail);
@@ -591,13 +582,6 @@ export const runRemoteHostsDoctorSnapshot = (
       if (hostHasCapability(local, "browser")) {
         lines.push("local: browser capability declared");
       }
-      if (HERDR_ENABLED && hostHasCapability(local, "herdr")) {
-        const herdr = yield* Effect.promise(() =>
-          localBinary("herdr", run),
-        );
-        lines.push(`local: ${herdr.detail}`);
-        if (!herdr.ok) raise("warning");
-      }
       if (HERMES_INTEGRATION_ENABLED && hostHasCapability(local, "hermes")) {
         const hermes = yield* Effect.promise(() =>
           localBinary("hermes", run),
@@ -740,9 +724,6 @@ export const testHostConnection = (
             ok: true,
             detail: "browser capability declared",
           });
-        }
-        if (HERDR_ENABLED && hostHasCapability(host, "herdr")) {
-          probes.push(yield* Effect.promise(() => localBinary("herdr", run)));
         }
         if (HERMES_INTEGRATION_ENABLED && hostHasCapability(host, "hermes")) {
           probes.push(

@@ -1637,14 +1637,12 @@ describe("renderer graph mutations", () => {
     });
 
     setRegionDefaults("region", {
-      herdr: { host: "local", session: null, workspaceId: "w1" },
       page: { url: "https://example.com", profile: "work" },
       paths: { local: "/Users/op/proj", "remote-a": "/home/op/proj" },
     });
     const withDefaults = state$.doc.peek().nodes[0];
     expect(withDefaults?.ether?.region?.hold).toBe(true);
     expect(withDefaults?.ether?.region?.instruction).toBe("ship the region");
-    expect(withDefaults?.ether?.region?.defaults?.herdr?.host).toBe("local");
     expect(withDefaults?.ether?.region?.defaults?.page?.profile).toBe("work");
     expect(withDefaults?.ether?.region?.defaults?.paths).toEqual({
       local: "/Users/op/proj",
@@ -1663,7 +1661,7 @@ describe("renderer graph mutations", () => {
       nodes: [{ id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 }],
       edges: [],
     });
-    setRegionDefaults("note", { herdr: { host: "local" } });
+    setRegionDefaults("note", { page: { url: "https://example.com" } });
     expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
   });
 

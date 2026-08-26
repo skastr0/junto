@@ -40,17 +40,6 @@ const node = (id: string, kind: string, extra: Record<string, unknown> = {}) => 
 // entity.kind "agent" is intentionally omitted — the managed terminal is the
 // only agent surface and ACP chat stays hard-hidden, so KindActions returns
 // null for it by product law, not by preview gap.
-export const HerdrPane = () => (
-  <Frame>
-    <Row label="herdr — bound">
-      <KindActions node={node("remote-a-1", "herdr", { herdr: { host: "remote-a", paneId: "pane-7" } }) as never} />
-    </Row>
-    <Row label="herdr — no pane">
-      <KindActions node={node("workshop-1", "herdr", { herdr: { host: "workshop-mini" } }) as never} />
-    </Row>
-  </Frame>
-);
-
 export const TerminalKind = () => (
   <Frame>
     <Row label="terminal">

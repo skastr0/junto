@@ -28,7 +28,7 @@
  * 3. `Schema.decodeUnknown*` may only appear in a file registered as a decode
  *    boundary, tagged with the boundary kind it guards:
  *      wire     — bytes from another process or host (IPC, control socket, HTTP,
- *                 child-process output, herdr stream)
+ *                 child-process output)
  *      codec    — the module DEFINES the decoder for a boundary and exports it;
  *                 the boundary belongs to the caller
  *      operator — operator-authored input (CLI argv/stdin, settings patch,

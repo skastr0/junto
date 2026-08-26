@@ -82,7 +82,6 @@ const formatStats = (stats: Record<string, string | number>): string => {
 // are stated once, per variant, instead of as a negation chain:
 //   agent  — hermes connection is identity-declared, never a seed
 //   page   — browser surface bound by construction, never a seed
-//   herdr  — geography, but its PTY is bound by construction, never a seed
 // A raw terminal has no declared identity to resolve, so it can still be a seed.
 const seedEligible = (node: CanvasNode): boolean =>
   Match.value(
@@ -92,7 +91,7 @@ const seedEligible = (node: CanvasNode): boolean =>
       Actor: () => false,
       Sink: (spec) => spec.kind !== "page",
       Scheduler: () => true,
-      Geography: (spec) => spec.kind !== "herdr",
+      Geography: () => true,
     }),
   );
 

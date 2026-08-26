@@ -81,7 +81,7 @@ PACKS = [
     ("S4-hosts-ssh", "01KZ21C01WZPWXD3JJG6EKD1BW", "src/main/vellum/hosts/** src/main/vellum/ssh/**", "R4-hosts-ssh"),
     ("S4-browser-term", "01KZ21C092F8DB9P75WVSBYHFN", "src/main/vellum/browser/** src/main/vellum/term/**", "R4-browser-term"),
     ("S4-rest-main", "01KZ21C0GC3SJN45TCX0A16AM8",
-     "src/main/vellum/{box,chat,demo,herdr,hermes,license,pause,scheduler,settings,update,usage}/** src/main/services/** src/cli/**",
+     "src/main/vellum/{box,chat,demo,hermes,license,pause,scheduler,settings,update,usage}/** src/main/services/** src/cli/**",
      "R4-rest-main"),
     ("S5-fork-main", "01KZ21C0RNZ93AS5JFF9M3GD0Q", "src/main/** (fork renames only; avoid thrashing open packs)", "R5-fork"),
     ("S7-platform-imports", "01KZ21C10J8FCTQ236E9AATQ78", "src/main/vellum/ssh/** src/cli/** package.json", "R7-platform"),

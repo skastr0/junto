@@ -30,8 +30,6 @@ import {
   HermesPlaneLive,
 } from "./vellum/hermes/plane";
 import { HermesTransportLive } from "./vellum/hermes/transport";
-import { HerdrPlaneLive, HerdrPlane } from "./vellum/herdr/plane";
-import { HerdrTransportLive } from "./vellum/herdr/transport";
 import { KernelLive } from "./vellum/kernel/service";
 import { KernelStateRepositoryLive } from "./vellum/kernel/repository";
 import { PausePlaneLive } from "./vellum/pause-plane";
@@ -66,7 +64,6 @@ import {
 import { OpenSshStationPeerExchangeLive } from "./vellum/station/openssh-peer-exchange";
 import { StationLivePeerRegistryLive } from "./vellum/station/session-registry";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
-import { TerminalSessions } from "./vellum/term/sessions";
 import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
 import { makeDodoLicenseClient } from "./vellum/license/dodo-client";
@@ -242,23 +239,12 @@ const HostsWithSshLive = Layer.provideMerge(
 );
 
 const ProductTransportsLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrTransportLive, HermesTransportLive),
+  HermesTransportLive,
   HostsWithSshLive,
 );
 
-// TerminalSessions is plane.sessions — one instance, no dual path.
-const TerminalSessionsLive = Layer.effect(
-  TerminalSessions,
-  Effect.map(HerdrPlane, (plane) => plane.sessions),
-);
-
-const HerdrWithSessionsLive = Layer.provideMerge(
-  TerminalSessionsLive,
-  HerdrPlaneLive,
-);
-
 export const RemoteProductPlanesLive = Layer.provideMerge(
-  Layer.mergeAll(HerdrWithSessionsLive, HermesPlaneLive),
+  HermesPlaneLive,
   ProductTransportsLive,
 );
 

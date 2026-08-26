@@ -13,8 +13,6 @@
 # (true for Remote). This script is the apply surface — it does not read
 # application state. Doctor surfaces preferred vs loaded.
 #
-# Herdr: reload/unload soft-quits Vellum Command → control streams detach; panes keep running.
-# Never mass-kills herdr sessions.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -278,7 +276,6 @@ sleep 2
 if launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q "state = running"; then
   log "$LABEL loaded and running"
   log "  logs: $LOG_DIR"
-  log "  herdr panes are NOT killed by this reload (detach control only)"
 else
     err "$LABEL loaded but not reported running — check $LOG_DIR/vellum-command.err.log"
   launchctl print "$DOMAIN/$LABEL" 2>/dev/null | sed -n '1,12p' >&2 || true

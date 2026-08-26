@@ -4,12 +4,11 @@ import { refreshFleet } from "../../lib/fleet-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { Button, FieldLabel, Input } from "../ui";
 
-type Capability = "browser" | "terminal" | "herdr" | "hermes";
+type Capability = "browser" | "terminal" | "hermes";
 
 const ALL_CAPABILITIES: ReadonlyArray<{ readonly id: Capability; readonly label: string }> = [
   { id: "terminal", label: "terminal" },
   { id: "browser", label: "browser" },
-  { id: "herdr", label: "herdr" },
   { id: "hermes", label: "hermes" },
 ];
 

@@ -12,7 +12,6 @@ import {
   bindLinuxRemoteUserland,
   remoteCat,
   remoteHermesCli,
-  remoteHerdrCli,
   remoteHostProbe,
   remoteProductVersion,
   remoteTestFileExists,
@@ -54,15 +53,8 @@ describe("ssh read-commands product constructors", () => {
       inspectRemoteCommand(run(remoteHermesCli(["version"]))).executable,
     ).toBe("hermes");
     expect(
-      inspectRemoteCommand(run(remoteHerdrCli(["status", "--json"])))
-        .executable,
-    ).toBe("herdr");
-    expect(
       inspectRemoteCommand(run(remoteProductVersion("hermes"))).args,
     ).toEqual(["version"]);
-    expect(
-      inspectRemoteCommand(run(remoteProductVersion("herdr"))).args,
-    ).toEqual(["--version"]);
   });
 
   it("confines cat/test to clean absolute paths", () => {

@@ -38,7 +38,6 @@ vi.mock("electron", () => ({
 vi.mock("../src/main/runtime", () => ({ AppRuntime: runtime }));
 vi.mock("../src/main/vellum/browser/ipc", () => ({ registerBrowserIpc: vi.fn() }));
 vi.mock("../src/main/vellum/chat/ipc", () => ({ registerChatIpc: vi.fn() }));
-vi.mock("../src/main/vellum/herdr/ipc", () => ({ registerHerdrIpc: vi.fn() }));
 vi.mock("../src/main/vellum/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
 vi.mock("../src/main/vellum/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
 vi.mock("../src/main/vellum/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));

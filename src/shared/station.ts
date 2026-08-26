@@ -60,7 +60,6 @@ export const hostIdFromAgentKey = (key: string | undefined): string | undefined 
  * Resolve the host id a node is assigned to execute on.
  * Precedence:
  *   ether.host (authorial stamp)
- *   → herdr.host binding
  *   → agent key host prefix (hermes `<host>:<profile>`)
  *   → default local
  */
@@ -68,9 +67,6 @@ export const resolveNodeHostId = (node: CanvasNode): string => {
   const ether = node.ether;
   if (!ether) return DEFAULT_STATION_HOST_ID;
   if (typeof ether.host === "string" && ether.host.length > 0) return ether.host;
-  if (typeof ether.herdr?.host === "string" && ether.herdr.host.length > 0) {
-    return ether.herdr.host;
-  }
   // Native terminals use ether.host only (binding has no host field).
   if (ether.entity?.kind === "agent") {
     const fromKey = hostIdFromAgentKey(ether.entity.name);

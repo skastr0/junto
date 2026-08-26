@@ -35,7 +35,6 @@ export type ModeDeckActions = {
   readonly addPad: () => void;
   readonly addGit: () => void;
   readonly addTerminal: () => void;
-  readonly addHerdr: () => void;
   readonly addPage: () => void;
   readonly addLabel: () => void;
 };
@@ -51,10 +50,6 @@ const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; read
 const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void => {
   switch (entry.id) {
     case "terminal": actions.addTerminal(); break;
-    case "herdr":
-      // Catalog omits herdr when HERDR_ENABLED is false; no-op if reached.
-      actions.addHerdr();
-      break;
     case "tasks": actions.addTasks(); break;
     case "requests": actions.addRequests(); break;
     case "artifacts": actions.addArtifacts(); break;

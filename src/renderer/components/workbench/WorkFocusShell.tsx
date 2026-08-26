@@ -29,7 +29,7 @@ import { saveAndCloseNoteSurface } from "./NoteSurface";
 /**
  * Actor terminals carry one stacked right instrument pane (ledger above
  * connections). The panel budgets its width once so the xterm keeps its target
- * columns. Raw shells and herdr panes stay at the bare terminal measure.
+ * columns. Raw shells stay at the bare terminal measure.
  */
 const railsForFrontSurface = (
   frontId: string | undefined,
@@ -65,7 +65,7 @@ const measureForSizeKey = (key: WorkFocusSizeKey): FocusMeasure => {
  * Centered focus-zone shell. Mounts when focus zone is non-empty.
  * Measure / remembered width is keyed by surface family so a resized
  * terminal cannot leave task-create (or other) modals stuck narrow.
- * Herdr slots are registered synchronously via dock-state observe.
+ * Slots are registered synchronously via dock-state observe.
  */
 export function WorkFocusShell() {
   // A primitive fingerprint lets Legend recompute on registry surface writes
@@ -90,7 +90,7 @@ export function WorkFocusShell() {
   const onlyNotes = sizeKey === "document";
   const measure = measureForSizeKey(sizeKey);
   // Dock chrome (tabs / split / pin-all) is for multi-surface browser work.
-  // Pure terminal/herdr focus uses surface-local Pin + Close — reusing the
+  // Pure terminal focus uses surface-local Pin + Close — reusing the
   // side-dock strip here was noise (fake single tab + split toggle).
   const showDockChrome = focusDockChromeVisible(registry);
 

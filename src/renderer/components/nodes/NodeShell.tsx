@@ -21,8 +21,7 @@ import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
 import { state$, toggleConnectionFocus } from "../../lib/state";
 import { ensurePauseState, nodePausedIn, pause$, setScopePaused } from "../../lib/pause-state";
-import { herdr$ } from "../../lib/herdr-state";
-import { isHerdrCanvasNode, nodeBlockPresentation } from "../../lib/node-block-state";
+import { nodeBlockPresentation } from "../../lib/node-block-state";
 import { attentionOf } from "@shared/attention";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -135,7 +134,6 @@ function NodeActions({
   onMaximize,
   toolbarExtras,
   flagBlocker,
-  liveHerdrBlocked,
   shellBlocked,
   nodePaused,
 
@@ -146,25 +144,17 @@ function NodeActions({
   readonly toolbarExtras?: ReactNode;
   /** Document ether.flags includes blocker. */
   readonly flagBlocker: boolean;
-  /** Live herdr agent_status blocked — not a document flag. */
-  readonly liveHerdrBlocked: boolean;
   /** Graph blocked or seed chrome — may have a resolvable cause. */
   readonly shellBlocked: boolean;
   /** Node-scope pause (undefined = not an executable seat, no toggle). */
   readonly nodePaused?: boolean;
 
 }) {
-  // Toolbar toggle only mutates the document flag. Live herdr blocked paints
-  // crimson but clear still means "clear flag" (or no-op if flag absent).
-  const chromeBlocker = flagBlocker || liveHerdrBlocked;
+  const chromeBlocker = flagBlocker;
   const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
   // Multi-select: RTS bar owns bulk actions — suppress floating pills.
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
-  const title = flagBlocker
-    ? "clear blocker flag"
-    : liveHerdrBlocked
-      ? "herdr blocked (live) — flag to pin"
-      : "flag blocker";
+  const title = flagBlocker ? "clear blocker flag" : "flag blocker";
 
   // Only resolve the waiting-on path while selected + blocked. One selector:
   // Legend State tracks only what a selector actually reads, so an
@@ -338,13 +328,9 @@ export function NodeShell({
 
   readonly children: ReactNode;
 }) {
-  // Live herdr meta: agent_status blocked paints shell chrome without a doc flag.
-  const herdrMeta = use$(herdr$.metaByNodeId[node.id]);
-  const herdrAgentStatus = isHerdrCanvasNode(node) ? herdrMeta?.meta?.agentStatus : undefined;
-  const { isBlocker, shellBlocked, liveHerdrBlocked, flags } = nodeBlockPresentation({
+  const { isBlocker, shellBlocked, flags } = nodeBlockPresentation({
     node,
     graphBlocked: blocked,
-    herdrAgentStatus,
   });
   // Occupancy is vacancy (empty/gone/parked) on actor seats. Working /
   // attention wash comes from SeatFacts, not this spectrum.
@@ -471,7 +457,7 @@ export function NodeShell({
             : "0 10px 28px var(--color-shadow-2)";
   // Shift+click multi-select dominates all node chrome (labels, open, edit).
   const multiSelectCapture = useShiftMultiSelectDominance(node.id);
-  // Pulse wash for stoppage chrome (graph blocked, flag, herdr).
+  // Pulse wash for stoppage chrome (graph blocked, flag).
   // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
     <div
@@ -479,7 +465,6 @@ export function NodeShell({
       data-node-kind={node.ether?.entity?.kind ?? node.type}
       data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
-      data-herdr-blocked={liveHerdrBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
       data-occupancy={occupancyAttr}
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
@@ -529,15 +514,14 @@ export function NodeShell({
           onMaximize={onMaximize}
           toolbarExtras={toolbarExtras}
           flagBlocker={flagBlocker}
-          liveHerdrBlocked={liveHerdrBlocked}
           shellBlocked={shellBlocked}
           nodePaused={executable ? nodePaused : undefined}
         />
       )}
-      {!bare && (flags.length > 0 || liveHerdrBlocked || liveSeatAttention || (shellBlocked && !flagBlocker && !liveHerdrBlocked)) ? (
+      {!bare && (flags.length > 0 || liveSeatAttention || (shellBlocked && !flagBlocker)) ? (
 
         <div className="vellum-node__flag-rail">
-          {shellBlocked && !flagBlocker && !liveHerdrBlocked ? (
+          {shellBlocked && !flagBlocker ? (
             <span
               key="graph-blocked"
               className="vellum-node__flag vellum-node__flag--blocked-live"
@@ -549,20 +533,6 @@ export function NodeShell({
               }}
             >
               blocked
-            </span>
-          ) : null}
-          {liveHerdrBlocked && !flagBlocker ? (
-            <span
-              key="herdr-blocked"
-              className="vellum-node__flag vellum-node__flag--blocked-live"
-              title="Blocked"
-              style={{
-                color: FLAG_HUES.blocker,
-                borderColor: withAlpha(FLAG_HUES.blocker, 0.36),
-                background: withAlpha(FLAG_HUES.blocker, 0.09),
-              }}
-            >
-              blocker
             </span>
           ) : null}
           {liveSeatAttention ? (

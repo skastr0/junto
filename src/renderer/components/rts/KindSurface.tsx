@@ -6,7 +6,7 @@
  * InspectorFields editors as-is; this file is glue only.
  *
  * Regions: ops on the command card. Kind strip is field keys only —
- * briefing, herdr defaults, page defaults, folder paths. No plate, no placement.
+ * briefing, page defaults, folder paths. No plate, no placement.
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
@@ -24,14 +24,12 @@ import type { CanvasEdge, CanvasNode } from "@shared/canvas";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
-  HERDR_ENABLED,
   RELAY_ENABLED,
 } from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { state$ } from "../../lib/state";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { HUE } from "../../lib/theme";
-import { connectionStateOf, herdr$, refreshHerdrMeta } from "../../lib/herdr-state";
 import {
   classifyMultiSelection,
   multiSelectionLabel,
@@ -43,7 +41,7 @@ import {
 } from "../../lib/multi-prompt";
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
-import { HarnessMark } from "../herdr/HarnessMark";
+import { HarnessMark } from "../HarnessMark";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { ChatComposer } from "../chat/ChatComposer";
@@ -53,7 +51,6 @@ import {
   NodeFieldEditors,
   NodePlacementSection,
   RegionBriefingEditor,
-  RegionHerdrDefaultsControl,
   RegionPageDefaultsControl,
 } from "../InspectorFields";
 import { deleteEdges } from "../../lib/edge-mutations";
@@ -63,7 +60,7 @@ import "./rts-controls.css";
 
 const ICON = 12;
 
-type RegionFormKey = "briefing" | "herdr" | "page";
+type RegionFormKey = "briefing" | "page";
 
 /**
  * Seat-native agent glance — harness mark + document label.
@@ -84,43 +81,6 @@ function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
         <div className="rts-kind-id__name">{nodeTitle(node)}</div>
         <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>
       </div>
-    </div>
-  );
-}
-
-function HerdrGlance({ node }: { readonly node: CanvasNode }) {
-  const herdr = node.ether?.herdr;
-  const metaCache = use$(herdr$.metaByNodeId[node.id]);
-  const conn = use$(herdr$.connectionByNodeId[node.id]);
-  if (!herdr) return null;
-  const meta = metaCache?.meta;
-  const connState = conn?.state ?? connectionStateOf(node.id);
-  const agent = meta?.agent
-    ? meta.agentStatus
-      ? `${meta.agent} — ${meta.agentStatus}`
-      : meta.agent
-    : undefined;
-
-  return (
-    <div className="rts-kind-id">
-      <span className="rts-kind-id__avatar rts-kind-id__avatar--mark" aria-hidden>
-        <HarnessMark agent={meta?.agent} size={22} focused={meta?.focused === true} />
-      </span>
-      <div className="rts-kind-id__text">
-        <div className="rts-kind-id__name">{nodeTitle(node)}</div>
-        <div className="rts-kind-id__live">
-          {herdr.host}
-          {agent ? ` — ${agent}` : ""}
-          {` — ${connState}`}
-        </div>
-      </div>
-      <KindKey
-        label="Refresh herdr meta"
-        title="Refresh"
-        onClick={() => void refreshHerdrMeta(node.id, herdr)}
-      >
-        <RefreshCw size={ICON} />
-      </KindKey>
     </div>
   );
 }
@@ -281,11 +241,6 @@ function RegionFieldFocus({
       measure: "document",
       body: <RegionBriefingEditor node={node} />,
     },
-    herdr: {
-      title: "Herdr defaults",
-      measure: "form",
-      body: <RegionHerdrDefaultsControl node={node} />,
-    },
     page: {
       title: "Page defaults",
       measure: "form",
@@ -324,7 +279,6 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
   const [pathsOpen, setPathsOpen] = useState(false);
   const instruction = Boolean(node.ether?.region?.instruction?.trim());
   const defaults = node.ether?.region?.defaults;
-  const hasHerdr = Boolean(defaults?.herdr?.host);
   const hasPage = Boolean(
     defaults?.page?.url || defaults?.page?.profile || defaults?.page?.host,
   );
@@ -369,17 +323,6 @@ function RegionKindSurface({ node }: { readonly node: CanvasNode }) {
           >
             <FolderOpen size={ICON} />
           </KindKey>
-          {HERDR_ENABLED ? (
-            <KindKey
-              label={form === "herdr" ? "Close herdr defaults" : "Herdr defaults"}
-              title="Defaults for new herdr nodes in this region"
-              active={form === "herdr" || hasHerdr}
-              style={form === "herdr" || hasHerdr ? { color: HUE.cyan } : undefined}
-              onClick={() => toggleForm("herdr")}
-            >
-              <Package size={ICON} />
-            </KindKey>
-          ) : null}
           {BROWSER_ENABLED ? (
             <KindKey
               label={form === "page" ? "Close page defaults" : "Page defaults"}
@@ -611,7 +554,6 @@ export function KindSurface() {
     kind !== undefined &&
     [
       "agent",
-      ...(HERDR_ENABLED ? (["herdr"] as const) : []),
       "terminal",
       "task",
       "requests",
@@ -621,10 +563,9 @@ export function KindSurface() {
       ...(CRON_ENABLED ? (["timer", "cron"] as const) : []),
       ...(BROWSER_ENABLED ? (["page"] as const) : []),
     ].includes(kind);
-  // Agent/herdr keep a live glance. Everything else is strip-only (kind once +
+  // Agent seats keep a live glance. Everything else is strip-only (kind once +
   // keys) so command title is not echoed three more times in the mid third.
-  const showSeatGlance =
-    kind === "agent" || (HERDR_ENABLED && kind === "herdr");
+  const showSeatGlance = kind === "agent";
   // Free notes / agents / work sinks / schedulers / page / shell: no fields
   // sheet. Config is kind-strip pops; rename is pencil. Placement chips are
   // noise.
@@ -647,7 +588,6 @@ export function KindSurface() {
   return (
     <div className={`rts-kind-surface${showSeatGlance ? "" : " rts-kind-surface--simple"}`}>
       {kind === "agent" ? <AgentSeatGlance node={node} /> : null}
-      {HERDR_ENABLED && kind === "herdr" ? <HerdrGlance node={node} /> : null}
 
       <div className="rts-kind-cluster">
         <span className="rts-kind-kind-label">{stripLabel}</span>

@@ -1,11 +1,11 @@
 /**
  * Kimi Code seat rules — grid-primary. The OSC title is static "Kimi Code"
  * (dead — never key on it) and there is no OSC 9 progress, so the grid
- * carries the pack: mirror of herdr kimi.toml (approval + question panels →
+ * carries the pack: approval + question panels →
  * attention; moon/braille spinners + background-agent line → working) plus
  * the TUI prompt box "> " and status footer "context: 0% (0/1M)" (idle).
  * No alt screen — the grid includes the whole session like codex.
- * Patterns from docs/research/agent-cli-sweep/kimi.md + herdr kimi.toml
+ * Patterns from docs/research/agent-cli-sweep/kimi.md
  * (rewritten; not vendored; (?i) inline flags are not valid in this runtime,
  * so case-insensitivity is spelled out with character classes).
  */

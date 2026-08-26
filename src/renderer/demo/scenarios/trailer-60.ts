@@ -4,7 +4,7 @@
 // framework. It must not import anything beyond @shared/demo + @shared/canvas.
 
 import type { CanvasEdge, CanvasNode, EtherFlag, GroupNode, TextNode } from "@shared/canvas";
-import type { DemoBeat, DemoHerdrStatus, DemoOp, DemoScenario } from "@shared/demo";
+import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 
 // --- small deterministic helpers --------------------------------------------
 
@@ -98,7 +98,7 @@ const smallTextNode = (id: string, text: string, x: number, y: number): TextNode
   height: 72,
 });
 
-// --- herdr fleet ---------------------------------------------------------------
+// --- crew fleet ----------------------------------------------------------------
 
 const AGENTS = ["claude", "codex", "kimi", "opencode", "hermes"] as const;
 const SHORT_TASKS = [
@@ -126,7 +126,7 @@ const SHOWER_TEXTS = [
   "vitest green",
 ] as const;
 
-interface HerdrSpec {
+interface CrewSpec {
   readonly id: string;
   readonly n: number;
   readonly host: string;
@@ -137,7 +137,7 @@ interface HerdrSpec {
   readonly label: string;
 }
 
-const herdrSpec = (n: number): HerdrSpec => {
+const crewSpec = (n: number): CrewSpec => {
   const agent = AGENTS[(n - 1) % AGENTS.length];
   const shortTask = SHORT_TASKS[(n - 1) % SHORT_TASKS.length];
   const nn = pad(n, 2);
@@ -153,10 +153,10 @@ const herdrSpec = (n: number): HerdrSpec => {
   };
 };
 
-const HERDR: readonly HerdrSpec[] = Array.from({ length: 36 }, (_, i) => herdrSpec(i + 1));
-const h = (n: number): HerdrSpec => HERDR[n - 1];
+const CREW: readonly CrewSpec[] = Array.from({ length: 36 }, (_, i) => crewSpec(i + 1));
+const h = (n: number): CrewSpec => CREW[n - 1];
 
-const herdrNode = (spec: HerdrSpec): TextNode => {
+const crewNode = (spec: CrewSpec): TextNode => {
   const { x, y } = pos(spec.n - 1);
   return {
     id: spec.id,
@@ -167,75 +167,34 @@ const herdrNode = (spec: HerdrSpec): TextNode => {
     width: 260,
     height: 110,
     ether: {
-      entity: { kind: "herdr" },
-      herdr: {
-        host: spec.host,
-        session: null,
-        workspaceId: "w1",
-        tabId: "w1:t1",
-        paneId: spec.paneId,
-        terminalId: spec.terminalId,
-        label: spec.label,
-      },
+      entity: { kind: "terminal" },
+      host: spec.host,
+      terminal: { bindingId: spec.terminalId, label: spec.label },
     },
   };
 };
 
-const herdrEnsureOp = (spec: HerdrSpec, status: DemoHerdrStatus): DemoOp => ({
-  kind: "herdr",
-  command: {
-    kind: "ensure-pane",
-    pane: { host: spec.host, paneId: spec.paneId, agent: spec.agent, label: spec.label },
-    status,
-  },
-});
-
-const herdrStatusOp = (spec: HerdrSpec, status: DemoHerdrStatus): DemoOp => ({
-  kind: "herdr",
-  command: { kind: "set-status", host: spec.host, paneId: spec.paneId, status },
-});
-
-const workingOp = (spec: HerdrSpec): DemoOp => herdrStatusOp(spec, "working");
-const doneOp = (spec: HerdrSpec): DemoOp => herdrStatusOp(spec, "done");
+/** Cleared: the seat's blocker flag comes off. */
+const workingOp = (spec: CrewSpec): DemoOp => flagOp([spec.id], "blocker", false);
 
 // Blocked ordering is tracked as it is authored (source order == beat order
 // below) so the "10 blocked" camera-fit and the beat-66 "select all blocked"
 // can be derived instead of hand-counted.
 const blockedOrder: string[] = [];
-const blockOp = (spec: HerdrSpec): DemoOp => {
+const blockOp = (spec: CrewSpec): DemoOp => {
   blockedOrder.push(spec.id);
-  return herdrStatusOp(spec, "blocked");
+  return flagOp([spec.id], "blocker", true);
 };
 
-// Spawn a contiguous slice of the fleet across beat slots, front-loaded, each
-// spawned herdr entering at the given status (used for both the mid-take
-// "working" waves and the finale's already-working spawns).
+// Spawn a contiguous slice of the fleet across beat slots, front-loaded.
 const spawnFleetStaggered = (
-  specs: readonly HerdrSpec[],
+  specs: readonly CrewSpec[],
   beats: readonly number[],
-  status: DemoHerdrStatus,
 ): void => {
   const chunks = chunkFrontLoaded(specs, beats.length);
   chunks.forEach((chunk, i) => {
     if (chunk.length === 0) return;
-    at(
-      beats[i],
-      addNodesOp(chunk.map(herdrNode)),
-      ...chunk.map((spec) => herdrEnsureOp(spec, status)),
-    );
-  });
-};
-
-// Status-only stagger (nodes already exist) — used for the two "done" waves.
-const statusFleetStaggered = (
-  specs: readonly HerdrSpec[],
-  beats: readonly number[],
-  status: DemoHerdrStatus,
-): void => {
-  const chunks = chunkFrontLoaded(specs, beats.length);
-  chunks.forEach((chunk, i) => {
-    if (chunk.length === 0) return;
-    at(beats[i], ...chunk.map((spec) => herdrStatusOp(spec, status)));
+    at(beats[i], addNodesOp(chunk.map(crewNode)));
   });
 };
 
@@ -382,65 +341,52 @@ at(
 );
 at(20, cameraCenter(420, 160, 4, 1.2));
 
-// h01: first herdr, idle then working.
+// h01: the first crew card lands.
 at(
   24,
-  addNodesOp([herdrNode(h(1))]),
+  addNodesOp([crewNode(h(1))]),
   addEdgesOp([mkEdge("demo-e2", "demo-agent", "demo-h01")]),
-  herdrEnsureOp(h(1), "idle"),
 );
-at(26, herdrStatusOp(h(1), "working"), cameraFit(["demo-agent", "demo-h01"], 2));
+at(26, cameraFit(["demo-agent", "demo-h01"], 2));
 
 // h02 / h03 — spawn straight into working, each with its own edge.
 at(
   28,
-  addNodesOp([herdrNode(h(2))]),
-  herdrEnsureOp(h(2), "working"),
+  addNodesOp([crewNode(h(2))]),
   addEdgesOp([mkEdge("demo-e3", "demo-agent", "demo-h02")]),
 );
 at(
   28.5,
-  addNodesOp([herdrNode(h(3))]),
-  herdrEnsureOp(h(3), "working"),
+  addNodesOp([crewNode(h(3))]),
   addEdgesOp([mkEdge("demo-e4", "demo-h01", "demo-h03")]),
 );
 
 // h04..h06, one per beat.
-spawnFleetStaggered(HERDR.slice(3, 6), [30, 30.5, 31], "working");
+spawnFleetStaggered(CREW.slice(3, 6), [30, 30.5, 31]);
 
 // h07..h10, one per half-beat; camera pulls back to frame the fleet forming.
 at(32, cameraFit(undefined, 4));
-spawnFleetStaggered(HERDR.slice(6, 10), [32, 32.5, 33, 33.5], "working");
+spawnFleetStaggered(CREW.slice(6, 10), [32, 32.5, 33, 33.5]);
 
 // h11..h16, two per beat, with the two sprinkled edges.
 at(
   36,
-  addNodesOp([herdrNode(h(11)), herdrNode(h(12))]),
-  herdrEnsureOp(h(11), "working"),
-  herdrEnsureOp(h(12), "working"),
+  addNodesOp([crewNode(h(11)), crewNode(h(12))]),
   addEdgesOp([mkEdge("demo-e5", "demo-h02", "demo-h11")]),
 );
 at(
   37,
-  addNodesOp([herdrNode(h(13)), herdrNode(h(14))]),
-  herdrEnsureOp(h(13), "working"),
-  herdrEnsureOp(h(14), "working"),
+  addNodesOp([crewNode(h(13)), crewNode(h(14))]),
   addEdgesOp([mkEdge("demo-e6", "demo-h04", "demo-h13")]),
 );
 at(
   38,
-  addNodesOp([herdrNode(h(15)), herdrNode(h(16))]),
-  herdrEnsureOp(h(15), "working"),
-  herdrEnsureOp(h(16), "working"),
+  addNodesOp([crewNode(h(15)), crewNode(h(16))]),
 );
 
 // h17..h24, staggered on 8th notes.
 at(40, cameraFit(undefined, 4));
-spawnFleetStaggered(
-  HERDR.slice(16, 24),
-  [40, 40.5, 41, 41.5, 42, 42.5, 43, 43.5],
-  "working",
-);
+spawnFleetStaggered(CREW.slice(16, 24), [40, 40.5, 41, 41.5, 42, 42.5, 43, 43.5]);
 
 // Long pullback + shower batches, with two early "done" beats mixed in.
 at(44, cameraFit(undefined, 8));
@@ -448,8 +394,6 @@ const showerBeats = [44, 46, 48, 50];
 showerBeats.forEach((beat, i) => {
   at(beat, addNodesOp(showerBatch(i * 10, 10)));
 });
-at(46, herdrStatusOp(h(3), "done"));
-at(50, herdrStatusOp(h(5), "done"));
 
 // Blocker storm.
 at(52, blockOp(h(7)), cameraFit(["demo-h07"], 1, undefined, 1.6));
@@ -493,27 +437,22 @@ at(71, workingOp(h(3)), workingOp(h(11)), workingOp(h(20)));
 
 // Done wave, part 1 + 2.
 at(72, cameraFit(undefined, 4));
-statusFleetStaggered(HERDR.slice(0, 6), [72, 72.5, 73, 73.5], "done");
-statusFleetStaggered(HERDR.slice(6, 14), [74, 74.5, 75, 75.5], "done");
 
-// Finale: twelve beats of shower text, three fresh herdr batches, two pullbacks.
+
+
+// Finale: twelve beats of shower text, three fresh crew batches, two pullbacks.
 const finaleBeats = [76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87];
 finaleBeats.forEach((beat, i) => {
   at(beat, addNodesOp(finaleBatch(i * 10, 10)));
 });
 at(76, cameraFit(undefined, 8));
-spawnFleetStaggered(HERDR.slice(24, 28), [76], "working");
-spawnFleetStaggered(HERDR.slice(28, 32), [80], "working");
+spawnFleetStaggered(CREW.slice(24, 28), [76]);
+spawnFleetStaggered(CREW.slice(28, 32), [80]);
 at(84, cameraFit(undefined, 8));
-spawnFleetStaggered(HERDR.slice(32, 36), [84], "working");
+spawnFleetStaggered(CREW.slice(32, 36), [84]);
 
 // Final done sweep across everything still running.
-at(88, sfxOp("herdr-done"));
-statusFleetStaggered(
-  HERDR.slice(14, 36),
-  [88, 88.5, 89, 89.5, 90, 90.5, 91],
-  "done",
-);
+
 
 at(92, cameraCenter(300, 60, 8, 0.55));
 at(100, cameraFit(["demo-region", "demo-task", "demo-agent", "demo-h01"], 6));

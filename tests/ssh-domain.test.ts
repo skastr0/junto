@@ -28,7 +28,7 @@ describe("SSH domain", () => {
 
   it("rejects NUL-bearing remote arguments before policy compilation", async () => {
     const result = await Effect.runPromise(
-      Effect.result(makeRemoteCommand("herdr", ["session", "bad\u0000value"])),
+      Effect.result(makeRemoteCommand("hermes", ["session", "bad\u0000value"])),
     );
 
     expect(Result.isFailure(result)).toBe(true);
@@ -36,7 +36,7 @@ describe("SSH domain", () => {
 
   it("bounds the complete remote command below the local argv ceiling", async () => {
     const result = await Effect.runPromise(
-      Effect.result(makeRemoteCommand("herdr", ["a".repeat(64 * 1024), "b".repeat(64 * 1024)])),
+      Effect.result(makeRemoteCommand("hermes", ["a".repeat(64 * 1024), "b".repeat(64 * 1024)])),
     );
 
     expect(Result.isFailure(result)).toBe(true);

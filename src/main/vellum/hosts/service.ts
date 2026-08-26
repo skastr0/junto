@@ -219,7 +219,7 @@ export const HostsServiceLive = Layer.effect(
       Effect.runPromiseWith(runtime)(effect);
     const registry = getDefaultHostsRegistry(state, runPromise);
     // Layer acquisition is the normal-boot barrier: the persisted database is
-    // visible to synchronous Herdr/Hermes routing before this layer can feed
+    // visible to synchronous Hermes routing before this layer can feed
     // either transport or plane.
     yield* loadHostsIntoRoutingSnapshot(() => registry.reload()).pipe(
       Effect.catch(() =>

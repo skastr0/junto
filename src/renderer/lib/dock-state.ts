@@ -9,13 +9,7 @@ import {
   isCanonicalBrowserRef,
   isUsableBrowserSession,
 } from "./browser-state";
-import {
-  clearHerdrKeyboardFocus,
-  closeHerdrTerminal,
-  focusHerdrTerminal,
-  herdr$,
-  herdrTerminalIds,
-} from "./herdr-state";
+
 import {
   closeSurface,
   focusDockChromeVisible,
@@ -39,8 +33,7 @@ import { closeTerminalSurface, terminal$, terminalNodeIds } from "./terminal-sta
 
 // Workbench side effects: pure transitions live in surface-registry.ts; this
 // module owns the observable + detach/stream cleanup. Every close DETACHES
-// only — warm browser sessions and herdr panes survive unless Stop Page or
-// herdr kill is explicit.
+// only — warm browser sessions survive unless Stop Page is explicit.
 
 export interface DockBrowserPayload {
   readonly nodeId: string;
@@ -71,7 +64,6 @@ export interface DockNotePayload {
   readonly savedText: string;
 }
 
-const HERDR_SURFACE_PREFIX = "herdr:";
 const TERMINAL_SURFACE_PREFIX = "terminal:";
 const CHAT_SURFACE_PREFIX = "chat:";
 const TASK_CREATE_SURFACE_PREFIX = "task-create:";
@@ -95,15 +87,6 @@ export const parseNoteSurfaceId = (id: string): string | null =>
     ? id.slice(NOTE_SURFACE_PREFIX.length)
     : null;
 
-/** Surface id for a herdr terminal bound to a canvas node. */
-export const herdrSurfaceId = (nodeId: string): string => `${HERDR_SURFACE_PREFIX}${nodeId}`;
-
-/** Inverse of herdrSurfaceId — null when the id is not a herdr surface. */
-export const parseHerdrSurfaceId = (id: string): string | null => {
-  if (!id.startsWith(HERDR_SURFACE_PREFIX)) return null;
-  const nodeId = id.slice(HERDR_SURFACE_PREFIX.length);
-  return nodeId.length > 0 ? nodeId : null;
-};
 
 export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
@@ -162,8 +145,7 @@ export const hydrateDockConfig = async (): Promise<void> => {
 
 /**
  * Apply one registry transition and run side effects for fully-closed surfaces.
- * Browser closes detach over IPC (session stays warm); herdr closes release
- * that nodeId's control stream only.
+ * Browser closes detach over IPC (session stays warm).
  */
 const applyTransition = (transition: WorkbenchTransition): void => {
   dock$.registry.set(transition.state);
@@ -171,11 +153,6 @@ const applyTransition = (transition: WorkbenchTransition): void => {
     if (closed.kind === "browser") {
       dock$.browserByRef[closed.id].delete();
       detachCurrentSession(closed.id);
-    } else if (closed.kind === "herdr") {
-      // Only release stream if the herdr surface itself was closed/evicted —
-      // not when merely moving zones (pin/unpin never emit herdr in evicted).
-      const nodeId = parseHerdrSurfaceId(closed.id);
-      if (nodeId) closeHerdrTerminal(nodeId);
     } else if (closed.kind === "terminal") {
       const nodeId = parseTerminalSurfaceId(closed.id);
       if (nodeId) closeTerminalSurface(nodeId);
@@ -208,7 +185,6 @@ export const openAgentChatSurface = (
     title,
   });
   applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, zone));
-  clearHerdrKeyboardFocus();
 };
 
 /**
@@ -237,7 +213,6 @@ export const openTaskCreateSurface = (
   applyTransition(
     openSurface(dock$.registry.peek(), { id, kind: "task-create" }, zone),
   );
-  clearHerdrKeyboardFocus();
 };
 
 /**
@@ -265,7 +240,6 @@ export const openNoteSurface = (
         },
   );
   applyTransition(openSurface(dock$.registry.peek(), { id, kind: "note" }, zone));
-  clearHerdrKeyboardFocus();
 };
 
 export const updateNoteSurfaceDraft = (id: string, draft: string): void => {
@@ -350,57 +324,6 @@ export const closeDockBrowser = (ref: string): void => {
   applyTransition(closeSurface(dock$.registry.peek(), ref));
 };
 
-/**
- * Reconcile workbench herdr surfaces with herdr$.terminals:
- * - every open terminal gets a focus-zone surface (id = herdrSurfaceId(nodeId))
- * - focused terminal is promoted to zone MRU front
- * - surfaces for closed terminals are dropped without a second stream release
- * Pin moves a slot without reopening the stream.
- */
-export const syncHerdrWorkbenchSlot = (): void => {
-  const openIds = new Set(herdrTerminalIds());
-  const focused = herdr$.focusedNodeId.peek();
-  let registry = dock$.registry.peek();
-
-  // Drop slots whose terminal is gone (stream already released by closeHerdrTerminal).
-  for (const surface of registry.surfaces) {
-    if (surface.kind !== "herdr") continue;
-    const nodeId = parseHerdrSurfaceId(surface.id);
-    if (nodeId && openIds.has(nodeId)) continue;
-    registry = closeSurface(registry, surface.id).state;
-  }
-  dock$.registry.set(registry);
-
-  // Ensure a focus-zone surface for every open terminal; re-open promotes MRU.
-  for (const nodeId of openIds) {
-    const id = herdrSurfaceId(nodeId);
-    if (surfaceById(registry, id)) {
-      // Already registered — if keyboard-focused, bring to front of its zone.
-      if (focused === nodeId) {
-        applyTransition(focusSurface(registry, id));
-        registry = dock$.registry.peek();
-      }
-      continue;
-    }
-    const transition = openSurface(registry, { id, kind: "herdr" }, "focus");
-    // Never re-release herdr streams while registering (evicted herdrs filtered).
-    applyTransition({
-      state: transition.state,
-      evicted: transition.evicted.filter((s) => s.kind !== "herdr"),
-    });
-    registry = dock$.registry.peek();
-  }
-};
-
-// Synchronous bridge: herdr open/close updates registry before React paints
-// (no dynamic-import flash of orphan modal → shell).
-observe(() => {
-  // Track full terminals map + focus for MRU promote.
-  herdr$.terminals.get();
-  herdr$.focusedNodeId.get();
-  syncHerdrWorkbenchSlot();
-});
-
 observe(() => {
   terminal$.openByNodeId.get();
   terminal$.openSeq.get();
@@ -455,19 +378,10 @@ export const focusWorkbenchSurface = (id: string): void => {
 };
 
 /**
- * Promote surface to zone MRU front and route keyboard:
- * herdr → focusHerdrTerminal; anything else → clear herdr keyboard capture.
+ * Promote surface to zone MRU front and route keyboard.
  */
 export const activateWorkbenchSurface = (id: string): void => {
   applyTransition(focusSurface(dock$.registry.peek(), id));
-  const surface = surfaceById(dock$.registry.peek(), id);
-  if (!surface) return;
-  if (surface.kind === "herdr") {
-    const nodeId = parseHerdrSurfaceId(id);
-    if (nodeId) focusHerdrTerminal(nodeId);
-    return;
-  }
-  clearHerdrKeyboardFocus();
 };
 
 export const setWorkbenchLayout = (zone: WorkZone, layout: LayoutMode): void => {
@@ -486,8 +400,7 @@ export const setWorkbenchFocusSize = (
 
 /**
  * Close one workbench surface (view only). Browser closes detach over IPC;
- * herdr closes release that nodeId's stream; terminal closes drop the view
- * while the PTY keeps running.
+ * terminal closes drop the view while the PTY keeps running.
  */
 /** Close every workbench surface so a crashed view remounts empty. */
 export const closeAllWorkbenchSurfaces = (): void => {
@@ -502,8 +415,6 @@ export const closeWorkbenchSurface = (id: string): void => {
     closeDockBrowser(id);
     return;
   }
-  // herdr: closeSurface + applyTransition releases that nodeId's stream and
-  // drops the slot immediately (no async lag).
   applyTransition(closeSurface(dock$.registry.peek(), id));
 };
 

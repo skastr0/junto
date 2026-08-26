@@ -54,7 +54,7 @@ const ELECTRON_BINARY = join(
 const MAIN_ENTRY = REPO_ROOT;
 const RENDERER_DIR = join(REPO_ROOT, "out/renderer");
 
-// e2e/fakes/bin/{herdr,ssh,hermes} — stock-protocol emulators (see
+// e2e/fakes/bin/{ssh,hermes} — stock-protocol emulators (see
 // e2e/fakes/*.ts for the scenario-file contract each one reads). The system
 // floor is the minimal set every adapter still needs (/bin/sh, coreutils);
 // nothing above it, so an operator CLI on the real PATH can never leak in.
@@ -124,7 +124,6 @@ export interface ElectronApplicationCloseWitness {
 }
 
 export interface HarnessCleanupOperations {
-  readonly shutdownHerdr: (sandbox: Sandbox) => Promise<void>;
   readonly destroySandbox: (sandbox: Sandbox) => Promise<void>;
   readonly sandboxExists: (root: string) => Promise<boolean>;
 }
@@ -149,8 +148,43 @@ export interface HarnessCleanupTimeouts {
   readonly rendererServerCloseMs: number;
 }
 
+const socketExists = async (socketPath: string): Promise<boolean> =>
+  lstat(socketPath).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    },
+  );
+
+const findDemoRuntimeDatabase = async (): Promise<string | undefined> => {
+  let entries;
+  try {
+    entries = await readdir(tmpdir(), { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const candidates = await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() && entry.name.startsWith("vellum-command-demo-runtime-"),
+      )
+      .map(async (entry) => {
+        const full = join(tmpdir(), entry.name);
+        const info = await stat(full).catch(() => undefined);
+        return { full, mtimeMs: info?.mtimeMs ?? 0 };
+      }),
+  );
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  for (const candidate of candidates) {
+    const database = join(candidate.full, "vellum-command.db");
+    if (await socketExists(database)) return database;
+  }
+  return undefined;
+};
+
 const defaultCleanupOperations: HarnessCleanupOperations = {
-  shutdownHerdr: (sandbox) => shutdownSandboxHerdrServer(sandbox),
   destroySandbox,
   sandboxExists: (root) => socketExists(root),
 };
@@ -276,7 +310,7 @@ const collectApplicationCleanup = async (
 /**
  * Ordered harness teardown. Every step reports its own failure and later safe
  * cleanup still runs. The sandbox is removed only after the exact Electron
- * application and child process are terminal and the sandbox-local herdr
+ * application and child process are terminal and the sandbox-local
  * daemon has acknowledged shutdown.
  */
 export const cleanupVellumHarness = async (
@@ -312,15 +346,7 @@ export const cleanupVellumHarness = async (
     if (!serverOutcome.ok) errors.push(serverOutcome.error);
   }
 
-  let herdrSafe = false;
-  try {
-    await operations.shutdownHerdr(input.sandbox);
-    herdrSafe = true;
-  } catch (error) {
-    errors.push(contextualError("fake herdr shutdown failed", error));
-  }
-
-  if (applicationSafe && herdrSafe) {
+  if (applicationSafe) {
     try {
       await operations.destroySandbox(input.sandbox);
       if (await operations.sandboxExists(input.sandbox.root)) {
@@ -337,7 +363,6 @@ export const cleanupVellumHarness = async (
     sandboxPreserved = true;
     const reasons = [
       ...(applicationSafe ? [] : ["Electron application termination is unproven"]),
-      ...(herdrSafe ? [] : ["fake herdr termination is unproven"]),
     ];
     errors.push(
       new Error(
@@ -382,137 +407,6 @@ const dismissStationRoleGate = async (page: Page): Promise<void> => {
   await gate.waitFor({ state: "hidden", timeout: 20_000 });
 };
 
-// The (fake or real) herdr server is intentionally detached + unref'd by the
-// product (src/main/vellum/herdr/plane.ts's startServer) — it's meant to
-// outlive any one app session. That's correct product behavior, but an e2e
-// sandbox's fake daemon has nothing left to serve once its temp HOME is
-// gone; leaving it running leaks a process per test. The fake alone exposes
-// an explicit shutdown RPC on this random sandbox socket. No process is ever
-// discovered or signaled by pid.
-const FAKE_HERDR_SHUTDOWN_TIMEOUT_MS = 2_000;
-
-const socketExists = async (socketPath: string): Promise<boolean> =>
-  lstat(socketPath).then(
-    () => true,
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return false;
-      throw error;
-    },
-  );
-
-/**
- * Demo-mode apps isolate product state in a process-minted ephemeral SQLite
- * database (src/main/vellum/demo/runtime-isolation.ts): no environment
- * variable can redirect product authority. The seeded sandbox database is
- * therefore invisible to a demo-mode app. After boot the minted file exists
- * under os.tmpdir(); find the newest demo runtime directory so launchVellum
- * can re-seed the same fixtures into it.
- */
-const findDemoRuntimeDatabase = async (): Promise<string | undefined> => {
-  let entries;
-  try {
-    entries = await readdir(tmpdir(), { withFileTypes: true });
-  } catch {
-    return undefined;
-  }
-  const candidates = await Promise.all(
-    entries
-      .filter(
-        (entry) =>
-          entry.isDirectory() && entry.name.startsWith("vellum-command-demo-runtime-"),
-      )
-      .map(async (entry) => {
-        const full = join(tmpdir(), entry.name);
-        const info = await stat(full).catch(() => undefined);
-        return { full, mtimeMs: info?.mtimeMs ?? 0 };
-      }),
-  );
-  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
-  for (const candidate of candidates) {
-    const database = join(candidate.full, "vellum-command.db");
-    if (await socketExists(database)) return database;
-  }
-  return undefined;
-};
-
-const waitForSocketRemoval = async (socketPath: string): Promise<void> => {
-  const deadline = Date.now() + FAKE_HERDR_SHUTDOWN_TIMEOUT_MS;
-  while (await socketExists(socketPath)) {
-    if (Date.now() >= deadline) {
-      throw new Error("fake herdr shutdown left its sandbox socket behind");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-};
-
-export const shutdownSandboxHerdrServer = async (sandbox: Sandbox): Promise<void> => {
-  const socketPath = join(sandbox.homeDir, ".config", "herdr", "herdr.sock");
-  if (!(await socketExists(socketPath))) return;
-
-  const requestId = "vellum-command-e2e-server-shutdown";
-  const acknowledged = await new Promise<boolean>((resolve, reject) => {
-    const socket = connect(socketPath);
-    let buffer = "";
-    let settled = false;
-    const settle = (result: { readonly ok: true; readonly acknowledged: boolean } | { readonly ok: false; readonly error: Error }): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      socket.destroy();
-      if (result.ok) resolve(result.acknowledged);
-      else reject(result.error);
-    };
-    const timer = setTimeout(() => {
-      settle({ ok: false, error: new Error("fake herdr shutdown RPC timed out") });
-    }, FAKE_HERDR_SHUTDOWN_TIMEOUT_MS);
-
-    socket.setEncoding("utf8");
-    socket.once("connect", () => {
-      socket.write(`${JSON.stringify({ id: requestId, method: "server.shutdown", params: {} })}\n`);
-    });
-    socket.on("data", (chunk) => {
-      buffer += chunk;
-      const lineEnd = buffer.indexOf("\n");
-      if (lineEnd < 0) return;
-      let response: unknown;
-      try {
-        response = JSON.parse(buffer.slice(0, lineEnd));
-      } catch {
-        settle({ ok: false, error: new Error("fake herdr shutdown returned invalid JSON") });
-        return;
-      }
-      const result =
-        typeof response === "object" && response !== null
-          ? (response as { readonly id?: unknown; readonly result?: unknown })
-          : undefined;
-      const body =
-        typeof result?.result === "object" && result.result !== null
-          ? (result.result as { readonly shutting_down?: unknown })
-          : undefined;
-      if (result?.id !== requestId || body?.shutting_down !== true) {
-        settle({ ok: false, error: new Error("fake herdr shutdown returned the wrong acknowledgement") });
-        return;
-      }
-      socket.end();
-      settle({ ok: true, acknowledged: true });
-    });
-    socket.once("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT" || error.code === "ECONNREFUSED") {
-        settle({ ok: true, acknowledged: false });
-        return;
-      }
-      settle({ ok: false, error });
-    });
-  });
-
-  if (!acknowledged) {
-    // A stale socket in this throwaway sandbox has no server to unlink it.
-    await unlink(socketPath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-  }
-  await waitForSocketRemoval(socketPath);
-};
 
 export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumHandle> => {
   const sandbox = await createSandbox();

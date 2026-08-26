@@ -92,7 +92,7 @@
         "work_pending_proposal_commands",
         "work_proposal_events"
       ],
-      "reason": "THE EVENT JOURNAL APPEND. SQLite is the factory world's append-only journal and this file is the only place a journal record is written: allocateSequence / rememberIncomingSequence number a route, appendWorkRecord writes the record envelope plus its command / fact / disposition variant, appendPendingCommand indexes a command as unresolved. It decides nothing — minting, authority, and materialization stay in repository.ts. The runtime half of the same law is work/mutation-seam.ts, which refuses a projection write that no append here explains.",
+      "reason": "THE EVENT JOURNAL APPEND. SQLite is the factory world's append-only journal and this file is the only place a journal record is written: allocateSequence / rememberIncomingSequence number a route, appendWorkRecord writes the record envelope plus its command / fact / disposition variant, appendPendingCommand indexes a command as unresolved. It decides nothing \u2014 minting, authority, and materialization stay in repository.ts. The runtime half of the same law is work/mutation-seam.ts, which refuses a projection write that no append here explains.",
       "retire": "The five record tables plus work_event_sequences are the destination shape and stay. work_pending_commands / work_pending_proposal_commands are the debt: they are a derived index of unresolved commands, so once the in-memory world holds that index they leave this file's table set and the entry becomes permanent."
     },
     {
@@ -1103,13 +1103,6 @@
       ],
       "reason": "Brands binding id, session epoch and placement off an occupancy snapshot the process already holds.",
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
-    },
-    {
-      "path": "src/shared/terminal-session-domain.ts",
-      "kinds": [
-        "wire"
-      ],
-      "reason": "Decodes inbound herdr control frames off the terminal control stream."
     },
     {
       "path": "src/shared/update.ts",

@@ -24,7 +24,7 @@ import { scheduleFocusPrimaryControl } from "../lib/focus-ownership";
  * Height policy picks immersive (agent work), fit (forms), or resizable
  * (browse detail with session size memory).
  *
- * Close: backdrop click (optional), Escape (optional). Herdr keeps Esc for
+ * Close: backdrop click (optional), Escape (optional). The PTY keeps Esc for
  * the PTY and only closes via Close / ⌘W / backdrop.
  */
 export function FocusSurface({

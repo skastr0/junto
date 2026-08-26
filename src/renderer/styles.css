@@ -56,7 +56,7 @@ body {
 
 /* =============================================================================
    Focus surface — general centered single-subject overlay
-   (herdr terminal, future browser focus, session detail, …)
+   (terminal focus, browser focus, session detail, …)
    Width comes from measure tokens (see focus-measure.ts). The bet: one subject
    is more pleasant when measure-constrained + dimmed periphery than full-bleed.
    ============================================================================= */
@@ -222,62 +222,8 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   background: var(--color-raise-2);
 }
 
-/* Herdr chrome (lives inside a focus-surface / workbench terminal panel).
-   Same island break as native terminal: flex:1 1 0 + height:0 so the host
-   gets the pane's flex-assigned box. Without it, the chain content-sizes to
-   xterm's default ~80×24 and FitAddon freezes on that island (large black
-   panel with a short TUI band — see native-terminal-layout e2e). */
-.herdr-modal-panel {
-  /* dock variant still uses this class as the slot body */
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
-  width: 100%;
-  height: 0;
-  max-height: 100%;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid var(--color-stroke);
-  background: var(--color-ground);
-  box-shadow: 0 24px 80px var(--color-shadow-1);
-}
 /* When nested inside FocusSurface, panel chrome is owned by focus-surface__panel */
-.focus-surface__panel .herdr-modal-panel,
-.focus-surface__panel.herdr-modal-panel {
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  width: 100%;
-  height: 0;
-  flex: 1 1 0;
-  min-height: 0;
-}
 /* Root chrome column: header + xterm body (direct child of focus panel or dock panel). */
-.herdr-terminal-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
-  width: 100%;
-  height: 0;
-  overflow: hidden;
-  background: var(--color-ground);
-}
-.herdr-modal-body {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
-  width: 100%;
-  height: 0;
-  overflow: hidden;
-}
 
 /* Work-surface dock — pinned zone only (flex sibling of canvas column).
    Width from --workbench-pinned-width / flex basis (set by WorkSurfaceDock).
@@ -322,25 +268,6 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   background: var(--color-ground);
 }
 /* The docked terminal reuses the modal panel chrome, sized to its slot. */
-.dock-slot--herdr .herdr-dock-panel {
-  width: 100%;
-  flex: 1 1 0;
-  min-height: 0;
-  min-width: 0;
-  height: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-/* Same island break as native: workbench pane → dock-slot → herdr panel. */
-.workbench-pane > .dock-slot > .herdr-dock-panel,
-.workbench-pane > .dock-slot > .herdr-terminal-panel {
-  flex: 1 1 0;
-  min-height: 0;
-  min-width: 0;
-  width: 100%;
-  height: 0;
-}
 
 /* =============================================================================
    Workbench — shared chrome, panes, resize handles, focus shell
@@ -560,15 +487,6 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   width: 100%;
   height: 0;
 }
-.workbench-surface__herdr-actions {
-  position: absolute;
-  top: 10px;
-  right: 88px;
-  z-index: 2;
-  display: flex;
-  gap: 6px;
-  pointer-events: auto;
-}
 .workbench-surface__placeholder {
   display: flex;
   align-items: center;
@@ -593,44 +511,6 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
 .workbench-resize-handle--left:hover,
 .workbench-resize-handle--left:active {
   background: color-mix(in oklab, var(--color-main) 25%, transparent);
-}
-/* xterm absolute-fill so it never drives host content height (island loop).
-   Herdr owns wheel via capture → herdrStreamScroll (no mouse protocol).
-   Keep viewport non-scrolling so native overflow never steals wheel. */
-.herdr-xterm {
-  outline: none;
-  overscroll-behavior: none;
-}
-.herdr-xterm .xterm {
-  position: absolute !important;
-  inset: 0;
-  width: 100% !important;
-  height: 100% !important;
-  padding: 6px 8px;
-  box-sizing: border-box;
-}
-.herdr-xterm .xterm-viewport {
-  width: 100% !important;
-  height: 100% !important;
-  overflow-y: hidden !important;
-  scrollbar-width: none;
-}
-.herdr-xterm .xterm-viewport::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
-}
-.herdr-xterm .xterm-screen {
-  width: 100% !important;
-}
-.herdr-xterm .xterm-scrollable-element {
-  width: 100% !important;
-  height: 100% !important;
-}
-.herdr-xterm .xterm-scrollable-element > .scrollbar {
-  opacity: 0 !important;
-  width: 0 !important;
-  pointer-events: none !important;
 }
 
 /* Generic desktop chrome. macOS adds hiddenInset geometry below. */
@@ -1300,8 +1180,6 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 
 .vellum-dot--pulse { opacity: 1; }
 
-/* herdr "working" status dot: static — interpolating opacity kept the GPU live. */
-.vellum-herdr-working-dot { opacity: 1; }
 
 /* Every card advertises its dots while a connection drag is live. */
 .react-flow.is-connecting .vellum-handle--source { opacity: 1; }
@@ -1386,20 +1264,6 @@ html[data-surface-motion="paused"] *::after {
 .react-flow.is-viewport-busy .vellum-node,
 .react-flow.is-viewport-busy .vellum-edge-label {
   transition: none !important;
-  animation: none !important;
-}
-.react-flow.is-viewport-busy .vellum-blocker,
-.react-flow.is-viewport-busy .vellum-blocker::after,
-.react-flow.is-viewport-busy .vellum-node__flag--blocked-live,
-.react-flow.is-viewport-busy .vellum-status-dot-pulse,
-.react-flow.is-viewport-busy .vellum-activity-clock-cell,
-.react-flow.is-viewport-busy .vellum-activity-pulse-cell,
-.react-flow.is-viewport-busy .vellum-edge-ripple .react-flow__edge-path,
-.react-flow.is-viewport-busy path.vellum-edge-ripple,
-.react-flow.is-viewport-busy .vellum-node[data-seat-attention="true"]::after,
-.react-flow.is-viewport-busy .vellum-node[data-attention="fire"]::after,
-.react-flow.is-viewport-busy .vellum-dot--pulse,
-.react-flow.is-viewport-busy .vellum-herdr-working-dot {
   animation: none !important;
 }
 .react-flow.is-viewport-busy .react-flow__node:hover .vellum-node {
@@ -1901,19 +1765,6 @@ html[data-attention-beat="1"] .vellum-activity-pulse-cell {
 
 /* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
    ActivityMark also unmounts animated layers when surfaceMotionLive$ is false. */
-html[data-surface-motion="paused"] .vellum-status-dot-pulse,
-html[data-surface-motion="paused"] .vellum-activity-clock-cell,
-html[data-surface-motion="paused"] .vellum-activity-pulse-cell,
-html[data-surface-motion="paused"] .vellum-blocker::after,
-html[data-surface-motion="paused"] .vellum-node__flag--blocked-live,
-html[data-surface-motion="paused"] .vellum-edge-ripple .react-flow__edge-path,
-html[data-surface-motion="paused"] path.vellum-edge-ripple,
-html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::after,
-html[data-surface-motion="paused"] .vellum-node[data-attention="fire"]::after,
-html[data-surface-motion="paused"] .vellum-dot--pulse,
-html[data-surface-motion="paused"] .vellum-herdr-working-dot {
-  animation: none !important;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .vellum-blocker::after,

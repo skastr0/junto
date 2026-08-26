@@ -9,13 +9,10 @@ import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
 import * as remotePlan from "../src/main/vellum/ssh/remote-plan";
 import {
   compileDarwinRemoteDeployScript,
-  compileHerdrImageStage,
   compileLinuxUserlandDeploy,
   compileLinuxUserlandPreflight,
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandDeploySource,
-  confineHerdrStagePath,
-  HERDR_IMAGE_STAGE_DIR,
   LINUX_WORK_CONTROL_HANDSHAKE_PYTHON,
 } from "../src/main/vellum/ssh/remote-plan";
 import {
@@ -32,11 +29,9 @@ const run = <A, E>(effect: Effect.Effect<A, E>): A => {
 describe("remote-plan public surface", () => {
   it("contains only current runtime and deployment capabilities", () => {
     expect(Object.keys(remotePlan).sort()).toEqual([
-      "HERDR_IMAGE_STAGE_DIR",
       "LINUX_WORK_CONTROL_HANDSHAKE_PYTHON",
       "compileDarwinRemoteActivationScript",
       "compileDarwinRemoteDeployScript",
-      "compileHerdrImageStage",
       "compileLinuxUserlandDeploy",
       "compileLinuxUserlandDeploySource",
       "compileLinuxUserlandObserve",
@@ -45,7 +40,6 @@ describe("remote-plan public surface", () => {
       "compileLinuxUserlandPreflightSource",
       "compileLinuxUserlandRestart",
       "compileLinuxUserlandRestartSource",
-      "confineHerdrStagePath",
     ]);
   });
 });
@@ -202,48 +196,3 @@ describe("named deploy compilers", () => {
   });
 });
 
-describe("herdr image stage plan", () => {
-  const productName = "vellum-command-clip-lk9abc12-deadbeef.png";
-
-  it("admits product basenames under the fixed stage root", () => {
-    expect(run(confineHerdrStagePath(productName))).toBe(
-      `${HERDR_IMAGE_STAGE_DIR}/${productName}`,
-    );
-  });
-
-  it("rejects free-form, traversal, and shell-metachar basenames", () => {
-    for (const bad of [
-      "../etc/passwd",
-      "evil.png",
-      "vellum-command-clip-x-deadbeef.sh",
-      "vellum-command-clip-x-deadbeef.png;rm",
-      "vellum-command-clip-x-$(id)-deadbeef.png",
-      "vellum-command-clip-x-deadbeef.png/../y",
-      "",
-    ]) {
-      expect(
-        Result.isFailure(
-          Effect.runSync(Effect.result(confineHerdrStagePath(bad))),
-        ),
-      ).toBe(true);
-    }
-  });
-
-  it("compiles a branded plan with umask, exclusive write, and no hand path args", () => {
-    const staged = run(compileHerdrImageStage(productName));
-    const parts = inspectRemoteCommand(staged.command);
-    expect(parts.executable).toBe("/bin/sh");
-    expect(parts.args[0]).toBe("-c");
-    expect(parts.args[2]).toBe("vellum-plan:herdr-image-stage");
-    const src = parts.args[1]!;
-    expect(src).toContain("set -eu");
-    expect(src).toContain("umask 077");
-    expect(src).toContain(HERDR_IMAGE_STAGE_DIR);
-    expect(src).toContain(productName);
-        expect(src).toContain("chmod 600");
-    expect(src).not.toMatch(/rm\s+-rf\s+\//);
-    expect(src).not.toContain("$1");
-    expect(src).not.toContain("$2");
-    expect(staged.path).toBe(`${HERDR_IMAGE_STAGE_DIR}/${productName}`);
-  });
-});

@@ -160,7 +160,7 @@ export const openTerminal = async (
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") return;
 
-  // Opening is "looking" — clear ready/complete (idle+unseen → idle), herdr-style.
+  // Opening is "looking" — clear ready/complete (idle+unseen → idle).
   markAgentSeatSeen(binding.bindingId);
 
   if (entityKind === "agent") {

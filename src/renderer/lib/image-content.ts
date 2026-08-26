@@ -13,10 +13,10 @@ import {
   parseContentObjectUrl,
 } from "@shared/content-url";
 import {
-  extractHerdrClipboardImage,
-  fileToHerdrClipboardImage,
-  type HerdrClipboardImage,
-} from "./herdr-clipboard-image";
+  extractClipboardImage,
+  fileToClipboardImage,
+  type ClipboardImage,
+} from "./clipboard-image";
 
 const EXT_TO_MEDIA_TYPE: Readonly<Record<string, string>> = {
   png: "image/png",
@@ -51,7 +51,7 @@ export type PutImageResult =
 
 /** Put a clipboard/file image into the content store via main. */
 export const putClipboardImage = async (
-  image: HerdrClipboardImage,
+  image: ClipboardImage,
   displayName?: string,
 ): Promise<PutImageResult> => {
   const api = window.vellumCommand;
@@ -97,7 +97,7 @@ export const putImagesFromDataTransfer = async (
   if (imageFiles.length > 0) {
     const refs: ContentRef[] = [];
     for (const file of imageFiles) {
-      const image = await fileToHerdrClipboardImage(file);
+      const image = await fileToClipboardImage(file);
       if ("error" in image) {
         return { kind: "error", error: image.error };
       }
@@ -111,7 +111,7 @@ export const putImagesFromDataTransfer = async (
     return { kind: "ok", refs };
   }
 
-  const single = await extractHerdrClipboardImage(data);
+  const single = await extractClipboardImage(data);
   if (single === null) return { kind: "none" };
   if ("error" in single) return { kind: "error", error: single.error };
   const put = await putClipboardImage(single);

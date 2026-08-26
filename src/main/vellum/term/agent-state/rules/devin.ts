@@ -1,11 +1,11 @@
 /**
- * Devin seat rules — grid-primary mirror of herdr devin.toml (7 rules).
- * The OSC title is unreliable (tmux-style; herdr chose grid-only), so no osc
+ * Devin seat rules — grid-primary detection pack (7 rules).
+ * The OSC title is unreliable (tmux-style), so no osc
  * rules. Prompt-box marker is the ❭ (U+276D) line; idle = welcome footer or
  * "context:" footer; attention = workspace-trust + permission footers;
  * working = running-tools / guide / tool-read-timeout footers. All rules key
  * on bottom_non_empty_lines exactly like the manifest.
- * Patterns from docs/research/agent-cli-sweep/devin.md + herdr devin.toml
+ * Patterns from docs/research/agent-cli-sweep/devin.md
  * (rewritten; not vendored).
  */
 

@@ -36,11 +36,11 @@ session; actor delete revokes then terminates **OwnedProcess only**.
 | Property | Target | Current | Status | Evidence |
 |----------|--------|---------|--------|----------|
 | Identity source | Unix peer PID (+ ancestor walk) of a main-registered process | Work + browser control call `admitProcessIdentity` → `readUnixPeerPid` + `resolveInTree` | **Met** | `src/main/vellum/process-identity.ts`, `work/control.ts` (~901–923), `browser/edge-grant.ts` `admitSocket` |
-| Who may bind | Main registers ACP child / herdr pane / native terminal | Chat binds local ACP `childPid`; herdr binds pane PIDs; term binds native PTY | **Met** | `chat/service.ts` `bindLocalProcess`, `herdr/service.ts`, `term/local-host.ts` |
+| Who may bind | Main registers ACP child / native terminal | Chat binds local ACP `childPid`; term binds native PTY | **Met** | `chat/service.ts` `bindLocalProcess`, `term/local-host.ts` |
 | Client nodeRef | Never identity | Token + peer PID only; `VELLUM_COMMAND_NODE_REF` is not an identity claim on control | **Met** | `work/control.ts` comments; `cli/core/socket.ts`; env still named for other tooling, not admit |
 | PID reuse | Start-key epoch rejects recycled PID | `readProcessStartKey` / `lstart` stored at bind; resolve unbinds on mismatch | **Met** | `process-identity.ts` `bind` / `resolveLive` |
-| Work caller resolution | Map principal → unique agent\|herdr card | `resolveCallerAcrossCanvases` / `resolveCallerOnDoc`; ambiguous → ScopeError | **Met** | `work/caller-resolve.ts` |
-| Browser caller resolution | Same process-bind; only agent\|herdr wield browser | Terminal principals denied; agent\|herdr → edge pages | **Met** | `browser/process-bind.ts` |
+| Work caller resolution | Map principal → unique agent card | `resolveCallerAcrossCanvases` / `resolveCallerOnDoc`; ambiguous → ScopeError | **Met** | `work/caller-resolve.ts` |
+| Browser caller resolution | Same process-bind; only agents wield browser | Terminal principals denied; agent → edge pages | **Met** | `browser/process-bind.ts` |
 | Transport token | Shared secret for socket membership, not principal | Bearer token at `~/.vellum-command/work/token` (work) / browser control token; checked before process-bind | **Met** | `work/control.ts` `workTokenMatches`; not a substitute for PID |
 
 **Verdict:** process-bind is the live identity plane for both work and browser
@@ -102,13 +102,12 @@ identity model.
 | Actor kind | Target | Current on node delete | Status |
 |------------|--------|------------------------|--------|
 | **agent** (ACP) | Unbind process-bind + revoke tools + terminate OwnedProcess (tier 1/2 Vellum Command-owned) | Node delete calls `closeChat(agentKey)` → unbind + ACP client teardown | **Met** (delete path) |
-| **herdr** | Revoke seat; terminate only if Owned / policy | Default `onDelete: detach` (pane keeps running); optional `kill-pane` | **Partial** |
 | **terminal** (native) | Same as machine-safety OwnedProcess | Default detach while app lives; quit path uses process plane | **Partial** |
 | Process-bind on chat close / exit | Unbind so CLI cannot retain seat | `unbindLocalProcess` / `unbindAgentKey` on close and lifecycle exit | **Met** (lifecycle path, not node-delete path) |
 | Termination mechanism | OwnedProcess only — never bare pid | `app-process-plane` → `signalOwned` / `signalOwnedGroupLeader` | **Met** when terminate is invoked |
 
 **Verdict:** agent card delete awaits verified `chatClose` teardown before
-document mutation. Residual: herdr/terminal still default detach.
+document mutation. Residual: terminals still default detach.
 
 ---
 
@@ -148,7 +147,6 @@ into a host-destructive call without minting OwnedProcess at spawn.
 | Attenuate `ether.ports` | Narrow next admit | **Met** | **Met** (`browser.automate` maskable) | Unchanged |
 | Delete page node | Close owned session | N/A (no work ports on page) | **Gap** default detach | Session stop only if policy |
 | Delete agent node | Revoke + terminate OwnedProcess | Seat card gone → caller resolve fails (**Partial** revoke) | Same if process still bound until unbind | **Gap** no terminate |
-| Delete herdr node | Policy: detach vs kill-pane | Resolve fails when card gone | Same | **Partial** |
 | Close chat / process exit | Unbind identity | **Met** | Edge-grant subscribe revokes cache on principal change | Terminate via chat teardown when owned |
 | App quit | Drain OwnedProcess | Socket down | Control stop | **Met** process plane |
 
@@ -196,10 +194,10 @@ into a host-destructive call without minting OwnedProcess at spawn.
 - **Slice:** on `invalidateCanvas`, await/abort active leases for that canvas’s
   targets; tests for “edge deleted mid-request → completion denied.”
 
-### S4 — Herdr / terminal onDelete defaults vs “actor delete terminates”
+### S4 — Terminal onDelete defaults vs “actor delete terminates”
 
 - **Impact:** Medium for remote panes (detach is intentional product history).
-- **Slice:** treat herdr as often **externally attached** (doctrine tier
+- **Slice:** treat an attached terminal as often **externally attached** (doctrine tier
   language): revoke Vellum Command capability always; kill only on explicit policy or
   OwnedProcess. Document rather than force-kill remote tmux.
 
@@ -270,7 +268,7 @@ Ordered for Phase 5 exit without a rewrite fantasy.
 | Browser process-bind + edge-grant | `src/main/vellum/browser/process-bind.ts`, `edge-grant.ts`, `authz.ts` |
 | Browser capability leases | `src/main/vellum/browser/capabilities.ts` |
 | Canvas change → revoke grants | `src/main/index.ts` (`subscribeChanges` → `invalidateCanvas`) |
-| Page/agent/herdr delete side effects | `src/renderer/lib/mutations.ts`, `herdr-actions.ts`, `dock-state.ts` |
+| Page/agent delete side effects | `src/renderer/lib/mutations.ts`, `dock-state.ts` |
 | OwnedProcess signals | `src/main/vellum/process-signal.ts`, `app-process-plane.ts` |
 | UI capability chips | `src/renderer/components/InspectorFields.tsx` |
 | Chat bind/unbind | `src/main/vellum/chat/service.ts` |

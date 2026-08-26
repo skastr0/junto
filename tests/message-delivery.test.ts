@@ -47,24 +47,6 @@ const agentNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][nu
   },
 });
 
-const herdrNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
-  id: "herdr",
-  type: "text",
-  text: "cp",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: {
-    entity: { kind: "herdr" },
-    herdr: {
-      host: "local",
-      terminalId: "term-1",
-      paneId: "pane-1",
-    },
-    messages: { items: [...messages] },
-  },
-});
 
 const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
   id: "terminal", type: "text", text: "shell", x: 0, y: 0, width: 200, height: 100,
@@ -299,14 +281,13 @@ describe("message-delivery pure helpers", () => {
     expect(stampMessageDelivered(stamped!, "agent", "m-a", 99)).toBeNull();
   });
 
-  it("resolves the agent seat; bare agent, herdr and raw terminals are unreachable", () => {
+  it("resolves the agent seat; bare agent and raw terminals are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
       bindingId: "bind-mira",
     });
-    // Geography holds no inbox — neither a herdr pane nor a raw user terminal
+    // Geography holds no inbox — a raw user terminal
     // is a delivery target.
-    expect(deliveryTargetOf(herdrNode())).toBeUndefined();
     expect(deliveryTargetOf(terminalNode())).toBeUndefined();
     const bare: CanvasDoc["nodes"][number] = {
       id: "x",
@@ -330,7 +311,6 @@ describe("message-delivery pure helpers", () => {
           userMsg({ messageId: "listed", metadata: { readAt: 2 } }),
           userMsg({ messageId: "own", role: "agent", parts: [{ kind: "text", text: "echo" }] }),
         ]),
-        herdrNode([userMsg({ messageId: "h1", parts: [{ kind: "text", text: "herdr ping" }] })]),
         {
           id: "tasks",
           type: "text",

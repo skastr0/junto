@@ -18,19 +18,8 @@ const text = (over: Partial<CanvasNode> & { type?: "text"; text?: string } = {})
   }) as CanvasNode;
 
 describe("commandSelectionKind", () => {
-  it("classifies region, herdr, link, default", () => {
+  it("classifies region, link, default", () => {
     expect(commandSelectionKind({ ...base, type: "group", label: "ops" })).toBe("region");
-    expect(
-      commandSelectionKind(
-        text({ ether: { entity: { kind: "herdr" }, herdr: { host: "local" } } }),
-      ),
-    ).toBe("herdr");
-    expect(
-      commandSelectionKind(text({ ether: { herdr: { host: "remote-a" } } })),
-    ).toBe("herdr");
-    expect(
-      commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
-    ).toBe("default");
     expect(
       commandSelectionKind(text({ ether: { entity: { kind: "project", name: "prism" } } })),
     ).toBe("default");
@@ -55,18 +44,6 @@ describe("commandSelectionKind", () => {
 });
 
 describe("primaryCommandActions", () => {
-  it("herdr: open + conditional mark-seen / kill", () => {
-    expect(primaryCommandActions("herdr")).toEqual(["open-terminal"]);
-    expect(primaryCommandActions("herdr", { canMarkSeen: true, canKill: true })).toEqual([
-      "open-terminal",
-      "mark-seen",
-      "kill-pane",
-    ]);
-    expect(primaryCommandActions("herdr", { canMarkSeen: true })).toEqual([
-      "open-terminal",
-      "mark-seen",
-    ]);
-  });
 
 
   it("region / link / default include slot-cue", () => {
