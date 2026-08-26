@@ -158,6 +158,7 @@ describe("SSH policy surface", () => {
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("remote-a");
         const remote = yield* makeRemoteCommand(
+          "hermes",
           ["--session", "team one", "it's", "$(touch /tmp/pwn)"],
         );
         yield* (yield* SshTransport).run(oneShot(endpoint, remote));
