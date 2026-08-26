@@ -2151,14 +2151,14 @@ export const WorkLive = Layer.effect(
                 return yield* new WorkServiceError({
                   code: "invalid",
                   message:
-                    `task "${taskId}" is not claimable before ${sourceTask.holdUntil} (station bake)`,
+                    `task "${taskId}" is not assignable before ${sourceTask.holdUntil} (station bake)`,
                 });
               }
               if (admission === "operator-gated") {
                 return yield* new WorkServiceError({
                   code: "invalid",
                   message:
-                    `task "${taskId}" awaits operator promotion at sink "${nodeId}"`,
+                    `task "${taskId}" awaits operator approval at sink "${nodeId}"`,
                 });
               }
             }

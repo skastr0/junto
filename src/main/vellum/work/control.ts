@@ -421,9 +421,9 @@ const refuseUnadmittedSubmitted = (
   if (admission === "claimable") return undefined;
   const promotion =
     admission === "operator-gated"
-      ? `task "${task.id}" awaits operator promotion and is not yet claimable`
+      ? `task "${task.id}" awaits operator approval and is not yet assignable`
       : admission === "held"
-        ? `task "${task.id}" is not claimable before ${task.holdUntil} (station bake)`
+        ? `task "${task.id}" is not assignable before ${task.holdUntil} (station bake)`
         : `task "${task.id}" is operator-owned; seats cannot update it`;
   return {
     type: "InputError",
@@ -432,8 +432,8 @@ const refuseUnadmittedSubmitted = (
       retryable: false,
       next_step:
         admission === "operator-gated"
-          ? "wait for the operator to promote this arrival, or pick a claimable task"
-          : "pick a claimable task; only the operator can admit or refuse unadmitted work",
+          ? "wait for the operator to approve this arrival, or pick an assignable task"
+          : "pick an assignable task; only the operator can approve or refuse unadmitted work",
     },
   };
 };

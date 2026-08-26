@@ -2266,7 +2266,7 @@ describe("WorkService — pipeline", () => {
     );
     expect(refused.ok).toBe(false);
     if (!refused.ok) {
-      expect(refused.message).toContain("not claimable before");
+      expect(refused.message).toContain("not assignable before");
     }
 
     // Promotion applies only to operator-gated sinks.

@@ -704,7 +704,7 @@ describe("claim admission", () => {
     const gated = createTask(gatedDoc, "s1");
     expect(() =>
       workTaskClaim(gated.doc, "alpha", "s1", gated.task.id, worker, ids),
-    ).toThrow(/awaits operator promotion/);
+    ).toThrow(/awaits operator approval/);
 
     const promotedDoc: CanvasDoc = {
       ...gated.doc,
@@ -765,6 +765,6 @@ describe("claim admission", () => {
     };
     expect(() =>
       workTaskClaim(heldDoc, "alpha", "s1", created.task.id, worker, ids),
-    ).toThrow(/not claimable before/);
+    ).toThrow(/not assignable before/);
   });
 });

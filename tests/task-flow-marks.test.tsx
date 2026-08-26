@@ -17,7 +17,7 @@ describe("arrival decision controls", () => {
       />,
     );
 
-    expect(html).toContain(">Promote<");
+    expect(html).toContain(">Approve<");
     expect(html).toContain(">Reject<");
     expect(html).toContain("Add context before deciding");
   });
@@ -34,8 +34,8 @@ describe("arrival decision controls", () => {
       />,
     );
 
-    expect(html).toContain("What should the claimant focus on?");
-    expect(html).toContain("Promote with note");
+    expect(html).toContain("What should the assignee focus on?");
+    expect(html).toContain("Approve with note");
     expect(html).toContain("Reject with note");
   });
 });

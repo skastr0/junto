@@ -96,7 +96,7 @@ export type ArrivalGlance = {
   readonly admission: TaskAdmissionState;
   /** Time left on the arrival bake, when the arrival is still held. */
   readonly countdown?: string;
-  /** Operator promotion is the only way past an operator-gated arrival. */
+  /** Operator approval is the only way past an operator-gated arrival. */
   readonly promotable: boolean;
 };
 

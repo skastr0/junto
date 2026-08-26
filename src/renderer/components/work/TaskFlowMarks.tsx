@@ -37,7 +37,7 @@ export function ArrivalMark({
     if (!gatedStation) return null;
     return (
       <span className="task-flow-mark" title="Approved, workers can be assigned it">
-        <Chip tone="green">Admitted</Chip>
+        <Chip tone="green">Approved</Chip>
       </span>
     );
   }
@@ -60,11 +60,11 @@ export function ArrivalMark({
   return (
     <div
       className="task-flow-mark relative"
-      title="Waiting for you to admit it into the queue"
+      title="Waiting for you to approve it into the queue"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <Chip tone="violet">Awaiting promotion</Chip>
+      <Chip tone="violet">Awaiting approval</Chip>
       {onPromote ? (
         <Button
           size="xs"
@@ -74,7 +74,7 @@ export function ArrivalMark({
           data-testid="task-flow-promote"
           onClick={() => onPromote()}
         >
-          Promote
+          Approve
         </Button>
       ) : null}
       {onReject ? (
@@ -159,7 +159,7 @@ export function ArrivalNoteComposer({
         autoFocus
         value={note}
         disabled={pending}
-        placeholder="What should the claimant focus on?"
+        placeholder="What should the assignee focus on?"
         aria-label="Arrival decision note"
         onChange={(event) => onNoteChange(event.target.value)}
       />
@@ -171,7 +171,7 @@ export function ArrivalNoteComposer({
           Reject with note
         </Button>
         <Button size="xs" variant="primary" disabled={!ready} onClick={onPromote}>
-          Promote with note
+          Approve with note
         </Button>
       </div>
     </div>

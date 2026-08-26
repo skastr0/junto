@@ -1320,13 +1320,13 @@ export const workTaskClaim = (
       if (admission === "held") {
         throw new WorkError(
           "invalid",
-          `task "${taskId}" is not claimable before ${current.holdUntil} (station bake)`,
+          `task "${taskId}" is not assignable before ${current.holdUntil} (station bake)`,
         );
       }
       if (admission === "operator-gated") {
         throw new WorkError(
           "invalid",
-          `task "${taskId}" awaits operator promotion at sink "${nodeId}"`,
+          `task "${taskId}" awaits operator approval at sink "${nodeId}"`,
         );
       }
       const byId = dependencyScopeIndex(doc, nodeId);

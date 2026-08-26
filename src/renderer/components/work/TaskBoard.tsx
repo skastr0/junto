@@ -2875,14 +2875,14 @@ export function TaskBoard({
       if (result === undefined) return;
       if (!result.ok) {
         setError(result.message);
-        setAnnouncement(`Could not promote ${taskTitle(task)}. ${result.message}`);
+        setAnnouncement(`Could not approve ${taskTitle(task)}. ${result.message}`);
         return;
       }
-      setAnnouncement(`Promoted ${taskTitle(task)} into ${INBOUND_LANE.label}.`);
+      setAnnouncement(`Approved ${taskTitle(task)} into ${INBOUND_LANE.label}.`);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      setAnnouncement(`Could not promote ${taskTitle(task)}. ${message}`);
+      setAnnouncement(`Could not approve ${taskTitle(task)}. ${message}`);
     } finally {
       setPendingTaskId(null);
     }

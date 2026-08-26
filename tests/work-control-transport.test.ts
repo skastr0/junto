@@ -836,7 +836,7 @@ describe("work control transport", () => {
     })) as { ok: false; error: { type: string; message: string } };
     expect(denied.ok).toBe(false);
     expect(denied.error.type).toBe("InputError");
-    expect(denied.error.message).toMatch(/promotion|operator/i);
+    expect(denied.error.message).toMatch(/approval|operator/i);
 
     for (const state of ["completed", "rejected", "canceled"] as const) {
       const blocked = (await call(server.socketPath, {
@@ -846,7 +846,7 @@ describe("work control transport", () => {
       })) as { ok: false; error: { type: string; message: string } };
       expect(blocked.ok).toBe(false);
       expect(blocked.error.type).toBe("InputError");
-      expect(blocked.error.message).toMatch(/promotion|not yet claimable/i);
+      expect(blocked.error.message).toMatch(/approval|not yet assignable/i);
     }
 
     const boarded = (await call(server.socketPath, {
@@ -856,7 +856,7 @@ describe("work control transport", () => {
     })) as { ok: false; error: { type: string; message: string } };
     expect(boarded.ok).toBe(false);
     expect(boarded.error.type).toBe("InputError");
-    expect(boarded.error.message).toMatch(/promotion|not yet claimable/i);
+    expect(boarded.error.message).toMatch(/approval|not yet assignable/i);
 
     const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
     const approved = await runtimes[runtimes.length - 1]!.runPromise(
