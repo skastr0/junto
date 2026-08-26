@@ -11,15 +11,20 @@ import {
   portForWorkOp,
   type Port,
   type TargetWorkOpName,
+  type Verb,
   type WellKnownKind,
 } from "../../src/shared/physics";
 
+/**
+ * How the edge in a cell states its relationship. A verb is the whole authored
+ * fact, so the axis is which verb the operator drew, not how a port mask was
+ * attenuated.
+ */
 export type MatrixEdgeMode =
   | "absent"
-  | "unmasked"
-  | "matching-mask"
-  | "empty-mask"
-  | "wrong-mask";
+  | "wide-verb"
+  | "narrow-verb"
+  | "foreign-verb";
 
 export type MatrixDirection = "forward" | "reverse";
 
@@ -30,10 +35,9 @@ export const MATRIX_DIRECTIONS: ReadonlyArray<MatrixDirection> = [
 
 export const MATRIX_EDGE_MODES: ReadonlyArray<MatrixEdgeMode> = [
   "absent",
-  "unmasked",
-  "matching-mask",
-  "empty-mask",
-  "wrong-mask",
+  "wide-verb",
+  "narrow-verb",
+  "foreign-verb",
 ];
 
 export interface CliMatrixCell {
@@ -106,54 +110,100 @@ const textNode = (id: string, kind: WellKnownKind, x: number): CanvasNode => ({
   ether: { entity: { kind } },
 });
 
-const wrongPort = (port: Port): Port => {
-  const candidate = commandCapabilities
-    .map(({ command_id: commandId }) =>
-      isTargetWorkOp(commandId) ? portForWorkOp(commandId) : undefined,
-    )
-    .find((value): value is Port => value !== undefined && value !== port);
-  if (candidate === undefined) throw new Error(`no wrong-port fixture for ${port}`);
-  return candidate;
+/**
+ * The oracle, restated from the frozen verb grammar rather than read back out
+ * of it: for each sink an agent can reach, the wide verb and the narrow one,
+ * and the ports each opens. `narrow` repeats `wide` where the pair holds only
+ * one verb.
+ */
+const AGENT_SINK_GRANTS = {
+  task: {
+    wide: { verb: "contributes", ports: ["tasks.create", "tasks.update", "tasks.list", "tasks.claim", "msg.list", "msg.send"] },
+    narrow: { verb: "manages", ports: ["tasks.create", "tasks.update", "tasks.list", "msg.list", "msg.send"] },
+  },
+  requests: {
+    wide: { verb: "escalates", ports: ["request.escalate", "msg.list", "msg.send"] },
+    narrow: { verb: "escalates", ports: ["request.escalate", "msg.list", "msg.send"] },
+  },
+  artifacts: {
+    wide: { verb: "publishes", ports: ["artifact.publish"] },
+    narrow: { verb: "publishes", ports: ["artifact.publish"] },
+  },
+  board: {
+    wide: { verb: "participates", ports: ["board.list", "board.create_topic", "board.post", "board.mark_read"] },
+    narrow: { verb: "messages", ports: ["board.list", "board.post", "board.mark_read"] },
+  },
+  pad: {
+    wide: { verb: "edits", ports: ["pad.read", "pad.patch"] },
+    narrow: { verb: "reads", ports: ["pad.read"] },
+  },
+  page: {
+    wide: { verb: "navigates", ports: ["browser.automate"] },
+    narrow: { verb: "navigates", ports: ["browser.automate"] },
+  },
+  agent: {
+    wide: { verb: "messages", ports: ["msg.list", "msg.send"] },
+    narrow: { verb: "messages", ports: ["msg.list", "msg.send"] },
+  },
+  relay: {
+    wide: { verb: "fires", ports: ["relay.trigger"] },
+    narrow: { verb: "fires", ports: ["relay.trigger"] },
+  },
+} as const satisfies {
+  readonly [K in string]: {
+    readonly wide: { readonly verb: Verb; readonly ports: ReadonlyArray<Port> };
+    readonly narrow: { readonly verb: Verb; readonly ports: ReadonlyArray<Port> };
+  };
+};
+
+type GrantedTarget = keyof typeof AGENT_SINK_GRANTS;
+
+const isGrantedTarget = (kind: string): kind is GrantedTarget =>
+  Object.hasOwn(AGENT_SINK_GRANTS, kind);
+
+/** A verb no agent-to-anything pair holds, so it can never compile a grant. */
+const FOREIGN_VERB: Verb = "chains";
+
+const verbFor = (
+  targetKind: WellKnownKind,
+  edgeMode: MatrixEdgeMode,
+): Verb | undefined => {
+  if (edgeMode === "absent") return undefined;
+  if (edgeMode === "foreign-verb") return FOREIGN_VERB;
+  if (!isGrantedTarget(targetKind)) return FOREIGN_VERB;
+  const row = AGENT_SINK_GRANTS[targetKind];
+  return edgeMode === "wide-verb" ? row.wide.verb : row.narrow.verb;
 };
 
 const edgeFor = (
   direction: MatrixDirection,
   edgeMode: MatrixEdgeMode,
-  port: Port,
+  targetKind: WellKnownKind,
 ): CanvasEdge | undefined => {
-  if (edgeMode === "absent") return undefined;
+  const verb = verbFor(targetKind, edgeMode);
+  if (verb === undefined) return undefined;
   const [fromNode, toNode] =
     direction === "forward" ? ["source", "target"] : ["target", "source"];
-  const ports =
-    edgeMode === "unmasked"
-      ? undefined
-      : edgeMode === "matching-mask"
-        ? [port]
-        : edgeMode === "wrong-mask"
-          ? [wrongPort(port)]
-          : [];
-  return {
-    id: "edge",
-    fromNode,
-    toNode,
-    ...(ports === undefined ? {} : { ether: { ports } }),
-  };
+  return { id: "edge", fromNode, toNode, ether: { verb } };
 };
 
 const expectedAdmission = (
   sourceKind: WellKnownKind,
   targetKind: WellKnownKind,
+  direction: MatrixDirection,
   edgeMode: MatrixEdgeMode,
   port: Port,
 ): "allow" | "deny" => {
   if (sourceKind !== "agent" || edgeMode === "absent") return "deny";
   if (!HashSet.has(KindSpecs[targetKind].offers, port)) return "deny";
-  if (KindSpecs[targetKind].role === "scheduler") {
-    return edgeMode === "matching-mask" ? "allow" : "deny";
-  }
-  return edgeMode === "unmasked" || edgeMode === "matching-mask"
-    ? "allow"
-    : "deny";
+  if (!isGrantedTarget(targetKind) || edgeMode === "foreign-verb") return "deny";
+  // A verb is stored in its own order: the agent end is the source. Drawing the
+  // cell in reverse stores the relationship the other way round, and only the
+  // agent pair — whose one verb is symmetric — still holds it there.
+  if (direction === "reverse" && targetKind !== "agent") return "deny";
+  const row = AGENT_SINK_GRANTS[targetKind];
+  const granted = edgeMode === "wide-verb" ? row.wide.ports : row.narrow.ports;
+  return (granted as ReadonlyArray<Port>).includes(port) ? "allow" : "deny";
 };
 
 export const generateCliAuthorizationMatrix = (): ReadonlyArray<CliMatrixCell> => {
@@ -165,7 +215,7 @@ export const generateCliAuthorizationMatrix = (): ReadonlyArray<CliMatrixCell> =
       for (const targetKind of WELL_KNOWN_KINDS) {
         for (const direction of MATRIX_DIRECTIONS) {
           for (const edgeMode of MATRIX_EDGE_MODES) {
-            const edge = edgeFor(direction, edgeMode, port);
+            const edge = edgeFor(direction, edgeMode, targetKind);
             const doc: CanvasDoc = {
               nodes: [
                 textNode("source", sourceKind, 0),
@@ -185,7 +235,13 @@ export const generateCliAuthorizationMatrix = (): ReadonlyArray<CliMatrixCell> =
               targetKind,
               direction,
               edgeMode,
-              expected: expectedAdmission(sourceKind, targetKind, edgeMode, port),
+              expected: expectedAdmission(
+                sourceKind,
+                targetKind,
+                direction,
+                edgeMode,
+                port,
+              ),
               actual: Result.isSuccess(result) ? "allow" : "deny",
             });
           }
