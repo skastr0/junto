@@ -38,10 +38,6 @@ export const state$ = observable({
   // command card can read it. Presentational; never persisted.
   selectedNodeIds: [] as ReadonlyArray<string>,
   selectedEdgeId: "",
-  // One-shot request used by canvas gestures that should open the selected
-  // edge's fields directly (rather than making the operator find the fields
-  // key in the relation strip).
-  edgeSettingsRequestId: "",
   // Presentational connection-focus target. Unlike focusNodeId (a one-shot
   // camera request), this stays set while the operator inspects one node's
   // neighborhood and is never persisted to the canvas document.
@@ -114,7 +110,6 @@ export const toggleFlagFilter = (flag: EtherFlag): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
-    state$.edgeSettingsRequestId.set("");
     state$.connectionFocusNodeId.set("");
   });
 };
@@ -126,7 +121,6 @@ export const clearGraphFilters = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
-    state$.edgeSettingsRequestId.set("");
     state$.connectionFocusNodeId.set("");
   });
 };
@@ -137,7 +131,6 @@ export const clearSelection = (): void => {
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");
-    state$.edgeSettingsRequestId.set("");
     state$.connectionFocusNodeId.set("");
   });
 };
@@ -174,31 +167,24 @@ export const replaceSelection = ({
   });
 };
 
-/** Select one node and close any edge-settings request. */
+/** Select one node. */
 export const selectNode = (nodeId: string): void => {
-  batch(() => {
-    replaceSelection({ nodeId });
-    state$.edgeSettingsRequestId.set("");
-  });
+  replaceSelection({ nodeId });
 };
 
-/** Select a canonical node set and close any edge-settings request. */
+/** Select a canonical node set. */
 export const selectNodes = (nodeIds: ReadonlyArray<string>): void => {
-  const canonicalNodeIds = [...new Set(nodeIds.filter(Boolean))];
-  batch(() => {
-    replaceSelection({ nodeIds: canonicalNodeIds });
-    state$.edgeSettingsRequestId.set("");
-  });
+  replaceSelection({ nodeIds: [...new Set(nodeIds.filter(Boolean))] });
 };
 
-/** Replace every node selection with one edge selection, atomically. */
-export const selectEdge = (
-  edgeId: string,
-  options?: { readonly openSettings?: boolean },
-): void => {
+/**
+ * Replace every node selection with one edge selection, atomically. An edge
+ * has no settings surface to request: its verb, endpoints, and delete all read
+ * off the RTS bottom bar from the selection alone.
+ */
+export const selectEdge = (edgeId: string): void => {
   batch(() => {
     replaceSelection({ edgeId });
-    state$.edgeSettingsRequestId.set(options?.openSettings ? edgeId : "");
     state$.connectionFocusNodeId.set("");
   });
 };
@@ -225,14 +211,9 @@ export const removeEdgesFromSelection = (
 ): void => {
   const selectedEdgeId = state$.selectedEdgeId.peek();
   if (!selectedEdgeId || !removedEdgeIds.has(selectedEdgeId)) return;
-  batch(() => {
-    replaceSelection({
-      nodeId: state$.selectedNodeId.peek(),
-      nodeIds: state$.selectedNodeIds.peek(),
-    });
-    if (removedEdgeIds.has(state$.edgeSettingsRequestId.peek())) {
-      state$.edgeSettingsRequestId.set("");
-    }
+  replaceSelection({
+    nodeId: state$.selectedNodeId.peek(),
+    nodeIds: state$.selectedNodeIds.peek(),
   });
 };
 

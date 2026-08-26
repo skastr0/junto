@@ -2,14 +2,14 @@ import { EdgeCommandCard, SeedState } from "@skastr0/vellum";
 
 // EdgeCommandCard resolves edgeId against the app's global doc + kernel
 // execution stores (`if (!edge) return null`). SeedState seeds both so the
-// real command — relation card renders — idle (soft relates) and live
+// real command — relation card renders — idle (the verb sentence) and live
 // (kernel-reported "blocks" phase) are genuinely different visual states.
 const Frame = ({ children }: { children: React.ReactNode }) => (
   <div style={{ background: "var(--color-ground)", padding: 20, width: 440 }}>{children}</div>
 );
 
-// No criteria, no kernel execution seeded — the card's cold idle look.
-export const SoftRelates = () => (
+// No kernel execution seeded — the card falls back to the verb's own sentence.
+export const VerbSentence = () => (
   <SeedState
     doc={{
       nodes: [
@@ -34,17 +34,24 @@ export const SoftRelates = () => (
           ether: { entity: { kind: "task" } },
         },
       ],
-      edges: [{ id: "e-relates", fromNode: "agent-1", toNode: "task-1" }],
+      edges: [
+        {
+          id: "e-contributes",
+          fromNode: "agent-1",
+          toNode: "task-1",
+          ether: { verb: "contributes" },
+        },
+      ],
     }}
   >
     <Frame>
-      <EdgeCommandCard edgeId="e-relates" />
+      <EdgeCommandCard edgeId="e-contributes" />
     </Frame>
   </SeedState>
 );
 
-// Criteria "tasks" + a live kernel snapshot reporting the edge as blocking —
-// crimson "blocks" signal, the real stoppage detail line.
+// A live kernel snapshot reporting the edge as blocking — crimson "blocks"
+// signal and the real stoppage detail line replace the verb sentence.
 export const LiveBlocks = () => (
   <SeedState
     doc={{
@@ -75,7 +82,7 @@ export const LiveBlocks = () => (
           id: "e-blocks",
           fromNode: "task-1",
           toNode: "agent-2",
-          ether: { criteria: { mode: "tasks" } },
+          ether: { verb: "works" },
         },
       ],
     }}

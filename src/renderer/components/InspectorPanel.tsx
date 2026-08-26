@@ -3,9 +3,7 @@ import { X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import { isHarnessId } from "@shared/managed-terminal-templates";
-import { deleteEdges } from "../lib/edge-mutations";
 import { NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from "./InspectorFields";
-import { edgeSheetTitle, WireSheetBody } from "./edges/WireSheet";
 import { clearSelection, state$ } from "../lib/state";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
@@ -96,38 +94,10 @@ const NodeInspector = memo(function NodeInspector({ node, onClose }: { readonly 
   </aside>;
 });
 
-function EdgeInspector({ onClose }: { readonly onClose: () => void }) {
-  const doc = use$(state$.doc);
-  const edgeId = use$(state$.selectedEdgeId);
-  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  if (!edge) return null;
-  const source = doc.nodes.find((node) => node.id === edge.fromNode);
-  const target = doc.nodes.find((node) => node.id === edge.toNode);
-  const title = edgeSheetTitle(edge, source, target);
-  return (
-    <aside className="inspector-panel">
-      <InspectorHeader
-        eyebrow={
-          source && target
-            ? `${nodeTitle(source)} → ${nodeTitle(target)}`
-            : "Selected link"
-        }
-        title={title}
-        onClose={onClose}
-      />
-      <div className="inspector-body">
-        <WireSheetBody
-          edge={edge}
-          fromNode={source}
-          toNode={target}
-          showDelete
-          onDelete={() => deleteEdges([edge.id])}
-        />
-      </div>
-    </aside>
-  );
-}
-
+/**
+ * Nodes only. A relation has no panel: its verb, its endpoints, and its delete
+ * all read off the RTS bottom bar, which is the entire edge surface.
+ */
 export function InspectorPanel() {
   // Select the inspected node by id so other nodes' drag stops (which keep
   // this node reference stable via syncPositions map) do not re-render us.
@@ -136,9 +106,7 @@ export function InspectorPanel() {
     if (!id) return undefined;
     return state$.doc.get().nodes.find((candidate) => candidate.id === id);
   });
-  const edgeId = use$(state$.selectedEdgeId);
   const onClose = () => { clearSelection(); };
   if (node) return <NodeInspector node={node} onClose={onClose} />;
-  if (edgeId) return <EdgeInspector onClose={onClose} />;
   return null;
 }

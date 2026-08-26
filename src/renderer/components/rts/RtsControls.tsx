@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCheck,
   Flame,
   Gauge,
   Globe,
@@ -20,12 +17,11 @@ import {
   Radio,
   Server,
   SlidersHorizontal,
-  SquareX,
   Terminal,
   Timer,
   Trash2,
 } from "lucide-react";
-import type { CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
 import type { SinkAdmission, TasksSinkContract } from "@shared/work-model";
 import { resolveSinkAdmission } from "@shared/work-model";
 import {
@@ -36,6 +32,7 @@ import {
   productNodeKindEnabled,
 } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
+import { verbsForPair, type Verb } from "@shared/physics";
 import {
   ADMISSION_ORDER,
   admissionLabel,
@@ -57,7 +54,7 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
-import { deleteEdges, toggleEdgeArrow } from "../../lib/edge-mutations";
+import { deleteEdges } from "../../lib/edge-mutations";
 import { hostOf, nodeTitle } from "../../lib/presentation";
 import { browser$ } from "../../lib/browser-state";
 import { formatNodeRef } from "@shared/node-ref";
@@ -70,9 +67,8 @@ import {
   WatcherEditor,
 } from "../InspectorFields";
 import { formatBakeTime, normalizeSinkContract } from "../claims";
-import { setSinkContract } from "../../lib/mutations";
+import { commitDoc, setSinkContract } from "../../lib/mutations";
 import { Button } from "../ui";
-import { edgeSheetSentence, edgeSheetTitle } from "../edges/WireSheet";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
 import "./rts-controls.css";
@@ -177,12 +173,93 @@ export function PauseScopeKey({ scope }: { readonly scope: PauseScope }) {
   );
 }
 
-// --- left panel: general relation (edge) controls ----------------------------
+// --- the relation surface ----------------------------------------------------
+//
+// An edge says one thing: which relationship this is. So it needs no dialog,
+// no form, and no second authoring surface — the bottom bar reads the verb,
+// names the two ends, offers the pair's other verb when there is one, and
+// deletes. Everything else about the wire is compiled from that verb.
 
 /**
- * Left command card for a selected relation: live phase readout plus the
- * general edge controls (arrowheads, delete). Pair-specific criteria live in
- * the middle bar (EdgePairStrip).
+ * One product sentence per verb. The verb word is already the product word;
+ * this table carries only the grammar around it, so no verb ever picks up a
+ * second name.
+ */
+const VERB_SENTENCE = {
+  messages: "{from} messages {to}",
+  manages: "{from} manages {to}",
+  contributes: "{from} contributes to {to}",
+  works: "{to} takes work from {from}",
+  escalates: "{from} escalates to {to}",
+  publishes: "{from} publishes to {to}",
+  participates: "{from} takes part in {to}",
+  reads: "{from} reads {to}",
+  edits: "{from} edits {to}",
+  navigates: "{from} drives {to}",
+  feeds: "{from} feeds {to}",
+  fires: "{from} fires {to}",
+  announces: "{from} announces to {to}",
+  enqueues: "{from} enqueues onto {to}",
+  wakes: "{from} wakes {to}",
+  flags: "{from} flags {to}",
+  chains: "{from} chains into {to}",
+} as const satisfies Record<Verb, string>;
+
+const verbSentence = (verb: Verb, from: string, to: string): string =>
+  VERB_SENTENCE[verb].replace("{from}", from).replace("{to}", to);
+
+type EdgeVerbView = {
+  readonly verb: Verb | undefined;
+  /** The pair's other verb, present only when the pair admits two. */
+  readonly sibling: Verb | undefined;
+  readonly fromLabel: string;
+  readonly toLabel: string;
+  readonly sentence: string;
+};
+
+const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
+  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
+  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
+  const fromLabel = fromNode ? nodeTitle(fromNode) : edge.fromNode;
+  const toLabel = toNode ? nodeTitle(toNode) : edge.toNode;
+  const verb = edge.ether?.verb;
+  const sibling =
+    verb === undefined
+      ? undefined
+      : verbsForPair(
+          fromNode?.ether?.entity?.kind,
+          toNode?.ether?.entity?.kind,
+        ).find((candidate) => candidate !== verb);
+  return {
+    verb,
+    sibling,
+    fromLabel,
+    toLabel,
+    sentence:
+      verb === undefined
+        ? `${fromLabel} → ${toLabel}`
+        : verbSentence(verb, fromLabel, toLabel),
+  };
+};
+
+/**
+ * Swap this edge to the pair's other verb. Both are legal for the pair by
+ * construction — the control only ever appears when the pair holds two — so
+ * the write is the whole decision and there is nothing left to validate.
+ */
+const swapEdgeVerb = (edgeId: string, verb: Verb): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) =>
+      edge.id === edgeId ? { ...edge, ether: { verb } } : edge,
+    ),
+  });
+};
+
+/**
+ * Left command card for a selected relation: the two ends, the live phase (or
+ * the verb sentence when the kernel is quiet), and delete.
  */
 export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const doc = use$(state$.doc);
@@ -190,14 +267,10 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const edge = doc.edges.find((candidate) => candidate.id === edgeId);
   if (!edge) return null;
 
-  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
-  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
+  const view = edgeVerbView(doc, edge);
   const livePhase = execution?.phaseByEdgeId[edgeId];
   const liveDetail = execution?.detailByEdgeId[edgeId];
-  const phase =
-    livePhase ??
-    edgeSheetSentence(edge, fromNode, toNode) ??
-    edgeSheetTitle(edge, fromNode, toNode);
+  const line = liveDetail ?? livePhase ?? view.sentence;
   const phaseHue = livePhase === "blocks" ? HUE.crimson : undefined;
 
   return (
@@ -206,30 +279,14 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
         <div className="rts-cmd-main">
           <div className="rts-cmd-head">
             <div className="rts-cmd__title">
-              {fromNode ? nodeTitle(fromNode) : edge.fromNode} → {toNode ? nodeTitle(toNode) : edge.toNode}
+              {view.fromLabel} → {view.toLabel}
             </div>
-            <div className="rts-cmd__live" style={{ color: phaseHue }} title={liveDetail ?? phase}>
-              {liveDetail ?? phase}
+            <div className="rts-cmd__live" style={{ color: phaseHue }} title={line}>
+              {line}
             </div>
           </div>
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Relation actions">
-          <KindKey
-            label="Toggle arrow at source"
-            title="Arrowhead at the source"
-            active={edge.fromEnd === "arrow"}
-            onClick={() => toggleEdgeArrow(edgeId, "from")}
-          >
-            <ArrowLeft size={ICON} />
-          </KindKey>
-          <KindKey
-            label="Toggle arrow at target"
-            title="Arrowhead at the target"
-            active={edge.toEnd === "arrow"}
-            onClick={() => toggleEdgeArrow(edgeId, "to")}
-          >
-            <ArrowRight size={ICON} />
-          </KindKey>
           <KindKey label="Delete relation" danger onClick={() => deleteEdges([edgeId])}>
             <Trash2 size={ICON} />
           </KindKey>
@@ -705,19 +762,34 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   );
 }
 
+/**
+ * Middle-bar relation surface: the verb, the sentence it makes of the two
+ * ends, and — only when the pair admits a second verb — the swap to it.
+ */
 export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
   const doc = use$(state$.doc);
-  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
-  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const summary =
-    edgeSheetSentence(edge, fromNode, toNode) ?? edgeSheetTitle(edge, fromNode, toNode);
+  const view = edgeVerbView(doc, edge);
+  const sibling = view.sibling;
 
   return (
-    <div className="rts-kind-strip" role="toolbar" aria-label="Relation pair actions">
-      <span className="rts-kind-strip__label" title={summary}>
-        {fromNode ? nodeTitle(fromNode) : "?"} → {toNode ? nodeTitle(toNode) : "?"}
-      </span>
-      <span className="rts-kind-strip__meta">{summary}</span>
+    <div className="rts-kind-cluster">
+      <span className="rts-kind-kind-label">{view.verb ?? "link"}</span>
+      <div className="rts-kind-strip" role="toolbar" aria-label="Relation">
+        <span className="rts-kind-strip__meta" title={view.sentence}>
+          {view.sentence}
+        </span>
+        {sibling ? (
+          <Button
+            size="xs"
+            variant="chrome"
+            title={verbSentence(sibling, view.fromLabel, view.toLabel)}
+            aria-label={`Change to ${sibling}`}
+            onClick={() => swapEdgeVerb(edge.id, sibling)}
+          >
+            {sibling}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Flag, SlidersHorizontal } from "lucide-react";
+import { Flag } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
-import { HashMap, HashSet, Option, Schema } from "effect";
+import { HashMap, HashSet, Option } from "effect";
 import type {
   CanvasDoc,
-  CanvasEdge,
   CanvasNode,
   EtherFlag,
   EtherRegionDefaults,
   EtherWatch,
 } from "@shared/canvas";
+import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -18,12 +18,9 @@ import {
 } from "@shared/features";
 import { isGroup } from "@shared/graph";
 import {
-  Port,
   asNodeId,
   canvasDocToCapabilityView,
-  chipPortsFromOffers,
   grantLawForRoles,
-  offerPortsForAccessWire,
   offersOf,
   resolveNodePlacement,
   resolveSpec,
@@ -35,12 +32,7 @@ import {
   type PortName,
   type NodeSpecValue,
 } from "@shared/physics";
-import {
-  addEdge,
-  setEdgeNotify,
-  setEdgePorts,
-  setEdgeWhen,
-} from "../lib/edge-mutations";
+import { addEdge } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
 import { commitDoc, editLink, editText, renameGroup, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import {
@@ -59,29 +51,8 @@ import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 // ---------------------------------------------------------------------------
 // Factory physics — capability inventory (read-only) + "limit this key" editor
 
-const decodePort = Schema.decodeUnknownOption(Port);
-
 const entityNameOf = (node: CanvasNode | undefined): string =>
   typeof node?.ether?.entity?.name === "string" ? node.ether.entity.name : "";
-
-/**
- * Valid edge.ether.ports → mask.
- * Absent → undefined (full offers). Explicit [] → empty set (nothing allowed).
- */
-const readEdgePortMask = (
-  edge: CanvasEdge,
-): HashSet.HashSet<PortName> | undefined => {
-  const ports = edge.ether?.ports;
-  if (ports === undefined) return undefined;
-  let set = HashSet.empty<PortName>();
-  for (const p of ports) {
-    const decoded = decodePort(p);
-    if (Option.isSome(decoded)) {
-      set = HashSet.add(set, decoded.value);
-    }
-  }
-  return set;
-};
 
 /** Effective ports for caller → target: GrantLaw + mask → PortGrant ∩ offers. */
 const effectivePorts = (
@@ -95,97 +66,6 @@ const effectivePorts = (
   const offers = offersOf(target);
   return [...offers].filter((port) => grant.allows(port, offers));
 };
-
-function PortChips({ ports }: { readonly ports: ReadonlyArray<PortName> }) {
-  if (ports.length === 0) {
-    return <div className="inspector-detail">Nothing allowed on this wire</div>;
-  }
-  return (
-    <div className="inspector-flags" role="list" aria-label="Allowed actions">
-      {ports.map((port) => (
-        <span
-          key={port}
-          role="listitem"
-          className="inspector-flag-toggle"
-          title={portLabel(port)}
-          style={{
-            color: HUE.cyan,
-            borderColor: withAlpha(HUE.cyan, 0.4),
-            background: withAlpha(HUE.cyan, 0.08),
-            cursor: "default",
-          }}
-        >
-          {portLabel(port)}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** Edge reach: one plain line + compact port chips. */
-export function EdgeCapabilitySection({
-  edge,
-  fromNode,
-  toNode,
-}: {
-  readonly edge: CanvasEdge;
-  readonly fromNode: CanvasNode | undefined;
-  readonly toNode: CanvasNode | undefined;
-}) {
-  const fromSpec = specOf(fromNode);
-  const toSpec = specOf(toNode);
-  const mask = readEdgePortMask(edge);
-  const forward = effectivePorts(fromSpec, toSpec, mask);
-  const fromLabel = fromNode ? nodeTitle(fromNode) : "This end";
-  const toLabel = toNode ? nodeTitle(toNode) : "the other end";
-
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">Allows</div>
-      <div className="inspector-detail" style={{ marginBottom: forward.length > 0 ? 8 : 0 }}>
-        What {fromLabel} may do to {toLabel}
-      </div>
-      {forward.length > 0 ? <PortChips ports={forward} /> : null}
-    </div>
-  );
-}
-
-/**
- * "Limit this key" — explicit port allow-list editor for `edge.ether.ports`.
- * Absent field means full default (every port the target offers); the mask
- * array, when present, is an explicit allow-list. Toggling a port off the
- * allow-list down to zero clears the field entirely — the editor can never
- * write `ports: []`, which would (under attenuation) grant nothing at all
- * instead of restoring the full default.
- */
-/** Board megaphone membership — default on. */
-export function EdgeBoardNotifyToggle({ edge }: { readonly edge: CanvasEdge }) {
-  const doc = use$(state$.doc);
-  const from = doc.nodes.find((n) => n.id === edge.fromNode);
-  const to = doc.nodes.find((n) => n.id === edge.toNode);
-  const touchesBoard =
-    from?.ether?.entity?.kind === "board" || to?.ether?.entity?.kind === "board";
-  if (!touchesBoard) return null;
-  const on = edge.ether?.wake !== false;
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">Board wakes this agent</div>
-      <button
-        type="button"
-        className="inspector-flag-toggle"
-        aria-pressed={on}
-        style={{
-          color: on ? HUE.amber : "var(--color-faint)",
-          borderColor: on ? withAlpha(HUE.amber, 0.5) : "var(--color-overlay-4)",
-          background: on ? withAlpha(HUE.amber, 0.1) : "var(--color-overlay-1)",
-        }}
-        onClick={() => setEdgeNotify(edge.id, !on)}
-      >
-        {on ? "On" : "Off"}
-      </button>
-    </div>
-  );
-}
 
 /** Human labels for port chips — never raw protocol tokens as the only text. */
 const PORT_LABEL: Partial<Record<PortName, string>> = {
@@ -207,100 +87,6 @@ const PORT_LABEL: Partial<Record<PortName, string>> = {
 };
 
 const portLabel = (port: PortName): string => PORT_LABEL[port] ?? port;
-
-/** @deprecated cascade removed — no UI. */
-export function EdgeRelayStateToggle(_props: { readonly edge: CanvasEdge }) {
-  return null;
-}
-
-export function EdgePortsAttenuator({ edge }: { readonly edge: CanvasEdge }) {
-  const doc = use$(state$.doc);
-  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
-  // Direction-agnostic: non-actor end offers; actor–actor unions both.
-  const targetSpec = specOf(toNode);
-  const fromSpec = specOf(fromNode);
-  const offerSet = offerPortsForAccessWire(
-    roleOf(fromSpec),
-    roleOf(targetSpec),
-    offersOf(fromSpec),
-    offersOf(targetSpec),
-  );
-  const offeredPorts = chipPortsFromOffers(offerSet) as PortName[];
-  const mask = readEdgePortMask(edge);
-  const active = mask ?? HashSet.empty<PortName>();
-
-  const commit = (next: HashSet.HashSet<PortName>): void => {
-    // Explicit empty allow-list is valid — never collapse to "allow all".
-    setEdgePorts(edge.id, [...next]);
-  };
-
-  const toggle = (port: PortName): void => {
-    if (mask === undefined) {
-      // Full default → allow-list with this port removed.
-      commit(HashSet.remove(offerSet, port));
-      return;
-    }
-    commit(
-      HashSet.has(active, port)
-        ? HashSet.remove(active, port)
-        : HashSet.add(active, port),
-    );
-  };
-
-  if (offeredPorts.length === 0) {
-    return (
-      <div className="inspector-section">
-        <EdgeBoardNotifyToggle edge={edge} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="inspector-section">
-      <EdgeBoardNotifyToggle edge={edge} />
-      <div className="inspector-section__label">Permissions</div>
-      <div className="inspector-detail" style={{ marginBottom: 8 }}>
-        {mask === undefined
-          ? "Everything this side offers is allowed. Turn one off to limit."
-          : "Only the highlighted actions are allowed."}
-      </div>
-      <div className="inspector-flags" role="list" aria-label="Permissions on this link">
-        {offeredPorts.map((port) => {
-          const isActive = mask === undefined || HashSet.has(active, port);
-          return (
-            <button
-              key={port}
-              type="button"
-              role="listitem"
-              aria-pressed={isActive}
-              className="inspector-flag-toggle"
-              title={port}
-              style={{
-                color: isActive ? HUE.cyan : "var(--color-faint)",
-                borderColor: isActive ? withAlpha(HUE.cyan, 0.5) : "var(--color-overlay-4)",
-                background: isActive ? withAlpha(HUE.cyan, 0.1) : "var(--color-overlay-1)",
-              }}
-              onClick={() => toggle(port)}
-            >
-              {portLabel(port)}
-            </button>
-          );
-        })}
-      </div>
-      {mask !== undefined ? (
-        <button
-          type="button"
-          className="inspector-flag-toggle"
-          style={{ marginTop: 8 }}
-          onClick={() => setEdgePorts(edge.id, undefined)}
-        >
-          Allow all again
-        </button>
-      ) : null}
-    </div>
-  );
-}
 
 type CapabilityNeighbor = {
   readonly id: string;
@@ -627,60 +413,6 @@ function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
 
     {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
-}
-
-function EdgeWhenEditor({
-  edgeId,
-  toNode,
-}: {
-  readonly edgeId: string;
-  readonly toNode: CanvasNode | undefined;
-}) {
-  const doc = use$(state$.doc);
-  const edge = doc.edges.find((candidate) => candidate.id === edgeId);
-  const when = edge?.ether?.when;
-  // Only relay consumes watch — cron/gauge show no when editor.
-  if (!RELAY_ENABLED || toNode?.ether?.entity?.kind !== "relay") return null;
-
-  const value =
-    when?.word === "flagged"
-      ? `flagged:${when.flag}`
-      : when?.word === "completes"
-        ? "completes"
-        : "none";
-
-  return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">Watch for</div>
-      <label className="inspector-editor">
-        <span>Condition</span>
-        <Select
-          dense
-          aria-label="Condition that fires this relay"
-          value={value}
-          options={[
-            { value: "none", label: "Not set" },
-            { value: "completes", label: "A task completes" },
-            { value: "flagged:attention", label: "Marked needs attention" },
-            { value: "flagged:blocker", label: "Marked blocker" },
-            { value: "flagged:parked", label: "Marked parked" },
-          ]}
-          onChange={(next) => {
-            if (next === "none") {
-              setEdgeWhen(edgeId, undefined);
-              return;
-            }
-            if (next === "completes") {
-              setEdgeWhen(edgeId, { word: "completes" });
-              return;
-            }
-            const flag = next.replace("flagged:", "") as EtherFlag;
-            setEdgeWhen(edgeId, { word: "flagged", flag });
-          }}
-        />
-      </label>
-    </div>
-  );
 }
 
 // Region hold (group nodes only): a structural container whose contents
@@ -1033,12 +765,21 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   </div>;
 }
 
-/** Relay binding is the drawn links only. */
+/**
+ * Relay binding is the drawn links only. Both lines read the compiled verb —
+ * an edge says which relationship it is, and the watch predicate and fire
+ * action fall out of that plus the two kinds.
+ */
 export function RelayEditor({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
-  const inbound = doc.edges.filter((edge) => edge.toNode === node.id);
+  const kinds = useMemo(() => edgeKindIndex(doc), [doc]);
+  const inbound = doc.edges.filter(
+    (edge) =>
+      edge.toNode === node.id && compileEdgeGrant(edge, kinds)?.when !== undefined,
+  );
   const outbound = doc.edges.filter(
-    (edge) => edge.fromNode === node.id && edge.ether?.does,
+    (edge) =>
+      edge.fromNode === node.id && compileEdgeGrant(edge, kinds)?.does !== undefined,
   );
   const watchLine =
     inbound.length === 0
@@ -1047,7 +788,7 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
           .map((edge) => {
             const src = doc.nodes.find((n) => n.id === edge.fromNode);
             const name = src ? nodeTitle(src) : "a connected node";
-            const when = edge.ether?.when;
+            const when = compileEdgeGrant(edge, kinds)?.when;
             const word =
               when?.word === "flagged" ? `flagged ${when.flag}` : "completes";
             return `${name} ${word}`;
@@ -1160,7 +901,7 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
   const fromIsTask = kind === "task" || kind === "requests";
   const connect = () => {
     if (!targetId) return;
-    // Criteria inferred from source (tasks/requests → tasks criteria).
+    // The verb comes from the pair — connecting is the whole authoring act.
     addEdge({ source: node.id, target: targetId });
     setTargetId("");
     setTargetQuery("");
@@ -1206,7 +947,7 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
       <div className="inspector-detail">
         {fromIsTask
           ? "Work on this lane pauses its agent while a task waits on you."
-          : "Draw the wire, then open it to set what it allows."}
+          : "Drawing the wire names the relationship. Swap it on the bottom bar."}
       </div>
       <button disabled={!targetId} onClick={connect}>
         create edge

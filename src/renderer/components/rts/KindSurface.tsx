@@ -20,7 +20,7 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import type { CanvasEdge, CanvasNode } from "@shared/canvas";
+import type { CanvasNode } from "@shared/canvas";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -53,8 +53,6 @@ import {
   RegionBriefingEditor,
   RegionPageDefaultsControl,
 } from "../InspectorFields";
-import { deleteEdges } from "../../lib/edge-mutations";
-import { edgeSheetTitle, WireSheetBody } from "../edges/WireSheet";
 import { KindActions, EdgePairStrip, KindKey } from "./RtsControls";
 import "./rts-controls.css";
 
@@ -169,55 +167,6 @@ function NodeFormFocus({
           <div className="inspector-detail">Bare map text — color and size from the canvas controls</div>
         ) : null}
         <NodeFieldEditors node={node} />
-      </div>
-    </FocusSurface>
-  );
-}
-
-function EdgeFormFocus({
-  edge,
-  onClose,
-}: {
-  readonly edge: CanvasEdge;
-  readonly onClose: () => void;
-}) {
-  const doc = use$(state$.doc);
-  const fromNode = doc.nodes.find((n) => n.id === edge.fromNode);
-  const toNode = doc.nodes.find((n) => n.id === edge.toNode);
-  const title = edgeSheetTitle(edge, fromNode, toNode);
-  const pair = `${fromNode ? nodeTitle(fromNode) : edge.fromNode} → ${toNode ? nodeTitle(toNode) : edge.toNode}`;
-
-  return (
-    <FocusSurface
-      measure="form"
-      height="fit"
-      layer="detail"
-      label="Link settings"
-      onClose={onClose}
-      closeOnEscape
-      closeOnBackdrop
-      panelClassName="rts-kind-form-panel nowheel"
-    >
-      <OverlayHeader
-        eyebrow={pair}
-        title={title}
-        actions={
-          <IconButton aria-label="Close fields" title="Close fields" onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
-      <div className="rts-kind-form-body inspector-body">
-        <WireSheetBody
-          edge={edge}
-          fromNode={fromNode}
-          toNode={toNode}
-          showDelete
-          onDelete={() => {
-            deleteEdges([edge.id]);
-            onClose();
-          }}
-        />
       </div>
     </FocusSurface>
   );
@@ -492,18 +441,11 @@ export function KindSurface() {
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
   const selectedEdgeId = use$(state$.selectedEdgeId);
-  const edgeSettingsRequestId = use$(state$.edgeSettingsRequestId);
   const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     setFormOpen(false);
   }, [selectedNodeId, selectedEdgeId, selectedNodeIds.length]);
-
-  useEffect(() => {
-    if (!edgeSettingsRequestId || edgeSettingsRequestId !== selectedEdgeId) return;
-    setFormOpen(true);
-    state$.edgeSettingsRequestId.set("");
-  }, [edgeSettingsRequestId, selectedEdgeId]);
 
   if (selectedNodeIds.length > 1) {
     const selectedNodes = selectedNodeIds
@@ -517,20 +459,11 @@ export function KindSurface() {
     if (!edge) {
       return <div className="rts-quiet rts-quiet--compact"></div>;
     }
+    // The pair strip is the whole relation surface: verb, endpoints, and the
+    // swap when the pair holds a second verb. There is no relation form.
     return (
       <div className="rts-kind-surface">
         <EdgePairStrip edge={edge} />
-        <div className="rts-kind-strip" role="toolbar" aria-label="Relation fields">
-          <KindKey
-            label={formOpen ? "Close fields" : "Open fields"}
-            title="Wire settings"
-            active={formOpen}
-            onClick={() => setFormOpen((open) => !open)}
-          >
-            <Settings2 size={ICON} />
-          </KindKey>
-        </div>
-        {formOpen ? <EdgeFormFocus edge={edge} onClose={() => setFormOpen(false)} /> : null}
       </div>
     );
   }
