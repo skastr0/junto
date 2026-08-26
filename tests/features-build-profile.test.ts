@@ -28,6 +28,9 @@ describe("compile-time feature profiles", () => {
       devTools: false,
       harnessKimi: false,
       harnessMuse: false,
+      // fx ships off: its approval dialog has never been captured and there
+      // are no corpus fixtures behind its status rules yet.
+      harnessFx: false,
       harnessPrimeAgent: true,
       harnessSettings: false,
     });

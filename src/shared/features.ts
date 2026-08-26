@@ -21,6 +21,7 @@ declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined
 declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_FX_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 
@@ -94,6 +95,19 @@ export const HARNESS_MUSE_ENABLED: boolean =
     ? __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__
     : envEnabled("VELLUM_COMMAND_HARNESS_MUSE");
 
+/**
+ * Experimental fx managed seat — ship/prod off.
+ *
+ * Off until the pieces that need a rendered seat exist: fx's approval dialog
+ * has never been captured (the attention rule is written from the binary's own
+ * strings, not from a frame), and there are no corpus fixtures behind the
+ * status rules yet.
+ */
+export const HARNESS_FX_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_FX_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_FX_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_FX");
+
 /** Stock Prime Agent 0.7.1 managed seat; separately installed CLI required. */
 export const HARNESS_PRIME_AGENT_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__ === "boolean"
@@ -121,6 +135,7 @@ export const BUILD_FEATURES = {
   devTools: DEV_TOOLS_ENABLED,
   harnessKimi: HARNESS_KIMI_ENABLED,
   harnessMuse: HARNESS_MUSE_ENABLED,
+  harnessFx: HARNESS_FX_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
 } as const;
@@ -147,6 +162,7 @@ export const managedHarnessEnabled = (harness: string): boolean => {
   if (harness === "hermes") return HERMES_INTEGRATION_ENABLED;
   if (harness === "kimi") return HARNESS_KIMI_ENABLED;
   if (harness === "muse") return HARNESS_MUSE_ENABLED;
+  if (harness === "fx") return HARNESS_FX_ENABLED;
   if (harness === "prime-agent") return HARNESS_PRIME_AGENT_ENABLED;
   return true;
 };
