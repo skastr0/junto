@@ -4,6 +4,7 @@
  */
 
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
+import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
 import {
   decodeEffectBoardCreateTopic,
   decodeEffectBoardPost,
@@ -244,7 +245,13 @@ const schedulerNodeEnabled = (node: CanvasNode | undefined): boolean => {
   return kind !== undefined && schedulerFeatureEnabled(kind);
 };
 
-/** Downstream schedulers this one chains into (`chains`, upstream → downstream). */
+/**
+ * Downstream schedulers this one chains into (`chains`, upstream → downstream).
+ *
+ * The chain fact is read off the compiled grant, the same way watch predicates
+ * and fire actions are: a verb word the endpoint pair cannot hold grants
+ * nothing, so a stale or hand-edited `chains` never buys a cascade hop.
+ */
 export const collectTriggerCascadeTargets = (
   doc: CanvasDoc,
   sourceNodeId: string,
@@ -252,10 +259,11 @@ export const collectTriggerCascadeTargets = (
   const source = doc.nodes.find((node) => node.id === sourceNodeId);
   if (!schedulerNodeEnabled(source)) return [];
 
+  const kinds = edgeKindIndex(doc);
   const out: string[] = [];
   for (const edge of doc.edges) {
     if (edge.fromNode !== sourceNodeId) continue;
-    if (edge.ether?.verb !== "chains") continue;
+    if (compileEdgeGrant(edge, kinds)?.chain !== true) continue;
     const target = doc.nodes.find((n) => n.id === edge.toNode);
     if (!schedulerNodeEnabled(target)) continue;
     out.push(edge.toNode);
