@@ -6,19 +6,7 @@ import {
   type ExecutionGraphContext,
 } from "@shared/execution-graph";
 import type { ExecutionSnapshot } from "@shared/ipc";
-import {
-  chipPortsFromOffers,
-  edgeMaskAllows,
-  familyFromSlot,
-  offerPortsForAccessWire,
-  offersOf,
-  resolveSpec,
-  roleOf,
-  wirePresentation,
-  wireRolePair,
-  type WireFamily,
-  type WirePresentation,
-} from "@shared/physics";
+import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { regionStack } from "@shared/graph";
 import { AGENT_NODE_SIZE } from "./node-geometry";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
@@ -43,7 +31,7 @@ export type NodeData = {
   regionDepth?: number;
 };
 
-/** Flow edge data — durable meaning stays on CanvasEdge; paint uses wire family. */
+/** Flow edge data — durable meaning stays on CanvasEdge; paint reads the verb. */
 export type EdgeData = {
   edge: CanvasEdge;
   rippling: boolean;
@@ -51,89 +39,33 @@ export type EdgeData = {
   detail: string;
   /** Focus selection member (stoppage cone or direct connection neighborhood). */
   impact?: "in";
+  /** The relationship this wire is — the edge's one authored word. */
+  readonly verb?: Verb;
+  /** CSS custom-property name carrying that verb's hue. The whole of the paint. */
+  readonly colorToken?: string;
   /**
-   * Stable wire presentation facts computed once at convert time so EtherEdge
-   * never walks the document for endpoint kinds / roles.
+   * Endpoint kinds, stamped once at convert so EtherEdge never walks the
+   * document and the identity cache can key on them.
    */
-  readonly presentation?: WirePresentation;
-  readonly wireFamily?: WireFamily;
   readonly fromKind?: string;
   readonly toKind?: string;
-  readonly hasMessages?: boolean;
-  readonly offeredChipCount?: number;
-  readonly activeChipCount?: number | "full";
 };
 
-/** Derive paint presentation for one edge without React / store peeks. */
+/**
+ * Paint facts for one edge. An edge says one thing, so it paints one way: the
+ * verb picks a colour token and nothing else varies. Weight, dash, and layer
+ * count are constant across every wire on the canvas.
+ */
 export function edgePresentationFacts(
   edge: CanvasEdge,
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
-): Pick<
-  EdgeData,
-  | "presentation"
-  | "wireFamily"
-  | "fromKind"
-  | "toKind"
-  | "hasMessages"
-  | "offeredChipCount"
-  | "activeChipCount"
-> {
+): Pick<EdgeData, "verb" | "colorToken" | "fromKind" | "toKind"> {
   const fromKind = fromNode?.ether?.entity?.kind;
   const toKind = toNode?.ether?.entity?.kind;
-  const fromSpec = resolveSpec({
-    isGroup: fromNode?.type === "group",
-    kind: fromKind,
-  });
-  const toSpec = resolveSpec({
-    isGroup: toNode?.type === "group",
-    kind: toKind,
-  });
-  const fromRole = roleOf(fromSpec);
-  const toRole = roleOf(toSpec);
-  const family =
-    familyFromSlot(
-      edge.ether?.slot,
-      wireRolePair(fromRole, toRole, { fromKind, toKind }),
-    ) ??
-    (fromRole === "actor" || toRole === "actor" ? ("access" as const) : undefined);
-  if (!family) {
-    return { fromKind, toKind };
-  }
-  const offerSet = offerPortsForAccessWire(
-    fromRole,
-    toRole,
-    offersOf(fromSpec),
-    offersOf(toSpec),
-  );
-  const offeredChips = chipPortsFromOffers(offerSet);
-  const portsField = edge.ether?.ports;
-  const activeChipCount: number | "full" =
-    portsField === undefined
-      ? "full"
-      : offeredChips.filter((port) => edgeMaskAllows(edge, port)).length;
-  const hasMessages =
-    fromRole === "actor" &&
-    toRole === "actor" &&
-    edgeMaskAllows(edge, "msg.send");
-  const presentation = wirePresentation({
-    family,
-    ether: edge.ether,
-    fromKind,
-    toKind,
-    hasMessages,
-    offeredChipCount: offeredChips.length,
-    activeChipCount,
-  });
-  return {
-    presentation,
-    wireFamily: family,
-    fromKind,
-    toKind,
-    hasMessages,
-    offeredChipCount: offeredChips.length,
-    activeChipCount,
-  };
+  const verb = edge.ether?.verb;
+  if (verb === undefined) return { fromKind, toKind };
+  return { verb, colorToken: VERB_COLOR_TOKEN[verb], fromKind, toKind };
 }
 
 export type FlowNode = Node<NodeData>;
@@ -188,10 +120,6 @@ const regionDepths = (doc: CanvasDoc): ReadonlyMap<string, number> => {
   }
   return depths;
 };
-
-/** True when the effective edge mask leaves msg.send available. */
-export const edgeHasMsgSend = (edge: CanvasEdge): boolean =>
-  edgeMaskAllows(edge, "msg.send");
 
 // CanvasDoc -> React Flow. Optional kernel execution overlay carries the
 // main-process phase snapshot so the canvas does not re-derive it.
@@ -301,8 +229,8 @@ export const toFlow = (
     const fromKind = fromNode?.ether?.entity?.kind;
     const toKind = toNode?.ether?.entity?.kind;
     const cached = cache?.edges.get(edge.id);
-    // Hit on *source* doc edge ref + live phase inputs — never compare against
-    // the projected edge (which always remints ether/label).
+    // Hit on *source* doc edge ref + live phase inputs. Phase rides the flow
+    // data, never a re-minted ether, so the doc edge is the whole identity.
     if (
       cached &&
       cached.source === edge &&
@@ -314,13 +242,7 @@ export const toFlow = (
     ) {
       return cached.flow;
     }
-    const projected: CanvasEdge = {
-      ...edge,
-      ether: { ...edge.ether, kind: phase },
-      // Face text is phase-driven in EtherEdge; never invent "relates"/phase as label.
-      label: edge.label,
-    };
-    const facts = edgePresentationFacts(projected, fromNode, toNode);
+    const facts = edgePresentationFacts(edge, fromNode, toNode);
     const flowEdge: FlowEdge = {
       id: edge.id,
       source: edge.fromNode,
@@ -331,7 +253,7 @@ export const toFlow = (
       markerEnd: edge.toEnd === "arrow" ? { type: MarkerType.ArrowClosed } : undefined,
       type: "ether",
       data: {
-        edge: projected,
+        edge,
         rippling,
         phase,
         detail,

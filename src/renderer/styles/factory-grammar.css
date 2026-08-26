@@ -75,133 +75,106 @@
 }
 .factory-glance__empty { padding: 3px 0; }
 
-/* Worded-wire halo: watch/effect only (access claim bundles stay hairlines). */
-.vellum-edge__word-bed {
-  opacity: .28;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-  filter: drop-shadow(0 0 5px currentColor);
+/* --- Wire paint: one stroke, one variable -------------------------------
+
+   Every wire is the same solid hairline. Weight, dash, halo, and travelling
+   light carry nothing, because an edge already says exactly one thing: its
+   verb. Hue is the only variable, and these are the custom properties named by
+   VERB_COLOR_TOKEN in src/shared/physics/verbs.ts — the module maps verb to
+   token and holds no colour, so the palette lives here.
+
+   Temperature doctrine — hue answers "does this reach the real world?":
+
+   - HOT (manages, contributes, works, feeds, enqueues). The task-bound core:
+     warm hue at full chroma, 0.145 and up. These five are the only verbs that
+     co-occur around a single tasks card, so they were placed first and
+     everything else was fitted around them.
+   - WARM (participates, flags, fires, wakes). Real consequence off the task
+     line: the same warm hues at roughly half the chroma.
+   - COLD (messages, reads, edits, navigates, escalates, publishes, announces,
+     chains). Nothing here leaves the canvas world, so nothing is warm: teal
+     through violet, several of them near-grey.
+
+   Crimson stays reserved for blockers. Every verb sits at least 0.14 OKLab
+   from it, and a blocked wire takes crimson outright (set in EtherEdge).
+
+   Deuteranopia is designed for, not hoped for. The five hot verbs cannot be
+   spread on hue alone, because red to green is exactly the axis deuteranopia
+   removes — so the neighbourhood is built on two warm families a deutan reader
+   still tells apart (rose, which simulates cool, against orange and yellow,
+   which simulate warm) crossed with wide lightness gaps. Positions were solved
+   against Machado 2009 deuteranomaly at severity 1.0, scoring every pair on
+   the WORSE of normal and simulated separation.
+
+   Measured (OKLab distance, worse of normal and deutan; ~0.02 is one JND):
+
+     dark    verbs sharing an ordered pair >= 0.234; any two verbs that can
+             hang off one node >= 0.092; contrast vs ground >= 3.3
+     bright  same-pair >= 0.173; same-node >= 0.080; contrast vs paper >= 3.0
+
+   Both modes hold every verb inside its own hue family, so a wire keeps its
+   identity across the theme switch even though lightness re-anchors to the
+   ground. */
+:root {
+  /* Hot: warm hue, chroma 0.145 and up. */
+  --wire-verb-manages: oklch(0.56 0.21 335);
+  --wire-verb-works: oklch(0.56 0.145 50);
+  --wire-verb-enqueues: oklch(0.73 0.18 48);
+  --wire-verb-feeds: oklch(0.79 0.15 335);
+  --wire-verb-contributes: oklch(0.93 0.145 101);
+
+  /* Warm: same hues, half the chroma. */
+  --wire-verb-flags: oklch(0.6 0.095 356);
+  --wire-verb-participates: oklch(0.76 0.11 80);
+  --wire-verb-wakes: oklch(0.84 0.115 78);
+  --wire-verb-fires: oklch(0.86 0.06 25);
+
+  /* Cold: teal through violet, several near-grey. */
+  --wire-verb-announces: oklch(0.5 0.07 251);
+  --wire-verb-navigates: oklch(0.5 0.02 190);
+  --wire-verb-reads: oklch(0.62 0.07 252);
+  --wire-verb-messages: oklch(0.68 0.065 240);
+  --wire-verb-publishes: oklch(0.7 0.07 160);
+  --wire-verb-chains: oklch(0.72 0.05 291);
+  --wire-verb-edits: oklch(0.78 0.07 232);
+  --wire-verb-escalates: oklch(0.81 0.025 279);
+
+  /* No verb compiled: draw it, quietly, in neutral ink. */
+  --wire-verb-unset: oklch(0.48 0.008 250);
+}
+/* Daylight edition. Every verb keeps its hue family; lightness re-anchors to
+   paper, where weight comes from darkness instead of light, so the ranks
+   within a band are solved fresh rather than mirrored. */
+html[data-theme="bright"] {
+  --wire-verb-enqueues: oklch(0.34 0.11 30);
+  --wire-verb-works: oklch(0.44 0.11 50);
+  --wire-verb-manages: oklch(0.47 0.195 335);
+  --wire-verb-contributes: oklch(0.58 0.115 115);
+  --wire-verb-feeds: oklch(0.62 0.16 339);
+
+  --wire-verb-participates: oklch(0.36 0.065 98);
+  --wire-verb-wakes: oklch(0.41 0.065 60);
+  --wire-verb-fires: oklch(0.51 0.1 41);
+  --wire-verb-flags: oklch(0.55 0.115 354);
+
+  --wire-verb-announces: oklch(0.38 0.07 259);
+  --wire-verb-reads: oklch(0.43 0.07 260);
+  --wire-verb-navigates: oklch(0.44 0.025 192);
+  --wire-verb-chains: oklch(0.46 0.045 279);
+  --wire-verb-publishes: oklch(0.49 0.035 162);
+  --wire-verb-messages: oklch(0.53 0.07 236);
+  --wire-verb-escalates: oklch(0.59 0.07 275);
+  --wire-verb-edits: oklch(0.62 0.04 202);
+
+  --wire-verb-unset: oklch(0.62 0.008 250);
 }
 path.vellum-edge {
+  stroke-linecap: round;
+  stroke-linejoin: round;
   transition:
     stroke 420ms cubic-bezier(.22,.61,.36,1),
     opacity 240ms ease-out;
 }
-/* Wire-family lay — sole visual fork for edges (no pair-role roles). */
-path.vellum-edge--family-access,
-path.vellum-edge--family-unknown {
-  stroke-dasharray: none;
-  stroke-linecap: round;
-}
-path.vellum-edge--family-watch {
-  stroke-dasharray: 12 6;
-  stroke-linecap: round;
-}
-path.vellum-edge--family-trigger {
-  stroke-dasharray: 3 6;
-  stroke-linecap: round;
-}
-path.vellum-edge--family-effect {
-  stroke-dasharray: none;
-  stroke-linecap: round;
-}
-path.vellum-edge--disabled {
-  /* Opacity is set inline (~0.25); keep sparks/halos off via JS. */
-}
-.vellum-edge__signal {
-  pointer-events: none;
-  stroke-linecap: square;
-}
-.vellum-edge__signal--effect {
-  stroke-width: 2.2;
-  stroke-dasharray: .7 8.3;
-  opacity: .4;
-}
-/* Selection glow reads at cable lane spacing through paint, never through lane
-   order: a lit strand never floats to the edge of its bundle, because lane
-   index must stay a function of geometry alone. */
-path.vellum-edge-impact-in {
-  filter: drop-shadow(0 0 3.5px color-mix(in oklab, var(--color-accent) 55%, transparent));
-}
-.vellum-edge__interruption {
-  pointer-events: none;
-  stroke: var(--color-crimson);
-  stroke-width: 3;
-  stroke-linecap: square;
-  stroke-dasharray: 4 96;
-  stroke-dashoffset: -58;
-  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-accent) 50%, transparent));
-}
-.vellum-edge__flare {
-  pointer-events: none;
-  stroke: var(--color-crimson);
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-dasharray: 1.6 98.4;
-  filter: drop-shadow(0 0 2px color-mix(in oklab, var(--color-accent) 64%, transparent));
-  animation: factory-edge-arrival 760ms cubic-bezier(.22,.61,.36,1) both;
-}
-.vellum-edge__arrival-ring {
-  pointer-events: none;
-  fill: none;
-  stroke: var(--color-crimson);
-  stroke-width: 1;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: factory-edge-arrival-ring 300ms 610ms ease-out both;
-}
-@keyframes factory-edge-arrival {
-  0% { stroke-dashoffset: 0; opacity: 0; }
-  10% { opacity: .9; }
-  84% { opacity: .9; }
-  100% { stroke-dashoffset: -100; opacity: 0; }
-}
-@keyframes factory-edge-arrival-ring {
-  from { opacity: .72; transform: scale(.55); }
-  to { opacity: 0; transform: scale(2.25); }
-}
-/* One-shot work interaction packet: claim / msg / artifact rides the edge. */
-.vellum-edge__spark {
-  pointer-events: none;
-}
-.vellum-edge__spark-flare {
-  pointer-events: none;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-dasharray: 2.2 97.8;
-  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-main) 72%, transparent));
-  animation: factory-edge-spark 780ms cubic-bezier(.22, .61, .36, 1) both;
-}
-.vellum-edge__spark-flare--rev {
-  animation-name: factory-edge-spark-rev;
-}
-.vellum-edge__spark-core {
-  pointer-events: none;
-  opacity: 0;
-  filter: drop-shadow(0 0 4px color-mix(in oklab, var(--color-main) 90%, transparent));
-  animation: factory-edge-spark-core 780ms cubic-bezier(.22, .61, .36, 1) both;
-}
-@keyframes factory-edge-spark {
-  0% { stroke-dashoffset: 0; opacity: 0; }
-  8% { opacity: 1; }
-  78% { opacity: .95; }
-  100% { stroke-dashoffset: -100; opacity: 0; }
-}
-@keyframes factory-edge-spark-rev {
-  0% { stroke-dashoffset: -100; opacity: 0; }
-  8% { opacity: 1; }
-  78% { opacity: .95; }
-  100% { stroke-dashoffset: 0; opacity: 0; }
-}
-@keyframes factory-edge-spark-core {
-  0% { opacity: 0; }
-  10% { opacity: 1; }
-  72% { opacity: .9; }
-  100% { opacity: 0; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .vellum-edge__arrival { display: none; }
-  .vellum-edge__spark { display: none; }
   path.vellum-edge { transition: none; }
 }
