@@ -2,7 +2,6 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
-  EtherEdgeFlow,
   EtherFlag,
   EtherRegionContract,
   EtherRegionDefaults,
@@ -16,19 +15,12 @@ import type {
 import { resolveBrowserOnDelete } from "@shared/canvas";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
-import {
-  FlowCycleError,
-  isFlowEdgeAligned,
-  isTaskFlowPair,
-  validateFlowDag,
-} from "@shared/flow-graph";
 import { batch } from "@legendapp/state";
 import type { BindingHint } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
-import { noteWorkDocChange } from "./edge-sparks";
 import {
   flowEdgeRemovalWarnings,
   stationDeletionWarnings,
@@ -397,9 +389,6 @@ export const applyWorkCanvasWrite = (
   const selectedEdgeId = state$.selectedEdgeId.peek();
   const focusNodeId = state$.focusNodeId.peek();
   const editNodeId = state$.editNodeId.peek();
-
-  // Spark before commit so the edge still maps against the live graph.
-  noteWorkDocChange(local, merged, state$.actorRefs.peek());
 
   state$.doc.set(merged);
   state$.docVersion.set(state$.docVersion.peek() + 1);
@@ -1521,58 +1510,4 @@ export const pinRuling = (
   });
 };
 
-/**
- * Author (or clear) a task-flow hop on an edge — a pipeline forwarding
- * choice between task sinks. Both endpoints must BE task sinks: any other
- * kind would be handed a forwarded row it can never project or close, so a
- * mixed pair is refused as a no-op (clearing a hop stays legal on any edge,
- * so a config authored outside the app can always be removed). `flow` must
- * name the edge's own endpoints, in either orientation; a misaligned config
- * is refused as a no-op (the invariant the decoder deliberately does not
- * enforce — shared/canvas.ts
- * EtherEdgeFlow comment). Runs the shared DAG guard (shared/flow-graph.ts)
- * before ever touching the document: a config that would close a cycle is
- * rejected and the typed FlowCycleError is returned to the caller instead
- * of committed, mirroring the act-time guard the work service runs on
- * `next`. Returns `undefined` on success (including a no-op).
- */
-export const setEdgeFlow = (
-  edgeId: string,
-  flow: EtherEdgeFlow | undefined,
-): FlowCycleError | undefined => {
-  const doc = state$.doc.peek();
-  const edge = doc.edges.find((e) => e.id === edgeId);
-  if (!edge) return undefined;
-  if (
-    flow !== undefined &&
-    !isTaskFlowPair(
-      doc.nodes.find((n) => n.id === edge.fromNode),
-      doc.nodes.find((n) => n.id === edge.toNode),
-    )
-  ) {
-    return undefined;
-  }
-  const nextEdge: CanvasEdge = (() => {
-    if (flow === undefined) {
-      if (!edge.ether || edge.ether.flow === undefined) return edge;
-      const rest = without(edge.ether, "flow");
-      return Object.keys(rest).length > 0
-        ? { ...edge, ether: rest }
-        : (without(edge, "ether") as CanvasEdge);
-    }
-    return { ...edge, ether: { ...(edge.ether ?? {}), flow } };
-  })();
-  if (flow !== undefined && !isFlowEdgeAligned(nextEdge)) return undefined;
-  const nextDoc: CanvasDoc = {
-    ...doc,
-    edges: doc.edges.map((e) => (e.id === edgeId ? nextEdge : e)),
-  };
-  const cycle = validateFlowDag(nextDoc);
-  if (cycle) {
-    state$.error.set(cycle.message);
-    return cycle;
-  }
-  state$.error.set("");
-  commitDoc(nextDoc);
-  return undefined;
-};
+

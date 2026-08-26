@@ -68,16 +68,20 @@ export const flowEdgeRemovalWarnings = (
     { destinations: Set<string>; tasks: Set<string> }
   >();
   for (const edge of removedEdges) {
-    const flow = edge.ether?.flow;
-    if (flow === undefined || removedNodeIds.has(flow.source)) continue;
-    const impact = flowEdgeRemovalImpact(doc, flow.source, flow.destination);
-    const entry = bySource.get(flow.source) ?? {
+    // A `feeds` edge is stored in its own direction: fromNode is the upstream
+    // station, toNode the forward destination.
+    if (edge.ether?.verb !== "feeds") continue;
+    const source = edge.fromNode;
+    if (removedNodeIds.has(source)) continue;
+    const destination = edge.toNode;
+    const impact = flowEdgeRemovalImpact(doc, source, destination);
+    const entry = bySource.get(source) ?? {
       destinations: new Set<string>(),
       tasks: new Set<string>(),
     };
-    entry.destinations.add(flow.destination);
+    entry.destinations.add(destination);
     for (const task of impact.affectedTasks) entry.tasks.add(task);
-    bySource.set(flow.source, entry);
+    bySource.set(source, entry);
   }
 
   const removals: SourceRemoval[] = [...bySource].map(([source, value]) => ({

@@ -281,13 +281,14 @@ const artifactsNode: TextNode = {
   },
 };
 
-const criteriaEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
+// Sided so the demo reads left-to-right. Terminal seats hold no verb, so these
+// carry no relationship — they are the lane the camera follows, nothing more.
+const laneEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
   id,
   fromNode,
   toNode,
   fromSide: "right",
   toSide: "left",
-  ether: { stops: { mode: "tasks" } },
 });
 
 const plainEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
@@ -317,8 +318,8 @@ at(
   8,
   addNodesOp([queueNode]),
   addEdgesOp([
-    criteriaEdge("demo-g-e1", "demo-g-tasks", "demo-g-h01"),
-    criteriaEdge("demo-g-e2", "demo-g-tasks", "demo-g-h02"),
+    laneEdge("demo-g-e1", "demo-g-tasks", "demo-g-h01"),
+    laneEdge("demo-g-e2", "demo-g-tasks", "demo-g-h02"),
   ]),
   sfxOp("task"),
   cameraFit(["demo-g-tasks", "demo-g-h01", "demo-g-h02", "demo-g-note1"], 2, 0.18),
@@ -341,7 +342,7 @@ at(32, ...spawn(B[4]));
 at(
   33,
   addEdgesOp([
-    criteriaEdge("demo-g-e3", "demo-g-tasks", "demo-g-h09"),
+    laneEdge("demo-g-e3", "demo-g-tasks", "demo-g-h09"),
     plainEdge("demo-g-e4", "demo-g-h03", "demo-g-h11"),
   ]),
   cameraFit(undefined, 2, 0.16),

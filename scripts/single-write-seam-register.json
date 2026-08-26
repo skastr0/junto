@@ -962,22 +962,6 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/renderer/components/InspectorFields.tsx",
-      "kinds": [
-        "mint"
-      ],
-      "reason": "Brands a port name off a canvas node the renderer already decoded from the IPC payload.",
-      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
-    },
-    {
-      "path": "src/renderer/lib/actor-edges.ts",
-      "kinds": [
-        "mint"
-      ],
-      "reason": "Brands a port name off an already-decoded canvas edge while building the actor edge rows.",
-      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
-    },
-    {
       "path": "src/shared/browser-control.ts",
       "kinds": [
         "codec"

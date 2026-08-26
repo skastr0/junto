@@ -9,7 +9,6 @@ import {
 } from "@shared/physics";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
-import { noteEdgeCreated } from "./edge-sparks";
 import { flowEdgeRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
 import { commitDoc, parseSide } from "./mutations";
@@ -266,7 +265,6 @@ export const addEdge = (params: {
   selectEdge(edge.id);
   state$.error.set("");
   commitDoc(nextDoc);
-  noteEdgeCreated(edge);
 };
 
 // --- multi-source → one target (RTS-006) ------------------------------------
@@ -434,6 +432,5 @@ export const connectAllToTarget = (
   }
   state$.error.set("");
   commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
-  for (const edge of newEdges) noteEdgeCreated(edge);
   return plan;
 };

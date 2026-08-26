@@ -150,7 +150,7 @@ function specsOf(edges: ReadonlyArray<FlowEdge>): EdgeSpec[] {
     if (!sourceSide || !targetSide) continue;
     const data = edge.data;
     // Same expression EtherEdge paints from; read only, never written back.
-    const phase = data?.phase ?? data?.edge.ether?.kind ?? "relates";
+    const phase = data?.phase ?? "relates";
     out.push({
       id: edge.id,
       blocked: phase === "blocks" || (data?.rippling ?? false),

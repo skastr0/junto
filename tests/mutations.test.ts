@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
-import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setEdgeFlow, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, setSinkContract, toggleFlag, undo } from "../src/renderer/lib/mutations";
-import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, setEdgePorts, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
+import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type GroupNode, type TextNode } from "../src/shared/canvas";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, setSinkContract, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { FlowCycleError } from "../src/shared/flow-graph";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
@@ -81,7 +81,7 @@ const runtimeWindow = {
 
 /** Access wires require factory roles — geography (plain notes) cannot connect. */
 /** A task sink — the only station a flow hop may name. */
-const taskSink = (id: string, x: number): CanvasDoc["nodes"][number] => ({
+const taskSink = (id: string, x: number): TextNode => ({
   id,
   type: "text",
   text: id,
@@ -611,7 +611,7 @@ describe("renderer graph mutations", () => {
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
-  it("connects requests → agent", () => {
+  it("stores a requests wire agent-first, whichever way it was drawn", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -658,40 +658,11 @@ describe("renderer graph mutations", () => {
     });
     addEdge({ source: "req", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    expect(edge?.fromNode).toBe("req");
-    expect(edge?.toNode).toBe("agent");
-  });
-
-  it("setEdgePorts attenuates and clear removes the field", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      ...doc,
-      edges: [
-        {
-          id: "edge-1",
-          fromNode: "source",
-          toNode: "target",
-        },
-      ],
-    });
-
-    setEdgePorts("edge-1", ["msg.send", "browser.automate"]);
-    expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual([
-      "msg.send",
-      "browser.automate",
-    ]);
-    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
-
-    setEdgePorts("edge-1", undefined);
-    expect(state$.doc.peek().edges[0]?.ether?.ports).toBeUndefined();
-    expect(Object.hasOwn(state$.doc.peek().edges[0]?.ether ?? {}, "ports")).toBe(false);
-
-    setEdgePorts("edge-1", ["msg.list"]);
-    expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual(["msg.list"]);
-    // Explicit empty allow-list — not "allow all" (undefined).
-    setEdgePorts("edge-1", []);
-    expect(state$.doc.peek().edges[0]?.ether?.ports).toEqual([]);
-    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+    // `escalates` reads agent → requests, so the drawn order is flipped in
+    // storage; the relationship is the same either way it was dragged.
+    expect(edge?.fromNode).toBe("agent");
+    expect(edge?.toNode).toBe("req");
+    expect(edge?.ether).toEqual({ verb: "escalates" });
   });
 
   it("rejects a duplicate source-to-target relation", () => {
@@ -825,7 +796,7 @@ describe("renderer graph mutations", () => {
         [{ id: "e1", fromNode: "b", toNode: "c" }],
       );
       expect(plan.toAdd).toEqual([
-        { fromNode: "a", toNode: "c" },
+        { fromNode: "a", toNode: "c", verb: "contributes" },
       ]);
       expect(plan.skipped).toEqual([
         { source: "a", reason: "duplicate" },
@@ -847,19 +818,15 @@ describe("renderer graph mutations", () => {
     it("plans agent→task as access and task→task as an authored hop", () => {
       const plan = planConnectToTarget(["tasks", "a"], "c", batchNodes, []);
       expect(plan.toAdd).toEqual([
-        {
-          fromNode: "tasks",
-          toNode: "c",
-          flow: { source: "tasks", destination: "c" },
-        },
-        { fromNode: "a", toNode: "c" },
+        { fromNode: "tasks", toNode: "c", verb: "feeds" },
+        { fromNode: "a", toNode: "c", verb: "contributes" },
       ]);
       expect(plan.skipped).toEqual([]);
     });
 
     it("plans tasks → agent", () => {
       const plan = planConnectToTarget(["tasks"], "a", batchNodes, []);
-      expect(plan.toAdd).toEqual([{ fromNode: "tasks", toNode: "a" }]);
+      expect(plan.toAdd).toEqual([{ fromNode: "tasks", toNode: "a", verb: "works" }]);
     });
 
     it("does not mutate inputs", () => {
@@ -1045,7 +1012,7 @@ describe("renderer graph mutations", () => {
           id: "flow",
           fromNode: "intake",
           toNode: "review",
-          ether: { flow: { source: "intake", destination: "review" } },
+          ether: { verb: "feeds" },
         },
       ],
     });
@@ -1058,7 +1025,13 @@ describe("renderer graph mutations", () => {
     deleteNode("review");
 
     expect(confirms).toEqual([
-      "Delete this node? “Review” holds 1 live task. 1 live journey references “Review” as a stop or send-back target. “Intake” has 1 live task that will lose “Review” as a forward destination. This removes “Intake”’s last forward connection, leaving it with nowhere to forward. Connected edges (1) will also be removed.",
+      [
+        "Delete this node?",
+        "“station review” holds 1 live task.",
+        "1 live journey references “station review” as a stop or send-back target.",
+        "“station intake” has 1 live task that will lose “station review” as a forward destination.",
+        "This removes “station intake”’s last forward connection, leaving it with nowhere to forward. Connected edges (1) will also be removed.",
+      ].join("\n"),
     ]);
     expect(state$.doc.peek().nodes).toHaveLength(2);
     expect(state$.doc.peek().edges).toHaveLength(1);
@@ -1103,7 +1076,7 @@ describe("renderer graph mutations", () => {
           id: "flow",
           fromNode: "intake",
           toNode: "review",
-          ether: { flow: { source: "intake", destination: "review" } },
+          ether: { verb: "feeds" },
         },
       ],
     });
@@ -1116,7 +1089,7 @@ describe("renderer graph mutations", () => {
     deleteEdges(["flow"]);
 
     expect(confirms).toEqual([
-      "Delete this relation? “Intake” has 1 live task that will lose “Review” as a forward destination. This removes “Intake”’s last forward connection, leaving it with nowhere to forward.",
+      "Delete this relation? “station intake” has 1 live task that will lose “Review” as a forward destination. This removes “station intake”’s last forward connection, leaving it with nowhere to forward.",
     ]);
     expect(state$.doc.peek().edges).toHaveLength(1);
 
@@ -1784,68 +1757,6 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
   });
 
-  it("setEdgeFlow writes an aligned flow config and clears it", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [taskSink("a", 0), taskSink("b", 300)],
-      edges: [{ id: "e1", fromNode: "a", toNode: "b" }],
-    });
-
-    const result = setEdgeFlow("e1", { source: "a", destination: "b" });
-    expect(result).toBeUndefined();
-    expect(state$.doc.peek().edges[0]?.ether?.flow).toEqual({ source: "a", destination: "b" });
-
-    const cleared = setEdgeFlow("e1", undefined);
-    expect(cleared).toBeUndefined();
-    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
-  });
-
-  it("setEdgeFlow refuses a config naming nodes other than the edge's own endpoints", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [taskSink("a", 0), taskSink("b", 300), taskSink("c", 600)],
-      edges: [{ id: "e1", fromNode: "a", toNode: "b" }],
-    });
-
-    const result = setEdgeFlow("e1", { source: "a", destination: "c" });
-    expect(result).toBeUndefined();
-    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
-  });
-
-  it("setEdgeFlow refuses a hop whose endpoint is not a task sink, and still clears one", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        taskSink("a", 0),
-        { id: "pad", type: "text", text: "pad", x: 300, y: 0, width: 100, height: 80, ether: { entity: { kind: "pad", name: "Pad" } } },
-      ],
-      edges: [
-        { id: "e1", fromNode: "a", toNode: "pad", ether: { flow: { source: "a", destination: "pad" } } },
-      ],
-    });
-
-    const result = setEdgeFlow("e1", { source: "pad", destination: "a" });
-    expect(result).toBeUndefined();
-    expect(state$.doc.peek().edges[0]?.ether?.flow).toEqual({ source: "a", destination: "pad" });
-
-    expect(setEdgeFlow("e1", undefined)).toBeUndefined();
-    expect(state$.doc.peek().edges[0]?.ether).toBeUndefined();
-  });
-
-  it("setEdgeFlow rejects a config that would close a cycle and leaves the doc untouched", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [taskSink("a", 0), taskSink("b", 300)],
-      edges: [
-        { id: "ab", fromNode: "a", toNode: "b", ether: { flow: { source: "a", destination: "b" } } },
-        { id: "ba", fromNode: "b", toNode: "a" },
-      ],
-    });
-
-    const result = setEdgeFlow("ba", { source: "b", destination: "a" });
-    expect(result).toBeInstanceOf(FlowCycleError);
-    expect(state$.doc.peek().edges[1]?.ether?.flow).toBeUndefined();
-  });
 });
 
 describe("drawing a pipeline hop", () => {
@@ -1860,7 +1771,7 @@ describe("drawing a pipeline hop", () => {
     ether: { entity: { kind: "pad", name: id } },
   });
 
-  it("authors the flow config at connect, in draw direction", () => {
+  it("stamps feeds at connect, stored in draw direction", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [taskSink("a", 0), taskSink("b", 300)], edges: [] });
 
@@ -1868,18 +1779,21 @@ describe("drawing a pipeline hop", () => {
 
     const edges = state$.doc.peek().edges;
     expect(edges).toHaveLength(1);
-    expect(edges[0]?.ether?.flow).toEqual({ source: "a", destination: "b" });
+    expect(edges[0]?.fromNode).toBe("a");
+    expect(edges[0]?.toNode).toBe("b");
+    expect(edges[0]?.ether).toEqual({ verb: "feeds" });
     expect(state$.error.peek()).toBe("");
   });
 
-  it("grants no ports on the hop — flow is the whole ether", () => {
+  it("grants no ports on the hop — the verb is the whole ether", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [taskSink("a", 0), taskSink("b", 300)], edges: [] });
 
     addEdge({ source: "a", target: "b" });
 
     const ether = state$.doc.peek().edges[0]?.ether;
-    expect(ether && Object.keys(ether)).toEqual(["flow"]);
+    expect(ether && Object.keys(ether)).toEqual(["verb"]);
+    expect(edgeGrant(state$.doc.peek(), state$.doc.peek().edges[0]!)?.ports).toEqual([]);
   });
 
   it("refuses a hop that would close a loop, and draws nothing", () => {
@@ -1891,7 +1805,7 @@ describe("drawing a pipeline hop", () => {
           id: "ab",
           fromNode: "a",
           toNode: "b",
-          ether: { flow: { source: "a", destination: "b" } },
+          ether: { verb: "feeds" },
         },
       ],
     });
@@ -1920,7 +1834,7 @@ describe("drawing a pipeline hop", () => {
         id: "ab",
         fromNode: "a",
         toNode: "b",
-        ether: { flow: { source: "a", destination: "b" } },
+        ether: { verb: "feeds" },
       },
     ]);
     expect(plan.toAdd).toEqual([]);
@@ -1932,8 +1846,8 @@ describe("drawing a pipeline hop", () => {
     const nodes = [taskSink("a", 0), taskSink("b", 300), taskSink("c", 600)];
     const plan = planConnectToTarget(["a", "b"], "c", nodes, []);
     expect(plan.toAdd).toEqual([
-      { fromNode: "a", toNode: "c", flow: { source: "a", destination: "c" } },
-      { fromNode: "b", toNode: "c", flow: { source: "b", destination: "c" } },
+      { fromNode: "a", toNode: "c", verb: "feeds" },
+      { fromNode: "b", toNode: "c", verb: "feeds" },
     ]);
     expect(plan.skipped).toEqual([]);
   });

@@ -17,6 +17,7 @@ import {
 import { __setSchedulerEffectDepsForTest } from "../src/main/vellum/kernel/effects";
 import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
+import { compileVerb } from "../src/shared/physics";
 
 const hermesSnapshots = (value: number): SnapshotState => ({
   bundles: [
@@ -185,10 +186,15 @@ describe("scheduler automation gate", () => {
 });
 
 describe("multi-connect effect parity", () => {
-  it("plans enqueue_task when connecting scheduler sources to a task sink", () => {
+  it("plans enqueues when connecting scheduler sources to a task sink", () => {
     const nodes = gaugeAndTask().nodes;
     const plan = planConnectToTarget(["c1", "g1"], "t1", nodes, []);
     expect(plan.toAdd).toHaveLength(2);
-    expect(plan.toAdd.every((c) => c.does?.mode === "enqueue_task")).toBe(true);
+    expect(plan.toAdd.every((c) => c.verb === "enqueues")).toBe(true);
+    for (const candidate of plan.toAdd) {
+      expect(
+        compileVerb(candidate.verb, "cron", "task")?.does?.mode,
+      ).toBe("enqueue_task");
+    }
   });
 });

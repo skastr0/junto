@@ -1,6 +1,6 @@
 /**
  * Loom view state — CanvasLoom plans geometry once per tick; edges subscribe
- * only to their own keyed strand/route/spark. Sibling of `edge-sparks.ts`.
+ * only to their own keyed strand and route.
  *
  * Paint and geometry only. Nothing here reads or writes grants, ports,
  * physics, or ether fields.

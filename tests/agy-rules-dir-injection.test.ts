@@ -119,7 +119,7 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
       resumeId: conversation,
       model: "gemini-3.7-flash-high",
     });
-    expect(resumed.launch.argv.slice(0, 3)).toEqual([
+    expect((resumed.launch.argv ?? []).slice(0, 3)).toEqual([
       "agy",
       "--conversation",
       conversation,
@@ -130,10 +130,9 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
     // The renderer (and any host with a failed write) has no directory to
     // mount. The seat must still be briefed rather than launched silent.
     const plan = resolveManagedLaunchPlan("agy", { injection: seatInjection });
-    expect(plan.launch.argv).not.toContain("--add-dir");
-    const carried =
-      plan.firstTypedMessage ??
-      plan.launch.argv[plan.launch.argv.indexOf("-i") + 1];
+    const argv = plan.launch.argv ?? [];
+    expect(argv).not.toContain("--add-dir");
+    const carried = plan.firstTypedMessage ?? argv[argv.indexOf("-i") + 1];
     expect(carried).toContain("Vellum Command");
   });
 });

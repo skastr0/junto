@@ -209,12 +209,9 @@ describe("ready/working cycle order", () => {
           at: 1,
         },
       };
-      const signals = collectReadyWorkingSignals(
-        nodes,
-        seats,
-        { "bind-1": true },
-        {},
-      );
+      const signals = collectReadyWorkingSignals(nodes, seats, {
+        "bind-1": true,
+      });
       expect(signals).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ nodeId: "agent-1", kind: "ready" }),

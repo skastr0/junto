@@ -248,10 +248,6 @@ export function CronScheduleSurface({
     try {
       const result = await api.schedulerFire(canvas, node.id);
       setFireStatus(result.ok ? result.message : result.error);
-      if (result.ok) {
-        const { noteSchedulerFire } = await import("../../lib/edge-sparks");
-        noteSchedulerFire(state$.doc.peek(), node.id);
-      }
     } catch (error) {
       setFireStatus(error instanceof Error ? error.message : String(error));
     } finally {

@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type CanvasNode } from "../src/shared/canvas";
 import { FlowCycleError, isTaskFlowPair } from "../src/shared/flow-graph";
-import { friendlyCycleMessage } from "../src/renderer/components/edges/WireSheet";
+import { friendlyCycleMessage } from "../src/renderer/lib/edge-mutations";
 
-// Pure helpers behind the flow edge config sheet: the task-sink pair gate that
-// swaps in the task-flow section, and the readable cycle-rejection line (the
-// `^` receipt for the inline "friendly message" requirement).
+// Pure helpers behind the `feeds` hop: the task-sink pair gate that decides
+// whether a pipeline hop is even possible, and the readable cycle-rejection
+// line the connect refusal speaks.
 
 const node = (id: string, kind: string, name = id): CanvasNode =>
   ({

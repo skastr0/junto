@@ -232,7 +232,6 @@ describe("renderer subscription contract (static)", () => {
     expect(src).not.toMatch(/loomCorridors\$/);
     expect(src).toMatch(/loomRoutes\$\[id\]/);
     expect(src).toMatch(/loomStrands\$\[id\]/);
-    expect(src).toMatch(/edgeSparks\$\[id\]/);
     expect(src).not.toMatch(/routeWire\s*\(/);
     expect(src).not.toMatch(/state\$\.doc/);
   });

@@ -6,23 +6,20 @@
  * Live stoppage on a work lane is kernel-derived (actor blocked by task
  * attention) — never an authorable edge mode.
  */
-import { HashSet, Option, Schema } from "effect";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
+import {
+  compileEdgeGrant,
+  edgeKindIndex,
+  type CanvasDoc,
+  type CanvasNode,
+} from "@shared/canvas";
 import { isGroup } from "@shared/graph";
 import {
-  ALL_PORTS,
-  Port,
-  grantLawForRoles,
-  offersOf,
   resolveSpec,
   roleOf,
-  selectGrant,
   type PortName,
+  type VerbGrant,
 } from "@shared/physics";
 import { nodeTitle } from "./presentation";
-import { specOf } from "./node-spec";
-
-const decodePort = Schema.decodeUnknownOption(Port);
 
 export type ActorEdgeRow = {
   readonly edgeId: string;
@@ -31,42 +28,15 @@ export type ActorEdgeRow = {
   readonly peerKind: string;
   /** Actor is fromNode → out; actor is toNode → in. */
   readonly direction: "out" | "in";
-  /** Effective ports the actor can wield toward the peer (reach). */
+  /** Ports the relationship's verb opens toward the peer (reach). */
   readonly ports: ReadonlyArray<PortName>;
-  /** Board megaphone: absent/true = ON, explicit false = OFF. */
+  /** Board megaphone: `participates` = ON, the quiet board verb = OFF. */
   readonly boardNotify: "on" | "off" | null;
   /**
    * Live kernel phase only. `blocks` = seat is stopped on this wire right
    * now (derived). Absent = no stoppage paint — not "soft relationship".
    */
   readonly livePhase: "blocks" | "relates" | null;
-};
-
-const readMask = (edge: CanvasEdge): HashSet.HashSet<PortName> | undefined => {
-  const ports = edge.ether?.ports;
-  if (ports === undefined) return undefined;
-  let set = HashSet.empty<PortName>();
-  for (const p of ports) {
-    const decoded = decodePort(p);
-    if (Option.isSome(decoded)) {
-      set = HashSet.add(set, decoded.value);
-    }
-  }
-  return set;
-};
-
-const effectivePorts = (
-  caller: CanvasNode | undefined,
-  target: CanvasNode | undefined,
-  mask: HashSet.HashSet<PortName> | undefined,
-): ReadonlyArray<PortName> => {
-  const callerSpec = specOf(caller);
-  const targetSpec = specOf(target);
-  const law = grantLawForRoles(roleOf(callerSpec), roleOf(targetSpec));
-  const grant = selectGrant(law, mask);
-  if (grant.isEmpty()) return [];
-  const offers = offersOf(targetSpec);
-  return ALL_PORTS.filter((port) => grant.allows(port, offers));
 };
 
 const peerKindOf = (peer: CanvasNode | undefined): string => {
@@ -77,7 +47,7 @@ const peerKindOf = (peer: CanvasNode | undefined): string => {
 };
 
 const boardNotifyOf = (
-  edge: CanvasEdge,
+  grant: VerbGrant | undefined,
   actor: CanvasNode,
   peer: CanvasNode | undefined,
 ): "on" | "off" | null => {
@@ -85,7 +55,8 @@ const boardNotifyOf = (
     actor.ether?.entity?.kind === "board" ||
     peer?.ether?.entity?.kind === "board";
   if (!touchesBoard) return null;
-  return edge.ether?.wake === false ? "off" : "on";
+  // `participates` wakes the seat; the quiet board verb (`messages`) does not.
+  return grant?.wake === true ? "on" : "off";
 };
 
 /**
@@ -105,6 +76,7 @@ export const actorEdgeRows = (
   if (actorRole !== "actor") return [];
 
   const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+  const kinds = edgeKindIndex(doc);
   const rows: ActorEdgeRow[] = [];
 
   for (const edge of doc.edges) {
@@ -114,8 +86,7 @@ export const actorEdgeRows = (
 
     const peerId = out ? edge.toNode : edge.fromNode;
     const peer = byId.get(peerId);
-    const mask = readMask(edge);
-    const ports = effectivePorts(actor, peer, mask);
+    const grant = compileEdgeGrant(edge, kinds);
     const phase = phaseByEdgeId?.get(edge.id) ?? null;
 
     rows.push({
@@ -124,8 +95,8 @@ export const actorEdgeRows = (
       peerTitle: peer ? nodeTitle(peer) : peerId,
       peerKind: peerKindOf(peer),
       direction: out ? "out" : "in",
-      ports,
-      boardNotify: boardNotifyOf(edge, actor, peer),
+      ports: grant?.ports ?? [],
+      boardNotify: boardNotifyOf(grant, actor, peer),
       livePhase: phase,
     });
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, TextNode } from "../src/shared/canvas";
+import type { Verb } from "../src/shared/physics";
 import {
   actorEdgePhaseLabel,
   actorEdgeRows,
@@ -51,11 +52,15 @@ const note = (id: string, text: string): TextNode => ({
   height: 60,
 });
 
-const edge = (id: string, from: string, to: string): CanvasEdge => ({
-  id,
-  fromNode: from,
-  toNode: to,
-});
+const edge = (
+  id: string,
+  from: string,
+  to: string,
+  verb?: Verb,
+): CanvasEdge =>
+  verb === undefined
+    ? { id, fromNode: from, toNode: to }
+    : { id, fromNode: from, toNode: to, ether: { verb } };
 
 const docOf = (
   nodes: TextNode[],
@@ -73,8 +78,8 @@ describe("actorEdgeRows", () => {
     const doc = docOf(
       [agent("worker", "Grok"), tasks("tasks"), board("board"), note("memo", "note")],
       [
-        edge("e-tasks", "tasks", "worker"),
-        edge("e-board", "worker", "board"),
+        edge("e-tasks", "tasks", "worker", "works"),
+        edge("e-board", "worker", "board", "participates"),
         edge("e-note", "worker", "memo"),
       ],
     );
@@ -120,7 +125,7 @@ describe("actorEdgeRows", () => {
   it("overlays live phase when provided — only blocks is labeled", () => {
     const doc = docOf(
       [agent("worker", "Grok"), tasks("tasks")],
-      [edge("e-tasks", "tasks", "worker")],
+      [edge("e-tasks", "tasks", "worker", "works")],
     );
     const phaseMap = new Map<string, "blocks" | "relates">([
       ["e-tasks", "blocks"],

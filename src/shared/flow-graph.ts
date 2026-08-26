@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "./canvas";
+import type { CanvasDoc, CanvasNode } from "./canvas";
 import { NodeSpec, resolveSpec } from "./physics/kinds";
 
 // Task-flow graph derived from the `feeds` verb. Pure — no I/O.
@@ -46,15 +46,6 @@ export const isTaskFlowPair = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
 ): boolean => isTaskSinkNode(fromNode) && isTaskSinkNode(toNode);
-
-/**
- * DYING IN SURFACE BATCH.
- *
- * A hop's direction *is* the edge's direction now, so alignment cannot fail —
- * there is no second place to state it and therefore nothing to disagree with.
- * Kept while the renderer mutation guard still calls it.
- */
-export const isFlowEdgeAligned = (_edge: CanvasEdge): boolean => true;
 
 /** All configured hops in document edge order. */
 export const flowHops = (doc: CanvasDoc): ReadonlyArray<FlowHop> =>

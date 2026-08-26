@@ -369,7 +369,10 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests" }],
     });
     expect(requestsOnly).toContain('vellum-command escalate {"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}');
-    expect(requestsOnly).not.toContain("tasks claim");
+    // The worker-loop doctrine names `tasks claim` in prose for every seat;
+    // what a requests-only seat must never get is the tasks CLI surface.
+    expect(requestsOnly).not.toContain("vellum-command tasks claim");
+    expect(requestsOnly).not.toContain('tasks claim {"target"');
   });
 
   it("never promises worked examples to isolated seats", () => {

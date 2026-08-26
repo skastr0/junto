@@ -34,7 +34,6 @@ import { installCompletedNotifyTestHook } from "./lib/completed-task-notify";
 import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
-import { noteWorkDocChange } from "./lib/edge-sparks";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
@@ -200,13 +199,10 @@ const externalCanvasReload = makeCanvasExternalReloadCoordinator({
   acceptRevision: acceptCanvasRevision,
   apply: (result) =>
     batch(() => {
-      const prevDoc = state$.doc.peek();
       loadDoc(result.doc, result.revision, result.name, {
         preserveValidInteraction: true,
       });
       replaceActiveActorRefs(result.actorRefs);
-      // CLI / kernel work lands via canvasChanged → spark edges for the delta.
-      noteWorkDocChange(prevDoc, result.doc, result.actorRefs);
     }),
   onFailure: setError,
 });
