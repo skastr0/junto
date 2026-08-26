@@ -1,10 +1,11 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   actorsNeedingWake,
   selectFactoryClaims,
 } from "../src/shared/factory-tick";
-import type { CanvasDoc } from "../src/shared/canvas";
+import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
+import { admitWorkTarget } from "../src/main/vellum/work/authz";
 import { ActorRef } from "../src/shared/work-protocol";
 
 const worker = Schema.decodeUnknownSync(ActorRef)({
@@ -58,7 +59,7 @@ const doc: CanvasDoc = {
     },
   ],
   edges: [
-    { id: "e1", fromNode: "worker", toNode: "tasks", ether: { verb: "contributes" } },
+    { id: "e1", fromNode: "tasks", toNode: "worker", ether: { verb: "works" } },
   ],
 };
 
@@ -109,7 +110,7 @@ describe("factory claim selector", () => {
       ],
       edges: [
         ...doc.edges,
-        { id: "e2", fromNode: "peer", toNode: "tasks", ether: { verb: "contributes" } },
+        { id: "e2", fromNode: "tasks", toNode: "peer", ether: { verb: "works" } },
       ],
     };
     const selected = selectFactoryClaims(
@@ -149,7 +150,7 @@ describe("factory claim selector", () => {
       ],
       edges: [
         ...doc.edges,
-        { id: "e2", fromNode: "peer", toNode: "tasks", ether: { verb: "contributes" } },
+        { id: "e2", fromNode: "tasks", toNode: "peer", ether: { verb: "works" } },
       ],
     };
     const resolve = (ref: { readonly nodeId: string }) =>
@@ -194,6 +195,59 @@ describe("factory claim selector", () => {
           seatPaused: (nodeId) => nodeId === "peer",
         }),
       ]).toEqual(["worker"]);
+    });
+  });
+
+  // The labor pool is a relationship, not a port. `works` enrolls the seat;
+  // `contributes` hands it the same `tasks.claim` key and enrolls nothing.
+  describe("assignability", () => {
+    const resolve = (ref: { readonly nodeId: string }) =>
+      ref.nodeId === "worker" ? worker : undefined;
+    const wiredAs = (verb: "works" | "contributes"): CanvasDoc => ({
+      ...doc,
+      edges: [
+        verb === "works"
+          ? { id: "e1", fromNode: "tasks", toNode: "worker", ether: { verb } }
+          : ({
+            id: "e1",
+            fromNode: "worker",
+            toNode: "tasks",
+            ether: { verb },
+          } satisfies CanvasEdge),
+      ],
+    });
+
+    it("assigns the seat that works the sink", () => {
+      const selected = selectFactoryClaims(wiredAs("works"), "demo", resolve);
+      expect(selected.map((selection) => selection.actor.nodeId)).toEqual([
+        "worker",
+      ]);
+    });
+
+    it("never assigns the seat that only contributes", () => {
+      expect(selectFactoryClaims(wiredAs("contributes"), "demo", resolve))
+        .toEqual([]);
+    });
+
+    it("leaves a contributing seat free to claim by hand", () => {
+      // Exactly the gate WorkService runs on `tasks.claim` (requireActor ->
+      // admitWorkTarget). Untouched by the assignability filter above: the
+      // seat may still take work, it is just never handed any.
+      const admitted = admitWorkTarget(
+        wiredAs("contributes"),
+        "worker",
+        "tasks",
+        "tasks.claim",
+      );
+      expect(Result.isSuccess(admitted)).toBe(true);
+    });
+
+    it("does not wake a seat the factory would never assign to", () => {
+      expect([
+        ...actorsNeedingWake(wiredAs("contributes"), "demo", resolve, {
+          isAwake: () => false,
+        }),
+      ]).toEqual([]);
     });
   });
 });

@@ -61,7 +61,17 @@ const canvas: CanvasDoc = {
       ether: { entity: { kind: "task" } },
     },
   ],
-  edges: [{ id: "edge-agent-tasks", fromNode: "agent", toNode: "tasks" }],
+  // The sink works through this seat: only that verb puts it in the labor
+  // pool the factory tick assigns from. A seat that merely contributes could
+  // claim by hand and would never be handed this task.
+  edges: [
+    {
+      id: "edge-agent-tasks",
+      fromNode: "tasks",
+      toNode: "agent",
+      ether: { verb: "works" },
+    },
+  ],
 };
 
 const scenario: FactoryScenario = {

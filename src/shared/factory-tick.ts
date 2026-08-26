@@ -11,6 +11,7 @@ import {
   asNodeId,
   canvasDocToCapabilityView,
   offersOf,
+  pairIsAssignable,
   resolveSpec,
   roleOf,
 } from "./physics";
@@ -65,7 +66,17 @@ export type FactoryClaimSelection = {
  * Select one deterministic claim batch over the current projection.
  *
  * For each tasks sink, for each submitted unclaimed item, find a free actor
- * whose edge grants `tasks.claim`.
+ * the sink may be *assigned* to. Two separate facts have to hold, and they are
+ * not the same question:
+ *
+ * - **assignable** — the relationship puts the seat in the labor pool. Only
+ *   `works` compiles it. A seat that merely `contributes` holds `tasks.claim`
+ *   and may take work of its own accord; the factory never hands it any.
+ * - **admitted** — the seat may actually run `tasks.claim` on this sink now:
+ *   the sink offers the port, the placement route allows it, the edge is live.
+ *
+ * Before verbs, the port alone answered both, which made every wired seat a
+ * conscript. It no longer does.
  *
  * The selector reserves a seat in-memory only for the rest of this returned
  * batch. The caller remains responsible for exactly one durable claim attempt
@@ -130,6 +141,7 @@ export const selectFactoryClaims = (
     const freeActors = doc.nodes
       .filter(isActor)
       .filter(actorEligible)
+      .filter((actor) => pairIsAssignable(capabilityView, actor.id, node.id))
       .filter((actor) =>
         Result.isSuccess(
           admitPure(

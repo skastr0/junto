@@ -334,7 +334,10 @@ describe("selectFactoryClaims", () => {
     expect(selectFactoryClaims(doc, "c", resolverFor([actor]))).toEqual([]);
   });
 
-  it("skips a lower-id actor whose verb is manages, not contributes", () => {
+  // Holding `tasks.claim` is not the same as being in the labor pool: the
+  // lower-id seat contributes — it may claim of its own accord — and the tick
+  // still walks past it to the one that works the sink.
+  it("skips a lower-id contributing actor for the one that works the sink", () => {
     const denied = actorRef("a-denied", "1");
     const admitted = actorRef("z-admitted", "2");
     const doc: CanvasDoc = {
@@ -348,13 +351,13 @@ describe("selectFactoryClaims", () => {
           id: "e-denied",
           fromNode: "a-denied",
           toNode: "t",
-          ether: { verb: "manages" },
+          ether: { verb: "contributes" },
         },
         {
           id: "e-admitted",
-          fromNode: "z-admitted",
-          toNode: "t",
-          ether: { verb: "contributes" },
+          fromNode: "t",
+          toNode: "z-admitted",
+          ether: { verb: "works" },
         },
       ],
     };
