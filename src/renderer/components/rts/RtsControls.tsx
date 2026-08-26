@@ -445,7 +445,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       </KindKey>
       <KindKey
         label="Admission"
-        title={`Admission: ${admission.replaceAll("-", " ")}`}
+        title={`Admission: ${admissionLabel(admission)}`}
         active={pop === "admission" || admission !== "auto"}
         style={pop === "admission" || admission !== "auto" ? { color: HUE.amber } : undefined}
         onClick={() => setPop((current) => (current === "admission" ? null : "admission"))}

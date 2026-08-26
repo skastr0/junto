@@ -165,16 +165,16 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
 
   const admissionKey = kindStrip.getByRole("button", { name: "Admission" });
   const bakeKey = kindStrip.getByRole("button", { name: "Bake" });
-  await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Admission: auto");
+  await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Admission: Immediate");
   await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Bake: none");
 
   await admissionKey.click();
   const admissionQuickSelect = page.getByLabel("Admission quick select");
   await expect(admissionQuickSelect).toBeVisible();
-  await admissionQuickSelect.getByRole("button", { name: "Gated" }).click();
+  await admissionQuickSelect.getByRole("button", { name: "Approval" }).click();
   await expect(admissionKey).toHaveAttribute(
     "data-vellum-tooltip",
-    "Admission: operator gated",
+    "Admission: Approval",
   );
 
   await bakeKey.click();
