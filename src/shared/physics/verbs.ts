@@ -204,8 +204,10 @@ type VerbTable = {
  * Ordered source → target rows. The order is semantic: the row's source is the
  * verb's subject, whatever way the operator happened to drag.
  *
- * Two verbs per ordered pair is the ceiling (tested), and where a pair carries
- * two, the second is the wider one — the default a plain connect stamps.
+ * Two verbs per ordered pair is the ceiling (tested). Row order is narrow-first
+ * where the two nest (`manages` inside `contributes`, `reads` inside `edits`)
+ * and plain reading order where they do not (`fires` beside `announces`), so it
+ * never decides the default — `DEFAULT_CONNECT_VERBS` does.
  */
 export const VERB_TABLE = {
   agent: {
