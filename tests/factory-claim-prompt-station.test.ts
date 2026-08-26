@@ -42,7 +42,7 @@ const flowEdge = (id: string, source: string, destination: string) => ({
   id,
   fromNode: source,
   toNode: destination,
-  ether: { verb: "feeds" },
+  ether: { verb: "feeds" as const },
 });
 
 const task = (overrides: Partial<Task> = {}): Task =>

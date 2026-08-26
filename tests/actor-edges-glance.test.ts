@@ -101,7 +101,7 @@ describe("actorEdgeRows", () => {
     expect(noteRow.ports).toEqual([]);
   });
 
-  it("honors explicit board wake off", () => {
+  it("reads the quiet board verb as wake off", () => {
     const doc = docOf(
       [agent("worker", "Grok"), board("board")],
       [
@@ -109,7 +109,7 @@ describe("actorEdgeRows", () => {
           id: "e-board",
           fromNode: "worker",
           toNode: "board",
-          ether: { wake: false },
+          ether: { verb: "messages" },
         },
       ],
     );

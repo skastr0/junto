@@ -70,7 +70,7 @@ const flowEdge = (id: string, fromNode: string, toNode: string) => ({
   id,
   fromNode,
   toNode,
-  ether: { verb: "feeds" },
+  ether: { verb: "feeds" as const },
 });
 
 const doc = (nodes: ReadonlyArray<unknown>, edges: ReadonlyArray<unknown>): CanvasDoc =>

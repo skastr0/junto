@@ -84,18 +84,6 @@ describe("evaluateEdge — derived work-lane stoppage", () => {
     expect(result.generates).toBe(false);
   });
 
-  it("kind-only ether is soft relates", () => {
-    const edge = { id: "e1", fromNode: "a", toNode: "b", ether: { kind: "blocks" as const } };
-    const result = evaluateEdge(
-      edge,
-      seat("a", "sink"),
-      seat("b", "actor"),
-      contextFor(),
-    );
-    expect(result.phase).toBe("relates");
-    expect(result.generates).toBe(false);
-  });
-
   it("tasks: queues relate; claimed attention blocks the seat", () => {
     const edge = {
       id: "e1",

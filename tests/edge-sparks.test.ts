@@ -272,15 +272,7 @@ describe("planWorkEdgeSparks", () => {
       id: "e-effect",
       fromNode: "cron-1",
       toNode: "task-sink",
-      ether: {
-        does: {
-          mode: "enqueue_task",
-          data: {
-            brief: "hi",
-            metadata: { title: "hi", details: "hi" },
-          },
-        },
-      },
+      ether: { verb: "enqueues" },
     };
     const prev = doc([cron, taskSink("task-sink", [])], [doesEdge]);
     const next = doc(
@@ -294,7 +286,7 @@ describe("planWorkEdgeSparks", () => {
 });
 
 describe("planSchedulerFireSparks", () => {
-  it("sparks does + trigger cascade from cron through relay", () => {
+  it("sparks the fire action and the chain cascade from cron through relay", () => {
     const cron: CanvasNode = {
       id: "cron",
       type: "text",
@@ -317,25 +309,10 @@ describe("planSchedulerFireSparks", () => {
     };
     const tasks = taskSink("tasks", []);
     const edges: CanvasEdge[] = [
-      {
-        id: "e-trigger",
-        fromNode: "cron",
-        toNode: "relay",
-        ether: { slot: "trigger" },
-      },
-      {
-        id: "e-does",
-        fromNode: "relay",
-        toNode: "tasks",
-        ether: {
-          does: {
-            mode: "enqueue_task",
-            data: { brief: "x", metadata: { details: "y", title: "x" } },
-          },
-        },
-      },
+      { id: "e-chain", fromNode: "cron", toNode: "relay", ether: { verb: "chains" } },
+      { id: "e-does", fromNode: "relay", toNode: "tasks", ether: { verb: "enqueues" } },
     ];
     const plans = planSchedulerFireSparks(doc([cron, relay, tasks], edges), "cron");
-    expect(plans.map((p) => p.edgeId).sort()).toEqual(["e-does", "e-trigger"]);
+    expect(plans.map((p) => p.edgeId).sort()).toEqual(["e-chain", "e-does"]);
   });
 });
