@@ -113,12 +113,17 @@ const NO_CONNECTION_DRAG = { fromId: "", fromKind: "" } as const;
 const NO_VERBS: ReadonlyArray<Verb> = [];
 
 /**
- * Zone paint. The hue is the verb's own CSS custom property; the fallback only
- * has to keep the two halves apart until the stylesheet names them, so it is
- * positional rather than a second claim about what the verb means.
+ * Zone geometry, plus the verb's hue as `--zone-hue`.
+ *
+ * Only the shape is inline. The paint is in the stylesheet, because the half
+ * under the cursor has to be the one that reads loudest and an inline colour
+ * cannot be overridden by the state rule that says so — a generic accept ring
+ * would land on top of it instead, in a colour that on this canvas is not this
+ * verb. The fallback hue only has to keep the two halves apart until the
+ * stylesheet names them, so it is positional rather than a second claim about
+ * what the verb means.
  */
 const verbZoneStyle = (verb: Verb, first: boolean): CSSProperties => {
-  const hue = `var(${VERB_COLOR_TOKEN[verb]}, ${first ? HUE.cyan : HUE.violet})`;
   const shared: CSSProperties = {
     position: "absolute",
     top: -VERB_ZONE_BLEED,
@@ -128,12 +133,7 @@ const verbZoneStyle = (verb: Verb, first: boolean): CSSProperties => {
     minWidth: 0,
     minHeight: 0,
     transform: "none",
-    borderRadius: 10,
-    border: `1px solid color-mix(in oklab, ${hue} 72%, transparent)`,
-    background: `color-mix(in oklab, ${hue} 16%, transparent)`,
-    opacity: 1,
-    zIndex: 20,
-    cursor: "crosshair",
+    ["--zone-hue" as string]: `var(${VERB_COLOR_TOKEN[verb]}, ${first ? HUE.cyan : HUE.violet})`,
   };
   return first
     ? { ...shared, left: -VERB_ZONE_BLEED }

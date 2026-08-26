@@ -75,7 +75,6 @@ import {
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
 import { BROWSER_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
-import { describeConnectPreview } from "../lib/connect-preview";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import type { MemberSeverity } from "@shared/region-rollup";
@@ -1197,24 +1196,15 @@ function ImpactSeedChip() {
   );
 }
 
-/**
- * Connect preview — role pair + would-be grant, live while a connection drag
- * hovers a candidate target, before the edge is drawn. Copy is computed by
- * describeConnectPreview (grantLawForRoles + target offers, the same
- * inputs admit itself uses) — never a hardcoded per-pair table.
- */
-function ConnectPreviewChip() {
-  const connection = useConnection<FlowNode>();
-  if (!connection.inProgress || !connection.toNode) return null;
-  const preview = describeConnectPreview(connection.fromNode.data.node, connection.toNode.data.node);
-  return (
-    <Panel position="top-center" className="connect-preview-panel">
-      <div className="connect-preview-chip" role="status" aria-live="polite">
-        <span className="connect-preview-chip__grant">{preview.label}</span>
-      </div>
-    </Panel>
-  );
-}
+// The connect gesture answers itself on the card. A wire being drawn used to
+// raise a chip at the top of the canvas counting the ports the drop would
+// mint ("allows 6 actions"): the port mask was the thing being authored, so
+// its size was the thing to preview. An edge now carries one verb, the pair's
+// verbs are offered as coloured halves of the card under the cursor, and a
+// pair with no verb simply offers nothing to land on. A count of actions at
+// the other end of the screen names neither the verb nor the card, and it
+// still reads the retired role-pair grant rather than the verb table. So the
+// gesture is silent, and the colour under the cursor is the whole answer.
 
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
   // Dev always profiles; a packaged build profiles only when VELLUM_PERF armed
@@ -1542,7 +1532,6 @@ function CanvasGraph() {
       <CanvasKeyboardPan />
       <RegionGlanceGate />
       <ImpactSeedChip />
-      <ConnectPreviewChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
         <RtsBottomBar tools={<CanvasFieldTools />} minimap={<RtsMinimapStack />} />

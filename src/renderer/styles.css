@@ -1376,37 +1376,6 @@ html[data-surface-motion="paused"] *::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.connect-preview-panel {
-  margin: 12px 0 0 0 !important;
-}
-.connect-preview-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: min(420px, 48vw);
-  border: 1px solid color-mix(in oklab, var(--color-second) 35%, transparent);
-  border-radius: 6px;
-  background: color-mix(in oklab, var(--color-inset) 92%, transparent);
-  color: var(--color-cyan);
-  padding: 6px 10px;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 10px 24px var(--color-shadow-2);
-}
-.connect-preview-chip__pair {
-  color: var(--color-cyan);
-  font-size: 8px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-.connect-preview-chip__grant {
-  overflow: hidden;
-  color: var(--color-ink-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 @media (prefers-reduced-motion: reduce) {
   .react-flow.impact-mode .react-flow__node,
   .react-flow.connection-focus-mode .react-flow__node {

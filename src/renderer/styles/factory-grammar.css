@@ -75,6 +75,40 @@
 }
 .factory-glance__empty { padding: 3px 0; }
 
+/* --- Landing zones: the verb is the colour, all the way through ---------
+
+   Two halves of the card under a wire being drawn, one per verb the pair
+   admits, in the verbs' own hues and carrying no text. The half under the
+   cursor is the choice being made, so it is the one that must read loudest —
+   and it must read loudest in its own hue, because a hue on this canvas is a
+   verb. The generic handle states are overridden here rather than paid for:
+   an accept ring in the shared accent would be a second colour arriving at
+   the exact moment the first one is being read.
+
+   Written through `.vellum-handle` so the zone beats the plain handle rules
+   whichever order the two stylesheets land in: a zone is a handle wearing a
+   card's worth of area, and every handle default it inherits (hidden at rest,
+   a round dot, the shared accept ring) is wrong for it. */
+.vellum-handle.vellum-verb-zone {
+  border: 1px solid color-mix(in oklab, var(--zone-hue) 72%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--zone-hue) 16%, transparent);
+  opacity: 1;
+  z-index: 20;
+  cursor: crosshair;
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+.vellum-handle.vellum-verb-zone.connectingto,
+.vellum-handle.vellum-verb-zone.connectingto.valid,
+.vellum-handle.vellum-verb-zone:hover {
+  border-color: var(--zone-hue);
+  background: color-mix(in oklab, var(--zone-hue) 34%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--zone-hue) 45%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .vellum-handle.vellum-verb-zone { transition: none; }
+}
+
 /* --- Wire paint: one stroke, one variable -------------------------------
 
    Every wire is the same solid hairline. Weight, dash, halo, and travelling
@@ -187,20 +221,21 @@ path.vellum-edge {
    when it is blocked), and neither state touches width, dash, or hue. Works in
    both modes for the same reason the palette does — dark ground reads the bloom
    as light, paper reads it as weight. */
-.react-flow__edge:hover path.vellum-edge {
+/* Excluded rather than outranked: hovering the wire you already selected must
+   not demote it to the lighter bloom. */
+.react-flow__edge:hover path.vellum-edge:not(.vellum-edge--selected) {
   filter: drop-shadow(0 0 2px color-mix(in oklab, var(--wire-hue, transparent) 50%, transparent));
 }
-/* Written against the edge group so hovering the selected wire cannot demote it
-   to the lighter hover bloom. */
 .react-flow__edge path.vellum-edge--selected {
   opacity: 1;
   filter:
     drop-shadow(0 0 1px var(--wire-hue, transparent))
     drop-shadow(0 0 5px color-mix(in oklab, var(--wire-hue, transparent) 60%, transparent));
 }
-/* Pan and zoom own the compositor: no wire filter may thrash it. */
+/* Pan and zoom own the compositor: no wire filter may thrash it, and neither
+   state may outrank that. */
 .react-flow.is-viewport-busy path.vellum-edge {
-  filter: none;
+  filter: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   path.vellum-edge { transition: none; }
