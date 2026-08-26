@@ -84,8 +84,9 @@ describe("main authoring architecture", () => {
     expect(kernel).toContain('mainAuthoringGate.run("kernel.flag-mirror"');
     expect(kernel).toContain("canvases.mutate(");
     expect(kernel).toContain("applyNodeFlag");
-    // Phase mirror stays projection-only (no authorial writeback).
-    expect(kernel).toContain("__setPhaseMirrorForTest(undefined)");
+    // The phase mirror is gone with the edge field it wrote: phase is derived on
+    // every read, so the kernel has no mirror seam to bind and no mirror label.
+    expect(kernel).not.toContain("PhaseMirror");
     // No other authoring labels from kernel.
     expect(kernel).not.toContain("kernel.phase-mirror");
     expect(kernel).not.toContain("kernel.claim-tick");

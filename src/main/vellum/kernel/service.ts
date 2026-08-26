@@ -984,7 +984,6 @@ const makeKernelService = (
       void setNodeFlag(canvasName, nodeId, flag as EtherFlag, enabled);
     },
   });
-  // Edge phase mirror remains projection-only (no authorial writeback).
 
   // --- evaluation cycle --------------------------------------------------------
 
