@@ -98,8 +98,6 @@ describe("manualSchedulerFire scope", () => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      boardCreateTopic: async () => ({ ok: true }),
-      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
     __setDocsForTest(new Map([["board", board()]]));
@@ -164,8 +162,6 @@ describe("manualSchedulerFire scope", () => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      boardCreateTopic: async () => ({ ok: true }),
-      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
     const result = await manualSchedulerFire({

@@ -121,8 +121,6 @@ describe("scheduler automation gate", () => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      boardCreateTopic: async () => ({ ok: true }),
-      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
 
@@ -153,8 +151,6 @@ describe("scheduler automation gate", () => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      boardCreateTopic: async () => ({ ok: true }),
-      boardPost: async () => ({ ok: true }),
       setFlag: async () => ({ ok: true }),
     });
     await runEvaluationCycle();

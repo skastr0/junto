@@ -31,18 +31,12 @@ export const ContractEvent = Schema.Struct({
 });
 export type ContractEvent = typeof ContractEvent.Type;
 
-/** An input a target accepts from an effect wire. */
+/** An input a target accepts from a scheduler's fire verb. */
 export const ContractInput = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  /** Maps to EdgeEffect.mode. */
-  mode: Schema.Literals([
-    "enqueue_task",
-    "board_create_topic",
-    "board_post",
-    "set_flag",
-    "inject_prompt",
-  ]),
+  /** Maps to EdgeEffect.mode — the three actions a scheduler verb compiles to. */
+  mode: Schema.Literals(["enqueue_task", "set_flag", "inject_prompt"]),
 });
 export type ContractInput = typeof ContractInput.Type;
 
@@ -78,18 +72,6 @@ const enqueueInput: ContractInput = {
   id: "input.enqueue_task",
   label: "Add a task",
   mode: "enqueue_task",
-};
-
-const boardCreateTopicInput: ContractInput = {
-  id: "input.board_create_topic",
-  label: "Create a topic",
-  mode: "board_create_topic",
-};
-
-const boardPostInput: ContractInput = {
-  id: "input.board_post",
-  label: "Post to a topic",
-  mode: "board_post",
 };
 
 const flagInput: ContractInput = {
@@ -180,7 +162,9 @@ export const NodeContracts: {
         equals: "topic",
       },
     ],
-    inputs: [boardCreateTopicInput, boardPostInput, flagInput],
+    // A scheduler reaches a board with `flags` and nothing else: posting is an
+    // agent's port, never a fire action.
+    inputs: [flagInput],
   },
   pad: {
     kind: "pad",

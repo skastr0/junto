@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
-import { decodeCanvasDoc, scrubCanvasDocInput } from "../src/shared/canvas";
+import {
+  decodeCanvasDoc,
+  scrubCanvasDocInput,
+  serializeCanvas,
+} from "../src/shared/canvas";
 
 // The one-shot legacy conversion. A document written in the old wire areas —
 // ports, wake, slot, when, does, flow, stops, and the phase mirror — comes back
@@ -296,5 +300,197 @@ describe("legacy edge conversion", () => {
     );
 
     expect(scrubCanvasDocInput(once)).toEqual(once);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End to end: a whole board written in the old grammar, loaded and written back
+
+/** Every key name that appears anywhere in a JSON tree. */
+const keysIn = (value: unknown, out: Set<string> = new Set()): Set<string> => {
+  if (Array.isArray(value)) {
+    for (const item of value) keysIn(item, out);
+    return out;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      out.add(key);
+      keysIn(child, out);
+    }
+  }
+  return out;
+};
+
+/**
+ * A board carrying every wire area the old grammar had, including the dual keys
+ * the scrub used to collapse before it and the node body that carried a watch.
+ * One of each pairing the verb table admits, drawn both ways round.
+ */
+const REALISTIC_LEGACY_EDGES: ReadonlyArray<unknown> = [
+  // Access, drawn agent-first and sink-first, with port masks and the retired
+  // authorial stop word riding along.
+  {
+    id: "a-mail",
+    fromNode: "seat",
+    toNode: "peer",
+    ether: { ports: ["msg.list", "msg.send"], kind: "relates" },
+  },
+  {
+    id: "a-claim",
+    fromNode: "intake",
+    toNode: "seat",
+    fromSide: "left",
+    toSide: "right",
+    ether: { ports: ["tasks.claim", "tasks.list"], stops: true, kind: "blocks" },
+  },
+  {
+    id: "a-megaphone",
+    fromNode: "wall",
+    toNode: "seat",
+    ether: { ports: ["board.post"], notify: false },
+  },
+  { id: "a-room", fromNode: "peer", toNode: "wall", ether: { ports: ["board.post"] } },
+  { id: "a-pad", fromNode: "seat", toNode: "sheet", ether: { ports: ["pad.patch"] } },
+  { id: "a-page", fromNode: "docs", toNode: "seat", ether: { ports: ["browser.automate"] } },
+  { id: "a-esc", fromNode: "seat", toNode: "inbox", ether: { ports: ["request.escalate"] } },
+  { id: "a-pub", fromNode: "shelf", toNode: "peer", ether: { ports: ["artifact.publish"] } },
+  // Pipeline hop, stored against the direction its config named.
+  {
+    id: "w-hop",
+    fromNode: "review",
+    toNode: "intake",
+    ether: { flow: { source: "intake", destination: "review" } },
+  },
+  // Scheduler plane: trigger slot, watch predicates on both dual keys, and each
+  // fire action the old `does` / `effect` pair could carry.
+  { id: "s-fire", fromNode: "seat", toNode: "relay", ether: { slot: "trigger" } },
+  {
+    id: "s-watch",
+    fromNode: "intake",
+    toNode: "relay",
+    ether: { slot: "input", when: { word: "completes", equals: "completed" } },
+  },
+  {
+    id: "s-watch-dual",
+    fromNode: "shelf",
+    toNode: "relay",
+    ether: { criteria: { word: "completes" }, when: { word: "completes" } },
+  },
+  {
+    id: "s-enqueue",
+    fromNode: "relay",
+    toNode: "review",
+    ether: { slot: "output", does: { mode: "enqueue_task", data: { brief: "go" } } },
+  },
+  {
+    id: "s-wake",
+    fromNode: "relay",
+    toNode: "peer",
+    ether: { slot: "recipient", effect: { mode: "inject_prompt", text: "look" } },
+  },
+  {
+    id: "s-flag",
+    fromNode: "clock",
+    toNode: "wall",
+    ether: { does: { mode: "set_flag", flag: "attention", enabled: true } },
+  },
+  { id: "s-chain", fromNode: "clock", toNode: "relay", ether: {} },
+  // An edge already speaking the new grammar sits beside them untouched.
+  { id: "v-works", fromNode: "intake", toNode: "peer", ether: { verb: "works" } },
+];
+
+/**
+ * Every word the edge grammar used to carry, including the phase mirror. Read
+ * against the `edges` subtree alone: `kind` is still a node word
+ * (`ether.entity.kind`), and only an edge is forbidden to say it.
+ */
+const LEGACY_EDGE_KEYS = [
+  "ports",
+  "wake",
+  "notify",
+  "slot",
+  "when",
+  "criteria",
+  "does",
+  "effect",
+  "flow",
+  "stops",
+  "kind",
+];
+
+describe("a whole legacy board, loaded and written back", () => {
+  const raw = legacyDoc(REALISTIC_LEGACY_EDGES);
+  // The node body that used to carry a watch predicate.
+  const withNodeRelay = {
+    ...raw,
+    nodes: raw.nodes.map((node) =>
+      node.id === "relay"
+        ? { ...node, ether: { ...node.ether, relay: { when: { word: "completes" } } } }
+        : node,
+    ),
+  };
+
+  const doc = Result.getOrThrow(decodeCanvasDoc(withNodeRelay));
+  const written = serializeCanvas(doc);
+  const reread = JSON.parse(written) as unknown;
+
+  it("keeps every edge the grammar can hold, in the verb's own order", () => {
+    expect(doc.edges.map((edge) => [edge.id, edge.ether?.verb])).toEqual([
+      ["a-mail", "messages"],
+      ["a-claim", "contributes"],
+      ["a-megaphone", "messages"],
+      ["a-room", "participates"],
+      ["a-pad", "edits"],
+      ["a-page", "navigates"],
+      ["a-esc", "escalates"],
+      ["a-pub", "publishes"],
+      ["w-hop", "feeds"],
+      ["s-fire", "fires"],
+      ["s-watch", "announces"],
+      ["s-watch-dual", "announces"],
+      ["s-enqueue", "enqueues"],
+      ["s-wake", "wakes"],
+      ["s-flag", "flags"],
+      ["s-chain", "chains"],
+      ["v-works", "works"],
+    ]);
+    // Storage order is the verb's, whichever way the operator drew: the seat
+    // leads its own access, the sink leads what it announces, the task leads
+    // the seat it hands work to.
+    const from = new Map(doc.edges.map((edge) => [edge.id, edge.fromNode]));
+    expect(from.get("a-claim")).toBe("seat");
+    expect(from.get("a-megaphone")).toBe("seat");
+    expect(from.get("a-page")).toBe("seat");
+    expect(from.get("a-pub")).toBe("peer");
+    expect(from.get("w-hop")).toBe("intake");
+    expect(from.get("v-works")).toBe("intake");
+  });
+
+  it("leaves one authored fact on every edge and nothing else", () => {
+    for (const edge of doc.edges) {
+      expect(Object.keys(edge.ether ?? {})).toEqual(["verb"]);
+    }
+  });
+
+  it("writes back a document with no legacy word left in it", () => {
+    const { nodes, edges } = reread as {
+      readonly nodes: unknown;
+      readonly edges: unknown;
+    };
+    const edgeKeys = keysIn(edges);
+    for (const dead of LEGACY_EDGE_KEYS) {
+      expect({ key: dead, onAnEdge: edgeKeys.has(dead) }).toEqual({
+        key: dead,
+        onAnEdge: false,
+      });
+    }
+    expect(edgeKeys.has("verb")).toBe(true);
+    // The node body that carried a watch predicate goes with them.
+    expect(keysIn(nodes).has("relay")).toBe(false);
+  });
+
+  it("re-reads its own output unchanged — the conversion never runs twice", () => {
+    const again = Result.getOrThrow(decodeCanvasDoc(reread));
+    expect(serializeCanvas(again)).toBe(written);
   });
 });

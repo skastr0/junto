@@ -79,9 +79,10 @@ export type WatchWhen = typeof WatchWhen.Type;
 // ---------------------------------------------------------------------------
 // Fire actions — compiled by `enqueues` / `wakes` / `flags`
 //
-// Kernel-home fire applies these; never a process-bind ocap. Claim assignment
-// stays the factory tick. `data` is opaque here; the target sink's closed
-// create schema is decoded fail-closed at apply.
+// Three, and only three: those are the verbs a scheduler holds. Kernel-home
+// fire applies them; never a process-bind ocap. Claim assignment stays the
+// factory tick. `data` is opaque here; the target sink's closed create schema
+// is decoded fail-closed at apply.
 
 export const EdgeEffectEnqueueTask = Schema.Struct({
   mode: Schema.Literal("enqueue_task"),
@@ -90,27 +91,6 @@ export const EdgeEffectEnqueueTask = Schema.Struct({
 export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type & {
   readonly data:
     | import("../node-insert").EffectTasksCreate
-    | Record<string, unknown>;
-};
-
-export const EdgeEffectBoardCreateTopic = Schema.Struct({
-  mode: Schema.Literal("board_create_topic"),
-  data: Schema.Unknown,
-});
-export type EdgeEffectBoardCreateTopic =
-  typeof EdgeEffectBoardCreateTopic.Type & {
-    readonly data:
-      | import("../node-insert").EffectBoardCreateTopic
-      | Record<string, unknown>;
-  };
-
-export const EdgeEffectBoardPost = Schema.Struct({
-  mode: Schema.Literal("board_post"),
-  data: Schema.Unknown,
-});
-export type EdgeEffectBoardPost = typeof EdgeEffectBoardPost.Type & {
-  readonly data:
-    | import("../node-insert").EffectBoardPost
     | Record<string, unknown>;
 };
 
@@ -131,8 +111,6 @@ export type EdgeEffectInjectPrompt = typeof EdgeEffectInjectPrompt.Type;
 
 export const EdgeEffect = Schema.Union([
   EdgeEffectEnqueueTask,
-  EdgeEffectBoardCreateTopic,
-  EdgeEffectBoardPost,
   EdgeEffectSetFlag,
   EdgeEffectInjectPrompt,
 ]);

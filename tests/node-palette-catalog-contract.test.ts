@@ -50,8 +50,9 @@ describe("node palette catalog contract", () => {
     expect(lines.map((line) => line.family)).toEqual(["access", "watch", "effect"]);
     expect(lineFor("board", "watch")?.text).toContain("A post lands");
     expect(lineFor("board", "watch")?.text).toContain("A topic is created");
+    // Posting is an agent port. A scheduler only ever flags a board.
     expect(lineFor("board", "effect")?.text).toBe(
-      "Cron and relay can: Create a topic, Post to a topic, Set a flag",
+      "Cron and relay can: Set a flag",
     );
   });
 

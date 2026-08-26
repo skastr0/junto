@@ -15,10 +15,6 @@
 
 import type { CanvasDoc, CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
 import { compileEdgeGrant, edgeKindIndex } from "./canvas";
-import {
-  effectBoardCreateTopicValid,
-  effectBoardPostValid,
-} from "./node-insert";
 import { resolveSpec, roleOf } from "./physics/kinds";
 import type { EdgeEffect, WatchWhen } from "./physics/verbs";
 
@@ -119,11 +115,8 @@ export const collectWatchEdgesInto = (
 
 export type EffectTargetError =
   | "target_not_task_sink"
-  | "target_not_board"
   | "target_not_agent"
-  | "target_missing"
-  | "invalid_payload"
-  | "invalid_flag";
+  | "target_missing";
 
 export const validateEffectTarget = (
   effect: EdgeEffect,
@@ -137,19 +130,6 @@ export const validateEffectTarget = (
     }
     // No payload check: `enqueues` carries none, and the kernel builds the
     // brief from the firing scheduler at apply time.
-    return undefined;
-  }
-  if (effect.mode === "board_create_topic" || effect.mode === "board_post") {
-    const kind = target.ether?.entity?.kind;
-    if (kind !== "board") return "target_not_board";
-    if (roleOf(resolveSpec({ isGroup: target.type === "group", kind })) !== "sink") {
-      return "target_not_board";
-    }
-    if (effect.mode === "board_create_topic") {
-      if (!effectBoardCreateTopicValid(effect.data)) return "invalid_payload";
-    } else if (!effectBoardPostValid(effect.data)) {
-      return "invalid_payload";
-    }
     return undefined;
   }
   if (effect.mode === "inject_prompt") {

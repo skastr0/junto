@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "./canvas";
-import { defaultEffectTasksCreate, defaultInsertData } from "./node-insert";
+import { defaultEffectTasksCreate } from "./node-insert";
 import {
   collectEffectEdgesFrom,
   collectWatchEdgesInto,
