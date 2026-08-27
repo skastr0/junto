@@ -175,7 +175,12 @@ The local update transaction is:
    cross the installer activation fence and let the candidate migrate live
    state during ordinary startup;
 6. after a live schema advance or candidate-authored durable write, recover
-   forward and never launch an older binary against that state.
+   forward and never launch an older binary against that state. Refusal is
+   deterministic: the read-only `schema-version-probe` reads
+   `PRAGMA user_version` before any write open and returns
+   `newer-than-supported`, and `startup-schema-recovery` surfaces a plain
+   "Update required" path without opening, migrating, downgrading, or
+   partially decoding the advanced state.
 
 The proof process starts no actor, browser, terminal, socket, provider, or
 fleet plane. Its strict receipt proves local state admission only. Post-update
@@ -1700,6 +1705,12 @@ Rules:
 8. One incompatible Remote does not block synchronization with another.
 9. No-common-protocol is a typed, non-retryable software state, not network
    unavailability.
+10. Semantic compatibility analysis (Exact / Restricted / Unsupported) is
+    diagnostic only. Operational admission accepts Exact alone; Restricted and
+    Unsupported fail closed without projection, Work, cursor, or ACK movement
+    and never widen grants, effects, transitions, operations, or acceptance.
+    They may explain withheld semantics but are never a partial
+    down-conversion.
 
 #### Pre-release exact-version boundary
 

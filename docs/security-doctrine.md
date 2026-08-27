@@ -363,6 +363,15 @@ replacement parity, no current reader/writer, fleet compatibility evidence,
 and explicit retention intent. Canonical user and factory history has no
 automatic retirement horizon.
 
+Current-baseline caveat: `canvases.ts` compacts
+`canvas_generation_documents` bodies outside a 256-generation window on commit
+(`CANVAS_GENERATION_BODY_RETENTION`), protecting the head and every
+`work_facts` basis generation and never pruning the `canvas_generations`
+ledger. This automatic body deletion is a known deviation from the
+operator-approved-compaction doctrine and is scheduled for removal by the
+relational-authority canvas cutover. No new persistence change may widen it in
+the meantime.
+
 The transient in-memory schema compiler contains no product data and is not an
 authority connection.
 
@@ -393,7 +402,11 @@ Staging a package and changing installed state are separate phases:
    live database through the same forward-only chain.
 7. Once the live schema version advances or candidate-authored durable work
    commits, recovery is forward-only. An older binary is never launched
-   against the advanced database.
+   against the advanced database. Refusal is deterministic: before opening the
+   database for write, `schema-version-probe` reads `PRAGMA user_version`
+   read-only and returns `newer-than-supported`, and `startup-schema-recovery`
+   shows the operator a plain "Update required" path (quit, or install the
+   newer feed build). No open, migration, downgrade, or partial decode occurs.
 
 Candidate preflight proves data admission and migration before the one-way
 cutover. It deliberately does not start or simulate physical actors, browser
@@ -693,6 +706,12 @@ the five verbs, Work records, projection encoding, bounds, and failure
 semantics. The exact discriminators inside that bundle are not separately
 negotiated versions. There are no session/API/Work/projection version arrays,
 capability arrays, fallback protocol, or pre-release compatibility codecs.
+Semantic compatibility analysis (Exact / Restricted / Unsupported) is
+diagnostic only: operational admission accepts Exact alone, and Restricted or
+Unsupported fails closed without projection, Work, cursor, or ACK movement and
+never widens grants, effects, transitions, operations, or acceptance. A
+"Restricted" reading may explain withheld semantics to the operator but is
+never a partial down-conversion.
 
 After release, an older codec is retained only while an enrolled, non-retired
 Station or unreconciled route proves that compatibility obligation.

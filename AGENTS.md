@@ -119,6 +119,15 @@ fleet compatibility evidence, and explicit operator approval. Never ask an
 installed system to delete `vellum-command.db`; never add a downgrade, old-schema
 runtime reader, dual write, or file-store compatibility path.
 
+The current baseline carries one documented deviation from that rule:
+`canvases.ts` compacts `canvas_generation_documents` bodies outside a
+256-generation window on every content-changing commit
+(`CANVAS_GENERATION_BODY_RETENTION`), always protecting the head and every
+`work_facts` basis generation and never pruning the `canvas_generations`
+ledger. This automatic body deletion is scheduled for removal by the
+relational-authority canvas cutover; until it lands, no new persistence change
+may widen the deletion window.
+
 **Station skew law:** app release, local SQLite schema, and Station protocol
 are distinct facts. Only the one Station protocol integer selects wire
 behavior. Each release advertises
@@ -133,6 +142,20 @@ negotiation or capability arrays. After release, a codec retires only after ever
 enrolled Station using it is upgraded or explicitly retired and its pending
 records are reconciled.
 
+Semantic compatibility analysis (Exact / Restricted / Unsupported) is
+diagnostic only. Operational admission accepts Exact alone; Restricted and
+Unsupported fail closed without projection, Work, cursor, or ACK movement and
+never widen grants, effects, transitions, operations, or acceptance. They may
+explain what is withheld to the operator, but they are never a partial
+down-conversion.
+
+An older Command Center binary that finds `PRAGMA user_version` ahead of its
+`CURRENT_STATE_SCHEMA_VERSION` refuses deterministically before opening
+`vellum-command.db` for write: the read-only `schema-version-probe` reports
+`newer-than-supported`, and `startup-schema-recovery` surfaces a plain
+"Update required" path (quit, or install the newer feed build). It never
+opens, migrates, downgrades, or partially decodes advanced state.
+
 ---
 
 # ⛔ BIG BOLD INVARIANT — STOCK DEPENDENCIES ONLY
@@ -144,6 +167,17 @@ records are reconciled.
 - If a capability exists only on a patched/nightly/unofficial line, **do not build the feature**. Cap the product at what stable production exposes. Wait for upstream stable, or drop the capability.
 
 **Example — Hermes:** Vellum Command’s Hermes integration must target **stable production Hermes only**. Do not design, implement, or ship browser/terminal/agent features against a custom fork, patched daemon, or nightly protocol surface. If stable Hermes cannot do X, Vellum Command cannot do X via Hermes until stable does.
+
+**Narrow operator exception — Effect v4 rolling cohort.** The operator has
+chosen the maintainer-blessed rolling Effect v4 release line as the production
+dependency policy for Vellum Command-owned first-party packages (`effect`,
+`@effect/platform-bun`, `@effect/platform-node`). "Latest v4" means the latest
+official rolling release available on the registry, including
+maintainer-blessed beta or RC versions; do not wait for a final tag.
+Snapshots, nightlies, forks, patches, pin-to-PR, and private branches remain
+refused. The current frozen pin is `effect@4.0.0-beta.102` (behind the
+audited `4.0.0-rc.112` cohort); the rolling-upgrade task migrates it. No other
+dependency inherits this exception.
 
 This is non-negotiable for agents and humans. Violating it creates unshippable private-stack debt.
 

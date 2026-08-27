@@ -159,7 +159,12 @@ transaction:
    database and performs the same forward migration during ordinary startup.
 7. **Recover forward.** After a live schema-version advance or
    candidate-authored durable write commits, retain or repair the candidate.
-   Never launch an older binary against advanced state.
+   Never launch an older binary against advanced state. Refusal is
+   deterministic: the read-only `schema-version-probe` reads
+   `PRAGMA user_version` before any write open and returns
+   `newer-than-supported`, and `startup-schema-recovery` offers the operator a
+   plain "Update required" path (quit, or install the newer feed build) without
+   opening, migrating, downgrading, or partially decoding the advanced state.
 8. **Retain evidence.** Keep the pre-migration backup through at least one
    fully healthy candidate launch. No automatic backup-retirement policy exists
    yet.
@@ -212,6 +217,14 @@ Every authorial commit is a full-map transaction. A generation is either
 complete and selected or absent; no pointer file or manifest can become
 half-written. History is queryable database state. Retention is keep-all by
 default; physical retirement is a separate operator-approved compaction.
+
+Current-baseline caveat: `canvases.ts` compacts
+`canvas_generation_documents` bodies outside a 256-generation window on commit
+(`CANVAS_GENERATION_BODY_RETENTION`), always protecting the head and every
+`work_facts` basis generation and never pruning the `canvas_generations`
+ledger. This automatic body deletion is a known deviation from keep-all and is
+scheduled for removal by the relational-authority canvas cutover; no new
+persistence change may widen it in the meantime.
 
 JSON Canvas files, digests, SVG renders, screenshots, diagnostic bundles, and
 plugin payloads are deliberate outputs or interoperability formats. The app
