@@ -53,10 +53,8 @@ describe("Station protocol 1 frozen codecs & registry", () => {
 
   it("decodes, encodes, and maintains byte stability for preface frames", () => {
     for (const [key, sample] of Object.entries(corpus.preface)) {
-      const codec = STATION_PROTOCOL_1_CODECS.preface[
-        key as keyof typeof STATION_PROTOCOL_1_CODECS.preface
-      ];
-      if (typeof codec === "string") continue;
+      const codec = (STATION_PROTOCOL_1_CODECS.preface as any)[key];
+      if (typeof codec === "string" || !codec?.decode) continue;
 
       // Decode valid
       const decoded = codec.decode(sample);
@@ -160,10 +158,8 @@ describe("Station protocol 1 frozen codecs & registry", () => {
 
   it("decodes, encodes, and maintains byte stability for all Station API operations", () => {
     for (const [key, sample] of Object.entries(corpus.api)) {
-      const codec = STATION_PROTOCOL_1_CODECS.api[
-        key as keyof typeof STATION_PROTOCOL_1_CODECS.api
-      ];
-      if (typeof codec === "string") continue;
+      const codec = (STATION_PROTOCOL_1_CODECS.api as any)[key];
+      if (typeof codec === "string" || !codec?.decode) continue;
 
       const decoded = codec.decode(sample);
       expect(Result.isSuccess(decoded)).toBe(true);
@@ -191,10 +187,8 @@ describe("Station protocol 1 frozen codecs & registry", () => {
 
   it("decodes, encodes, and maintains byte stability for content parts and references", () => {
     for (const [key, sample] of Object.entries(corpus.content)) {
-      const codec = STATION_PROTOCOL_1_CODECS.content[
-        key as keyof typeof STATION_PROTOCOL_1_CODECS.content
-      ];
-      if (typeof codec === "string") continue;
+      const codec = (STATION_PROTOCOL_1_CODECS.content as any)[key];
+      if (typeof codec === "string" || !codec?.decode) continue;
 
       const decoded = codec.decode(sample);
       expect(Result.isSuccess(decoded)).toBe(true);

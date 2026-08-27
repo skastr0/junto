@@ -66,18 +66,18 @@ import {
 export const STATION_PROTOCOL_1 = STATION_PROTOCOL_BASELINE;
 export type StationProtocol1 = typeof STATION_PROTOCOL_1;
 
-export interface StationProtocolCodecDefinition<From, To> {
-  readonly schema: Schema.Schema<To, From>;
+export interface StationProtocolCodecDefinition<To, From = unknown> {
+  readonly schema: unknown;
   readonly decode: (u: unknown) => Result.Result<To, Schema.SchemaError>;
   readonly encode: (a: To) => Result.Result<From, Schema.SchemaError>;
 }
 
-const makeCodec = <From, To>(
-  schema: Schema.Schema<To, From>,
-): StationProtocolCodecDefinition<From, To> => ({
+const makeCodec = <To, From = unknown>(
+  schema: Schema.Schema<To>,
+): StationProtocolCodecDefinition<To, From> => ({
   schema,
-  decode: Schema.decodeUnknownResult(schema, { onExcessProperty: "error" }),
-  encode: Schema.encodeResult(schema),
+  decode: Schema.decodeUnknownResult(schema as any, { onExcessProperty: "error" }),
+  encode: Schema.encodeResult(schema as any),
 });
 
 /**

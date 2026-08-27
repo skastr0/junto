@@ -48,6 +48,10 @@ import {
   type StationStateSchemaVersion,
 } from "@shared/station-protocol";
 import {
+  STATION_PROTOCOL_1_CODECS,
+  type StationProtocol1Codecs,
+} from "@shared/station-protocol-1-codec";
+import {
   STATION_SESSION_PROTOCOL,
   StationSessionRequestFrame,
   StationSessionRequestId,
@@ -187,6 +191,7 @@ interface ActiveStationControlSession {
   writeTail: Promise<void>;
   queuedWriteBytes: number;
   negotiatedProtocol: StationProtocolVersion | undefined;
+  codec: StationProtocol1Codecs | undefined;
   closed: boolean;
 }
 
@@ -694,6 +699,7 @@ export const startStationControlServer = async (
     const codec = selectStationProtocolCodec(version);
     if (Result.isFailure(codec)) return false;
     session.negotiatedProtocol = codec.success;
+    session.codec = STATION_PROTOCOL_1_CODECS;
     notifySessionReadiness();
     return true;
   };
@@ -829,7 +835,7 @@ export const startStationControlServer = async (
       return;
     }
 
-    const decoded = decodeStationSessionFrame(raw);
+    const decoded = (session.codec ?? STATION_PROTOCOL_1_CODECS).session.frame.decode(raw);
     if (Result.isFailure(decoded)) {
       terminateSession(
         session,
@@ -953,6 +959,7 @@ export const startStationControlServer = async (
       writeTail: Promise.resolve(),
       queuedWriteBytes: 0,
       negotiatedProtocol: undefined,
+      codec: undefined,
       closed: false,
     };
     activeSession = session;

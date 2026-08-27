@@ -35,6 +35,10 @@ import {
   type StationProtocolAccept,
   type StationProtocolReject,
 } from "@shared/station-protocol";
+import {
+  STATION_PROTOCOL_1_CODECS,
+  type StationProtocol1Codecs,
+} from "@shared/station-protocol-1-codec";
 import { STATION_CONTROL_MAX_FRAME_BYTES } from "@shared/station-ssh-control";
 import {
   SshExitError,
@@ -710,6 +714,7 @@ const prefacePeerDiagnostics = (
 
 const asSessionTransport = (
   connection: OpenSshFrameTransport<StationConnectionFrame>,
+  codec: StationProtocol1Codecs,
   incoming: Stream.Stream<
     StationConnectionFrame,
     StationSessionTransportError
@@ -717,7 +722,7 @@ const asSessionTransport = (
 ): StationSessionFrameTransport => ({
   incoming: incoming.pipe(
     Stream.mapEffect((frame) => {
-      const decoded = decodeStationSessionFrame(frame);
+      const decoded = codec.session.frame.decode(frame);
       return Result.isSuccess(decoded)
         ? Effect.succeed(decoded.success)
         : Effect.fail(
@@ -938,7 +943,7 @@ export const makeOpenSshStationPeerExchange = (
                   commandCenterInstallationId,
                   route.peerInstallationId,
                   protocol,
-                  asSessionTransport(connection, remaining),
+                  asSessionTransport(connection, protocol.codec, remaining),
                   onRemoteReport,
                 );
                 return confirm(session);

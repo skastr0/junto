@@ -32,6 +32,10 @@ import {
   type StationSessionRequestId as StationSessionRequestIdValue,
 } from "@shared/station-session";
 import {
+  STATION_PROTOCOL_1_CODECS,
+  type StationProtocol1Codecs,
+} from "@shared/station-protocol-1-codec";
+import {
   STATION_PROTOCOL_BASELINE,
   selectStationProtocolCodec,
   type StationAppVersion,
@@ -150,6 +154,7 @@ export interface StationPeerProtocolDiagnostics {
 export type StationPeerProtocolBinding = {
   readonly _tag: "negotiated";
   readonly negotiatedProtocol: typeof STATION_PROTOCOL_BASELINE;
+  readonly codec: StationProtocol1Codecs;
   readonly compatibility: "compatible" | "deprecated";
   readonly local: StationPeerProtocolDiagnostics;
   readonly peer: StationPeerProtocolDiagnostics;
@@ -187,6 +192,7 @@ export const bindNegotiatedStationProtocol = (input: {
   return Object.freeze({
     _tag: "negotiated",
     negotiatedProtocol: selected.success,
+    codec: STATION_PROTOCOL_1_CODECS,
     compatibility,
     local: freezeProtocolDiagnostics(input.local),
     peer: freezeProtocolDiagnostics(input.peer),
