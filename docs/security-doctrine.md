@@ -363,14 +363,16 @@ replacement parity, no current reader/writer, fleet compatibility evidence,
 and explicit retention intent. Canonical user and factory history has no
 automatic retirement horizon.
 
-Current-baseline caveat: `canvases.ts` compacts
-`canvas_generation_documents` bodies outside a 256-generation window on commit
-(`CANVAS_GENERATION_BODY_RETENTION`), protecting the head and every
-`work_facts` basis generation and never pruning the `canvas_generations`
-ledger. This automatic body deletion is a known deviation from the
-operator-approved-compaction doctrine and is scheduled for removal by the
-relational-authority canvas cutover. No new persistence change may widen it in
-the meantime.
+Authorial canvas writes persist one relational current graph
+(`canvas_documents`, `canvas_objects`, `canvas_nodes`, `canvas_edges`),
+content-addressed immutable `canvas_checkpoints` (reused when the serialized
+body is unchanged), compact `canvas_generation_manifests`, and an append-only
+`canvas_commit_envelopes` row in the same SQLite transaction as
+`canvas_generations` / `canvas_head`. Automatic deletion of
+`canvas_generation_documents` bodies is removed. Historical generation
+document rows remain readable and are never rewritten. Future physical
+compaction is a separately approved operation with backup, parity, fleet, and
+Work-reference proofs.
 
 The transient in-memory schema compiler contains no product data and is not an
 authority connection.

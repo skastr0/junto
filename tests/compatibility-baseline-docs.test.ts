@@ -50,15 +50,18 @@ describe("compatibility baseline documentation authority", () => {
     }
   });
 
-  it("flags the 256-generation body deletion as a scheduled-for-removal deviation", () => {
+  it("records that automatic generation-body deletion is removed", () => {
     for (const path of [
       "AGENTS.md",
       "docs/security-doctrine.md",
       "docs/state-architecture.md",
     ]) {
       const prose = normalizeProse(readDocument(path));
-      expect(prose, path).toContain("256-generation window");
-      expect(prose, path).toContain("scheduled for removal");
+      expect(prose, path).toContain(
+        "Automatic deletion of `canvas_generation_documents` bodies is removed",
+      );
+      expect(prose, path).toContain("canvas_checkpoints");
+      expect(prose, path).not.toContain("256-generation window");
     }
   });
 

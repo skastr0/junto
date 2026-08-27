@@ -5,8 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import {
-  CANVAS_GENERATION_BODY_RETENTION,
-  CANVAS_GENERATION_COMPACTION_SLACK,
   CanvasesLive,
   CanvasesService,
   type CanvasAuthorityStoredDocument,
@@ -327,17 +325,50 @@ describe("CanvasesService SQLite authority", () => {
     const state = await runtime.runPromise(StateEngine);
     await runtime.runPromise(
       state.transaction("test.inject-invalid-canvas", (writer) => {
+        const canvasId = writer.get<{ readonly canvas_id: string }>(
+          "SELECT canvas_id FROM canvas_documents WHERE canvas_name = 'work'",
+        )?.canvas_id;
+        if (canvasId === undefined) {
+          throw new Error("expected work canvas_documents row");
+        }
         writer.run(
-          `UPDATE canvas_generation_documents
-           SET body = ?, sha256 = ?
-           WHERE generation = '1' AND name = 'work'`,
-          [invalidBody, bodySha256]
+          `
+            INSERT INTO canvas_checkpoints (sha256, byte_length, body, created_at)
+            VALUES (?, ?, ?, ?)
+          `,
+          [
+            bodySha256,
+            Buffer.byteLength(invalidBody, "utf8"),
+            invalidBody,
+            new Date().toISOString(),
+          ],
         );
         writer.run(
-          `UPDATE canvas_generations
-           SET intent_sha256 = ?
-           WHERE generation = '1'`,
-          [intentSha256]
+          `
+            INSERT INTO canvas_generations(
+              generation, created_at, cause, intent_sha256, document_count
+            ) VALUES ('2', ?, 'write', ?, 1)
+          `,
+          [new Date().toISOString(), intentSha256],
+        );
+        writer.run(
+          `
+            INSERT INTO canvas_generation_documents(
+              generation, name, body, sha256, modified_at
+            ) VALUES ('2', 'work', ?, ?, ?)
+          `,
+          [invalidBody, bodySha256, new Date().toISOString()],
+        );
+        writer.run(
+          `
+            INSERT INTO canvas_generation_manifests(
+              generation, canvas_id, checkpoint_sha256, semantic_sha256
+            ) VALUES ('2', ?, ?, ?)
+          `,
+          [canvasId, bodySha256, bodySha256],
+        );
+        writer.run(
+          `UPDATE canvas_head SET generation = '2' WHERE singleton = 1`,
         );
       })
     );
@@ -443,20 +474,19 @@ describe("CanvasesService SQLite authority", () => {
     });
   });
 
-  it("compacts generation bodies to a bounded window and keeps the head", async () => {
+  it("keeps every generation document row and the head after many commits", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const state = await runtime.runPromise(StateEngine);
 
-    const commits =
-      CANVAS_GENERATION_BODY_RETENTION + CANVAS_GENERATION_COMPACTION_SLACK + 8;
+    const commits = 20;
     for (let i = 0; i < commits; i += 1) {
       await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
     }
 
     const counts = await runtime.runPromise(
-      state.read("compaction.counts", (reader) => ({
+      state.read("retention.counts", (reader) => ({
         ledger: Number(
           reader.get<{ readonly count: number }>(
             "SELECT count(*) AS count FROM canvas_generations",
@@ -467,19 +497,18 @@ describe("CanvasesService SQLite authority", () => {
             "SELECT count(*) AS count FROM canvas_generation_documents",
           )?.count ?? 0,
         ),
+        checkpoints: Number(
+          reader.get<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM canvas_checkpoints",
+          )?.count ?? 0,
+        ),
       })),
     );
 
-    // The ledger is append-only forever; only the payload is compacted.
     expect(counts.ledger).toBe(commits);
-    expect(counts.bodies).toBeLessThanOrEqual(
-      CANVAS_GENERATION_BODY_RETENTION + CANVAS_GENERATION_COMPACTION_SLACK,
-    );
-    expect(counts.bodies).toBeGreaterThanOrEqual(
-      CANVAS_GENERATION_BODY_RETENTION,
-    );
+    expect(counts.bodies).toBe(commits);
+    expect(counts.checkpoints).toBe(commits);
 
-    // The head must always still resolve to a full document set.
     const head = await runtime.runPromise(canvases.authoritySnapshot());
     expect(head.generation).toBe(String(commits));
     expect(head.documents.get("alpha")?.nodes[0]).toMatchObject({
@@ -488,7 +517,6 @@ describe("CanvasesService SQLite authority", () => {
     const reread = await runtime.runPromise(canvases.read("alpha"));
     expect(reread.doc.nodes[0]).toMatchObject({ text: `rev-${commits - 1}` });
 
-    // ... and a restart must be able to rebuild from what survived.
     await runtime.dispose();
     runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
     const reopened = await runtime.runPromise(CanvasesService);
@@ -497,7 +525,7 @@ describe("CanvasesService SQLite authority", () => {
     ).toMatchObject({ text: `rev-${commits - 1}` });
   });
 
-  it("never compacts a generation a work fact is founded on", async () => {
+  it("preserves a work-fact authorial basis generation after later commits", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
     const settings = await runtime.runPromise(SettingsService);
@@ -520,7 +548,7 @@ describe("CanvasesService SQLite authority", () => {
     );
 
     const basis = await runtime.runPromise(
-      state.read("compaction.basis", (reader) =>
+      state.read("retention.basis", (reader) =>
         reader.all<{ readonly generation: string }>(
           `
             SELECT DISTINCT basis_authorial_generation AS generation
@@ -532,14 +560,13 @@ describe("CanvasesService SQLite authority", () => {
     );
     expect(basis.length).toBeGreaterThan(0);
 
-    const commits =
-      CANVAS_GENERATION_BODY_RETENTION + CANVAS_GENERATION_COMPACTION_SLACK + 8;
+    const commits = 12;
     for (let i = 0; i < commits; i += 1) {
       await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
     }
 
     const survived = await runtime.runPromise(
-      state.read("compaction.basis.survived", (reader) =>
+      state.read("retention.basis.survived", (reader) =>
         reader.all<{ readonly generation: string; readonly bodies: number }>(
           `
             SELECT generation, count(*) AS bodies
@@ -553,8 +580,7 @@ describe("CanvasesService SQLite authority", () => {
     for (const row of basis) {
       expect(held.has(row.generation)).toBe(true);
     }
-    // The point of the window: generations nothing pins did lose their bodies.
-    expect(survived.length).toBeLessThan(commits);
+    expect(survived.length).toBeGreaterThanOrEqual(commits);
   });
 
   it("starts empty when the authority pointer is absent", async () => {
@@ -613,5 +639,26 @@ describe("CanvasesService SQLite authority", () => {
     expect(await runtime.runPromise(reloaded.liveAuthorityGeneration())).toBe(
       "2"
     );
+  });
+
+  it("rejects a stale expectedRevision without advancing the generation", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    const first = await runtime.runPromise(
+      canvases.write("alpha", noteDoc("one")),
+    );
+    await runtime.runPromise(canvases.write("alpha", noteDoc("two")));
+    await expect(
+      runtime.runPromise(
+        canvases.write("alpha", noteDoc("stale"), first.revision),
+      ),
+    ).rejects.toThrow("revision conflict");
+    expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
+      "2",
+    );
+    expect(
+      (await runtime.runPromise(canvases.read("alpha"))).doc.nodes[0],
+    ).toMatchObject({ text: "two" });
   });
 });

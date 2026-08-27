@@ -41,6 +41,7 @@ import {
   upsertHostState,
 } from "../hosts/registry";
 import { setHostsSnapshot } from "../hosts/snapshot";
+import { wipeRelationalAuthorialGraph } from "../canvas/relational-records";
 import {
   StateEngine,
   type StateEngineError,
@@ -961,6 +962,7 @@ export const makeStationRepositoryLive = (
               // the first successful Remote configuration removes that
               // history in this same transaction. Repeating configure also
               // repairs any impossible authorial residue.
+              wipeRelationalAuthorialGraph(writer);
               writer.run("DELETE FROM canvas_head");
               writer.run("DELETE FROM canvas_generation_documents");
               writer.run("DELETE FROM canvas_generations");

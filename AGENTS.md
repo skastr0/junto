@@ -119,14 +119,16 @@ fleet compatibility evidence, and explicit operator approval. Never ask an
 installed system to delete `vellum-command.db`; never add a downgrade, old-schema
 runtime reader, dual write, or file-store compatibility path.
 
-The current baseline carries one documented deviation from that rule:
-`canvases.ts` compacts `canvas_generation_documents` bodies outside a
-256-generation window on every content-changing commit
-(`CANVAS_GENERATION_BODY_RETENTION`), always protecting the head and every
-`work_facts` basis generation and never pruning the `canvas_generations`
-ledger. This automatic body deletion is scheduled for removal by the
-relational-authority canvas cutover; until it lands, no new persistence change
-may widen the deletion window.
+Authorial canvas writes persist one relational current graph
+(`canvas_documents`, `canvas_objects`, `canvas_nodes`, `canvas_edges`),
+content-addressed immutable `canvas_checkpoints` (reused when the serialized
+body is unchanged), compact `canvas_generation_manifests`, and an append-only
+`canvas_commit_envelopes` row in the same SQLite transaction as
+`canvas_generations` / `canvas_head`. Automatic deletion of
+`canvas_generation_documents` bodies is removed. Historical generation
+document rows remain readable and are never rewritten. Future physical
+compaction is a separately approved operation with backup, parity, fleet, and
+Work-reference proofs.
 
 **Station skew law:** app release, local SQLite schema, and Station protocol
 are distinct facts. Only the one Station protocol integer selects wire
