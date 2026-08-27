@@ -1311,7 +1311,7 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
-  createTaskDependencyScopeCapability,
+  createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -2109,11 +2109,16 @@ describe("WorkService — concurrent ops", () => {
         "projected-intent"
       );
       const taskSink = { canvasName, nodeId: "tasks" };
-      const dependencyScope = createTaskDependencyScopeCapability({
-        topology: read.doc,
-        basis,
-        authoringSink: taskSink,
-      });
+      const stationRepository = await runtime.runPromise(StationRepository);
+      const projection = await runtime.runPromise(stationRepository.projection);
+      if (projection === undefined) throw new Error("missing Remote projection");
+      const dependencyScope =
+        createCurrentProjectedTaskDependencyScopeCapability({
+          rawBody: projection.body,
+          generation: projection.generation,
+          contentSha256: projection.contentSha256,
+          authoringSink: taskSink,
+        });
       await runtime.runPromise(
         remoteRepository.createTask({
           sink: taskSink,
@@ -2131,6 +2136,7 @@ describe("WorkService — concurrent ops", () => {
             ],
           },
           basis,
+          dependencyScope,
         })
       );
       await runtime.runPromise(

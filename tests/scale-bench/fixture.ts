@@ -24,7 +24,11 @@ import { CanvasesLive, CanvasesService } from "../../src/main/vellum/canvases";
 import { SettingsLive, SettingsService } from "../../src/main/vellum/settings/service";
 import { StationFleetTargetRepositoryLive } from "../../src/main/vellum/station/fleet-target-repository";
 import { StationRepository, StationRepositoryLive } from "../../src/main/vellum/station/repository";
-import { WorkRepository, WorkRepositoryLive } from "../../src/main/vellum/work/repository";
+import {
+  createAuthorialTaskDependencyScopeCapability,
+  WorkRepository,
+  WorkRepositoryLive,
+} from "../../src/main/vellum/work/repository";
 import { makeContentServiceLive } from "../../src/main/vellum/content/service";
 import { makeInstallOpsLive } from "../../src/main/vellum/install-ops/engine";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../../src/main/vellum/state/migrations";
@@ -376,6 +380,7 @@ export const ensureSyntheticFixture = async (
         yield* canvases.write(BENCH_CANVAS_NAME, buildSyntheticDoc(spec));
         const witness = yield* canvases.activeIntentWitness();
         const basis = authorialBasis(witness.generation, witness.contentSha256);
+        const authority = yield* canvases.authorityMaterialSnapshot();
         const read = yield* canvases.read(BENCH_CANVAS_NAME);
         const repository = yield* WorkRepository;
         const actors = read.actorRefs;
@@ -442,11 +447,17 @@ export const ensureSyntheticFixture = async (
             canvasName: BENCH_CANVAS_NAME,
             nodeId: `task-${padded(sinkIndex)}`,
           };
+          const dependencyScope =
+            createAuthorialTaskDependencyScopeCapability({
+              authority,
+              authoringSink: sink,
+            });
           for (let index = 0; index < spec.tasksPerTaskSink; index += 1) {
             const taskId = `task-${padded(sinkIndex)}-${padded(index)}`;
             yield* repository.createTask({
               sink,
               basis,
+              dependencyScope,
               task: {
                 id: taskId,
                 state: "submitted",

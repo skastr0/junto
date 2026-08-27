@@ -19,7 +19,6 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  createTaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkAuthorityError,
   WorkRepository,
@@ -33,6 +32,10 @@ import {
   IntentFactBasis,
   type IntentFactBasis as IntentFactBasisValue,
 } from "../src/shared/work-protocol";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const root = join(tmpdir(), `vellum-command-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -48,32 +51,6 @@ let state: Context.Service.Shape<typeof StateEngine>;
 const observedAt = "2026-07-27T18:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-repository");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-repository");
-const currentIntentSha256 = "d".repeat(64);
-const staleIntentSha256 = "e".repeat(64);
-const wrongIntentSha256 = "f".repeat(64);
-const decodeIntentFactBasis = Schema.decodeUnknownSync(IntentFactBasis, {
-  onExcessProperty: "error",
-});
-const authorialBasis = decodeIntentFactBasis({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: currentIntentSha256,
-});
-const staleAuthorialBasis = decodeIntentFactBasis({
-  kind: "authorial-intent",
-  generation: "0",
-  contentSha256: staleIntentSha256,
-});
-const wrongAuthorialBasis = decodeIntentFactBasis({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: wrongIntentSha256,
-});
-const projectedBasis = decodeIntentFactBasis({
-  kind: "projected-intent",
-  generation: "1",
-  contentSha256: currentIntentSha256,
-});
 const fixtureTaskSinkNodeIds: ReadonlyArray<string> = [
   "content-task-sink",
   "unconfigured-tasks",
@@ -110,15 +87,48 @@ const fixtureTopologyBody = JSON.stringify(fixtureTopology);
 const fixtureTopologySha256 = createHash("sha256")
   .update(fixtureTopologyBody, "utf8")
   .digest("hex");
+const currentIntentSha256 = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: fixtureTopology, rawBody: fixtureTopologyBody }],
+  ]),
+}).intentSha256;
+const staleIntentSha256 = currentIntentSha256;
+const wrongIntentSha256 = "f".repeat(64);
+const decodeIntentFactBasis = Schema.decodeUnknownSync(IntentFactBasis, {
+  onExcessProperty: "error",
+});
+const authorialBasis = decodeIntentFactBasis({
+  kind: "authorial-intent",
+  generation: "1",
+  contentSha256: currentIntentSha256,
+});
+const staleAuthorialBasis = decodeIntentFactBasis({
+  kind: "authorial-intent",
+  generation: "0",
+  contentSha256: staleIntentSha256,
+});
+const wrongAuthorialBasis = decodeIntentFactBasis({
+  kind: "authorial-intent",
+  generation: "1",
+  contentSha256: wrongIntentSha256,
+});
+const projectedBasis = decodeIntentFactBasis({
+  kind: "projected-intent",
+  generation: "1",
+  contentSha256: currentIntentSha256,
+});
 const dependencyScope = (
   sink: { readonly canvasName: string; readonly nodeId: string },
   basis: IntentFactBasisValue = authorialBasis,
 ) =>
-  createTaskDependencyScopeCapability({
-    topology: fixtureTopology,
+  authorialTaskTopologyCapabilityForTest({
     basis,
-    authoringSink: sink,
+    sink,
+    document: fixtureTopology,
+    rawBody: fixtureTopologyBody,
   });
+
 const actor = {
   seatId: Schema.decodeUnknownSync(ActorSeatId)(
     `seat_${"a".repeat(64)}`,
@@ -290,6 +300,7 @@ describe("WorkRepository v2 local authority", () => {
         isolatedRepository.createTask({
           sink: taskSink,
           basis: authorialBasis,
+          dependencyScope: dependencyScope(taskSink),
           task,
           originAt: observedAt,
           receivedAt: observedAt,
@@ -444,6 +455,10 @@ describe("WorkRepository v2 local authority", () => {
               nodeId: "unconfigured-tasks",
             },
             basis: authorialBasis,
+            dependencyScope: dependencyScope({
+              canvasName: "factory",
+              nodeId: "unconfigured-tasks",
+            }),
             task: {
               id: "must-not-exist",
               state: "submitted",
@@ -546,6 +561,7 @@ describe("WorkRepository v2 local authority", () => {
           .createTask({
             sink,
             basis,
+            dependencyScope: dependencyScope(sink),
             task: {
               id: taskId,
               state: "submitted",
@@ -581,6 +597,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         task: {
           id: "task-local",
           state: "submitted",
@@ -669,6 +686,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         task: {
           id: "task-release",
           state: "submitted",
@@ -721,6 +739,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         task: {
           id: "task-qa-rejection",
           state: "submitted",
@@ -837,6 +856,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         task: {
           id: "basis-roundtrip-task",
           state: "submitted",
@@ -879,6 +899,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         task: {
           id: "task-remote",
           state: "submitted",
@@ -941,6 +962,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink: pendingSink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(pendingSink),
         task: {
           id: "task-pending-actor",
           state: "submitted",
@@ -1166,6 +1188,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink: taskSink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(taskSink),
         task: {
           id: "artifact-source-task",
           state: "submitted",
@@ -1357,6 +1380,7 @@ describe("WorkRepository v2 local authority", () => {
       repository.createTask({
         sink: taskSink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(taskSink),
         task: {
           id: "thread-task-1",
           state: "submitted",
@@ -1507,6 +1531,7 @@ describe("WorkRepository v2 local authority", () => {
       localInstallationId: remote,
       sink,
       basis: authorialBasis,
+      dependencyScope: dependencyScope(sink),
       task: {
         id: "task-authority",
         state: "submitted" as const,
@@ -1882,6 +1907,7 @@ describe("WorkRepository board CC-homed facts", () => {
       repository.createTask({
         sink,
         basis: authorialBasis,
+        dependencyScope: dependencyScope(sink),
         task: {
           id: "task-archive-me",
           state: "submitted",

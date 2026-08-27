@@ -112,6 +112,7 @@ import { ulid } from "ulid";
 import {
   CanvasesService,
   CanvasError,
+  type CanvasAuthorityMaterialSnapshot,
 } from "../canvases";
 import {
   StationFleetTargetRepository,
@@ -140,7 +141,8 @@ import {
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryError,
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
+  createCurrentProjectedTaskDependencyScopeCapability,
   type PendingCommand,
   type TaskDependencyScopeCapability,
   type TaskPipelinePatch,
@@ -386,30 +388,16 @@ const nodeById = (
 ): CanvasNode | undefined =>
   doc.nodes.find((node) => node.id === nodeId);
 
-/**
- * Process-local proof of the exact Task sinks visible from one server-owned
- * canvas read. This value never enters a Work or Station record.
- */
-const taskDependencyScopeCapability = (
-  doc: CanvasDoc,
-  canvasName: string,
-  nodeId: string,
-  basis: IntentFactBasisValue,
-): Effect.Effect<TaskDependencyScopeCapability, WorkServiceError> =>
-  Effect.try({
-    try: () =>
-      createTaskDependencyScopeCapability({
-        topology: doc,
-        basis,
-        authoringSink: sinkRef(canvasName, nodeId),
-      }),
-    catch: (error) =>
-      new WorkServiceError({
-        code: "invalid",
-        message:
-          `Task dependency scope is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      }),
+const isTaskSinkNode = (node: CanvasNode): boolean => {
+  const spec = resolveSpec({
+    isGroup: node.type === "group",
+    kind: node.ether?.entity?.kind,
   });
+  return Match.value(spec).pipe(
+    Match.when({ _tag: "Sink", kind: "task" }, () => true),
+    Match.orElse(() => false),
+  );
+};
 
 /**
  * Work-plane service contract (effect v4).
@@ -771,6 +759,83 @@ export const WorkLive = Layer.effect(
             : "projected-intent",
         generation: witness.generation,
         contentSha256: witness.contentSha256,
+      });
+
+    const taskDependencyScopeCapability = (
+      context: StationContext,
+      canvasName: string,
+      nodeId: string,
+      basis: IntentFactBasisValue,
+    ): Effect.Effect<TaskDependencyScopeCapability, WorkServiceError> =>
+      Effect.gen(function* () {
+        let capability: TaskDependencyScopeCapability;
+        if (context.configuration.role === "command-center") {
+          const authority: CanvasAuthorityMaterialSnapshot = yield* canvases
+            .authorityMaterialSnapshot()
+            .pipe(Effect.mapError(toWorkServiceError));
+          if (
+            basis.kind !== "authorial-intent" ||
+            basis.generation !== authority.generation ||
+            basis.contentSha256 !== authority.intentSha256
+          ) {
+            return yield* new WorkServiceError({
+              code: "invalid",
+              message:
+                "Task topology material changed after the authorial canvas read",
+            });
+          }
+          capability = yield* Effect.try({
+            try: () =>
+              createAuthorialTaskDependencyScopeCapability({
+                authority,
+                authoringSink: sinkRef(canvasName, nodeId),
+              }),
+            catch: (error) =>
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  `Task topology authority is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+              }),
+          });
+        } else {
+          const projection = yield* stations.projection.pipe(
+            Effect.mapError(toWorkServiceError),
+          );
+          if (projection === undefined) {
+            return yield* new WorkServiceError({
+              code: "invalid",
+              message:
+                "Task topology authority requires an installed Remote projection",
+            });
+          }
+          if (
+            basis.kind !== "projected-intent" ||
+            String(basis.generation) !== String(projection.generation) ||
+            String(basis.contentSha256) !== String(projection.contentSha256)
+          ) {
+            return yield* new WorkServiceError({
+              code: "invalid",
+              message:
+                "Task topology material changed after the projected canvas read",
+            });
+          }
+          capability = yield* Effect.try({
+            try: () =>
+              createCurrentProjectedTaskDependencyScopeCapability({
+                rawBody: projection.body,
+                generation: projection.generation,
+                contentSha256: projection.contentSha256,
+                authoringSink: sinkRef(canvasName, nodeId),
+              }),
+            catch: (error) =>
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  `Task topology authority is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+              }),
+          });
+        }
+        return capability;
       });
 
     const runPolicy = <A>(thunk: () => A): Effect.Effect<A, WorkServiceError> =>
@@ -1237,7 +1302,7 @@ export const WorkLive = Layer.effect(
 
             const read = yield* readCanvas(input.canvasName);
             const node = yield* requireNode(read.doc, input.nodeId);
-            if (node.ether?.entity?.kind !== "task") {
+            if (!isTaskSinkNode(node)) {
               return yield* Effect.fail(
                 new WorkServiceError({
                   code: "illegal_kind",
@@ -1259,7 +1324,7 @@ export const WorkLive = Layer.effect(
 
             const basis = intentBasis(context, read.intentWitness);
             const dependencyScope = yield* taskDependencyScopeCapability(
-              read.doc,
+              context,
               input.canvasName,
               input.nodeId,
               basis,
@@ -1432,7 +1497,7 @@ export const WorkLive = Layer.effect(
             );
             const basis = intentBasis(context, read.intentWitness);
             const dependencyScope = yield* taskDependencyScopeCapability(
-              read.doc,
+              context,
               canvas,
               nodeId,
               basis,
@@ -1518,7 +1583,7 @@ export const WorkLive = Layer.effect(
             );
             const basis = intentBasis(context, read.intentWitness);
             const dependencyScope = yield* taskDependencyScopeCapability(
-              read.doc,
+              context,
               canvas,
               nodeId,
               basis,
@@ -2481,7 +2546,7 @@ export const WorkLive = Layer.effect(
             }
             const basis = intentBasis(context, read.intentWitness);
             const dependencyScope = yield* taskDependencyScopeCapability(
-              read.doc,
+              context,
               canvas,
               nodeId,
               basis,

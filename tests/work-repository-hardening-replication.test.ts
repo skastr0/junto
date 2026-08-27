@@ -28,7 +28,11 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import {
-  createTaskDependencyScopeCapability,
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+  currentProjectedTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
+import {
   workRecordContentSha256,
   WorkRepository,
   WorkRepositoryLive,
@@ -63,10 +67,15 @@ const topology: CanvasDoc = {
   edges: [],
 };
 const authorialBody = JSON.stringify(topology);
-const authorialIntentSha256 = "a".repeat(64);
 const authorialDocumentSha256 = createHash("sha256")
   .update(authorialBody, "utf8")
   .digest("hex");
+const authorialIntentSha256 = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: topology, rawBody: authorialBody }],
+  ]),
+}).intentSha256;
 const projectedBody = compileStationPortfolioBody(
   new Map([["factory", topology]]),
   new Map(),
@@ -137,11 +146,18 @@ const scope = (
   nodeId: string,
   basis: IntentFactBasisValue,
 ): TaskDependencyScopeCapability =>
-  createTaskDependencyScopeCapability({
-    topology,
-    basis,
-    authoringSink: { canvasName: "factory", nodeId },
-  });
+  basis.kind === "authorial-intent"
+    ? authorialTaskTopologyCapabilityForTest({
+        basis,
+        sink: { canvasName: "factory", nodeId },
+        document: topology,
+        rawBody: authorialBody,
+      })
+    : currentProjectedTaskTopologyCapabilityForTest({
+        basis,
+        sink: { canvasName: "factory", nodeId },
+        rawBody: projectedBody,
+      });
 
 const openInstallation = async (
   local: InstallationIdValue,
@@ -430,7 +446,7 @@ describe("WorkRepository hardening across replication", () => {
     ]);
   });
 
-  it("fails closed for absent, forged, and stale dependency capabilities on commands", async () => {
+  it("fails closed for absent and wrong-sink dependency capabilities on commands", async () => {
     const ccId = installation("cc-command-capabilities");
     const remoteId = installation("remote-command-capabilities");
     const cc = await openInstallation(ccId, [remoteId], "command-center");
@@ -445,6 +461,7 @@ describe("WorkRepository hardening across replication", () => {
       cc.repository.createTask({
         sink: prerequisiteSink,
         basis: authorialBasis,
+        dependencyScope: scope(prerequisiteSink.nodeId, authorialBasis),
         task: prerequisite,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -474,18 +491,11 @@ describe("WorkRepository hardening across replication", () => {
       }),
     );
 
-    const staleBasis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
-      kind: "authorial-intent",
-      generation: "999",
-      contentSha256: "9".repeat(64),
-    });
     const authorizations: ReadonlyArray<
-      | undefined
-      | TaskDependencyScopeCapability
+      TaskDependencyScopeCapability | undefined
     > = [
       undefined,
-      Object.freeze({}) as TaskDependencyScopeCapability,
-      scope(sink.nodeId, staleBasis),
+      scope(prerequisiteSink.nodeId, authorialBasis),
     ];
     for (const [index, taskDependencyScope] of authorizations.entries()) {
       const value = task(`command-capability-${index}`, {
@@ -558,6 +568,7 @@ describe("WorkRepository hardening across replication", () => {
       cc.repository.createTask({
         sink: prerequisiteSink,
         basis: authorialBasis,
+        dependencyScope: scope(prerequisiteSink.nodeId, authorialBasis),
         task: prerequisite,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -778,6 +789,7 @@ describe("WorkRepository hardening across replication", () => {
       cc.repository.createTask({
         sink: prerequisiteSink,
         basis: authorialBasis,
+        dependencyScope: scope(prerequisiteSink.nodeId, authorialBasis),
         task: prerequisite,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -836,17 +848,11 @@ describe("WorkRepository hardening across replication", () => {
       ),
     );
 
-    const staleBasis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
-      kind: "authorial-intent",
-      generation: "999",
-      contentSha256: "9".repeat(64),
-    });
     const invalidCapabilities: ReadonlyArray<
       TaskDependencyScopeCapability | undefined
     > = [
       undefined,
-      Object.freeze({}) as TaskDependencyScopeCapability,
-      scope(dependentSink.nodeId, staleBasis),
+      scope(prerequisiteSink.nodeId, authorialBasis),
     ];
     for (const taskDependencyScope of invalidCapabilities) {
       const result = await remote.runtime.runPromise(

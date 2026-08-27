@@ -26,6 +26,10 @@ import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import type { Task, TasksSinkContract } from "../src/shared/work-model";
 import { workTaskTransition } from "../src/shared/work";
 import { buildTaskJourney } from "../src/renderer/components/work/task-journey";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const root = join(tmpdir(), `vellum-command-defect-persistence-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -40,7 +44,27 @@ let state: Context.Service.Shape<typeof StateEngine>;
 
 const observedAt = "2026-08-21T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-defect-persistence");
-const currentIntentSha256 = "e".repeat(64);
+const authorityTopology: CanvasDoc = {
+  nodes: ["s1", "s2", "s3"].map((id, index) => ({
+    id,
+    type: "text" as const,
+    x: index * 240,
+    y: 0,
+    width: 180,
+    height: 80,
+    text: id,
+    ether: { entity: { kind: "task" } },
+  })),
+  edges: [],
+};
+const authorityRawBody = JSON.stringify(authorityTopology);
+const authorityMaterial = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: authorityTopology, rawBody: authorityRawBody }],
+  ]),
+});
+const currentIntentSha256 = authorityMaterial.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -77,8 +101,12 @@ const seed = () =>
     writer.run(
       `INSERT INTO canvas_generation_documents(
          generation, name, body, sha256, modified_at
-       ) VALUES ('1', 'factory', '{}', ?, ?)`,
-      ["1".repeat(64), observedAt],
+       ) VALUES ('1', 'factory', ?, ?, ?)`,
+      [
+        authorityRawBody,
+        authorityMaterial.storedDocuments.get("factory")!.revisionSha256,
+        observedAt,
+      ],
     );
     writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
   });
@@ -281,6 +309,12 @@ describe("deep defect persistence", () => {
       repository.createTask({
         sink: s1,
         basis,
+        dependencyScope: authorialTaskTopologyCapabilityForTest({
+          basis,
+          sink: s1,
+          document: authorityTopology,
+          rawBody: authorityRawBody,
+        }),
         task: {
           id: taskId,
           state: "submitted",

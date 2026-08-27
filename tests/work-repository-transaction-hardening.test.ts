@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   WorkRepository,
   WorkRepositoryLive,
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
 } from "../src/main/vellum/work/repository";
 import {
@@ -24,6 +24,10 @@ import type {
 } from "../src/shared/work-model";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { ActorRef } from "../src/shared/work-reference";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const root = join(
   tmpdir(),
@@ -46,21 +50,6 @@ const installationId = Schema.decodeUnknownSync(InstallationId)(
 const remoteInstallationId = Schema.decodeUnknownSync(InstallationId)(
   "remote-work-transaction-hardening",
 );
-const intentSha256 = "a".repeat(64);
-const basis = Schema.decodeUnknownSync(IntentFactBasis, {
-  onExcessProperty: "error",
-})({
-  kind: "authorial-intent",
-  generation: "1",
-  contentSha256: intentSha256,
-});
-const staleBasis = Schema.decodeUnknownSync(IntentFactBasis, {
-  onExcessProperty: "error",
-})({
-  kind: "authorial-intent",
-  generation: "0",
-  contentSha256: "b".repeat(64),
-});
 const taskSinkNodeIds = [
   "tasks-scope",
   "tasks-scope-prerequisite",
@@ -118,6 +107,27 @@ const topology: CanvasDoc = {
   edges: [],
 };
 const canvasBody = JSON.stringify(topology);
+const authorityMaterial = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: topology, rawBody: canvasBody }],
+  ]),
+});
+const intentSha256 = authorityMaterial.intentSha256;
+const basis = Schema.decodeUnknownSync(IntentFactBasis, {
+  onExcessProperty: "error",
+})({
+  kind: "authorial-intent",
+  generation: "1",
+  contentSha256: intentSha256,
+});
+const staleBasis = Schema.decodeUnknownSync(IntentFactBasis, {
+  onExcessProperty: "error",
+})({
+  kind: "authorial-intent",
+  generation: "0",
+  contentSha256: intentSha256,
+});
 
 const actor = (digit: string, nodeId = `worker-${digit}`): ActorRef => ({
   seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`),
@@ -129,10 +139,11 @@ const scope = (
   nodeId: string,
   basisValue = basis,
 ): TaskDependencyScopeCapability =>
-  createTaskDependencyScopeCapability({
-    topology,
+  authorialTaskTopologyCapabilityForTest({
     basis: basisValue,
-    authoringSink: { canvasName: "factory", nodeId },
+    sink: { canvasName: "factory", nodeId },
+    document: topology,
+    rawBody: canvasBody,
   });
 
 const message = (id: string, text = id) => ({
@@ -256,14 +267,14 @@ afterAll(async () => {
 const createTask = async (
   nodeId: string,
   value: Task,
-  dependencyScope?: TaskDependencyScopeCapability,
+  dependencyScope: TaskDependencyScopeCapability = scope(nodeId),
 ) =>
   runtime.runPromise(
     repository.createTask({
       sink: sink(nodeId),
       basis,
       task: value,
-      ...(dependencyScope === undefined ? {} : { dependencyScope }),
+      dependencyScope,
       originAt: observedAt,
       receivedAt: observedAt,
     }),
@@ -318,20 +329,13 @@ const pendingCommandCount = () =>
   );
 
 describe("WorkRepository transaction hardening", () => {
-  it("requires an exact intent-bound dependency witness and never widens to the canvas", async () => {
+  it("requires an exact intent-bound dependency witness and detaches authority after mint", async () => {
     const nodeId = "tasks-scope";
     const prerequisiteNodeId = "tasks-scope-prerequisite";
     const prerequisite = task("scope-a");
     const dependent = task("scope-b", { dependsOn: [prerequisite.id] });
     await createTask(prerequisiteNodeId, prerequisite);
 
-    await expect(createTask(nodeId, dependent)).rejects.toThrow(
-      /authentic process-local scope capability/,
-    );
-    const forged = Object.freeze({}) as TaskDependencyScopeCapability;
-    await expect(
-      createTask(nodeId, dependent, forged),
-    ).rejects.toThrow(/authentic process-local scope capability/);
     await expect(
       createTask(
         nodeId,
@@ -341,9 +345,17 @@ describe("WorkRepository transaction hardening", () => {
     ).rejects.toThrow(/exact canvas and sink/);
 
     const mutableTopology = structuredClone(topology);
-    const detachedCapability = createTaskDependencyScopeCapability({
-      topology: mutableTopology,
-      basis,
+    const mutableAuthority = authorialMaterialForTest({
+      generation: basis.generation,
+      documents: new Map([
+        [
+          "factory",
+          { document: mutableTopology, rawBody: canvasBody },
+        ],
+      ]),
+    });
+    const detachedCapability = createAuthorialTaskDependencyScopeCapability({
+      authority: mutableAuthority,
       authoringSink: { canvasName: "factory", nodeId },
     });
     expect(Object.isFrozen(detachedCapability)).toBe(true);
@@ -370,6 +382,90 @@ describe("WorkRepository transaction hardening", () => {
         scope(nodeId),
       ),
     ).rejects.toThrow(/not canonical/);
+  });
+
+  it("requires exact authority for every zero-dependency Task materialization and claim", async () => {
+    const nodeId = "tasks-empty-dependencies";
+    await expect(
+      runtime.runPromise(
+        repository.createTask({
+          sink: sink(nodeId),
+          basis,
+          dependencyScope: undefined as never,
+          task: task("zero-authority-create"),
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      ),
+    ).rejects.toThrow(/authentic process-local capability/);
+
+    const claimable = task("zero-authority-claim");
+    await createTask(nodeId, claimable);
+    await expect(
+      runtime.runPromise(
+        repository.claimLocalTask({
+          sink: sink(nodeId),
+          basis,
+          dependencyScope: undefined as never,
+          taskId: claimable.id,
+          actor: actor("e"),
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      ),
+    ).rejects.toThrow(/authentic process-local capability/);
+    await expect(
+      runtime.runPromise(
+        repository.reserveRemoteTaskClaim({
+          sink: sink(nodeId),
+          basis,
+          dependencyScope: undefined as never,
+          taskId: claimable.id,
+          actor: actor("d"),
+          targetInstallationId: remoteInstallationId,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      ),
+    ).rejects.toThrow(/authentic process-local capability/);
+
+    await expect(
+      createTask(
+        nodeId,
+        task("zero-authority-structural"),
+        Object.freeze(Object.create(null)) as TaskDependencyScopeCapability,
+      ),
+    ).rejects.toThrow(/authentic process-local capability/);
+
+    const pending = proposal("zero-authority-proposal", actor("f"));
+    await createProposal(nodeId, pending);
+    const legacy = await runtime.runPromise(
+      repository.persistUnadmittedTask({
+        sink: sink(nodeId),
+        basis,
+        dependencyScope: undefined as never,
+        proposalId: pending.id,
+        home: installationId,
+      }),
+    );
+    expect(legacy).toMatchObject({
+      status: "invalid",
+      diagnostic: { code: "intent-mismatch" },
+    });
+    await expect(
+      runtime.runPromise(
+        repository.approveProposal({
+          sink: sink(nodeId),
+          basis,
+          dependencyScope: undefined as never,
+          proposalId: pending.id,
+          task: materializePendingProposal({ proposal: pending }).task,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      ),
+    ).rejects.toThrow(/authentic process-local capability/);
+    expect(await taskAt(nodeId, pending.id)).toBeUndefined();
   });
 
   it("rechecks durable admission and hold before local claim or remote reservation", async () => {
@@ -590,6 +686,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(nodeId),
         basis,
+        dependencyScope: scope(nodeId),
         proposalId: materialization.task.id,
         home: installationId,
       }),
@@ -627,6 +724,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(invalidNodeId),
         basis: staleBasis,
+        dependencyScope: scope(invalidNodeId),
         proposalId: invalidSource.id,
         home: installationId,
       }),
@@ -641,6 +739,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(invalidNodeId),
         basis,
+        dependencyScope: scope(invalidNodeId),
         proposalId: invalidSource.id,
         home: installationId,
       }),
@@ -661,6 +760,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(racedNodeId),
         basis,
+        dependencyScope: scope(racedNodeId),
         proposalId: racedSource.id,
         home: installationId,
       }),
@@ -935,6 +1035,49 @@ describe("WorkRepository transaction hardening", () => {
     }
   });
 
+  it("does not let stateful authority material downgrade the stored admission floor", async () => {
+    const nodeId = "tasks-floor-owned";
+    const value = task("floor-stateful-substitution", { admission: "auto" });
+    await createTask(nodeId, value);
+
+    const loweredTopology = structuredClone(topology);
+    const loweredNode = loweredTopology.nodes.find((node) => node.id === nodeId);
+    if (
+      loweredNode === undefined ||
+      loweredNode.type === "group" ||
+      loweredNode.ether?.tasks?.contract === undefined
+    ) {
+      throw new Error("floor substitution fixture lost its Task contract");
+    }
+    (loweredNode.ether.tasks.contract.inbound as {
+      admission: "auto" | "gated" | "operator-owned";
+    }).admission = "auto";
+    const deceptiveDocuments = new Map(authorityMaterial.documents);
+    const ordinaryGet = deceptiveDocuments.get.bind(deceptiveDocuments);
+    Object.defineProperty(deceptiveDocuments, "get", {
+      value: (name: string) =>
+        name === "factory" ? loweredTopology : ordinaryGet(name),
+    });
+    const capability = createAuthorialTaskDependencyScopeCapability({
+      authority: { ...authorityMaterial, documents: deceptiveDocuments },
+      authoringSink: sink(nodeId),
+    });
+
+    await expect(
+      runtime.runPromise(
+        repository.claimLocalTask({
+          sink: sink(nodeId),
+          basis,
+          dependencyScope: capability,
+          taskId: value.id,
+          actor: actor("d"),
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      ),
+    ).rejects.toThrow(/operator-owned/);
+  });
+
   it("notifies only after a committed material change", async () => {
     const nodeId = "tasks-notify";
     const source = proposal("notify-noops", actor("3"));
@@ -951,6 +1094,7 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
+          dependencyScope: scope(nodeId),
           proposalId: materialization.task.id,
           home: remoteInstallationId,
         }),
@@ -962,6 +1106,7 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
+          dependencyScope: scope(nodeId),
           proposalId: materialization.task.id,
         home: installationId,
         }),
@@ -973,6 +1118,7 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
+          dependencyScope: scope(nodeId),
           proposalId: materialization.task.id,
         home: installationId,
         }),
@@ -1009,6 +1155,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(proposalNodeId),
         basis,
+        dependencyScope: scope(proposalNodeId),
         proposalId: source.id,
         home: installationId,
       }),
@@ -1023,6 +1170,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(taskNodeId),
         basis,
+        dependencyScope: scope(taskNodeId),
         proposalId: taskMaterialization.task.id,
         home: installationId,
       }),
@@ -1048,6 +1196,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(taskNodeId),
         basis,
+        dependencyScope: scope(taskNodeId),
         proposalId: taskMaterialization.task.id,
         home: installationId,
       }),
@@ -1065,6 +1214,7 @@ describe("WorkRepository transaction hardening", () => {
       repository.persistUnadmittedTask({
         sink: sink(nodeId),
         basis,
+        dependencyScope: scope(nodeId),
         proposalId: corrupt.id,
         home: installationId,
       }),
@@ -1137,16 +1287,207 @@ describe("WorkRepository transaction hardening", () => {
       })),
       edges: [],
     };
+    const oversizedRawBody = JSON.stringify(oversizedTopology);
+    const oversizedAuthority = authorialMaterialForTest({
+      generation: "99",
+      documents: new Map([
+        [
+          "factory",
+          { document: oversizedTopology, rawBody: oversizedRawBody },
+        ],
+      ]),
+    });
     expect(() =>
-      createTaskDependencyScopeCapability({
-        topology: oversizedTopology,
-        basis,
+      createAuthorialTaskDependencyScopeCapability({
+        authority: oversizedAuthority,
         authoringSink: {
           canvasName: "factory",
           nodeId: "bounded-task-0",
         },
       }),
     ).toThrow(/maximum is 256/);
+  });
+
+  it("rejects altered bytes, ambiguous regions, duplicate graph identities, dangling edges, and invalid sinks", () => {
+    const taskNode = {
+      id: "authority-task",
+      type: "text" as const,
+      x: 160,
+      y: 60,
+      width: 80,
+      height: 60,
+      text: "Task",
+      ether: { entity: { kind: "task" } },
+    };
+    const otherTaskNode = { ...taskNode, id: "authority-task-other", x: 260 };
+    const group = (
+      id: string,
+      x: number,
+      width: number,
+    ): CanvasDoc["nodes"][number] => ({
+      id,
+      type: "group",
+      x,
+      y: 0,
+      width,
+      height: 180,
+      label: id,
+    });
+    const candidates: ReadonlyArray<{
+      readonly document: CanvasDoc;
+      readonly message: RegExp;
+    }> = [
+      {
+        document: {
+          nodes: [group("equal-a", 0, 500), group("equal-b", 0, 500), taskNode],
+          edges: [],
+        },
+        message: /ambiguous regions/,
+      },
+      {
+        document: {
+          nodes: [group("overlap-a", 0, 360), group("overlap-b", 100, 360), taskNode],
+          edges: [],
+        },
+        message: /ambiguous regions/,
+      },
+      {
+        document: {
+          nodes: [taskNode, { ...taskNode }],
+          edges: [],
+        },
+        message: /duplicate node id/,
+      },
+      {
+        document: {
+          nodes: [group("duplicate-group", 0, 500), group("duplicate-group", 0, 500), taskNode],
+          edges: [],
+        },
+        message: /duplicate node id/,
+      },
+      {
+        document: {
+          nodes: [taskNode, otherTaskNode],
+          edges: [
+            {
+              id: "duplicate-edge",
+              fromNode: taskNode.id,
+              toNode: otherTaskNode.id,
+              ether: { verb: "feeds" },
+            },
+            {
+              id: "duplicate-edge",
+              fromNode: taskNode.id,
+              toNode: otherTaskNode.id,
+              ether: { verb: "feeds" },
+            },
+          ],
+        },
+        message: /duplicate edge id/,
+      },
+      {
+        document: {
+          nodes: [taskNode],
+          edges: [{
+            id: "dangling",
+            fromNode: taskNode.id,
+            toNode: "missing",
+          }],
+        },
+        message: /dangling endpoint/,
+      },
+    ];
+    for (const [index, candidate] of candidates.entries()) {
+      const rawBody = JSON.stringify(candidate.document);
+      const authority = authorialMaterialForTest({
+        generation: String(200 + index),
+        documents: new Map([
+          ["factory", { document: candidate.document, rawBody }],
+        ]),
+      });
+      expect(() =>
+        createAuthorialTaskDependencyScopeCapability({
+          authority,
+          authoringSink: {
+            canvasName: "factory",
+            nodeId: taskNode.id,
+          },
+        }),
+      ).toThrow(candidate.message);
+    }
+
+    const invalidSinkDocument: CanvasDoc = {
+      nodes: [
+        taskNode,
+        {
+          id: "authority-page",
+          type: "text",
+          x: 300,
+          y: 60,
+          width: 80,
+          height: 60,
+          text: "Page",
+          ether: { entity: { kind: "page" } },
+        },
+      ],
+      edges: [],
+    };
+    const invalidSinkRawBody = JSON.stringify(invalidSinkDocument);
+    const invalidSinkAuthority = authorialMaterialForTest({
+      generation: "300",
+      documents: new Map([
+        [
+          "factory",
+          { document: invalidSinkDocument, rawBody: invalidSinkRawBody },
+        ],
+      ]),
+    });
+    for (const nodeId of ["missing-task", "authority-page"]) {
+      expect(() =>
+        createAuthorialTaskDependencyScopeCapability({
+          authority: invalidSinkAuthority,
+          authoringSink: { canvasName: "factory", nodeId },
+        }),
+      ).toThrow(/missing or is not an actual Task sink/);
+    }
+
+    const exactDocument: CanvasDoc = { nodes: [taskNode], edges: [] };
+    const exactRawBody = JSON.stringify(exactDocument);
+    const exactAuthority = authorialMaterialForTest({
+      generation: "301",
+      documents: new Map([
+        ["factory", { document: exactDocument, rawBody: exactRawBody }],
+      ]),
+    });
+    const exactStored = exactAuthority.storedDocuments.get("factory")!;
+    expect(() =>
+      createAuthorialTaskDependencyScopeCapability({
+        authority: {
+          ...exactAuthority,
+          storedDocuments: new Map([
+            ["factory", { ...exactStored, rawBody: `${exactRawBody} ` }],
+          ]),
+        },
+        authoringSink: { canvasName: "factory", nodeId: taskNode.id },
+      }),
+    ).toThrow(/raw body hash mismatch/);
+
+    const alteredDocument: CanvasDoc = {
+      nodes: [{ ...taskNode, x: taskNode.x + 1 }],
+      edges: [],
+    };
+    const semanticMismatch = authorialMaterialForTest({
+      generation: "302",
+      documents: new Map([
+        ["factory", { document: alteredDocument, rawBody: exactRawBody }],
+      ]),
+    });
+    expect(() =>
+      createAuthorialTaskDependencyScopeCapability({
+        authority: semanticMismatch,
+        authoringSink: { canvasName: "factory", nodeId: taskNode.id },
+      }),
+    ).toThrow(/semantic document mismatch/);
   });
 
   it("refuses legacy materialization when the local Work authority is Remote", async () => {
@@ -1172,6 +1513,7 @@ describe("WorkRepository transaction hardening", () => {
         repository.persistUnadmittedTask({
           sink: sink(nodeId),
           basis,
+          dependencyScope: scope(nodeId),
           proposalId: materialization.task.id,
         home: installationId,
         }),

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   WorkRepository,
   WorkRepositoryLive,
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
 } from "../src/main/vellum/work/repository";
 import {
@@ -21,6 +21,7 @@ import { taskDepStatus, taskIsClaimReady } from "../src/shared/task-deps";
 import type { Task } from "../src/shared/work-model";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { ActorRef } from "../src/shared/work-reference";
+import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 
 const root = join(
   tmpdir(),
@@ -40,7 +41,86 @@ const observedAt = "2026-08-26T14:00:00.000Z";
 const installationId = Schema.decodeUnknownSync(InstallationId)(
   "cc-gated-task-deps",
 );
-const intentSha256 = "e".repeat(64);
+
+type TestSink = {
+  readonly canvasName: string;
+  readonly nodeId: string;
+};
+
+const taskSinkNode = (nodeId: string, x = 0, y = 40) => ({
+  id: nodeId,
+  type: "text" as const,
+  x,
+  y,
+  width: 180,
+  height: 80,
+  text: nodeId,
+  ether: { entity: { kind: "task", name: nodeId } },
+});
+
+const authorityTopology = Schema.decodeUnknownSync(CanvasDoc, {
+  onExcessProperty: "error",
+})({
+  nodes: [
+    {
+      id: "region-scope-together",
+      type: "group",
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 180,
+      label: "Scope together",
+    },
+    {
+      id: "region-scope-cross",
+      type: "group",
+      x: 600,
+      y: 0,
+      width: 220,
+      height: 180,
+      label: "Scope cross",
+    },
+    taskSinkNode("tasks-scope-prerequisite", 20),
+    taskSinkNode("tasks-scope-same-region", 260),
+    taskSinkNode("tasks-scope-cross-region", 620),
+    {
+      id: "region-remote-together",
+      type: "group",
+      x: 0,
+      y: 300,
+      width: 500,
+      height: 180,
+      label: "Remote together",
+    },
+    {
+      id: "region-remote-cross",
+      type: "group",
+      x: 600,
+      y: 300,
+      width: 220,
+      height: 180,
+      label: "Remote cross",
+    },
+    taskSinkNode("tasks-remote-prerequisite", 20, 340),
+    taskSinkNode("tasks-remote-same-region", 260, 340),
+    taskSinkNode("tasks-remote-cross-region", 620, 340),
+    taskSinkNode("tasks-a-first", 1_000, 40),
+    taskSinkNode("tasks-b-first", 1_220, 40),
+    taskSinkNode("tasks-rejected", 1_440, 40),
+  ],
+  edges: [],
+});
+const authorityRawBody = JSON.stringify(authorityTopology);
+const authorityMaterial = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    [
+      "factory",
+      { document: authorityTopology, rawBody: authorityRawBody },
+    ],
+  ]),
+});
+const intentSha256 = authorityMaterial.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -49,42 +129,11 @@ const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   contentSha256: intentSha256,
 });
 
-type TestSink = {
-  readonly canvasName: string;
-  readonly nodeId: string;
-};
-
-const taskSinkNode = (nodeId: string, x = 0) => ({
-  id: nodeId,
-  type: "text" as const,
-  x,
-  y: 40,
-  width: 180,
-  height: 80,
-  text: nodeId,
-  ether: { entity: { kind: "task", name: nodeId } },
-});
-
-
-const dependencyScopeFrom = (
-  sink: TestSink,
-  topology: Parameters<
-    typeof createTaskDependencyScopeCapability
-  >[0]["topology"],
-): TaskDependencyScopeCapability =>
-  createTaskDependencyScopeCapability({
-    topology,
-    basis,
+const dependencyScope = (sink: TestSink): TaskDependencyScopeCapability =>
+  createAuthorialTaskDependencyScopeCapability({
+    authority: authorityMaterial,
     authoringSink: sink,
   });
-
-const dependencyScope = (sink: TestSink): TaskDependencyScopeCapability =>
-  dependencyScopeFrom(
-    sink,
-    Schema.decodeUnknownSync(CanvasDoc, {
-      onExcessProperty: "error",
-    })({ nodes: [taskSinkNode(sink.nodeId)], edges: [] }),
-  );
 
 const seed = () =>
   state.transaction("test.seed", (writer) => {
@@ -114,8 +163,12 @@ const seed = () =>
     writer.run(
       `INSERT INTO canvas_generation_documents(
          generation, name, body, sha256, modified_at
-       ) VALUES ('1', 'factory', '{}', ?, ?)`,
-      ["1".repeat(64), observedAt],
+       ) VALUES ('1', 'factory', ?, ?, ?)`,
+      [
+        authorityRawBody,
+        authorityMaterial.storedDocuments.get("factory")!.revisionSha256,
+        observedAt,
+      ],
     );
     writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
   });
@@ -331,43 +384,6 @@ describe("operator-gated Task dependency persistence", () => {
       canvasName: "factory",
       nodeId: "tasks-scope-cross-region",
     };
-    const sameRegionTopology = Schema.decodeUnknownSync(CanvasDoc, {
-      onExcessProperty: "error",
-    })({
-      nodes: [
-        taskSinkNode(prerequisiteSink.nodeId, 20),
-        taskSinkNode(sameRegionSink.nodeId, 260),
-      ],
-      edges: [],
-    });
-    const crossRegionTopology = Schema.decodeUnknownSync(CanvasDoc, {
-      onExcessProperty: "error",
-    })({
-      nodes: [
-        {
-          id: "region-prerequisite",
-          type: "group",
-          x: 0,
-          y: 0,
-          width: 220,
-          height: 180,
-          label: "Prerequisite",
-        },
-        {
-          id: "region-cross",
-          type: "group",
-          x: 260,
-          y: 0,
-          width: 220,
-          height: 180,
-          label: "Cross",
-        },
-        taskSinkNode(prerequisiteSink.nodeId, 20),
-        taskSinkNode(crossRegionSink.nodeId, 280),
-      ],
-      edges: [],
-    });
-
     const prerequisite = task("task-scope-prerequisite", worker);
     await runtime.runPromise(
       repository.createTask({
@@ -389,10 +405,7 @@ describe("operator-gated Task dependency persistence", () => {
       repository.createTask({
         sink: sameRegionSink,
         basis,
-        dependencyScope: dependencyScopeFrom(
-          sameRegionSink,
-          sameRegionTopology,
-        ),
+        dependencyScope: dependencyScope(sameRegionSink),
         task: sameRegion,
         originAt: observedAt,
         receivedAt: observedAt,
@@ -410,11 +423,63 @@ describe("operator-gated Task dependency persistence", () => {
         repository.createTask({
           sink: crossRegionSink,
           basis,
-          dependencyScope: dependencyScopeFrom(
-            crossRegionSink,
-            crossRegionTopology,
-          ),
+          dependencyScope: dependencyScope(crossRegionSink),
           task: crossRegion,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      ),
+    ).rejects.toThrow(/references missing task/);
+  });
+
+  it("does not let stateful authority material substitute the current region scope", async () => {
+    const worker = actor("8");
+    const prerequisiteSink = {
+      canvasName: "factory",
+      nodeId: "tasks-scope-prerequisite",
+    };
+    const dependentSink = {
+      canvasName: "factory",
+      nodeId: "tasks-scope-cross-region",
+    };
+    const prerequisite = task("task-stateful-region-prerequisite", worker);
+    await runtime.runPromise(
+      repository.createTask({
+        sink: prerequisiteSink,
+        basis,
+        dependencyScope: dependencyScope(prerequisiteSink),
+        task: prerequisite,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+
+    const fabricatedTopology: CanvasDoc = {
+      nodes: authorityTopology.nodes.filter((node) => node.type !== "group"),
+      edges: authorityTopology.edges,
+    };
+    const deceptiveDocuments = new Map(authorityMaterial.documents);
+    const ordinaryGet = deceptiveDocuments.get.bind(deceptiveDocuments);
+    Object.defineProperty(deceptiveDocuments, "get", {
+      value: (name: string) =>
+        name === "factory" ? fabricatedTopology : ordinaryGet(name),
+    });
+    const capability = createAuthorialTaskDependencyScopeCapability({
+      authority: { ...authorityMaterial, documents: deceptiveDocuments },
+      authoringSink: dependentSink,
+    });
+
+    await expect(
+      runtime.runPromise(
+        repository.createTask({
+          sink: dependentSink,
+          basis,
+          dependencyScope: capability,
+          task: task(
+            "task-stateful-region-dependent",
+            worker,
+            [prerequisite.id],
+          ),
           originAt: observedAt,
           receivedAt: observedAt,
         }),
@@ -435,43 +500,6 @@ describe("operator-gated Task dependency persistence", () => {
       canvasName: "factory",
       nodeId: "tasks-remote-cross-region",
     };
-    const broadTopology = Schema.decodeUnknownSync(CanvasDoc, {
-      onExcessProperty: "error",
-    })({
-      nodes: [
-        taskSinkNode(prerequisiteSink.nodeId, 20),
-        taskSinkNode(sameRegionSink.nodeId, 260),
-        taskSinkNode(crossRegionSink.nodeId, 500),
-      ],
-      edges: [],
-    });
-    const crossRegionTopology = Schema.decodeUnknownSync(CanvasDoc, {
-      onExcessProperty: "error",
-    })({
-      nodes: [
-        {
-          id: "remote-region-prerequisite",
-          type: "group",
-          x: 0,
-          y: 0,
-          width: 220,
-          height: 180,
-          label: "Prerequisite",
-        },
-        {
-          id: "remote-region-cross",
-          type: "group",
-          x: 480,
-          y: 0,
-          width: 220,
-          height: 180,
-          label: "Cross",
-        },
-        taskSinkNode(prerequisiteSink.nodeId, 20),
-        taskSinkNode(crossRegionSink.nodeId, 500),
-      ],
-      edges: [],
-    });
     const prerequisite = task(
       "task-remote-prerequisite",
       actor("a"),
@@ -481,22 +509,15 @@ describe("operator-gated Task dependency persistence", () => {
       actor("b"),
       [prerequisite.id],
     );
-    const crossRegion = task(
-      "task-remote-cross-region",
-      actor("c"),
-      [prerequisite.id],
-    );
-
     for (const [sink, current] of [
       [prerequisiteSink, prerequisite],
       [sameRegionSink, sameRegion],
-      [crossRegionSink, crossRegion],
     ] as const) {
       await runtime.runPromise(
         repository.createTask({
           sink,
           basis,
-          dependencyScope: dependencyScopeFrom(sink, broadTopology),
+          dependencyScope: dependencyScope(sink),
           task: current,
           originAt: observedAt,
           receivedAt: observedAt,
@@ -516,10 +537,7 @@ describe("operator-gated Task dependency persistence", () => {
       repository.claimLocalTask({
         sink: prerequisiteSink,
         basis,
-        dependencyScope: dependencyScopeFrom(
-          prerequisiteSink,
-          broadTopology,
-        ),
+        dependencyScope: dependencyScope(prerequisiteSink),
         taskId: prerequisite.id,
         actor: actor("0"),
         originAt: observedAt,
@@ -554,10 +572,7 @@ describe("operator-gated Task dependency persistence", () => {
       repository.reserveRemoteTaskClaim({
         sink: sameRegionSink,
         basis,
-        dependencyScope: dependencyScopeFrom(
-          sameRegionSink,
-          broadTopology,
-        ),
+        dependencyScope: dependencyScope(sameRegionSink),
         taskId: sameRegion.id,
         actor: actor("1"),
         targetInstallationId: remoteInstallation,
@@ -574,20 +589,17 @@ describe("operator-gated Task dependency persistence", () => {
     await expect(
       runtime.runPromise(
         repository.reserveRemoteTaskClaim({
-          sink: crossRegionSink,
+          sink: sameRegionSink,
           basis,
-          dependencyScope: dependencyScopeFrom(
-            crossRegionSink,
-            crossRegionTopology,
-          ),
-          taskId: crossRegion.id,
+          dependencyScope: dependencyScope(crossRegionSink),
+          taskId: sameRegion.id,
           actor: actor("2"),
           targetInstallationId: remoteInstallation,
           originAt: observedAt,
           receivedAt: observedAt,
         }),
       ),
-    ).rejects.toThrow(/unsatisfied dependsOn/);
+    ).rejects.toThrow(/exact canvas and sink/);
   });
 
   it("derives rejection as a broken root and leaves the dependent unchanged", async () => {

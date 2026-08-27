@@ -105,7 +105,8 @@ import {
   WorkService,
 } from "../src/main/vellum/work/service";
 import {
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
+  createCurrentProjectedTaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkAuthorityError,
   WorkRepository,
@@ -217,6 +218,30 @@ const activeIntentBasis = async (
   return Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
     kind,
     ...witness,
+  });
+};
+
+const currentTaskTopologyCapability = async (
+  harness: InstallationHarness,
+  kind: "authorial-intent" | "projected-intent",
+  sink: { readonly canvasName: string; readonly nodeId: string },
+) => {
+  if (kind === "authorial-intent") {
+    const authority = await harness.runtime.runPromise(
+      harness.canvases.authorityMaterialSnapshot(),
+    );
+    return createAuthorialTaskDependencyScopeCapability({
+      authority,
+      authoringSink: sink,
+    });
+  }
+  const projection = await harness.runtime.runPromise(harness.station.projection);
+  if (projection === undefined) throw new Error("missing Remote projection");
+  return createCurrentProjectedTaskDependencyScopeCapability({
+    rawBody: projection.body,
+    generation: projection.generation,
+    contentSha256: projection.contentSha256,
+    authoringSink: sink,
   });
 };
 
@@ -811,29 +836,27 @@ describe("Station work authority survives Command Center downtime", () => {
       remote,
       "projected-intent",
     );
-    const commandCenterAuthorial = await commandCenter.runtime.runPromise(
-      commandCenter.canvases.readNodeStructure(
-        sink.canvasName,
-        sink.nodeId,
-      ),
+    const commandCenterAuthority = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.authorityMaterialSnapshot(),
     );
-    const remoteProjected = await remote.runtime.runPromise(
-      remote.canvases.readNodeStructure(sink.canvasName, sink.nodeId),
+    const remoteProjection = await remote.runtime.runPromise(
+      remote.station.projection,
     );
-    if (commandCenterAuthorial === undefined || remoteProjected === undefined) {
-      throw new Error("expected the shared Task sink in both live intent topologies");
+    if (remoteProjection === undefined) {
+      throw new Error("expected an installed Remote projection");
     }
     const commandCenterDependencyScope =
-      createTaskDependencyScopeCapability({
-        topology: commandCenterAuthorial.structure,
-        basis: commandCenterBasis,
+      createAuthorialTaskDependencyScopeCapability({
+        authority: commandCenterAuthority,
         authoringSink: sink,
       });
-    const remoteDependencyScope = createTaskDependencyScopeCapability({
-      topology: remoteProjected.structure,
-      basis: remoteBasis,
-      authoringSink: sink,
-    });
+    const remoteDependencyScope =
+      createCurrentProjectedTaskDependencyScopeCapability({
+        rawBody: remoteProjection.body,
+        generation: remoteProjection.generation,
+        contentSha256: remoteProjection.contentSha256,
+        authoringSink: sink,
+      });
     await commandCenter.runtime.runPromise(
       commandCenter.work.createTask({
         sink,
@@ -850,6 +873,7 @@ describe("Station work authority survives Command Center downtime", () => {
           ],
         },
         basis: commandCenterBasis,
+        dependencyScope: commandCenterDependencyScope,
         originAt: now,
         receivedAt: now,
       }),
@@ -870,6 +894,7 @@ describe("Station work authority survives Command Center downtime", () => {
           ],
         },
         basis: commandCenterBasis,
+        dependencyScope: commandCenterDependencyScope,
         originAt: now,
         receivedAt: now,
       }),
@@ -2449,11 +2474,17 @@ describe("Station work authority survives Command Center downtime", () => {
     });
     const basis = await activeIntentBasis(remote, "projected-intent");
     const sink = { canvasName: "factory", nodeId: "remote-tasks" };
+    const dependencyScope = await currentTaskTopologyCapability(
+      remote,
+      "projected-intent",
+      sink,
+    );
     const taskId = "actorless-retained-task";
     await remote.runtime.runPromise(
       remote.work.createTask({
         sink,
         basis,
+        dependencyScope,
         task: {
           id: taskId,
           state: "submitted",
@@ -2559,12 +2590,18 @@ describe("Station work authority survives Command Center downtime", () => {
     );
     const remoteBasis = await activeIntentBasis(remote, "projected-intent");
     const sink = { canvasName: "factory", nodeId: "remote-tasks" };
+    const dependencyScope = await currentTaskTopologyCapability(
+      remote,
+      "projected-intent",
+      sink,
+    );
     for (let index = 1; index <= 257; index += 1) {
       const taskId = `prefix-task-${index}`;
       await remote.runtime.runPromise(
         remote.work.createTask({
           sink,
           basis: remoteBasis,
+          dependencyScope,
           task: {
             id: taskId,
             state: "submitted",

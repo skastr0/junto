@@ -51,11 +51,16 @@ import {
 } from "@shared/station";
 import {
   CanvasesService,
+  type CanvasAuthorityMaterialSnapshot,
   type CanvasError,
 } from "../canvases";
 import {
   WorkRepository,
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
+  createCurrentProjectedTaskDependencyScopeCapability,
+  createRetainedProjectedTaskDependencyScopeCapability,
+  taskDependencyScopeCapabilityAllowsActor,
+  taskDependencyScopeCapabilitySinkHostId,
   type AcceptRecordsResult,
   type TaskDependencyScopeCapability,
   type WorkAuthorityError,
@@ -161,6 +166,18 @@ export type ReportIntegrationResult = {
   readonly peerHasMore: boolean;
 };
 
+type CapturedTaskTopologyMaterial =
+  | {
+      readonly kind: "authorial-current";
+      readonly authority: CanvasAuthorityMaterialSnapshot;
+    }
+  | {
+      readonly kind: "projected-current" | "projected-retained";
+      readonly rawBody: string;
+      readonly generation: string;
+      readonly contentSha256: string;
+    };
+
 type CapturedWorkTopology = {
   readonly localInstallationId: InstallationIdValue;
   readonly peerInstallationId: InstallationIdValue;
@@ -168,6 +185,8 @@ type CapturedWorkTopology = {
   readonly localHostId: string;
   /** Exact coherent current/retained intent identity; never Station wire data. */
   readonly intentBasis?: IntentFactBasisValue;
+  /** Raw/stored topology authority stays process-local and never enters wire data. */
+  readonly taskTopologyMaterial: CapturedTaskTopologyMaterial;
   readonly documents: ReadonlyMap<string, CanvasDoc>;
   readonly actorSeats: ReadonlyArray<ProjectedActorSeat>;
   readonly installationByHostId: ReadonlyMap<string, InstallationIdValue>;
@@ -411,42 +430,86 @@ const admitDependencyScope = (
   sink: SinkRef,
   basis: IntentFactBasisValue | undefined,
 ): WorkCommandAuthorization => {
-  if (basis === undefined) {
+  const material = topology.taskTopologyMaterial;
+  if (basis === undefined || material === undefined) {
     return rejected(
       "projection-conflict",
-      "dependent Work admission has no exact captured intent basis",
-    );
-  }
-  const document = topology.documents.get(sink.canvasName);
-  if (document === undefined) {
-    return rejected(
-      "projection-conflict",
-      `canvas ${JSON.stringify(sink.canvasName)} is absent from captured intent`,
+      "Task topology admission has no exact captured intent material",
     );
   }
   try {
-    return admitted(
-      createTaskDependencyScopeCapability({
-        topology: document,
-        basis,
-        authoringSink: sink,
-      }),
-    );
+    let capability: TaskDependencyScopeCapability;
+    switch (material.kind) {
+      case "authorial-current": {
+        const materialBasis = capturedIntentBasis(
+          "authorial-intent",
+          material.authority.generation,
+          material.authority.intentSha256,
+        );
+        if (!sameIntentBasis(materialBasis, basis)) {
+          return rejected(
+            "projection-conflict",
+            "authorial Task topology material differs from its captured basis",
+          );
+        }
+        capability = createAuthorialTaskDependencyScopeCapability({
+          authority: material.authority,
+          authoringSink: sink,
+        });
+        break;
+      }
+      case "projected-current":
+      case "projected-retained": {
+        const materialBasis = capturedIntentBasis(
+          "projected-intent",
+          material.generation,
+          material.contentSha256,
+        );
+        if (!sameIntentBasis(materialBasis, basis)) {
+          return rejected(
+            "projection-conflict",
+            "projected Task topology material differs from its captured basis",
+          );
+        }
+        const input = {
+          rawBody: material.rawBody,
+          generation: material.generation,
+          contentSha256: material.contentSha256,
+          authoringSink: sink,
+        };
+        capability = material.kind === "projected-current"
+          ? createCurrentProjectedTaskDependencyScopeCapability(input)
+          : createRetainedProjectedTaskDependencyScopeCapability(input);
+        break;
+      }
+    }
+    return admitted(capability);
   } catch (error) {
     return rejected(
       "projection-conflict",
-      `dependent Work scope is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      `Task topology authority is unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 };
+
+const commandRequiresTaskTopology = (command: WorkCommand): boolean =>
+  command.body.operation === "proposal.approve" ||
+  command.body.operation === "task.create" ||
+  command.body.operation === "task.claim" ||
+  (commandDependencies(command)?.length ?? 0) > 0;
+
+const factRequiresTaskTopology = (fact: WorkFact): boolean =>
+  fact.body.operation === "proposal.approve" ||
+  fact.body.operation === "task.create" ||
+  fact.body.operation === "task.claim" ||
+  (factDependencies(fact)?.length ?? 0) > 0;
 
 const decorateCommandDependencyScope = (
   topology: CapturedWorkTopology,
   command: WorkCommand,
   authorization: WorkCommandAuthorization,
 ): WorkCommandAuthorization =>
-  authorization._tag === "rejected" ||
-      (commandDependencies(command)?.length ?? 0) === 0
+  authorization._tag === "rejected" || !commandRequiresTaskTopology(command)
     ? authorization
     : admitDependencyScope(topology, command.item.sink, topology.intentBasis);
 
@@ -455,10 +518,7 @@ const decorateFactDependencyScope = (
   fact: WorkFact,
   authorization: WorkFactAuthorization,
 ): WorkFactAuthorization => {
-  if (
-    authorization._tag === "rejected" ||
-    (factDependencies(fact)?.length ?? 0) === 0
-  ) {
+  if (authorization._tag === "rejected" || !factRequiresTaskTopology(fact)) {
     return authorization;
   }
   if (fact.basis.kind === "command") {
@@ -472,7 +532,7 @@ const decorateFactDependencyScope = (
   ) {
     return rejected(
       "projection-conflict",
-      "dependent fact does not name the exact captured intent basis",
+      "Task topology fact does not name the exact captured intent basis",
     );
   }
   return admitDependencyScope(topology, fact.item.sink, topology.intentBasis);
@@ -621,21 +681,142 @@ const authorizeActor = (
       );
 };
 
-const sinkAuthority = (
+const sinkAuthorityForHostId = (
   topology: CapturedWorkTopology,
-  sink: CanvasNode,
+  hostId: string,
 ): InstallationIdValue | undefined => {
-  const hostId = resolveNodeHostId(sink);
   const exact = topology.installationByHostId.get(hostId);
   if (exact !== undefined) return exact;
 
   // A Remote intentionally receives no peer-Remote topology. Under its
   // complete projection, the only non-local authority it may accept records
   // from is its paired Command Center.
-  return topology.localRole === "remote" &&
-      hostId !== topology.localHostId
+  return topology.localRole === "remote" && hostId !== topology.localHostId
     ? topology.peerInstallationId
     : undefined;
+};
+
+const sinkAuthority = (
+  topology: CapturedWorkTopology,
+  sink: CanvasNode,
+): InstallationIdValue | undefined =>
+  sinkAuthorityForHostId(topology, resolveNodeHostId(sink));
+
+const validateTaskTopologyCommand = (
+  topology: CapturedWorkTopology,
+  command: WorkCommand,
+  authorization: WorkCommandAuthorization,
+): WorkCommandAuthorization => {
+  if (
+    authorization._tag === "rejected" ||
+    (command.body.operation !== "task.create" &&
+      command.body.operation !== "task.claim")
+  ) {
+    return authorization;
+  }
+  const capability = authorization.taskDependencyScope;
+  if (capability === undefined) {
+    return rejected(
+      "projection-conflict",
+      "Task command admission has no exact topology capability",
+    );
+  }
+  const hostId = taskDependencyScopeCapabilitySinkHostId(
+    capability,
+    command.item.sink,
+  );
+  if (hostId === undefined) {
+    return rejected(
+      "projection-conflict",
+      "Task command sink is absent from authenticated topology",
+    );
+  }
+  const expectedAuthority = command.body.operation === "task.claim"
+    ? command.body.sourceQueueHome
+    : topology.localInstallationId;
+  if (sinkAuthorityForHostId(topology, hostId) !== expectedAuthority) {
+    return rejected(
+      "locality-mismatch",
+      "Task command sink locality differs from authenticated topology",
+    );
+  }
+  const actor = command.body.operation === "task.claim"
+    ? command.body.actor
+    : command.body.task.raisedBy;
+  const grant = command.body.operation === "task.claim"
+    ? "tasks.claim" as const
+    : "tasks.create" as const;
+  if (
+    actor !== undefined &&
+    !taskDependencyScopeCapabilityAllowsActor(
+      capability,
+      command.item.sink,
+      actor.nodeId,
+      grant,
+    )
+  ) {
+    return rejected(
+      "capability-denied",
+      `Task command actor lacks authenticated ${grant} authority`,
+    );
+  }
+  return authorization;
+};
+
+const validateTaskTopologyFact = (
+  topology: CapturedWorkTopology,
+  fact: WorkFact,
+  authorization: WorkFactAuthorization,
+): WorkFactAuthorization => {
+  if (
+    authorization._tag === "rejected" ||
+    fact.basis.kind === "command" ||
+    (fact.body.operation !== "task.create" &&
+      fact.body.operation !== "task.claim")
+  ) {
+    return authorization;
+  }
+  const capability = authorization.taskDependencyScope;
+  if (capability === undefined) {
+    return rejected(
+      "projection-conflict",
+      "explicit Task fact admission has no exact topology capability",
+    );
+  }
+  const hostId = taskDependencyScopeCapabilitySinkHostId(
+    capability,
+    fact.item.sink,
+  );
+  if (
+    hostId === undefined ||
+    sinkAuthorityForHostId(topology, hostId) !== fact.id.route.eventHome
+  ) {
+    return rejected(
+      "locality-mismatch",
+      "explicit Task fact sink locality differs from authenticated topology",
+    );
+  }
+  const actor = fact.body.operation === "task.claim"
+    ? fact.body.claimedBy
+    : fact.body.task.raisedBy;
+  const grant = fact.body.operation === "task.claim"
+    ? "tasks.claim" as const
+    : "tasks.create" as const;
+  if (
+    actor !== undefined &&
+    !taskDependencyScopeCapabilityAllowsActor(
+      capability,
+      fact.item.sink,
+      actor.nodeId,
+      grant,
+    )
+  ) {
+    return rejected(
+      "capability-denied",
+      `explicit Task fact actor lacks authenticated ${grant} authority`,
+    );
+  }
+  return authorization;
 };
 
 const actorFromFact = (
@@ -1039,10 +1220,14 @@ export const makeStationWorkAdmission = (
   const authorizeCommand = (
     command: WorkCommand,
   ): WorkCommandAuthorization =>
-    decorateCommandDependencyScope(
+    validateTaskTopologyCommand(
       topology,
       command,
-      authorizeCommandGeometry(command),
+      decorateCommandDependencyScope(
+        topology,
+        command,
+        authorizeCommandGeometry(command),
+      ),
     );
 
   const authorizeFact = (fact: WorkFact): WorkFactAuthorization => {
@@ -1052,10 +1237,14 @@ export const makeStationWorkAdmission = (
     if (fact.basis.kind === "command") {
       return authorizeFactRoute(topology, fact);
     }
-    return decorateFactDependencyScope(
+    return validateTaskTopologyFact(
       topology,
       fact,
-      authorizeFactGeometry(fact),
+      decorateFactDependencyScope(
+        topology,
+        fact,
+        authorizeFactGeometry(fact),
+      ),
     );
   };
 
@@ -1116,6 +1305,12 @@ const topologyFromHistoricalProjection = (
     return {
       ...current,
       intentBasis,
+      taskTopologyMaterial: {
+        kind: "projected-retained" as const,
+        rawBody: body,
+        generation: intentBasis.generation,
+        contentSha256: intentBasis.contentSha256,
+      },
       documents: portfolio.documents,
       actorSeats: portfolio.actorSeats,
       installationByHostId,
@@ -1555,6 +1750,12 @@ const captureTopology = (
           projection.generation,
           projection.contentSha256,
         ),
+        taskTopologyMaterial: {
+          kind: "projected-current",
+          rawBody: projection.body,
+          generation: projection.generation,
+          contentSha256: projection.contentSha256,
+        },
         documents: portfolio.documents,
         actorSeats: portfolio.actorSeats,
         installationByHostId,
@@ -1562,7 +1763,7 @@ const captureTopology = (
     }
 
     const [authority, targets] = yield* Effect.all([
-      canvases.authoritySnapshot(),
+      canvases.authorityMaterialSnapshot(),
       fleetTargets.list,
     ]);
     const installationByHostId =
@@ -1624,6 +1825,10 @@ const captureTopology = (
         authority.generation,
         authority.intentSha256,
       ),
+      taskTopologyMaterial: {
+        kind: "authorial-current",
+        authority,
+      },
       documents: authority.documents,
       actorSeats,
       installationByHostId,

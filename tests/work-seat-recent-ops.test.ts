@@ -21,7 +21,7 @@ import {
   WORK_SEAT_RECENT_OP_MAX_LIMIT,
 } from "../src/shared/work-recent-ops";
 import {
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -29,6 +29,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
+import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 
 const canvasName = "factory";
 const otherCanvasName = "other-factory";
@@ -82,7 +83,17 @@ const emptyCanvasBody = JSON.stringify({ nodes: [], edges: [] });
 const emptyCanvasSha256 = createHash("sha256")
   .update(emptyCanvasBody, "utf8")
   .digest("hex");
-const intentSha256 = "a".repeat(64);
+const authorialMaterial = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    [canvasName, { document: factoryTopology, rawBody: factoryCanvasBody }],
+    [
+      otherCanvasName,
+      { document: { nodes: [], edges: [] }, rawBody: emptyCanvasBody },
+    ],
+  ]),
+});
+const intentSha256 = authorialMaterial.intentSha256;
 
 const openRepository = async (
   local: InstallationIdValue,
@@ -272,6 +283,10 @@ describe("WorkRepository recent actor-seat operations", () => {
       repository.createTask({
         sink: taskSink,
         basis,
+        dependencyScope: createAuthorialTaskDependencyScopeCapability({
+          authority: authorialMaterial,
+          authoringSink: taskSink,
+        }),
         task: {
           id: "task-1",
           state: "submitted",
@@ -285,9 +300,8 @@ describe("WorkRepository recent actor-seat operations", () => {
       repository.claimLocalTask({
         sink: taskSink,
         basis,
-        dependencyScope: createTaskDependencyScopeCapability({
-          topology: factoryTopology,
-          basis,
+        dependencyScope: createAuthorialTaskDependencyScopeCapability({
+          authority: authorialMaterial,
           authoringSink: taskSink,
         }),
         taskId: "task-1",

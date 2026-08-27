@@ -45,7 +45,7 @@ import {
   type StateRow,
 } from "../src/main/vellum/state/engine";
 import {
-  createTaskDependencyScopeCapability,
+  createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -1106,10 +1106,18 @@ describe("StationRepository", () => {
       canvasName: "factory",
       nodeId: "artifacts",
     };
+    const dependencyScope =
+      createCurrentProjectedTaskDependencyScopeCapability({
+        rawBody: initial.projection.body,
+        generation: initial.projection.generation,
+        contentSha256: initial.projection.contentSha256,
+        authoringSink: tasks,
+      });
     const created = await runtime.runPromise(
       work.createTask({
         sink: tasks,
         basis,
+        dependencyScope,
         task: {
           id: "remote-task",
           state: "submitted",
@@ -1123,11 +1131,7 @@ describe("StationRepository", () => {
       work.claimLocalTask({
         sink: tasks,
         basis,
-        dependencyScope: createTaskDependencyScopeCapability({
-          topology: initialDocument,
-          basis,
-          authoringSink: tasks,
-        }),
+        dependencyScope,
         taskId: created.value.id,
         actor,
         originAt: "2026-07-27T12:03:00.000Z",

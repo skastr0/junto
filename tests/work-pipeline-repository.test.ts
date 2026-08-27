@@ -20,7 +20,12 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
+import type { CanvasDoc } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const root = join(tmpdir(), `vellum-command-pipeline-repo-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -35,7 +40,27 @@ let state: Context.Service.Shape<typeof StateEngine>;
 
 const observedAt = "2026-08-20T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-pipeline-repo");
-const currentIntentSha256 = "d".repeat(64);
+const authorityTopology: CanvasDoc = {
+  nodes: ["stage-1", "stage-2"].map((id, index) => ({
+    id,
+    type: "text" as const,
+    x: index * 240,
+    y: 0,
+    width: 180,
+    height: 80,
+    text: id,
+    ether: { entity: { kind: "task" } },
+  })),
+  edges: [],
+};
+const authorityRawBody = JSON.stringify(authorityTopology);
+const authorityMaterial = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: authorityTopology, rawBody: authorityRawBody }],
+  ]),
+});
+const currentIntentSha256 = authorityMaterial.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -43,6 +68,13 @@ const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   generation: "1",
   contentSha256: currentIntentSha256,
 });
+const dependencyScope = (sink: { canvasName: string; nodeId: string }) =>
+  authorialTaskTopologyCapabilityForTest({
+    basis,
+    sink,
+    document: authorityTopology,
+    rawBody: authorityRawBody,
+  });
 
 const seed = () =>
   state.transaction("test.seed", (writer) => {
@@ -72,8 +104,12 @@ const seed = () =>
     writer.run(
       `INSERT INTO canvas_generation_documents(
          generation, name, body, sha256, modified_at
-       ) VALUES ('1', 'factory', '{}', ?, ?)`,
-      ["1".repeat(64), observedAt],
+       ) VALUES ('1', 'factory', ?, ?, ?)`,
+      [
+        authorityRawBody,
+        authorityMaterial.storedDocuments.get("factory")!.revisionSha256,
+        observedAt,
+      ],
     );
     writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
   });
@@ -108,6 +144,7 @@ describe("pipeline persistence", () => {
       repository.createTask({
         sink: s1,
         basis,
+        dependencyScope: dependencyScope(s1),
         task: {
           id: "task-bag",
           state: "submitted",
@@ -161,6 +198,7 @@ describe("pipeline persistence", () => {
         repository.createTask({
           sink: s1,
           basis,
+          dependencyScope: dependencyScope(s1),
           task: {
             id: "task-forged",
             state: "submitted",
@@ -398,6 +436,7 @@ describe("pipeline persistence", () => {
       repository.createTask({
         sink: s2,
         basis,
+        dependencyScope: dependencyScope(s2),
         task: {
           id: "task-gated",
           state: "submitted",
@@ -437,6 +476,7 @@ describe("pipeline persistence", () => {
       repository.createTask({
         sink: s1,
         basis,
+        dependencyScope: dependencyScope(s1),
         task: {
           id: "task-pass",
           state: "submitted",

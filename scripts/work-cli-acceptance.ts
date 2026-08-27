@@ -33,6 +33,7 @@ import {
 } from "../src/main/vellum/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum/work/service";
 import {
+  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -489,6 +490,14 @@ const main = async () => {
     generation: intentWitness.generation,
     contentSha256: intentWitness.contentSha256,
   });
+  const authority = await runtime.runPromise(
+    canvasesSvc.authorityMaterialSnapshot(),
+  );
+  const taskSink = { canvasName: CANVAS, nodeId: TASKS };
+  const dependencyScope = createAuthorialTaskDependencyScopeCapability({
+    authority,
+    authoringSink: taskSink,
+  });
   const repository = await runtime.runPromise(WorkRepository);
   for (const [id, messageId, brief] of [
     ["t1", "m0", "ship it"],
@@ -496,8 +505,9 @@ const main = async () => {
   ] as const) {
     await runtime.runPromise(
       repository.createTask({
-        sink: { canvasName: CANVAS, nodeId: TASKS },
+        sink: taskSink,
         basis,
+        dependencyScope,
         task: {
           id,
           state: "submitted",

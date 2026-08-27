@@ -31,7 +31,6 @@ import {
   type PersistUnadmittedTask,
 } from "../src/main/vellum/work/pending-proposal-backfill";
 import {
-  createTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
   workRecordContentSha256,
@@ -51,6 +50,10 @@ import {
   makeInstallOpsLive,
 } from "../src/main/vellum/install-ops/engine";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const proposedBy = actorRefFixture("agent-1");
 
@@ -73,6 +76,28 @@ const backfillTopologyBody = JSON.stringify(backfillTopology);
 const backfillTopologySha256 = createHash("sha256")
   .update(backfillTopologyBody, "utf8")
   .digest("hex");
+const backfillIntentSha256 = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    [
+      "factory",
+      { document: backfillTopology, rawBody: backfillTopologyBody },
+    ],
+  ]),
+}).intentSha256;
+
+const dependencyScope = (
+  basis: Parameters<typeof authorialTaskTopologyCapabilityForTest>[0]["basis"],
+  authoringSink: Parameters<
+    typeof authorialTaskTopologyCapabilityForTest
+  >[0]["sink"],
+) =>
+  authorialTaskTopologyCapabilityForTest({
+    basis,
+    sink: authoringSink,
+    document: backfillTopology,
+    rawBody: backfillTopologyBody,
+  });
 
 const pendingSnapshot = {
   id: "prop-1",
@@ -324,7 +349,7 @@ const openHarness = async () => {
   await mkdir(stateDir, { recursive: true });
   const observedAt = "2026-08-25T00:00:00.000Z";
   const cc = Schema.decodeUnknownSync(InstallationId)("cc-pending-backfill");
-  const intentSha = "d".repeat(64);
+  const intentSha = backfillIntentSha256;
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
       Layer.provideMerge(
@@ -475,11 +500,7 @@ describe("runPendingProposalBackfill", () => {
         proposalId: input.proposalId,
         home: Schema.decodeUnknownSync(InstallationId)("cc-pending-backfill"),
         basis,
-        dependencyScope: createTaskDependencyScopeCapability({
-          topology: backfillTopology,
-          basis,
-          authoringSink: inputSink,
-        }),
+        dependencyScope: dependencyScope(basis, inputSink),
       });
     };
 
@@ -595,11 +616,7 @@ describe("runPendingProposalBackfill", () => {
         basis: harness.basis,
         proposalId: approved.id,
         task: materializePendingProposal({ proposal: approved }).task,
-        dependencyScope: createTaskDependencyScopeCapability({
-          topology: backfillTopology,
-          basis: harness.basis,
-          authoringSink: sink,
-        }),
+        dependencyScope: dependencyScope(harness.basis, sink),
         originAt: harness.observedAt,
         receivedAt: harness.observedAt,
       }),
@@ -647,11 +664,7 @@ describe("runPendingProposalBackfill", () => {
         sink,
         basis: harness.basis,
         task: materialization.task,
-        dependencyScope: createTaskDependencyScopeCapability({
-          topology: backfillTopology,
-          basis: harness.basis,
-          authoringSink: sink,
-        }),
+        dependencyScope: dependencyScope(harness.basis, sink),
       }),
     );
     await runtimeCreateProposal(
@@ -693,11 +706,7 @@ describe("runPendingProposalBackfill", () => {
 
   it("advances past 32 permanent collisions and materializes a later valid row", async () => {
     const harness = await openHarness();
-    const dependencyScope = createTaskDependencyScopeCapability({
-      topology: backfillTopology,
-      basis: harness.basis,
-      authoringSink: sink,
-    });
+    const taskDependencyScope = dependencyScope(harness.basis, sink);
     const { dependsOn: _ignoredDependencies, ...proposalBase } =
       pendingSnapshot;
     for (let index = 0; index < 32; index += 1) {
@@ -716,7 +725,7 @@ describe("runPendingProposalBackfill", () => {
           sink,
           basis: harness.basis,
           task: materializePendingProposal({ proposal: source }).task,
-          dependencyScope,
+          dependencyScope: taskDependencyScope,
         }),
       );
       await runtimeCreateProposal(
@@ -1361,11 +1370,7 @@ describe("runPendingProposalBackfill", () => {
                 sink,
                 basis: harness.basis,
                 task: materialization.task,
-                dependencyScope: createTaskDependencyScopeCapability({
-                  topology: backfillTopology,
-                  basis: harness.basis,
-                  authoringSink: sink,
-                }),
+                dependencyScope: dependencyScope(harness.basis, sink),
               });
               yield* harness.repository.createProposal({
                 sink,
@@ -1959,11 +1964,7 @@ const runtimeCreateProposal = async (
     repository.createProposal({
       sink,
       basis,
-      dependencyScope: createTaskDependencyScopeCapability({
-        topology: backfillTopology,
-        basis,
-        authoringSink: sink,
-      }),
+      dependencyScope: dependencyScope(basis, sink),
       proposal: {
         id: input.id,
         state: "pending",
@@ -1994,13 +1995,9 @@ const repositoryPersist = (
     proposalId: input.proposalId,
     home: harness.installationId,
     basis: harness.basis,
-    dependencyScope: createTaskDependencyScopeCapability({
-      topology: backfillTopology,
-      basis: harness.basis,
-      authoringSink: {
-        canvasName: input.canvasName,
-        nodeId: input.nodeId,
-      },
+    dependencyScope: dependencyScope(harness.basis, {
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
     }),
   }).pipe(
     Effect.tap((result) =>

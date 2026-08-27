@@ -33,6 +33,11 @@ import {
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { WorkSnapshot } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
+import type { CanvasDoc } from "../src/shared/canvas";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const root = join(tmpdir(), `vellum-command-projection-shape-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -47,7 +52,27 @@ let state: Context.Service.Shape<typeof StateEngine>;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-projection-shape");
-const currentIntentSha256 = "d".repeat(64);
+const authorityTopology: CanvasDoc = {
+  nodes: [{
+    id: "tasks-1",
+    type: "text",
+    x: 0,
+    y: 0,
+    width: 180,
+    height: 80,
+    text: "Tasks",
+    ether: { entity: { kind: "task" } },
+  }],
+  edges: [],
+};
+const authorityRawBody = JSON.stringify(authorityTopology);
+const authorityMaterial = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: authorityTopology, rawBody: authorityRawBody }],
+  ]),
+});
+const currentIntentSha256 = authorityMaterial.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -94,8 +119,12 @@ const seed = () =>
     writer.run(
       `INSERT INTO canvas_generation_documents(
          generation, name, body, sha256, modified_at
-       ) VALUES ('1', 'factory', '{}', ?, ?)`,
-      ["1".repeat(64), observedAt],
+       ) VALUES ('1', 'factory', ?, ?, ?)`,
+      [
+        authorityRawBody,
+        authorityMaterial.storedDocuments.get("factory")!.revisionSha256,
+        observedAt,
+      ],
     );
     writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
   });
@@ -119,6 +148,12 @@ describe("work projection shape", () => {
       repository.createTask({
         sink: taskSink,
         basis,
+        dependencyScope: authorialTaskTopologyCapabilityForTest({
+          basis,
+          sink: taskSink,
+          document: authorityTopology,
+          rawBody: authorityRawBody,
+        }),
         task: {
           id: "task-1",
           state: "submitted",

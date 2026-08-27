@@ -27,7 +27,6 @@ import {
   type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
 import {
-  createTaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkReplicationError,
   WorkRepository,
@@ -39,6 +38,12 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
+import {
+  authorialMaterialForTest,
+  authorialTaskTopologyCapabilityForTest,
+  currentProjectedTaskTopologyCapabilityForTest,
+  retainedProjectedTaskTopologyCapabilityForTest,
+} from "./helpers/task-topology-authority";
 
 const observedAt = "2026-07-27T18:00:00.000Z";
 const fixtureTaskSinkNodeIds: ReadonlyArray<string> = [
@@ -68,10 +73,15 @@ const fixtureTopology: CanvasDoc = {
   edges: [],
 };
 const authorialBody = JSON.stringify(fixtureTopology);
-const authorialIntentSha256 = "a".repeat(64);
 const authorialDocumentSha256 = createHash("sha256")
   .update(authorialBody, "utf8")
   .digest("hex");
+const authorialIntentSha256 = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map([
+    ["factory", { document: fixtureTopology, rawBody: authorialBody }],
+  ]),
+}).intentSha256;
 const projectedBody = compileStationPortfolioBody(
   new Map([["factory", fixtureTopology]]),
   new Map(),
@@ -97,11 +107,18 @@ const dependencyScope = (
   sink: { readonly canvasName: string; readonly nodeId: string },
   basis: IntentFactBasisValue,
 ) =>
-  createTaskDependencyScopeCapability({
-    topology: fixtureTopology,
-    basis,
-    authoringSink: sink,
-  });
+  basis.kind === "authorial-intent"
+    ? authorialTaskTopologyCapabilityForTest({
+        basis,
+        sink,
+        document: fixtureTopology,
+        rawBody: authorialBody,
+      })
+    : currentProjectedTaskTopologyCapabilityForTest({
+        basis,
+        sink,
+        rawBody: projectedBody,
+      });
 const opened: Array<{
   readonly root: string;
   readonly dispose: () => Promise<void>;
@@ -290,6 +307,16 @@ const openInstallation = async (
 };
 
 const admitted = () => ({ _tag: "admitted" as const });
+const admittedWithTaskTopology = (
+  taskDependencyScope: ReturnType<typeof dependencyScope>,
+) => ({ _tag: "admitted" as const, taskDependencyScope });
+const retainedDependencyScope = (
+  sink: { readonly canvasName: string; readonly nodeId: string },
+) => retainedProjectedTaskTopologyCapabilityForTest({
+  basis: projectedBasis,
+  sink,
+  rawBody: projectedBody,
+});
 
 const commandBasis = (command: WorkCommandValue) => ({
   kind: "command" as const,
@@ -456,6 +483,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.approveProposal({
         sink,
         basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         proposalId: proposal.id,
         task: stableTask,
         originAt: observedAt,
@@ -572,6 +600,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.createTask({
         sink,
         basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         task: {
           id: "local-outbound",
           state: "submitted",
@@ -610,6 +639,9 @@ describe("WorkRepository v2 report reconciliation", () => {
     const rejected = await commandCenter.runtime.runPromise(
       accept(commandCenter.repository, remote, [remoteCommand], {
         peerAcknowledgements: [acknowledgement],
+        authorizeCommand: () => admittedWithTaskTopology(
+          dependencyScope(sink, commandCenter.basis),
+        ),
         admitResponse: () => ({
           _tag: "rejected",
           message: "mandatory response is intentionally rejected",
@@ -651,6 +683,9 @@ describe("WorkRepository v2 report reconciliation", () => {
     const accepted = await commandCenter.runtime.runPromise(
       accept(commandCenter.repository, remote, [remoteCommand], {
         peerAcknowledgements: [acknowledgement],
+        authorizeCommand: () => admittedWithTaskTopology(
+          dependencyScope(sink, commandCenter.basis),
+        ),
       }),
     );
     expect(accepted.emitted[0]).toMatchObject({
@@ -1010,6 +1045,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       station.repository.createTask({
         sink,
         basis: station.basis,
+        dependencyScope: dependencyScope(sink, station.basis),
         task: {
           id: taskId,
           state: "submitted",
@@ -1022,7 +1058,11 @@ describe("WorkRepository v2 report reconciliation", () => {
       }),
     );
     await commandCenter.runtime.runPromise(
-      accept(commandCenter.repository, remote, [created.record]),
+      accept(commandCenter.repository, remote, [created.record], {
+        authorizeFact: () => admittedWithTaskTopology(
+          retainedDependencyScope(sink),
+        ),
+      }),
     );
     const note = message(
       "remote-thread-note",
@@ -1078,6 +1118,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.createTask({
         sink,
         basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         task: {
           id: "task-first-adoption",
           state: "submitted",
@@ -1110,6 +1151,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.createTask({
         sink,
         basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         task: {
           id: "task-decoy-adoption",
           state: "submitted",
@@ -1141,6 +1183,9 @@ describe("WorkRepository v2 report reconciliation", () => {
 
     const capacityDenied = await station.runtime.runPromise(
       accept(station.repository, cc, [command], {
+        authorizeCommand: () => admittedWithTaskTopology(
+          dependencyScope(sink, station.basis),
+        ),
         admitResponse: () => ({
           _tag: "rejected",
           message: "mandatory response exceeds ReportBatch capacity",
@@ -1165,7 +1210,11 @@ describe("WorkRepository v2 report reconciliation", () => {
     ).toEqual([]);
 
     const remoteResult = await station.runtime.runPromise(
-      accept(station.repository, cc, [command]),
+      accept(station.repository, cc, [command], {
+        authorizeCommand: () => admittedWithTaskTopology(
+          dependencyScope(sink, station.basis),
+        ),
+      }),
     );
     expect(remoteResult).toMatchObject({
       accepted: 1,
@@ -1408,6 +1457,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.createTask({
         sink,
         basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         task: {
           id: "task-replay",
           state: "submitted",
@@ -1514,6 +1564,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       commandCenter.repository.createTask({
         sink,
         basis: commandCenter.basis,
+        dependencyScope: dependencyScope(sink, commandCenter.basis),
         task: {
           id: "task-integrity",
           state: "submitted",
@@ -1578,7 +1629,11 @@ describe("WorkRepository v2 report reconciliation", () => {
     }
 
     const remoteResult = await station.runtime.runPromise(
-      accept(station.repository, cc, [command]),
+      accept(station.repository, cc, [command], {
+        authorizeCommand: () => admittedWithTaskTopology(
+          dependencyScope(sink, station.basis),
+        ),
+      }),
     );
     expect(remoteResult.acknowledge).toEqual([
       { eventHome: cc, entityHome: remote, through: "1" },
@@ -1792,6 +1847,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       station.repository.createTask({
         sink: taskSink,
         basis: station.basis,
+        dependencyScope: dependencyScope(taskSink, station.basis),
         task: {
           id: "artifact-source-task",
           state: "submitted",
@@ -1845,7 +1901,12 @@ describe("WorkRepository v2 report reconciliation", () => {
         taskCreated.record,
         taskClaimed.record,
         artifact.record,
-      ]),
+      ], {
+        authorizeFact: (fact) =>
+          fact.item.kind === "task"
+            ? admittedWithTaskTopology(retainedDependencyScope(fact.item.sink))
+            : admitted(),
+      }),
     );
     expect(artifactReport.acknowledge).toEqual([
       { eventHome: remote, entityHome: remote, through: "6" },

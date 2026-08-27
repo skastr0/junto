@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Layer, ManagedRuntime, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { ActorSeatId } from "../src/shared/actor-seat";
-import { CanvasDoc } from "../src/shared/canvas";
+
+import { CanvasDoc, serializeCanvas } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -14,15 +14,24 @@ import {
   STATION_API_PROTOCOL,
 } from "../src/shared/station-api";
 import {
-  IntentFactBasis,
+  AuthorialIntentFactBasis,
+  ProjectedIntentFactBasis,
   WorkCommand,
   WorkFact,
   type ActorRef,
+  type AuthorialIntentFactBasis as AuthorialIntentFactBasisValue,
   type IntentFactBasis as IntentFactBasisValue,
+  type ProjectedIntentFactBasis as ProjectedIntentFactBasisValue,
   type WorkCommand as WorkCommandValue,
   type WorkFact as WorkFactValue,
 } from "../src/shared/work-protocol";
-import { ProjectedActorSeat } from "../src/main/vellum/station/actor-seat-compiler";
+import {
+  deriveActorSeatId,
+  ProjectedActorSeat,
+} from "../src/main/vellum/station/actor-seat-compiler";
+import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/vellum/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/vellum/station/repository";
+import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import {
   makeStationWorkAdmission,
   selectStationReportRoutes,
@@ -43,8 +52,9 @@ const cc = Schema.decodeUnknownSync(InstallationId)("cc-dependency-scope");
 const remote = Schema.decodeUnknownSync(InstallationId)(
   "remote-dependency-scope",
 );
+const claimActorBindingId = "claim-actor-binding";
 const claimActor: ActorRef = {
-  seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"7".repeat(64)}`),
+  seatId: deriveActorSeatId(remote, claimActorBindingId),
   canvasName: "factory",
   nodeId: "claim-actor",
 };
@@ -55,9 +65,10 @@ const projectedClaimActor = Schema.decodeUnknownSync(
   seatId: claimActor.seatId,
   authorityInstallationId: remote,
   hostId: "remote",
-  bindingId: "claim-actor-binding",
+  bindingId: claimActorBindingId,
   agentKey: "remote:claim-actor",
   harness: "codex",
+  launch: { kind: "harness", argv: ["codex"] },
   primaryRef: {
     canvasName: claimActor.canvasName,
     nodeId: claimActor.nodeId,
@@ -67,17 +78,6 @@ const projectedClaimActor = Schema.decodeUnknownSync(
     nodeId: claimActor.nodeId,
   }],
 });
-
-const basis = (
-  kind: IntentFactBasisValue["kind"],
-  generation: string,
-  digit: string,
-): IntentFactBasisValue =>
-  Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
-    kind,
-    generation,
-    contentSha256: digit.repeat(64),
-  });
 
 const taskNode = (id: string, x: number, y: number) => ({
   id,
@@ -149,6 +149,11 @@ const claimTopologyDoc = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
       ether: {
         entity: { kind: "agent", name: "remote:claim-actor" },
         host: "remote",
+        terminal: {
+          bindingId: claimActorBindingId,
+          harness: "codex",
+          launch: { kind: "harness", argv: ["codex"] },
+        },
       },
     },
   ],
@@ -160,17 +165,76 @@ const claimTopologyDoc = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
   }],
 });
 
+type ProjectedFixture = {
+  readonly kind: "projected";
+  readonly basis: ProjectedIntentFactBasisValue;
+  readonly rawBody: string;
+};
+
+type AuthorialFixture = {
+  readonly kind: "authorial";
+  readonly basis: AuthorialIntentFactBasisValue;
+  readonly authority: ReturnType<typeof authorialMaterialForTest>;
+};
+
+const projectedFixture = (
+  doc: ReturnType<typeof topologyDoc>,
+  generation: string,
+  actorSeats: ReadonlyArray<typeof projectedClaimActor> = [],
+): ProjectedFixture => {
+  const rawBody = JSON.stringify({
+    protocol: STATION_PORTFOLIO_PROTOCOL,
+    documents: [{ name: "factory", body: serializeCanvas(doc) }],
+    actorSeats,
+  });
+  return {
+    kind: "projected",
+    rawBody,
+    basis: Schema.decodeUnknownSync(ProjectedIntentFactBasis, strictDecode)({
+      kind: "projected-intent",
+      generation,
+      contentSha256: stationProjectionContentSha256(rawBody),
+    }),
+  };
+};
+
+const authorialFixture = (
+  doc: ReturnType<typeof topologyDoc>,
+  generation: string,
+): AuthorialFixture => {
+  const rawBody = serializeCanvas(doc);
+  const authority = authorialMaterialForTest({
+    generation,
+    documents: new Map([["factory", { document: doc, rawBody }]]),
+  });
+  return {
+    kind: "authorial",
+    authority,
+    basis: Schema.decodeUnknownSync(AuthorialIntentFactBasis, strictDecode)({
+      kind: "authorial-intent",
+      generation,
+      contentSha256: authority.intentSha256,
+    }),
+  };
+};
+
 type AdmissionTopology = Parameters<typeof makeStationWorkAdmission>[0];
 
 const topology = (
   doc: ReturnType<typeof topologyDoc>,
-  intentBasis: IntentFactBasisValue,
+  fixture: ProjectedFixture,
 ): AdmissionTopology => ({
   localInstallationId: remote,
   peerInstallationId: cc,
   localRole: "remote",
   localHostId: "remote",
-  intentBasis,
+  intentBasis: fixture.basis,
+  taskTopologyMaterial: {
+    kind: "projected-current",
+    rawBody: fixture.rawBody,
+    generation: fixture.basis.generation,
+    contentSha256: fixture.basis.contentSha256,
+  },
   documents: new Map([["factory", doc]]),
   actorSeats: [],
   installationByHostId: new Map<string, InstallationIdValue>([
@@ -180,13 +244,19 @@ const topology = (
 });
 
 const claimTopology = (
-  intentBasis: IntentFactBasisValue,
+  fixture: ProjectedFixture,
 ): AdmissionTopology => ({
   localInstallationId: remote,
   peerInstallationId: cc,
   localRole: "remote",
   localHostId: "remote",
-  intentBasis,
+  intentBasis: fixture.basis,
+  taskTopologyMaterial: {
+    kind: "projected-current",
+    rawBody: fixture.rawBody,
+    generation: fixture.basis.generation,
+    contentSha256: fixture.basis.contentSha256,
+  },
   documents: new Map([["factory", claimTopologyDoc]]),
   actorSeats: [projectedClaimActor],
   installationByHostId: new Map<string, InstallationIdValue>([
@@ -197,13 +267,21 @@ const claimTopology = (
 
 const commandCenterTopology = (
   doc: ReturnType<typeof topologyDoc>,
-  intentBasis: IntentFactBasisValue,
+  fixture: ProjectedFixture | AuthorialFixture,
 ): AdmissionTopology => ({
   localInstallationId: cc,
   peerInstallationId: remote,
   localRole: "command-center",
   localHostId: "local",
-  intentBasis,
+  intentBasis: fixture.basis,
+  taskTopologyMaterial: fixture.kind === "projected"
+    ? {
+        kind: "projected-retained",
+        rawBody: fixture.rawBody,
+        generation: fixture.basis.generation,
+        contentSha256: fixture.basis.contentSha256,
+      }
+    : { kind: "authorial-current", authority: fixture.authority },
   documents: new Map([["factory", doc]]),
   actorSeats: [],
   installationByHostId: new Map<string, InstallationIdValue>([
@@ -362,6 +440,30 @@ const dependentClaimCommand = (): WorkCommandValue => {
   });
 };
 
+const independentClaimCommand = (): WorkCommandValue => {
+  const dependent = dependentClaimCommand();
+  if (dependent.body.operation !== "task.claim") {
+    throw new Error("claim command fixture changed operation");
+  }
+  const { dependsOn: _dependsOn, ...sourceTask } = dependent.body.sourceTask;
+  const candidate = Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    ...dependent,
+    body: { ...dependent.body, sourceTask },
+    contentSha256: "0".repeat(64),
+  });
+  const {
+    contentSha256: placeholderSha256,
+    originAt: displayTimestamp,
+    ...semantic
+  } = candidate;
+  void placeholderSha256;
+  void displayTimestamp;
+  return Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    ...candidate,
+    contentSha256: workRecordContentSha256(semantic),
+  });
+};
+
 const correlatedClaimFact = (): WorkFactValue => {
   const command = dependentClaimCommand();
   if (command.body.operation !== "task.claim") {
@@ -495,12 +597,10 @@ const taskFact = (input: {
 };
 
 const openRepository = async (
-  projectedBasis: IntentFactBasisValue,
+  projected: ProjectedFixture,
   localRole: "command-center" | "remote" = "command-center",
 ) => {
-  if (projectedBasis.kind !== "projected-intent") {
-    throw new Error("repository fixture requires projected intent");
-  }
+  const projectedBasis = projected.basis;
   const root = join(
     tmpdir(),
     `vellum-command-station-dependency-scope-${randomUUID()}`,
@@ -543,11 +643,12 @@ const openRepository = async (
         `INSERT INTO station_projection_versions(
            generation, content_sha256, source_canvas_generation,
            source_intent_sha256, body, created_at, received_at
-         ) VALUES (?, ?, '1', ?, '{}', ?, ?)`,
+         ) VALUES (?, ?, '1', ?, ?, ?, ?)`,
         [
           projectedBasis.generation,
           projectedBasis.contentSha256,
           "a".repeat(64),
+          projected.rawBody,
           observedAt,
           observedAt,
         ],
@@ -597,7 +698,10 @@ const acceptCommands = (
 
 describe("Station dependency scope admission", () => {
   it("admits current projected commands only across same-region Task sinks", async () => {
-    const currentBasis = basis("projected-intent", "15", "a");
+    const sameRegionDoc = topologyDoc(true);
+    const sameRegionFixture = projectedFixture(sameRegionDoc, "15");
+    const crossRegionDoc = topologyDoc(false);
+    const crossRegionFixture = projectedFixture(crossRegionDoc, "15");
     const prerequisite = taskCreateCommand({
       taskId: "prerequisite-task",
       nodeId: "prerequisite-sink",
@@ -610,10 +714,10 @@ describe("Station dependency scope admission", () => {
       dependsOn: ["prerequisite-task"],
     });
 
-    const sameRegion = await openRepository(currentBasis, "remote");
+    const sameRegion = await openRepository(sameRegionFixture, "remote");
     try {
       const admission = makeStationWorkAdmission(
-        topology(topologyDoc(true), currentBasis),
+        topology(sameRegionDoc, sameRegionFixture),
       );
       await sameRegion.runtime.runPromise(
         acceptCommands(
@@ -633,10 +737,10 @@ describe("Station dependency scope admission", () => {
       await rm(sameRegion.root, { recursive: true, force: true });
     }
 
-    const crossRegion = await openRepository(currentBasis, "remote");
+    const crossRegion = await openRepository(crossRegionFixture, "remote");
     try {
       const admission = makeStationWorkAdmission(
-        topology(topologyDoc(false), currentBasis),
+        topology(crossRegionDoc, crossRegionFixture),
       );
       const result = await crossRegion.runtime.runPromise(
         acceptCommands(
@@ -668,15 +772,19 @@ describe("Station dependency scope admission", () => {
   });
 
   it("admits a dependent cross-home claim command with current scope", async () => {
-    const currentBasis = basis("projected-intent", "16", "b");
-    const opened = await openRepository(currentBasis, "remote");
+    const currentFixture = projectedFixture(
+      claimTopologyDoc,
+      "16",
+      [projectedClaimActor],
+    );
+    const opened = await openRepository(currentFixture, "remote");
     try {
       const command = dependentClaimCommand();
       const result = await opened.runtime.runPromise(
         acceptCommands(
           opened.repository,
           [command],
-          makeStationWorkAdmission(claimTopology(currentBasis)),
+          makeStationWorkAdmission(claimTopology(currentFixture)),
         ),
       );
       expect(result).toMatchObject({ accepted: 1, rejected: 0 });
@@ -697,37 +805,143 @@ describe("Station dependency scope admission", () => {
     }
   });
 
+  it("rejects a zero-dependency Remote claim without topology authority", async () => {
+    const fixture = projectedFixture(
+      claimTopologyDoc,
+      "15",
+      [projectedClaimActor],
+    );
+    const opened = await openRepository(fixture, "remote");
+    try {
+      const result = await opened.runtime.runPromise(
+        opened.repository.acceptRecords({
+          senderInstallationId: cc,
+          records: [independentClaimCommand()],
+          peerAcknowledgements: [],
+          receivedAt: observedAt,
+          authorizeCommand: () => ({ _tag: "admitted" }),
+          authorizeFact: () => ({ _tag: "admitted" }),
+          admitResponse: () => ({ _tag: "admitted" }),
+        }),
+      );
+      expect(result).toMatchObject({ accepted: 0, rejected: 1 });
+      expect(result.emitted).toEqual([
+        expect.objectContaining({
+          recordType: "disposition",
+          body: expect.objectContaining({
+            status: "rejected",
+            message: expect.stringContaining("authentic process-local capability"),
+          }),
+        }),
+      ]);
+      const snapshot = await opened.runtime.runPromise(
+        opened.repository.readSnapshot("factory", "dependent-sink"),
+      );
+      expect(snapshot.tasks.items).toEqual([]);
+    } finally {
+      await opened.runtime.dispose();
+      await rm(opened.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a zero-dependency claim after its captured projection is replaced", async () => {
+    const oldFixture = projectedFixture(
+      claimTopologyDoc,
+      "16",
+      [projectedClaimActor],
+    );
+    const newFixture = projectedFixture(
+      claimTopologyDoc,
+      "17",
+      [projectedClaimActor],
+    );
+    const opened = await openRepository(oldFixture, "remote");
+    try {
+      const command = independentClaimCommand();
+      const staleAdmission = makeStationWorkAdmission(
+        claimTopology(oldFixture),
+      );
+      expect(staleAdmission.authorizeCommand(command)).toMatchObject({
+        _tag: "admitted",
+        taskDependencyScope: expect.any(Object),
+      });
+
+      const state = await opened.runtime.runPromise(StateEngine);
+      await opened.runtime.runPromise(
+        state.transaction("test.advance-projection-head", (writer) => {
+          writer.run(
+            `INSERT INTO station_projection_versions(
+               generation, content_sha256, source_canvas_generation,
+               source_intent_sha256, body, created_at, received_at
+             ) VALUES (?, ?, '2', ?, ?, ?, ?)`,
+            [
+              newFixture.basis.generation,
+              newFixture.basis.contentSha256,
+              "d".repeat(64),
+              newFixture.rawBody,
+              observedAt,
+              observedAt,
+            ],
+          );
+          writer.run(
+            `UPDATE station_projection_head
+             SET generation = ?, content_sha256 = ?
+             WHERE singleton = 1`,
+            [
+              newFixture.basis.generation,
+              newFixture.basis.contentSha256,
+            ],
+          );
+        }),
+      );
+
+      const result = await opened.runtime.runPromise(
+        acceptCommands(opened.repository, [command], staleAdmission),
+      );
+      expect(result).toMatchObject({ accepted: 0, rejected: 1 });
+      expect(result.emitted).toEqual([
+        expect.objectContaining({
+          recordType: "disposition",
+          body: expect.objectContaining({
+            status: "rejected",
+            message: expect.stringContaining("current retained projection"),
+          }),
+        }),
+      ]);
+      const snapshot = await opened.runtime.runPromise(
+        opened.repository.readSnapshot("factory", "dependent-sink"),
+      );
+      expect(snapshot.tasks.items).toEqual([]);
+    } finally {
+      await opened.runtime.dispose();
+      await rm(opened.root, { recursive: true, force: true });
+    }
+  });
+
   it("admits an exact command-basis fact without mutable topology", () => {
-    const authorization = makeStationWorkAdmission({
-      localInstallationId: cc,
-      peerInstallationId: remote,
-      localRole: "command-center",
-      localHostId: "local",
-      intentBasis: basis("authorial-intent", "17", "c"),
-      documents: new Map(),
-      actorSeats: [],
-      installationByHostId: new Map<string, InstallationIdValue>([
-        ["local", cc],
-        ["remote", remote],
-      ]),
-    }).authorizeFact(correlatedClaimFact());
+    const doc = topologyDoc(true);
+    const authorization = makeStationWorkAdmission(
+      commandCenterTopology(doc, authorialFixture(doc, "17")),
+    ).authorizeFact(correlatedClaimFact());
 
     expect(authorization._tag).toBe("admitted");
   });
 
   it("requires a retained projected fact to name the exact retained basis", () => {
-    const retainedBasis = basis("projected-intent", "11", "b");
+    const retainedDoc = topologyDoc(true);
+    const retainedFixture = projectedFixture(retainedDoc, "11");
+    const retainedBasis = retainedFixture.basis;
     const fact = dependentFact(retainedBasis);
     const retained = makeStationWorkAdmission(
-      commandCenterTopology(topologyDoc(true), retainedBasis),
+      commandCenterTopology(retainedDoc, retainedFixture),
     ).authorizeFact(fact);
     expect(retained._tag).toBe("admitted");
 
     expect(
       makeStationWorkAdmission(
         commandCenterTopology(
-          topologyDoc(true),
-          basis("authorial-intent", "12", "c"),
+          retainedDoc,
+          authorialFixture(retainedDoc, "12"),
         ),
       ).authorizeFact(fact),
     ).toMatchObject({
@@ -736,12 +950,46 @@ describe("Station dependency scope admission", () => {
     });
   });
 
-  it("materializes a retained same-region fact through repository admission", async () => {
-    const retainedBasis = basis("projected-intent", "20", "d");
-    const opened = await openRepository(retainedBasis);
+  it("rejects an exact projected body that was never retained", async () => {
+    const storedDoc = topologyDoc(true);
+    const storedFixture = projectedFixture(storedDoc, "30");
+    const unretainedDoc = topologyDoc(false);
+    const unretainedFixture = projectedFixture(unretainedDoc, "31");
+    const opened = await openRepository(storedFixture);
     try {
       const admission = makeStationWorkAdmission(
-        commandCenterTopology(topologyDoc(true), retainedBasis),
+        commandCenterTopology(unretainedDoc, unretainedFixture),
+      );
+      const unretainedFact = taskFact({
+        taskId: "unretained-task",
+        nodeId: "dependent-sink",
+        sequence: "1",
+        intentBasis: unretainedFixture.basis,
+      });
+
+      await expect(
+        opened.runtime.runPromise(
+          acceptFacts(opened.repository, [unretainedFact], admission),
+        ),
+      ).rejects.toThrow(/not an exact retained projection/);
+      const snapshot = await opened.runtime.runPromise(
+        opened.repository.readSnapshot("factory", "dependent-sink"),
+      );
+      expect(snapshot.tasks.items).toEqual([]);
+    } finally {
+      await opened.runtime.dispose();
+      await rm(opened.root, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes a retained same-region fact through repository admission", async () => {
+    const retainedDoc = topologyDoc(true);
+    const retainedFixture = projectedFixture(retainedDoc, "20");
+    const retainedBasis = retainedFixture.basis;
+    const opened = await openRepository(retainedFixture);
+    try {
+      const admission = makeStationWorkAdmission(
+        commandCenterTopology(retainedDoc, retainedFixture),
       );
       const prerequisite = taskFact({
         taskId: "prerequisite-task",
@@ -773,15 +1021,18 @@ describe("Station dependency scope admission", () => {
   });
 
   it("refuses a retained cross-region dependency without current-intent widening", async () => {
-    const retainedBasis = basis("projected-intent", "21", "e");
-    const currentBasis = basis("authorial-intent", "22", "f");
-    const opened = await openRepository(retainedBasis);
+    const retainedDoc = topologyDoc(false);
+    const retainedFixture = projectedFixture(retainedDoc, "21");
+    const retainedBasis = retainedFixture.basis;
+    const currentDoc = topologyDoc(true);
+    const currentFixture = authorialFixture(currentDoc, "22");
+    const opened = await openRepository(retainedFixture);
     try {
       const retained = makeStationWorkAdmission(
-        commandCenterTopology(topologyDoc(false), retainedBasis),
+        commandCenterTopology(retainedDoc, retainedFixture),
       );
       const current = makeStationWorkAdmission(
-        commandCenterTopology(topologyDoc(true), currentBasis),
+        commandCenterTopology(currentDoc, currentFixture),
       );
       const prerequisite = taskFact({
         taskId: "prerequisite-task",
@@ -823,11 +1074,9 @@ describe("Station dependency scope admission", () => {
     const command = dependentCommand("3");
     const before = Buffer.from(JSON.stringify(command));
 
+    const doc = topologyDoc(true);
     const authorization = makeStationWorkAdmission(
-      topology(
-        topologyDoc(true),
-        basis("projected-intent", "10", "a"),
-      ),
+      topology(doc, projectedFixture(doc, "10")),
     ).authorizeCommand(command);
 
     expect(authorization._tag).toBe("admitted");

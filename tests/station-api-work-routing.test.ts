@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { CanvasDoc } from "../src/shared/canvas";
+import { CanvasDoc, serializeCanvas } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -13,6 +13,7 @@ import {
   StatusResponse,
 } from "../src/shared/station-api";
 import {
+  IntentFactBasis,
   WORK_PROTOCOL_MAX_RECORD_BYTES,
   WorkCommand,
   WorkFact,
@@ -30,6 +31,9 @@ import {
   type StationApiPeerContext,
 } from "../src/main/vellum/station/api";
 import { ProjectedActorSeat } from "../src/main/vellum/station/actor-seat-compiler";
+import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/vellum/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/vellum/station/repository";
+import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import {
   admitEnrolledStationPeer,
   dispatchStationApiRequest,
@@ -249,19 +253,67 @@ type AdmissionTopology = Parameters<typeof makeStationWorkAdmission>[0];
 const topology = (
   localRole: "command-center" | "remote",
   connected = true,
-): AdmissionTopology => ({
-  localInstallationId: localRole === "command-center" ? cc : remote,
-  peerInstallationId: localRole === "command-center" ? remote : cc,
-  localRole,
-  localHostId: localRole === "command-center" ? "local" : "remote",
-  documents: new Map([["factory", document(connected)]]),
-  actorSeats: [projectedRemoteActor, projectedCommandCenterActor],
-  installationByHostId: new Map([
-    ["local", cc],
-    ["remote", remote],
-    ["other-remote", otherRemote],
-  ]),
-});
+): AdmissionTopology => {
+  const doc = document(connected);
+  const actorSeats = [projectedRemoteActor, projectedCommandCenterActor];
+  if (localRole === "command-center") {
+    const authority = authorialMaterialForTest({
+      generation: "1",
+      documents: new Map([
+        ["factory", { document: doc, rawBody: serializeCanvas(doc) }],
+      ]),
+    });
+    return {
+      localInstallationId: cc,
+      peerInstallationId: remote,
+      localRole,
+      localHostId: "local",
+      intentBasis: Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+        kind: "authorial-intent",
+        generation: authority.generation,
+        contentSha256: authority.intentSha256,
+      }),
+      taskTopologyMaterial: { kind: "authorial-current", authority },
+      documents: authority.documents,
+      actorSeats,
+      installationByHostId: new Map([
+        ["local", cc],
+        ["remote", remote],
+        ["other-remote", otherRemote],
+      ]),
+    };
+  }
+  const rawBody = JSON.stringify({
+    protocol: STATION_PORTFOLIO_PROTOCOL,
+    documents: [{ name: "factory", body: serializeCanvas(doc) }],
+    actorSeats,
+  });
+  const contentSha256 = stationProjectionContentSha256(rawBody);
+  return {
+    localInstallationId: remote,
+    peerInstallationId: cc,
+    localRole,
+    localHostId: "remote",
+    intentBasis: Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+      kind: "projected-intent",
+      generation: "1",
+      contentSha256,
+    }),
+    taskTopologyMaterial: {
+      kind: "projected-current",
+      rawBody,
+      generation: "1",
+      contentSha256,
+    },
+    documents: new Map([["factory", doc]]),
+    actorSeats,
+    installationByHostId: new Map([
+      ["local", cc],
+      ["remote", remote],
+      ["other-remote", otherRemote],
+    ]),
+  };
+};
 
 const message = {
   messageId: "message-1",
@@ -771,9 +823,14 @@ describe("Station API v1 work routing", () => {
 
   it("admits only exact Remote actor Task creates at a Command Center queue", () => {
     const admission = makeStationWorkAdmission(topology("command-center"));
-    expect(admission.authorizeCommand(agentTaskCreateCommand())).toEqual({
-      _tag: "admitted",
-    });
+    const accepted = admission.authorizeCommand(agentTaskCreateCommand());
+    expect(accepted).toMatchObject({ _tag: "admitted" });
+    if (
+      accepted._tag !== "admitted" ||
+      accepted.taskDependencyScope === undefined
+    ) throw new Error("expected topology-authorized admission");
+    expect(Object.isFrozen(accepted.taskDependencyScope)).toBe(true);
+    expect(Reflect.ownKeys(accepted.taskDependencyScope)).toEqual([]);
     expect(
       admission.authorizeCommand(agentTaskCreateCommand(null)),
     ).toMatchObject({

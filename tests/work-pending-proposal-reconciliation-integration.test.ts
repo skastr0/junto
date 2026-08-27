@@ -59,7 +59,8 @@ import {
   StationLivePeerRegistryLive,
 } from "../src/main/vellum/station/session-registry";
 import {
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
+  type TaskDependencyScopeCapability,
   workRecordContentSha256,
   WorkRepository,
   WorkRepositoryLive,
@@ -293,6 +294,20 @@ const authorialBasis = async (
   });
 };
 
+const authorialDependencyScope = async (
+  runtime: ReturnType<typeof makeRuntime>,
+  sink: { readonly canvasName: string; readonly nodeId: string },
+): Promise<TaskDependencyScopeCapability> => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  const authority = await runtime.runPromise(
+    canvases.authorityMaterialSnapshot(),
+  );
+  return createAuthorialTaskDependencyScopeCapability({
+    authority,
+    authoringSink: sink,
+  });
+};
+
 const taskExists = async (
   runtime: ReturnType<typeof makeRuntime>,
   id: string,
@@ -417,10 +432,9 @@ describe("WorkService server-derived Task dependency capabilities", () => {
         repository.claimLocalTask({
           sink: { canvasName: "factory", nodeId: "tasks-a" },
           basis,
-          dependencyScope: createTaskDependencyScopeCapability({
-            topology: dependencyCanvas,
-            basis,
-            authoringSink: { canvasName: "factory", nodeId: "tasks-a" },
+          dependencyScope: await authorialDependencyScope(runtime, {
+            canvasName: "factory",
+            nodeId: "tasks-a",
           }),
           taskId: createdA.data.id,
           actor: worker,
@@ -695,10 +709,9 @@ describe("WorkService pending-proposal reconciliation scheduling", () => {
         actor("9", "unrelated-history-raiser"),
       );
       const task = materializePendingProposal({ proposal: source }).task;
-      const dependencyScope = createTaskDependencyScopeCapability({
-        topology: Schema.decodeUnknownSync(CanvasDoc, strictDecode)(taskCanvas),
-        basis,
-        authoringSink: { canvasName: "factory", nodeId: "tasks" },
+      const dependencyScope = await authorialDependencyScope(runtime, {
+        canvasName: "factory",
+        nodeId: "tasks",
       });
       await runtime.runPromise(
         repository.createTask({
@@ -1009,11 +1022,9 @@ describe("WorkService pending-proposal reconciliation scheduling", () => {
       const station = await runtime.runPromise(StationRepository);
       const home = await runtime.runPromise(station.installationId);
       const basis = await authorialBasis(runtime);
-      const topology = Schema.decodeUnknownSync(CanvasDoc, strictDecode)(taskCanvas);
-      const dependencyScope = createTaskDependencyScopeCapability({
-        topology,
-        basis,
-        authoringSink: { canvasName: "factory", nodeId: "tasks" },
+      const dependencyScope = await authorialDependencyScope(runtime, {
+        canvasName: "factory",
+        nodeId: "tasks",
       });
 
       for (let index = 0; index < 32; index += 1) {

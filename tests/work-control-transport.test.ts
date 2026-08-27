@@ -32,7 +32,7 @@ import {
   makeContentServiceLive,
 } from "../src/main/vellum/content/service";
 import {
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum/work/repository";
@@ -121,13 +121,9 @@ const taskDependencyAuthority = async (
   sink: { readonly canvasName: string; readonly nodeId: string },
 ) => {
   const canvases = await runtime.runPromise(CanvasesService);
-  const authority = await runtime.runPromise(canvases.authoritySnapshot());
-  const topology = authority.documents.get(sink.canvasName);
-  if (topology === undefined) {
-    throw new Error(
-      `missing authorial canvas ${JSON.stringify(sink.canvasName)}`,
-    );
-  }
+  const authority = await runtime.runPromise(
+    canvases.authorityMaterialSnapshot(),
+  );
   const basis = Schema.decodeUnknownSync(IntentFactBasis, {
     onExcessProperty: "error",
   })({
@@ -137,9 +133,8 @@ const taskDependencyAuthority = async (
   });
   return {
     basis,
-    dependencyScope: createTaskDependencyScopeCapability({
-      topology,
-      basis,
+    dependencyScope: createAuthorialTaskDependencyScopeCapability({
+      authority,
       authoringSink: sink,
     }),
   };
@@ -238,10 +233,13 @@ const seedCanonicalWork = async (
   const canvases = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvases.write("work-cli", seedDoc()));
   const repository = await runtime.runPromise(WorkRepository);
+  const sink = { canvasName: "work-cli", nodeId: "tasks" };
+  const { basis, dependencyScope } = await taskDependencyAuthority(runtime, sink);
   await runtime.runPromise(
     repository.createTask({
-      sink: { canvasName: "work-cli", nodeId: "tasks" },
-      basis: await authorialBasis(runtime),
+      sink,
+      basis,
+      dependencyScope,
       task: {
         id: "t1",
         state: "submitted",

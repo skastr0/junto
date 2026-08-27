@@ -3,10 +3,12 @@ import { createHash } from "node:crypto";
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import {
   CanvasDoc as CanvasDocSchema,
+  compileEdgeGrant,
   decodeCanvasDoc,
   type CanvasDoc,
   type CanvasNode,
 } from "@shared/canvas";
+import { resolveSpec } from "@shared/physics";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
 import {
@@ -114,7 +116,13 @@ import {
   taskIsClaimReady,
   validateTaskDependsOn,
 } from "@shared/task-deps";
-import { dependencyScopeNodeIds } from "@shared/task-dep-scope";
+import { resolveNodeHostId } from "@shared/station";
+import type { CanvasAuthorityMaterialSnapshot } from "../canvases";
+import {
+  canvasBodySha256Of,
+  verifyCanvasIntentMaterial,
+} from "../canvas-intent-identity";
+import { decodeStationPortfolioBody } from "../station/portfolio";
 import {
   evaluateFinishCriteria,
   normalizeCompletionEvidence,
@@ -162,18 +170,33 @@ const MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS = 256;
 declare const TaskDependencyScopeCapabilityTypeId: unique symbol;
 
 /**
- * Frozen process-local authority for one exact decoded intent topology.
+ * Frozen process-local authority for one exact authenticated intent topology.
  * The handle has no fields. Runtime authority is only the private WeakMap.
  */
 export type TaskDependencyScopeCapability = {
   readonly [TaskDependencyScopeCapabilityTypeId]: true;
 };
 
+type TaskTopologyAuthorityMode =
+  | "authorial-current"
+  | "projected-current"
+  | "projected-retained";
+
+type TaskActorGrant = {
+  readonly actorNodeId: string;
+  readonly grants: ReadonlyArray<"tasks.create" | "tasks.claim">;
+};
+
 type TaskDependencyScopeCapabilityData = {
+  readonly mode: TaskTopologyAuthorityMode;
   readonly basis: IntentFactBasisValue;
   readonly authoringSink: SinkRefValue;
+  /** Hash of the exact raw canvas body containing the authoring sink. */
+  readonly canvasBodySha256: string;
   readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
   readonly sinkAdmissionFloor: SinkAdmission;
+  readonly sinkHostId: string;
+  readonly actorGrants: ReadonlyArray<TaskActorGrant>;
 };
 
 const taskDependencyScopeCapabilities = new WeakMap<
@@ -198,21 +221,385 @@ const freezeCapabilityInput = <A>(
 const compareCodeUnits = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
 
+const topologyTypeError = (message: string): never => {
+  throw new TypeError(`Task topology authority is invalid: ${message}`);
+};
+
+const asPlainRecord = (
+  value: unknown,
+): Readonly<Record<string, unknown>> | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : undefined;
+
 /**
- * The sole capability factory. It derives scope only from the exact decoded
- * topology and never accepts caller-supplied node ids.
+ * Detach one authority snapshot before verification. A caller-controlled Map,
+ * iterator, or property getter must not be able to present verified material
+ * and then swap the document used to derive the capability.
  */
-export const createTaskDependencyScopeCapability = (input: {
-  readonly topology: CanvasDoc;
+const detachCanvasAuthorityMaterialSnapshot = (
+  authority: CanvasAuthorityMaterialSnapshot,
+): CanvasAuthorityMaterialSnapshot => {
+  const generation = authority.generation;
+  const intentSha256 = authority.intentSha256;
+  const sourceDocuments = authority.documents;
+  const sourceStoredDocuments = authority.storedDocuments;
+  const documents = new Map<string, CanvasDoc>();
+  for (const [name, document] of sourceDocuments) {
+    if (documents.has(name)) {
+      return topologyTypeError(
+        `authorial material contains duplicate document key ${JSON.stringify(name)}`,
+      );
+    }
+    documents.set(name, structuredClone(document));
+  }
+  const storedDocuments = new Map<
+    string,
+    {
+      readonly document: CanvasDoc;
+      readonly rawBody: string;
+      readonly revisionSha256: string;
+    }
+  >();
+  for (const [name, entry] of sourceStoredDocuments) {
+    if (storedDocuments.has(name)) {
+      return topologyTypeError(
+        `authorial material contains duplicate stored-document key ${JSON.stringify(name)}`,
+      );
+    }
+    const document = structuredClone(entry.document);
+    const rawBody = entry.rawBody;
+    const revisionSha256 = entry.revisionSha256;
+    storedDocuments.set(
+      name,
+      Object.freeze({ document, rawBody, revisionSha256 }),
+    );
+  }
+  return Object.freeze({
+    generation,
+    intentSha256,
+    documents,
+    storedDocuments,
+  });
+};
+
+const decodeTopologySink = (sink: SinkRefValue): SinkRefValue =>
+  freezeCapabilityInput(
+    Schema.decodeUnknownSync(SinkRef, strictDecode)({
+      canvasName: sink.canvasName,
+      nodeId: sink.nodeId,
+    }),
+  );
+
+/**
+ * Validate identities before the legacy canvas scrub can discard an invalid
+ * edge. The semantic index below is then built once from the detached decoded
+ * document. Duplicate identities and dangling endpoints are never given a
+ * first-wins interpretation at an authority boundary.
+ */
+const rawCanvasGraphIdentity = (
+  rawBody: string,
+  canvasName: string,
+): {
+  readonly nodeIds: ReadonlySet<string>;
+  readonly edgeIds: ReadonlySet<string>;
+} => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody) as unknown;
+  } catch (error) {
+    return topologyTypeError(
+      `canvas ${JSON.stringify(canvasName)} raw body is not JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  const record = asPlainRecord(parsed);
+  if (record === undefined || !Array.isArray(record.nodes) || !Array.isArray(record.edges)) {
+    return topologyTypeError(
+      `canvas ${JSON.stringify(canvasName)} raw body has no node/edge graph`,
+    );
+  }
+  const nodeIds = new Set<string>();
+  for (const rawNode of record.nodes) {
+    const node = asPlainRecord(rawNode);
+    if (node === undefined || typeof node.id !== "string") {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(canvasName)} contains a node without a string id`,
+      );
+    }
+    if (nodeIds.has(node.id)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(canvasName)} contains duplicate node id ${JSON.stringify(node.id)}`,
+      );
+    }
+    nodeIds.add(node.id);
+  }
+  const edgeIds = new Set<string>();
+  const endpoints: Array<{
+    readonly id: string;
+    readonly fromNode: string;
+    readonly toNode: string;
+  }> = [];
+  for (const rawEdge of record.edges) {
+    const edge = asPlainRecord(rawEdge);
+    if (
+      edge === undefined ||
+      typeof edge.id !== "string" ||
+      typeof edge.fromNode !== "string" ||
+      typeof edge.toNode !== "string"
+    ) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(canvasName)} contains an edge without exact string identity/endpoints`,
+      );
+    }
+    if (edgeIds.has(edge.id)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(canvasName)} contains duplicate edge id ${JSON.stringify(edge.id)}`,
+      );
+    }
+    edgeIds.add(edge.id);
+    endpoints.push({
+      id: edge.id,
+      fromNode: edge.fromNode,
+      toNode: edge.toNode,
+    });
+  }
+  for (const edge of endpoints) {
+    if (!nodeIds.has(edge.fromNode) || !nodeIds.has(edge.toNode)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(canvasName)} edge ${JSON.stringify(edge.id)} has a dangling endpoint`,
+      );
+    }
+  }
+  return { nodeIds, edgeIds };
+};
+
+const fullyContains = (
+  group: CanvasNode & { readonly type: "group" },
+  node: CanvasNode,
+): boolean =>
+  node.x >= group.x &&
+  node.y >= group.y &&
+  node.x + node.width <= group.x + group.width &&
+  node.y + node.height <= group.y + group.height;
+
+const isTaskSinkNode = (node: CanvasNode): boolean => {
+  const spec = resolveSpec({
+    isGroup: node.type === "group",
+    kind: node.ether?.entity?.kind,
+  });
+  return spec._tag === "Sink" && spec.kind === "task";
+};
+
+type CanonicalTaskTopologyIndex = {
+  readonly canvasBodySha256: string;
+  readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
+  readonly sinkAdmissionFloor: SinkAdmission;
+  readonly sinkHostId: string;
+  readonly actorGrants: ReadonlyArray<TaskActorGrant>;
+};
+
+/** Build every Task-authority fact from one duplicate-free graph index. */
+const canonicalTaskTopologyIndex = (input: {
+  readonly canvasName: string;
+  readonly rawBody: string;
+  readonly document: CanvasDoc;
+  readonly authoringSink: SinkRefValue;
+}): CanonicalTaskTopologyIndex => {
+  const rawIdentity = rawCanvasGraphIdentity(input.rawBody, input.canvasName);
+  const document = Schema.decodeUnknownSync(CanvasDocSchema, strictDecode)(
+    structuredClone(input.document),
+  );
+  const nodeById = new Map<string, CanvasNode>();
+  for (const node of document.nodes) {
+    if (nodeById.has(node.id)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(input.canvasName)} contains duplicate decoded node id ${JSON.stringify(node.id)}`,
+      );
+    }
+    nodeById.set(node.id, node);
+  }
+  const edgeIds = new Set<string>();
+  for (const edge of document.edges) {
+    if (edgeIds.has(edge.id)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(input.canvasName)} contains duplicate decoded edge id ${JSON.stringify(edge.id)}`,
+      );
+    }
+    edgeIds.add(edge.id);
+    if (!nodeById.has(edge.fromNode) || !nodeById.has(edge.toNode)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(input.canvasName)} edge ${JSON.stringify(edge.id)} has a dangling decoded endpoint`,
+      );
+    }
+  }
+  // A scrub may retire an invalid edge, but it may never invent a graph id.
+  for (const nodeId of nodeById.keys()) {
+    if (!rawIdentity.nodeIds.has(nodeId)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(input.canvasName)} decoded an ambiguous node identity`,
+      );
+    }
+  }
+  for (const edgeId of edgeIds) {
+    if (!rawIdentity.edgeIds.has(edgeId)) {
+      return topologyTypeError(
+        `canvas ${JSON.stringify(input.canvasName)} decoded an ambiguous edge identity`,
+      );
+    }
+  }
+
+  const sinkNode = nodeById.get(input.authoringSink.nodeId);
+  if (sinkNode === undefined || !isTaskSinkNode(sinkNode)) {
+    return topologyTypeError(
+      `authoring sink ${JSON.stringify(input.authoringSink.nodeId)} is missing or is not an actual Task sink`,
+    );
+  }
+
+  const containingRegions = [...nodeById.values()]
+    .filter(
+      (node): node is CanvasNode & { readonly type: "group" } =>
+        node.type === "group" &&
+        node.id !== sinkNode.id &&
+        fullyContains(node, sinkNode),
+    )
+    .sort((left, right) => {
+      const leftArea = left.width * left.height;
+      const rightArea = right.width * right.height;
+      return rightArea < leftArea
+        ? -1
+        : rightArea > leftArea
+          ? 1
+          : compareCodeUnits(left.id, right.id);
+    });
+  for (let index = 1; index < containingRegions.length; index += 1) {
+    const outer = containingRegions[index - 1]!;
+    const inner = containingRegions[index]!;
+    if (!fullyContains(outer, inner) || fullyContains(inner, outer)) {
+      return topologyTypeError(
+        `authoring sink ${JSON.stringify(sinkNode.id)} is inside ambiguous regions ${JSON.stringify(outer.id)} and ${JSON.stringify(inner.id)}`,
+      );
+    }
+  }
+  const innermost = containingRegions[containingRegions.length - 1];
+  const inDependencyScope = (node: CanvasNode): boolean =>
+    innermost === undefined ||
+    (node.type !== "group" && fullyContains(innermost, node));
+  const allowedTaskSinkNodeIds = Object.freeze(
+    [...nodeById.values()]
+      .filter(
+        (node) => isTaskSinkNode(node) && inDependencyScope(node),
+      )
+      .map((node) => node.id)
+      .sort(compareCodeUnits),
+  );
+  if (!allowedTaskSinkNodeIds.includes(sinkNode.id)) {
+    return topologyTypeError(
+      `authoring sink ${JSON.stringify(sinkNode.id)} is absent from its derived Task scope`,
+    );
+  }
+  if (allowedTaskSinkNodeIds.length > MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS) {
+    throw new RangeError(
+      `Task topology authority contains ${allowedTaskSinkNodeIds.length} Task sinks; maximum is ${MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS}`,
+    );
+  }
+
+  const kindByNodeId = new Map<string, string>();
+  const actorNodeIds = new Set<string>();
+  for (const [nodeId, node] of nodeById) {
+    const kind = node.ether?.entity?.kind;
+    if (node.type !== "group" && kind !== undefined) {
+      kindByNodeId.set(nodeId, kind);
+    }
+    if (
+      resolveSpec({ isGroup: node.type === "group", kind })._tag === "Actor"
+    ) {
+      actorNodeIds.add(nodeId);
+    }
+  }
+  const grantsByActor = new Map<
+    string,
+    Set<"tasks.create" | "tasks.claim">
+  >();
+  for (const edge of document.edges) {
+    const otherNodeId = edge.fromNode === sinkNode.id
+      ? edge.toNode
+      : edge.toNode === sinkNode.id
+        ? edge.fromNode
+        : undefined;
+    if (otherNodeId === undefined || !actorNodeIds.has(otherNodeId)) {
+      continue;
+    }
+    const grant = compileEdgeGrant(edge, kindByNodeId);
+    if (grant === undefined) continue;
+    const actorGrants = grantsByActor.get(otherNodeId) ?? new Set();
+    if (grant.ports.includes("tasks.create")) actorGrants.add("tasks.create");
+    if (grant.ports.includes("tasks.claim")) actorGrants.add("tasks.claim");
+    if (actorGrants.size > 0) grantsByActor.set(otherNodeId, actorGrants);
+  }
+  const actorGrants = Object.freeze(
+    [...grantsByActor]
+      .sort(([left], [right]) => compareCodeUnits(left, right))
+      .map(([actorNodeId, grants]) =>
+        Object.freeze({
+          actorNodeId,
+          grants: Object.freeze([...grants].sort(compareCodeUnits)),
+        })
+      ),
+  );
+
+  return Object.freeze({
+    canvasBodySha256: canvasBodySha256Of(input.rawBody),
+    allowedTaskSinkNodeIds,
+    sinkAdmissionFloor: resolveSinkAdmission(sinkNode.ether?.tasks?.contract),
+    sinkHostId: resolveNodeHostId(sinkNode),
+    actorGrants,
+  });
+};
+
+const projectionCanvasRawBody = (
+  projectionBody: string,
+  canvasName: string,
+): string => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(projectionBody) as unknown;
+  } catch (error) {
+    return topologyTypeError(
+      `projection body is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const documents = asPlainRecord(parsed)?.documents;
+  if (!Array.isArray(documents)) {
+    return topologyTypeError("projection body has no document material");
+  }
+  const matches = documents.filter(
+    (candidate) => asPlainRecord(candidate)?.name === canvasName,
+  );
+  if (matches.length !== 1) {
+    return topologyTypeError(
+      matches.length === 0
+        ? `canvas ${JSON.stringify(canvasName)} is absent from projection material`
+        : `canvas ${JSON.stringify(canvasName)} is ambiguous in projection material`,
+    );
+  }
+  const body = asPlainRecord(matches[0])?.body;
+  if (typeof body !== "string") {
+    return topologyTypeError(
+      `canvas ${JSON.stringify(canvasName)} has no raw projection body`,
+    );
+  }
+  return body;
+};
+
+const mintTaskDependencyScopeCapability = (input: {
+  readonly mode: TaskTopologyAuthorityMode;
   readonly basis: IntentFactBasisValue;
   readonly authoringSink: SinkRefValue;
+  readonly document: CanvasDoc;
+  readonly rawCanvasBody: string;
 }): TaskDependencyScopeCapability => {
-  // Decode a detached clone, derive the minimal authority below, and then let
-  // the potentially large runtime document go. Task overlays and history are
-  // never retained by the process-local capability registry.
-  const topology = Schema.decodeUnknownSync(CanvasDocSchema, strictDecode)(
-    structuredClone(input.topology),
-  );
   const basis = freezeCapabilityInput(
     Schema.decodeUnknownSync(IntentFactBasis, strictDecode)(
       structuredClone(input.basis),
@@ -223,55 +610,142 @@ export const createTaskDependencyScopeCapability = (input: {
       structuredClone(input.authoringSink),
     ),
   );
-  const sinkNode = topology.nodes.find(
-    (node) => node.id === authoringSink.nodeId,
-  );
-  if (sinkNode?.ether?.entity?.kind !== "task") {
-    throw new TypeError(
-      `dependency scope authoring sink ${JSON.stringify(authoringSink.nodeId)} is not an actual Task sink`,
-    );
-  }
-  const scopedNodeIds = dependencyScopeNodeIds(
-    topology,
-    authoringSink.nodeId,
-  );
-  const firstNodeById = new Map<string, CanvasDoc["nodes"][number]>();
-  for (const node of topology.nodes) {
-    if (!firstNodeById.has(node.id)) firstNodeById.set(node.id, node);
-  }
-  const allowedTaskSinkNodeIds = Object.freeze(
-    [...firstNodeById.values()]
-      .filter(
-        (node) =>
-          scopedNodeIds.has(node.id) &&
-          node.ether?.entity?.kind === "task",
-      )
-      .map((node) => node.id)
-      .sort(compareCodeUnits),
-  );
-  if (
-    allowedTaskSinkNodeIds.length > MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS
-  ) {
-    throw new RangeError(
-      `dependency scope contains ${allowedTaskSinkNodeIds.length} Task sinks; maximum is ${MAX_TASK_DEPENDENCY_SCOPE_NODE_IDS}`,
-    );
-  }
+  const index = canonicalTaskTopologyIndex({
+    canvasName: authoringSink.canvasName,
+    rawBody: input.rawCanvasBody,
+    document: input.document,
+    authoringSink,
+  });
   const capability = Object.freeze(
     Object.create(null) as object,
   ) as TaskDependencyScopeCapability;
   taskDependencyScopeCapabilities.set(
     capability,
     Object.freeze({
+      mode: input.mode,
       basis,
       authoringSink,
-      allowedTaskSinkNodeIds,
-      sinkAdmissionFloor: resolveSinkAdmission(
-        sinkNode.ether?.tasks?.contract,
-      ),
+      ...index,
     }),
   );
   return capability;
 };
+
+/** Mint current authorial Task topology only from coherent stored material. */
+export const createAuthorialTaskDependencyScopeCapability = (input: {
+  readonly authority: CanvasAuthorityMaterialSnapshot;
+  readonly authoringSink: SinkRefValue;
+}): TaskDependencyScopeCapability => {
+  const authority = detachCanvasAuthorityMaterialSnapshot(input.authority);
+  const authoringSink = decodeTopologySink(input.authoringSink);
+  verifyCanvasIntentMaterial(authority);
+  const document = authority.documents.get(authoringSink.canvasName);
+  const stored = authority.storedDocuments.get(authoringSink.canvasName);
+  if (document === undefined || stored === undefined) {
+    return topologyTypeError(
+      `canvas ${JSON.stringify(authoringSink.canvasName)} is absent from authorial material`,
+    );
+  }
+  const basis = Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+    kind: "authorial-intent",
+    generation: authority.generation,
+    contentSha256: authority.intentSha256,
+  });
+  return mintTaskDependencyScopeCapability({
+    mode: "authorial-current",
+    basis,
+    authoringSink,
+    document,
+    rawCanvasBody: stored.rawBody,
+  });
+};
+
+type ProjectedTaskTopologyInput = {
+  readonly rawBody: string;
+  readonly generation: string;
+  readonly contentSha256: string;
+  readonly authoringSink: SinkRefValue;
+};
+
+const createProjectedTaskDependencyScopeCapability = (
+  mode: "projected-current" | "projected-retained",
+  input: ProjectedTaskTopologyInput,
+): TaskDependencyScopeCapability => {
+  const rawBody = input.rawBody;
+  const generation = input.generation;
+  const contentSha256 = input.contentSha256;
+  const authoringSink = decodeTopologySink(input.authoringSink);
+  const actualContentSha256 = canvasBodySha256Of(rawBody);
+  if (actualContentSha256 !== contentSha256) {
+    return topologyTypeError(
+      "projection raw body does not match its exact contentSha256",
+    );
+  }
+  const portfolio = decodeStationPortfolioBody(rawBody);
+  const document = portfolio.documents.get(authoringSink.canvasName);
+  if (document === undefined) {
+    return topologyTypeError(
+      `canvas ${JSON.stringify(authoringSink.canvasName)} is absent from projection material`,
+    );
+  }
+  const basis = Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+    kind: "projected-intent",
+    generation,
+    contentSha256,
+  });
+  return mintTaskDependencyScopeCapability({
+    mode,
+    basis,
+    authoringSink,
+    document,
+    rawCanvasBody: projectionCanvasRawBody(rawBody, authoringSink.canvasName),
+  });
+};
+
+/** Mint topology captured from the currently installed Remote projection. */
+export const createCurrentProjectedTaskDependencyScopeCapability = (
+  input: ProjectedTaskTopologyInput,
+): TaskDependencyScopeCapability =>
+  createProjectedTaskDependencyScopeCapability("projected-current", input);
+
+/** Mint topology loaded from one exact retained projection version. */
+export const createRetainedProjectedTaskDependencyScopeCapability = (
+  input: ProjectedTaskTopologyInput,
+): TaskDependencyScopeCapability =>
+  createProjectedTaskDependencyScopeCapability("projected-retained", input);
+
+const inspectTaskDependencyScopeCapability = (
+  sink: SinkRefValue,
+  capability: TaskDependencyScopeCapability | undefined,
+): TaskDependencyScopeCapabilityData | undefined => {
+  const inspected = capability === undefined
+    ? undefined
+    : taskDependencyScopeCapabilities.get(capability as object);
+  return inspected !== undefined &&
+      inspected.authoringSink.canvasName === sink.canvasName &&
+      inspected.authoringSink.nodeId === sink.nodeId
+    ? inspected
+    : undefined;
+};
+
+/** Exact sink host derived from the authenticated canonical graph. */
+export const taskDependencyScopeCapabilitySinkHostId = (
+  capability: TaskDependencyScopeCapability,
+  sink: SinkRefValue,
+): string | undefined =>
+  inspectTaskDependencyScopeCapability(sink, capability)?.sinkHostId;
+
+/** Exact actor grant derived from the authenticated canonical graph. */
+export const taskDependencyScopeCapabilityAllowsActor = (
+  capability: TaskDependencyScopeCapability,
+  sink: SinkRefValue,
+  actorNodeId: string,
+  grant: "tasks.create" | "tasks.claim",
+): boolean =>
+  inspectTaskDependencyScopeCapability(sink, capability)?.actorGrants.some(
+    (entry) =>
+      entry.actorNodeId === actorNodeId && entry.grants.includes(grant),
+  ) ?? false;
 
 const now = (): DisplayTimestampValue =>
   Schema.decodeUnknownSync(DisplayTimestamp)(new Date().toISOString());
@@ -446,7 +920,8 @@ export type LocalWorkInput = WorkRepositoryInput & {
   readonly dependencyScope?: TaskDependencyScopeCapability;
 };
 
-export type CreateTaskInput = LocalWorkInput & {
+export type CreateTaskInput = Omit<LocalWorkInput, "dependencyScope"> & {
+  readonly dependencyScope: TaskDependencyScopeCapability;
   readonly task: TaskValue;
 };
 
@@ -460,7 +935,7 @@ export type PersistUnadmittedTaskInput = {
   readonly proposalId: string;
   readonly home: InstallationId;
   readonly basis: IntentFactBasisValue;
-  readonly dependencyScope?: TaskDependencyScopeCapability;
+  readonly dependencyScope: TaskDependencyScopeCapability;
 };
 
 declare const LegacyProposalMaterializationCursorTypeId: unique symbol;
@@ -530,7 +1005,8 @@ export type CreateProposalInput = LocalWorkInput & {
   readonly proposal: TaskProposalValue;
 };
 
-export type ApproveProposalInput = LocalWorkInput & {
+export type ApproveProposalInput = Omit<LocalWorkInput, "dependencyScope"> & {
+  readonly dependencyScope: TaskDependencyScopeCapability;
   readonly proposalId: string;
   readonly task: TaskValue;
 };
@@ -1127,40 +1603,183 @@ const requireDependencyCapability = (
   sink: SinkRefValue,
   capability: TaskDependencyScopeCapability | undefined,
 ): TaskDependencyScopeCapabilityData => {
-  const inspected =
-    capability === undefined
-      ? undefined
-      : taskDependencyScopeCapabilities.get(capability as object);
-  if (
-    inspected === undefined ||
-    inspected.authoringSink.canvasName !== sink.canvasName ||
-    inspected.authoringSink.nodeId !== sink.nodeId
-  ) {
+  const inspected = inspectTaskDependencyScopeCapability(sink, capability);
+  if (inspected === undefined) {
     throw authorityError(
       "authority-mismatch",
-      "Task dependencies require an authentic process-local scope capability for the exact canvas and sink",
+      "Task topology requires an authentic process-local capability for the exact canvas and sink",
     );
   }
   return inspected;
 };
 
+type AuthorialCapabilityMaterialRow = StateRow & {
+  readonly body: string;
+  readonly revision_sha256: string;
+};
+
+type ProjectedCapabilityMaterialRow = StateRow & {
+  readonly body: string;
+};
+
+const assertAuthorialCapabilityCurrent = (
+  reader: StateReader,
+  data: TaskDependencyScopeCapabilityData,
+): void => {
+  if (data.mode !== "authorial-current" || data.basis.kind !== "authorial-intent") {
+    throw authorityError(
+      "authority-mismatch",
+      "authorial Task topology capability has the wrong authority mode",
+    );
+  }
+  const rows = reader.all<AuthorialCapabilityMaterialRow>(
+    `
+      SELECT
+        document.body,
+        document.sha256 AS revision_sha256
+      FROM canvas_head AS head
+      JOIN canvas_generations AS generation
+        ON generation.generation = head.generation
+      JOIN canvas_generation_documents AS document
+        ON document.generation = generation.generation
+      WHERE head.singleton = 1
+        AND generation.generation = ?
+        AND generation.intent_sha256 = ?
+        AND document.name = ?
+      LIMIT 2
+    `,
+    [
+      data.basis.generation,
+      data.basis.contentSha256,
+      data.authoringSink.canvasName,
+    ],
+  );
+  const row = rows.length === 1 ? rows[0]! : undefined;
+  if (
+    row === undefined ||
+    row.revision_sha256 !== data.canvasBodySha256 ||
+    canvasBodySha256Of(row.body) !== data.canvasBodySha256
+  ) {
+    throw authorityError(
+      "causal-conflict",
+      "authorial Task topology material is no longer the exact current stored canvas",
+    );
+  }
+};
+
+const assertProjectedCapabilityStored = (
+  reader: StateReader,
+  data: TaskDependencyScopeCapabilityData,
+  current: boolean,
+): void => {
+  if (
+    data.basis.kind !== "projected-intent" ||
+    (current
+      ? data.mode !== "projected-current"
+      : data.mode !== "projected-retained")
+  ) {
+    throw authorityError(
+      "authority-mismatch",
+      current
+        ? "current projected Task topology capability has the wrong authority mode"
+        : "retained projected Task topology capability has the wrong authority mode",
+    );
+  }
+  const rows = reader.all<ProjectedCapabilityMaterialRow>(
+    current
+      ? `
+          SELECT version.body
+          FROM station_projection_head AS head
+          JOIN station_projection_versions AS version
+            ON version.generation = head.generation
+            AND version.content_sha256 = head.content_sha256
+          WHERE head.singleton = 1
+            AND version.generation = ?
+            AND version.content_sha256 = ?
+          LIMIT 2
+        `
+      : `
+          SELECT version.body
+          FROM station_projection_versions AS version
+          WHERE version.generation = ?
+            AND version.content_sha256 = ?
+          LIMIT 2
+        `,
+    [data.basis.generation, data.basis.contentSha256],
+  );
+  const row = rows.length === 1 ? rows[0]! : undefined;
+  if (
+    row === undefined ||
+    canvasBodySha256Of(row.body) !== data.basis.contentSha256
+  ) {
+    throw authorityError(
+      "causal-conflict",
+      current
+        ? "projected Task topology material is no longer the exact current retained projection"
+        : "projected Task topology material is not an exact retained projection",
+    );
+  }
+};
+
+const assertCurrentCapabilityMaterial = (
+  reader: StateReader,
+  authority: LocalWorkAuthority,
+  data: TaskDependencyScopeCapabilityData,
+): void => {
+  if (authority.role === "command-center") {
+    if (data.mode !== "authorial-current") {
+      throw authorityError(
+        "authority-mismatch",
+        "Command Center Task topology requires current authorial material",
+      );
+    }
+    assertAuthorialCapabilityCurrent(reader, data);
+    return;
+  }
+  if (data.mode !== "projected-current") {
+    throw authorityError(
+      "authority-mismatch",
+      "Remote Task topology requires the current installed projection",
+    );
+  }
+  assertProjectedCapabilityStored(reader, data, true);
+};
+
+const assertExplicitFactCapabilityMaterial = (
+  reader: StateReader,
+  data: TaskDependencyScopeCapabilityData,
+): void => {
+  switch (data.mode) {
+    case "authorial-current":
+      assertAuthorialCapabilityCurrent(reader, data);
+      return;
+    case "projected-current":
+      assertProjectedCapabilityStored(reader, data, true);
+      return;
+    case "projected-retained":
+      assertProjectedCapabilityStored(reader, data, false);
+      return;
+  }
+};
+
 const localDependencyCapability = (
+  reader: StateReader,
   sink: SinkRefValue,
   basis: IntentFactBasisValue,
   dependsOn: ReadonlyArray<string> | undefined,
   capability: TaskDependencyScopeCapability | undefined,
-): TaskDependencyScopeCapabilityData | undefined => {
+): TaskDependencyScopeCapabilityData => {
   assertCanonicalDependsOn(dependsOn);
-  if ((dependsOn?.length ?? 0) === 0 && capability === undefined) {
-    return undefined;
-  }
+  const authority = canonicalLocalWorkAuthority(reader);
+  assertCurrentIntentBasis(reader, authority, sink, basis);
   const inspected = requireDependencyCapability(sink, capability);
   if (!sameIntentBasis(inspected.basis, basis)) {
     throw authorityError(
       "authority-mismatch",
-      "Task dependency capability does not name the exact local intent basis",
+      "Task topology capability does not name the exact local intent basis",
     );
   }
+  assertCurrentCapabilityMaterial(reader, authority, inspected);
   return inspected;
 };
 
@@ -1170,24 +1789,23 @@ const authorizedDependencyCapability = (
   dependsOn: ReadonlyArray<string> | undefined,
   capability: TaskDependencyScopeCapability | undefined,
   expectedBasis?: IntentFactBasisValue,
-): TaskDependencyScopeCapabilityData | undefined => {
+): TaskDependencyScopeCapabilityData => {
   assertCanonicalDependsOn(dependsOn);
-  if ((dependsOn?.length ?? 0) === 0 && capability === undefined) {
-    return undefined;
-  }
   const inspected = requireDependencyCapability(sink, capability);
   if (expectedBasis === undefined) {
-    assertCurrentIntentBasis(
+    assertCurrentCapabilityMaterial(
       reader,
       canonicalLocalWorkAuthority(reader),
-      sink,
-      inspected.basis,
+      inspected,
     );
-  } else if (!sameIntentBasis(inspected.basis, expectedBasis)) {
-    throw authorityError(
-      "authority-mismatch",
-      "explicit-intent fact dependency capability differs from its exact fact basis",
-    );
+  } else {
+    if (!sameIntentBasis(inspected.basis, expectedBasis)) {
+      throw authorityError(
+        "authority-mismatch",
+        "explicit-intent fact Task topology capability differs from its exact fact basis",
+      );
+    }
+    assertExplicitFactCapabilityMaterial(reader, inspected);
   }
   return inspected;
 };
@@ -1291,6 +1909,7 @@ const assertTaskDependenciesInLocalScope = (
   capability: TaskDependencyScopeCapability | undefined,
 ): void => {
   const inspected = localDependencyCapability(
+    reader,
     sink,
     basis,
     dependsOn,
@@ -1347,11 +1966,12 @@ const assertTaskClaimReady = (
   capability: TaskDependencyScopeCapability,
 ): void => {
   const inspected = localDependencyCapability(
+    reader,
     sink,
     basis,
     task.dependsOn,
     capability,
-  )!;
+  );
   if (
     !taskIsClaimReady(
       task,
@@ -6530,6 +7150,25 @@ const resultForCommand = (
   readonly body: WorkResult;
 } => {
   const action = command.body;
+  // Task create/claim geometry is mutable authority, even with no dependencies.
+  // Recheck the exact current capability before any command policy or material
+  // mutation. A later command-basis fact remains authorized by its immutable
+  // pending-command correlation instead of mutable topology.
+  if (action.operation === "task.create") {
+    authorizedDependencyCapability(
+      writer,
+      command.item.sink,
+      action.task.dependsOn,
+      taskDependencyScope,
+    );
+  } else if (action.operation === "task.claim") {
+    authorizedDependencyCapability(
+      writer,
+      command.item.sink,
+      action.sourceTask.dependsOn,
+      taskDependencyScope,
+    );
+  }
   switch (action.operation) {
     case "proposal.create": {
       if (
@@ -6544,13 +7183,15 @@ const resultForCommand = (
           `proposal "${command.item.itemId}" already exists`,
         );
       }
-      assertDependenciesFromAuthorization(
-        writer,
-        command.item.sink,
-        action.proposal.id,
-        action.proposal.dependsOn,
-        taskDependencyScope,
-      );
+      if ((action.proposal.dependsOn?.length ?? 0) > 0) {
+        assertDependenciesFromAuthorization(
+          writer,
+          command.item.sink,
+          action.proposal.id,
+          action.proposal.dependsOn,
+          taskDependencyScope,
+        );
+      }
       return {
         body: {
           operation: "proposal.create",
@@ -7918,6 +8559,22 @@ const validateIncomingFact = (
       );
     }
     assertCorrelatedCommandFact(correlatedCommand, fact);
+  } else if (fact.body.operation === "task.create") {
+    authorizedDependencyCapability(
+      writer,
+      fact.item.sink,
+      fact.body.task.dependsOn,
+      taskDependencyScope,
+      fact.basis,
+    );
+  } else if (fact.body.operation === "task.claim") {
+    authorizedDependencyCapability(
+      writer,
+      fact.item.sink,
+      fact.body.task.dependsOn,
+      taskDependencyScope,
+      fact.basis,
+    );
   }
   switch (fact.body.operation) {
     case "proposal.create": {
@@ -7939,10 +8596,12 @@ const validateIncomingFact = (
           `proposal "${fact.item.itemId}" already exists`,
         );
       }
-      assertFactDependencies(
-        fact.body.proposal.id,
-        fact.body.proposal.dependsOn,
-      );
+      if ((fact.body.proposal.dependsOn?.length ?? 0) > 0) {
+        assertFactDependencies(
+          fact.body.proposal.id,
+          fact.body.proposal.dependsOn,
+        );
+      }
       return;
     }
     case "proposal.approve": {
@@ -9244,7 +9903,13 @@ export const WorkRepositoryLive = Layer.effect(
       return transaction("work.task.create", input.sink, (writer) => {
         const authority = canonicalLocalWorkAuthority(writer);
         const localInstallationId = authority.installationId;
-        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
+        localDependencyCapability(
+          writer,
+          input.sink,
+          input.basis,
+          task.dependsOn,
+          input.dependencyScope,
+        );
         if (task.state !== "submitted" || task.claimedBy !== undefined) {
           throw authorityError(
             "invalid-transition",
@@ -9335,7 +10000,13 @@ export const WorkRepositoryLive = Layer.effect(
             );
           }
           try {
-            assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
+            localDependencyCapability(
+              writer,
+              input.sink,
+              input.basis,
+              undefined,
+              input.dependencyScope,
+            );
           } catch (error) {
             if (error instanceof WorkAuthorityError) {
               return invalid(
@@ -9451,14 +10122,16 @@ export const WorkRepositoryLive = Layer.effect(
             `proposal "${proposal.id}" already exists`,
           );
         }
-        assertTaskDependenciesInLocalScope(
-          writer,
-          input.sink,
-          input.basis,
-          proposal.id,
-          proposal.dependsOn,
-          input.dependencyScope,
-        );
+        if ((proposal.dependsOn?.length ?? 0) > 0) {
+          assertTaskDependenciesInLocalScope(
+            writer,
+            input.sink,
+            input.basis,
+            proposal.id,
+            proposal.dependsOn,
+            input.dependencyScope,
+          );
+        }
         return commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
@@ -9806,7 +10479,13 @@ export const WorkRepositoryLive = Layer.effect(
       return transaction("work.task.claim-local", input.sink, (writer) => {
         const authority = canonicalLocalWorkAuthority(writer);
         const localInstallationId = authority.installationId;
-        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
+        localDependencyCapability(
+          writer,
+          input.sink,
+          input.basis,
+          undefined,
+          input.dependencyScope,
+        );
         const current = loadTask(
           writer,
           "task",
@@ -10968,22 +11647,13 @@ export const WorkRepositoryLive = Layer.effect(
               "only Command Center may reserve a claim for a Remote actor",
             );
           }
-          assertCurrentIntentBasis(
+          localDependencyCapability(
             writer,
-            authority,
             input.sink,
             input.basis,
-          );
-          const scope = requireDependencyCapability(
-            input.sink,
+            undefined,
             input.dependencyScope,
           );
-          if (!sameIntentBasis(scope.basis, input.basis)) {
-            throw authorityError(
-              "authority-mismatch",
-              "Remote claim scope capability differs from its exact intent basis",
-            );
-          }
           if (
             input.targetInstallationId === localInstallationId
           ) {

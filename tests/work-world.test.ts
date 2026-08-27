@@ -36,6 +36,7 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
+  createAuthorialTaskDependencyScopeCapability,
   readCanvasWorkProjection,
   readCanvasWorkRevision,
   WorkRepository,
@@ -48,6 +49,8 @@ import {
 import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
 import { makeWorkWorld, type WorkWorld } from "../src/main/vellum/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
+import type { CanvasDoc } from "../src/shared/canvas";
+import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 
 const CANVAS = "factory";
 const TASKS = "tasks-sink";
@@ -71,7 +74,36 @@ let world: WorkWorld;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-world");
-const intentSha256 = "d".repeat(64);
+const taskDocument = (nodeIds: ReadonlyArray<string>): CanvasDoc => ({
+  nodes: nodeIds.map((id, index) => ({
+    id,
+    type: "text" as const,
+    x: index * 220,
+    y: 0,
+    width: 180,
+    height: 80,
+    text: id,
+    ether: { entity: { kind: "task" } },
+  })),
+  edges: [],
+});
+const fixtureDocuments = new Map<string, CanvasDoc>([
+  [CANVAS, taskDocument([TASKS, "archived-sink", "aaa-sink"])],
+  ...Array.from(
+    { length: 20 },
+    (_, index) => [`bound-${index}`, taskDocument(["tasks"])] as const,
+  ),
+]);
+const fixtureAuthority = authorialMaterialForTest({
+  generation: "1",
+  documents: new Map(
+    [...fixtureDocuments].map(([name, document]) => [
+      name,
+      { document, rawBody: JSON.stringify(document) },
+    ]),
+  ),
+});
+const intentSha256 = fixtureAuthority.intentSha256;
 const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -79,6 +111,11 @@ const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   generation: "1",
   contentSha256: intentSha256,
 });
+const dependencyScope = (sink: { canvasName: string; nodeId: string }) =>
+  createAuthorialTaskDependencyScopeCapability({
+    authority: fixtureAuthority,
+    authoringSink: sink,
+  });
 
 const seatOf = (digit: string, nodeId: string) => ({
   seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`),
@@ -126,14 +163,19 @@ const seedInstallation = (installations: ReadonlyArray<InstallationIdValue>) =>
     writer.run(
       `INSERT INTO canvas_generations(
          generation, created_at, cause, intent_sha256, document_count
-       ) VALUES ('1', ?, 'test intent', ?, 1)`,
+       ) VALUES ('1', ?, 'test intent', ?, 21)`,
       [observedAt, intentSha256],
     );
     writer.run(
       `INSERT INTO canvas_generation_documents(
          generation, name, body, sha256, modified_at
-       ) VALUES ('1', ?, '{}', ?, ?)`,
-      [CANVAS, "1".repeat(64), observedAt],
+       ) VALUES ('1', ?, ?, ?, ?)`,
+      [
+        CANVAS,
+        fixtureAuthority.storedDocuments.get(CANVAS)!.rawBody,
+        fixtureAuthority.storedDocuments.get(CANVAS)!.revisionSha256,
+        observedAt,
+      ],
     );
     // Twenty extra canvases so the residency-bound test has more canvases
     // than the world may hold. Each needs a document row in the head
@@ -142,8 +184,13 @@ const seedInstallation = (installations: ReadonlyArray<InstallationIdValue>) =>
       writer.run(
         `INSERT INTO canvas_generation_documents(
            generation, name, body, sha256, modified_at
-         ) VALUES ('1', ?, '{}', ?, ?)`,
-        [`bound-${index}`, String(index).padStart(64, "0"), observedAt],
+         ) VALUES ('1', ?, ?, ?, ?)`,
+        [
+          `bound-${index}`,
+          fixtureAuthority.storedDocuments.get(`bound-${index}`)!.rawBody,
+          fixtureAuthority.storedDocuments.get(`bound-${index}`)!.revisionSha256,
+          observedAt,
+        ],
       );
     }
     writer.run(
@@ -208,6 +255,7 @@ describe("the in-memory factory world", () => {
         repository.createTask({
           sink: { canvasName: CANVAS, nodeId: TASKS },
           basis,
+          dependencyScope: dependencyScope({ canvasName: CANVAS, nodeId: TASKS }),
           task: {
             id: "task-1",
             state: "submitted",
@@ -470,6 +518,7 @@ describe("the in-memory factory world", () => {
         repository.createTask({
           sink,
           basis,
+          dependencyScope: dependencyScope(sink),
           task: {
             id: "task-archived",
             state: "submitted",
@@ -529,6 +578,7 @@ describe("the in-memory factory world", () => {
         repository.createTask({
           sink: { canvasName: CANVAS, nodeId: "aaa-sink" },
           basis,
+          dependencyScope: dependencyScope({ canvasName: CANVAS, nodeId: "aaa-sink" }),
           task: {
             id: "task-2",
             state: "submitted",
@@ -633,6 +683,7 @@ describe("the world's residency bound", () => {
           repository.createTask({
             sink: { canvasName, nodeId: "tasks" },
             basis,
+            dependencyScope: dependencyScope({ canvasName, nodeId: "tasks" }),
             task: {
               id: `task-${canvasName}`,
               state: "submitted",

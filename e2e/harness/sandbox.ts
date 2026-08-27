@@ -32,7 +32,7 @@ import { makeHostsRegistry } from "../../src/main/vellum/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import {
-  createTaskDependencyScopeCapability,
+  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../../src/main/vellum/work/repository";
@@ -184,13 +184,7 @@ export const writeFixtureCanvas = async (
         }
 
         yield* canvasService.write(name, doc);
-        const authority = yield* canvasService.authoritySnapshot();
-        const topology = authority.documents.get(name);
-        if (topology === undefined) {
-          throw new Error(
-            `fixture ${JSON.stringify(name)} is absent from authorial intent`,
-          );
-        }
+        const authority = yield* canvasService.authorityMaterialSnapshot();
         const basis = Schema.decodeUnknownSync(IntentFactBasis, {
           onExcessProperty: "error",
         })({
@@ -255,11 +249,11 @@ export const writeFixtureCanvas = async (
         for (const node of doc.nodes) {
           const sink = { canvasName: name, nodeId: node.id };
           for (const task of node.ether?.tasks?.items ?? []) {
-            const dependencyScope = createTaskDependencyScopeCapability({
-              topology,
-              basis,
-              authoringSink: sink,
-            });
+            const dependencyScope =
+              createAuthorialTaskDependencyScopeCapability({
+                authority,
+                authoringSink: sink,
+              });
             const {
               state: targetState,
               claimedBy: targetClaimant,
