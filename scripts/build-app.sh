@@ -3,6 +3,7 @@
 #
 #   scripts/build-app.sh --target mac|linux [--fast] [--verify] [--notarize]
 #   scripts/build-app.sh --compile-only
+#   scripts/build-app.sh --runtime-cohort-only
 #   scripts/build-app.sh --license-preflight-only
 set -euo pipefail
 
@@ -13,6 +14,7 @@ TARGET=""
 FAST=0
 VERIFY=0
 COMPILE_ONLY=0
+RUNTIME_COHORT_ONLY=0
 NOTARIZE=0
 LICENSE_PREFLIGHT_ONLY=0
 
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --verify) VERIFY=1; shift ;;
     --notarize) NOTARIZE=1; shift ;;
     --compile-only) COMPILE_ONLY=1; shift ;;
+    --runtime-cohort-only) RUNTIME_COHORT_ONLY=1; shift ;;
     --license-preflight-only) LICENSE_PREFLIGHT_ONLY=1; shift ;;
     -h|--help) usage 0 ;;
     *) printf 'vellum-command: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
@@ -52,11 +55,15 @@ if [[ -z "$TARGET" ]]; then
 fi
 case "$TARGET" in mac|linux) ;; *) printf 'vellum-command: error: target must be mac or linux\n' >&2; exit 1 ;; esac
 if [[ "$TARGET" == "mac" && "$(uname -s)" != "Darwin" ]] || [[ "$TARGET" == "linux" && "$(uname -s)" != "Linux" ]]; then
-  printf 'vellum-command: error: native %s packaging must run on its target OS\n' "$TARGET" >&2
+  printf 'vellum-command: error: %s packaging must run in its target OS execution environment\n' "$TARGET" >&2
   exit 1
 fi
 if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
   printf 'vellum-command: error: notarization is only available for the mac target\n' >&2
+  exit 1
+fi
+if [[ "$COMPILE_ONLY" -eq 1 && "$RUNTIME_COHORT_ONLY" -eq 1 ]]; then
+  printf 'vellum-command: error: --compile-only and --runtime-cohort-only are mutually exclusive\n' >&2
   exit 1
 fi
 
@@ -113,11 +120,9 @@ if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
 fi
 
 cd "$REPO_ROOT"
-if [[ "$COMPILE_ONLY" -eq 0 ]]; then
-  printf 'vellum-command: package source provenance preflight …\n'
-  "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
-    preflight --target "$TARGET"
-fi
+printf 'vellum-command: exact committed package source preflight …\n'
+"$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
+  preflight --target "$TARGET"
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ "$TARGET" == "linux" ]]; then
@@ -146,7 +151,9 @@ if [[ ! -d node_modules/electron-builder ]]; then
   printf 'vellum-command: error: electron-builder missing — run: bun install\n' >&2
   exit 1
 fi
-if [[ "$VERIFY" -eq 1 ]]; then
+if [[ "$RUNTIME_COHORT_ONLY" -eq 1 ]]; then
+  : # The package caller already ran its selected checks; build only the cohort.
+elif [[ "$VERIFY" -eq 1 ]]; then
   # Keep the ship path aligned with `bun run verify`: the public product name
   # is a customer-visible contract and must not be bypassable by packaging.
   bun run lint:product-name
@@ -177,12 +184,19 @@ build_compiled_cli() {
   mv "$stage" "$output"
 }
 
-printf 'vellum-command: electron-vite build → out/ …\n'
-bunx electron-vite build
+if [[ "$RUNTIME_COHORT_ONLY" -eq 1 || "$COMPILE_ONLY" -eq 1 ]]; then
+  printf 'vellum-command: fresh Electron main + Linux Remote compiler cohort → out/ …\n'
+  "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
+    prepare --target "$TARGET"
+fi
+if [[ "$RUNTIME_COHORT_ONLY" -eq 1 ]]; then
+  printf 'vellum-command: runtime cohort build done.\n'
+  exit 0
+fi
 printf 'vellum-command: standalone CLI → dist/vellum-command …\n'
 build_compiled_cli "$REPO_ROOT/dist/vellum-command" src/cli/main.ts
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
-  printf 'vellum-command: compile-only done (out/ + standalone CLI). Skip packaging.\n'
+  printf 'vellum-command: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
   exit 0
 fi
 

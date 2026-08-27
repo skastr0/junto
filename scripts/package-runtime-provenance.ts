@@ -1,31 +1,39 @@
 #!/usr/bin/env bun
 /**
- * Build and verify provenance for the two packaged Vellum Command runtimes.
- *
- * The manifest hashes the exact runtime payload. Packaging only accepts a
- * manifest that matches the clean source commit, package version, schema head,
- * and payload bytes. Linux Remote output is rebuilt in its one owned directory.
+ * Build one fresh Electron-main/Linux-Remote compiler cohort and prove that
+ * package bytes are the exact outputs from that cohort and committed source.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
+  chmod,
   lstat,
   mkdir,
   readFile,
+  readlink,
+  readdir,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractFile, listPackage } from "@electron/asar";
+import { extractFile, getRawHeader, uncache } from "@electron/asar";
 import {
   REMOTE_ENTRY_SOURCE_RELATIVE,
   buildRemoteEntryBundle,
 } from "./build-linux-remote-runtime";
+import {
+  collectLinuxRuntimeInventory,
+  requireExactLinuxRemoteClosure,
+  type LinuxRuntimeInventory,
+  type LinuxRuntimeInventoryEntry,
+} from "./audit-linux-package";
 
 export const PACKAGE_RUNTIME_PROVENANCE_SCHEMA =
-  "vellum-command/package-runtime-provenance/v1" as const;
+  "vellum-command/package-runtime-provenance/v2" as const;
+export const RUNTIME_BUILD_IDENTITY_SCHEMA =
+  "vellum-command/runtime-build-identity/v1" as const;
 export const MAIN_PROVENANCE_SOURCE_RELATIVE =
   "out/package-runtime-provenance.json" as const;
 export const REMOTE_PROVENANCE_SOURCE_RELATIVE =
@@ -42,8 +50,12 @@ export const REMOTE_PAYLOAD_PACKAGED_RELATIVE =
 const PRODUCT_NAME = "Vellum Command" as const;
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SEMVER =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const BUILD_MARKER =
+  /\/\* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu;
 
 export type PackageRuntime = "electron-main" | "linux-remote";
 export type PackageTarget = "mac" | "linux";
@@ -63,12 +75,20 @@ export type PackageSourceFacts = PackageSchemaFacts & {
   readonly sourceCommit: string;
 };
 
+export type RuntimeBuildIdentity = {
+  readonly schema: typeof RUNTIME_BUILD_IDENTITY_SCHEMA;
+  readonly cohortNonce: string;
+  readonly sourceCommit: string;
+  readonly runtime: PackageRuntime;
+};
+
 export type PackageRuntimeProvenance = {
   readonly schema: typeof PACKAGE_RUNTIME_PROVENANCE_SCHEMA;
   readonly product: typeof PRODUCT_NAME;
   readonly runtime: PackageRuntime;
   readonly appVersion: string;
   readonly sourceCommit: string;
+  readonly buildIdentity: RuntimeBuildIdentity;
   readonly state: PackageSchemaFacts;
   readonly payload: {
     readonly packagedPath: string;
@@ -83,16 +103,26 @@ export type VerifiedRuntimeProvenance = {
   readonly payloadSha256: string;
   readonly payloadBytes: number;
   readonly packagedPath: string;
+  readonly buildIdentity: RuntimeBuildIdentity;
 };
 
 export type PackageRuntimeParityVerification = {
   readonly target: PackageTarget;
   readonly appVersion: string;
   readonly sourceCommit: string;
+  readonly cohortNonce: string;
   readonly state: PackageSchemaFacts;
+  readonly compiledRuntimes: {
+    readonly electronMain: VerifiedRuntimeProvenance;
+    readonly linuxRemote: VerifiedRuntimeProvenance;
+  };
   readonly runtimes: {
     readonly electronMain: VerifiedRuntimeProvenance;
     readonly linuxRemote?: VerifiedRuntimeProvenance;
+  };
+  readonly linuxRuntimeClosure?: {
+    readonly inventory: LinuxRuntimeInventory;
+    readonly remoteEntries: ReadonlyArray<LinuxRuntimeInventoryEntry>;
   };
 };
 
@@ -149,14 +179,22 @@ const sha256 = (body: Uint8Array | string): string =>
 export const sha256File = async (file: string): Promise<string> =>
   sha256(await readFile(file));
 
-const requireRegularFile = async (file: string, label: string): Promise<void> => {
-  let metadata;
+const lstatIfPresent = async (file: string) => {
   try {
-    metadata = await lstat(file);
-  } catch {
-    throw new Error(`${label} is missing: ${file}`);
+    return await lstat(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
   }
-  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+};
+
+const requireRegularFile = async (file: string, label: string): Promise<void> => {
+  const metadata = await lstatIfPresent(file);
+  if (
+    metadata === undefined ||
+    !metadata.isFile() ||
+    metadata.isSymbolicLink()
+  ) {
     throw new Error(`${label} must be a non-symlink regular file: ${file}`);
   }
 };
@@ -165,28 +203,182 @@ const requireDirectory = async (
   directory: string,
   label: string,
 ): Promise<void> => {
-  let metadata;
-  try {
-    metadata = await lstat(directory);
-  } catch {
-    throw new Error(`${label} is missing: ${directory}`);
-  }
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+  const metadata = await lstatIfPresent(directory);
+  if (
+    metadata === undefined ||
+    !metadata.isDirectory() ||
+    metadata.isSymbolicLink()
+  ) {
     throw new Error(`${label} must be a non-symlink directory: ${directory}`);
   }
 };
 
-const runGit = (repoRoot: string, args: ReadonlyArray<string>): string => {
+const runGit = (
+  repoRoot: string,
+  args: ReadonlyArray<string>,
+  options: { readonly nul?: boolean } = {},
+): string | Buffer => {
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_INDEX_FILE",
+    "GIT_WORK_TREE",
+    "GIT_DIR",
+    "GIT_COMMON_DIR",
+  ]) {
+    delete env[key];
+  }
   const result = spawnSync("git", ["-C", repoRoot, ...args], {
-    encoding: "utf8",
+    encoding: options.nul === true ? "buffer" : "utf8",
     shell: false,
+    maxBuffer: 256 * 1024 * 1024,
+    env,
   });
   if (result.status !== 0) {
+    const stderr = Buffer.isBuffer(result.stderr)
+      ? result.stderr.toString("utf8")
+      : result.stderr;
+    const stdout = Buffer.isBuffer(result.stdout)
+      ? result.stdout.toString("utf8")
+      : result.stdout;
     throw new Error(
-      `git ${args.join(" ")} failed: ${(result.stderr || result.stdout || "").trim() || `exit ${String(result.status)}`}`,
+      `git ${args.join(" ")} failed: ${(stderr || stdout || "").trim() || `exit ${String(result.status)}`}`,
     );
   }
-  return result.stdout.trim();
+  return result.stdout;
+};
+
+const runGitText = (repoRoot: string, args: ReadonlyArray<string>): string =>
+  String(runGit(repoRoot, args)).trim();
+
+const runGitNul = (repoRoot: string, args: ReadonlyArray<string>): string[] =>
+  (runGit(repoRoot, args, { nul: true }) as Buffer)
+    .toString("utf8")
+    .split("\0")
+    .filter((entry) => entry.length > 0);
+
+const gitBlobSha1 = (body: Uint8Array): string =>
+  createHash("sha1")
+    .update(`blob ${String(body.byteLength)}\0`)
+    .update(body)
+    .digest("hex");
+
+const unsafeIndexFlag = (entry: string): boolean => {
+  const tag = entry[0] ?? "";
+  return tag === "S" || (tag >= "a" && tag <= "z");
+};
+
+/**
+ * Verify checkout bytes and executable modes against HEAD without consulting
+ * assume-unchanged/skip-worktree hints. Also reject source-affecting extras.
+ */
+export const assertExactCommittedCheckout = async (
+  repoRootInput: string,
+): Promise<{ readonly commit: string; readonly tree: string }> => {
+  const repoRoot = path.resolve(repoRootInput);
+  await requireDirectory(repoRoot, "repository root");
+  if (runGitText(repoRoot, ["rev-parse", "--show-object-format"]) !== "sha1") {
+    throw new Error("package source requires a SHA-1 Git object repository");
+  }
+  const commit = requiredString(
+    runGitText(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]),
+    "source commit",
+    SOURCE_COMMIT,
+  );
+  const tree = runGitText(repoRoot, ["rev-parse", "HEAD^{tree}"]);
+  if (runGitText(repoRoot, ["write-tree"]) !== tree) {
+    throw new Error("package source index tree differs from HEAD");
+  }
+
+  const flagged = runGitNul(repoRoot, ["ls-files", "-v", "-z"]).find(
+    unsafeIndexFlag,
+  );
+  if (flagged !== undefined) {
+    throw new Error(
+      `package source rejects assume-unchanged/skip-worktree index flag: ${flagged.slice(2)}`,
+    );
+  }
+
+  const tracked = runGitNul(repoRoot, [
+    "ls-tree",
+    "-r",
+    "-z",
+    "--full-tree",
+    "HEAD",
+  ]);
+  for (const entry of tracked) {
+    const separator = entry.indexOf("\t");
+    if (separator < 0) throw new Error("invalid git ls-tree entry");
+    const header = entry.slice(0, separator).split(" ");
+    const relative = entry.slice(separator + 1);
+    const [mode, type, expectedOid] = header;
+    if (mode === undefined || type === undefined || expectedOid === undefined) {
+      throw new Error("invalid git ls-tree header");
+    }
+    if (type !== "blob") {
+      throw new Error(`package source cannot use tracked ${type}: ${relative}`);
+    }
+    const absolute = path.join(repoRoot, relative);
+    const metadata = await lstatIfPresent(absolute);
+    if (metadata === undefined) {
+      throw new Error(`tracked package source is missing: ${relative}`);
+    }
+    let body: Buffer;
+    if (mode === "120000") {
+      if (!metadata.isSymbolicLink()) {
+        throw new Error(`tracked symlink changed type: ${relative}`);
+      }
+      body = Buffer.from(await readlink(absolute), "utf8");
+    } else if (mode === "100644" || mode === "100755") {
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        throw new Error(`tracked source changed file type: ${relative}`);
+      }
+      const executable = (metadata.mode & 0o111) !== 0;
+      if (executable !== (mode === "100755")) {
+        throw new Error(`tracked source mode differs from HEAD: ${relative}`);
+      }
+      body = await readFile(absolute);
+    } else {
+      throw new Error(`unsupported tracked source mode ${mode}: ${relative}`);
+    }
+    if (gitBlobSha1(body) !== expectedOid) {
+      throw new Error(`tracked source bytes differ from HEAD: ${relative}`);
+    }
+  }
+
+  const untracked = runGitNul(repoRoot, [
+    "ls-files",
+    "--others",
+    "--exclude-standard",
+    "-z",
+  ]);
+  if (untracked.length > 0) {
+    throw new Error(`package source has untracked input: ${untracked[0]}`);
+  }
+  const ignoredSource = runGitNul(repoRoot, [
+    "ls-files",
+    "--others",
+    "--ignored",
+    "--exclude-standard",
+    "-z",
+    "--",
+    "src",
+    "scripts",
+    "station",
+    "assets",
+    "build",
+    ":(top,glob).env*",
+    ":(top,glob)electron.vite.config.*",
+    ":(top,glob)tsconfig*.json",
+    ":(top,glob)bunfig*",
+  ]);
+  if (ignoredSource.length > 0) {
+    throw new Error(
+      `package source has ignored source-affecting input: ${ignoredSource[0]}`,
+    );
+  }
+  return { commit, tree };
 };
 
 const uniqueMatch = (
@@ -282,6 +474,9 @@ export const readPackageSourceFacts = async (input: {
 }): Promise<PackageSourceFacts> => {
   const repoRoot = path.resolve(input.repoRoot);
   await requireDirectory(repoRoot, "repository root");
+  if (input.requireClean !== false) {
+    await assertExactCommittedCheckout(repoRoot);
+  }
   const packagePath = path.join(repoRoot, "package.json");
   await requireRegularFile(packagePath, "package.json");
   const parsed = JSON.parse(await readFile(packagePath, "utf8")) as {
@@ -293,7 +488,7 @@ export const readPackageSourceFacts = async (input: {
     SEMVER,
   );
   const sourceCommit = requiredString(
-    runGit(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]),
+    runGitText(repoRoot, ["rev-parse", "--verify", "HEAD^{commit}"]),
     "source commit",
     SOURCE_COMMIT,
   );
@@ -311,18 +506,6 @@ export const readPackageSourceFacts = async (input: {
       `source commit mismatch: checkout=${sourceCommit} expected=${expectedSourceCommit}`,
     );
   }
-  if (input.requireClean !== false) {
-    const trackedStatus = runGit(repoRoot, [
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=no",
-    ]);
-    if (trackedStatus.length > 0) {
-      throw new Error(
-        `package source has tracked changes and cannot be identified by commit ${sourceCommit}`,
-      );
-    }
-  }
   return {
     appVersion,
     sourceCommit,
@@ -335,27 +518,101 @@ const runtimePackagedPath = (runtime: PackageRuntime): string =>
     ? MAIN_PAYLOAD_PACKAGED_RELATIVE
     : REMOTE_PAYLOAD_PACKAGED_RELATIVE;
 
+const decodeRuntimeBuildIdentity = (input: unknown): RuntimeBuildIdentity => {
+  const record = requiredRecord(input, "runtime build identity");
+  if (record.schema !== RUNTIME_BUILD_IDENTITY_SCHEMA) {
+    throw new Error("invalid runtime build identity schema");
+  }
+  return {
+    schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
+    cohortNonce: requiredString(record.cohortNonce, "cohort nonce", UUID),
+    sourceCommit: requiredString(
+      record.sourceCommit,
+      "build identity source commit",
+      SOURCE_COMMIT,
+    ),
+    runtime: requireRuntime(record.runtime),
+  };
+};
+
+export const extractRuntimeBuildIdentity = (
+  payload: Uint8Array,
+): RuntimeBuildIdentity => {
+  const body = Buffer.from(payload).toString("utf8");
+  const matches = [...body.matchAll(BUILD_MARKER)];
+  if (matches.length !== 1) {
+    throw new Error(
+      `compiled runtime must contain exactly one build identity marker (found ${String(matches.length)})`,
+    );
+  }
+  const match = matches[0];
+  if (match === undefined || match.index === undefined) {
+    throw new Error("compiled runtime build identity marker is malformed");
+  }
+  const suffix = body.slice(match.index + match[0].length);
+  if (!/^\s*$/u.test(suffix)) {
+    throw new Error("compiled runtime build identity must be the final marker");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(
+      Buffer.from(requiredString(match[1], "build identity body"), "base64url").toString(
+        "utf8",
+      ),
+    );
+  } catch {
+    throw new Error("compiled runtime build identity is not valid JSON");
+  }
+  return decodeRuntimeBuildIdentity(decoded);
+};
+
+export const embedRuntimeBuildIdentity = (input: {
+  readonly payload: Uint8Array;
+  readonly identity: RuntimeBuildIdentity;
+}): Buffer => {
+  if ([...Buffer.from(input.payload).toString("utf8").matchAll(BUILD_MARKER)].length > 0) {
+    throw new Error("compiler output already contains a runtime build identity");
+  }
+  const encoded = Buffer.from(JSON.stringify(input.identity), "utf8").toString(
+    "base64url",
+  );
+  return Buffer.concat([
+    Buffer.from(input.payload),
+    Buffer.from(`\n/* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:${encoded} */\n`, "utf8"),
+  ]);
+};
+
 export const makePackageRuntimeProvenance = (input: {
   readonly runtime: PackageRuntime;
   readonly source: PackageSourceFacts;
   readonly payload: Uint8Array;
-}): PackageRuntimeProvenance => ({
-  schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
-  product: PRODUCT_NAME,
-  runtime: input.runtime,
-  appVersion: input.source.appVersion,
-  sourceCommit: input.source.sourceCommit,
-  state: {
-    currentStateSchemaVersion: input.source.currentStateSchemaVersion,
-    migrationHead: input.source.migrationHead,
-    migrationIdentitySha256: input.source.migrationIdentitySha256,
-  },
-  payload: {
-    packagedPath: runtimePackagedPath(input.runtime),
-    bytes: input.payload.byteLength,
-    sha256: sha256(input.payload),
-  },
-});
+}): PackageRuntimeProvenance => {
+  const buildIdentity = extractRuntimeBuildIdentity(input.payload);
+  if (
+    buildIdentity.runtime !== input.runtime ||
+    buildIdentity.sourceCommit !== input.source.sourceCommit
+  ) {
+    throw new Error("compiled runtime identity does not match source/runtime");
+  }
+  return {
+    schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
+    product: PRODUCT_NAME,
+    runtime: input.runtime,
+    appVersion: input.source.appVersion,
+    sourceCommit: input.source.sourceCommit,
+    buildIdentity,
+    state: {
+      currentStateSchemaVersion: input.source.currentStateSchemaVersion,
+      migrationHead: input.source.migrationHead,
+      migrationIdentitySha256: input.source.migrationIdentitySha256,
+    },
+    payload: {
+      packagedPath: runtimePackagedPath(input.runtime),
+      bytes: input.payload.byteLength,
+      sha256: sha256(input.payload),
+    },
+  };
+};
 
 export const decodePackageRuntimeProvenance = (
   input: unknown,
@@ -381,6 +638,7 @@ export const decodePackageRuntimeProvenance = (
       "source commit",
       SOURCE_COMMIT,
     ),
+    buildIdentity: decodeRuntimeBuildIdentity(record.buildIdentity),
     state: {
       currentStateSchemaVersion: requiredInteger(
         state.currentStateSchemaVersion,
@@ -406,10 +664,12 @@ export const decodePackageRuntimeProvenance = (
       sha256: requiredString(payload.sha256, "payload SHA-256", SHA256),
     },
   };
-  if (decoded.payload.packagedPath !== runtimePackagedPath(runtime)) {
-    throw new Error(
-      `runtime provenance payload path mismatch for ${runtime}`,
-    );
+  if (
+    decoded.payload.packagedPath !== runtimePackagedPath(runtime) ||
+    decoded.buildIdentity.runtime !== runtime ||
+    decoded.buildIdentity.sourceCommit !== decoded.sourceCommit
+  ) {
+    throw new Error("runtime provenance identity/path mismatch");
   }
   if (
     decoded.state.migrationHead.toVersion !==
@@ -426,6 +686,12 @@ const encodeProvenance = (value: PackageRuntimeProvenance): Uint8Array =>
   Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 
 const writeAtomic = async (file: string, body: Uint8Array): Promise<void> => {
+  const parent = path.dirname(file);
+  await requireDirectory(parent, "atomic output parent");
+  const existing = await lstatIfPresent(file);
+  if (existing?.isSymbolicLink() === true || (existing !== undefined && !existing.isFile())) {
+    throw new Error(`atomic output destination is not a regular file: ${file}`);
+  }
   const stage = `${file}.new.${String(process.pid)}.${randomUUID()}`;
   await writeFile(stage, body, { flag: "wx", mode: 0o644 });
   try {
@@ -452,7 +718,6 @@ const writeRuntimeProvenance = async (input: {
   const payloadPath = path.join(input.repoRoot, payloadRelative);
   const provenancePath = path.join(input.repoRoot, provenanceRelative);
   await requireRegularFile(payloadPath, `${input.runtime} payload`);
-  await requireDirectory(path.dirname(provenancePath), "provenance output parent");
   const provenance = makePackageRuntimeProvenance({
     runtime: input.runtime,
     source: input.source,
@@ -462,71 +727,171 @@ const writeRuntimeProvenance = async (input: {
   return provenance;
 };
 
-/** Remove exactly out/remote. Refuse symlinked output parents. */
-export const resetOwnedRemoteOutput = async (repoRoot: string): Promise<void> => {
+const resetOwnedOutputDirectory = async (
+  repoRoot: string,
+  relative: "out/main" | "out/remote",
+): Promise<void> => {
   const root = path.resolve(repoRoot);
   await requireDirectory(root, "repository root");
   const out = path.join(root, "out");
-  try {
-    await requireDirectory(out, "out directory");
-  } catch (error) {
-    const metadata = await lstat(out).catch(() => undefined);
-    if (metadata !== undefined) throw error;
+  const outMetadata = await lstatIfPresent(out);
+  if (outMetadata === undefined) {
     await mkdir(out, { mode: 0o755 });
+  } else if (!outMetadata.isDirectory() || outMetadata.isSymbolicLink()) {
+    throw new Error("out must be a non-symlink directory");
   }
-  const remote = path.join(out, "remote");
-  const relative = path.relative(root, remote);
-  if (
-    relative !== path.join("out", "remote") ||
-    relative.startsWith("..") ||
-    path.isAbsolute(relative)
-  ) {
-    throw new Error("remote output escaped the repository");
+  const owned = path.join(root, relative);
+  if (path.relative(root, owned) !== relative) {
+    throw new Error("owned compiler output escaped repository");
   }
-  const metadata = await lstat(remote).catch(() => undefined);
-  if (metadata?.isSymbolicLink()) {
-    throw new Error("out/remote must not be a symlink");
+  const metadata = await lstatIfPresent(owned);
+  if (metadata?.isSymbolicLink() === true) {
+    throw new Error(`${relative} must not be a symlink`);
   }
   if (metadata !== undefined && !metadata.isDirectory()) {
-    throw new Error("out/remote must be a directory when present");
+    throw new Error(`${relative} must be a directory when present`);
   }
-  await rm(remote, { recursive: true, force: true });
-  await mkdir(remote, { mode: 0o755 });
+  await rm(owned, { recursive: true, force: true });
+  await mkdir(owned, { mode: 0o755 });
 };
 
+/** Remove exactly out/remote and preserve every sibling. */
+export const resetOwnedRemoteOutput = async (repoRoot: string): Promise<void> =>
+  resetOwnedOutputDirectory(repoRoot, "out/remote");
+
+const stampRuntimePayload = async (input: {
+  readonly repoRoot: string;
+  readonly runtime: PackageRuntime;
+  readonly identity: RuntimeBuildIdentity;
+}): Promise<void> => {
+  const relative =
+    input.runtime === "electron-main"
+      ? MAIN_PAYLOAD_SOURCE_RELATIVE
+      : REMOTE_ENTRY_SOURCE_RELATIVE;
+  const file = path.join(input.repoRoot, relative);
+  await requireRegularFile(file, `${input.runtime} fresh compiler output`);
+  const body = embedRuntimeBuildIdentity({
+    payload: await readFile(file),
+    identity: input.identity,
+  });
+  await writeAtomic(file, body);
+  await chmod(file, input.runtime === "linux-remote" ? 0o755 : 0o644);
+};
+
+const runCompiler = (input: {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd: string;
+}): void => {
+  const result = spawnSync(input.command, [...input.args], {
+    cwd: input.cwd,
+    env: process.env,
+    shell: false,
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `runtime compiler failed (${input.command} ${input.args.join(" ")}): exit ${String(result.status)}`,
+    );
+  }
+};
+
+export type PreparedPackageRuntimes = {
+  readonly target: PackageTarget;
+  readonly source: PackageSourceFacts;
+  readonly cohortNonce: string;
+  readonly main: PackageRuntimeProvenance;
+  readonly remote: PackageRuntimeProvenance;
+};
+
+/** One coordinator always compiles both runtime entries from one admitted tree. */
 export const preparePackageRuntimes = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
   readonly source?: PackageSourceFacts;
+  readonly cohortNonce?: string;
+  readonly buildMain?: (repoRoot: string) => Promise<void>;
   readonly buildRemote?: (repoRoot: string) => Promise<void>;
-}): Promise<{
-  readonly target: PackageTarget;
-  readonly source: PackageSourceFacts;
-  readonly main: PackageRuntimeProvenance;
-  readonly remote?: PackageRuntimeProvenance;
-}> => {
+}): Promise<PreparedPackageRuntimes> => {
   const repoRoot = path.resolve(input.repoRoot);
   const target = requireTarget(input.target);
   const source =
     input.source ??
     (await readPackageSourceFacts({ repoRoot, requireClean: true }));
+  const cohortNonce = requiredString(
+    input.cohortNonce ??
+      process.env.VELLUM_COMMAND_PACKAGE_COHORT_NONCE ??
+      randomUUID(),
+    "cohort nonce",
+    UUID,
+  );
+
+  await resetOwnedOutputDirectory(repoRoot, "out/main");
+  const priorMainManifest = path.join(repoRoot, MAIN_PROVENANCE_SOURCE_RELATIVE);
+  const priorMainMetadata = await lstatIfPresent(priorMainManifest);
+  if (priorMainMetadata?.isSymbolicLink() === true) {
+    throw new Error("Electron main provenance output must not be a symlink");
+  }
+  await rm(priorMainManifest, { force: true });
+  await (input.buildMain ?? (async (root) => {
+    runCompiler({
+      command: "bunx",
+      args: ["--no-install", "electron-vite", "build"],
+      cwd: root,
+    });
+  }))(repoRoot);
+  await stampRuntimePayload({
+    repoRoot,
+    runtime: "electron-main",
+    identity: {
+      schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
+      cohortNonce,
+      sourceCommit: source.sourceCommit,
+      runtime: "electron-main",
+    },
+  });
+
+  await resetOwnedOutputDirectory(repoRoot, "out/remote");
+  await (input.buildRemote ?? (async (root) => {
+    await buildRemoteEntryBundle({ repoRoot: root });
+  }))(repoRoot);
+  await stampRuntimePayload({
+    repoRoot,
+    runtime: "linux-remote",
+    identity: {
+      schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
+      cohortNonce,
+      sourceCommit: source.sourceCommit,
+      runtime: "linux-remote",
+    },
+  });
+
+  if (input.source === undefined) {
+    const after = await readPackageSourceFacts({
+      repoRoot,
+      requireClean: true,
+      expectedSourceCommit: source.sourceCommit,
+    });
+    if (
+      after.appVersion !== source.appVersion ||
+      after.migrationIdentitySha256 !== source.migrationIdentitySha256
+    ) {
+      throw new Error("package source facts changed during compiler cohort build");
+    }
+  }
+
+  // Write manifests only after both fresh outputs and source re-admission pass.
   const main = await writeRuntimeProvenance({
     repoRoot,
     runtime: "electron-main",
     source,
   });
-  if (target === "mac") return { target, source, main };
-
-  await resetOwnedRemoteOutput(repoRoot);
-  await (input.buildRemote ?? (async (root) => {
-    await buildRemoteEntryBundle({ repoRoot: root });
-  }))(repoRoot);
   const remote = await writeRuntimeProvenance({
     repoRoot,
     runtime: "linux-remote",
     source,
   });
-  return { target, source, main, remote };
+  return { target, source, cohortNonce, main, remote };
 };
 
 const sameSchemaFacts = (
@@ -552,8 +917,13 @@ const verifyRuntimeProvenance = (input: {
     throw new Error(`${input.runtime} provenance is not valid JSON`);
   }
   const provenance = decodePackageRuntimeProvenance(parsed);
-  if (provenance.runtime !== input.runtime) {
-    throw new Error(`${input.runtime} provenance names ${provenance.runtime}`);
+  const buildIdentity = extractRuntimeBuildIdentity(input.payload);
+  if (
+    provenance.runtime !== input.runtime ||
+    buildIdentity.runtime !== input.runtime ||
+    JSON.stringify(buildIdentity) !== JSON.stringify(provenance.buildIdentity)
+  ) {
+    throw new Error(`${input.runtime} provenance/build identity mismatch`);
   }
   if (
     provenance.appVersion !== input.expected.appVersion ||
@@ -575,6 +945,7 @@ const verifyRuntimeProvenance = (input: {
     payloadSha256,
     payloadBytes: input.payload.byteLength,
     packagedPath: provenance.payload.packagedPath,
+    buildIdentity,
   };
 };
 
@@ -603,6 +974,22 @@ const readSourceRuntime = async (input: {
   });
 };
 
+const requireSameCohort = (
+  main: VerifiedRuntimeProvenance,
+  remote: VerifiedRuntimeProvenance,
+): string => {
+  const nonce = main.buildIdentity.cohortNonce;
+  if (
+    remote.buildIdentity.cohortNonce !== nonce ||
+    remote.buildIdentity.sourceCommit !== main.buildIdentity.sourceCommit ||
+    main.runtime !== "electron-main" ||
+    remote.runtime !== "linux-remote"
+  ) {
+    throw new Error("Electron main and Linux Remote are not one compiler cohort");
+  }
+  return nonce;
+};
+
 export const verifyPreparedPackageRuntimes = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
@@ -618,42 +1005,224 @@ export const verifyPreparedPackageRuntimes = async (input: {
     runtime: "electron-main",
     expected,
   });
-  const linuxRemote =
-    target === "linux"
-      ? await readSourceRuntime({
-          repoRoot,
-          runtime: "linux-remote",
-          expected,
-        })
-      : undefined;
+  const linuxRemote = await readSourceRuntime({
+    repoRoot,
+    runtime: "linux-remote",
+    expected,
+  });
+  const cohortNonce = requireSameCohort(electronMain, linuxRemote);
   return {
     target,
     appVersion: expected.appVersion,
     sourceCommit: expected.sourceCommit,
+    cohortNonce,
     state: {
       currentStateSchemaVersion: expected.currentStateSchemaVersion,
       migrationHead: expected.migrationHead,
       migrationIdentitySha256: expected.migrationIdentitySha256,
     },
+    compiledRuntimes: { electronMain, linuxRemote },
     runtimes: {
       electronMain,
-      ...(linuxRemote === undefined ? {} : { linuxRemote }),
+      ...(target === "linux" ? { linuxRemote } : {}),
     },
   };
 };
 
-const asarEntry = (value: string): string =>
-  value.replaceAll("\\", "/").replace(/^\/+/, "");
+type RawAsarNode = {
+  readonly path: string;
+  readonly value: Record<string, unknown>;
+  readonly ancestors: ReadonlyArray<Record<string, unknown>>;
+};
 
-const assertAsarHasNoRemote = (asarPath: string): void => {
-  const remoteEntries = listPackage(asarPath, { isPack: false })
-    .map(asarEntry)
-    .filter(
-      (entry) => entry === "out/remote" || entry.startsWith("out/remote/"),
-    );
-  if (remoteEntries.length > 0) {
+export type ValidatedRawAsarHeader = {
+  readonly paths: ReadonlyArray<string>;
+  readonly nodes: ReadonlyMap<string, RawAsarNode>;
+};
+
+const requireSafeAsarLink = (value: unknown, label: string): string => {
+  const link = requiredString(value, label);
+  if (
+    link.startsWith("/") ||
+    link.includes("\\") ||
+    link.includes("\0") ||
+    link
+      .split("/")
+      .some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
+    throw new Error(`unsafe ASAR link target: ${link}`);
+  }
+  return link;
+};
+
+/** Validate raw keys/nodes before any ASAR path normalization or link following. */
+export const validateRawAsarHeader = (input: {
+  readonly header: unknown;
+  readonly headerString?: string;
+  readonly headerSize?: number;
+  readonly archiveBytes?: number;
+  readonly criticalPaths?: ReadonlyArray<string>;
+}): ValidatedRawAsarHeader => {
+  const header = requiredRecord(input.header, "ASAR header");
+  if (
+    input.headerString !== undefined &&
+    input.headerString !== JSON.stringify(header)
+  ) {
+    throw new Error("ASAR raw header is non-canonical or has duplicate keys");
+  }
+  const rootFiles = requiredRecord(header.files, "ASAR root files");
+  const nodes = new Map<string, RawAsarNode>();
+  const normalizedPaths = new Map<string, string>();
+
+  const walk = (
+    files: Record<string, unknown>,
+    parent: string,
+    ancestors: ReadonlyArray<Record<string, unknown>>,
+  ): void => {
+    for (const [rawKey, rawValue] of Object.entries(files)) {
+      if (
+        rawKey.length === 0 ||
+        rawKey === "." ||
+        rawKey === ".." ||
+        rawKey.includes("\0") ||
+        rawKey.includes("/") ||
+        rawKey.includes("\\")
+      ) {
+        throw new Error(`unsafe raw ASAR key: ${JSON.stringify(rawKey)}`);
+      }
+      const nodePath = parent.length === 0 ? rawKey : `${parent}/${rawKey}`;
+      const normalized = nodePath.normalize("NFC");
+      const collision = normalizedPaths.get(normalized);
+      if (collision !== undefined && collision !== nodePath) {
+        throw new Error(`normalized ASAR path collision: ${collision} / ${nodePath}`);
+      }
+      normalizedPaths.set(normalized, nodePath);
+      if (nodes.has(nodePath)) {
+        throw new Error(`duplicate ASAR path: ${nodePath}`);
+      }
+      const value = requiredRecord(rawValue, `ASAR node ${nodePath}`);
+      const hasFiles = Object.prototype.hasOwnProperty.call(value, "files");
+      const hasLink = Object.prototype.hasOwnProperty.call(value, "link");
+      const hasSize = Object.prototype.hasOwnProperty.call(value, "size");
+      if (Number(hasFiles) + Number(hasLink) + Number(hasSize) !== 1) {
+        throw new Error(`ASAR node has an ambiguous shape: ${nodePath}`);
+      }
+      nodes.set(nodePath, { path: nodePath, value, ancestors });
+      if (hasFiles) {
+        walk(
+          requiredRecord(value.files, `ASAR directory ${nodePath}`),
+          nodePath,
+          [...ancestors, value],
+        );
+      } else if (hasLink) {
+        requireSafeAsarLink(value.link, `ASAR link ${nodePath}`);
+      } else {
+        const size = requiredInteger(value.size, `ASAR file size ${nodePath}`);
+        if (value.unpacked !== true) {
+          const offset = requiredString(
+            value.offset,
+            `ASAR file offset ${nodePath}`,
+            /^(?:0|[1-9][0-9]*)$/u,
+          );
+          const offsetNumber = Number(offset);
+          if (!Number.isSafeInteger(offsetNumber)) {
+            throw new Error(`ASAR file offset is unsafe: ${nodePath}`);
+          }
+          if (
+            input.archiveBytes !== undefined &&
+            input.headerSize !== undefined &&
+            8 + input.headerSize + offsetNumber + size > input.archiveBytes
+          ) {
+            throw new Error(`ASAR file range escapes archive: ${nodePath}`);
+          }
+        }
+      }
+    }
+  };
+  walk(rootFiles, "", []);
+
+  for (const node of nodes.values()) {
+    if (Object.prototype.hasOwnProperty.call(node.value, "link")) {
+      const visited = new Set<string>([node.path]);
+      let target = requireSafeAsarLink(node.value.link, `ASAR link ${node.path}`);
+      while (true) {
+        const targetNode = nodes.get(target);
+        if (targetNode === undefined) {
+          throw new Error(`ASAR link target is missing: ${node.path} -> ${target}`);
+        }
+        if (!Object.prototype.hasOwnProperty.call(targetNode.value, "link")) break;
+        if (visited.has(target)) throw new Error(`ASAR link cycle: ${node.path}`);
+        visited.add(target);
+        target = requireSafeAsarLink(
+          targetNode.value.link,
+          `ASAR link ${targetNode.path}`,
+        );
+      }
+    }
+  }
+
+  for (const critical of input.criticalPaths ?? []) {
+    const node = nodes.get(critical);
+    if (node === undefined) {
+      throw new Error(`critical ASAR entry is missing: ${critical}`);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(node.value, "link") ||
+      Object.prototype.hasOwnProperty.call(node.value, "files") ||
+      node.value.unpacked === true ||
+      node.ancestors.some(
+        (ancestor) =>
+          ancestor.unpacked === true ||
+          Object.prototype.hasOwnProperty.call(ancestor, "link"),
+      )
+    ) {
+      throw new Error(
+        `critical ASAR entry must be a direct packed regular file: ${critical}`,
+      );
+    }
+  }
+  return {
+    paths: [...nodes.keys()].sort((left, right) => left.localeCompare(right)),
+    nodes,
+  };
+};
+
+export const validateRawAsarArchive = async (
+  asarPath: string,
+  criticalPaths: ReadonlyArray<string> = [
+    "package.json",
+    MAIN_PROVENANCE_PACKAGED_RELATIVE,
+    MAIN_PAYLOAD_PACKAGED_RELATIVE,
+  ],
+): Promise<ValidatedRawAsarHeader> => {
+  await requireRegularFile(asarPath, "packaged app.asar");
+  uncache(asarPath);
+  const raw = getRawHeader(asarPath);
+  const metadata = await lstat(asarPath);
+  return validateRawAsarHeader({
+    header: raw.header,
+    headerString: raw.headerString,
+    headerSize: raw.headerSize,
+    archiveBytes: metadata.size,
+    criticalPaths,
+  });
+};
+
+const assertAsarHasNoRemote = (header: ValidatedRawAsarHeader): void => {
+  const remote = header.paths.find(
+    (entry) =>
+      entry === "out/remote" ||
+      entry.startsWith("out/remote/") ||
+      entry === "resources/app-remote" ||
+      entry.startsWith("resources/app-remote/") ||
+      entry.split("/").includes("app-remote") ||
+      ["vellum-command-remote", "vellum-command-remote.js"].includes(
+        entry.split("/").at(-1) ?? "",
+      ),
+  );
+  if (remote !== undefined) {
     throw new Error(
-      `Electron app.asar must exclude the Remote runtime (${remoteEntries[0]})`,
+      `Electron app.asar must exclude the Remote runtime (${remote})`,
     );
   }
 };
@@ -664,7 +1233,7 @@ const extractRequired = (
   label: string,
 ): Buffer => {
   try {
-    return extractFile(asarPath, relative);
+    return extractFile(asarPath, relative, false);
   } catch {
     throw new Error(`${label} is missing from app.asar: ${relative}`);
   }
@@ -677,9 +1246,7 @@ const verifyPackagedVersion = (
   let parsed: unknown;
   try {
     parsed = JSON.parse(
-      extractRequired(asarPath, "package.json", "package.json").toString(
-        "utf8",
-      ),
+      extractRequired(asarPath, "package.json", "package.json").toString("utf8"),
     );
   } catch (error) {
     if (error instanceof Error && error.message.includes("missing from")) {
@@ -687,11 +1254,73 @@ const verifyPackagedVersion = (
     }
     throw new Error("packaged package.json is invalid");
   }
-  if (
-    !isRecord(parsed) ||
-    parsed.version !== expectedVersion
-  ) {
+  if (!isRecord(parsed) || parsed.version !== expectedVersion) {
     throw new Error("packaged app version does not match package source");
+  }
+};
+
+const requireExactCompiledRuntime = (
+  packaged: VerifiedRuntimeProvenance,
+  compiled: VerifiedRuntimeProvenance,
+): void => {
+  if (
+    packaged.runtime !== compiled.runtime ||
+    packaged.manifestSha256 !== compiled.manifestSha256 ||
+    packaged.payloadSha256 !== compiled.payloadSha256 ||
+    packaged.payloadBytes !== compiled.payloadBytes ||
+    JSON.stringify(packaged.buildIdentity) !== JSON.stringify(compiled.buildIdentity)
+  ) {
+    throw new Error(
+      `${packaged.runtime} package bytes differ from the exact fresh compiler output`,
+    );
+  }
+};
+
+const walkResourcePaths = async (
+  root: string,
+  relative = "",
+): Promise<string[]> => {
+  const result: string[] = [];
+  const directory = path.join(root, relative);
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    },
+  );
+  for (const entry of entries) {
+    const child = path.posix.join(relative, entry.name);
+    const metadata = await lstat(path.join(root, child));
+    result.push(child);
+    if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
+      result.push(...(await walkResourcePaths(root, child)));
+    }
+  }
+  return result;
+};
+
+export const assertMacHasNoRemoteResources = async (
+  appBundle: string,
+): Promise<void> => {
+  const resources = path.join(appBundle, "Contents/Resources");
+  await requireDirectory(resources, "macOS Resources directory");
+  const paths = await walkResourcePaths(resources);
+  const forbidden = paths.find((entry) => {
+    const parts = entry.split("/");
+    const basename = parts.at(-1) ?? "";
+    return (
+      parts.includes("app-remote") ||
+      (parts.includes("out") && parts.includes("remote")) ||
+      basename === "vellum-command-remote" ||
+      basename === "vellum-command-remote.js" ||
+      basename === "vellum-command-remote-launch" ||
+      basename === "vellum-command-remote.service.template" ||
+      entry === "bin/node" ||
+      entry.startsWith("systemd/")
+    );
+  });
+  if (forbidden !== undefined) {
+    throw new Error(`macOS package contains Remote-only resource: ${forbidden}`);
   }
 };
 
@@ -707,13 +1336,19 @@ export const verifyPackagedRuntimeParity = async (input: {
   const expected =
     input.expected ??
     (await readPackageSourceFacts({ repoRoot, requireClean: true }));
+  const prepared = await verifyPreparedPackageRuntimes({
+    repoRoot,
+    target,
+    expected,
+  });
   let asarPath: string;
   let runtimeRoot: string | undefined;
+  let appBundle: string | undefined;
   if (target === "mac") {
     if (input.appBundle === undefined) {
       throw new Error("mac package verification requires --app");
     }
-    const appBundle = path.resolve(input.appBundle);
+    appBundle = path.resolve(input.appBundle);
     await requireDirectory(appBundle, "macOS app bundle");
     asarPath = path.join(appBundle, "Contents/Resources/app.asar");
   } else {
@@ -724,8 +1359,8 @@ export const verifyPackagedRuntimeParity = async (input: {
     await requireDirectory(runtimeRoot, "Linux runtime root");
     asarPath = path.join(runtimeRoot, "resources/app.asar");
   }
-  await requireRegularFile(asarPath, "packaged app.asar");
-  assertAsarHasNoRemote(asarPath);
+  const rawHeader = await validateRawAsarArchive(asarPath);
+  assertAsarHasNoRemote(rawHeader);
   verifyPackagedVersion(asarPath, expected.appVersion);
 
   const electronMain = verifyRuntimeProvenance({
@@ -742,8 +1377,18 @@ export const verifyPackagedRuntimeParity = async (input: {
     ),
     expected,
   });
+  requireExactCompiledRuntime(
+    electronMain,
+    prepared.compiledRuntimes.electronMain,
+  );
 
   let linuxRemote: VerifiedRuntimeProvenance | undefined;
+  let linuxRuntimeClosure:
+    | {
+        readonly inventory: LinuxRuntimeInventory;
+        readonly remoteEntries: ReadonlyArray<LinuxRuntimeInventoryEntry>;
+      }
+    | undefined;
   if (target === "linux") {
     const admittedRoot = runtimeRoot as string;
     const manifestPath = path.join(
@@ -762,27 +1407,38 @@ export const verifyPackagedRuntimeParity = async (input: {
       payload: await readFile(payloadPath),
       expected,
     });
-    if (
-      linuxRemote.runtime !== "linux-remote" ||
-      electronMain.runtime !== "electron-main"
-    ) {
-      throw new Error("package runtime identity mismatch");
+    requireExactCompiledRuntime(
+      linuxRemote,
+      prepared.compiledRuntimes.linuxRemote,
+    );
+    if (linuxRemote.buildIdentity.cohortNonce !== electronMain.buildIdentity.cohortNonce) {
+      throw new Error("packaged runtimes have different compiler cohort identities");
     }
+    const inventory = await collectLinuxRuntimeInventory(admittedRoot);
+    linuxRuntimeClosure = {
+      inventory,
+      remoteEntries: requireExactLinuxRemoteClosure(inventory),
+    };
+  } else {
+    await assertMacHasNoRemoteResources(appBundle as string);
   }
 
   return {
     target,
     appVersion: expected.appVersion,
     sourceCommit: expected.sourceCommit,
+    cohortNonce: prepared.cohortNonce,
     state: {
       currentStateSchemaVersion: expected.currentStateSchemaVersion,
       migrationHead: expected.migrationHead,
       migrationIdentitySha256: expected.migrationIdentitySha256,
     },
+    compiledRuntimes: prepared.compiledRuntimes,
     runtimes: {
       electronMain,
       ...(linuxRemote === undefined ? {} : { linuxRemote }),
     },
+    ...(linuxRuntimeClosure === undefined ? {} : { linuxRuntimeClosure }),
   };
 };
 
@@ -794,7 +1450,9 @@ const parseOptions = (
     const flag = args[index];
     const value = args[index + 1];
     if (flag === undefined || value === undefined || !flag.startsWith("--")) {
-      throw new Error("package runtime provenance options require --name value pairs");
+      throw new Error(
+        "package runtime provenance options require --name value pairs",
+      );
     }
     if (options.has(flag)) throw new Error(`duplicate option: ${flag}`);
     options.set(flag, value);
@@ -822,17 +1480,11 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   const target = requireTarget(requiredOption(options, "--target"));
   let receipt: unknown;
   if (command === "preflight") {
-    receipt = await readPackageSourceFacts({
-      repoRoot: root,
-      requireClean: true,
-    });
+    receipt = await readPackageSourceFacts({ repoRoot: root, requireClean: true });
   } else if (command === "prepare") {
     receipt = await preparePackageRuntimes({ repoRoot: root, target });
   } else if (command === "verify-source") {
-    receipt = await verifyPreparedPackageRuntimes({
-      repoRoot: root,
-      target,
-    });
+    receipt = await verifyPreparedPackageRuntimes({ repoRoot: root, target });
   } else if (command === "verify-package") {
     receipt = await verifyPackagedRuntimeParity({
       repoRoot: root,

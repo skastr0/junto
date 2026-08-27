@@ -20,6 +20,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rename,
   rm,
   writeFile,
@@ -655,9 +656,130 @@ export type LinuxRemoteRuntimeReceipt = {
   readonly archiveSha256: string;
 };
 
+const walkRemoteAppFiles = async (
+  root: string,
+  relative = "",
+): Promise<string[]> => {
+  const files: string[] = [];
+  const entries = await readdir(path.join(root, relative), {
+    withFileTypes: true,
+  });
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const child = path.posix.join(relative, entry.name);
+    const metadata = await lstat(path.join(root, child));
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`staged app-remote contains a symlink: ${child}`);
+    }
+    if (metadata.isDirectory()) {
+      files.push(...(await walkRemoteAppFiles(root, child)));
+    } else if (metadata.isFile()) {
+      files.push(child);
+    } else {
+      throw new Error(`staged app-remote contains an unsupported entry: ${child}`);
+    }
+  }
+  return files;
+};
+
+const assertExactStagedRemoteApp = async (input: {
+  readonly appRoot: string;
+  readonly requireProvenance: boolean;
+  readonly requireNative: boolean;
+}): Promise<void> => {
+  const actual = await walkRemoteAppFiles(input.appRoot);
+  const expected = ["package.json", "vellum-command-remote.js"];
+  if (input.requireProvenance) {
+    expected.push("package-runtime-provenance.json");
+  }
+  if (input.requireNative) {
+    expected.push(
+      ...LINUX_NODE_PTY_RUNTIME_FILES.map(
+        (file) => `node_modules/node-pty/${file}`,
+      ),
+    );
+  }
+  expected.sort((left, right) => left.localeCompare(right));
+  if (
+    actual.length !== expected.length ||
+    !actual.every((value, index) => value === expected[index])
+  ) {
+    const extra = actual.find((value) => !expected.includes(value));
+    const missing = expected.find((value) => !actual.includes(value));
+    throw new Error(
+      `staged app-remote closure is not exact${extra === undefined ? "" : `; extra ${extra}`}${missing === undefined ? "" : `; missing ${missing}`}`,
+    );
+  }
+};
+
+const replaceOwnedDirectory = async (input: {
+  readonly staged: string;
+  readonly destination: string;
+  readonly backup: string;
+}): Promise<void> => {
+  const stagedMetadata = await lstat(input.staged);
+  if (!stagedMetadata.isDirectory() || stagedMetadata.isSymbolicLink()) {
+    throw new Error("staged app-remote must be a non-symlink directory");
+  }
+  const destinationMetadata = await lstat(input.destination).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    },
+  );
+  if (
+    destinationMetadata !== undefined &&
+    (!destinationMetadata.isDirectory() || destinationMetadata.isSymbolicLink())
+  ) {
+    throw new Error("existing app-remote must be a non-symlink directory");
+  }
+  if ((await lstat(input.backup).catch(() => undefined)) !== undefined) {
+    throw new Error("app-remote replacement backup already exists");
+  }
+  if (destinationMetadata !== undefined) {
+    await rename(input.destination, input.backup);
+  }
+  try {
+    await rename(input.staged, input.destination);
+  } catch (error) {
+    if (destinationMetadata !== undefined) {
+      await rename(input.backup, input.destination);
+    }
+    throw error;
+  }
+  if (destinationMetadata !== undefined) {
+    await rm(input.backup, { recursive: true, force: false });
+  }
+};
+
+const replaceOwnedRegularFile = async (
+  staged: string,
+  destination: string,
+): Promise<void> => {
+  const stagedMetadata = await lstat(staged);
+  if (!stagedMetadata.isFile() || stagedMetadata.isSymbolicLink()) {
+    throw new Error(`staged Remote file must be regular: ${staged}`);
+  }
+  const destinationMetadata = await lstat(destination).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    },
+  );
+  if (
+    destinationMetadata?.isSymbolicLink() === true ||
+    (destinationMetadata !== undefined && !destinationMetadata.isFile())
+  ) {
+    throw new Error(`existing Remote file must be regular: ${destination}`);
+  }
+  await rm(destination, { force: true });
+  await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
+  await rename(staged, destination);
+};
+
 /**
- * Full stage into an existing linux-unpacked / runtime root.
- * Fails closed when the remote JS entry is missing (unless buildIfMissing).
+ * Full stage into an existing linux-unpacked / runtime root. A private sibling
+ * holds the entire generation, then app-remote is switched as one directory.
  */
 export const installLinuxRemoteRuntime = async (input: {
   readonly repoRoot: string;
@@ -665,6 +787,8 @@ export const installLinuxRemoteRuntime = async (input: {
   readonly nodeVersion?: string;
   readonly cacheRoot?: string;
   readonly entrySourceRelative?: string;
+  readonly provenanceSourceRelative?: string;
+  readonly requireProvenance?: boolean;
   readonly requireEntry?: boolean;
   readonly buildIfMissing?: boolean;
   readonly download?: (url: string, destination: string) => Promise<void>;
@@ -680,60 +804,103 @@ export const installLinuxRemoteRuntime = async (input: {
     input.nodeVersion ?? resolveNodeRemoteVersion(),
   );
   const requireEntry = input.requireEntry !== false;
-
-  const { wrapperPath } = await stageVellumRemoteWrapper(runtimeRoot);
-
-  let entryPath = path.join(runtimeRoot, REMOTE_ENTRY_RELATIVE);
-  if (requireEntry) {
-    ({ entryPath } = await stageRemoteEntry({
-      repoRoot,
-      runtimeRoot,
-      entrySourceRelative: input.entrySourceRelative,
-      buildIfMissing: input.buildIfMissing,
-    }));
-  } else {
-    await mkdir(path.dirname(entryPath), { recursive: true, mode: 0o755 });
-  }
-
-  if (process.platform !== "linux" || process.arch !== "x64") {
-    if (input.skipNativeRebuild === true) {
-      return {
-        ok: true,
-        nodeVersion,
-        nodePath: path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
-        wrapperPath,
-        entryPath,
-        nodePtyRoot: path.join(runtimeRoot, REMOTE_NODE_PTY_RELATIVE),
-        nativeModule: path.join(
-          runtimeRoot,
-          REMOTE_NODE_PTY_RELATIVE,
-          "build",
-          "Release",
-          "pty.node",
-        ),
-        archiveSha256: "skipped-non-linux",
-      };
+  const requireProvenance = input.requireProvenance === true;
+  const stageRoot = await mkdtemp(
+    path.join(runtimeRoot, ".vellum-remote-stage-"),
+  );
+  await chmod(stageRoot, 0o700);
+  const stagedAppRoot = path.join(stageRoot, REMOTE_APP_DIR_RELATIVE);
+  let archiveSha256 = "skipped-non-linux";
+  try {
+    await stageVellumRemoteWrapper(stageRoot);
+    if (requireEntry) {
+      await stageRemoteEntry({
+        repoRoot,
+        runtimeRoot: stageRoot,
+        entrySourceRelative: input.entrySourceRelative,
+        buildIfMissing: input.buildIfMissing,
+      });
+    } else {
+      await mkdir(stagedAppRoot, { recursive: true, mode: 0o755 });
     }
-    throw new Error(
-      "installLinuxRemoteRuntime native stage requires Linux x64 (set skipNativeRebuild for layout-only tests)",
+
+    if (requireProvenance) {
+      const provenanceRelative =
+        input.provenanceSourceRelative ??
+        "out/remote/package-runtime-provenance.json";
+      const provenanceSource = path.join(repoRoot, provenanceRelative);
+      if (!(await isNonSymlinkFile(provenanceSource))) {
+        throw new Error("fresh Remote provenance is missing");
+      }
+      await copyFile(
+        provenanceSource,
+        path.join(stagedAppRoot, "package-runtime-provenance.json"),
+      );
+      await chmod(
+        path.join(stagedAppRoot, "package-runtime-provenance.json"),
+        0o644,
+      );
+    }
+
+    const canBuildNative = process.platform === "linux" && process.arch === "x64";
+    if (!canBuildNative && input.skipNativeRebuild !== true) {
+      throw new Error(
+        "installLinuxRemoteRuntime native stage requires Linux x64 execution (set skipNativeRebuild for layout-only tests)",
+      );
+    }
+
+    let stagedNodePath = path.join(stageRoot, REMOTE_NODE_RELATIVE);
+    if (canBuildNative) {
+      const stagedNode = await stageOfficialNodeBinary({
+        repoRoot,
+        runtimeRoot: stageRoot,
+        version: nodeVersion,
+        cacheRoot: input.cacheRoot,
+        download: input.download,
+      });
+      stagedNodePath = stagedNode.nodePath;
+      archiveSha256 = stagedNode.archiveSha256;
+      if (input.skipNativeRebuild !== true) {
+        const pty = await stageNodePtyForBundledNode({
+          repoRoot,
+          runtimeRoot: stageRoot,
+          bundledNode: stagedNode.nodePath,
+          nodeVersion,
+        });
+      }
+    }
+
+    await assertExactStagedRemoteApp({
+      appRoot: stagedAppRoot,
+      requireProvenance,
+      requireNative: canBuildNative && input.skipNativeRebuild !== true,
+    });
+
+    const resources = path.join(runtimeRoot, "resources");
+    await mkdir(resources, { recursive: true, mode: 0o755 });
+    await replaceOwnedDirectory({
+      staged: stagedAppRoot,
+      destination: path.join(runtimeRoot, REMOTE_APP_DIR_RELATIVE),
+      backup: path.join(resources, `.app-remote.old.${String(process.pid)}`),
+    });
+    const stagedWrapper = path.join(stageRoot, REMOTE_WRAPPER_RELATIVE);
+    await replaceOwnedRegularFile(
+      stagedWrapper,
+      path.join(runtimeRoot, REMOTE_WRAPPER_RELATIVE),
     );
-  }
+    if (canBuildNative) {
+      await replaceOwnedRegularFile(
+        stagedNodePath,
+        path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
+      );
+    }
 
-  const stagedNode = await stageOfficialNodeBinary({
-    repoRoot,
-    runtimeRoot,
-    version: nodeVersion,
-    cacheRoot: input.cacheRoot,
-    download: input.download,
-  });
-
-  if (input.skipNativeRebuild === true) {
     return {
       ok: true,
       nodeVersion,
-      nodePath: stagedNode.nodePath,
-      wrapperPath,
-      entryPath,
+      nodePath: path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
+      wrapperPath: path.join(runtimeRoot, REMOTE_WRAPPER_RELATIVE),
+      entryPath: path.join(runtimeRoot, REMOTE_ENTRY_RELATIVE),
       nodePtyRoot: path.join(runtimeRoot, REMOTE_NODE_PTY_RELATIVE),
       nativeModule: path.join(
         runtimeRoot,
@@ -742,27 +909,11 @@ export const installLinuxRemoteRuntime = async (input: {
         "Release",
         "pty.node",
       ),
-      archiveSha256: stagedNode.archiveSha256,
+      archiveSha256,
     };
+  } finally {
+    await rm(stageRoot, { recursive: true, force: true });
   }
-
-  const pty = await stageNodePtyForBundledNode({
-    repoRoot,
-    runtimeRoot,
-    bundledNode: stagedNode.nodePath,
-    nodeVersion,
-  });
-
-  return {
-    ok: true,
-    nodeVersion,
-    nodePath: stagedNode.nodePath,
-    wrapperPath,
-    entryPath,
-    nodePtyRoot: pty.nodePtyRoot,
-    nativeModule: pty.nativeModule,
-    archiveSha256: stagedNode.archiveSha256,
-  };
 };
 
 /** Required relative paths the archive audit must see for displayless remote. */
@@ -788,6 +939,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   let repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   let cacheRoot: string | undefined;
   let entrySource: string | undefined;
+  let provenanceSource: string | undefined;
   let buildIfMissing = false;
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
@@ -803,6 +955,9 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
       index += 1;
     } else if (flag === "--entry" && value !== undefined) {
       entrySource = value;
+      index += 1;
+    } else if (flag === "--provenance" && value !== undefined) {
+      provenanceSource = value;
       index += 1;
     } else if (flag === "--no-build-entry") {
       buildIfMissing = false;
@@ -822,6 +977,8 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
     runtimeRoot,
     cacheRoot,
     entrySourceRelative: entrySource,
+    provenanceSourceRelative: provenanceSource,
+    requireProvenance: true,
     buildIfMissing,
   });
   process.stdout.write(`${JSON.stringify(receipt)}\n`);

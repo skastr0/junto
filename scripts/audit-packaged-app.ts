@@ -22,6 +22,10 @@ import {
 import rawPolicy from "./package-security-policy.json";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
+import {
+  assertMacHasNoRemoteResources,
+  validateRawAsarArchive,
+} from "./package-runtime-provenance";
 
 export const FUSE_NAMES = [
   "RunAsNode",
@@ -926,6 +930,8 @@ export const auditPackagedApp = async (
   await requireExecutable(mainExecutablePath);
   await requireRegularFile(appAsarPath);
   await requireExecutable(workCliPath);
+  await validateRawAsarArchive(appAsarPath);
+  await assertMacHasNoRemoteResources(appPath);
   await auditRetiredStateRuntimeBundle({
     asarPath: appAsarPath,
     workCliPath,

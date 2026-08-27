@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Native Ubuntu x64 userland runtime seam. It emits a relocatable tree and
-# archive; extracting it never requires package-manager or root authority.
+# Linux x64 execution seam. It emits a relocatable tree and archive; extracting
+# it never requires package-manager or root authority. This does not claim a
+# physical amd64 host: an emulated x64 process is an admitted runner.
 set -euo pipefail
 umask 0022
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-  printf 'vellum-command: error: native linux packaging must run on Linux\n' >&2
+  printf 'vellum-command: error: Linux packaging requires a Linux execution environment\n' >&2
   exit 1
 fi
 case "$(uname -m)" in
   x86_64) ;;
-  *) printf 'vellum-command: error: Linux v1 packages require native x86_64\n' >&2; exit 1 ;;
+  *) printf 'vellum-command: error: Linux v1 packages require an x64 execution process\n' >&2; exit 1 ;;
 esac
 VERIFY=0
 while [[ $# -gt 0 ]]; do
@@ -21,12 +22,39 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+cd "$REPO_ROOT"
+RELEASE_DIR="$REPO_ROOT/release"
+if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
+  printf 'vellum-command: error: release must be a non-symlink directory\n' >&2
+  exit 1
+fi
+mkdir -p -- "$RELEASE_DIR"
+RELEASE_DIR="$(cd "$RELEASE_DIR" && pwd -P)"
+ATTEMPT_DIR="$(mktemp -d "$RELEASE_DIR/.vellum-package-attempt-XXXXXXXX")"
+chmod 0700 "$ATTEMPT_DIR"
+PACKAGE_ASSET_DIR=""
+cleanup_package_attempt() {
+  if [[ -n "$PACKAGE_ASSET_DIR" && -d "$PACKAGE_ASSET_DIR" && ! -L "$PACKAGE_ASSET_DIR" ]]; then
+    rm -rf -- "$PACKAGE_ASSET_DIR"
+  fi
+  if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .vellum-package-attempt-* ]]; then
+    rm -rf -- "$ATTEMPT_DIR"
+  elif [[ -e "$ATTEMPT_DIR" || -L "$ATTEMPT_DIR" ]]; then
+    printf 'vellum-command: warning: retained package attempt after identity change: %s\n' "$ATTEMPT_DIR" >&2
+  fi
+}
+trap cleanup_package_attempt EXIT
 
-# One stock Node line owns both the Linux release toolchain and the displayless
-# Remote ABI. Resolve the reviewed version from the runtime staging contract and
-# require the build host to match it exactly; a permissive minimum silently
-# resurrects obsolete Node majors and makes native qualification ambiguous.
+# A direct package-app-linux.sh invocation must not reuse out/main. The shared
+# coordinator compiles BOTH entries, stamps one cohort identity, and re-admits
+# the exact committed checkout before this package attempt can continue.
+printf 'vellum-command: building fresh two-runtime compiler cohort …\n'
+bash "$SCRIPT_DIR/build-app.sh" --target linux --runtime-cohort-only
+bun "$SCRIPT_DIR/package-runtime-provenance.ts" verify-source --target linux >/dev/null
+
+# One stock Node line owns both the Linux release toolchain and displayless
+# Remote ABI. These are x64 execution facts, not a physical-host claim.
 REQUIRED_NODE_VERSION="$(bun -e 'import { DEFAULT_NODE_REMOTE_VERSION } from "./scripts/build-linux-remote-runtime.ts"; process.stdout.write(DEFAULT_NODE_REMOTE_VERSION)')"
 NODE_EXECUTABLE="$(type -P node || true)"
 NODE_VERSION=""
@@ -39,14 +67,8 @@ if [[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]; then
   exit 1
 fi
 
-# This exact owned path is reset and rebuilt on every package invocation. The
-# command also binds both runtime payload hashes to one clean source commit.
-printf 'vellum-command: rebuilding Remote and binding package provenance …\n'
-bun "$SCRIPT_DIR/package-runtime-provenance.ts" prepare --target linux
-
 # Rebuild only the one native production dependency. install-app-deps and
-# electron-builder's default npmRebuild also traverse unrelated development
-# addons, so the package command disables that broader second pass explicitly.
+# electron-builder's default npmRebuild traverse unrelated development addons.
 ELECTRON_VERSION="$(bun -e 'process.stdout.write(require("./node_modules/electron/package.json").version)')"
 bunx --no-install electron-rebuild \
   --version "$ELECTRON_VERSION" \
@@ -56,19 +78,12 @@ bunx --no-install electron-rebuild \
   --force \
   --sequential
 
-# FPM preserves the mode of icon inputs. Stage a private copy so a checkout
-# created under a permissive umask cannot leak group-write into the package.
+# FPM preserves input modes. Keep its icon copy outside release and delete only
+# that mktemp capability during cleanup.
 PACKAGE_ASSET_DIR="$(mktemp -d -t vellum-linux-assets.XXXXXX)"
 PACKAGE_ICON="$PACKAGE_ASSET_DIR/vellum-command-icon.png"
-cleanup_package_assets() {
-  rm -f -- "$PACKAGE_ICON"
-  rmdir -- "$PACKAGE_ASSET_DIR"
-}
-trap cleanup_package_assets EXIT
 install -m 0644 -- assets/brand/vellum-command-icon.png "$PACKAGE_ICON"
 
-# Authoritative release packaging may only use the Electron tree from the
-# frozen lockfile install — never an ambient ELECTRON_DIST path (provenance).
 ELECTRON_DIST_ARGS=()
 if [[ -x "node_modules/electron/dist/electron" ]]; then
   ELECTRON_DIST_ARGS+=(--config.electronDist=node_modules/electron/dist)
@@ -76,33 +91,40 @@ fi
 
 bunx --no-install electron-builder --linux dir --x64 \
   --config.npmRebuild=false \
+  --config.directories.output="$ATTEMPT_DIR" \
   "${ELECTRON_DIST_ARGS[@]}" \
   --config.linux.icon="$PACKAGE_ICON"
 
-# Displayless product Remote: official Node linux-x64 + node-pty for that ABI +
-# resources/bin/vellum-command-remote. Never ELECTRON_RUN_AS_NODE; never Bun-compile remote.
-# The staged entry must be the just-built default. Missing output is fatal.
-printf 'vellum-command: staging Linux remote runtime (bundled Node + node-pty Node ABI) …\n'
+DRAFT_RUNTIME="$ATTEMPT_DIR/linux-unpacked"
+# Atomically replace the complete app-remote directory. The staging command
+# includes the fresh provenance and rejects stale/excess Remote closure files.
+printf 'vellum-command: staging exact Linux Remote closure …\n'
 bun "$SCRIPT_DIR/build-linux-remote-runtime.ts" \
-  --runtime "$SCRIPT_DIR/../release/linux-unpacked" \
-  --repo "$SCRIPT_DIR/.." \
-  --no-build-entry
-REMOTE_PROVENANCE_SOURCE="$SCRIPT_DIR/../out/remote/package-runtime-provenance.json"
-REMOTE_PROVENANCE_DESTINATION="$SCRIPT_DIR/../release/linux-unpacked/resources/app-remote/package-runtime-provenance.json"
-if [[ ! -f "$REMOTE_PROVENANCE_SOURCE" || -L "$REMOTE_PROVENANCE_SOURCE" ]]; then
-  printf 'vellum-command: error: fresh Remote provenance is missing\n' >&2
-  exit 1
-fi
-install -m 0644 -- "$REMOTE_PROVENANCE_SOURCE" "$REMOTE_PROVENANCE_DESTINATION"
+  --runtime "$DRAFT_RUNTIME" \
+  --repo "$REPO_ROOT" \
+  --no-build-entry >/dev/null
+
+# Final-shaped names exist only under the private attempt. Parity and dynamic
+# audit run before any release/ final is published.
+DRAFT_JSON="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" draft --attempt-dir "$ATTEMPT_DIR")"
+DRAFT_ARTIFACT="$(printf '%s' "$DRAFT_JSON" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
+DRAFT_ARCHIVE="$(printf '%s' "$DRAFT_JSON" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.archive !== "string") process.exit(1); process.stdout.write(value.archive)')"
 bun "$SCRIPT_DIR/package-runtime-provenance.ts" verify-package \
   --target linux \
-  --runtime "$SCRIPT_DIR/../release/linux-unpacked"
+  --runtime "$DRAFT_ARTIFACT" >/dev/null
+AUDIT_RECEIPT="$ATTEMPT_DIR/$(basename "$DRAFT_ARTIFACT").audit.json"
+bun "$SCRIPT_DIR/audit-linux-package.ts" --runtime "$DRAFT_ARTIFACT" \
+  --receipt "$AUDIT_RECEIPT" >/dev/null
 
-finalized="$(bun "$SCRIPT_DIR/finalize-linux-package.ts" --release-dir "$SCRIPT_DIR/../release")"
-runtime="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.artifact !== "string") process.exit(1); process.stdout.write(value.artifact)')"
-archive="$(printf '%s' "$finalized" | bun -e 'const value = await Bun.stdin.json(); if (typeof value.archive !== "string") process.exit(1); process.stdout.write(value.archive)')"
-bun "$SCRIPT_DIR/audit-linux-package.ts" --runtime "$runtime"
+# No-clobber publication rejects every existing destination, including dangling
+# symlinks. The EXIT trap can only clean this attempt directory.
+bun "$SCRIPT_DIR/finalize-linux-package.ts" publish-attempt \
+  --attempt-dir "$ATTEMPT_DIR" \
+  --release-dir "$RELEASE_DIR" >/dev/null
+FINAL_ARTIFACT="$RELEASE_DIR/$(basename "$DRAFT_ARTIFACT")"
+FINAL_ARCHIVE="$RELEASE_DIR/$(basename "$DRAFT_ARCHIVE")"
+ATTEMPT_DIR=""
 if [[ "$VERIFY" -eq 1 ]]; then
-  printf 'vellum-command: source/package audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
+  printf 'vellum-command: source/package parity and Linux x64 execution audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
 fi
-printf 'vellum-command: built relocatable runtime %s and %s\n' "$runtime" "$archive"
+printf 'vellum-command: built relocatable runtime %s and %s\n' "$FINAL_ARTIFACT" "$FINAL_ARCHIVE"

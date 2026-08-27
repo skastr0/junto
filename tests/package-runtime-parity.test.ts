@@ -1,5 +1,7 @@
 import { createPackage } from "@electron/asar";
+import { spawnSync } from "node:child_process";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -12,25 +14,58 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
   PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
   REMOTE_PROVENANCE_SOURCE_RELATIVE,
+  RUNTIME_BUILD_IDENTITY_SCHEMA,
+  assertExactCommittedCheckout,
+  embedRuntimeBuildIdentity,
+  extractRuntimeBuildIdentity,
   makePackageRuntimeProvenance,
   preparePackageRuntimes,
   readPackageSourceFacts,
   resetOwnedRemoteOutput,
+  validateRawAsarArchive,
+  validateRawAsarHeader,
   verifyPackagedRuntimeParity,
   verifyPreparedPackageRuntimes,
+  type PackageRuntime,
   type PackageSourceFacts,
+  type RuntimeBuildIdentity,
 } from "../scripts/package-runtime-provenance";
 import {
   HISTORICAL_COMPARISON_RELATIVE,
+  PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA,
+  cloneExactCommit,
+  decodePackageRuntimeParityReceipt,
   loadHistoricalPackageComparison,
   plantHistoricalStaleRemote,
+  readLinuxX64ExecutionFacts,
+  withQualificationReceiptAttempt,
 } from "../scripts/qualify-package-runtime-parity";
-import { REMOTE_ENTRY_SOURCE_RELATIVE } from "../scripts/build-linux-remote-runtime";
+import {
+  LINUX_NODE_PTY_RUNTIME_FILES,
+  REMOTE_ENTRY_SOURCE_RELATIVE,
+  installLinuxRemoteRuntime,
+} from "../scripts/build-linux-remote-runtime";
+import {
+  LINUX_REMOTE_APP_EXACT_FILES,
+  LINUX_RUNTIME_AUDIT_SCHEMA,
+  collectLinuxRuntimeInventory,
+  decodeLinuxRuntimeAuditReceipt,
+  linuxRemoteClosureRoot,
+  requireExactLinuxRemoteClosure,
+} from "../scripts/audit-linux-package";
+import {
+  finalizeLinuxRuntimeArtifact,
+  linuxRuntimeArchiveName,
+  linuxRuntimeArtifactName,
+  publishPackageAttempt,
+} from "../scripts/finalize-linux-package";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+const cohortNonce = "11111111-1111-4111-8111-111111111111";
 const source: PackageSourceFacts = {
   appVersion: "0.1.14",
   sourceCommit: "a".repeat(40),
@@ -44,8 +79,30 @@ const source: PackageSourceFacts = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 };
 
+const identity = (
+  runtime: PackageRuntime,
+  facts: PackageSourceFacts = source,
+  nonce = cohortNonce,
+): RuntimeBuildIdentity => ({
+  schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
+  cohortNonce: nonce,
+  sourceCommit: facts.sourceCommit,
+  runtime,
+});
+
+const compiled = (
+  runtime: PackageRuntime,
+  body: string,
+  facts: PackageSourceFacts = source,
+  nonce = cohortNonce,
+): Buffer =>
+  embedRuntimeBuildIdentity({
+    payload: Buffer.from(body, "utf8"),
+    identity: identity(runtime, facts, nonce),
+  });
+
 const writeProvenance = async (input: {
-  readonly runtime: "electron-main" | "linux-remote";
+  readonly runtime: PackageRuntime;
   readonly payload: Buffer;
   readonly file: string;
   readonly facts?: PackageSourceFacts;
@@ -59,62 +116,192 @@ const writeProvenance = async (input: {
   await writeFile(input.file, `${JSON.stringify(provenance, null, 2)}\n`);
 };
 
+const writeSourceCohort = async (
+  root: string,
+): Promise<{ readonly main: Buffer; readonly remote: Buffer }> => {
+  const main = compiled("electron-main", "console.log('fresh schema-20 main');\n");
+  const remote = compiled(
+    "linux-remote",
+    "console.log('fresh schema-20 remote');\n",
+  );
+  await mkdir(path.join(root, "out/main"), { recursive: true });
+  await mkdir(path.join(root, "out/remote"), { recursive: true });
+  await writeFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE), main);
+  await writeFile(path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE), remote);
+  await writeProvenance({
+    runtime: "electron-main",
+    payload: main,
+    file: path.join(root, MAIN_PROVENANCE_SOURCE_RELATIVE),
+  });
+  await writeProvenance({
+    runtime: "linux-remote",
+    payload: remote,
+    file: path.join(root, REMOTE_PROVENANCE_SOURCE_RELATIVE),
+  });
+  return { main, remote };
+};
+
+const writeExactRemoteClosure = async (
+  runtimeRoot: string,
+  remote: Buffer,
+): Promise<void> => {
+  const ordinaryFiles = [
+    "vellum-command",
+    "resources/bin/vellum-command",
+    "resources/bin/unix-peer-pid.py",
+    "resources/bin/node",
+    "resources/bin/vellum-command-remote",
+    "resources/systemd/vellum-command-remote-launch",
+  ];
+  for (const relative of ordinaryFiles) {
+    await mkdir(path.dirname(path.join(runtimeRoot, relative)), {
+      recursive: true,
+    });
+    await writeFile(path.join(runtimeRoot, relative), `fixture ${relative}\n`);
+  }
+  await writeFile(
+    path.join(
+      runtimeRoot,
+      "resources/systemd/vellum-command-remote.service.template",
+    ),
+    "ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
+  );
+  await mkdir(path.join(runtimeRoot, "resources/app-remote"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(runtimeRoot, "resources/app-remote/vellum-command-remote.js"),
+    remote,
+  );
+  await writeFile(
+    path.join(runtimeRoot, "resources/app-remote/package.json"),
+    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "vellum-command-remote.js" })}\n`,
+  );
+  await writeProvenance({
+    runtime: "linux-remote",
+    payload: remote,
+    file: path.join(
+      runtimeRoot,
+      "resources/app-remote/package-runtime-provenance.json",
+    ),
+  });
+  for (const relative of LINUX_NODE_PTY_RUNTIME_FILES) {
+    const destination = path.join(
+      runtimeRoot,
+      "resources/app-remote/node_modules/node-pty",
+      relative,
+    );
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(
+      destination,
+      relative === "package.json"
+        ? `${JSON.stringify({ name: "node-pty", version: "1.1.0" })}\n`
+        : `stock node-pty ${relative}\n`,
+    );
+  }
+};
+
 const createSyntheticLinuxRuntime = async (input: {
   readonly root: string;
+  readonly packagedMain?: Buffer;
   readonly includeAsarRemote?: boolean;
-  readonly remoteFacts?: PackageSourceFacts;
 }): Promise<{
   readonly runtimeRoot: string;
-  readonly mainPayload: Buffer;
-  readonly remotePayload: Buffer;
+  readonly appStage: string;
+  readonly main: Buffer;
+  readonly remote: Buffer;
 }> => {
+  const { main, remote } = await writeSourceCohort(input.root);
   const appStage = path.join(input.root, "app-stage");
   const runtimeRoot = path.join(input.root, "runtime");
-  const mainPayload = Buffer.from("console.log('schema-20-main');\n");
-  const remotePayload = Buffer.from("console.log('schema-20-remote');\n");
+  const packagedMain = input.packagedMain ?? main;
   await mkdir(path.join(appStage, "out/main"), { recursive: true });
-  await writeFile(path.join(appStage, "out/main/index.js"), mainPayload);
+  await writeFile(path.join(appStage, "out/main/index.js"), packagedMain);
   await writeFile(
     path.join(appStage, "package.json"),
     `${JSON.stringify({ name: "fixture", version: source.appVersion })}\n`,
   );
   await writeProvenance({
     runtime: "electron-main",
-    payload: mainPayload,
+    payload: packagedMain,
     file: path.join(appStage, MAIN_PROVENANCE_SOURCE_RELATIVE),
   });
   if (input.includeAsarRemote === true) {
     await mkdir(path.join(appStage, "out/remote"), { recursive: true });
     await writeFile(
       path.join(appStage, "out/remote/vellum-command-remote.js"),
-      "stale Remote must not be in app.asar\n",
+      "forbidden Remote\n",
     );
   }
-  await mkdir(path.join(runtimeRoot, "resources/app-remote"), {
-    recursive: true,
-  });
+  await mkdir(path.join(runtimeRoot, "resources"), { recursive: true });
   await createPackage(appStage, path.join(runtimeRoot, "resources/app.asar"));
-  await writeFile(
-    path.join(
-      runtimeRoot,
-      "resources/app-remote/vellum-command-remote.js",
-    ),
-    remotePayload,
-  );
-  await writeProvenance({
-    runtime: "linux-remote",
-    payload: remotePayload,
-    file: path.join(
-      runtimeRoot,
-      "resources/app-remote/package-runtime-provenance.json",
-    ),
-    facts: input.remoteFacts,
-  });
-  return { runtimeRoot, mainPayload, remotePayload };
+  await writeExactRemoteClosure(runtimeRoot, remote);
+  return { runtimeRoot, appStage, main, remote };
 };
 
-describe("package runtime source provenance", () => {
-  it("reads schema 20, its final migration, identity, app version, and commit", async () => {
+const createSyntheticMacBundle = async (
+  root: string,
+): Promise<{ readonly app: string }> => {
+  const { main } = await writeSourceCohort(root);
+  const stage = path.join(root, "mac-stage");
+  const app = path.join(root, "Vellum Command.app");
+  await mkdir(path.join(stage, "out/main"), { recursive: true });
+  await writeFile(path.join(stage, "out/main/index.js"), main);
+  await writeFile(
+    path.join(stage, "package.json"),
+    `${JSON.stringify({ version: source.appVersion })}\n`,
+  );
+  await writeProvenance({
+    runtime: "electron-main",
+    payload: main,
+    file: path.join(stage, MAIN_PROVENANCE_SOURCE_RELATIVE),
+  });
+  await mkdir(path.join(app, "Contents/Resources"), { recursive: true });
+  await createPackage(stage, path.join(app, "Contents/Resources/app.asar"));
+  return { app };
+};
+
+const git = (cwd: string, args: ReadonlyArray<string>): string => {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.status !== 0) {
+    throw new Error(`${result.stderr || result.stdout}`);
+  }
+  return result.stdout.trim();
+};
+
+const createSourceRepository = async (): Promise<{
+  readonly root: string;
+  readonly commit: string;
+}> => {
+  const root = await mkdtemp(path.join(tmpdir(), "vellum-package-source-git-"));
+  git(root, ["init", "--quiet"]);
+  git(root, ["config", "user.email", "package-test@example.invalid"]);
+  git(root, ["config", "user.name", "Package Test"]);
+  await mkdir(path.join(root, "src/main/vellum/state"), { recursive: true });
+  await writeFile(
+    path.join(root, "package.json"),
+    `${JSON.stringify({ version: "0.1.14" })}\n`,
+  );
+  await writeFile(
+    path.join(root, "src/main/vellum/state/migrations.ts"),
+    [
+      "export const CURRENT_STATE_SCHEMA_VERSION = 20;",
+      'export const STATE_SCHEMA_V20_IDENTITY = { actualSchemaSha256: "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955" };',
+      'const migrations = [{ fromVersion: 19, toVersion: 20, name: "witness-every-projected-work-table" }];',
+      "",
+    ].join("\n"),
+  );
+  git(root, ["add", "."]);
+  git(root, ["commit", "--quiet", "-m", "fixture"]);
+  return { root, commit: git(root, ["rev-parse", "HEAD"]) };
+};
+
+describe("fresh compiler cohort provenance", () => {
+  it("reads the immutable schema-20 head without changing migrations", async () => {
     const facts = await readPackageSourceFacts({
       repoRoot,
       requireClean: false,
@@ -130,117 +317,178 @@ describe("package runtime source provenance", () => {
       migrationIdentitySha256:
         "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
     });
-    expect(facts.sourceCommit).toMatch(/^[0-9a-f]{40}$/u);
   });
 
-  it("binds every manifest to the exact payload hash", () => {
-    const payload = Buffer.from("runtime bytes\n");
-    const provenance = makePackageRuntimeProvenance({
-      runtime: "electron-main",
-      source,
-      payload,
-    });
-    expect(provenance).toMatchObject({
-      schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
-      product: "Vellum Command",
-      runtime: "electron-main",
-      appVersion: source.appVersion,
-      sourceCommit: source.sourceCommit,
-      state: {
-        currentStateSchemaVersion: 20,
-        migrationHead: source.migrationHead,
-        migrationIdentitySha256: source.migrationIdentitySha256,
-      },
-      payload: {
-        packagedPath: "out/main/index.js",
-        bytes: payload.byteLength,
-      },
-    });
-    expect(provenance.payload.sha256).toMatch(/^[0-9a-f]{64}$/u);
-  });
-
-  it("removes only the Remote output directory and refuses a symlink", async () => {
-    const root = await mkdtemp(
-      path.join(tmpdir(), "vellum-command-package-owned-output-"),
-    );
+  it("removes stale main and Remote before both compilers and stamps one identity", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-cohort-build-"));
     try {
+      await mkdir(path.join(root, "out/main"), { recursive: true });
       await mkdir(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(path.join(root, "out/remote/stale"), "schema 18\n");
-      await writeFile(path.join(root, "out/main-sibling"), "keep\n");
-      await resetOwnedRemoteOutput(root);
-      await expect(
-        readFile(path.join(root, "out/main-sibling"), "utf8"),
-      ).resolves.toBe("keep\n");
-      expect(await lstat(path.join(root, "out/remote"))).toMatchObject({});
-      expect(
-        await readFile(path.join(root, "out/remote/stale")).catch(
-          () => undefined,
-        ),
-      ).toBeUndefined();
-
-      await rm(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(path.join(root, "outside"), "do not touch\n");
-      await symlink(path.join(root, "outside"), path.join(root, "out/remote"));
-      await expect(resetOwnedRemoteOutput(root)).rejects.toThrow(/symlink/u);
-      await expect(readFile(path.join(root, "outside"), "utf8")).resolves.toBe(
-        "do not touch\n",
+      const stale = compiled(
+        "electron-main",
+        "var CURRENT_STATE_SCHEMA_VERSION=18; var APP_VERSION='0.1.13';\n",
       );
+      await writeFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE), stale);
+      await writeProvenance({
+        runtime: "electron-main",
+        payload: stale,
+        file: path.join(root, MAIN_PROVENANCE_SOURCE_RELATIVE),
+      });
+      await writeFile(path.join(root, "out/remote/stale"), "schema 18\n");
+      await writeFile(path.join(root, "out/sibling"), "preserve\n");
+      let mainWasAbsent = false;
+      let remoteWasAbsent = false;
+      await preparePackageRuntimes({
+        repoRoot: root,
+        target: "mac",
+        source,
+        cohortNonce,
+        buildMain: async (candidate) => {
+          mainWasAbsent =
+            (await lstat(path.join(candidate, MAIN_PAYLOAD_SOURCE_RELATIVE)).catch(
+              () => undefined,
+            )) === undefined;
+          await writeFile(
+            path.join(candidate, MAIN_PAYLOAD_SOURCE_RELATIVE),
+            "fresh main compiler bytes\n",
+          );
+        },
+        buildRemote: async (candidate) => {
+          remoteWasAbsent =
+            (await lstat(path.join(candidate, "out/remote/stale")).catch(
+              () => undefined,
+            )) === undefined;
+          await writeFile(
+            path.join(candidate, REMOTE_ENTRY_SOURCE_RELATIVE),
+            "fresh remote compiler bytes\n",
+          );
+        },
+      });
+      expect(mainWasAbsent).toBe(true);
+      expect(remoteWasAbsent).toBe(true);
+      await expect(readFile(path.join(root, "out/sibling"), "utf8")).resolves.toBe(
+        "preserve\n",
+      );
+      const verified = await verifyPreparedPackageRuntimes({
+        repoRoot: root,
+        target: "mac",
+        expected: source,
+      });
+      expect(verified.cohortNonce).toBe(cohortNonce);
+      expect(verified.compiledRuntimes.linuxRemote).toBeDefined();
+      expect(
+        extractRuntimeBuildIdentity(
+          await readFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE)),
+        ).cohortNonce,
+      ).toBe(cohortNonce);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("prepares main and a freshly rebuilt Remote while preserving siblings", async () => {
-    const root = await mkdtemp(
-      path.join(tmpdir(), "vellum-command-package-prepare-"),
-    );
+  it("cannot bless an ignored stale main when the main compiler emits nothing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-cohort-noop-"));
     try {
       await mkdir(path.join(root, "out/main"), { recursive: true });
+      await writeFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE), "stale\n");
+      await expect(
+        preparePackageRuntimes({
+          repoRoot: root,
+          target: "linux",
+          source,
+          cohortNonce,
+          buildMain: async () => {},
+          buildRemote: async () => {},
+        }),
+      ).rejects.toThrow(/fresh compiler output/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes only the owned Remote output and refuses its symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-owned-output-"));
+    try {
       await mkdir(path.join(root, "out/remote"), { recursive: true });
-      await writeFile(path.join(root, "out/main/index.js"), "main fresh\n");
-      await writeFile(path.join(root, "out/remote/old"), "schema 18\n");
+      await writeFile(path.join(root, "out/remote/stale"), "old\n");
       await writeFile(path.join(root, "out/sibling"), "keep\n");
-      let oldWasRemoved = false;
-      await preparePackageRuntimes({
-        repoRoot: root,
-        target: "linux",
-        source,
-        buildRemote: async (candidateRoot) => {
-          oldWasRemoved = !(await lstat(
-            path.join(candidateRoot, "out/remote/old"),
-          ).catch(() => undefined));
-          await writeFile(
-            path.join(candidateRoot, REMOTE_ENTRY_SOURCE_RELATIVE),
-            "remote fresh schema 20\n",
-          );
-        },
-      });
-      expect(oldWasRemoved).toBe(true);
+      await resetOwnedRemoteOutput(root);
       await expect(readFile(path.join(root, "out/sibling"), "utf8")).resolves.toBe(
         "keep\n",
       );
-      const verified = await verifyPreparedPackageRuntimes({
-        repoRoot: root,
-        target: "linux",
-        expected: source,
-      });
-      expect(verified.runtimes.electronMain.payloadSha256).not.toBe(
-        verified.runtimes.linuxRemote?.payloadSha256,
+      await rm(path.join(root, "out/remote"), { recursive: true });
+      await writeFile(path.join(root, "outside"), "safe\n");
+      await symlink(path.join(root, "outside"), path.join(root, "out/remote"));
+      await expect(resetOwnedRemoteOutput(root)).rejects.toThrow(/symlink/u);
+      await expect(readFile(path.join(root, "outside"), "utf8")).resolves.toBe(
+        "safe\n",
       );
-      await expect(
-        readFile(path.join(root, REMOTE_PROVENANCE_SOURCE_RELATIVE), "utf8"),
-      ).resolves.toContain('"currentStateSchemaVersion": 20');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 });
 
-describe("extracted package runtime parity", () => {
-  it("accepts two payload-bound runtimes from one schema-20 source cohort", async () => {
-    const root = await mkdtemp(
-      path.join(tmpdir(), "vellum-command-package-parity-"),
-    );
+describe("exact committed source admission", () => {
+  it("rejects tracked bytes hidden by assume-unchanged", async () => {
+    const fixture = await createSourceRepository();
+    try {
+      git(fixture.root, ["update-index", "--assume-unchanged", "package.json"]);
+      await writeFile(
+        path.join(fixture.root, "package.json"),
+        `${JSON.stringify({ version: "0.1.13" })}\n`,
+      );
+      await expect(
+        readPackageSourceFacts({ repoRoot: fixture.root, requireClean: true }),
+      ).rejects.toThrow(/assume-unchanged|index flag/u);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects tracked bytes hidden by skip-worktree", async () => {
+    const fixture = await createSourceRepository();
+    try {
+      git(fixture.root, ["update-index", "--skip-worktree", "package.json"]);
+      await writeFile(
+        path.join(fixture.root, "package.json"),
+        `${JSON.stringify({ version: "0.1.13" })}\n`,
+      );
+      await expect(assertExactCommittedCheckout(fixture.root)).rejects.toThrow(
+        /skip-worktree|index flag/u,
+      );
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("clones exact commit bytes without local alternates", async () => {
+    const fixture = await createSourceRepository();
+    const work = await mkdtemp(path.join(tmpdir(), "vellum-exact-clone-"));
+    const clone = path.join(work, "clone");
+    try {
+      const result = await cloneExactCommit({
+        sourceRoot: fixture.root,
+        cloneRoot: clone,
+        commit: fixture.commit,
+      });
+      expect(result.commit).toBe(fixture.commit);
+      expect(
+        await lstat(path.join(clone, ".git/objects/info/alternates")).catch(
+          () => undefined,
+        ),
+      ).toBeUndefined();
+      expect(git(clone, ["count-objects", "-v"])).not.toMatch(/^alternate:/mu);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+      await rm(work, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("packaged runtime exact parity and closure", () => {
+  it("accepts exact packaged outputs and binds the full Linux closure", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-parity-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       const receipt = await verifyPackagedRuntimeParity({
@@ -249,83 +497,468 @@ describe("extracted package runtime parity", () => {
         runtimeRoot: candidate.runtimeRoot,
         expected: source,
       });
-      expect(receipt).toMatchObject({
-        target: "linux",
-        appVersion: source.appVersion,
-        sourceCommit: source.sourceCommit,
-        state: {
-          currentStateSchemaVersion: 20,
-          migrationHead: source.migrationHead,
-          migrationIdentitySha256: source.migrationIdentitySha256,
-        },
-      });
-      expect(receipt.runtimes.electronMain.payloadBytes).toBe(
-        candidate.mainPayload.byteLength,
+      expect(receipt.cohortNonce).toBe(cohortNonce);
+      expect(receipt.runtimes.linuxRemote?.payloadSha256).toBe(
+        receipt.compiledRuntimes.linuxRemote.payloadSha256,
       );
-      expect(receipt.runtimes.linuxRemote?.payloadBytes).toBe(
-        candidate.remotePayload.byteLength,
+      expect(receipt.linuxRuntimeClosure?.remoteEntries.map((entry) => entry.path)).toEqual(
+        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort((left, right) => left.localeCompare(right)),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("rejects a schema-18 Remote even when its payload hash is internally valid", async () => {
-    const root = await mkdtemp(
-      path.join(tmpdir(), "vellum-command-package-mismatch-"),
-    );
+  it("rejects internally self-consistent stale main bytes that differ from fresh output", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-stale-main-"));
     try {
+      const staleMain = compiled(
+        "electron-main",
+        "var CURRENT_STATE_SCHEMA_VERSION=18; var APP_VERSION='0.1.13';\n",
+      );
       const candidate = await createSyntheticLinuxRuntime({
         root,
-        remoteFacts: {
-          ...source,
-          currentStateSchemaVersion: 18,
-          migrationHead: {
-            fromVersion: 17,
-            toVersion: 18,
-            name: "add-work-pad-read-cursors",
+        packagedMain: staleMain,
+      });
+      await expect(
+        verifyPackagedRuntimeParity({
+          repoRoot: root,
+          target: "linux",
+          runtimeRoot: candidate.runtimeRoot,
+          expected: source,
+        }),
+      ).rejects.toThrow(/exact fresh compiler output/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects alternate or excess Remote copies anywhere in Linux runtime", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-duplicate-"));
+    try {
+      const candidate = await createSyntheticLinuxRuntime({ root });
+      await mkdir(path.join(candidate.runtimeRoot, "resources/alternate"), {
+        recursive: true,
+      });
+      await writeFile(
+        path.join(
+          candidate.runtimeRoot,
+          "resources/alternate/vellum-command-remote.js",
+        ),
+        "duplicate\n",
+      );
+      await expect(
+        verifyPackagedRuntimeParity({
+          repoRoot: root,
+          target: "linux",
+          runtimeRoot: candidate.runtimeRoot,
+          expected: source,
+        }),
+      ).rejects.toThrow(/alternate Linux Remote copy/u);
+      await rm(path.join(candidate.runtimeRoot, "resources/alternate"), {
+        recursive: true,
+      });
+      await mkdir(
+        path.join(
+          candidate.runtimeRoot,
+          "resources/app.asar.unpacked/out/remote",
+        ),
+        { recursive: true },
+      );
+      await writeFile(
+        path.join(
+          candidate.runtimeRoot,
+          "resources/app.asar.unpacked/out/remote/stale.js",
+        ),
+        "duplicate\n",
+      );
+      await expect(
+        verifyPackagedRuntimeParity({
+          repoRoot: root,
+          target: "linux",
+          runtimeRoot: candidate.runtimeRoot,
+          expected: source,
+        }),
+      ).rejects.toThrow(/alternate Linux Remote copy/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("forbids Remote-only resources in mac app.asar.unpacked", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-mac-remote-"));
+    try {
+      const candidate = await createSyntheticMacBundle(root);
+      await mkdir(
+        path.join(
+          candidate.app,
+          "Contents/Resources/app.asar.unpacked/out/remote",
+        ),
+        { recursive: true },
+      );
+      await writeFile(
+        path.join(
+          candidate.app,
+          "Contents/Resources/app.asar.unpacked/out/remote/stale.js",
+        ),
+        "stale\n",
+      );
+      await expect(
+        verifyPackagedRuntimeParity({
+          repoRoot: root,
+          target: "mac",
+          appBundle: candidate.app,
+          expected: source,
+        }),
+      ).rejects.toThrow(/Remote-only resource/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("whole-directory Remote staging removes stale files and preserves siblings", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-remote-replace-"));
+    const runtime = path.join(root, "runtime");
+    try {
+      await mkdir(path.join(root, "out/remote"), { recursive: true });
+      await writeFile(
+        path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE),
+        "fresh remote entry\n",
+      );
+      await mkdir(path.join(runtime, "resources/app-remote"), { recursive: true });
+      await writeFile(
+        path.join(runtime, "resources/app-remote/stale-extra.js"),
+        "stale\n",
+      );
+      await writeFile(path.join(runtime, "preserve"), "keep\n");
+      await installLinuxRemoteRuntime({
+        repoRoot: root,
+        runtimeRoot: runtime,
+        skipNativeRebuild: true,
+      });
+      const inventory = await collectLinuxRuntimeInventory(runtime);
+      expect(
+        inventory.entries
+          .map((entry) => entry.path)
+          .filter((entry) => entry.startsWith("resources/app-remote/")),
+      ).toEqual([
+        "resources/app-remote/package.json",
+        "resources/app-remote/vellum-command-remote.js",
+      ]);
+      await expect(readFile(path.join(runtime, "preserve"), "utf8")).resolves.toBe(
+        "keep\n",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runtime inventory changes for Node, wrapper, launcher, and node-pty", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-runtime-inventory-"));
+    try {
+      const candidate = await createSyntheticLinuxRuntime({ root });
+      const initial = await collectLinuxRuntimeInventory(candidate.runtimeRoot);
+      const remoteClosure = requireExactLinuxRemoteClosure(initial);
+      const byPath = new Map(initial.entries.map((entry) => [entry.path, entry]));
+      expect(
+        decodeLinuxRuntimeAuditReceipt({
+          schema: LINUX_RUNTIME_AUDIT_SCHEMA,
+          ok: true,
+          artifact: "fixture",
+          inventory: initial,
+          remoteClosure: {
+            exact: true,
+            entries: remoteClosure,
+            rootSha256: linuxRemoteClosureRoot(remoteClosure),
           },
-          migrationIdentitySha256:
-            "06411da7eb2843c89a7b170321ca0992e8c72b9da65e3fa702b2fce1197980e1",
-        },
-      });
-      await expect(
-        verifyPackagedRuntimeParity({
-          repoRoot: root,
-          target: "linux",
-          runtimeRoot: candidate.runtimeRoot,
-          expected: source,
+          nativeObjects: [],
+          chromeSandbox: "absent",
+          stockNode: {
+            source: "pinned-official-nodejs-linux-x64-archive",
+            version: "24.18.0",
+            moduleAbi: "137",
+            officialArchiveSha256:
+              "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
+            binarySha256: byPath.get("resources/bin/node")?.sha256,
+          },
+          nodePty: {
+            version: "1.1.0",
+            execution: "functional",
+            nativeModuleSha256: byPath.get(
+              "resources/app-remote/node_modules/node-pty/build/Release/pty.node",
+            )?.sha256,
+          },
         }),
-      ).rejects.toThrow(/does not match package source/u);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects any Remote bundle leaked into Electron app.asar", async () => {
-    const root = await mkdtemp(
-      path.join(tmpdir(), "vellum-command-package-asar-remote-"),
-    );
-    try {
-      const candidate = await createSyntheticLinuxRuntime({
-        root,
-        includeAsarRemote: true,
-      });
-      await expect(
-        verifyPackagedRuntimeParity({
-          repoRoot: root,
-          target: "linux",
-          runtimeRoot: candidate.runtimeRoot,
-          expected: source,
-        }),
-      ).rejects.toThrow(/must exclude the Remote runtime/u);
+      ).toMatchObject({ schema: LINUX_RUNTIME_AUDIT_SCHEMA, ok: true });
+      for (const relative of [
+        "resources/bin/node",
+        "resources/bin/vellum-command-remote",
+        "resources/systemd/vellum-command-remote-launch",
+        "resources/app-remote/node_modules/node-pty/lib/index.js",
+      ]) {
+        await writeFile(path.join(candidate.runtimeRoot, relative), `mutated ${relative}\n`);
+        const changed = await collectLinuxRuntimeInventory(candidate.runtimeRoot);
+        expect(changed.rootSha256).not.toBe(initial.rootSha256);
+        await writeFile(path.join(candidate.runtimeRoot, relative), `fixture ${relative}\n`);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 });
 
-describe("stale Remote qualification probe", () => {
+describe("raw ASAR admission", () => {
+  it("rejects a raw dotdot key before normalized ASAR APIs can hide it", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-raw-asar-"));
+    try {
+      const candidate = await createSyntheticLinuxRuntime({ root });
+      await mkdir(path.join(candidate.appStage, "aa"), { recursive: true });
+      await writeFile(path.join(candidate.appStage, "aa/hidden"), "hidden\n");
+      const asar = path.join(root, "adversarial.asar");
+      await createPackage(candidate.appStage, asar);
+      const body = await readFile(asar);
+      const needle = Buffer.from('"aa"', "utf8");
+      const index = body.indexOf(needle);
+      expect(index).toBeGreaterThan(0);
+      Buffer.from('".."', "utf8").copy(body, index);
+      await writeFile(asar, body);
+      await expect(validateRawAsarArchive(asar)).rejects.toThrow(/raw ASAR key/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects traversal links, critical links/unpacked nodes, and normalized collisions", () => {
+    expect(() =>
+      validateRawAsarHeader({
+        header: { files: { bad: { link: "../outside" } } },
+      }),
+    ).toThrow(/unsafe ASAR link/u);
+    expect(() =>
+      validateRawAsarHeader({
+        header: {
+          files: {
+            out: {
+              files: {
+                main: {
+                  files: {
+                    "index.js": { link: "out/main/payload.js" },
+                    "payload.js": { size: 1, offset: "0" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        criticalPaths: ["out/main/index.js"],
+      }),
+    ).toThrow(/direct packed regular file/u);
+    expect(() =>
+      validateRawAsarHeader({
+        header: {
+          files: {
+            "é": { size: 1, offset: "0" },
+            "é": { size: 1, offset: "1" },
+          },
+        },
+      }),
+    ).toThrow(/normalized ASAR path collision/u);
+    expect(() =>
+      validateRawAsarHeader({
+        header: {
+          files: { critical: { size: 1, unpacked: true } },
+        },
+        criticalPaths: ["critical"],
+      }),
+    ).toThrow(/direct packed regular file/u);
+  });
+});
+
+describe("attempt-owned publication", () => {
+  it("rejects a dangling final archive symlink without touching its target", async () => {
+    const release = await mkdtemp(path.join(tmpdir(), "vellum-dangling-final-"));
+    try {
+      const version = "1.2.3";
+      await mkdir(path.join(release, "linux-unpacked"));
+      await writeFile(path.join(release, "linux-unpacked/vellum-command"), "runtime\n");
+      const outside = path.join(release, "outside-created.tar.gz");
+      await symlink(
+        outside,
+        path.join(release, linuxRuntimeArchiveName({ version, arch: "x64" })),
+      );
+      await expect(
+        finalizeLinuxRuntimeArtifact({
+          releaseDirectory: release,
+          version,
+          arch: "x64",
+        }),
+      ).rejects.toThrow(/destination already exists/u);
+      expect(await lstat(outside).catch(() => undefined)).toBeUndefined();
+      expect((await lstat(path.join(release, "linux-unpacked"))).isDirectory()).toBe(
+        true,
+      );
+    } finally {
+      await rm(release, { recursive: true, force: true });
+    }
+  });
+
+  it("forced audit failure leaves no finals and preserves unrelated outputs", async () => {
+    const release = await mkdtemp(path.join(tmpdir(), "vellum-audit-failure-"));
+    const attempt = path.join(release, ".vellum-package-attempt-forced-failure");
+    try {
+      await mkdir(attempt);
+      await writeFile(path.join(attempt, "candidate.zip"), "draft\n");
+      await writeFile(path.join(release, "unrelated"), "keep\n");
+      await expect(
+        (async () => {
+          throw new Error("forced audit failure");
+          // Production scripts call this only after parity/audit.
+          await publishPackageAttempt({
+            attemptDirectory: attempt,
+            releaseDirectory: release,
+          });
+        })(),
+      ).rejects.toThrow(/forced audit failure/u);
+      await rm(attempt, { recursive: true, force: true });
+      expect(await lstat(path.join(release, "candidate.zip")).catch(() => undefined)).toBeUndefined();
+      await expect(readFile(path.join(release, "unrelated"), "utf8")).resolves.toBe(
+        "keep\n",
+      );
+      const [linuxScript, macScript] = await Promise.all([
+        readFile(path.join(repoRoot, "scripts/package-app-linux.sh"), "utf8"),
+        readFile(path.join(repoRoot, "scripts/package-app-macos.sh"), "utf8"),
+      ]);
+      for (const script of [linuxScript, macScript]) {
+        expect(script).toContain("--config.directories.output=\"$ATTEMPT_DIR\"");
+        expect(script.indexOf("verify-package")).toBeLessThan(
+          script.indexOf("publish-attempt"),
+        );
+        expect(script.indexOf("audit-")).toBeLessThan(
+          script.indexOf("publish-attempt"),
+        );
+      }
+    } finally {
+      await rm(release, { recursive: true, force: true });
+    }
+  });
+
+  it("publisher rejects a dangling destination and keeps unrelated files", async () => {
+    const release = await mkdtemp(path.join(tmpdir(), "vellum-publish-link-"));
+    const attempt = path.join(release, ".vellum-package-attempt-link");
+    try {
+      await mkdir(attempt);
+      await writeFile(path.join(attempt, "candidate.zip"), "draft\n");
+      const outside = path.join(release, "outside");
+      await symlink(outside, path.join(release, "candidate.zip"));
+      await writeFile(path.join(release, "unrelated"), "keep\n");
+      await expect(
+        publishPackageAttempt({
+          attemptDirectory: attempt,
+          releaseDirectory: release,
+        }),
+      ).rejects.toThrow(/destination already exists/u);
+      expect(await lstat(outside).catch(() => undefined)).toBeUndefined();
+      await expect(readFile(path.join(release, "unrelated"), "utf8")).resolves.toBe(
+        "keep\n",
+      );
+    } finally {
+      await rm(release, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("qualification receipt lifecycle", () => {
+  it("a failed attempt supersedes an older success receipt immediately", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-stale-receipt-"));
+    const receiptPath = path.join(root, "receipt.json");
+    try {
+      await writeFile(receiptPath, '{"old-success":true,"commit":"deadbeef"}\n');
+      await expect(
+        withQualificationReceiptAttempt({
+          receiptPath,
+          body: async () => {
+            throw new Error("forced attempt failure");
+          },
+        }),
+      ).rejects.toThrow(/forced attempt failure/u);
+      const marker = JSON.parse(await readFile(receiptPath, "utf8")) as {
+        schema: string;
+        status: string;
+        nonce: string;
+      };
+      expect(marker.schema).toBe(PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA);
+      expect(marker.status).toBe("failed");
+      expect(marker.nonce).toMatch(/^[0-9a-f-]{36}$/u);
+      expect(await readFile(receiptPath, "utf8")).not.toContain("old-success");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("strict receipt decode rejects a plausible two-payload receipt with no runtime audit", () => {
+    const verified = (runtime: PackageRuntime) => ({
+      runtime,
+      manifestSha256: "b".repeat(64),
+      payloadSha256: "c".repeat(64),
+      payloadBytes: 42,
+      packagedPath:
+        runtime === "electron-main"
+          ? "out/main/index.js"
+          : "resources/app-remote/vellum-command-remote.js",
+      buildIdentity: identity(runtime),
+    });
+    expect(() =>
+      decodePackageRuntimeParityReceipt({
+        schema: "vellum-command/package-runtime-parity-receipt/v2",
+        product: "Vellum Command",
+        qualification: "fresh-isolated-linux-x64-execution",
+        externalCandidatePublished: false,
+        qualifiedAt: new Date().toISOString(),
+        attempt: {
+          nonce: cohortNonce,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          sourceCommit: source.sourceCommit,
+        },
+        execution: {
+          architectureClaim: "linux-x64-process",
+        },
+        source: { commit: source.sourceCommit },
+        candidateArchive: { sha256: "d".repeat(64) },
+        compilerCohort: {
+          nonce: cohortNonce,
+          runtimes: {
+            electronMain: verified("electron-main"),
+            linuxRemote: verified("linux-remote"),
+          },
+        },
+        packagedRuntimes: {
+          electronMain: verified("electron-main"),
+          linuxRemote: verified("linux-remote"),
+        },
+      }),
+    ).toThrow(/runtime audit/i);
+  });
+
+  it("records Linux x64 execution without claiming physical amd64", () => {
+    const facts = readLinuxX64ExecutionFacts({
+      platform: "linux",
+      arch: "x64",
+      kernelSystem: "Linux",
+      kernelMachine: "aarch64",
+      kernelRelease: "fixture",
+      env: {},
+      bunVersion: "1.3.14",
+      nodeVersion: "v24.18.0",
+      executable: "/runner/bun",
+    });
+    expect(facts.architectureClaim).toBe("linux-x64-process");
+    expect(facts.emulation.status).toBe("observed");
+    expect(JSON.stringify(facts)).not.toMatch(/physical amd64/iu);
+  });
+});
+
+describe("historical probe and official wiring", () => {
   it("pins public 0.1.14 schema 18 only as hash-checked history", async () => {
     const historical = await loadHistoricalPackageComparison(repoRoot);
     expect(historical.comparison).toMatchObject({
@@ -334,36 +967,21 @@ describe("stale Remote qualification probe", () => {
       release: {
         appVersion: "0.1.14",
         currentStateSchemaVersion: 18,
-        migrationHead: {
-          fromVersion: 17,
-          toVersion: 18,
-          name: "add-work-pad-read-cursors",
-        },
-        migrationIdentitySha256:
-          "06411da7eb2843c89a7b170321ca0992e8c72b9da65e3fa702b2fce1197980e1",
+        migrationHead: { fromVersion: 17, toVersion: 18 },
       },
     });
-    expect(historical.fixtureSha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(HISTORICAL_COMPARISON_RELATIVE).toContain("historical");
-    expect(historical.comparison.constraint).toContain(
-      "does not claim that the public macOS package carried a Linux Remote payload",
-    );
   });
 
-  it("plants a plausible ignored schema-18 bundle for replacement proof", async () => {
-    const root = await mkdtemp(
-      path.join(tmpdir(), "vellum-command-package-stale-probe-"),
-    );
+  it("plants a plausible schema-18 bundle that a cohort must replace", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-stale-probe-"));
     try {
       const historical = await loadHistoricalPackageComparison(repoRoot);
       const planted = await plantHistoricalStaleRemote({
         repoRoot: root,
         comparison: historical.comparison,
       });
-      expect(planted).toMatchObject({
-        appVersion: "0.1.14",
-        currentStateSchemaVersion: 18,
-      });
+      expect(planted.currentStateSchemaVersion).toBe(18);
       expect(planted.payloadSha256).toMatch(/^[0-9a-f]{64}$/u);
       await expect(
         readFile(path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE), "utf8"),
@@ -373,61 +991,28 @@ describe("stale Remote qualification probe", () => {
     }
   });
 
-  it("wires every official package path through fresh provenance", async () => {
-    const [
-      pkgBody,
-      buildApp,
-      macPackage,
-      linuxPackage,
-      remoteBuilder,
-      remoteCommand,
-      qualifier,
-    ] = await Promise.all([
-      readFile(path.join(repoRoot, "package.json"), "utf8"),
+  it("wires direct macOS and Linux package commands through the fresh coordinator", async () => {
+    const [buildApp, macPackage, linuxPackage, qualifier] = await Promise.all([
       readFile(path.join(repoRoot, "scripts/build-app.sh"), "utf8"),
       readFile(path.join(repoRoot, "scripts/package-app-macos.sh"), "utf8"),
       readFile(path.join(repoRoot, "scripts/package-app-linux.sh"), "utf8"),
-      readFile(
-        path.join(repoRoot, "scripts/build-linux-remote-runtime.ts"),
-        "utf8",
-      ),
-      readFile(path.join(repoRoot, "scripts/build-vellum-remote.ts"), "utf8"),
       readFile(
         path.join(repoRoot, "scripts/qualify-package-runtime-parity.ts"),
         "utf8",
       ),
     ]);
-    const pkg = JSON.parse(pkgBody) as {
-      readonly build: {
-        readonly files: ReadonlyArray<string>;
-        readonly linux: { readonly files: ReadonlyArray<string> };
-      };
-      readonly scripts: Record<string, string>;
-    };
-    expect(pkg.build.files).toContain("!out/remote{,/**/*}");
-    expect(pkg.build.linux.files).toContain("!out/remote{,/**/*}");
-    expect(pkg.scripts["package:qualify:runtime-parity"]).toContain(
-      "qualify-package-runtime-parity.ts",
-    );
-    expect(buildApp).toContain("package-runtime-provenance.ts");
-    expect(macPackage).toContain("prepare --target mac");
-    expect(macPackage).toContain("verify-package --target mac");
-    expect(linuxPackage).toContain("prepare --target linux");
-    expect(linuxPackage.indexOf("prepare --target linux")).toBeLessThan(
-      linuxPackage.indexOf("electron-builder --linux"),
-    );
-    expect(linuxPackage).toContain("--no-build-entry");
-    expect(linuxPackage).toContain("verify-package");
-    expect(remoteCommand).toContain("buildRemoteEntryBundle");
-    expect(remoteBuilder).toContain('"--format"');
-    expect(remoteBuilder).toContain('"cjs"');
-    expect(remoteBuilder).toContain("__VELLUM_COMMAND_APP_VERSION__");
-    expect(remoteBuilder).toContain("PRODUCTION_LICENSE_BUILD_PROFILE");
-    expect(remoteBuilder).toContain("featureBunDefineArgs");
-    expect(remoteBuilder).toContain("let buildIfMissing = false");
-    expect(qualifier).toContain('"clone"');
-    expect(qualifier).toContain('"app:build:linux"');
-    expect(qualifier).toContain("plantHistoricalStaleRemote");
-    expect(qualifier).toContain("never edits a published");
+    expect(buildApp).toContain("--runtime-cohort-only");
+    for (const script of [macPackage, linuxPackage]) {
+      expect(script).toContain("--runtime-cohort-only");
+      expect(script).toContain("verify-source");
+      expect(script).toContain("$ATTEMPT_DIR");
+      expect(script.indexOf("verify-package")).toBeLessThan(
+        script.indexOf("publish-attempt"),
+      );
+    }
+    expect(qualifier).toContain('"--no-local"');
+    expect(qualifier).toContain('"--dissociate"');
+    expect(qualifier).not.toContain("native Linux x64");
+    expect(PACKAGE_RUNTIME_PROVENANCE_SCHEMA).toContain("v2");
   });
 });

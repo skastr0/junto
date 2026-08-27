@@ -2,7 +2,7 @@
 # Native macOS package path. Signing, audit, and notarization stay mac-only.
 set -euo pipefail
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf 'vellum-command: error: native mac packaging must run on macOS\n' >&2
+  printf 'vellum-command: error: macOS packaging must run on macOS\n' >&2
   exit 1
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,18 +30,38 @@ if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
   err "an executable Bun runtime is required"
   exit 1
 fi
-printf 'vellum-command: binding Electron main package provenance …\n'
+if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
+  err "release must be a non-symlink directory"
+  exit 1
+fi
+mkdir -p -- "$RELEASE_DIR"
+RELEASE_DIR="$(cd "$RELEASE_DIR" && pwd -P)"
+ATTEMPT_DIR="$(mktemp -d "$RELEASE_DIR/.vellum-package-attempt-XXXXXXXX")"
+chmod 0700 "$ATTEMPT_DIR"
+NODE_SHIM_DIR=""
+cleanup_package_attempt() {
+  if [[ -n "$NODE_SHIM_DIR" && -d "$NODE_SHIM_DIR" && ! -L "$NODE_SHIM_DIR" ]]; then
+    if [[ -L "$NODE_SHIM_DIR/node" ]] && [[ "$(readlink -- "$NODE_SHIM_DIR/node")" == "$BUN_EXECUTABLE" ]]; then
+      rm -f -- "$NODE_SHIM_DIR/node"
+    fi
+    rmdir -- "$NODE_SHIM_DIR" 2>/dev/null || true
+  fi
+  if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .vellum-package-attempt-* ]]; then
+    rm -rf -- "$ATTEMPT_DIR"
+  elif [[ -e "$ATTEMPT_DIR" || -L "$ATTEMPT_DIR" ]]; then
+    err "retained package attempt after identity change: $ATTEMPT_DIR"
+  fi
+}
+trap cleanup_package_attempt EXIT
+
+# Direct package-app-macos.sh use cannot attest an ignored stale main. The same
+# coordinator freshly compiles both entries and stamps one cohort identity.
+printf 'vellum-command: building fresh two-runtime compiler cohort …\n'
+bash "$SCRIPT_DIR/build-app.sh" --target mac --runtime-cohort-only
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
-  prepare --target mac
+  verify-source --target mac >/dev/null
 PACKAGE_VERSION="$("$BUN_EXECUTABLE" -e 'process.stdout.write(require("./package.json").version)')"
 NODE_SHIM_DIR="$(mktemp -d /tmp/vellum-command-node-shim.XXXXXXXXXX)"
-cleanup_node_shim() {
-  if [[ -L "$NODE_SHIM_DIR/node" ]] && [[ "$(readlink -- "$NODE_SHIM_DIR/node")" == "$BUN_EXECUTABLE" ]]; then
-    rm -f -- "$NODE_SHIM_DIR/node"
-  fi
-  rmdir -- "$NODE_SHIM_DIR" 2>/dev/null || true
-}
-trap cleanup_node_shim EXIT
 ln -s -- "$BUN_EXECUTABLE" "$NODE_SHIM_DIR/node"
 ELECTRON_VERSION="$(bun -e 'process.stdout.write(require("./node_modules/electron/package.json").version)')"
 PATH="$NODE_SHIM_DIR:$PATH" bunx --bun electron-rebuild \
@@ -51,19 +71,40 @@ PATH="$NODE_SHIM_DIR:$PATH" bunx --bun electron-rebuild \
   --arch "$TARGET_ARCH" \
   --version "$ELECTRON_VERSION" \
   --module-dir .
-cleanup_node_shim
-trap - EXIT
-bunx electron-builder --mac
-APP_SRC="$RELEASE_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
-ZIP_SRC="$RELEASE_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
-assert_app_bundle "$APP_SRC"
-if [[ ! -f "$ZIP_SRC" || -L "$ZIP_SRC" ]]; then
-  err "missing fresh shippable zip: $ZIP_SRC"
-  exit 1
-fi
+rm -f -- "$NODE_SHIM_DIR/node"
+rmdir -- "$NODE_SHIM_DIR"
+NODE_SHIM_DIR=""
+
+bunx electron-builder --mac \
+  --config.directories.output="$ATTEMPT_DIR"
+DRAFT_APP="$ATTEMPT_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
+DRAFT_ZIP="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
+DRAFT_DMG="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.dmg"
+assert_app_bundle "$DRAFT_APP"
+for candidate in "$DRAFT_ZIP" "$DRAFT_DMG"; do
+  if [[ ! -f "$candidate" || -L "$candidate" ]]; then
+    err "missing fresh shippable draft: $candidate"
+    exit 1
+  fi
+done
+
+# All gates operate on attempt-owned drafts. No release final exists yet.
+APP_SRC="$DRAFT_APP"
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
-  verify-package --target mac --app "$APP_SRC"
-bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC"
-if [[ "$VERIFY" -eq 1 ]]; then bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"; fi
-if [[ "$NOTARIZE" -eq 1 ]]; then VELLUM_COMMAND_APP_SRC="$APP_SRC" VELLUM_COMMAND_ZIP_SRC="$ZIP_SRC" bash "$SCRIPT_DIR/notarize-app.sh"; fi
-printf 'vellum-command: built %s\n' "$APP_SRC"
+  verify-package --target mac --app "$APP_SRC" >/dev/null
+bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC" >/dev/null
+if [[ "$VERIFY" -eq 1 ]]; then
+  bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"
+fi
+
+bun "$SCRIPT_DIR/finalize-linux-package.ts" publish-attempt \
+  --attempt-dir "$ATTEMPT_DIR" \
+  --release-dir "$RELEASE_DIR" >/dev/null
+FINAL_APP="$RELEASE_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
+FINAL_ZIP="$RELEASE_DIR/$(basename "$DRAFT_ZIP")"
+ATTEMPT_DIR=""
+if [[ "$NOTARIZE" -eq 1 ]]; then
+  VELLUM_COMMAND_APP_SRC="$FINAL_APP" VELLUM_COMMAND_ZIP_SRC="$FINAL_ZIP" \
+    bash "$SCRIPT_DIR/notarize-app.sh"
+fi
+printf 'vellum-command: built %s\n' "$FINAL_APP"
