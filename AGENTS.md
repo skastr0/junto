@@ -171,13 +171,17 @@ opens, migrates, downgrades, or partially decodes advanced state.
 **Narrow operator exception — Effect v4 rolling cohort.** The operator has
 chosen the maintainer-blessed rolling Effect v4 release line as the production
 dependency policy for Vellum Command-owned first-party packages (`effect`,
-`@effect/platform-bun`, `@effect/platform-node`). "Latest v4" means the latest
+`@effect/platform-bun`, `@effect/platform-node`, plus `@effect/node-shared`
+where direct and `@effect/sql-d1` where owned). "Latest v4" means the latest
 official rolling release available on the registry, including
 maintainer-blessed beta or RC versions; do not wait for a final tag.
 Snapshots, nightlies, forks, patches, pin-to-PR, and private branches remain
-refused. The current frozen pin is `effect@4.0.0-beta.102` (behind the
-audited `4.0.0-rc.112` cohort); the rolling-upgrade task migrates it. No other
-dependency inherits this exception.
+refused, as does any Effect version privately owned by a third-party package
+(opencode, prism, and the like). The current frozen cohort is
+`effect@4.0.0-rc.112` (plus the lockstep `@effect/platform-bun` and
+`@effect/platform-node`), pinned to one exact coherent version across the root
+and `infra/cloudflare` package roots. No other dependency inherits this
+exception.
 
 This is non-negotiable for agents and humans. Violating it creates unshippable private-stack debt.
 

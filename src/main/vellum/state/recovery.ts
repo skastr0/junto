@@ -46,7 +46,7 @@ const STATE_BACKUP_FILE_PATTERN =
 const STATE_FILE_MODE = 0o600;
 const COPY_BUFFER_BYTES = 1024 * 1024;
 
-export class StateRecoveryError extends Schema.TaggedErrorClass<StateRecoveryError>()(
+export class StateRecoveryError extends Schema.TaggedError<StateRecoveryError>()(
   "StateRecoveryError",
   {
     operation: Schema.String,

@@ -35,7 +35,7 @@ import type { StationSessionTransportError } from "./peer-session";
 
 type Ssh = typeof SshTransport.Service;
 
-export class OpenSshStationBootstrapError extends Schema.TaggedErrorClass<OpenSshStationBootstrapError>()(
+export class OpenSshStationBootstrapError extends Schema.TaggedError<OpenSshStationBootstrapError>()(
   "OpenSshStationBootstrapError",
   {
     reason: Schema.Literals(["missing-response", "response-mismatch",

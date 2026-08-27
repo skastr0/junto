@@ -122,7 +122,7 @@ export type StationApiPeerContext =
       readonly installationId: InstallationIdValue;
     };
 
-export class StationApiInvariantError extends Schema.TaggedErrorClass<StationApiInvariantError>()(
+export class StationApiInvariantError extends Schema.TaggedError<StationApiInvariantError>()(
   "StationApiInvariantError",
   {
     operation: Schema.String,
@@ -139,7 +139,7 @@ export class StationApiInvariantError extends Schema.TaggedErrorClass<StationApi
   },
 ) {}
 
-export class StationApiDependencyError extends Schema.TaggedErrorClass<StationApiDependencyError>()(
+export class StationApiDependencyError extends Schema.TaggedError<StationApiDependencyError>()(
   "StationApiDependencyError",
   {
     operation: Schema.String,

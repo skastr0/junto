@@ -908,6 +908,8 @@ describe("SshTransport", () => {
           currentTimeMillis: Effect.succeed(0),
           currentTimeNanosUnsafe: () => 0n,
           currentTimeNanos: Effect.succeed(0n),
+          monotonicTimeNanosUnsafe: () => 0n,
+          monotonicTimeNanos: Effect.succeed(0n),
           sleep: (duration) =>
             Effect.sync(() => {
               observedTimeoutMs = Duration.toMillis(duration);

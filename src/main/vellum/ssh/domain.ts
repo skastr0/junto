@@ -48,29 +48,29 @@ interface SshRouteDetails {
 
 const sshRoutes = new WeakMap<SshRoute, SshRouteDetails>();
 
-export class SshInputError extends Schema.TaggedErrorClass<SshInputError>()("SshInputError", {
+export class SshInputError extends Schema.TaggedError<SshInputError>()("SshInputError", {
   message: Schema.String,
 }) {}
 
-export class SshSetupError extends Schema.TaggedErrorClass<SshSetupError>()("SshSetupError", {
+export class SshSetupError extends Schema.TaggedError<SshSetupError>()("SshSetupError", {
   endpoint: Schema.String,
   message: Schema.String,
 }) {}
 
-export class SshSpawnError extends Schema.TaggedErrorClass<SshSpawnError>()("SshSpawnError", {
+export class SshSpawnError extends Schema.TaggedError<SshSpawnError>()("SshSpawnError", {
   endpoint: Schema.String,
   operation: Schema.String,
   message: Schema.String,
 }) {}
 
-export class SshIoError extends Schema.TaggedErrorClass<SshIoError>()("SshIoError", {
+export class SshIoError extends Schema.TaggedError<SshIoError>()("SshIoError", {
   endpoint: Schema.String,
   operation: Schema.String,
   message: Schema.String,
 }) {}
 
 /** Process or pipe death. Not I/O — a closed SSH child is not a stream bound. */
-export class SshProcessError extends Schema.TaggedErrorClass<SshProcessError>()(
+export class SshProcessError extends Schema.TaggedError<SshProcessError>()(
   "SshProcessError",
   {
     endpoint: Schema.String,
@@ -79,13 +79,13 @@ export class SshProcessError extends Schema.TaggedErrorClass<SshProcessError>()(
   },
 ) {}
 
-export class SshTimeoutError extends Schema.TaggedErrorClass<SshTimeoutError>()("SshTimeoutError", {
+export class SshTimeoutError extends Schema.TaggedError<SshTimeoutError>()("SshTimeoutError", {
   endpoint: Schema.String,
   operation: Schema.String,
   timeoutMs: Schema.Number,
 }) {}
 
-export class SshOutputLimitError extends Schema.TaggedErrorClass<SshOutputLimitError>()(
+export class SshOutputLimitError extends Schema.TaggedError<SshOutputLimitError>()(
   "SshOutputLimitError",
   {
     endpoint: Schema.String,
@@ -98,14 +98,14 @@ export class SshOutputLimitError extends Schema.TaggedErrorClass<SshOutputLimitE
 // OpenSSH reserves 255 for its own failures, but a remote program may also
 // exit 255. Keep one sound exit error instead of pretending transport and
 // remote-command failures are perfectly distinguishable.
-export class SshExitError extends Schema.TaggedErrorClass<SshExitError>()("SshExitError", {
+export class SshExitError extends Schema.TaggedError<SshExitError>()("SshExitError", {
   endpoint: Schema.String,
   operation: Schema.String,
   code: Schema.Number,
   detail: Schema.optionalKey(Schema.String),
 }) {}
 
-export class SshForwardError extends Schema.TaggedErrorClass<SshForwardError>()("SshForwardError", {
+export class SshForwardError extends Schema.TaggedError<SshForwardError>()("SshForwardError", {
   endpoint: Schema.String,
   message: Schema.String,
 }) {}

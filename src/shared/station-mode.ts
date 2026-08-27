@@ -66,7 +66,7 @@ export const modeFromConfiguration = (
   return "unenrolled";
 };
 
-export class StationDoorModeError extends Schema.TaggedErrorClass<StationDoorModeError>()(
+export class StationDoorModeError extends Schema.TaggedError<StationDoorModeError>()(
   "StationDoorModeError",
   {
     mode: StationProcessMode,

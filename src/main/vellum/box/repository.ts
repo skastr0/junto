@@ -41,7 +41,7 @@ type BoxResourceRow = {
   readonly enrolled_at: string;
 };
 
-export class BoxOwnershipNotFoundError extends Schema.TaggedErrorClass<BoxOwnershipNotFoundError>()(
+export class BoxOwnershipNotFoundError extends Schema.TaggedError<BoxOwnershipNotFoundError>()(
   "BoxOwnershipNotFoundError",
   {
     boxId: Schema.String,
@@ -49,7 +49,7 @@ export class BoxOwnershipNotFoundError extends Schema.TaggedErrorClass<BoxOwners
   },
 ) {}
 
-export class BoxOwnershipPersistenceError extends Schema.TaggedErrorClass<BoxOwnershipPersistenceError>()(
+export class BoxOwnershipPersistenceError extends Schema.TaggedError<BoxOwnershipPersistenceError>()(
   "BoxOwnershipPersistenceError",
   {
     operation: Schema.String,

@@ -59,7 +59,7 @@ import {
   StationPortfolioError,
 } from "./portfolio";
 
-export class StationPersistenceError extends Schema.TaggedErrorClass<StationPersistenceError>()(
+export class StationPersistenceError extends Schema.TaggedError<StationPersistenceError>()(
   "StationPersistenceError",
   {
     operation: Schema.String,
@@ -68,7 +68,7 @@ export class StationPersistenceError extends Schema.TaggedErrorClass<StationPers
   },
 ) {}
 
-export class StationIdentityMismatchError extends Schema.TaggedErrorClass<StationIdentityMismatchError>()(
+export class StationIdentityMismatchError extends Schema.TaggedError<StationIdentityMismatchError>()(
   "StationIdentityMismatchError",
   {
     operation: Schema.String,
@@ -77,7 +77,7 @@ export class StationIdentityMismatchError extends Schema.TaggedErrorClass<Statio
   },
 ) {}
 
-export class StationPairingConflictError extends Schema.TaggedErrorClass<StationPairingConflictError>()(
+export class StationPairingConflictError extends Schema.TaggedError<StationPairingConflictError>()(
   "StationPairingConflictError",
   {
     admittedCommandCenterInstallationId: InstallationId,
@@ -85,7 +85,7 @@ export class StationPairingConflictError extends Schema.TaggedErrorClass<Station
   },
 ) {}
 
-export class StationPairingTopologyError extends Schema.TaggedErrorClass<StationPairingTopologyError>()(
+export class StationPairingTopologyError extends Schema.TaggedError<StationPairingTopologyError>()(
   "StationPairingTopologyError",
   {
     reason: Schema.Literal("command-center-configured"),
@@ -93,14 +93,14 @@ export class StationPairingTopologyError extends Schema.TaggedErrorClass<Station
   },
 ) {}
 
-export class StationSelfPairingError extends Schema.TaggedErrorClass<StationSelfPairingError>()(
+export class StationSelfPairingError extends Schema.TaggedError<StationSelfPairingError>()(
   "StationSelfPairingError",
   {
     installationId: InstallationId,
   },
 ) {}
 
-export class StationConfigurationError extends Schema.TaggedErrorClass<StationConfigurationError>()(
+export class StationConfigurationError extends Schema.TaggedError<StationConfigurationError>()(
   "StationConfigurationError",
   {
     reason: Schema.Literals(["pairing-required", "command-center-mismatch",
@@ -112,7 +112,7 @@ export class StationConfigurationError extends Schema.TaggedErrorClass<StationCo
   },
 ) {}
 
-export class StationProjectionIntegrityError extends Schema.TaggedErrorClass<StationProjectionIntegrityError>()(
+export class StationProjectionIntegrityError extends Schema.TaggedError<StationProjectionIntegrityError>()(
   "StationProjectionIntegrityError",
   {
     generation: LogicalSequence,
@@ -121,7 +121,7 @@ export class StationProjectionIntegrityError extends Schema.TaggedErrorClass<Sta
   },
 ) {}
 
-export class StationMetadataError extends Schema.TaggedErrorClass<StationMetadataError>()(
+export class StationMetadataError extends Schema.TaggedError<StationMetadataError>()(
   "StationMetadataError",
   {
     operation: Schema.String,

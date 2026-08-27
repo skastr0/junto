@@ -41,7 +41,7 @@ interface ActivePeer {
 
 const livePeerAuthorities = new WeakMap<StationLivePeer, ActivePeer>();
 
-export class StationLivePeerUnavailable extends Schema.TaggedErrorClass<StationLivePeerUnavailable>()(
+export class StationLivePeerUnavailable extends Schema.TaggedError<StationLivePeerUnavailable>()(
   "StationLivePeerUnavailable",
   {
     hostId: HostId,

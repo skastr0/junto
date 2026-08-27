@@ -91,7 +91,7 @@ const READY: StationReadiness = {
   session: true,
 };
 
-export class StationPeerRouteResolutionError extends Schema.TaggedErrorClass<StationPeerRouteResolutionError>()(
+export class StationPeerRouteResolutionError extends Schema.TaggedError<StationPeerRouteResolutionError>()(
   "StationPeerRouteResolutionError",
   {
     hostId: HostId,
@@ -102,7 +102,7 @@ export class StationPeerRouteResolutionError extends Schema.TaggedErrorClass<Sta
   },
 ) {}
 
-export class StationFleetPeerUnavailable extends Schema.TaggedErrorClass<StationFleetPeerUnavailable>()(
+export class StationFleetPeerUnavailable extends Schema.TaggedError<StationFleetPeerUnavailable>()(
   "StationFleetPeerUnavailable",
   {
     hostId: HostId,

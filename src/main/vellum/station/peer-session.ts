@@ -49,7 +49,7 @@ export const STATION_PEER_MAX_PENDING_REQUESTS = 64;
 export const STATION_PEER_MAX_INBOUND_REQUESTS = 16;
 export const STATION_PEER_REQUEST_TIMEOUT_MS = 30_000;
 
-export class StationSessionTransportError extends Schema.TaggedErrorClass<StationSessionTransportError>()(
+export class StationSessionTransportError extends Schema.TaggedError<StationSessionTransportError>()(
   "StationSessionTransportError",
   {
     reason: Schema.Literals(["closed", "read-failed",
@@ -61,7 +61,7 @@ export class StationSessionTransportError extends Schema.TaggedErrorClass<Statio
   },
 ) {}
 
-export class StationPeerSessionClosedError extends Schema.TaggedErrorClass<StationPeerSessionClosedError>()(
+export class StationPeerSessionClosedError extends Schema.TaggedError<StationPeerSessionClosedError>()(
   "StationPeerSessionClosedError",
   {
     peerInstallationId: InstallationId,
@@ -75,7 +75,7 @@ export class StationPeerSessionClosedError extends Schema.TaggedErrorClass<Stati
   },
 ) {}
 
-export class StationPeerSessionProtocolError extends Schema.TaggedErrorClass<StationPeerSessionProtocolError>()(
+export class StationPeerSessionProtocolError extends Schema.TaggedError<StationPeerSessionProtocolError>()(
   "StationPeerSessionProtocolError",
   {
     peerInstallationId: InstallationId,
@@ -90,7 +90,7 @@ export class StationPeerSessionProtocolError extends Schema.TaggedErrorClass<Sta
   },
 ) {}
 
-export class StationPeerSessionCapacityError extends Schema.TaggedErrorClass<StationPeerSessionCapacityError>()(
+export class StationPeerSessionCapacityError extends Schema.TaggedError<StationPeerSessionCapacityError>()(
   "StationPeerSessionCapacityError",
   {
     peerInstallationId: InstallationId,
@@ -99,7 +99,7 @@ export class StationPeerSessionCapacityError extends Schema.TaggedErrorClass<Sta
   },
 ) {}
 
-export class StationPeerRejectedError extends Schema.TaggedErrorClass<StationPeerRejectedError>()(
+export class StationPeerRejectedError extends Schema.TaggedError<StationPeerRejectedError>()(
   "StationPeerRejectedError",
   {
     peerInstallationId: InstallationId,

@@ -69,7 +69,7 @@ export type BrowserProfileErrorCode =
   | "corrupt"
   | "pending_wipe";
 
-export class BrowserProfileError extends Schema.TaggedErrorClass<BrowserProfileError>()(
+export class BrowserProfileError extends Schema.TaggedError<BrowserProfileError>()(
   "BrowserProfileError",
   {
     message: Schema.String,

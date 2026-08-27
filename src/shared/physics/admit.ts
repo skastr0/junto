@@ -30,7 +30,7 @@ export const ScopeDenialReason = Schema.Literals(["invisible", "not_connected",
 "route",]);
 export type ScopeDenialReason = typeof ScopeDenialReason.Type;
 
-export class ScopeDenial extends Schema.TaggedErrorClass<ScopeDenial>()("ScopeDenial", {
+export class ScopeDenial extends Schema.TaggedError<ScopeDenial>()("ScopeDenial", {
   reason: ScopeDenialReason,
   caller: Schema.String,
   target: Schema.String,

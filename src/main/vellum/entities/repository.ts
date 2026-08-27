@@ -12,7 +12,7 @@ import {
 } from "../state/service";
 import { softDeleteCanvasEntity } from "./sync";
 
-export class CanvasEntityPersistenceError extends Schema.TaggedErrorClass<CanvasEntityPersistenceError>()(
+export class CanvasEntityPersistenceError extends Schema.TaggedError<CanvasEntityPersistenceError>()(
   "CanvasEntityPersistenceError",
   {
     operation: Schema.String,
@@ -21,7 +21,7 @@ export class CanvasEntityPersistenceError extends Schema.TaggedErrorClass<Canvas
   },
 ) {}
 
-export class CanvasEntityNotArchivedError extends Schema.TaggedErrorClass<CanvasEntityNotArchivedError>()(
+export class CanvasEntityNotArchivedError extends Schema.TaggedError<CanvasEntityNotArchivedError>()(
   "CanvasEntityNotArchivedError",
   {
     canvasName: Schema.String,
@@ -30,7 +30,7 @@ export class CanvasEntityNotArchivedError extends Schema.TaggedErrorClass<Canvas
   },
 ) {}
 
-export class CanvasEntityMissingError extends Schema.TaggedErrorClass<CanvasEntityMissingError>()(
+export class CanvasEntityMissingError extends Schema.TaggedError<CanvasEntityMissingError>()(
   "CanvasEntityMissingError",
   {
     canvasName: Schema.String,

@@ -148,7 +148,7 @@ import {
   type TaskPipelinePatch,
 } from "./repository";
 
-export class WorkServiceError extends Schema.TaggedErrorClass<WorkServiceError>()(
+export class WorkServiceError extends Schema.TaggedError<WorkServiceError>()(
   "WorkServiceError",
   {
     code: Schema.Literals(["canvas_not_found", "node_not_found",

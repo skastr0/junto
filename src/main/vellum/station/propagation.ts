@@ -60,7 +60,7 @@ export const StationPropagationTarget = Schema.Struct({
 export type StationPropagationTarget =
   typeof StationPropagationTarget.Type;
 
-export class StationPropagationInvariantError extends Schema.TaggedErrorClass<StationPropagationInvariantError>()(
+export class StationPropagationInvariantError extends Schema.TaggedError<StationPropagationInvariantError>()(
   "StationPropagationInvariantError",
   {
     operation: Schema.String,

@@ -1,4 +1,3 @@
-import type { SchemaError } from "effect/SchemaError";
 import { Context, Effect, Layer, SchemaIssue, Schema } from "effect";
 import type { PulseRecord } from "@shared/ipc";
 import {
@@ -14,7 +13,7 @@ export type ArmedRegion = {
   readonly regionId: string;
 };
 
-export class KernelStatePersistenceError extends Schema.TaggedErrorClass<KernelStatePersistenceError>()(
+export class KernelStatePersistenceError extends Schema.TaggedError<KernelStatePersistenceError>()(
   "KernelStatePersistenceError",
   {
     operation: Schema.String,
@@ -23,7 +22,7 @@ export class KernelStatePersistenceError extends Schema.TaggedErrorClass<KernelS
   },
 ) {}
 
-export class KernelStateCorruptError extends Schema.TaggedErrorClass<KernelStateCorruptError>()(
+export class KernelStateCorruptError extends Schema.TaggedError<KernelStateCorruptError>()(
   "KernelStateCorruptError",
   {
     message: Schema.String,
@@ -77,7 +76,7 @@ const Delivered = Schema.Array(Schema.String);
 const decodePulseKind = Schema.decodeUnknownResult(PulseKind);
 const decodeDelivered = Schema.decodeUnknownResult(Delivered);
 
-const parseError = (error: SchemaError): string =>
+const parseError = (error: Schema.SchemaError): string =>
   error instanceof Error ? error.message : String(error);
 
 const persistenceError = (

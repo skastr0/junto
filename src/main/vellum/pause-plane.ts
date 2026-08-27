@@ -16,7 +16,7 @@ import { FactoryPauseRepository } from "./pause/repository";
 // and refuses writes so corrupt state is never clobbered.
 
 /** A pause state mutation that could not land durably. */
-export class PauseStateError extends Schema.TaggedErrorClass<PauseStateError>()(
+export class PauseStateError extends Schema.TaggedError<PauseStateError>()(
   "PauseStateError",
   { message: Schema.String },
 ) {}

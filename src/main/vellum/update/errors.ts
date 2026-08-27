@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { UpdateErrorCode, type UpdateErrorCode as Code } from "@shared/update";
 
-export class UpdateError extends Schema.TaggedErrorClass<UpdateError>()(
+export class UpdateError extends Schema.TaggedError<UpdateError>()(
   "UpdateError",
   {
     code: UpdateErrorCode,

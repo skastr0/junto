@@ -1112,7 +1112,7 @@ describe("work control transport", () => {
     expect(response.ok).toBe(false);
     expect(response.error.type).toBe("ProtocolError");
     expect(response.error.message).toContain("nodeRef");
-    expect(response.error.message).toMatch(/unexpected/i);
+    expect(response.error.message).toMatch(/no excess property/i);
     expect(response.error.details).toMatchObject({
       path: "request",
       retryable: false,
@@ -1140,7 +1140,7 @@ describe("work control transport", () => {
     expect(response.ok).toBe(false);
     expect(response.error.type).toBe("InputError");
     expect(response.error.message).toContain("role");
-    expect(response.error.message).toMatch(/unexpected/i);
+    expect(response.error.message).toMatch(/no excess property/i);
     expect(response.error.details).toMatchObject({
       path: "args",
       retryable: false,

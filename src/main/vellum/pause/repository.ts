@@ -14,7 +14,7 @@ export type PauseMemberScope =
   | { readonly kind: "node"; readonly id: string }
   | { readonly kind: "region"; readonly id: string };
 
-export class FactoryPausePersistenceError extends Schema.TaggedErrorClass<FactoryPausePersistenceError>()(
+export class FactoryPausePersistenceError extends Schema.TaggedError<FactoryPausePersistenceError>()(
   "FactoryPausePersistenceError",
   {
     operation: Schema.String,
@@ -23,7 +23,7 @@ export class FactoryPausePersistenceError extends Schema.TaggedErrorClass<Factor
   },
 ) {}
 
-export class FactoryPauseStateCorruptError extends Schema.TaggedErrorClass<FactoryPauseStateCorruptError>()(
+export class FactoryPauseStateCorruptError extends Schema.TaggedError<FactoryPauseStateCorruptError>()(
   "FactoryPauseStateCorruptError",
   {
     canvasName: Schema.String,

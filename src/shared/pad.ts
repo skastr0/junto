@@ -270,7 +270,7 @@ export const PadErrorCode = Schema.Literals(["invalid", "duplicate_id",
 "missing",]);
 export type PadErrorCode = typeof PadErrorCode.Type;
 
-export class PadError extends Schema.TaggedErrorClass<PadError>()("PadError", {
+export class PadError extends Schema.TaggedError<PadError>()("PadError", {
   code: PadErrorCode,
   message: Schema.String,
   id: Schema.optionalKey(PadElementId),

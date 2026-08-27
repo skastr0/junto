@@ -976,7 +976,7 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
 export const SettingsErrorCode = Schema.Literals(["validation", "io", "corrupt", "unsupported"]);
 export type SettingsErrorCode = typeof SettingsErrorCode.Type;
 
-export class SettingsError extends Schema.TaggedErrorClass<SettingsError>()("SettingsError", {
+export class SettingsError extends Schema.TaggedError<SettingsError>()("SettingsError", {
   message: Schema.String,
   code: SettingsErrorCode,
 }) {}

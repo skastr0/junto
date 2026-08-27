@@ -32,21 +32,21 @@ import { parseSshRoute, SshTransport } from "../ssh";
 
 const decodeBoxId = Schema.decodeUnknownEffect(BoxId);
 
-export class BoxFleetValidationError extends Schema.TaggedErrorClass<BoxFleetValidationError>()(
+export class BoxFleetValidationError extends Schema.TaggedError<BoxFleetValidationError>()(
   "BoxFleetValidationError",
   {
     detail: Schema.String,
   },
 ) {}
 
-export class BoxFleetAuthorizationError extends Schema.TaggedErrorClass<BoxFleetAuthorizationError>()(
+export class BoxFleetAuthorizationError extends Schema.TaggedError<BoxFleetAuthorizationError>()(
   "BoxFleetAuthorizationError",
   {
     detail: Schema.String,
   },
 ) {}
 
-export class BoxFleetProvisioningError extends Schema.TaggedErrorClass<BoxFleetProvisioningError>()(
+export class BoxFleetProvisioningError extends Schema.TaggedError<BoxFleetProvisioningError>()(
   "BoxFleetProvisioningError",
   {
     boxId: BoxId,

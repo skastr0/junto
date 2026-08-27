@@ -31,7 +31,7 @@ type StationStatusFactRow = {
   readonly record_json: string;
 };
 
-export class StationStatusStoreError extends Schema.TaggedErrorClass<StationStatusStoreError>()(
+export class StationStatusStoreError extends Schema.TaggedError<StationStatusStoreError>()(
   "StationStatusStoreError",
   {
     operation: Schema.String,

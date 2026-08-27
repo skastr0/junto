@@ -9,7 +9,7 @@ export type BackfillMarker = {
   readonly completedAt: string | undefined;
 };
 
-export class InstallOpsError extends Schema.TaggedErrorClass<InstallOpsError>()(
+export class InstallOpsError extends Schema.TaggedError<InstallOpsError>()(
   "InstallOpsError",
   {
     operation: Schema.String,
@@ -22,7 +22,7 @@ export class InstallOpsError extends Schema.TaggedErrorClass<InstallOpsError>()(
  * The install-local ledger could not be acquired safely on this boot. Backfill
  * work must defer. Product state and the rest of the runtime remain available.
  */
-export class InstallOpsDeferredError extends Schema.TaggedErrorClass<InstallOpsDeferredError>()(
+export class InstallOpsDeferredError extends Schema.TaggedError<InstallOpsDeferredError>()(
   "InstallOpsDeferredError",
   {
     path: Schema.String,

@@ -12,7 +12,7 @@ import {
 
 export { USAGE_STATE_SCHEMA_SQL } from "./state-schema";
 
-export class UsageCacheError extends Schema.TaggedErrorClass<UsageCacheError>()(
+export class UsageCacheError extends Schema.TaggedError<UsageCacheError>()(
   "UsageCacheError",
   {
     operation: Schema.String,

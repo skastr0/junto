@@ -31,7 +31,7 @@ export const StationFleetTarget = Schema.Struct({
 });
 export type StationFleetTarget = typeof StationFleetTarget.Type;
 
-export class StationFleetTargetConflictError extends Schema.TaggedErrorClass<StationFleetTargetConflictError>()(
+export class StationFleetTargetConflictError extends Schema.TaggedError<StationFleetTargetConflictError>()(
   "StationFleetTargetConflictError",
   {
     admitted: StationFleetTarget,
@@ -39,7 +39,7 @@ export class StationFleetTargetConflictError extends Schema.TaggedErrorClass<Sta
   },
 ) {}
 
-export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedErrorClass<StationFleetTargetHostBindingImmutableError>()(
+export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedError<StationFleetTargetHostBindingImmutableError>()(
   "StationFleetTargetHostBindingImmutableError",
   {
     hostId: HostId,
@@ -49,7 +49,7 @@ export class StationFleetTargetHostBindingImmutableError extends Schema.TaggedEr
   },
 ) {}
 
-export class StationFleetTargetMetadataError extends Schema.TaggedErrorClass<StationFleetTargetMetadataError>()(
+export class StationFleetTargetMetadataError extends Schema.TaggedError<StationFleetTargetMetadataError>()(
   "StationFleetTargetMetadataError",
   {
     operation: Schema.String,
@@ -58,7 +58,7 @@ export class StationFleetTargetMetadataError extends Schema.TaggedErrorClass<Sta
   },
 ) {}
 
-export class StationFleetTargetCorruptRecordError extends Schema.TaggedErrorClass<StationFleetTargetCorruptRecordError>()(
+export class StationFleetTargetCorruptRecordError extends Schema.TaggedError<StationFleetTargetCorruptRecordError>()(
   "StationFleetTargetCorruptRecordError",
   {
     operation: Schema.String,
@@ -66,7 +66,7 @@ export class StationFleetTargetCorruptRecordError extends Schema.TaggedErrorClas
   },
 ) {}
 
-export class StationFleetTargetPersistenceError extends Schema.TaggedErrorClass<StationFleetTargetPersistenceError>()(
+export class StationFleetTargetPersistenceError extends Schema.TaggedError<StationFleetTargetPersistenceError>()(
   "StationFleetTargetPersistenceError",
   {
     operation: Schema.String,

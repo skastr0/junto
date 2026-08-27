@@ -8,7 +8,7 @@ import { runProcess } from "./process";
 
 const PRISM_ROOT = "/Users/developer/Projects/prism";
 
-export class PrismError extends Schema.TaggedErrorClass<PrismError>()("PrismError", {
+export class PrismError extends Schema.TaggedError<PrismError>()("PrismError", {
   message: Schema.String,
 }) {}
 

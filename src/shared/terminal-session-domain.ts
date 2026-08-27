@@ -70,7 +70,7 @@ export const productStatusFromSessionPhase = (
 
 // ── Tagged errors ─────────────────────────────────────────────────────────
 
-export class TerminalSpawnError extends Schema.TaggedErrorClass<TerminalSpawnError>()(
+export class TerminalSpawnError extends Schema.TaggedError<TerminalSpawnError>()(
   "TerminalSpawnError",
   {
     surface: Schema.Literal("native"),
@@ -78,14 +78,14 @@ export class TerminalSpawnError extends Schema.TaggedErrorClass<TerminalSpawnErr
   },
 ) {}
 
-export class TerminalAdmitError extends Schema.TaggedErrorClass<TerminalAdmitError>()(
+export class TerminalAdmitError extends Schema.TaggedError<TerminalAdmitError>()(
   "TerminalAdmitError",
   {
     message: Schema.String,
   },
 ) {}
 
-export class TerminalWriteError extends Schema.TaggedErrorClass<TerminalWriteError>()(
+export class TerminalWriteError extends Schema.TaggedError<TerminalWriteError>()(
   "TerminalWriteError",
   {
     surface: Schema.Literal("native"),

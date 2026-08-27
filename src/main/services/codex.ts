@@ -8,7 +8,7 @@ import {
   spawnServiceChild,
 } from "./process";
 
-export class CodexError extends Schema.TaggedErrorClass<CodexError>()("CodexError", {
+export class CodexError extends Schema.TaggedError<CodexError>()("CodexError", {
   message: Schema.String,
 }) {}
 

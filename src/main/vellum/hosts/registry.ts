@@ -58,7 +58,7 @@ type RegistryStateRow = {
   readonly singleton: number;
 };
 
-export class HostsStateError extends Schema.TaggedErrorClass<HostsStateError>()(
+export class HostsStateError extends Schema.TaggedError<HostsStateError>()(
   "HostsStateError",
   {
     operation: Schema.String,

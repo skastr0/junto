@@ -31,7 +31,7 @@ export type SchedulerClaimInput = Omit<
   "state"
 >;
 
-export class SchedulerPersistenceError extends Schema.TaggedErrorClass<SchedulerPersistenceError>()(
+export class SchedulerPersistenceError extends Schema.TaggedError<SchedulerPersistenceError>()(
   "SchedulerPersistenceError",
   {
     operation: Schema.String,
@@ -40,7 +40,7 @@ export class SchedulerPersistenceError extends Schema.TaggedErrorClass<Scheduler
   },
 ) {}
 
-export class SchedulerStateCorruptError extends Schema.TaggedErrorClass<SchedulerStateCorruptError>()(
+export class SchedulerStateCorruptError extends Schema.TaggedError<SchedulerStateCorruptError>()(
   "SchedulerStateCorruptError",
   {
     homeStation: Schema.String,
@@ -49,7 +49,7 @@ export class SchedulerStateCorruptError extends Schema.TaggedErrorClass<Schedule
   },
 ) {}
 
-export class SchedulerInputError extends Schema.TaggedErrorClass<SchedulerInputError>()(
+export class SchedulerInputError extends Schema.TaggedError<SchedulerInputError>()(
   "SchedulerInputError",
   {
     operation: Schema.String,

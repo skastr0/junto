@@ -26,7 +26,7 @@ export interface BoxProcessResult {
   readonly stderr: string;
 }
 
-export class BoxProcessError extends Schema.TaggedErrorClass<BoxProcessError>()(
+export class BoxProcessError extends Schema.TaggedError<BoxProcessError>()(
   "BoxProcessError",
   {
     operation: Schema.String,

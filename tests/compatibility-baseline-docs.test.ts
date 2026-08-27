@@ -69,7 +69,7 @@ describe("compatibility baseline documentation authority", () => {
     expect(prose).toContain(
       "Snapshots, nightlies, forks, patches, pin-to-PR, and private branches remain",
     );
-    expect(prose).toContain("effect@4.0.0-beta.102");
+    expect(prose).toContain("effect@4.0.0-rc.112");
     expect(prose).toContain("No other dependency inherits this exception");
   });
 });

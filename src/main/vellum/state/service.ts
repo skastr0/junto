@@ -23,7 +23,7 @@ export type StateRunResult = {
   readonly lastInsertRowid: number | bigint;
 };
 
-export class StateEngineError extends Schema.TaggedErrorClass<StateEngineError>()(
+export class StateEngineError extends Schema.TaggedError<StateEngineError>()(
   "StateEngineError",
   {
     operation: Schema.String,

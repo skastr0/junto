@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { DirectoryEntry, ServiceCheck } from "@shared/contracts";
 
-export class FolderError extends Schema.TaggedErrorClass<FolderError>()("FolderError", {
+export class FolderError extends Schema.TaggedError<FolderError>()("FolderError", {
   message: Schema.String,
 }) {}
 

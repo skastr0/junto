@@ -55,7 +55,7 @@ export const ActorSeatCompilationReason = Schema.Literals(["invalid-actor", "inv
 export type ActorSeatCompilationReason =
   typeof ActorSeatCompilationReason.Type;
 
-export class ActorSeatCompilationError extends Schema.TaggedErrorClass<ActorSeatCompilationError>()(
+export class ActorSeatCompilationError extends Schema.TaggedError<ActorSeatCompilationError>()(
   "ActorSeatCompilationError",
   {
     reason: ActorSeatCompilationReason,

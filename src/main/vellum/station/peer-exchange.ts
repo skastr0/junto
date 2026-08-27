@@ -48,7 +48,7 @@ export const isStationPeerRoute = (
   route: StationPeerRoute,
 ): boolean => stationPeerRoutes.has(route);
 
-export class StationPeerExchangeError extends Schema.TaggedErrorClass<StationPeerExchangeError>()(
+export class StationPeerExchangeError extends Schema.TaggedError<StationPeerExchangeError>()(
   "StationPeerExchangeError",
   {
     peerInstallationId: InstallationId,

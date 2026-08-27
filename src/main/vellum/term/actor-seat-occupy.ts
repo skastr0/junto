@@ -35,7 +35,7 @@ export type ActorOccupySpec = OccupySpec & {
  * actor is truthfully not started — the UI surfaces the message and the
  * kernel wake path treats it like any other occupy failure: retry later.
  */
-export class ActorSeatProjectionPending extends Schema.TaggedErrorClass<ActorSeatProjectionPending>()(
+export class ActorSeatProjectionPending extends Schema.TaggedError<ActorSeatProjectionPending>()(
   "ActorSeatProjectionPending",
   {
     hostId: Schema.String,

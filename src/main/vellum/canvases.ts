@@ -62,7 +62,7 @@ import {
   type StoredCanvasIntentDocument,
 } from "./canvas-intent-identity";
 
-export class CanvasError extends Schema.TaggedErrorClass<CanvasError>()("CanvasError", {
+export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
   message: Schema.String,
 }) {}
 

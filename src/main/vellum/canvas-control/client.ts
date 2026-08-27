@@ -21,7 +21,7 @@ import {
   type CanvasControlReadData as CanvasControlReadResult,
 } from "./protocol";
 
-export class CanvasControlClientError extends Schema.TaggedErrorClass<CanvasControlClientError>()(
+export class CanvasControlClientError extends Schema.TaggedError<CanvasControlClientError>()(
   "CanvasControlClientError",
   {
     code: Schema.String,

@@ -49,7 +49,7 @@ export const EvictOccupiedSeat = Schema.Struct({
 });
 export type EvictOccupiedSeat = typeof EvictOccupiedSeat.Type;
 
-export class SeatAlreadyOccupiedError extends Schema.TaggedErrorClass<SeatAlreadyOccupiedError>()(
+export class SeatAlreadyOccupiedError extends Schema.TaggedError<SeatAlreadyOccupiedError>()(
   "SeatAlreadyOccupiedError",
   {
     bindingId: BindingId,
@@ -58,7 +58,7 @@ export class SeatAlreadyOccupiedError extends Schema.TaggedErrorClass<SeatAlread
   },
 ) {}
 
-export class SeatVacantError extends Schema.TaggedErrorClass<SeatVacantError>()(
+export class SeatVacantError extends Schema.TaggedError<SeatVacantError>()(
   "SeatVacantError",
   {
     bindingId: BindingId,
@@ -89,7 +89,7 @@ export type SeatOccupantIdentity = typeof SeatOccupantIdentity.Type;
  * carry the exact requested identity (a geography occupant included) is a
  * conflict — never a repurpose target.
  */
-export class SeatIdentityConflictError extends Schema.TaggedErrorClass<SeatIdentityConflictError>()(
+export class SeatIdentityConflictError extends Schema.TaggedError<SeatIdentityConflictError>()(
   "SeatIdentityConflictError",
   {
     bindingId: BindingId,
@@ -99,7 +99,7 @@ export class SeatIdentityConflictError extends Schema.TaggedErrorClass<SeatIdent
   },
 ) {}
 
-export class SeatGenerationConflictError extends Schema.TaggedErrorClass<SeatGenerationConflictError>()(
+export class SeatGenerationConflictError extends Schema.TaggedError<SeatGenerationConflictError>()(
   "SeatGenerationConflictError",
   {
     bindingId: BindingId,
@@ -110,7 +110,7 @@ export class SeatGenerationConflictError extends Schema.TaggedErrorClass<SeatGen
 ) {}
 
 /** A reply carried a different binding than the one addressed. */
-export class SeatBindingMismatchError extends Schema.TaggedErrorClass<SeatBindingMismatchError>()(
+export class SeatBindingMismatchError extends Schema.TaggedError<SeatBindingMismatchError>()(
   "SeatBindingMismatchError",
   {
     bindingId: BindingId,
@@ -120,7 +120,7 @@ export class SeatBindingMismatchError extends Schema.TaggedErrorClass<SeatBindin
 ) {}
 
 /** Post-spawn seat setup failed; the process was torn down fail-closed. */
-export class SeatOccupationFailedError extends Schema.TaggedErrorClass<SeatOccupationFailedError>()(
+export class SeatOccupationFailedError extends Schema.TaggedError<SeatOccupationFailedError>()(
   "SeatOccupationFailedError",
   {
     bindingId: BindingId,

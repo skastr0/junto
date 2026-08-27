@@ -16,7 +16,7 @@ export type FlowHop = {
 };
 
 /** Typed rejection for a flow configuration that closes a cycle. */
-export class FlowCycleError extends Schema.TaggedErrorClass<FlowCycleError>()(
+export class FlowCycleError extends Schema.TaggedError<FlowCycleError>()(
   "FlowCycleError",
   {
     /** Station node ids along the cycle, in walk order; the first id closes it. */

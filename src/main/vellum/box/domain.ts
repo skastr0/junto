@@ -93,14 +93,14 @@ export interface BoxCliAvailability {
   readonly detail: string;
 }
 
-export class BoxCliUnavailableError extends Schema.TaggedErrorClass<BoxCliUnavailableError>()(
+export class BoxCliUnavailableError extends Schema.TaggedError<BoxCliUnavailableError>()(
   "BoxCliUnavailableError",
   {
     detail: Schema.String,
   },
 ) {}
 
-export class BoxCliCommandError extends Schema.TaggedErrorClass<BoxCliCommandError>()(
+export class BoxCliCommandError extends Schema.TaggedError<BoxCliCommandError>()(
   "BoxCliCommandError",
   {
     operation: Schema.String,
@@ -110,7 +110,7 @@ export class BoxCliCommandError extends Schema.TaggedErrorClass<BoxCliCommandErr
   },
 ) {}
 
-export class BoxCliProtocolError extends Schema.TaggedErrorClass<BoxCliProtocolError>()(
+export class BoxCliProtocolError extends Schema.TaggedError<BoxCliProtocolError>()(
   "BoxCliProtocolError",
   {
     operation: Schema.String,

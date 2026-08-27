@@ -863,7 +863,7 @@ const boundedDiagnostic = (message: string): string => {
     : `${normalized.slice(0, 2_045)}...`;
 };
 
-export class WorkRepositoryError extends Schema.TaggedErrorClass<WorkRepositoryError>()(
+export class WorkRepositoryError extends Schema.TaggedError<WorkRepositoryError>()(
   "WorkRepositoryError",
   {
     operation: Schema.String,
@@ -872,7 +872,7 @@ export class WorkRepositoryError extends Schema.TaggedErrorClass<WorkRepositoryE
   },
 ) {}
 
-export class WorkAuthorityError extends Schema.TaggedErrorClass<WorkAuthorityError>()(
+export class WorkAuthorityError extends Schema.TaggedError<WorkAuthorityError>()(
   "WorkAuthorityError",
   {
     reason: Schema.Literals(["authority-mismatch", "causal-conflict",
@@ -886,7 +886,7 @@ export class WorkAuthorityError extends Schema.TaggedErrorClass<WorkAuthorityErr
 ) {}
 
 
-export class WorkReplicationError extends Schema.TaggedErrorClass<WorkReplicationError>()(
+export class WorkReplicationError extends Schema.TaggedError<WorkReplicationError>()(
   "WorkReplicationError",
   {
     reason: Schema.Literals(["direction-mismatch", "integrity",
