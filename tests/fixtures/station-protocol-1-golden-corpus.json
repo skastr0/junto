@@ -1,0 +1,1178 @@
+{
+  "protocol": 1,
+  "preface": {
+    "offer": {
+      "protocol": "vellum-command/station-protocol-preface/v1",
+      "frame": "offer",
+      "appVersion": "0.1.14",
+      "stateSchemaVersion": 20,
+      "support": {
+        "preferred": 1,
+        "compatibleFrom": 1,
+        "warnBelow": 1
+      }
+    },
+    "accept": {
+      "protocol": "vellum-command/station-protocol-preface/v1",
+      "frame": "accept",
+      "appVersion": "0.1.14",
+      "stateSchemaVersion": 20,
+      "support": {
+        "preferred": 1,
+        "compatibleFrom": 1,
+        "warnBelow": 1
+      },
+      "selected": 1
+    },
+    "reject": {
+      "protocol": "vellum-command/station-protocol-preface/v1",
+      "frame": "reject",
+      "appVersion": "0.1.14",
+      "stateSchemaVersion": 20,
+      "support": {
+        "preferred": 1,
+        "compatibleFrom": 1,
+        "warnBelow": 1
+      },
+      "reason": "no-common-version",
+      "retryable": false
+    }
+  },
+  "session": {
+    "requestFrame": {
+      "protocol": "vellum-command/station-session/v1",
+      "frame": "request",
+      "requestId": "req-01",
+      "request": {
+        "protocol": "vellum-command/station-api/v1",
+        "op": "status"
+      }
+    },
+    "responseFrameOk": {
+      "protocol": "vellum-command/station-session/v1",
+      "frame": "response",
+      "requestId": "req-01",
+      "envelope": {
+        "protocol": "vellum-command/station-control/v1",
+        "ok": true,
+        "response": {
+          "protocol": "vellum-command/station-api/v1",
+          "op": "status",
+          "installationId": "remote-inst-01",
+          "state": "unenrolled",
+          "receivedThrough": [],
+          "peerAcknowledgedThrough": [],
+          "readiness": {
+            "database": true,
+            "workControl": true,
+            "simulation": false,
+            "session": true
+          },
+          "observedAt": "2026-08-01T12:00:00.000Z"
+        }
+      }
+    },
+    "responseFrameErr": {
+      "protocol": "vellum-command/station-session/v1",
+      "frame": "response",
+      "requestId": "req-01",
+      "envelope": {
+        "protocol": "vellum-command/station-control/v1",
+        "ok": false,
+        "error": {
+          "code": "runtime_down",
+          "message": "Remote daemon unreachable",
+          "retryable": true
+        }
+      }
+    }
+  },
+  "control": {
+    "okEnvelope": {
+      "protocol": "vellum-command/station-control/v1",
+      "ok": true,
+      "response": {
+        "protocol": "vellum-command/station-api/v1",
+        "op": "pair",
+        "commandCenterInstallationId": "cc-inst-01",
+        "stationInstallationId": "remote-inst-01",
+        "pairedAt": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    "errEnvelope": {
+      "protocol": "vellum-command/station-control/v1",
+      "ok": false,
+      "error": {
+        "code": "authorization_denied",
+        "message": "Peer not enrolled",
+        "retryable": false
+      }
+    }
+  },
+  "api": {
+    "pairRequest": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "pair",
+      "commandCenterInstallationId": "cc-inst-01",
+      "stationInstallationId": "remote-inst-01",
+      "stationLabel": "Mac Studio Remote",
+      "appVersion": "0.1.14"
+    },
+    "pairResponse": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "pair",
+      "commandCenterInstallationId": "cc-inst-01",
+      "stationInstallationId": "remote-inst-01",
+      "pairedAt": "2026-08-01T12:00:00.000Z"
+    },
+    "configureRequest": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "configure",
+      "installationId": "remote-inst-01",
+      "configuration": {
+        "role": "remote",
+        "hostId": "studio-host",
+        "agentHostId": "studio-host",
+        "commandCenterInstallationId": "cc-inst-01",
+        "supervisedPreferred": true
+      },
+      "host": {
+        "id": "studio-host",
+        "label": "Mac Studio",
+        "kind": "remote",
+        "capabilities": [
+          "terminal"
+        ]
+      }
+    },
+    "configureResponse": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "configure",
+      "installationId": "remote-inst-01",
+      "configuration": {
+        "role": "remote",
+        "hostId": "studio-host",
+        "agentHostId": "studio-host",
+        "commandCenterInstallationId": "cc-inst-01",
+        "supervisedPreferred": true
+      },
+      "host": {
+        "id": "studio-host",
+        "label": "Mac Studio",
+        "kind": "remote",
+        "capabilities": [
+          "terminal"
+        ]
+      },
+      "configuredAt": "2026-08-01T12:00:00.000Z"
+    },
+    "projectRequest": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "project",
+      "stationInstallationId": "remote-inst-01",
+      "projection": {
+        "scope": "full",
+        "generation": "1",
+        "sourceCanvasGeneration": "1",
+        "sourceIntentSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "body": "{\"nodes\":[],\"edges\":[]}",
+        "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "createdAt": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    "projectResponse": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "project",
+      "stationInstallationId": "remote-inst-01",
+      "decision": "install",
+      "active": {
+        "generation": "1",
+        "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receivedAt": "2026-08-01T12:00:00.000Z"
+      }
+    },
+    "reportRequest": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "report",
+      "senderInstallationId": "cc-inst-01",
+      "targetInstallationId": "remote-inst-01",
+      "batch": {
+        "records": [],
+        "acknowledge": [
+          {
+            "eventHome": "remote-inst-01",
+            "entityHome": "remote-inst-01",
+            "through": "5"
+          }
+        ],
+        "hasMore": false
+      }
+    },
+    "reportResponse": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "report",
+      "senderInstallationId": "remote-inst-01",
+      "targetInstallationId": "cc-inst-01",
+      "batch": {
+        "records": [],
+        "acknowledge": [
+          {
+            "eventHome": "cc-inst-01",
+            "entityHome": "cc-inst-01",
+            "through": "3"
+          }
+        ],
+        "hasMore": false
+      }
+    },
+    "statusRequest": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "status"
+    },
+    "statusResponse": {
+      "protocol": "vellum-command/station-api/v1",
+      "op": "status",
+      "installationId": "remote-inst-01",
+      "state": "ready",
+      "receivedThrough": [
+        {
+          "eventHome": "cc-inst-01",
+          "entityHome": "remote-inst-01",
+          "through": "10"
+        }
+      ],
+      "peerAcknowledgedThrough": [
+        {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01",
+          "through": "8"
+        }
+      ],
+      "readiness": {
+        "database": true,
+        "workControl": true,
+        "simulation": true,
+        "session": true
+      },
+      "observedAt": "2026-08-01T12:00:00.000Z"
+    }
+  },
+  "content": {
+    "identity": {
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byteLength": 1048576
+    },
+    "ref": {
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byteLength": 1048576,
+      "mediaType": "video/mp4",
+      "displayName": "demo.mp4"
+    },
+    "part": {
+      "kind": "content",
+      "ref": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byteLength": 1048576,
+        "mediaType": "video/mp4",
+        "displayName": "demo.mp4"
+      }
+    },
+    "receipt": {
+      "ref": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byteLength": 1048576,
+        "mediaType": "video/mp4",
+        "displayName": "demo.mp4"
+      },
+      "state": "verified",
+      "verifiedSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verifiedByteLength": 1048576,
+      "verifiedAt": "2026-08-01T12:00:00.000Z"
+    },
+    "missing": {
+      "ref": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byteLength": 1048576,
+        "mediaType": "video/mp4",
+        "displayName": "demo.mp4"
+      },
+      "state": "missing",
+      "reason": "content object is not in the local manifest"
+    },
+    "corrupt": {
+      "ref": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byteLength": 1048576,
+        "mediaType": "video/mp4",
+        "displayName": "demo.mp4"
+      },
+      "state": "corrupt",
+      "reason": "content object digest or length mismatch",
+      "observedSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "observedByteLength": 1048576
+    },
+    "unavailable": {
+      "ref": {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byteLength": 1048576,
+        "mediaType": "video/mp4",
+        "displayName": "demo.mp4"
+      },
+      "state": "unavailable",
+      "reason": "transfer interrupted"
+    }
+  },
+  "work": {
+    "proposalCreateFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "proposal.create",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "1"
+      },
+      "item": {
+        "kind": "proposal",
+        "itemId": "prop-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "body": {
+        "operation": "proposal.create",
+        "proposal": {
+          "id": "prop-01",
+          "state": "pending",
+          "brief": {
+            "messageId": "msg-prop-01",
+            "role": "user",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Proposed plan"
+              }
+            ],
+            "contextId": "VellumCommand"
+          },
+          "proposedBy": {
+            "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "canvasName": "factory",
+            "nodeId": "planner"
+          }
+        }
+      }
+    },
+    "proposalApproveFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "proposal.approve",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "2"
+      },
+      "item": {
+        "kind": "proposal",
+        "itemId": "prop-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "1"
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "body": {
+        "operation": "proposal.approve",
+        "proposal": {
+          "id": "prop-01",
+          "state": "approved",
+          "brief": {
+            "messageId": "msg-prop-01",
+            "role": "user",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Proposed plan"
+              }
+            ],
+            "contextId": "VellumCommand"
+          },
+          "proposedBy": {
+            "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "canvasName": "factory",
+            "nodeId": "planner"
+          },
+          "approvedTaskId": "task-prop-01"
+        },
+        "task": {
+          "id": "task-prop-01",
+          "state": "submitted",
+          "history": []
+        }
+      }
+    },
+    "proposalRejectFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "proposal.reject",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "2"
+      },
+      "item": {
+        "kind": "proposal",
+        "itemId": "prop-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "1"
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "body": {
+        "operation": "proposal.reject",
+        "proposal": {
+          "id": "prop-01",
+          "state": "rejected",
+          "brief": {
+            "messageId": "msg-prop-01",
+            "role": "user",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Proposed plan"
+              }
+            ],
+            "contextId": "VellumCommand"
+          },
+          "proposedBy": {
+            "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "canvasName": "factory",
+            "nodeId": "planner"
+          }
+        }
+      }
+    },
+    "taskCreateFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "task.create",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "1"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "body": {
+        "operation": "task.create",
+        "task": {
+          "id": "task-01",
+          "state": "submitted",
+          "history": []
+        }
+      }
+    },
+    "taskDescribeFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "task.describe",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "2"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "1"
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "body": {
+        "operation": "task.describe",
+        "task": {
+          "id": "task-01",
+          "state": "submitted",
+          "history": [
+            {
+              "messageId": "msg-01",
+              "role": "user",
+              "parts": [
+                {
+                  "kind": "text",
+                  "text": "Initial task description"
+                }
+              ],
+              "taskId": "task-01",
+              "contextId": "VellumCommand"
+            }
+          ]
+        }
+      }
+    },
+    "taskTransitionFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "task.transition",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "3"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "2"
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "body": {
+        "operation": "task.transition",
+        "task": {
+          "id": "task-01",
+          "state": "completed",
+          "claimedBy": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "history": []
+        }
+      }
+    },
+    "taskClaimCommand": {
+      "protocol": "vellum/work/v2",
+      "recordType": "command",
+      "operation": "task.claim",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "1"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "body": {
+        "operation": "task.claim",
+        "sourceQueueHome": "cc-inst-01",
+        "sourcePredecessor": {
+          "route": {
+            "eventHome": "cc-inst-01",
+            "entityHome": "cc-inst-01"
+          },
+          "seq": "9"
+        },
+        "sourceTask": {
+          "id": "task-01",
+          "state": "submitted",
+          "history": []
+        },
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        },
+        "actor": {
+          "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "canvasName": "factory",
+          "nodeId": "worker-agent"
+        },
+        "targetHome": "remote-inst-01"
+      }
+    },
+    "taskClaimFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "task.claim",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "1"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "command",
+        "command": {
+          "route": {
+            "eventHome": "cc-inst-01",
+            "entityHome": "remote-inst-01"
+          },
+          "seq": "1"
+        },
+        "commandSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "body": {
+        "operation": "task.claim",
+        "task": {
+          "id": "task-01",
+          "state": "working",
+          "claimedBy": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "history": []
+        },
+        "claimedBy": {
+          "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "canvasName": "factory",
+          "nodeId": "worker-agent"
+        },
+        "previousHome": "cc-inst-01"
+      }
+    },
+    "requestCreateFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "request.create",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "4"
+      },
+      "item": {
+        "kind": "request",
+        "itemId": "req-item-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "requests"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "body": {
+        "operation": "request.create",
+        "request": {
+          "id": "req-item-01",
+          "state": "input-required",
+          "claimedBy": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "history": []
+        }
+      }
+    },
+    "requestResolveFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "request.resolve",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "5"
+      },
+      "item": {
+        "kind": "request",
+        "itemId": "req-item-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "requests"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "4"
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "body": {
+        "operation": "request.resolve",
+        "request": {
+          "id": "req-item-01",
+          "state": "completed",
+          "claimedBy": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "history": []
+        }
+      }
+    },
+    "messageAppendFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "message.append",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "6"
+      },
+      "item": {
+        "kind": "message",
+        "itemId": "msg-02",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "mailbox"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "body": {
+        "operation": "message.append",
+        "message": {
+          "messageId": "msg-02",
+          "role": "agent",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "Task finished successfully"
+            }
+          ],
+          "contextId": "VellumCommand"
+        },
+        "sentBy": {
+          "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "canvasName": "factory",
+          "nodeId": "worker-agent"
+        },
+        "destination": {
+          "kind": "mailbox"
+        }
+      }
+    },
+    "artifactPublishFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "artifact.publish",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "7"
+      },
+      "item": {
+        "kind": "artifact",
+        "itemId": "artifact-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "artifacts"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": {
+        "operation": "artifact.publish",
+        "artifact": {
+          "artifactId": "artifact-01",
+          "parts": [
+            {
+              "kind": "text",
+              "text": "Build receipt"
+            }
+          ],
+          "task": {
+            "kind": "task",
+            "itemId": "task-01",
+            "sink": {
+              "canvasName": "factory",
+              "nodeId": "tasks"
+            }
+          }
+        },
+        "publishedBy": {
+          "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "canvasName": "factory",
+          "nodeId": "worker-agent"
+        }
+      }
+    },
+    "deliveryAcceptedFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "delivery.accepted",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "8"
+      },
+      "item": {
+        "kind": "delivery",
+        "itemId": "deliv-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "body": {
+        "operation": "delivery.accepted",
+        "receipt": {
+          "deliveryId": "deliv-01",
+          "deliveredItem": {
+            "kind": "task",
+            "itemId": "task-01",
+            "sink": {
+              "canvasName": "factory",
+              "nodeId": "tasks"
+            }
+          },
+          "actor": {
+            "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "canvasName": "factory",
+            "nodeId": "worker-agent"
+          },
+          "acceptedAt": "2026-08-01T12:00:00.000Z"
+        }
+      }
+    },
+    "boardTopicCreateFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "board.topic.create",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "3"
+      },
+      "item": {
+        "kind": "topic",
+        "itemId": "topic-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "board"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "body": {
+        "operation": "board.topic.create",
+        "topic": {
+          "topicId": "topic-01",
+          "title": "Release 0.1.14 topic",
+          "state": "open",
+          "openedBy": {
+            "kind": "operator",
+            "label": "Operator"
+          },
+          "openedAt": "2026-08-01T12:00:00.000Z",
+          "postCount": 0,
+          "lastActivityAt": "2026-08-01T12:00:00.000Z"
+        },
+        "createdBy": {
+          "kind": "operator",
+          "label": "Operator"
+        }
+      }
+    },
+    "boardPostAppendFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "board.post.append",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "4"
+      },
+      "item": {
+        "kind": "post",
+        "itemId": "post-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "board"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "body": {
+        "operation": "board.post.append",
+        "post": {
+          "postId": "post-01",
+          "topicId": "topic-01",
+          "author": {
+            "kind": "operator",
+            "label": "Operator"
+          },
+          "parts": [
+            {
+              "kind": "text",
+              "text": "Post message content"
+            }
+          ],
+          "position": 0,
+          "createdAt": "2026-08-01T12:00:00.000Z"
+        },
+        "createdBy": {
+          "kind": "operator",
+          "label": "Operator"
+        }
+      }
+    },
+    "padPatchFact": {
+      "protocol": "vellum/work/v2",
+      "recordType": "fact",
+      "operation": "pad.patch",
+      "id": {
+        "route": {
+          "eventHome": "cc-inst-01",
+          "entityHome": "cc-inst-01"
+        },
+        "seq": "5"
+      },
+      "item": {
+        "kind": "pad",
+        "itemId": "patch-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "pad"
+        }
+      },
+      "basis": {
+        "kind": "authorial-intent",
+        "generation": "1",
+        "contentSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "predecessor": null,
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "body": {
+        "operation": "pad.patch",
+        "patchId": "patch-01",
+        "patches": [
+          {
+            "op": "delete",
+            "id": "elem-01"
+          }
+        ],
+        "author": {
+          "kind": "operator",
+          "label": "Operator"
+        },
+        "revision": 1
+      }
+    },
+    "appliedDisposition": {
+      "protocol": "vellum/work/v2",
+      "recordType": "disposition",
+      "operation": "task.claim",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "2"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "body": {
+        "status": "applied",
+        "command": {
+          "route": {
+            "eventHome": "cc-inst-01",
+            "entityHome": "remote-inst-01"
+          },
+          "seq": "1"
+        },
+        "commandSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "fact": {
+          "route": {
+            "eventHome": "remote-inst-01",
+            "entityHome": "remote-inst-01"
+          },
+          "seq": "1"
+        },
+        "factSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    "rejectedDisposition": {
+      "protocol": "vellum/work/v2",
+      "recordType": "disposition",
+      "operation": "task.claim",
+      "id": {
+        "route": {
+          "eventHome": "remote-inst-01",
+          "entityHome": "remote-inst-01"
+        },
+        "seq": "2"
+      },
+      "item": {
+        "kind": "task",
+        "itemId": "task-01",
+        "sink": {
+          "canvasName": "factory",
+          "nodeId": "tasks"
+        }
+      },
+      "originAt": "2026-08-01T12:00:00.000Z",
+      "contentSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "body": {
+        "status": "rejected",
+        "command": {
+          "route": {
+            "eventHome": "cc-inst-01",
+            "entityHome": "remote-inst-01"
+          },
+          "seq": "1"
+        },
+        "commandSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "reason": "claim-contention",
+        "message": "Actor already has an active task claim"
+      }
+    }
+  }
+}
