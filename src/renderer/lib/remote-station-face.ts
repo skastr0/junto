@@ -1,6 +1,10 @@
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import type { StationSettings } from "@shared/settings";
 import type { TerminalSessionSummary } from "@shared/terminal";
+import {
+  deriveFleetCompatibilitySnapshot,
+  type FleetPeerCompatibilitySnapshot,
+} from "@shared/fleet-compatibility-snapshot";
 
 export type RemoteStationServiceRow = {
   readonly label: string;
@@ -18,6 +22,7 @@ export type RemoteStationFaceStats = {
   readonly runningTerminalCount?: number;
   readonly projection?: string;
   readonly lastCheckIn?: string;
+  readonly compatibility?: FleetPeerCompatibilitySnapshot;
 };
 
 export type RemoteStationFaceApi = {
@@ -114,9 +119,10 @@ export const identityFromStation = (
 
 export const statsFromDoctor = (
   report: DoctorReport,
+  hostId = "local",
 ): Pick<
   RemoteStationFaceStats,
-  "installationId" | "appVersion" | "services" | "projection" | "lastCheckIn"
+  "installationId" | "appVersion" | "services" | "projection" | "lastCheckIn" | "compatibility"
 > => {
   const station = stationServiceFromDoctor(report);
   const metadata = station?.metadata;
@@ -124,12 +130,20 @@ export const statsFromDoctor = (
   const installationId = present(metadata?.installationId);
   const projection = formatRemoteProjection(metadata);
   const lastCheckIn = readRemoteLastCheckIn(metadata);
+
+  const compatibility = deriveFleetCompatibilitySnapshot({
+    hostId,
+    reachabilityStatus: "reachable",
+    observationTimestamp: report.checkedAt,
+  });
+
   return {
     ...(appVersion === undefined ? {} : { appVersion }),
     ...(installationId === undefined ? {} : { installationId }),
     services: serviceRowsFromDoctor(report),
     ...(projection === undefined ? {} : { projection }),
     ...(lastCheckIn === undefined ? {} : { lastCheckIn }),
+    compatibility,
   };
 };
 
@@ -154,7 +168,7 @@ export const loadRemoteStationFaceStats = async (
     : await api.terminalList().catch(() => undefined);
   return {
     ...identity,
-    ...(doctor === undefined ? {} : statsFromDoctor(doctor)),
+    ...(doctor === undefined ? {} : statsFromDoctor(doctor, station.hostId)),
     ...(sessions === undefined ? {} : statsFromTerminals(sessions)),
   };
 };

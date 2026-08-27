@@ -58,6 +58,12 @@ export function RemoteStationFaceView({
               value={`${String(stats.terminalCount)} total, ${String(stats.runningTerminalCount ?? 0)} running`}
             />
           ) : null}
+          {stats.compatibility !== undefined ? (
+            <Row
+              label="Compatibility"
+              value={`${stats.compatibility.headline} - ${stats.compatibility.detail}`}
+            />
+          ) : null}
         </dl>
         {stats.services !== undefined ? (
           <section>
