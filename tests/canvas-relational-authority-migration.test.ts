@@ -5,10 +5,12 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V20_IDENTITY,
   STATE_SCHEMA_V21_IDENTITY,
+  STATE_SCHEMA_V22_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V20_SQL,
+  STATE_SCHEMA_V21_SQL,
 } from "../src/main/vellum/state/schema";
 import {
   expectedStateSchemaIdentity,
@@ -23,17 +25,20 @@ import {
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 
 describe("canvas relational authority schema migration 20 → 21", () => {
-  it("freezes v20 and current v21 identities", () => {
+  it("freezes v20, v21, and current v22 identities", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V20_SQL)).toEqual(
       STATE_SCHEMA_V20_IDENTITY,
     );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V21_SQL)).toEqual(
       STATE_SCHEMA_V21_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
+      STATE_SCHEMA_V22_IDENTITY,
+    );
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
   });
 
-  it("migrates v20 database to v21 and creates all relational authority tables", () => {
+  it("migrates v20 database to v22 and creates all relational authority tables", () => {
     const database = new DatabaseSync(":memory:");
     try {
       database.exec(STATE_SCHEMA_V20_SQL);
@@ -41,10 +46,10 @@ describe("canvas relational authority schema migration 20 → 21", () => {
       database.exec("PRAGMA user_version = 20");
 
       const result = migrateStateSchema(database);
-      expect(result.schemaVersion).toBe(21);
+      expect(result.schemaVersion).toBe(22);
       expect(result.previousVersion).toBe(20);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V22_IDENTITY.actualSchemaSha256,
       );
 
       const expectedTables = [
@@ -55,6 +60,8 @@ describe("canvas relational authority schema migration 20 → 21", () => {
         "canvas_checkpoints",
         "canvas_commit_envelopes",
         "canvas_generation_manifests",
+        "canvas_change_tail",
+        "canvas_authoring_tail_state",
       ];
 
       for (const table of expectedTables) {
@@ -75,7 +82,7 @@ describe("canvas relational authority schema migration 20 → 21", () => {
     try {
       database.exec(STATE_SCHEMA_SQL);
       verifyAndStampStateSchema(database, STATE_SCHEMA_SQL);
-      database.exec("PRAGMA user_version = 21");
+      database.exec("PRAGMA user_version = 22");
 
       const sha = "a".repeat(64);
       database.exec(`
@@ -104,7 +111,7 @@ describe("canvas relational authority schema migration 20 → 21", () => {
     try {
       database.exec(STATE_SCHEMA_SQL);
       verifyAndStampStateSchema(database, STATE_SCHEMA_SQL);
-      database.exec("PRAGMA user_version = 21");
+      database.exec("PRAGMA user_version = 22");
 
       const doc: CanvasDoc = {
         nodes: [

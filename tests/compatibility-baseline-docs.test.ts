@@ -19,7 +19,7 @@ describe("compatibility baseline documentation authority", () => {
       compatibleFrom: 1,
       warnBelow: 1,
     });
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
   });
 
   it("reconciles semantic compatibility analysis with no partial down-conversion", () => {

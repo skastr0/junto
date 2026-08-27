@@ -5,7 +5,7 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V17_IDENTITY,
   STATE_SCHEMA_V20_IDENTITY,
-  STATE_SCHEMA_V21_IDENTITY,
+  STATE_SCHEMA_V22_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
@@ -26,9 +26,9 @@ describe("pad read cursor migration 17 → 18", () => {
       STATE_SCHEMA_V20_IDENTITY,
     );
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
-      STATE_SCHEMA_V21_IDENTITY,
+      STATE_SCHEMA_V22_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
   });
 
   it("adds work_pad_read_cursors without dropping pad posts", () => {
@@ -57,7 +57,7 @@ describe("pad read cursor migration 17 → 18", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(17);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V22_IDENTITY.actualSchemaSha256,
       );
 
       const table = database

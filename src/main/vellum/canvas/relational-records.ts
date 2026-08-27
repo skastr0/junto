@@ -27,6 +27,14 @@ export type PersistRelationalPortfolioInput = {
   readonly intentSha256: string;
   readonly createdAt: string;
   readonly documents: ReadonlyMap<string, RelationalStoredCanvas>;
+  readonly origin?: string | null;
+  readonly admittedBaseGeneration?: string | null;
+  readonly admittedBaseBodyHash?: string | null;
+  readonly codecFamily?: string | null;
+  readonly codecVersion?: number | null;
+  readonly payloadHash?: string | null;
+  readonly changedObjectHashesJson?: string | null;
+  readonly changeId?: string | null;
 };
 
 export type PersistRelationalPortfolioResult = {
@@ -497,8 +505,10 @@ const ensureEnvelope = (
     `
       INSERT INTO canvas_commit_envelopes (
         generation, parent_generation, cause, intent_sha256,
-        author_seat_id, author_principal, idempotency_key, change_summary, created_at
-      ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?)
+        author_seat_id, author_principal, idempotency_key, change_summary, created_at,
+        origin, admitted_base_generation, admitted_base_body_hash,
+        codec_family, codec_version, payload_hash, changed_object_hashes_json, change_id
+      ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       input.generation,
@@ -506,6 +516,14 @@ const ensureEnvelope = (
       input.cause,
       input.intentSha256,
       input.createdAt,
+      input.origin ?? null,
+      input.admittedBaseGeneration ?? null,
+      input.admittedBaseBodyHash ?? null,
+      input.codecFamily ?? null,
+      input.codecVersion ?? null,
+      input.payloadHash ?? null,
+      input.changedObjectHashesJson ?? null,
+      input.changeId ?? null,
     ],
   );
 };
@@ -633,6 +651,9 @@ export const wipeRelationalAuthorialGraph = (writer: StateWriter): void => {
   writer.run("DROP TRIGGER IF EXISTS canvas_generation_manifests_immutable_delete");
   writer.run("DROP TRIGGER IF EXISTS canvas_commit_envelopes_immutable_delete");
   writer.run("DROP TRIGGER IF EXISTS canvas_checkpoints_immutable_delete");
+  writer.run("DROP TRIGGER IF EXISTS canvas_change_tail_immutable_delete");
+  writer.run("DELETE FROM canvas_change_tail");
+  writer.run("DELETE FROM canvas_authoring_tail_state");
   writer.run("DELETE FROM canvas_generation_manifests");
   writer.run("DELETE FROM canvas_commit_envelopes");
   writer.run("DELETE FROM canvas_edges");
@@ -659,6 +680,13 @@ export const wipeRelationalAuthorialGraph = (writer: StateWriter): void => {
     BEFORE DELETE ON canvas_generation_manifests
     BEGIN
       SELECT RAISE(ABORT, 'canvas generation manifests are immutable');
+    END
+  `);
+  writer.run(`
+    CREATE TRIGGER IF NOT EXISTS canvas_change_tail_immutable_delete
+    BEFORE DELETE ON canvas_change_tail
+    BEGIN
+      SELECT RAISE(ABORT, 'canvas change tail is immutable');
     END
   `);
 };

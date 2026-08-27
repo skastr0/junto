@@ -65,13 +65,13 @@ different app and schema versions while communicating through the same
 Station protocol.
 
 SQLite schema version 1 is the frozen durable baseline. The current
-source/runtime schema is version 21, selected by `CURRENT_STATE_SCHEMA_VERSION`
+source/runtime schema is version 22, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and reached through the immutable contiguous chain declared in
 `src/main/vellum/state/migrations.ts`. The public macOS 0.1.14 package remains
 historical evidence for schema version 18; it does not define the current
 source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never
 be edited, squashed, renumbered, or reused. The next schema change must append
-`21 → 22`. Those schema numbers are local database facts. They are neither sent
+`22 → 23`. Those schema numbers are local database facts. They are neither sent
 as migration instructions nor negotiated as Station behavior.
 
 Every release declares one contiguous Station-protocol support descriptor:

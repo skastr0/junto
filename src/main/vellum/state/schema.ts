@@ -35,6 +35,7 @@ import {
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
 import { CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
+import { CANVAS_AUTHORING_TAIL_SCHEMA_SQL } from "../canvas/authoring-tail-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -303,13 +304,22 @@ export const STATE_SCHEMA_V20_FRAGMENTS = [
 export const STATE_SCHEMA_V20_SQL = STATE_SCHEMA_V20_FRAGMENTS.join("\n");
 
 /**
- * Current (version 21): v20 + relational canvas authority tables (canvas_documents,
- * canvas_objects, canvas_nodes, canvas_edges, canvas_checkpoints,
- * canvas_commit_envelopes, canvas_generation_manifests).
+ * Schema at version 21: v20 + relational canvas authority tables.
+ * Frozen so 21 → 22 can start from a known identity.
  */
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V21_FRAGMENTS = [
   ...STATE_SCHEMA_V20_FRAGMENTS,
   CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL,
+];
+
+export const STATE_SCHEMA_V21_SQL = STATE_SCHEMA_V21_FRAGMENTS.join("\n");
+
+/**
+ * Current (version 22): v21 + authoring change tail and envelope provenance.
+ */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V21_FRAGMENTS,
+  CANVAS_AUTHORING_TAIL_SCHEMA_SQL,
 ];
 
 /**

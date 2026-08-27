@@ -1167,7 +1167,7 @@ export const verifyTrustRoot = () => ({});
   });
 
   it("pins unchanged protocol bytes and current protocol-1 behavior", () => {
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(20);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
     expect(STATION_PROTOCOL_BASELINE).toBe(1);
     expect(CURRENT_STATION_PROTOCOL_SUPPORT).toEqual({
       preferred: 1,

@@ -47,8 +47,8 @@ const enumeratedMigrationRows = (
   }));
 
 describe("state schema documentation authority", () => {
-  it("freezes schema 21 and its complete source migration chain", () => {
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
+  it("freezes schema 22 and its complete source migration chain", () => {
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
     expect(
       registeredChain.map(({ fromVersion, toVersion }) => ({
         fromVersion,
@@ -65,11 +65,6 @@ describe("state schema documentation authority", () => {
     );
     expect(registeredChain.slice(-3)).toEqual([
       {
-        fromVersion: 18,
-        toVersion: 19,
-        name: "add-work-canvas-revision-counter",
-      },
-      {
         fromVersion: 19,
         toVersion: 20,
         name: "witness-every-projected-work-table",
@@ -78,6 +73,11 @@ describe("state schema documentation authority", () => {
         fromVersion: 20,
         toVersion: 21,
         name: "add-canvas-relational-authority",
+      },
+      {
+        fromVersion: 21,
+        toVersion: 22,
+        name: "add-canvas-authoring-change-tail",
       },
     ]);
   });

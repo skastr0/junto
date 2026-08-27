@@ -63,7 +63,25 @@ import {
   persistRelationalPortfolio,
   readManifestDocuments,
 } from "./canvas/relational-records";
+import {
+  appendDocumentReplaceTail,
+  assertObjectHashesAdmit,
+  authoringPayloadHash,
+  changedObjectHashesJson,
+  findChangeTail,
+  readAuthoringTail as readAuthoringTailRows,
+  type AuthoringTailRead,
+} from "./canvas/authoring-tail";
+import {
+  AUTHORING_CODEC_FAMILY,
+  AUTHORING_CODEC_VERSION,
+  AUTHORING_ORIGIN_COMMAND_CENTER,
+  DOCUMENT_REPLACE_V1,
+  decodeAuthoringCommand,
+  type DocumentReplaceV1,
+} from "@shared/canvas-authoring";
 import { InstallOpsService } from "./install-ops/service";
+import { ulid } from "ulid";
 import {
   canvasBodySha256Of,
   intentSha256Of,
@@ -224,7 +242,22 @@ export class CanvasesService extends Context.Service<CanvasesService,
       name: string,
       doc: CanvasDoc,
       expectedRevision?: string,
+      command?: {
+        readonly changeId?: string;
+        readonly objectHashes?: Readonly<Record<string, string>>;
+      },
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
+    /**
+     * Sequencer entry for typed authoring commands. Full-document renderer
+     * saves compile to document.replace/v1.
+     */
+    readonly applyAuthoringCommand: (
+      command: unknown,
+    ) => Effect.Effect<AuthoringCommandResult, CanvasError>;
+    readonly readAuthoringTail: (input?: {
+      readonly afterChangeId?: string;
+      readonly canvasName?: string;
+    }) => Effect.Effect<AuthoringTailRead, CanvasError>;
     // Transactional RMW against the current full-map generation.
     readonly mutate: (
       name: string,
@@ -346,6 +379,21 @@ type CanvasCommitCause =
 type CommitOutcome = {
   readonly generation: string;
   readonly changed: boolean;
+};
+
+export type AuthoringCommandResult = {
+  readonly revision: string;
+  readonly changeId: string;
+  readonly generation: string;
+  readonly duplicate: boolean;
+};
+
+type AuthoringProvenance = {
+  readonly changeId: string;
+  readonly payloadHash: string;
+  readonly admittedBaseGeneration: string | null;
+  readonly admittedBaseBodyHash: string | null;
+  readonly changedObjectHashesJson: string;
 };
 
 const HEAD_SQL = `
@@ -940,6 +988,9 @@ const commitFullGeneration = (
   options: {
     readonly generation?: string;
     readonly createdAt?: string;
+    readonly provenance?: AuthoringProvenance & {
+      readonly canvasName: string;
+    };
   } = {},
 ): CommitOutcome => {
   const intentSha256 = intentSha256Of(documents);
@@ -952,6 +1003,7 @@ const commitFullGeneration = (
   }
   const generation = options.generation ?? nextGenerationAfter(previous);
   const createdAt = options.createdAt ?? new Date().toISOString();
+  const provenance = options.provenance;
   insertFullGeneration(writer, generation, createdAt, cause, documents);
   persistRelationalPortfolio(writer, {
     generation,
@@ -960,7 +1012,37 @@ const commitFullGeneration = (
     intentSha256,
     createdAt,
     documents,
+    origin: provenance ? AUTHORING_ORIGIN_COMMAND_CENTER : null,
+    admittedBaseGeneration: provenance?.admittedBaseGeneration ?? null,
+    admittedBaseBodyHash: provenance?.admittedBaseBodyHash ?? null,
+    codecFamily: provenance ? AUTHORING_CODEC_FAMILY : null,
+    codecVersion: provenance ? AUTHORING_CODEC_VERSION : null,
+    payloadHash: provenance?.payloadHash ?? null,
+    changedObjectHashesJson: provenance?.changedObjectHashesJson ?? null,
+    changeId: provenance?.changeId ?? null,
   });
+  if (provenance !== undefined) {
+    const canvasId = writer.get<{ readonly canvas_id: string }>(
+      "SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?",
+      [provenance.canvasName],
+    )?.canvas_id;
+    if (canvasId === undefined) {
+      throw new CanvasError({
+        message: `cannot persist authoring tail: canvas "${provenance.canvasName}" has no relational identity`,
+      });
+    }
+    appendDocumentReplaceTail(writer, {
+      changeId: provenance.changeId,
+      canvasId,
+      generation,
+      payloadHash: provenance.payloadHash,
+      bodyHash: documents.get(provenance.canvasName)?.revisionSha256 ?? provenance.payloadHash,
+      admittedBaseGeneration: provenance.admittedBaseGeneration,
+      admittedBaseBodyHash: provenance.admittedBaseBodyHash,
+      changedObjectHashesJson: provenance.changedObjectHashesJson,
+      createdAt,
+    });
+  }
   return { generation, changed: true };
 };
 
@@ -1380,67 +1462,197 @@ export const CanvasesLive = Layer.effect(
         .pipe(Effect.mapError(toCanvasError));
     });
 
+  const applyReplaceInTransaction = (
+    writer: StateWriter,
+    command: DocumentReplaceV1,
+  ): {
+    readonly result: AuthoringCommandResult;
+    readonly previous?: StoredCanvas;
+    readonly nextEntry: StoredCanvas;
+    readonly changed: boolean;
+  } => {
+    const canonicalName = canvasNameFrom(command.canvasName);
+    const duplicate = findChangeTail(writer, command.changeId);
+    if (duplicate !== undefined) {
+      const current = readStoredAuthority(writer);
+      const entry = current.documents.get(canonicalName);
+      if (entry === undefined) {
+        throw new CanvasError({
+          message: `duplicate change ${command.changeId} has no live canvas`,
+        });
+      }
+      return {
+        result: {
+          revision: duplicate.bodyHash,
+          changeId: command.changeId,
+          generation: duplicate.generation,
+          duplicate: true,
+        },
+        previous: entry,
+        nextEntry: entry,
+        changed: false,
+      };
+    }
+
+    const current = readStoredAuthority(writer);
+    const previous = current.documents.get(canonicalName);
+    if (
+      command.baseBodyHash !== undefined &&
+      (previous === undefined || previous.revisionSha256 !== command.baseBodyHash)
+    ) {
+      throw new CanvasError({
+        message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
+      });
+    }
+    if (
+      command.baseGeneration !== undefined &&
+      current.hasHead &&
+      command.baseGeneration !== current.generation
+    ) {
+      throw new CanvasError({
+        message: `${canvasLabel(canonicalName)} generation conflict; reload before saving`,
+      });
+    }
+    try {
+      assertObjectHashesAdmit(previous?.doc, command.objectHashes);
+    } catch (error) {
+      throw new CanvasError({
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const modifiedAt = new Date().toISOString();
+    const candidate = normalizeCanvas(
+      canonicalName,
+      command.doc,
+      modifiedAt,
+      "write",
+    );
+    const nextEntry =
+      candidate.revisionSha256 === previous?.revisionSha256
+        ? { ...candidate, modifiedAt: previous.modifiedAt }
+        : candidate;
+    const documents = new Map(current.documents);
+    documents.set(canonicalName, nextEntry);
+    const payloadHash = authoringPayloadHash({
+      ...command,
+      canvasName: canonicalName,
+      doc: nextEntry.doc,
+    });
+    const provenance = {
+      changeId: command.changeId,
+      canvasName: canonicalName,
+      payloadHash,
+      admittedBaseGeneration: command.baseGeneration ?? (current.hasHead ? current.generation : null),
+      admittedBaseBodyHash: command.baseBodyHash ?? previous?.revisionSha256 ?? null,
+      changedObjectHashesJson: changedObjectHashesJson(nextEntry.doc),
+    };
+    const commit = commitFullGeneration(
+      writer,
+      current,
+      documents,
+      "write",
+      { provenance },
+    );
+    if (!commit.changed) {
+      const canvasId = writer.get<{ readonly canvas_id: string }>(
+        "SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?",
+        [canonicalName],
+      )?.canvas_id;
+      if (canvasId !== undefined) {
+        appendDocumentReplaceTail(writer, {
+          changeId: command.changeId,
+          canvasId,
+          generation: commit.generation,
+          payloadHash,
+          bodyHash: nextEntry.revisionSha256,
+          admittedBaseGeneration: provenance.admittedBaseGeneration,
+          admittedBaseBodyHash: provenance.admittedBaseBodyHash,
+          changedObjectHashesJson: provenance.changedObjectHashesJson,
+          createdAt: modifiedAt,
+        });
+      }
+    }
+    if (commit.changed || previous === undefined) {
+      syncCanvasEntities(
+        writer,
+        canonicalName,
+        nextEntry.doc,
+        nextEntry.modifiedAt,
+      );
+    }
+    return {
+      result: {
+        revision: nextEntry.revisionSha256,
+        changeId: command.changeId,
+        generation: commit.generation,
+        duplicate: false,
+      },
+      previous,
+      nextEntry,
+      changed: commit.changed,
+    };
+  };
+
   const write = (
     name: string,
     doc: CanvasDoc,
     expectedRevision?: string,
+    command?: {
+      readonly changeId?: string;
+      readonly objectHashes?: Readonly<Record<string, string>>;
+    },
   ): Effect.Effect<CanvasWriteResult, CanvasError> =>
+    applyAuthoringCommand({
+      kind: DOCUMENT_REPLACE_V1,
+      changeId: command?.changeId ?? `chg_${ulid().toLowerCase()}`,
+      canvasName: name,
+      doc,
+      ...(expectedRevision !== undefined ? { baseBodyHash: expectedRevision } : {}),
+      ...(command?.objectHashes !== undefined
+        ? { objectHashes: command.objectHashes }
+        : {}),
+    }).pipe(Effect.map(({ revision }) => ({ revision })));
+
+  const applyAuthoringCommand = (
+    command: unknown,
+  ): Effect.Effect<AuthoringCommandResult, CanvasError> =>
     Effect.gen(function* () {
-      const canonicalName = yield* Effect.try({
-        try: () => canvasNameFrom(name),
-        catch: toCanvasError,
-      });
-      const outcome = yield* transaction("canvas.write", (writer) => {
-        const current = readStoredAuthority(writer);
-        const previous = current.documents.get(canonicalName);
-        if (
-          expectedRevision !== undefined &&
-          (previous === undefined ||
-            previous.revisionSha256 !== expectedRevision)
-        ) {
-          throw new CanvasError({
-            message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
-          });
-        }
-        const modifiedAt = new Date().toISOString();
-        const candidate = normalizeCanvas(
-          canonicalName,
-          doc,
-          modifiedAt,
-          "write",
+      const decoded = decodeAuthoringCommand(command);
+      if (Result.isFailure(decoded)) {
+        return yield* Effect.fail(
+          new CanvasError({
+            message: `authoring command refused: ${decoded.failure.message}`,
+          }),
         );
-        const nextEntry =
-          candidate.revisionSha256 === previous?.revisionSha256
-            ? { ...candidate, modifiedAt: previous.modifiedAt }
-            : candidate;
-        const documents = new Map(current.documents);
-        documents.set(canonicalName, nextEntry);
-        const commit = commitFullGeneration(
-          writer,
-          current,
-          documents,
-          "write",
-        );
-        if (commit.changed || previous === undefined) {
-          syncCanvasEntities(
-            writer,
-            canonicalName,
-            nextEntry.doc,
-            nextEntry.modifiedAt,
-          );
-        }
-        return { commit, previous, nextEntry };
-      });
-      if (outcome.commit.changed) {
+      }
+      const outcome = yield* transaction("canvas.authoring", (writer) =>
+        applyReplaceInTransaction(writer, decoded.success),
+      );
+      if (outcome.changed) {
         yield* Effect.sync(() =>
-          notifyListeners(canonicalName, {
+          notifyListeners(canvasNameFrom(decoded.success.canvasName), {
             previous: outcome.previous?.doc,
             next: outcome.nextEntry.doc,
           }),
         );
       }
-      return { revision: outcome.nextEntry.revisionSha256 };
+      return outcome.result;
     });
+
+  const readAuthoringTail = (input: {
+    readonly afterChangeId?: string;
+    readonly canvasName?: string;
+  } = {}): Effect.Effect<AuthoringTailRead, CanvasError> =>
+    ensureReady.pipe(
+      Effect.flatMap(() =>
+        state
+          .read("canvas.authoring-tail", (reader) =>
+            readAuthoringTailRows(reader, input),
+          )
+          .pipe(Effect.mapError(toCanvasError)),
+      ),
+    );
 
   const mutate = (
     name: string,
@@ -1780,6 +1992,8 @@ export const CanvasesLive = Layer.effect(
     readWithIntentWitness,
     readNodeStructure,
     write,
+    applyAuthoringCommand,
+    readAuthoringTail,
     mutate,
     create,
     remove,

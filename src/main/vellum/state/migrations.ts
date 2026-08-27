@@ -41,6 +41,7 @@ import {
 } from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 import { CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
+import { CANVAS_AUTHORING_TAIL_SCHEMA_SQL } from "../canvas/authoring-tail-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -229,7 +230,15 @@ export const STATE_SCHEMA_V21_IDENTITY = {
     "ebf2f3d4d210fa0b390d3f4967597f8a8c50bc530000831cb4573cfe1cbf6509",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 21;
+export const CURRENT_STATE_SCHEMA_VERSION = 22;
+
+/**
+ * Exact witness of schema version 22 (authoring change tail + envelope provenance).
+ */
+export const STATE_SCHEMA_V22_IDENTITY = {
+  actualSchemaSha256:
+    "1687a4d228cf66231b4ea49a1d289ab5e6b08c58681960909df0928d2e7de3e1",
+} as const satisfies VerifiedStateSchemaIdentity;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -602,6 +611,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V20_IDENTITY,
       migrate: (database) => {
         database.exec(CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 21,
+      toVersion: 22,
+      name: "add-canvas-authoring-change-tail",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V21_IDENTITY,
+      migrate: (database) => {
+        database.exec(CANVAS_AUTHORING_TAIL_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
