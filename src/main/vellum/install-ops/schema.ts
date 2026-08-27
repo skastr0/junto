@@ -8,6 +8,7 @@ export const INSTALL_OPS_SCHEMA_VERSION = 1 as const;
 
 /** Stable backfill ids — never reuse a completed id for a different walk. */
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
+export const BACKFILL_CANVAS_RELATIONAL_V1 = "canvas.relational.v1" as const;
 
 export const INSTALL_OPS_SCHEMA_SQL = `
   CREATE TABLE backfill_markers (

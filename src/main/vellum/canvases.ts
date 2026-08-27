@@ -57,6 +57,10 @@ import {
   syncCanvasEntities,
 } from "./entities/sync";
 import {
+  runCanvasRelationalBackfill,
+  type CanvasRelationalBackfillReport,
+} from "./canvas/relational-backfill";
+import {
   canvasBodySha256Of,
   intentSha256Of,
   type StoredCanvasIntentDocument,

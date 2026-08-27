@@ -34,6 +34,7 @@ import {
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
+import { CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -290,15 +291,25 @@ export const STATE_SCHEMA_V19_FRAGMENTS = [
 export const STATE_SCHEMA_V19_SQL = STATE_SCHEMA_V19_FRAGMENTS.join("\n");
 
 /**
- * Current: v19 + revision triggers on every remaining table the runtime Work
- * projection reads. Version 19 witnessed only the seven tables the retired
- * count scanned, which left a projection cache able to serve a stale artifact
- * lane after an event-free archive or delete; the witness is now local to
- * every projected row.
+ * Schema at version 20: v19 + revision triggers on every remaining table the runtime Work
+ * projection reads.
+ * Frozen so 20 -> 21 can start from a known identity.
  */
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V20_FRAGMENTS = [
   ...STATE_SCHEMA_V19_FRAGMENTS,
   WORK_PROJECTION_REVISION_TRIGGERS_SQL,
+];
+
+export const STATE_SCHEMA_V20_SQL = STATE_SCHEMA_V20_FRAGMENTS.join("\n");
+
+/**
+ * Current (version 21): v20 + relational canvas authority tables (canvas_documents,
+ * canvas_objects, canvas_nodes, canvas_edges, canvas_checkpoints,
+ * canvas_commit_envelopes, canvas_generation_manifests).
+ */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V20_FRAGMENTS,
+  CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL,
 ];
 
 /**

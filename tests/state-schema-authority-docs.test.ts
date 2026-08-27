@@ -47,8 +47,8 @@ const enumeratedMigrationRows = (
   }));
 
 describe("state schema documentation authority", () => {
-  it("freezes schema 20 and its complete source migration chain", () => {
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(20);
+  it("freezes schema 21 and its complete source migration chain", () => {
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
     expect(
       registeredChain.map(({ fromVersion, toVersion }) => ({
         fromVersion,
@@ -63,7 +63,7 @@ describe("state schema documentation authority", () => {
         }),
       ),
     );
-    expect(registeredChain.slice(-2)).toEqual([
+    expect(registeredChain.slice(-3)).toEqual([
       {
         fromVersion: 18,
         toVersion: 19,
@@ -73,6 +73,11 @@ describe("state schema documentation authority", () => {
         fromVersion: 19,
         toVersion: 20,
         name: "witness-every-projected-work-table",
+      },
+      {
+        fromVersion: 20,
+        toVersion: 21,
+        name: "add-canvas-relational-authority",
       },
     ]);
   });
@@ -89,7 +94,7 @@ describe("state schema documentation authority", () => {
         `The public macOS ${publicMacosVersion} package remains historical evidence for schema version ${publicMacosSchemaVersion}; it does not define the current source/runtime head.`,
       );
       expect(prose).toContain(
-        "The frozen `18 → 19` and `19 → 20` migrations must never be edited, squashed, renumbered, or reused.",
+        "The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never be edited, squashed, renumbered, or reused.",
       );
       expect(prose).toContain(
         `The next schema change must append \`${CURRENT_STATE_SCHEMA_VERSION} → ${CURRENT_STATE_SCHEMA_VERSION + 1}\`.`,

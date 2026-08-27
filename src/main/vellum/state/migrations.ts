@@ -40,6 +40,7 @@ import {
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
+import { CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -220,7 +221,15 @@ export const STATE_SCHEMA_V20_IDENTITY = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 20;
+/**
+ * Exact witness of schema version 21 (relational canvas authority tables).
+ */
+export const STATE_SCHEMA_V21_IDENTITY = {
+  actualSchemaSha256:
+    "ebf2f3d4d210fa0b390d3f4967597f8a8c50bc530000831cb4573cfe1cbf6509",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 21;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -585,7 +594,16 @@ export const STATE_SCHEMA_MIGRATIONS =
         database.exec(WORK_PROJECTION_REVISION_TRIGGERS_SQL);
       },
     },
-
+    {
+      fromVersion: 20,
+      toVersion: 21,
+      name: "add-canvas-relational-authority",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V20_IDENTITY,
+      migrate: (database) => {
+        database.exec(CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL);
+      },
+    },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
 
 /**

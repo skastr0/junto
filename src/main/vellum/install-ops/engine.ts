@@ -19,7 +19,11 @@ import {
   type InstallOpsServiceShape,
 } from "./service";
 
-export { BACKFILL_INLINE_MEDIA_V1, INSTALL_OPS_SCHEMA_VERSION } from "./schema";
+export {
+  BACKFILL_INLINE_MEDIA_V1,
+  BACKFILL_CANVAS_RELATIONAL_V1,
+  INSTALL_OPS_SCHEMA_VERSION,
+} from "./schema";
 export { installOpsDatabasePath } from "./paths";
 export {
   InstallOpsDeferredError,
