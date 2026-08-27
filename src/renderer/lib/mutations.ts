@@ -5,6 +5,7 @@ import type {
   EtherFlag,
   EtherRegionContract,
   EtherRegionDefaults,
+  EtherSheet,
   EtherTimer,
   EtherWatch,
   NodeSide,
@@ -1420,6 +1421,22 @@ const stripEmptyRegionContract = (
  * stack) and pinned rulings (escalation precedents). Group nodes only —
  * seats have no authorial write path to this contract.
  */
+/**
+ * Write a sheet's grid onto its node. The sheet is authored content, so this is
+ * an ordinary canvas commit — no work-plane round trip, and the agent path
+ * (sheet.read) has no counterpart that lands here.
+ */
+export const setNodeSheet = (id: string, sheet: EtherSheet): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id) return n;
+      return { ...n, ether: { ...(n.ether ?? {}), sheet } };
+    }),
+  });
+};
+
 export const setRegionContract = (
   id: string,
   contract: EtherRegionContract | undefined,

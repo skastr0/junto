@@ -70,6 +70,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "board.tags",
 "pad.read",
 "pad.patch",
+/** Agent → sheet: read the operator's grid (port sheet.read). */
+"sheet.read",
 /** Agent → relay: fire the scheduler pipeline now (port relay.trigger). */
 "relay.trigger",]);
 export type WorkOpName = typeof WorkOpName.Type;
@@ -663,6 +665,13 @@ export const PadReadArgs = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 });
 export type PadReadArgs = typeof PadReadArgs.Type;
+
+export const SheetReadArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SheetReadArgs = typeof SheetReadArgs.Type;
 
 export const PadPatchArgs = Schema.Struct({
   target: Schema.String,

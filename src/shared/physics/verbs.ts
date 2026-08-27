@@ -195,6 +195,8 @@ export const VERB_TABLE = {
     artifacts: ["publishes"],
     board: ["messages", "participates"],
     pad: ["reads", "edits"],
+    // Read, never edit: the operator authors a sheet; an agent consults it.
+    sheet: ["reads"],
     page: ["navigates"],
     relay: ["fires", "announces"],
   },
@@ -207,6 +209,7 @@ export const VERB_TABLE = {
   artifacts: { relay: ["announces"] },
   board: { relay: ["announces"] },
   pad: { relay: ["announces"] },
+  sheet: { relay: ["announces"] },
   page: { relay: ["announces"] },
   // Terminal publishes nothing and offers no port: no verb speaks to it yet.
   terminal: {},
@@ -217,6 +220,7 @@ export const VERB_TABLE = {
     artifacts: ["flags"],
     board: ["flags"],
     pad: ["flags"],
+    sheet: ["flags"],
     page: ["flags"],
     terminal: ["flags"],
     relay: ["chains"],
@@ -229,6 +233,7 @@ export const VERB_TABLE = {
     artifacts: ["flags"],
     board: ["flags"],
     pad: ["flags"],
+    sheet: ["flags"],
     page: ["flags"],
     terminal: ["flags"],
     relay: ["chains"],
@@ -356,6 +361,7 @@ const ANNOUNCE_WHEN = {
   board: { word: "completes", equals: "post" },
   page: { word: "completes", equals: "ready" },
   pad: { word: "flagged", flag: "attention" },
+  sheet: { word: "flagged", flag: "attention" },
 } as const satisfies { readonly [K in WellKnownKind]?: WatchWhen };
 
 const announceWhenFor = (kind: string | undefined): WatchWhen | undefined => {
@@ -408,7 +414,9 @@ export const compileVerb = (
     case "participates":
       return { ports: BOARD_PARTICIPATE_PORTS, wake: true };
     case "reads":
-      return { ports: ["pad.read"] };
+      // One verb, two read surfaces: the port follows the kind at the far end
+      // of the wire, so `reads` never grants a port that end does not offer.
+      return { ports: target === "sheet" ? ["sheet.read"] : ["pad.read"] };
     case "edits":
       return { ports: ["pad.read", "pad.patch"] };
     case "navigates":

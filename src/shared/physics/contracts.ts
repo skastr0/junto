@@ -172,6 +172,12 @@ export const NodeContracts: {
     events: [...flagEvents],
     inputs: [flagInput],
   },
+  sheet: {
+    kind: "sheet",
+    ports: portsOf("sheet"),
+    events: [...flagEvents],
+    inputs: [flagInput],
+  },
   page: {
     kind: "page",
     ports: portsOf("page"),

@@ -25,6 +25,7 @@ import {
   EtherTasks,
 } from "./work-model";
 import { EtherBrowser, EtherRegion, EtherTerminal, EtherTimer, EtherWatch } from "./canvas";
+import { EtherSheet } from "./sheet";
 import {
   VELLUM_INTRO,
   SEAT_DOCTRINE,
@@ -53,6 +54,7 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "board.mark_read": "Mark a topic read without replying.",
   "pad.read": "Read the connected pad (grant pad.read): revision, IR, digest, SVG; optional pinId adds look-here. Agents never write the factory canvas.",
   "pad.patch": "Apply PadPatch (grant pad.patch). Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
+  "sheet.read": "Read the connected sheet (grant sheet.read): columns, rows, and a markdown table. Sheets are operator-authored — agents never write one.",
   "relay.trigger": "Fire a connected scheduler pipeline now.",
 };
 
@@ -133,6 +135,7 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
   artifacts: EtherArtifacts,
   board: EtherBoard,
   pad: EtherPad,
+  sheet: EtherSheet,
   agent: EtherMessages,
   page: EtherBrowser,
   terminal: EtherTerminal,
@@ -146,6 +149,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
   requests: "Requests sink: items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts sink: items (Artifact[]) published through the admitted, process-bound path.",
   board: "Board sink: topics with posts; glance strip in ether, full posts on list/detail.",
+  sheet: "Sheet sink: an operator-authored grid (columns + rows of plain text). The canvas document owns it — there is no work-plane row, no revision counter, and no agent write path.",
   pad: "Pad sink: work-plane IR. Empty pad is legal. Glance is title + shape count + unread pin count. Working copy is pad.read, not the factory digest.",
   agent: "Actor seat: mailbox items (Message[]) + terminal session; identity is process-bind.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
@@ -162,6 +166,7 @@ const KIND_NOTE: Readonly<Record<string, string>> = {
   requests: "The escalation surface: file a request to block your seat and wait for the operator.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
+  sheet: "A small grid to jot numbers and names beside the work. Read-only to agents; the operator types it.",
   pad: "The shared page: wired agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
   page: "The browser surface (feature-gated): page automation grants.",
   terminal: "A terminal resource sink (v1 access family only).",

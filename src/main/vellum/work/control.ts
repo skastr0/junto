@@ -46,6 +46,7 @@ import {
   BoardTagsListArgs,
   PadPatchArgs,
   PadReadArgs,
+  SheetReadArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
   ContentStatArgs,
@@ -173,6 +174,7 @@ import {
   taskAdmissionState,
 } from "@shared/claims";
 import { regionStack } from "@shared/graph";
+import { sheetToMarkdown } from "@shared/sheet";
 import { flowDestinations, reachableStations } from "@shared/flow-graph";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
 import { injectionSupervisor } from "../term/injection-supervisor";
@@ -1793,6 +1795,24 @@ const dispatchOp = (
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
       return exposeWorkMutation(mapped.success);
+    }
+
+    if (op === "sheet.read") {
+      const decoded = decodeArgs(SheetReadArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      // The sheet is authored on the canvas, so the document IS the read — no
+      // work row to project, and nothing here can write back.
+      const sheet = gate.node?.ether?.sheet;
+      const grid = sheet ?? { columns: [], rows: [] };
+      return {
+        target: decoded.success.target,
+        title: gate.node ? nodeTitle(gate.node) : decoded.success.target,
+        columns: grid.columns,
+        rows: grid.rows,
+        markdown: sheetToMarkdown(grid),
+      };
     }
 
     if (op === "relay.trigger") {

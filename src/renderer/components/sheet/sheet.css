@@ -1,0 +1,157 @@
+/* Sheet sink — card preview + editor grid.
+   Numbers right-align (isNumericColumn), text stays left. That is the whole
+   formatting model: the document stores no cell type. */
+
+.vellum-sheet-preview {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--color-inset) 60%, transparent);
+}
+.vellum-sheet-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 9px;
+}
+.vellum-sheet-preview th,
+.vellum-sheet-preview td {
+  max-width: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-stroke) 60%, transparent);
+  padding: 2px 5px;
+  text-align: left;
+}
+.vellum-sheet-preview th {
+  color: var(--color-faint);
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.vellum-sheet-preview td {
+  color: var(--color-dim);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.vellum-sheet-preview td[data-numeric="true"] {
+  text-align: right;
+}
+.vellum-sheet-preview tr:last-child th,
+.vellum-sheet-preview tr:last-child td {
+  border-bottom: 0;
+}
+.vellum-sheet-preview__more {
+  padding: 2px 5px;
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.vellum-sheet__grid {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 12px;
+}
+.vellum-sheet__grid table {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+}
+.vellum-sheet__grid th,
+.vellum-sheet__grid td {
+  border-right: 1px solid color-mix(in oklab, var(--color-stroke) 70%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-stroke) 70%, transparent);
+  padding: 0;
+  vertical-align: middle;
+}
+.vellum-sheet__grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-raise);
+}
+.vellum-sheet__grid input {
+  width: 100%;
+  min-width: 120px;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 7px 9px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  outline: none;
+}
+.vellum-sheet__grid input[data-numeric="true"] {
+  text-align: right;
+}
+.vellum-sheet__grid input:focus {
+  background: color-mix(in oklab, var(--color-main) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-main) 45%, transparent);
+}
+.vellum-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+.vellum-sheet__head input {
+  color: var(--color-faint);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.vellum-sheet__gutter {
+  width: 44px;
+  min-width: 44px;
+  background: color-mix(in oklab, var(--color-inset) 50%, transparent);
+  color: var(--color-faint);
+  text-align: right;
+  font-size: 9px;
+}
+.vellum-sheet__gutter span {
+  padding-left: 6px;
+}
+.vellum-sheet td.vellum-sheet__gutter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 0 3px;
+  height: 100%;
+}
+.vellum-sheet__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--color-stroke);
+  padding: 8px 12px;
+}
+.vellum-sheet__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 4px;
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
+  padding: 5px 9px;
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  transition: border-color .16s ease, color .16s ease, background .16s ease;
+}
+.vellum-sheet__actions button:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--color-main) 48%, transparent);
+  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+  color: var(--color-amber);
+}
+.vellum-sheet__actions button:disabled {
+  opacity: .4;
+}
+.vellum-sheet__note {
+  color: var(--color-faint);
+  font-size: 9px;
+  letter-spacing: .04em;
+}

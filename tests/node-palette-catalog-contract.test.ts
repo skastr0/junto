@@ -63,6 +63,13 @@ describe("node palette catalog contract", () => {
     expect(lineFor("pad", "access")?.text).toContain("Patch pad");
   });
 
+  it("puts sheet in the work catalog with a read grant and no write", () => {
+    expect(entry("sheet").category).toBe("sinks");
+    expect(entry("sheet").label).toBe("Sheet");
+    expect(lineFor("sheet", "access")?.text).toContain("Read sheet");
+    expect(lineFor("sheet", "access")?.text).not.toContain("Patch");
+  });
+
   it.each(["note", "label", "region"])("keeps %s off the wire grammar as map furniture", (id) => {
     expect(catalogWireLines(id)).toEqual([]);
     expect(NO_WIRES_COPY[id]).toBe("No wires — sits on the map.");

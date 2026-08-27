@@ -46,6 +46,7 @@ export const PortForWorkOp = {
   "board.tags": "board.list",
   "pad.read": "pad.read",
   "pad.patch": "pad.patch",
+  "sheet.read": "sheet.read",
   "relay.trigger": "relay.trigger",
 } as const satisfies Record<TargetWorkOpName, Port>;
 
@@ -82,6 +83,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "board.tags",
   "pad.read",
   "pad.patch",
+  "sheet.read",
   "relay.trigger",
 ];
 
@@ -132,6 +134,7 @@ export const OPS_BY_SINK = {
     "board.tags",
   ],
   pad: ["pad.read", "pad.patch"],
+  sheet: ["sheet.read"],
   page: [],
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;

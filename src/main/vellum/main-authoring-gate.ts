@@ -23,6 +23,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.task-describe",
   "ipc.work.task-transition",
   "ipc.work.task-promote",
+  "ipc.work.task-reject-arrival",
   "ipc.work.task-comment",
   "ipc.work.task-respond",
   "ipc.work.task-claim",
@@ -112,6 +113,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "board.mark_read": "authorial",
   "pad.read": "read",
   "pad.patch": "authorial",
+  "sheet.read": "read",
   "relay.trigger": "authorial",
 } as const satisfies Record<WorkOpName, MainAuthoringWorkClassification>;
 

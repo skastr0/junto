@@ -35,6 +35,7 @@ export function nodeSurfaceKind(
     kind === "artifacts" ||
     kind === "board" ||
     kind === "pad" ||
+    kind === "sheet" ||
     kind === "git"
   ) {
     return "work";

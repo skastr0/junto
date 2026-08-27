@@ -15,6 +15,7 @@ import {
   PenLine,
   Search,
   SquareTerminal,
+  Table,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -61,6 +62,7 @@ const KIND_ICONS: Record<string, typeof Bot> = {
   artifacts: Package,
   board: Columns3,
   pad: PenLine,
+  sheet: Table,
   page: Globe,
   cron: Clock,
   relay: GitBranch,
@@ -82,6 +84,7 @@ const KIND_TONES: Record<string, ChipTone> = {
   artifacts: "green",
   board: "violet",
   pad: "cyan",
+  sheet: "green",
   page: "cyan",
   cron: "steel",
   relay: "amber",

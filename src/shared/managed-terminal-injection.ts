@@ -87,6 +87,7 @@ export type EdgeSlotKind =
   | "artifacts"
   | "board"
   | "pad"
+  | "sheet"
   | "browser";
 
 export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = {
@@ -97,6 +98,7 @@ export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = 
   artifacts: "artifacts",
   board: "board",
   pad: "pad",
+  sheet: "sheet",
   agent: "msg",
   page: "browser",
 };
@@ -328,6 +330,20 @@ const padSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 Grant is \`pad.read\` / \`pad.patch\` via the edge. Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the factory canvas.`;
 };
 
+const sheetSlot = (targets: readonly InjectionConnectedTarget[]): string => {
+  const t = targets[0]?.id ?? "<id>";
+  const all = targets.map((x) => `\`${x.id}\``).join(", ");
+  return `### Edge contract — sheet${targets.length > 1 ? ` (targets: ${all})` : ` (target \`${t}\`)`}
+
+| intent | command |
+|---|---|
+| read the grid | \`vellum-command sheet read '{"target":"${t}"}'\` |
+
+Grant is \`sheet.read\` via the edge. A sheet is a small operator-authored grid:
+columns, rows, and plain text cells, returned as JSON plus a markdown table.
+There is no write port — if a number in it is wrong, say so, do not fix it.`;
+};
+
 const browserSlot = (): string =>
   `### Edge contract — browser (page targets)
 
@@ -346,6 +362,7 @@ export const EDGE_SLOT_BUILDERS: Readonly<
   artifacts: artifactSlot,
   board: boardSlot,
   pad: padSlot,
+  sheet: sheetSlot,
   browser: () => browserSlot(),
 };
 

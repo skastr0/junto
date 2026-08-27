@@ -50,6 +50,8 @@ const boardOffers = portSet(
   "board.mark_read",
 );
 const padOffers = portSet("pad.read", "pad.patch");
+/** Read-only by construction: the operator authors a sheet, agents consult it. */
+const sheetOffers = portSet("sheet.read");
 
 /**
  * The role a kind carries, decided by which literal group it was written into
@@ -84,6 +86,7 @@ export const KindSpecs = {
   artifacts: { kind: "artifacts", role: "sink", offers: artifactsOffers },
   board: { kind: "board", role: "sink", offers: boardOffers },
   pad: { kind: "pad", role: "sink", offers: padOffers },
+  sheet: { kind: "sheet", role: "sink", offers: sheetOffers },
   // Terminal sink: tmux-like resource. Ports TBD in v1 — access family only.
   terminal: { kind: "terminal", role: "sink", offers: emptyOffers },
   watcher: { kind: "watcher", role: "scheduler", offers: emptyOffers },

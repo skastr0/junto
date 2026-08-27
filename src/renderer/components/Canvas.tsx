@@ -62,6 +62,7 @@ import {
   makeBoardNode,
   makeCronNode,
   makePadNode,
+  makeSheetNode,
   makeGroupNode,
   makeImageNode,
   makeLabelNode,
@@ -748,6 +749,13 @@ const makeAddActions = (
   addPad: () => {
     const position = positionFor({ width: 240, height: 120 });
     const node = makePadNode(position.x, position.y);
+    addNode(node, { edit: false });
+    state$.focusNodeId.set(node.id);
+    dismiss();
+  },
+  addSheet: () => {
+    const position = positionFor({ width: 260, height: 120 });
+    const node = makeSheetNode(position.x, position.y);
     addNode(node, { edit: false });
     state$.focusNodeId.set(node.id);
     dismiss();

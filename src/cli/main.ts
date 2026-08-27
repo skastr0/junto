@@ -14,6 +14,7 @@ import {
   schemaCommand,
 } from "./commands/discovery";
 import { padCommand } from "./commands/pad";
+import { sheetCommand } from "./commands/sheet";
 import {
   artifactCommand,
   boardCommand,
@@ -73,6 +74,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     docsCommand,
     boardCommand,
     padCommand,
+    sheetCommand,
     stationOperatorCommand,
     ...(FLEET_UI_ENABLED
       ? [fleetOperatorCommand, qualificationOperatorCommand]

@@ -120,6 +120,14 @@ describe("compiled doctrine — base and slots", () => {
     expect(slots.join("\n")).toContain("inbound actor");
   });
 
+  it("compiles the sheet edge contract, and it names no write command", () => {
+    const slots = compileEdgeSlots([{ id: "sheet-1", kind: "sheet" }]).join("\n");
+    expect(slots).toContain("### Edge contract — sheet");
+    expect(slots).toContain(`vellum-command sheet read '{"target":"sheet-1"}'`);
+    expect(slots).not.toContain("sheet patch");
+    expect(slots).not.toContain("sheet write");
+  });
+
   it("compileEdgeSlots emits one section per present slot kind", () => {
     const slots = compileEdgeSlots(connectedCtx.connectedTargets);
     expect(slots.length).toBe(3);

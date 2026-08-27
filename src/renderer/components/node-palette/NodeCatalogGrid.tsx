@@ -14,6 +14,7 @@ import {
   PenLine,
   SquareDashed,
   SquareTerminal,
+  Table,
   Type,
   Workflow,
   type LucideIcon,
@@ -72,6 +73,7 @@ const ACCESS_PORT_LABEL: Record<Port, string> = {
   "board.post": "Post to board",
   "board.mark_read": "Mark board read",
   "pad.read": "Read pad",
+  "sheet.read": "Read sheet",
   "pad.patch": "Patch pad",
   "relay.trigger": RELAY_ENABLED ? "Fire the relay" : "Trigger automation",
 };
@@ -83,6 +85,7 @@ const CATALOG_CONTRACT_KIND: Partial<Record<string, string>> = {
   artifacts: "artifacts",
   board: "board",
   pad: "pad",
+  sheet: "sheet",
   page: "page",
   cron: "cron",
   relay: "relay",
@@ -173,6 +176,12 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     id: "pad", category: "sinks", label: "Pad", subtitle: "images, shapes, ink, pins",
     icon: PenLine,
     purpose: "A shared page. You mark; wired agents read the same page and patch boxes and pins.",
+  },
+  {
+    id: "sheet", category: "sinks", label: "Sheet", subtitle: "a small grid of numbers and names",
+    icon: Table,
+    purpose: "Jot numbers and names in rows and columns beside the work. Wired agents can read it.",
+    behavior: "You author it; agents read it. There is no agent write path.",
   },
   {
     id: "git", category: "sinks", label: "Git", subtitle: "commit browser",

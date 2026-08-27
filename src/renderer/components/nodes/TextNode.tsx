@@ -56,6 +56,8 @@ import {
   TasksDetail,
 } from "../work/WorkSurfaces";
 import { PadCard } from "../pad/PadCard";
+import { SheetCard } from "../sheet/SheetCard";
+import { SheetDetail } from "../sheet/SheetDetail";
 import { PadDetail } from "../pad/PadDetail";
 import { GitCard } from "../git/GitCard";
 import { GitDetail } from "../git/GitDetail";
@@ -393,6 +395,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     entityKind === "artifacts" ||
     entityKind === "board" ||
     entityKind === "pad" ||
+    entityKind === "sheet" ||
     entityKind === "git";
   const isCron = entityKind === "cron" || entityKind === "timer";
 
@@ -517,6 +520,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       ) : null}
       {workDetail && entityKind === "pad" ? (
         <PadDetail node={node} onClose={() => setWorkDetail(false)} />
+      ) : null}
+      {workDetail && entityKind === "sheet" ? (
+        <SheetDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && entityKind === "git" ? (
         <GitDetail node={node} onClose={() => setWorkDetail(false)} />
@@ -681,6 +687,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
             />
           ) : entityKind === "pad" ? (
             <PadCard
+              node={node}
+              renaming={renaming}
+              onRenameDone={() => setRenaming(false)}
+            />
+          ) : entityKind === "sheet" ? (
+            <SheetCard
               node={node}
               renaming={renaming}
               onRenameDone={() => setRenaming(false)}

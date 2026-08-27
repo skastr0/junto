@@ -314,6 +314,12 @@ export const digestCanvas = (
           `  pad: revision=${pad?.revision ?? 0} shapes=${pad?.shapeCount ?? 0} unread=${pad?.unreadPinCount ?? 0}`,
         );
       }
+      if (entity.kind === "sheet") {
+        const sheet = node.ether?.sheet;
+        entityLines.push(
+          `  sheet: ${String(sheet?.rows.length ?? 0)} rows x ${String(sheet?.columns.length ?? 0)} columns`,
+        );
+      }
       if (entity.kind === "git") {
         const cwd = node.ether?.git?.cwd?.trim();
         entityLines.push(`  git: ${cwd || "(no folder)"}`);

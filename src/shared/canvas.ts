@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
+import { EtherSheet } from "./sheet";
 import {
   compileVerb,
   inferVerb,
@@ -19,6 +20,8 @@ import {
   EtherTasks,
   Ruling,
 } from "./work-model";
+
+export { EtherSheet } from "./sheet";
 
 export {
   Artifact,
@@ -126,6 +129,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "artifacts",
   "board",
   "pad",
+  "sheet",
   "terminal",
   "page",
   "watcher",
@@ -347,6 +351,12 @@ export const EtherNodeExtension = Schema.Struct({
   board: Schema.optionalKey(EtherBoard),
   /** Runtime overlay for entity.kind === "pad" (glance only; SQLite owns truth). */
   pad: Schema.optionalKey(EtherPad),
+  /**
+   * Authored grid for entity.kind === "sheet". Unlike board/pad this is not a
+   * projection: the operator types it, the document owns it, and agents read
+   * it without a work-plane row behind it.
+   */
+  sheet: Schema.optionalKey(EtherSheet),
   /**
    * Work-surface binding for entity.kind === "terminal" (raw geography) OR
    * entity.kind === "agent" (managed seat). The **agent** seat requires

@@ -33,6 +33,7 @@ export type ModeDeckActions = {
   readonly addArtifacts: () => void;
   readonly addBoard: () => void;
   readonly addPad: () => void;
+  readonly addSheet: () => void;
   readonly addGit: () => void;
   readonly addTerminal: () => void;
   readonly addPage: () => void;
@@ -55,6 +56,7 @@ const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void 
     case "artifacts": actions.addArtifacts(); break;
     case "board": actions.addBoard(); break;
     case "pad": actions.addPad(); break;
+    case "sheet": actions.addSheet(); break;
     case "git": actions.addGit(); break;
     case "page": actions.addPage(); break;
     case "cron": actions.addCron(); break;

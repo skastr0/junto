@@ -11,6 +11,7 @@ import type { HarnessId } from "@shared/managed-terminal-templates";
 import { templateFor } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
+import { emptySheet } from "@shared/sheet";
 import { isValidStationHostId } from "@shared/station";
 import { AGENT_NODE_SIZE } from "./node-geometry";
 
@@ -325,6 +326,21 @@ export const makeBoardNode = (x: number, y: number): TextNode => ({
 });
 
 /** Spatial pad sink — empty is legal; work-plane owns durability. */
+/** Sheet sink — the grid is authored on the node, so it is born with one. */
+export const makeSheetNode = (x: number, y: number): TextNode => ({
+  id: `sheet-${ulid()}`,
+  type: "text",
+  text: "sheet",
+  x: Math.round(x),
+  y: Math.round(y),
+  width: 260,
+  height: 120,
+  ether: {
+    entity: { kind: "sheet" },
+    sheet: emptySheet(),
+  },
+});
+
 export const makePadNode = (x: number, y: number): TextNode => ({
   id: `pad-${ulid()}`,
   type: "text",

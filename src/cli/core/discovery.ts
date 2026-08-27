@@ -18,6 +18,7 @@ import {
   PadLookHereArgs,
   PadPatchArgs,
   PadReadArgs,
+  SheetReadArgs,
   PadTargetArgs,
   ContentMaterializeArgs,
   ContentPathArgs,
@@ -126,6 +127,12 @@ const PAD_READ_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
   },
 ];
 
+const SHEET_READ_INVOCATION: CapabilityInvocation = {
+  port: "sheet.read",
+  command: "vellum-command sheet read",
+  discover: "vellum-command schema show sheet.read",
+};
+
 const PAD_PATCH_INVOCATION: CapabilityInvocation = {
   port: "pad.patch",
   command: "vellum-command pad patch",
@@ -148,6 +155,9 @@ const invocationsForConnected = (value: unknown): unknown => {
     }
     if (entry.grants.includes("pad.patch")) {
       invocations.push(PAD_PATCH_INVOCATION);
+    }
+    if (entry.grants.includes("sheet.read")) {
+      invocations.push(SHEET_READ_INVOCATION);
     }
     return invocations.length > 0 ? { ...entry, invocations } : entry;
   });
@@ -420,6 +430,16 @@ export const padReadSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const sheetReadSchema: CommandSchemaContract = {
+  command_id: "sheet.read",
+  command: "sheet read",
+  schema_id: "sheet.read.input/v1",
+  description:
+    "Read a connected sheet (grant sheet.read): columns, rows, and a markdown table. Sheets are operator-authored; there is no write port.",
+  schema: SheetReadArgs,
+  input_modes: inputModes,
+};
+
 export const padPatchSchema: CommandSchemaContract = {
   command_id: "pad.patch",
   command: "pad patch",
@@ -563,6 +583,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   boardTagsSchema,
   padReadSchema,
   padPatchSchema,
+  sheetReadSchema,
   padDigestSchema,
   padSvgSchema,
   padLookHereSchema,
@@ -919,6 +940,14 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       "materialize",
       '{"target":"n7","task":"t1","name":"record.bin","ref":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","byteLength":12,"mediaType":"application/octet-stream"}}',
     ],
+  },
+  {
+    command_id: "sheet.read",
+    command: "sheet read",
+    name: "read sheet",
+    description: "Read the columns, rows, and markdown table of a wired sheet.",
+    input: { target: "sheet-1" },
+    args: ["sheet", "read", '{"target":"sheet-1"}'],
   },
   {
     command_id: "pad.read",
@@ -1312,6 +1341,15 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       "Read a connected pad (grant pad.read): revision, IR, digest, SVG.",
     schemas: [padReadSchema],
     examples: allExamples.filter((e) => e.command_id === "pad.read"),
+  },
+  {
+    command_id: "sheet.read",
+    command: "sheet read",
+    category: "workflow",
+    description:
+      "Read a connected sheet (grant sheet.read): columns, rows, markdown table.",
+    schemas: [sheetReadSchema],
+    examples: allExamples.filter((e) => e.command_id === "sheet.read"),
   },
   {
     command_id: "pad.patch",
