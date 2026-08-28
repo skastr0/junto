@@ -753,7 +753,7 @@ const decodeCanvasDocDroppingExcess = Schema.decodeUnknownResult(CanvasDoc, {
 /**
  * One-shot conversion decode for the schema cutover ONLY. A body written by
  * an old build may carry retired fields the strict decoder refuses (node
- * ether keys like `herdr`, retired document fields); the bridge is the one
+ * ether keys from removed integrations, retired document fields); the bridge is the one
  * sanctioned moment those are cleaned, exactly like the legacy edge -> verb
  * conversion that runs in the same pass. Excess properties are DROPPED at
  * every struct level, so everything persisted after the bridge round-trips

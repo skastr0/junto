@@ -64,10 +64,30 @@ export const StoredSettingsPreferences = Schema.Struct({
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
 
-const decodePreferences = Schema.decodeUnknownResult(
+const decodePreferencesStrict = Schema.decodeUnknownResult(
   StoredSettingsPreferences,
   { onExcessProperty: "error" },
 );
+const decodePreferencesDroppingRetired = Schema.decodeUnknownResult(
+  StoredSettingsPreferences,
+  { onExcessProperty: "ignore" },
+);
+
+/**
+ * Preferences are install-local UI state, not authorial intent: a row written
+ * by an older build may carry keys a later build retired (removed features
+ * leave their preference keys behind), and that must never brick boot. Strict first; when only excess
+ * properties offend, decode again dropping them — the next persist rewrites
+ * the row clean. A structurally invalid row still fails closed.
+ */
+const decodePreferences = (
+  preferences: unknown,
+): ReturnType<typeof decodePreferencesStrict> => {
+  const strict = decodePreferencesStrict(preferences);
+  if (strict._tag === "Success") return strict;
+  const lenient = decodePreferencesDroppingRetired(preferences);
+  return lenient._tag === "Success" ? lenient : strict;
+};
 const decodeTopology = Schema.decodeUnknownResult(StationSettings, {
   onExcessProperty: "error",
 });
