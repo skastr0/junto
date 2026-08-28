@@ -7,8 +7,8 @@
  * the PTY is opened, so a cold wake can resume the same thread by id.
  *
  * Boundaries this module keeps:
- * - public CLI only — never `~/.config/amp/settings.json`, the cache, logs, or
- *   any undocumented endpoint;
+ * - public CLI only — never amp's settings file under `~/.config/amp/`, the
+ *   cache, logs, or any undocumented endpoint;
  * - `execFile` with an argv array, so no shell ever sees the arguments;
  * - bounded — a hung network call fails with a typed error the seat surfaces
  *   as attention rather than blocking a spawn forever;

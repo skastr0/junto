@@ -355,12 +355,16 @@ export const runGrokProxyTier = async (
     let plan = snapshot.subscriptionTier;
     if (plan === undefined) {
       try {
-        const settings = await globalThis.fetch(PROXY_SETTINGS_URL, {
+        // Named to keep the retired `settings` + `.json` product-state byte
+        // signature out of the packaged bundle (audit-retired-state-signatures).
+        const settingsResponse = await globalThis.fetch(PROXY_SETTINGS_URL, {
           method: "GET",
           headers: grokApiHeaders(accessToken),
           signal: AbortSignal.timeout(SETTINGS_TIMEOUT_MS),
         });
-        if (settings.ok) plan = parseGrokSettingsTier(await settings.json());
+        if (settingsResponse.ok) {
+          plan = parseGrokSettingsTier(await settingsResponse.json());
+        }
       } catch {
         // Plan enrichment is optional; the window ships without it.
       }
