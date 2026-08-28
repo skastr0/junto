@@ -606,6 +606,9 @@ export const registerHostsIpc = (
                 ...(result.success.observation === undefined
                   ? {}
                   : { observation: result.success.observation }),
+                ...(result.success.compatibility === undefined
+                  ? {}
+                  : { compatibility: result.success.compatibility }),
               } satisfies HostsTestResult;
             }
             return {

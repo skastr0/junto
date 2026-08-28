@@ -1,4 +1,5 @@
 import { Result, Schema } from "effect";
+import { FleetPeerCompatibilitySnapshot } from "./fleet-compatibility-snapshot";
 import {
   HostCapability,
   HostId,
@@ -189,6 +190,7 @@ export const OperatorFleetTestData = Schema.Struct({
   detail: Diagnostic,
   reachability: Schema.optionalKey(Schema.Literals(["reachable", "unreachable", "unknown"])),
   protocol: Schema.optionalKey(OperatorProtocolObservation),
+  compatibility: Schema.optionalKey(FleetPeerCompatibilitySnapshot),
   code: OptionalCode,
 });
 export type OperatorFleetTestData = typeof OperatorFleetTestData.Type;

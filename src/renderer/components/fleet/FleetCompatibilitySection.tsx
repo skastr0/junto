@@ -59,18 +59,20 @@ export function FleetCompatibilitySection({
         </span>
 
         <span>Semantic state</span>
-        <span>{snapshot.semantic.status}</span>
+        <span>{snapshot.semantic.status ?? "evidence unavailable"}</span>
 
         <span>Projection</span>
         <span>
-          gen {snapshot.projection.generation} ({snapshot.projection.freshness})
-          {snapshot.projection.isLastValidRetained ? " - last valid retained" : ""}
+          {snapshot.projection.state === "missing"
+            ? "evidence unavailable"
+            : `gen ${snapshot.projection.generation ?? "unknown"} (${snapshot.projection.freshness})${snapshot.projection.isLastValidRetained ? " - last valid retained" : ""}`}
         </span>
 
         <span>Work backlog</span>
         <span>
-          {snapshot.workBacklog.pendingCount} pending
-          {snapshot.workBacklog.heldRouteHead !== undefined ? " (route head held)" : ""}
+          {snapshot.workBacklog.state === "missing"
+            ? "evidence unavailable"
+            : `${String(snapshot.workBacklog.pendingCount ?? "unknown")} pending${snapshot.workBacklog.heldRouteHead !== undefined ? " (route head held)" : ""}`}
         </span>
       </div>
 
@@ -112,7 +114,9 @@ export function FleetCompatibilitySection({
           ) : null}
 
           <span>Projection hash</span>
-          <span className="truncate font-mono">{snapshot.projection.contentSha256}</span>
+          <span className="truncate font-mono">
+            {snapshot.projection.contentSha256 ?? "evidence unavailable"}
+          </span>
 
           {snapshot.projection.receivedAt !== undefined ? (
             <>
@@ -121,26 +125,26 @@ export function FleetCompatibilitySection({
             </>
           ) : null}
 
-          {snapshot.evidenceTimestamp !== undefined ? (
+          {snapshot.evidence.state !== "missing" ? (
             <>
               <span>Evidence timestamp</span>
-              <span>{snapshot.evidenceTimestamp}</span>
+              <span>{snapshot.evidence.observedAt}</span>
             </>
           ) : null}
 
-          {snapshot.affectedNodes.length > 0 ? (
+          {(snapshot.affectedNodes?.length ?? 0) > 0 ? (
             <>
               <span>Affected nodes</span>
-              <span>{snapshot.affectedNodes.join(", ")}</span>
+              <span>{snapshot.affectedNodes?.join(", ")}</span>
             </>
           ) : null}
 
-          {snapshot.semantic.withheldSemantics.length > 0 ? (
+          {(snapshot.semantic.withheldSemantics?.length ?? 0) > 0 ? (
             <>
               <span>Withheld semantics</span>
               <span>
                 {snapshot.semantic.withheldSemantics
-                  .map((w) => `[${w.aspect}] ${w.detail}`)
+                  ?.map((w) => `[${w.aspect}] ${w.detail}`)
                   .join("; ")}
               </span>
             </>

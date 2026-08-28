@@ -42,6 +42,7 @@ import {
 } from "../station/fleet-propagation";
 import { REMOTE_LEASE_TTL_MS, evaluateRemoteLease } from "../license/remote-lease";
 import type { HostsRegistry } from "./registry";
+import { composeObservedFleetCompatibilitySnapshot } from "./fleet-compatibility";
 
 const HOST_PROBE_TOTAL_TIMEOUT_MS = 20_000;
 
@@ -712,6 +713,7 @@ export const testHostConnection = (
   readonly protocol?: StationRemoteObservation["protocol"];
   readonly linuxCapabilities?: LinuxHostCapabilityObservation;
   readonly observation?: StationRemoteObservation;
+  readonly compatibility?: import("@shared/fleet-compatibility-snapshot").FleetPeerCompatibilitySnapshot;
 }> =>
   host.kind === "local"
     ? Effect.gen(function* () {
@@ -745,6 +747,10 @@ export const testHostConnection = (
           linuxCapabilities.facts.platform === "linux";
         const coreReady =
           !linuxCore || linuxCapabilities.status === "ready";
+        const compatibility = composeObservedFleetCompatibilitySnapshot(
+          host.id,
+          result.observation,
+        );
         return {
           ok: result.status === "ok" && coreReady,
           detail:
@@ -756,6 +762,7 @@ export const testHostConnection = (
             ? {}
             : { protocol: result.observation.protocol }),
           observation: result.observation,
+          compatibility,
           ...(linuxCore ? { linuxCapabilities } : {}),
         };
       });

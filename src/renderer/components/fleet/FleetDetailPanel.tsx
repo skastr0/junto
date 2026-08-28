@@ -54,7 +54,6 @@ import { getVellumCommandApi } from "../../lib/vellum-api";
 import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
-import { deriveFleetCompatibilitySnapshot } from "@shared/fleet-compatibility-snapshot";
 import { FleetCompatibilitySection } from "./FleetCompatibilitySection";
 
 export type FleetSelection =
@@ -668,25 +667,9 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
         ) : null}
       </section>
 
-      {(() => {
-        const snapshot = deriveFleetCompatibilitySnapshot({
-          hostId: host.id,
-          reachabilityStatus: probe?.status,
-          protocolObservation: probe?.protocol,
-          remoteObservation: probe?.observation,
-          topology: probe?.observation?.topology,
-          updateState: {
-            state:
-              remoteUpdate.updateStatus === "update-available"
-                ? "update-available"
-                : remoteUpdate.updateStatus === "waiting-for-idle"
-                  ? "idle"
-                  : "idle",
-            targetVersion: remoteUpdate.availableVersion,
-          },
-        });
-        return <FleetCompatibilitySection snapshot={snapshot} />;
-      })()}
+      {probe?.compatibility === undefined ? null : (
+        <FleetCompatibilitySection snapshot={probe.compatibility} />
+      )}
 
       <StationDiagnostics observation={probe?.observation} />
       <StationSynchronization observation={probe?.observation} />

@@ -1004,6 +1004,8 @@ export interface HostsTestResult {
   readonly linuxCapabilities?: import("./linux-host-capabilities").LinuxHostCapabilityObservation;
   /** Complete bounded Station observation used by Fleet detail and Doctor. */
   readonly observation?: import("./station-status").StationRemoteObservation;
+  /** Main-owned compatibility projection. Renderer consumers never derive it. */
+  readonly compatibility?: import("./fleet-compatibility-snapshot").FleetPeerCompatibilitySnapshot;
   readonly code?: string;
   readonly message?: string;
 }

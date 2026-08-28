@@ -1024,6 +1024,9 @@ export const makeOperatorCoordinator = (
         ...(result.success.protocol === undefined
           ? {}
           : { protocol: result.success.protocol }),
+        ...(result.success.compatibility === undefined
+          ? {}
+          : { compatibility: result.success.compatibility }),
       });
     }
 

@@ -1,10 +1,7 @@
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import type { StationSettings } from "@shared/settings";
 import type { TerminalSessionSummary } from "@shared/terminal";
-import {
-  deriveFleetCompatibilitySnapshot,
-  type FleetPeerCompatibilitySnapshot,
-} from "@shared/fleet-compatibility-snapshot";
+import type { FleetPeerCompatibilitySnapshot } from "@shared/fleet-compatibility-snapshot";
 
 export type RemoteStationServiceRow = {
   readonly label: string;
@@ -119,7 +116,6 @@ export const identityFromStation = (
 
 export const statsFromDoctor = (
   report: DoctorReport,
-  hostId = "local",
 ): Pick<
   RemoteStationFaceStats,
   "installationId" | "appVersion" | "services" | "projection" | "lastCheckIn" | "compatibility"
@@ -131,10 +127,7 @@ export const statsFromDoctor = (
   const projection = formatRemoteProjection(metadata);
   const lastCheckIn = readRemoteLastCheckIn(metadata);
 
-  const compatibility = deriveFleetCompatibilitySnapshot({
-    hostId,
-    reachabilityStatus: "reachable",
-  });
+  const compatibility = report.fleetCompatibility;
 
   return {
     ...(appVersion === undefined ? {} : { appVersion }),
@@ -142,7 +135,7 @@ export const statsFromDoctor = (
     services: serviceRowsFromDoctor(report),
     ...(projection === undefined ? {} : { projection }),
     ...(lastCheckIn === undefined ? {} : { lastCheckIn }),
-    compatibility,
+    ...(compatibility === undefined ? {} : { compatibility }),
   };
 };
 
@@ -167,7 +160,7 @@ export const loadRemoteStationFaceStats = async (
     : await api.terminalList().catch(() => undefined);
   return {
     ...identity,
-    ...(doctor === undefined ? {} : statsFromDoctor(doctor, station.hostId)),
+    ...(doctor === undefined ? {} : statsFromDoctor(doctor)),
     ...(sessions === undefined ? {} : statsFromTerminals(sessions)),
   };
 };

@@ -1,290 +1,208 @@
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
 import {
   deriveFleetCompatibilitySnapshot,
-  type FleetPeerCompatibilitySnapshot,
   FLEET_EVIDENCE_STALE_AFTER_MS,
 } from "../src/shared/fleet-compatibility-snapshot";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "../src/shared/station-protocol";
-import {
-  InstallationId,
-  LogicalSequence as StationLogicalSequence,
-  StationSha256,
-  type StatusResponse,
-} from "../src/shared/station-api";
-import { LogicalSequence as WorkLogicalSequence } from "../src/shared/work-protocol";
-import type {
-  StationProtocolObservation,
-  StationRemoteObservation,
-} from "../src/shared/station-status";
+import type { StationRemoteObservation } from "../src/shared/station-status";
 
-const makeInstallationId = Schema.decodeUnknownSync(InstallationId);
-const makeStationLogicalSequence = Schema.decodeUnknownSync(StationLogicalSequence);
-const makeWorkLogicalSequence = Schema.decodeUnknownSync(WorkLogicalSequence);
-const makeStationSha256 = Schema.decodeUnknownSync(StationSha256);
+const now = Date.parse("2026-08-18T12:00:00.000Z");
+const observedAt = new Date(now - 1_000).toISOString();
 
-describe("Fleet Compatibility Snapshot derivation", () => {
-  const baseLocalSupport = CURRENT_STATION_PROTOCOL_SUPPORT;
-  const now = 1700000000000;
-  const freshObservedAt = new Date(now - 10_000).toISOString();
-  const staleObservedAt = new Date(now - FLEET_EVIDENCE_STALE_AFTER_MS - 20_000).toISOString();
+const protocol = (
+  compatibility: "compatible" | "deprecated" = "compatible",
+): NonNullable<StationRemoteObservation["protocol"]> => ({
+  compatibility,
+  negotiatedProtocol: 1,
+  local: {
+    appVersion: "0.1.14",
+    stateSchemaVersion: 22,
+    support:
+      compatibility === "deprecated"
+        ? { preferred: 2, compatibleFrom: 1, warnBelow: 2 }
+        : CURRENT_STATION_PROTOCOL_SUPPORT,
+  },
+  peer: {
+    appVersion: "0.1.14",
+    stateSchemaVersion: 22,
+    support: CURRENT_STATION_PROTOCOL_SUPPORT,
+  },
+});
 
-  it("derives 'exact' for a fully synchronized peer", () => {
-    const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
+const remote = (
+  overrides: Partial<StationRemoteObservation> = {},
+): StationRemoteObservation => ({
+  hostId: "remote-a",
+  endpoint: "ssh://remote-a",
+  reachability: "reachable",
+  source: "live",
+  observedAt,
+  protocol: protocol(),
+  route: {
+    phase: "ready",
+    sessionOpen: true,
+    attempt: 1,
+    updatedAt: observedAt,
+  },
+  ...overrides,
+});
+
+describe("Fleet compatibility truth projection", () => {
+  it("requires real protocol and semantic evidence before Exact", () => {
+    const exact = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote(),
+      semanticObservation: { status: "exact" },
       nowMs: now,
-      protocolObservation: {
-        compatibility: "compatible",
-        negotiatedProtocol: 1,
-        local: { appVersion: "0.1.14", stateSchemaVersion: 21, support: baseLocalSupport },
-        peer: { appVersion: "0.1.14", stateSchemaVersion: 21, support: baseLocalSupport },
-      },
-      remoteObservation: {
-        hostId: "host-1",
-        endpoint: "ssh://host-1",
-        reachability: "reachable",
-        observedAt: freshObservedAt,
-        source: "live",
-        station: {
-          protocol: "vellum-command/station-api/v1",
-          op: "status",
-          observedAt: freshObservedAt,
-          installationId: makeInstallationId("remote-1"),
-          state: "ready",
-          receivedThrough: [{ eventHome: makeInstallationId("cc-1"), entityHome: makeInstallationId("remote-1"), through: makeWorkLogicalSequence("10") }],
-          peerAcknowledgedThrough: [{ eventHome: makeInstallationId("remote-1"), entityHome: makeInstallationId("cc-1"), through: makeWorkLogicalSequence("10") }],
-          readiness: { database: true, workControl: true, simulation: true, session: true },
-          projection: {
-            generation: makeStationLogicalSequence("10"),
-            contentSha256: makeStationSha256("a".repeat(64)),
-            receivedAt: freshObservedAt,
-          },
-        },
-      },
-      workBacklog: { pendingCount: 0 },
     });
+    expect(exact.status).toBe("exact");
 
-    expect(snapshot.status).toBe("exact");
-    expect(snapshot.reachability).toBe("reachable");
-    expect(snapshot.protocol.negotiated).toBe(1);
-    expect(snapshot.protocol.isDeprecated).toBe(false);
-    expect(snapshot.semantic.status).toBe("exact");
-    expect(snapshot.projection.freshness).toBe("fresh");
-    expect(snapshot.projection.isLastValidRetained).toBe(false);
+    const missingProtocol = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote({ protocol: undefined }),
+      semanticObservation: { status: "exact" },
+      nowMs: now,
+    });
+    expect(missingProtocol.status).toBe("checking");
+    expect(missingProtocol.protocol.state).toBe("missing");
+    expect(missingProtocol.headline).not.toBe("Fully compatible");
+
+    const missingSemantic = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote(),
+      nowMs: now,
+    });
+    expect(missingSemantic.status).toBe("checking");
+    expect(missingSemantic.semantic.state).toBe("missing");
+    expect(missingSemantic.headline).not.toBe("Fully compatible");
   });
 
-  it("derives 'warning-exact' when negotiated version is below warning threshold", () => {
+  it("does not invent Work, affected nodes, update state, or projection facts", () => {
     const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
+      hostId: "remote-a",
+      remoteObservation: remote({ protocol: undefined }),
       nowMs: now,
-      protocolObservation: {
-        compatibility: "deprecated",
-        negotiatedProtocol: 1,
-        local: { appVersion: "0.1.14", stateSchemaVersion: 21, support: { preferred: 2, compatibleFrom: 1, warnBelow: 2 } },
-        peer: { appVersion: "0.1.14", stateSchemaVersion: 21, support: { preferred: 1, compatibleFrom: 1, warnBelow: 1 } },
-      },
-      remoteObservation: {
-        hostId: "host-1",
-        endpoint: "ssh://host-1",
-        reachability: "reachable",
-        observedAt: freshObservedAt,
-        source: "live",
-        station: {
-          protocol: "vellum-command/station-api/v1",
-          op: "status",
-          observedAt: freshObservedAt,
-          installationId: makeInstallationId("remote-1"),
-          state: "ready",
-          receivedThrough: [{ eventHome: makeInstallationId("cc-1"), entityHome: makeInstallationId("remote-1"), through: makeWorkLogicalSequence("5") }],
-          peerAcknowledgedThrough: [{ eventHome: makeInstallationId("remote-1"), entityHome: makeInstallationId("cc-1"), through: makeWorkLogicalSequence("5") }],
-          readiness: { database: true, workControl: true, simulation: true, session: true },
-          projection: { generation: makeStationLogicalSequence("5"), contentSha256: makeStationSha256("b".repeat(64)), receivedAt: freshObservedAt },
-        },
-      },
+    });
+
+    expect(snapshot.workBacklog).toEqual({ state: "missing" });
+    expect(snapshot.update).toEqual({ state: "missing" });
+    expect(snapshot.projection).toEqual({
+      state: "missing",
+      freshness: "missing",
+    });
+    expect(snapshot.affectedNodes).toBeUndefined();
+  });
+
+  it("keeps a warning selection separate from explicit semantic exactness", () => {
+    const snapshot = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote({ protocol: protocol("deprecated") }),
+      semanticObservation: { status: "exact" },
+      nowMs: now,
     });
 
     expect(snapshot.status).toBe("warning-exact");
+    expect(snapshot.protocol.state).toBe("selected");
+    expect(snapshot.protocol.negotiated).toBe(1);
     expect(snapshot.protocol.isDeprecated).toBe(true);
-    expect(snapshot.headline).toContain("Compatible");
   });
 
-  it("derives 'restricted-hold' when work is held at an unrepresentable route head", () => {
+  it("keeps no-common protocol evidence explicit without fabricating semantic analysis", () => {
     const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
-      nowMs: now,
-      protocolObservation: {
-        compatibility: "compatible",
-        negotiatedProtocol: 1,
-        local: { appVersion: "0.1.14", stateSchemaVersion: 21, support: baseLocalSupport },
-        peer: { appVersion: "0.1.14", stateSchemaVersion: 21, support: baseLocalSupport },
-      },
-      remoteObservation: {
-        hostId: "host-1",
-        endpoint: "ssh://host-1",
-        reachability: "reachable",
-        observedAt: freshObservedAt,
-        source: "live",
-      },
-      workBacklog: {
-        pendingCount: 4,
-        heldRouteHead: {
-          eventHome: "cc-1",
-          entityHome: "remote-1",
-          seq: "42",
-          reason: "Record uses newer unrepresentable action payload",
+      hostId: "remote-a",
+      remoteObservation: remote({
+        source: "last-acknowledged",
+        route: {
+          phase: "update-required",
+          sessionOpen: false,
+          attempt: 2,
+          updatedAt: observedAt,
         },
-      },
-    });
-
-    expect(snapshot.status).toBe("restricted-hold");
-    expect(snapshot.semantic.status).toBe("restricted");
-    expect(snapshot.semantic.withheldSemantics.length).toBeGreaterThan(0);
-    expect(snapshot.workBacklog.pendingCount).toBe(4);
-    expect(snapshot.workBacklog.heldRouteHead?.seq).toBe("42");
-  });
-
-  it("derives 'no-common' and preserves last valid projection on protocol incompatibility", () => {
-    const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
-      nowMs: now,
-      protocolObservation: {
-        compatibility: "update-required",
-        local: { appVersion: "0.1.14", stateSchemaVersion: 21, support: { preferred: 3, compatibleFrom: 2, warnBelow: 2 } },
-        peer: { appVersion: "0.1.0", stateSchemaVersion: 18, support: { preferred: 1, compatibleFrom: 1, warnBelow: 1 } },
-      },
-      remoteObservation: {
-        hostId: "host-1",
-        endpoint: "ssh://host-1",
-        reachability: "reachable",
-        observedAt: freshObservedAt,
-        source: "live",
-        station: {
-          protocol: "vellum-command/station-api/v1",
-          op: "status",
-          observedAt: freshObservedAt,
-          installationId: makeInstallationId("remote-1"),
-          state: "ready",
-          receivedThrough: [{ eventHome: makeInstallationId("cc-1"), entityHome: makeInstallationId("remote-1"), through: makeWorkLogicalSequence("8") }],
-          peerAcknowledgedThrough: [{ eventHome: makeInstallationId("remote-1"), entityHome: makeInstallationId("cc-1"), through: makeWorkLogicalSequence("8") }],
-          readiness: { database: true, workControl: true, simulation: true, session: true },
-          projection: {
-            generation: makeStationLogicalSequence("8"),
-            contentSha256: makeStationSha256("c".repeat(64)),
-            receivedAt: freshObservedAt,
+        protocol: {
+          compatibility: "update-required",
+          local: {
+            appVersion: "0.2.0",
+            stateSchemaVersion: 22,
+            support: { preferred: 2, compatibleFrom: 2, warnBelow: 2 },
+          },
+          peer: {
+            appVersion: "0.1.14",
+            stateSchemaVersion: 18,
+            support: CURRENT_STATION_PROTOCOL_SUPPORT,
           },
         },
-      },
+      }),
+      nowMs: now,
     });
 
     expect(snapshot.status).toBe("no-common");
-    expect(snapshot.projection.isLastValidRetained).toBe(true);
-    expect(snapshot.projection.generation).toBe("8");
-    expect(snapshot.semantic.status).toBe("unsupported");
+    expect(snapshot.protocol.state).toBe("no-common");
+    expect(snapshot.evidence.state).toBe("stale");
+    expect(snapshot.semantic.state).toBe("missing");
   });
 
-  it("derives 'stale-evidence' when observation age exceeds threshold", () => {
-    const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
+  it("keeps stale and unreachable observations from becoming Exact", () => {
+    const stale = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote({
+        observedAt: new Date(
+          now - FLEET_EVIDENCE_STALE_AFTER_MS - 1,
+        ).toISOString(),
+      }),
+      semanticObservation: { status: "exact" },
       nowMs: now,
-      protocolObservation: {
-        compatibility: "compatible",
-        negotiatedProtocol: 1,
-        local: { appVersion: "0.1.14", stateSchemaVersion: 21, support: baseLocalSupport },
-        peer: { appVersion: "0.1.14", stateSchemaVersion: 21, support: baseLocalSupport },
-      },
-      remoteObservation: {
-        hostId: "host-1",
-        endpoint: "ssh://host-1",
-        reachability: "reachable",
-        observedAt: staleObservedAt,
-        source: "live",
-        station: {
-          protocol: "vellum-command/station-api/v1",
-          op: "status",
-          observedAt: freshObservedAt,
-          installationId: makeInstallationId("remote-1"),
-          state: "ready",
-          receivedThrough: [{ eventHome: makeInstallationId("cc-1"), entityHome: makeInstallationId("remote-1"), through: makeWorkLogicalSequence("1") }],
-          peerAcknowledgedThrough: [{ eventHome: makeInstallationId("remote-1"), entityHome: makeInstallationId("cc-1"), through: makeWorkLogicalSequence("1") }],
-          readiness: { database: true, workControl: true, simulation: true, session: true },
-          projection: { generation: makeStationLogicalSequence("1"), contentSha256: makeStationSha256("d".repeat(64)), receivedAt: freshObservedAt },
-        },
-      },
     });
+    expect(stale.status).toBe("stale-evidence");
+    expect(stale.evidence.state).toBe("stale");
 
-    expect(snapshot.status).toBe("stale-evidence");
-    expect(snapshot.projection.freshness).toBe("stale");
-  });
-
-  it("derives 'unreachable' on transport disconnect and keeps last valid projection", () => {
-    const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "unreachable",
-      nowMs: now,
-      remoteObservation: {
-        hostId: "host-1",
-        endpoint: "ssh://host-1",
-        reachability: "unreachable",
-        observedAt: freshObservedAt,
+    const retained = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote({
         source: "last-acknowledged",
-        station: {
-          protocol: "vellum-command/station-api/v1",
-          op: "status",
-          observedAt: freshObservedAt,
-          installationId: makeInstallationId("remote-1"),
-          state: "ready",
-          receivedThrough: [{ eventHome: makeInstallationId("cc-1"), entityHome: makeInstallationId("remote-1"), through: makeWorkLogicalSequence("12") }],
-          peerAcknowledgedThrough: [{ eventHome: makeInstallationId("remote-1"), entityHome: makeInstallationId("cc-1"), through: makeWorkLogicalSequence("12") }],
-          readiness: { database: true, workControl: true, simulation: true, session: true },
-          projection: { generation: makeStationLogicalSequence("12"), contentSha256: makeStationSha256("e".repeat(64)), receivedAt: freshObservedAt },
+        route: {
+          phase: "backoff",
+          sessionOpen: false,
+          attempt: 2,
+          updatedAt: observedAt,
         },
-      },
+      }),
+      semanticObservation: { status: "exact" },
+      nowMs: now,
     });
+    expect(retained.status).toBe("stale-evidence");
+    expect(retained.protocol.state).toBe("selected");
 
-    expect(snapshot.status).toBe("unreachable");
-    expect(snapshot.reachability).toBe("unreachable");
-    expect(snapshot.projection.isLastValidRetained).toBe(true);
-    expect(snapshot.projection.generation).toBe("12");
+    const unreachable = deriveFleetCompatibilitySnapshot({
+      hostId: "remote-a",
+      remoteObservation: remote({ reachability: "unreachable" }),
+      semanticObservation: { status: "exact" },
+      nowMs: now,
+    });
+    expect(unreachable.status).toBe("unreachable");
+    expect(unreachable.protocol.state).toBe("selected");
   });
 
-  it("derives 'checking' when host is probing", () => {
+  it("surfaces a real held route head without inventing a semantic proof", () => {
     const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "probing",
+      hostId: "remote-a",
+      remoteObservation: remote(),
+      workBacklog: {
+        pendingCount: 4,
+        heldRouteHead: {
+          eventHome: "cc-a",
+          entityHome: "remote-a",
+          seq: "42",
+          reason: "hash-divergence",
+        },
+      },
       nowMs: now,
     });
 
-    expect(snapshot.status).toBe("checking");
-    expect(snapshot.reachability).toBe("probing");
-  });
-
-  it("surfaces update execution states accurately", () => {
-    const updateAvailable = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
-      updateState: { state: "update-available", targetVersion: "0.1.15" },
+    expect(snapshot.status).toBe("restricted-hold");
+    expect(snapshot.workBacklog).toMatchObject({
+      state: "known",
+      pendingCount: 4,
     });
-    expect(updateAvailable.update.state).toBe("update-available");
-    expect(updateAvailable.update.targetVersion).toBe("0.1.15");
-
-    const updateRunning = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
-      updateState: { state: "update-running", targetVersion: "0.1.15" },
-    });
-    expect(updateRunning.update.state).toBe("update-running");
-
-    const updateFailed = deriveFleetCompatibilitySnapshot({
-      hostId: "host-1",
-      reachabilityStatus: "reachable",
-      updateState: { state: "update-failed", errorMessage: "SSH connection broken during tar unpack" },
-    });
-    expect(updateFailed.update.state).toBe("update-failed");
-    expect(updateFailed.detail).toContain("SSH connection broken");
+    expect(snapshot.semantic.state).toBe("missing");
   });
 });

@@ -1,193 +1,137 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   deriveFleetCompatibilitySnapshot,
-  type DeriveFleetCompatibilityInput,
+  type FleetPeerCompatibilitySnapshot,
 } from "../src/shared/fleet-compatibility-snapshot";
+import { CURRENT_STATION_PROTOCOL_SUPPORT } from "../src/shared/station-protocol";
 import {
   FleetCompatibilitySection,
   compatibilityStatusColor,
 } from "../src/renderer/components/fleet/FleetCompatibilitySection";
 import { RemoteStationFaceView } from "../src/renderer/components/remote/RemoteStationFace";
-import { GREEN, HUE, DIM } from "../src/renderer/lib/theme";
+import { statsFromDoctor } from "../src/renderer/lib/remote-station-face";
+import { GREEN, HUE } from "../src/renderer/lib/theme";
 
-const renderSection = (input: DeriveFleetCompatibilityInput) => {
-  const snapshot = deriveFleetCompatibilitySnapshot(input);
-  const html = renderToStaticMarkup(
-    createElement(FleetCompatibilitySection, { snapshot }),
-  );
-  return { snapshot, html };
+const now = Date.parse("2026-08-18T12:00:00.000Z");
+const observedAt = new Date(now - 1_000).toISOString();
+
+const renderSection = (snapshot: FleetPeerCompatibilitySnapshot): string =>
+  renderToStaticMarkup(createElement(FleetCompatibilitySection, { snapshot }));
+
+const rendererSourceFiles = (directory: string): ReadonlyArray<string> =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return rendererSourceFiles(path);
+    return /\.tsx?$/u.test(entry.name) ? [path] : [];
+  });
+
+const observedRemote = {
+  hostId: "studio",
+  endpoint: "ssh://studio",
+  reachability: "reachable" as const,
+  source: "live" as const,
+  observedAt,
+  route: {
+    phase: "ready" as const,
+    sessionOpen: true,
+    attempt: 1,
+    updatedAt: observedAt,
+  },
+  protocol: {
+    compatibility: "compatible" as const,
+    negotiatedProtocol: 1,
+    local: {
+      appVersion: "0.1.14",
+      stateSchemaVersion: 22,
+      support: CURRENT_STATION_PROTOCOL_SUPPORT,
+    },
+    peer: {
+      appVersion: "0.1.14",
+      stateSchemaVersion: 22,
+      support: CURRENT_STATION_PROTOCOL_SUPPORT,
+    },
+  },
 };
 
-describe("Fleet Compatibility UI & Progressive Disclosure", () => {
-  it("renders exact state cleanly with green status dot", () => {
-    const { snapshot, html } = renderSection({
+describe("Fleet compatibility truth consumers", () => {
+  it("renders missing evidence as checking, never Fully compatible", () => {
+    const snapshot = deriveFleetCompatibilitySnapshot({ hostId: "studio" });
+    const html = renderSection(snapshot);
+
+    expect(snapshot.status).toBe("checking");
+    expect(compatibilityStatusColor(snapshot.status)).toBe(HUE.cyan);
+    expect(html).toContain("Checking compatibility");
+    expect(html).toContain("evidence unavailable");
+    expect(html).not.toContain("Fully compatible");
+    expect(html).not.toContain("0 pending");
+  });
+
+  it("renders Exact only when the supplied snapshot carries explicit proof", () => {
+    const snapshot = deriveFleetCompatibilitySnapshot({
       hostId: "studio",
-      reachabilityStatus: "reachable",
-      protocolObservation: {
-        compatibility: "compatible",
-        negotiatedProtocol: 1,
-        local: {
-          appVersion: "0.1.14",
-          stateSchemaVersion: 20,
-          support: { preferred: 1, compatibleFrom: 1, warnBelow: 1 },
-        },
-        peer: {
-          appVersion: "0.1.14",
-          stateSchemaVersion: 20,
-          support: { preferred: 1, compatibleFrom: 1, warnBelow: 1 },
-        },
-      },
+      remoteObservation: observedRemote,
+      semanticObservation: { status: "exact" },
+      nowMs: now,
     });
+    const html = renderSection(snapshot);
 
     expect(snapshot.status).toBe("exact");
     expect(compatibilityStatusColor(snapshot.status)).toBe(GREEN);
     expect(html).toContain("Fully compatible");
-    expect(html).toContain("Operating under exact Station protocol 1 and synchronized intent.");
-    expect(html).toContain("data-testid=\"fleet-compatibility-section\"");
-    expect(html).toContain("Negotiated protocol");
     expect(html).toContain("v1");
+    expect(html).toContain("Work backlog");
+    expect(html).toContain("evidence unavailable");
   });
 
-  it("renders warning-exact state when below warning threshold", () => {
-    const { snapshot, html } = renderSection({
-      hostId: "studio",
-      reachabilityStatus: "reachable",
-      protocolObservation: {
-        compatibility: "deprecated",
-        negotiatedProtocol: 1,
-        local: {
-          appVersion: "0.1.14",
-          stateSchemaVersion: 20,
-          support: { preferred: 3, compatibleFrom: 1, warnBelow: 2 },
-        },
-        peer: {
-          appVersion: "0.1.14",
-          stateSchemaVersion: 20,
-          support: { preferred: 1, compatibleFrom: 1, warnBelow: 1 },
-        },
+  it("Remote station face renders only the Main-supplied Doctor snapshot", () => {
+    const baseReport = {
+      checkedAt: observedAt,
+      station: {
+        name: "Vellum Command",
+        version: "0.1.14",
+        userDataPath: "/tmp/vellum-command",
+        stationPluginPath: "/tmp/plugin",
+        prismRoot: "/tmp/prism",
       },
-    });
-
-    expect(snapshot.status).toBe("warning-exact");
-    expect(compatibilityStatusColor(snapshot.status)).toBe(HUE.amber);
-    expect(html).toContain("Compatible (Deprecation warning)");
-    expect(html).toContain("(deprecated)");
-  });
-
-  it("renders restricted-hold state explaining withheld capability without mutating execution", () => {
-    const { snapshot, html } = renderSection({
-      hostId: "studio",
-      reachabilityStatus: "reachable",
-      workBacklog: {
-        pendingCount: 2,
-        heldRouteHead: {
-          eventHome: "cc",
-          entityHome: "studio",
-          seq: "5",
-          reason: "restricted capability",
-        },
-      },
-    });
-
-    expect(snapshot.status).toBe("restricted-hold");
-    expect(html).toContain("Restricted compatibility (Work held)");
-    expect(html).toContain("New capability withheld to prevent data divergence");
-  });
-
-  it("renders unsupported state when peer has no common protocol", () => {
-    const { snapshot, html } = renderSection({
-      hostId: "studio",
-      reachabilityStatus: "reachable",
-      protocolObservation: {
-        compatibility: "update-required",
-        local: {
-          appVersion: "0.1.14",
-          stateSchemaVersion: 20,
-          support: { preferred: 2, compatibleFrom: 2, warnBelow: 2 },
-        },
-        peer: {
-          appVersion: "0.1.14",
-          stateSchemaVersion: 20,
-          support: { preferred: 1, compatibleFrom: 1, warnBelow: 1 },
-        },
-      },
-    });
-
-    expect(snapshot.status).toBe("no-common");
-    expect(compatibilityStatusColor(snapshot.status)).toBe(HUE.crimson);
-    expect(html).toContain("Update required (Protocol mismatch)");
-    expect(html).toContain("Peers have no common Station protocol");
-  });
-
-  it("renders checking when probe is actively running", () => {
-    const { snapshot, html } = renderSection({
-      hostId: "studio",
-      reachabilityStatus: "probing",
-    });
-
-    expect(snapshot.status).toBe("checking");
-    expect(compatibilityStatusColor(snapshot.status)).toBe(HUE.cyan);
-    expect(html).toContain("Checking connectivity");
-  });
-
-  it("renders stale-evidence when observation is older than threshold", () => {
-    const staleTime = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { snapshot, html } = renderSection({
-      hostId: "studio",
-      reachabilityStatus: "reachable",
-      remoteObservation: {
-        hostId: "studio",
-        endpoint: "studio-box",
-        reachability: "reachable",
-        observedAt: staleTime,
-        expectedInstallationId: "inst-1",
-        source: "live",
-      },
-    });
-
-    expect(snapshot.status).toBe("stale-evidence");
-    expect(compatibilityStatusColor(snapshot.status)).toBe(HUE.amber);
-    expect(html).toContain("Stale status observation");
-  });
-
-  it("renders held route head warning when work backlog has blocked head", () => {
-    const { html } = renderSection({
-      hostId: "studio",
-      reachabilityStatus: "reachable",
-      workBacklog: {
-        pendingCount: 3,
-        heldRouteHead: {
-          eventHome: "cc",
-          entityHome: "studio",
-          seq: "14",
-          reason: "unrepresentable-record",
-        },
-      },
-    });
-
-    expect(html).toContain("data-testid=\"held-route-head-warning\"");
-    expect(html).toContain("Route head held:</strong> unrepresentable-record (seq 14)");
-  });
-
-  it("surfaces compatibility on RemoteStationFaceView", () => {
-    const snapshot = deriveFleetCompatibilitySnapshot({
-      hostId: "remote-box",
-      reachabilityStatus: "reachable",
-    });
-
-    const html = renderToStaticMarkup(
+      services: [],
+      recommendations: [],
+    };
+    const withoutSnapshotStats = statsFromDoctor(baseReport);
+    const withoutSnapshot = renderToStaticMarkup(
       createElement(RemoteStationFaceView, {
-        stats: {
-          role: "remote",
-          hostId: "remote-box",
-          compatibility: snapshot,
-        },
+        stats: { role: "remote", hostId: "studio", ...withoutSnapshotStats },
       }),
     );
+    expect(withoutSnapshot).not.toContain("Compatibility</dt>");
 
-    expect(html).toContain("Compatibility");
-    expect(html).toContain(snapshot.headline);
+    const snapshot = deriveFleetCompatibilitySnapshot({ hostId: "studio" });
+    const withSnapshotStats = statsFromDoctor({
+      ...baseReport,
+      fleetCompatibility: snapshot,
+    });
+    const withSnapshot = renderToStaticMarkup(
+      createElement(RemoteStationFaceView, {
+        stats: { role: "remote", hostId: "studio", ...withSnapshotStats },
+      }),
+    );
+    expect(withSnapshot).toContain("Compatibility</dt>");
+    expect(withSnapshot).toContain("Checking compatibility");
+  });
+
+  it("renderer sources cannot derive a Fleet compatibility snapshot", () => {
+    const sources = rendererSourceFiles("src/renderer").map((path) =>
+      readFileSync(path, "utf8"),
+    );
+
+    for (const source of sources) {
+      expect(source).not.toContain("deriveFleetCompatibilitySnapshot");
+    }
+    expect(
+      readFileSync("src/renderer/lib/remote-station-face.ts", "utf8"),
+    ).toContain("report.fleetCompatibility");
   });
 });

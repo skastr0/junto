@@ -69,6 +69,7 @@ export class HostsService extends Context.Service<HostsService,
         readonly protocol?: StationProtocolObservation;
         readonly linuxCapabilities?: import("@shared/linux-host-capabilities").LinuxHostCapabilityObservation;
         readonly observation?: StationRemoteObservation;
+        readonly compatibility?: import("@shared/fleet-compatibility-snapshot").FleetPeerCompatibilitySnapshot;
       },
       RemoteHostsError
     >;

@@ -63,6 +63,7 @@ import { UsageLive } from "./vellum/usage/live";
 import { UsageService } from "./vellum/usage/usage-service";
 import { HostsService, HostsServiceLive } from "./vellum/hosts";
 import { HostRuntimeLive } from "./vellum/hosts/host-runtime";
+import { composeMainFleetCompatibilitySnapshot } from "./vellum/hosts/fleet-compatibility";
 import { SshTransportLive } from "./vellum/ssh";
 import {
   BoxCliLive,
@@ -454,7 +455,7 @@ export const buildDoctorReport = Effect.gen(function* () {
   // projection. Doctor must not double-probe a host and accidentally present
   // observations from two different moments as one report.
   const hostsDoctorSnapshot = yield* hosts.doctorSnapshot;
-  const stationCheck = yield* Effect.gen(function* () {
+  const stationAssessment = yield* Effect.gen(function* () {
     const stationState = yield* Effect.all({
       facts: stationRepository.statusFacts,
       projection: stationRepository.projection,
@@ -513,7 +514,7 @@ export const buildDoctorReport = Effect.gen(function* () {
           : { projection: stationState.projection }),
       },
     });
-    return {
+    const check = {
       ...stationDoctor,
       status: stationDoctor.status === "error"
         ? "error"
@@ -524,14 +525,27 @@ export const buildDoctorReport = Effect.gen(function* () {
         ...stationReadinessMetadata(readiness),
       },
     } satisfies ServiceCheck;
+    const compatibility = configuration?.role === "remote"
+      ? composeMainFleetCompatibilitySnapshot({
+          hostId: configuration.hostId,
+          installationId: stationState.facts.installationId,
+          ...(stationState.facts.projection === undefined
+            ? {}
+            : { projectionReceipt: stationState.facts.projection }),
+        })
+      : undefined;
+    return { check, compatibility };
   }).pipe(
     Effect.catch((error) =>
       Effect.succeed({
-        id: "station",
-        label: "Station",
-        status: "error" as const,
-        detail: error instanceof Error ? error.message : String(error),
-      } satisfies ServiceCheck),
+        check: {
+          id: "station",
+          label: "Station",
+          status: "error" as const,
+          detail: error instanceof Error ? error.message : String(error),
+        } satisfies ServiceCheck,
+        compatibility: undefined,
+      }),
     ),
   );
 
@@ -564,7 +578,7 @@ export const buildDoctorReport = Effect.gen(function* () {
   const services: ReadonlyArray<ServiceCheck> = [
     ...serviceResults,
     terminalCheck,
-    stationCheck,
+    stationAssessment.check,
   ];
   const recommendations = services
     .filter((service) => service.status !== "ok")
@@ -575,5 +589,8 @@ export const buildDoctorReport = Effect.gen(function* () {
     station,
     services,
     recommendations,
+    ...(stationAssessment.compatibility === undefined
+      ? {}
+      : { fleetCompatibility: stationAssessment.compatibility }),
   } satisfies DoctorReport;
 });
