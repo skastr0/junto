@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  HARNESS_AMP_ENABLED,
+  HARNESS_FX_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   managedHarnessEnabled,
@@ -34,6 +36,8 @@ describe("Hermes integration product gate", () => {
         "devin",
         "cursor",
         "agy",
+        ...(HARNESS_AMP_ENABLED ? ["amp" as const] : []),
+        ...(HARNESS_FX_ENABLED ? ["fx" as const] : []),
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
       expect(managedHarnessEnabled("kimi")).toBe(false);

@@ -57,6 +57,10 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HARNESS_FX",
     define: "__VELLUM_COMMAND_HARNESS_FX_ENABLED__",
   },
+  harnessAmp: {
+    env: "VELLUM_COMMAND_HARNESS_AMP",
+    define: "__VELLUM_COMMAND_HARNESS_AMP_ENABLED__",
+  },
   harnessOmp: {
     env: "VELLUM_COMMAND_HARNESS_OMP",
     define: "__VELLUM_COMMAND_HARNESS_OMP_ENABLED__",
@@ -98,6 +102,7 @@ export const SHIP_FEATURES: FeatureSet = {
   harnessKimi: false,
   harnessMuse: false,
   harnessFx: true,
+  harnessAmp: false,
   harnessOmp: false,
   harnessPrimeAgent: true,
   harnessSettings: false,
@@ -116,6 +121,7 @@ export const ALL_FEATURES: FeatureSet = {
   harnessKimi: true,
   harnessMuse: true,
   harnessFx: true,
+  harnessAmp: true,
   harnessOmp: true,
   harnessPrimeAgent: true,
   harnessSettings: true,

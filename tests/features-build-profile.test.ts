@@ -32,6 +32,8 @@ describe("compile-time feature profiles", () => {
       // seats at once is the point of having it. The gate stays as the way
       // back off.
       harnessFx: true,
+      // Amp ships off until its seat rules are proven at ship grade.
+      harnessAmp: false,
       // Oh My Pi ships off until its approval dialog is captured.
       harnessOmp: false,
       harnessPrimeAgent: true,

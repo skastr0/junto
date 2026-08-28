@@ -22,6 +22,7 @@ declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_FX_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_AMP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
@@ -114,6 +115,15 @@ export const HARNESS_FX_ENABLED: boolean =
     : envEnabled("VELLUM_COMMAND_HARNESS_FX");
 
 /**
+ * Amp managed seat — ship/prod off until its seat rules are proven at ship
+ * grade. All-on and the explicit env override keep it exercised in dev.
+ */
+export const HARNESS_AMP_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_AMP_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_AMP_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_AMP");
+
+/**
  * Oh My Pi managed seat — ship/prod off until an approval dialog is captured.
  *
  * Everything else about the seat is proven against 18.0.9 (Tier-A doctrine on
@@ -154,6 +164,7 @@ export const BUILD_FEATURES = {
   harnessKimi: HARNESS_KIMI_ENABLED,
   harnessMuse: HARNESS_MUSE_ENABLED,
   harnessFx: HARNESS_FX_ENABLED,
+  harnessAmp: HARNESS_AMP_ENABLED,
   harnessOmp: HARNESS_OMP_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
@@ -182,6 +193,7 @@ export const managedHarnessEnabled = (harness: string): boolean => {
   if (harness === "kimi") return HARNESS_KIMI_ENABLED;
   if (harness === "muse") return HARNESS_MUSE_ENABLED;
   if (harness === "fx") return HARNESS_FX_ENABLED;
+  if (harness === "amp") return HARNESS_AMP_ENABLED;
   if (harness === "omp") return HARNESS_OMP_ENABLED;
   if (harness === "prime-agent") return HARNESS_PRIME_AGENT_ENABLED;
   return true;
