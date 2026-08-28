@@ -478,6 +478,7 @@ const verbForEffectMode = (mode: string): Verb | undefined => {
 const ACCESS_VERB_FOR_SINK = {
   task: "contributes",
   pad: "edits",
+  sheet: "reads",
   page: "navigates",
   requests: "escalates",
   artifacts: "publishes",

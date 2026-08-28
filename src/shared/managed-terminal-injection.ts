@@ -612,6 +612,9 @@ const sameEdgeMapInput = (a: CanvasDoc, b: CanvasDoc): boolean => {
     const x = a.edges[i];
     const y = b.edges[i];
     if (x.fromNode !== y.fromNode || x.toNode !== y.toNode) return false;
+    // A verb swap moves the compiled grant without moving any endpoint, so
+    // the seat's edge map must be revised for it like any rewiring.
+    if (x.ether?.verb !== y.ether?.verb) return false;
   }
   for (let i = 0; i < a.nodes.length; i += 1) {
     const x = a.nodes[i];
