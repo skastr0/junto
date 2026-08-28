@@ -80,6 +80,164 @@ const source: PackageSourceFacts = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 };
 
+const withTopLevelFact = (
+  key: string,
+  value: unknown,
+): PackageSourceFacts =>
+  ({ ...source, [key]: value }) as unknown as PackageSourceFacts;
+
+const withoutTopLevelFact = (key: string): PackageSourceFacts => {
+  const facts = { ...source } as Record<string, unknown>;
+  delete facts[key];
+  return facts as unknown as PackageSourceFacts;
+};
+
+const withMigrationHeadFact = (
+  key: string,
+  value: unknown,
+): PackageSourceFacts =>
+  ({
+    ...source,
+    migrationHead: { ...source.migrationHead, [key]: value },
+  }) as unknown as PackageSourceFacts;
+
+const withoutMigrationHeadFact = (key: string): PackageSourceFacts => {
+  const migrationHead = { ...source.migrationHead } as Record<string, unknown>;
+  delete migrationHead[key];
+  return { ...source, migrationHead } as unknown as PackageSourceFacts;
+};
+
+const strictFactsCases: ReadonlyArray<
+  readonly [label: string, make: () => PackageSourceFacts]
+> = [
+  ["missing appVersion", () => withoutTopLevelFact("appVersion")],
+  ["undefined appVersion", () => withTopLevelFact("appVersion", undefined)],
+  ["null appVersion", () => withTopLevelFact("appVersion", null)],
+  ["wrong appVersion type", () => withTopLevelFact("appVersion", 14)],
+  ["malformed appVersion", () => withTopLevelFact("appVersion", "v0.1.14")],
+  ["missing sourceCommit", () => withoutTopLevelFact("sourceCommit")],
+  ["undefined sourceCommit", () => withTopLevelFact("sourceCommit", undefined)],
+  ["null sourceCommit", () => withTopLevelFact("sourceCommit", null)],
+  ["wrong sourceCommit type", () => withTopLevelFact("sourceCommit", 40)],
+  [
+    "malformed sourceCommit",
+    () => withTopLevelFact("sourceCommit", "A".repeat(40)),
+  ],
+  [
+    "missing currentStateSchemaVersion",
+    () => withoutTopLevelFact("currentStateSchemaVersion"),
+  ],
+  [
+    "undefined currentStateSchemaVersion",
+    () => withTopLevelFact("currentStateSchemaVersion", undefined),
+  ],
+  [
+    "null currentStateSchemaVersion",
+    () => withTopLevelFact("currentStateSchemaVersion", null),
+  ],
+  [
+    "wrong currentStateSchemaVersion type",
+    () => withTopLevelFact("currentStateSchemaVersion", "20"),
+  ],
+  [
+    "malformed currentStateSchemaVersion",
+    () => withTopLevelFact("currentStateSchemaVersion", 20.5),
+  ],
+  [
+    "missing migrationIdentitySha256",
+    () => withoutTopLevelFact("migrationIdentitySha256"),
+  ],
+  [
+    "undefined migrationIdentitySha256",
+    () => withTopLevelFact("migrationIdentitySha256", undefined),
+  ],
+  [
+    "null migrationIdentitySha256",
+    () => withTopLevelFact("migrationIdentitySha256", null),
+  ],
+  [
+    "wrong migrationIdentitySha256 type",
+    () => withTopLevelFact("migrationIdentitySha256", 64),
+  ],
+  [
+    "malformed migrationIdentitySha256",
+    () => withTopLevelFact("migrationIdentitySha256", "f".repeat(63)),
+  ],
+  ["missing migrationHead", () => withoutTopLevelFact("migrationHead")],
+  [
+    "undefined migrationHead",
+    () => withTopLevelFact("migrationHead", undefined),
+  ],
+  ["null migrationHead", () => withTopLevelFact("migrationHead", null)],
+  [
+    "wrong migrationHead type",
+    () => withTopLevelFact("migrationHead", "19 to 20"),
+  ],
+  [
+    "excess top-level field",
+    () => ({ ...source, unexpected: true }) as unknown as PackageSourceFacts,
+  ],
+  [
+    "missing migrationHead.fromVersion",
+    () => withoutMigrationHeadFact("fromVersion"),
+  ],
+  [
+    "undefined migrationHead.fromVersion",
+    () => withMigrationHeadFact("fromVersion", undefined),
+  ],
+  [
+    "null migrationHead.fromVersion",
+    () => withMigrationHeadFact("fromVersion", null),
+  ],
+  [
+    "wrong migrationHead.fromVersion type",
+    () => withMigrationHeadFact("fromVersion", "19"),
+  ],
+  [
+    "malformed migrationHead.fromVersion",
+    () => withMigrationHeadFact("fromVersion", -1),
+  ],
+  [
+    "missing migrationHead.toVersion",
+    () => withoutMigrationHeadFact("toVersion"),
+  ],
+  [
+    "undefined migrationHead.toVersion",
+    () => withMigrationHeadFact("toVersion", undefined),
+  ],
+  [
+    "null migrationHead.toVersion",
+    () => withMigrationHeadFact("toVersion", null),
+  ],
+  [
+    "wrong migrationHead.toVersion type",
+    () => withMigrationHeadFact("toVersion", "20"),
+  ],
+  [
+    "malformed migrationHead.toVersion",
+    () => withMigrationHeadFact("toVersion", Number.POSITIVE_INFINITY),
+  ],
+  ["missing migrationHead.name", () => withoutMigrationHeadFact("name")],
+  [
+    "undefined migrationHead.name",
+    () => withMigrationHeadFact("name", undefined),
+  ],
+  ["null migrationHead.name", () => withMigrationHeadFact("name", null)],
+  [
+    "wrong migrationHead.name type",
+    () => withMigrationHeadFact("name", 20),
+  ],
+  ["malformed migrationHead.name", () => withMigrationHeadFact("name", "")],
+  [
+    "excess migrationHead field",
+    () =>
+      ({
+        ...source,
+        migrationHead: { ...source.migrationHead, unexpected: true },
+      }) as unknown as PackageSourceFacts,
+  ],
+];
+
 const identity = (
   runtime: PackageRuntime,
   facts: PackageSourceFacts = source,
@@ -514,6 +672,33 @@ describe("exact committed source admission", () => {
     (field: string, cloneFacts: PackageSourceFacts) => {
       expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).toThrow(
         new RegExp(`PackageSourceFacts mismatch for ${field}`),
+      );
+    },
+  );
+
+  it.each(strictFactsCases)(
+    "rejects malformed root PackageSourceFacts (%s)",
+    (_label: string, makeFacts: () => PackageSourceFacts) => {
+      expect(() => assertPackageSourceFactsEqual(makeFacts(), source)).toThrow(
+        /invalid root PackageSourceFacts/u,
+      );
+    },
+  );
+
+  it.each(strictFactsCases)(
+    "rejects malformed clone PackageSourceFacts (%s)",
+    (_label: string, makeFacts: () => PackageSourceFacts) => {
+      expect(() => assertPackageSourceFactsEqual(source, makeFacts())).toThrow(
+        /invalid clone PackageSourceFacts/u,
+      );
+    },
+  );
+
+  it.each(strictFactsCases)(
+    "rejects matching malformed PackageSourceFacts on both sides (%s)",
+    (_label: string, makeFacts: () => PackageSourceFacts) => {
+      expect(() => assertPackageSourceFactsEqual(makeFacts(), makeFacts())).toThrow(
+        /invalid root PackageSourceFacts/u,
       );
     },
   );

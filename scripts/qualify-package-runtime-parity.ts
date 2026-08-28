@@ -430,10 +430,116 @@ export const plantHistoricalStaleRemote = async (input: {
   };
 };
 
+const PACKAGE_SOURCE_FACTS_KEYS = {
+  appVersion: true,
+  sourceCommit: true,
+  currentStateSchemaVersion: true,
+  migrationHead: true,
+  migrationIdentitySha256: true,
+} as const satisfies Record<keyof PackageSourceFacts, true>;
+
+const PACKAGE_SOURCE_MIGRATION_HEAD_KEYS = {
+  fromVersion: true,
+  toVersion: true,
+  name: true,
+} as const satisfies Record<keyof PackageSourceFacts["migrationHead"], true>;
+
+const SEMVER =
+  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+
+const requireExactOwnKeys = (
+  value: Record<string, unknown>,
+  expected: Readonly<Record<string, true>>,
+  label: string,
+): void => {
+  const expectedKeys = Object.keys(expected);
+  const expectedSet = new Set(expectedKeys);
+  const actualKeys = Reflect.ownKeys(value);
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some(
+      (key) => typeof key !== "string" || !expectedSet.has(key),
+    )
+  ) {
+    const actual = actualKeys.map((key) =>
+      typeof key === "symbol" ? key.toString() : key,
+    );
+    throw new Error(
+      `invalid ${label} keys: expected=${expectedKeys.join(",")} actual=${actual.join(",")}`,
+    );
+  }
+};
+
+const requirePackageInteger = (
+  value: unknown,
+  label: string,
+  minimum: number,
+): number => {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < minimum
+  ) {
+    throw new Error(`invalid ${label}`);
+  }
+  return value;
+};
+
+const validatePackageSourceFacts = (
+  input: unknown,
+  operand: "root" | "clone",
+): PackageSourceFacts => {
+  const label = `${operand} PackageSourceFacts`;
+  const record = requireRecord(input, label);
+  requireExactOwnKeys(record, PACKAGE_SOURCE_FACTS_KEYS, label);
+  const migrationHead = requireRecord(
+    record.migrationHead,
+    `${label}.migrationHead`,
+  );
+  requireExactOwnKeys(
+    migrationHead,
+    PACKAGE_SOURCE_MIGRATION_HEAD_KEYS,
+    `${label}.migrationHead`,
+  );
+  return {
+    appVersion: requireString(record.appVersion, `${label}.appVersion`, SEMVER),
+    sourceCommit: requireString(
+      record.sourceCommit,
+      `${label}.sourceCommit`,
+      SOURCE_COMMIT,
+    ),
+    currentStateSchemaVersion: requirePackageInteger(
+      record.currentStateSchemaVersion,
+      `${label}.currentStateSchemaVersion`,
+      2,
+    ),
+    migrationHead: {
+      fromVersion: requirePackageInteger(
+        migrationHead.fromVersion,
+        `${label}.migrationHead.fromVersion`,
+        0,
+      ),
+      toVersion: requirePackageInteger(
+        migrationHead.toVersion,
+        `${label}.migrationHead.toVersion`,
+        0,
+      ),
+      name: requireString(migrationHead.name, `${label}.migrationHead.name`),
+    },
+    migrationIdentitySha256: requireString(
+      record.migrationIdentitySha256,
+      `${label}.currentStateSchemaIdentity`,
+      SHA256,
+    ),
+  };
+};
+
 export const assertPackageSourceFactsEqual = (
   rootFacts: PackageSourceFacts,
   cloneFacts: PackageSourceFacts,
 ): void => {
+  const root = validatePackageSourceFacts(rootFacts, "root");
+  const clone = validatePackageSourceFacts(cloneFacts, "clone");
   const comparisons: ReadonlyArray<
     readonly [
       label: string,
@@ -441,31 +547,33 @@ export const assertPackageSourceFactsEqual = (
       cloneValue: string | number,
     ]
   > = [
-    ["appVersion", rootFacts.appVersion, cloneFacts.appVersion],
-    ["sourceCommit", rootFacts.sourceCommit, cloneFacts.sourceCommit],
+    ["appVersion", root.appVersion, clone.appVersion],
+    ["sourceCommit", root.sourceCommit, clone.sourceCommit],
     [
       "currentStateSchemaVersion",
-      rootFacts.currentStateSchemaVersion,
-      cloneFacts.currentStateSchemaVersion,
+      root.currentStateSchemaVersion,
+      clone.currentStateSchemaVersion,
     ],
     [
       "migrationHead.fromVersion",
-      rootFacts.migrationHead.fromVersion,
-      cloneFacts.migrationHead.fromVersion,
+      root.migrationHead.fromVersion,
+      clone.migrationHead.fromVersion,
     ],
     [
       "migrationHead.toVersion",
-      rootFacts.migrationHead.toVersion,
-      cloneFacts.migrationHead.toVersion,
+      root.migrationHead.toVersion,
+      clone.migrationHead.toVersion,
     ],
-    ["migrationHead.name", rootFacts.migrationHead.name, cloneFacts.migrationHead.name],
+    ["migrationHead.name", root.migrationHead.name, clone.migrationHead.name],
     [
       "currentStateSchemaIdentity",
-      rootFacts.migrationIdentitySha256,
-      cloneFacts.migrationIdentitySha256,
+      root.migrationIdentitySha256,
+      clone.migrationIdentitySha256,
     ],
   ];
-  const mismatch = comparisons.find(([, rootValue, cloneValue]) => rootValue !== cloneValue);
+  const mismatch = comparisons.find(
+    ([, rootValue, cloneValue]) => rootValue !== cloneValue,
+  );
   if (mismatch !== undefined) {
     throw new Error(
       `isolated clone PackageSourceFacts mismatch for ${mismatch[0]}: root=${String(mismatch[1])} clone=${String(mismatch[2])}`,
