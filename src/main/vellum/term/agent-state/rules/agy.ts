@@ -57,7 +57,7 @@ export const agyRules: SeatRulePack = {
     {
       /**
        * Live activity line above the footer rule:
-       *   `● Agent(self)  Read TerminalSurface session load logic · 4m30s`
+       *   `● Agent(self)  Read TerminalSurface session load logic - 4m30s`
        * Present for both self-work and subagent turns; absent when idle.
        */
       id: "activity_line_working",
@@ -74,7 +74,7 @@ export const agyRules: SeatRulePack = {
     },
     {
       /**
-       * Footer subagent counter: `Gemini 3.7 Flash · high · 1 subagent(s)`.
+       * Footer subagent counter: `Gemini 3.7 Flash - high - 1 subagent(s)`.
        * The counter is dropped entirely when no subagent is running, so any
        * non-zero count means the seat is working even if the activity line
        * scrolled out of the region.

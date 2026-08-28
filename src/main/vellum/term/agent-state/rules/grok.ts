@@ -78,7 +78,7 @@ export const grokRules: SeatRulePack = {
     {
       /**
        * Waiting on background work it spawned. Captured live:
-       *   `◎ 1 subagent still running · send a message to interrupt`
+       *   `◎ 1 subagent still running - send a message to interrupt`
        * Grok flips its OSC title back to the idle shape while the parent turn
        * waits, so `osc_title_idle` (1100) would publish idle over a seat that
        * is still working. This sits above it and reads the status line, which
