@@ -11,14 +11,14 @@ import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
 //
-// Architecture (native strategy pipelines):
+// Architecture:
 //   disk last-good  →  instant HUD paint when cached quotas match active sources
-//   primary fetch   →  fan-out active sources
-//   enrich stage    →  optional source-specific enrichment as a second push
+//   primary fetch   →  fan-out active sources in registry order, commit all
+//   enrich stage    →  optional per-source second push after first paint
 //   failed live     →  KEEP last-good when present; else empty (HUD hides)
 //
-// Fail open: no detected source / no quotas → empty state, no error chrome.
-// Failures are total at the source envelope, never throws across IPC.
+// Fail open: no quotas → empty state, no error chrome. Failures are total
+// at the source envelope, never throws across IPC.
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
@@ -57,7 +57,7 @@ export const UsageServiceLive = Layer.effect(
     const runtime = yield* Effect.context<never>();
     const activeSourceIds = new Set(sources.map((source) => source.id));
 
-    /** Drop snapshots from sources not in the live registry (e.g. cached natives while beta is codexbar-only). */
+    /** Drop snapshots from sources not in the current live registry (e.g. stale cached rows). */
     const keepActive = (snapshots: ReadonlyArray<UsageSnapshot>): ReadonlyArray<UsageSnapshot> =>
       snapshots.filter((snapshot) => activeSourceIds.has(snapshot.source));
 
@@ -137,11 +137,11 @@ export const UsageServiceLive = Layer.effect(
     const applyPrimary = async (
       snapshots: ReadonlyArray<UsageSnapshot>,
     ): Promise<UsageState> => {
-      const active = keepActive(snapshots);
-      const live: UsageState = { snapshots: [...active] };
+      const kept = keepActive(snapshots);
+      const live: UsageState = { snapshots: [...kept] };
       return hasUsageQuotas(live)
-        ? await commitLive(active)
-        : commitFailedLive(active);
+        ? await commitLive(kept)
+        : commitFailedLive(kept);
     };
 
     const runEnrich = async (primary: ReadonlyArray<UsageSnapshot>): Promise<void> => {
@@ -218,7 +218,7 @@ export const UsageServiceLive = Layer.effect(
               id: "usage",
               label: "Provider Usage",
               status: "warning" as const,
-              detail: "codexbar not on PATH (usage bar hidden)",
+              detail: `no configured usage source detected (checked: ${detected.map((entry) => entry.id).join(", ")}) - usage bar hidden`,
             };
       }),
       current: Effect.sync(() => state),

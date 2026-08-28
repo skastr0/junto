@@ -313,9 +313,9 @@ const runRegisteredAdapterOperation = (
             : signal !== null
               ? `adapter command terminated by ${signal}`
               : `adapter command exited with code ${String(code)}`);
-      // Keep stdout on failure: tools like `codexbar usage --json` often exit
-      // non-zero when a single provider errors while still emitting a useful
-      // JSON payload on stdout. Callers decide whether to recover from it.
+      // Keep stdout on failure: JSON-emitting CLI adapters often exit
+      // non-zero when a single item errors while still emitting a useful
+      // payload on stdout. Callers decide whether to recover from it.
       settleResult({ ok: false, stdout, error });
     });
 };

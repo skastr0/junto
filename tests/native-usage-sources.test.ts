@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { parseClaudeCachedUsage } from "../src/main/vellum/usage/claude-source";
 import {
@@ -9,7 +10,7 @@ import {
   mergeHermesPartials,
   parseHermesSqlRow,
 } from "../src/main/vellum/usage/hermes-source";
-import { usageStateIsPartial } from "../src/shared/usage";
+import { usageStateIsPartial, UsageSnapshot } from "../src/shared/usage";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 
@@ -172,5 +173,31 @@ describe("usageStateIsPartial", () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe("UsageSnapshot dataConfidence", () => {
+  const decode = Schema.decodeUnknownSync(UsageSnapshot);
+
+  it("accepts an optional dataConfidence tag", () => {
+    const snapshot = decode({
+      source: "claude",
+      fetchedAt: FETCHED,
+      ok: true,
+      quotas: [],
+      dataConfidence: "stale-cache",
+    });
+    expect(snapshot.dataConfidence).toBe("stale-cache");
+  });
+
+  it("omits dataConfidence when a source does not distinguish", () => {
+    const snapshot = decode({
+      source: "hermes",
+      fetchedAt: FETCHED,
+      ok: false,
+      reason: "source-missing",
+      quotas: [],
+    });
+    expect(snapshot.dataConfidence).toBeUndefined();
   });
 });

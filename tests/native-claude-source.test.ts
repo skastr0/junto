@@ -136,6 +136,8 @@ describe("assembleClaudeSnapshot fallback behavior", () => {
     expect(snapshot.ok).toBe(true);
     expect(snapshot.quotas[0]?.source).toBe("oauth");
     expect(snapshot.reason).toBeUndefined();
+    // Fresh provider payload is tagged live at snapshot level.
+    expect(snapshot.dataConfidence).toBe("live");
   });
 
   it("falls back to stale data on 401 in the same call", () => {
@@ -147,6 +149,8 @@ describe("assembleClaudeSnapshot fallback behavior", () => {
     expect(snapshot.ok).toBe(true);
     expect(snapshot.quotas[0]?.source).toBe("claude.json");
     expect(snapshot.quotas[0]?.extras?.sourcePath).toBe("cachedUsageUtilization");
+    // Stale fallback paints honestly as stale-cache, never as live.
+    expect(snapshot.dataConfidence).toBe("stale-cache");
   });
 
   it("reports cli-error with no quotas when live fails and no stale cache exists", () => {

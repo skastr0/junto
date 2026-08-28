@@ -23,7 +23,7 @@ const asNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
 /**
- * Lane derivation from `limit_window_seconds` (CodexBar parity):
+ * Lane derivation from `limit_window_seconds` (Codex wire convention):
  * ~5h → session, ~weekly → weekly, ~monthly → monthly.
  */
 export const deriveWindowTitle = (limitWindowSeconds: number): string => {
@@ -152,8 +152,8 @@ export type CodexOutcome =
       readonly error: string;
     };
 
-// Envelope builder (buildCodexbarSnapshot pattern): every unavailable mode
-// carries a machine-readable reason so the renderer can fail open.
+// Envelope builder: every unavailable mode carries a machine-readable reason
+// so the renderer can fail open.
 export const buildCodexSnapshot = (fetchedAt: string, outcome: CodexOutcome): UsageSnapshot =>
   outcome.kind === "ok"
     ? { source: "codex", fetchedAt, ok: true, quotas: outcome.quotas }

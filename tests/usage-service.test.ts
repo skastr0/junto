@@ -233,15 +233,17 @@ describe("UsageService", () => {
     const usage2 = await runtime.runPromise(UsageService);
     const warnCheck = await runtime.runPromise(usage2.doctor);
     expect(warnCheck.status).toBe("warning");
-    expect(warnCheck.detail.toLowerCase()).toContain("codexbar");
+    // Honest aggregate: names what was checked, not one retired tool.
+    expect(warnCheck.detail).toContain("no configured usage source detected");
+    expect(warnCheck.detail).toContain("ghost");
   });
 
   it("fail-open: all sources missing with no last-good yields empty (HUD hides)", async () => {
     await runtime.dispose();
     sources = [
-      fakeSource("codexbar", {
+      fakeSource("grok", {
         present: false,
-        fetch: () => missingSnapshot("codexbar"),
+        fetch: () => missingSnapshot("grok"),
       }) as UsageSource & { readonly fetchCount: number },
     ];
     runtime = makeUsageRuntime(sources);
@@ -257,7 +259,7 @@ describe("UsageService", () => {
     const seed: UsageState = {
       snapshots: [
         okSnapshot("claude", ["claude"]),
-        okSnapshot("codexbar", ["cursor"]),
+        okSnapshot("grok", ["grok-web"]),
       ],
       lastLiveAt: "2026-07-17T00:00:00.000Z",
     };
@@ -266,16 +268,17 @@ describe("UsageService", () => {
       saveLastGood: () => Effect.void,
     });
     sources = [
-      fakeSource("codexbar", {
-        fetch: () => okSnapshot("codexbar", ["cursor", "gemini"]),
+      fakeSource("claude", {
+        fetch: () => okSnapshot("claude", ["claude", "codex"]),
       }) as UsageSource & { readonly fetchCount: number },
     ];
     runtime = makeUsageRuntime(sources, cache);
     const usage = await runtime.runPromise(UsageService);
     const current = await runtime.runPromise(usage.current);
-    // Native cache rows filtered out; only codexbar last-good paints.
-    expect(current.snapshots.map((s) => s.source)).toEqual(["codexbar"]);
+    // Cache rows from sources not in the registry filtered out; only the
+    // configured source's last-good paints.
+    expect(current.snapshots.map((s) => s.source)).toEqual(["claude"]);
     expect(current.stale).toBe(true);
-    expect(current.snapshots[0]?.quotas.map((q) => q.provider)).toEqual(["cursor"]);
+    expect(current.snapshots[0]?.quotas.map((q) => q.provider)).toEqual(["claude"]);
   });
 });

@@ -2,8 +2,8 @@ import { Context, Effect } from "effect";
 import type { UsageSnapshot } from "@shared/usage";
 
 // The IoC seam of the provider usage plane. A UsageSource is a pluggable
-// origin of quota data. Beta: codexbar only; native harness readers exist
-// but are unwired (WIP post-beta). fetch is TOTAL: every failure mode folds
+// origin of quota data — an ordered strategy pipeline over one provider's
+// local credentials and caches. fetch is TOTAL: every failure mode folds
 // into the UsageSnapshot envelope (ok:false + reason) so the service and
 // the renderer can fail open (hide the bar when nothing is available).
 export interface UsageSource {
@@ -27,7 +27,7 @@ export interface UsageSource {
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class UsageSources extends Context.Service<UsageSources, ReadonlyArray<UsageSource>>()("@vellum/UsageSources") {}`
- * - Layer today: StationUsageSourcesLive / NativeUsageSourcesLive / CodexBarSourcesLive — V4 rename candidates UsageSources.layer*
+ * - Layer today: StationUsageSourcesLive — V4 rename candidates UsageSources.layer*
  *   Do not dual-export Live + `.layer` names.
  */
 export class UsageSources extends Context.Service<UsageSources,

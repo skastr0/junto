@@ -169,7 +169,13 @@ export const assembleClaudeSnapshot = (
   if (outcome?.kind === "ok") {
     const liveQuota = parseClaudeOAuthUsage(outcome.payload, fetchedAt);
     if (liveQuota !== undefined) {
-      return { source: "claude", fetchedAt, ok: true, quotas: [liveQuota] };
+      return {
+        source: "claude",
+        fetchedAt,
+        ok: true,
+        quotas: [liveQuota],
+        dataConfidence: "live",
+      };
     }
     // Unusable live payload — degrade to the stale path below.
   }
@@ -177,7 +183,13 @@ export const assembleClaudeSnapshot = (
   const staleQuota =
     stalePayload !== undefined ? parseClaudeCachedUsage(stalePayload, fetchedAt) : undefined;
   if (staleQuota !== undefined) {
-    return { source: "claude", fetchedAt, ok: true, quotas: [staleQuota] };
+    return {
+      source: "claude",
+      fetchedAt,
+      ok: true,
+      quotas: [staleQuota],
+      dataConfidence: "stale-cache",
+    };
   }
 
   let reason: UsageUnavailableReason;
@@ -244,7 +256,3 @@ export const claudeSource: UsageSource = {
   detect: Effect.promise(detectClaude),
   fetch: Effect.promise(fetchClaude),
 };
-
-// WIP post-beta: natives remain unwired in production — StationUsageSourcesLive
-// stays codexbar-only (src/main/vellum/usage/native-sources.ts). This module is
-// exercised via NativeUsageSourcesLive in unit tests until that gate opens.
