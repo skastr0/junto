@@ -334,7 +334,7 @@ export class ProtoHarness {
     (this as { pause: unknown }).pause = pause;
     (this as { settings: unknown }).settings = settings;
     await this.runtime.runPromise(this.pause.start);
-    this.canvases.start();
+    await this.runtime.runPromise(this.canvases.start());
     if (this.wireChangeListener) {
       // ipc.ts:987-991 — ONE edge-notification theory per authorial commit.
       this.unsubChanges = this.canvases.subscribeChanges((name, detail) => {

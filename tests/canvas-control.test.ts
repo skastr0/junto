@@ -111,7 +111,7 @@ const makeRuntime = (input: {
     ensureSeed: Effect.void,
     writeSidecar: () =>
       Effect.fail(new CanvasError({ message: "not used" })),
-    start: () => undefined,
+    start: () => Effect.void,
     subscribeChanges: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

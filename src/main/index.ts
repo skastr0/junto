@@ -1565,7 +1565,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.exit(0);
       },
     });
-    registerIpcHandlers();
+    // Canvas bootstrap readiness is part of admitted pre-window startup. Its
+    // rejection reaches the existing outer recovery catch below, which shows
+    // the one data-safe dialog and exits without renderer admission.
+    await registerIpcHandlers();
     registerDemoIpcHandlers();
     if (shutdownAdmissionClosed) return;
 

@@ -30,6 +30,8 @@ const runtime = vi.hoisted(() => ({
 vi.mock("electron", () => ({
   app: { getVersion: () => "0.0.0-test" },
   BrowserWindow: { getAllWindows: () => [] },
+  dialog: { showOpenDialog: vi.fn() },
+  clipboard: { availableFormats: () => [] },
   ipcMain: {
     handle: (channel: string, handler: InvokeHandler) => electron.handlers.set(channel, handler),
   },
@@ -64,6 +66,40 @@ afterEach(async () => {
 });
 
 describe("renderer canvas authoring IPC", () => {
+  it(
+    "propagates canvas bootstrap failure before renderer handlers are admitted",
+    async () => {
+      const bootstrapError = new Error("stale canvas authority head");
+      runtime.runPromise.mockRejectedValueOnce(bootstrapError);
+      const { registerVellumIpc } = await import("../src/main/vellum/ipc");
+
+      await expect(registerVellumIpc()).rejects.toBe(bootstrapError);
+      expect(electron.handlers.size).toBe(0);
+      expect(runtime.runPromise).toHaveBeenCalledTimes(1);
+    },
+    15_000,
+  );
+
+  it("keeps background service startup off the canvas readiness promise", async () => {
+    runtime.runPromise
+      .mockResolvedValueOnce("canvas-ready")
+      .mockImplementationOnce(() => new Promise<string>(() => {}));
+    const { registerVellumIpc } = await import("../src/main/vellum/ipc");
+
+    await expect(registerVellumIpc()).resolves.toBeUndefined();
+    expect(electron.handlers.size).toBeGreaterThan(0);
+    expect(runtime.runPromise.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("propagates canvas bootstrap failure through top-level IPC registration", async () => {
+    const bootstrapError = new Error("orphan canvas generations");
+    runtime.runPromise.mockRejectedValueOnce(bootstrapError);
+    const { registerIpcHandlers } = await import("../src/main/ipc");
+
+    await expect(registerIpcHandlers()).rejects.toBe(bootstrapError);
+    expect(electron.handlers.size).toBe(0);
+  });
+
   it("resolves only one exact projected actor reference", async () => {
     const { resolveProjectedIpcActorRef } = await import(
       "../src/main/vellum/ipc"
@@ -114,7 +150,7 @@ describe("renderer canvas authoring IPC", () => {
     // This test exercises authoring admission after the independent product
     // startup boundary has already admitted the trusted renderer.
     productLicenseAdmission.admit("development");
-    registerVellumIpc();
+    await registerVellumIpc();
 
     const write = handlerFor(IPC_CHANNELS.writeCanvas);
     const create = handlerFor(IPC_CHANNELS.createCanvas);

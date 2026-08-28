@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildStartupStateFailureCopy,
@@ -149,5 +151,60 @@ describe("runStartupStateFailureDialog", () => {
     // Title/message stay free of schema internals; detail may carry the technical fragment.
     expect(box.title).not.toMatch(/schema|user_version|PRAGMA|StateEngine/i);
     expect(box.message).not.toMatch(/schema|user_version|PRAGMA|StateEngine/i);
+  });
+});
+
+describe("canvas authority pre-window startup propagation", () => {
+  const root = join(import.meta.dirname, "..");
+  const vellumIpcSource = readFileSync(
+    join(root, "src/main/vellum/ipc.ts"),
+    "utf8",
+  );
+  const mainIpcSource = readFileSync(join(root, "src/main/ipc.ts"), "utf8");
+  const indexSource = readFileSync(join(root, "src/main/index.ts"), "utf8");
+
+  it("awaits Canvases readiness through IPC registration before renderer admission", () => {
+    const vellumRegistration = vellumIpcSource.slice(
+      vellumIpcSource.indexOf("export const registerVellumIpc"),
+      vellumIpcSource.indexOf("export const registerVellumBrowserIpc"),
+    );
+    expect(vellumRegistration).toContain("async (): Promise<void>");
+    expect(vellumRegistration).toMatch(
+      /await AppRuntime\.runPromise\([\s\S]*canvases\.start\(\)/,
+    );
+
+    const mainRegistration = mainIpcSource.slice(
+      mainIpcSource.indexOf("export const registerIpcHandlers"),
+    );
+    expect(mainRegistration).toContain("async (): Promise<void>");
+    expect(mainRegistration).toContain("await registerVellumIpc();");
+
+    const ready = indexSource.slice(indexSource.indexOf("app.whenReady().then"));
+    const awaitIpc = ready.indexOf("await registerIpcHandlers();");
+    const workControl = ready.indexOf("startWorkControlServer({", awaitIpc);
+    const browserComposition = ready.indexOf("startBrowserComposition(", awaitIpc);
+    const rendererAdmission = ready.indexOf(
+      "rendererWindowAdmissionReady = true;",
+      awaitIpc,
+    );
+    const windowAdmission = ready.indexOf("if (!headless) createWindow();", awaitIpc);
+    const failureCatch = ready.indexOf(".catch(async (error) =>", awaitIpc);
+    const recoveryDialog = ready.indexOf(
+      "await runStartupStateFailureDialog({ error, headless });",
+      failureCatch,
+    );
+    const failureExit = ready.indexOf(
+      'exitAfterDetach(1, "startup-failure");',
+      failureCatch,
+    );
+
+    expect(awaitIpc).toBeGreaterThanOrEqual(0);
+    expect(workControl).toBeGreaterThan(awaitIpc);
+    expect(browserComposition).toBeGreaterThan(workControl);
+    expect(rendererAdmission).toBeGreaterThan(browserComposition);
+    expect(windowAdmission).toBeGreaterThan(rendererAdmission);
+    expect(failureCatch).toBeGreaterThan(windowAdmission);
+    expect(recoveryDialog).toBeGreaterThan(failureCatch);
+    expect(failureExit).toBeGreaterThan(recoveryDialog);
   });
 });

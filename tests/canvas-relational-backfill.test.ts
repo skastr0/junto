@@ -702,6 +702,190 @@ describe("canvas relational v2 installed-state safety", () => {
     );
   });
 
+  it("rejects a stale existing head before startup can serve generation 9 over generation 11", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedHistory(
+      state,
+      [
+        { generation: "9", documents: [seedDoc("alpha", noteDoc("nine", "stale"))] },
+        { generation: "11", documents: [seedDoc("alpha", noteDoc("eleven", "current"))] },
+      ],
+      "9",
+    );
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    await expect(runtime!.runPromise(canvases.start())).rejects.toThrow(
+      /canvas head 9 is stale; exact greatest source generation is 11/,
+    );
+    await expect(runtime!.runPromise(canvases.list)).rejects.toThrow(
+      /canvas head 9 is stale/,
+    );
+    const liveState = await runtime!.runPromise(StateEngine);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.stale-head.preserved", (reader) =>
+          reader.get<{ readonly generation: string }>(
+            "SELECT generation FROM canvas_head WHERE singleton = 1",
+          )?.generation,
+        ),
+      ),
+    ).toBe("9");
+  });
+
+  it("rejects a stale same-length head above signed 64-bit range", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedHistory(
+      state,
+      [
+        {
+          generation: HUGE_1,
+          documents: [seedDoc("alpha", noteDoc("older", "huge older"))],
+        },
+        {
+          generation: HUGE_2,
+          documents: [seedDoc("alpha", noteDoc("newer", "huge newer"))],
+        },
+      ],
+      HUGE_1,
+    );
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    await expect(runtime!.runPromise(canvases.start())).rejects.toThrow(
+      new RegExp(
+        `canvas head ${HUGE_1} is stale; exact greatest source generation is ${HUGE_2}`,
+      ),
+    );
+  });
+
+  it("rejects orphan source generations when the head is absent", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedHistory(
+      state,
+      [{ generation: "9", documents: [seedDoc("alpha", noteDoc("node", "orphan"))] }],
+      "9",
+    );
+    await runtime!.runPromise(
+      state.transaction("test.orphan-source.remove-head", (writer) => {
+        writer.run("DELETE FROM canvas_head WHERE singleton = 1");
+      }),
+    );
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    await expect(runtime!.runPromise(canvases.start())).rejects.toThrow(
+      /head is missing while generation rows exist; recovery required/,
+    );
+  });
+
+  const currentHeadFailureCases: ReadonlyArray<{
+    readonly name: string;
+    readonly generation: SeedGeneration;
+    readonly afterSeed?: (state: TestStateService) => Promise<void>;
+    readonly error: RegExp;
+  }> = [
+    {
+      name: "malformed body",
+      generation: {
+        generation: "9",
+        documents: [seedBody("alpha", "{")],
+      },
+      error: /database is not valid JSON/,
+    },
+    {
+      name: "body digest mismatch",
+      generation: {
+        generation: "9",
+        documents: [
+          seedBody(
+            "alpha",
+            serializeCanvas(noteDoc("node", "digest mismatch")),
+            "f".repeat(64),
+          ),
+        ],
+      },
+      error: /database body hash mismatch/,
+    },
+    {
+      name: "document count mismatch",
+      generation: {
+        generation: "9",
+        documents: [seedDoc("alpha", noteDoc("node", "count mismatch"))],
+        documentCount: 2,
+      },
+      error: /expected 2 documents but loaded 1/,
+    },
+    {
+      name: "intent digest mismatch",
+      generation: {
+        generation: "9",
+        documents: [seedDoc("alpha", noteDoc("node", "intent mismatch"))],
+      },
+      afterSeed: async (state) => {
+        await Effect.runPromise(
+          state.transaction("test.current-head.bad-intent", (writer) => {
+            writer.run(
+              "UPDATE canvas_generations SET intent_sha256 = ? WHERE generation = '9'",
+              ["f".repeat(64)],
+            );
+          }),
+        );
+      },
+      error: /intent hash mismatch/,
+    },
+  ];
+
+  it.each(currentHeadFailureCases)(
+    "rejects current-head $name during awaited bootstrap",
+    async ({ generation, afterSeed, error }) => {
+      const path = await paths();
+      runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+      const state = await runtime!.runPromise(StateEngine);
+      await seedHistory(state, [generation], generation.generation);
+      await afterSeed?.(state);
+      const authorityBefore = await runtime!.runPromise(
+        state.read("test.current-head.before", snapshotCanvasAuthorityTables),
+      );
+      await dispose();
+
+      runtime = makeCanvasRuntime(
+        path.statePath,
+        path.installOpsPath,
+        path.root,
+      );
+      const canvases = await runtime!.runPromise(CanvasesService);
+      await expect(runtime!.runPromise(canvases.start())).rejects.toThrow(error);
+      const liveState = await runtime!.runPromise(StateEngine);
+      expect(
+        await runtime!.runPromise(
+          liveState.read("test.current-head.after", snapshotCanvasAuthorityTables),
+        ),
+      ).toEqual(authorityBefore);
+    },
+  );
+
   it("skips Remote startup before v2 marker or authorial relational mutation and keeps projection reads unchanged", async () => {
     const path = await paths();
     runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
@@ -994,6 +1178,7 @@ describe("canvas relational v2 installed-state safety", () => {
       path.root,
     );
     const canvases = await runtime!.runPromise(CanvasesService);
+    await runtime!.runPromise(canvases.start());
     expect(await runtime!.runPromise(canvases.list)).toEqual([]);
     const liveState = await runtime!.runPromise(StateEngine);
     expect(
@@ -1869,7 +2054,7 @@ describe("canvas relational v2 installed-state safety", () => {
     );
     const canvases = await runtime!.runPromise(CanvasesService);
     const liveState = await runtime!.runPromise(StateEngine);
-    canvases.start();
+    const startup = runtime!.runPromise(canvases.start());
     await backfillEntered;
 
     let writeSettled = false;
@@ -1899,6 +2084,7 @@ describe("canvas relational v2 installed-state safety", () => {
     ).toBe("9");
 
     releaseBackfill();
+    await startup;
     await writePromise;
     expect(writeSettled).toBe(true);
     expect(
@@ -2262,6 +2448,7 @@ describe("canvas relational v2 installed-state safety", () => {
         path.root,
       );
       const canvases = await runtime!.runPromise(CanvasesService);
+      await runtime!.runPromise(canvases.start());
       expect((await runtime!.runPromise(canvases.read("current"))).doc).toEqual(
         noteDoc("head", "current"),
       );

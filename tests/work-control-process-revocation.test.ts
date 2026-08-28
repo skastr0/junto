@@ -179,7 +179,7 @@ const canvasesService = CanvasesService.of({
   ensureSeed: Effect.void,
   writeSidecar: () =>
     Effect.fail(new CanvasError({ message: "not used" })),
-  start: () => undefined,
+  start: () => Effect.void,
   subscribeChanges: () => () => undefined,
   announceInstalledProjection: () => {},
   liveDocuments: () =>

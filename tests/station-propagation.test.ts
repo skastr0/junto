@@ -120,7 +120,7 @@ const canvases = (
     ensureSeed: Effect.void,
     writeSidecar: () =>
       Effect.fail(new CanvasError({ message: "unused" })),
-    start: () => undefined,
+    start: () => Effect.void,
     subscribeChanges: () => () => undefined,
     announceInstalledProjection: () => undefined,
     liveDocuments: () =>
