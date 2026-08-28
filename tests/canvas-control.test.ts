@@ -99,6 +99,12 @@ const makeRuntime = (input: {
     readNodeStructure: () =>
       Effect.fail(new CanvasError({ message: "not used" })),
     write: () => Effect.fail(new CanvasError({ message: "not used" })),
+    applyAuthoringCommand: (_command: unknown) =>
+      Effect.fail(new CanvasError({ message: "not used" })),
+    readAuthoringTail: (_input?: {
+      readonly afterChangeId?: string;
+      readonly canvasName?: string;
+    }) => Effect.fail(new CanvasError({ message: "not used" })),
     mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
     create: () => Effect.fail(new CanvasError({ message: "not used" })),
     remove: () => Effect.fail(new CanvasError({ message: "not used" })),

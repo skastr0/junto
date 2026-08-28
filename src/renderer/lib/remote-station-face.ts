@@ -134,7 +134,6 @@ export const statsFromDoctor = (
   const compatibility = deriveFleetCompatibilitySnapshot({
     hostId,
     reachabilityStatus: "reachable",
-    observationTimestamp: report.checkedAt,
   });
 
   return {

@@ -169,6 +169,12 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       readNodeStructure: () =>
         Effect.fail(new CanvasError({ message: "not used" })),
       write: () => Effect.succeed({ revision: "written-r1" }),
+      applyAuthoringCommand: (_command: unknown) =>
+        Effect.fail(new CanvasError({ message: "not used" })),
+      readAuthoringTail: (_input?: {
+        readonly afterChangeId?: string;
+        readonly canvasName?: string;
+      }) => Effect.fail(new CanvasError({ message: "not used" })),
       mutate: () => Effect.void,
       create: (name: string) => Effect.succeed({
         name,

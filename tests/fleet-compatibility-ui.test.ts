@@ -138,9 +138,12 @@ describe("Fleet Compatibility UI & Progressive Disclosure", () => {
       hostId: "studio",
       reachabilityStatus: "reachable",
       remoteObservation: {
+        hostId: "studio",
+        endpoint: "studio-box",
+        reachability: "reachable",
         observedAt: staleTime,
         expectedInstallationId: "inst-1",
-        source: "ssh",
+        source: "live",
       },
     });
 

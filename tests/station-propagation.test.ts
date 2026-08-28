@@ -108,6 +108,12 @@ const canvases = (
     readNodeStructure: () =>
       Effect.fail(new CanvasError({ message: "unused" })),
     write: () => Effect.fail(new CanvasError({ message: "unused" })),
+    applyAuthoringCommand: (_command: unknown) =>
+      Effect.fail(new CanvasError({ message: "unused" })),
+    readAuthoringTail: (_input?: {
+      readonly afterChangeId?: string;
+      readonly canvasName?: string;
+    }) => Effect.fail(new CanvasError({ message: "unused" })),
     mutate: () => Effect.fail(new CanvasError({ message: "unused" })),
     create: () => Effect.fail(new CanvasError({ message: "unused" })),
     remove: () => Effect.fail(new CanvasError({ message: "unused" })),
