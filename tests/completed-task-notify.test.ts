@@ -556,7 +556,7 @@ describe("completed-task-notify", () => {
 
       markAllCompletedNotifyRead();
       expect(completedTaskNotify$.items.peek()).toEqual([]);
-      expect(store.data.dismissed.sort()).toEqual(["t1", "t2"]);
+      expect([...store.data.dismissed].sort()).toEqual(["t1", "t2"]);
 
       // Cold process: the durable dismiss holds.
       resetCompletedTaskNotify();
