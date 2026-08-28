@@ -2356,12 +2356,13 @@ describe("WorkService — concurrent ops", () => {
 });
 
 describe("WorkService — pipeline", () => {
-  // NOTE: sink contracts (`ether.tasks.contract`) are currently erased by the
-  // authorial write path (canvases stripRuntimeWorkProjection drops the whole
-  // tasks bag) — restoring them on write belongs to the contract-editor
-  // mutations phase. These service tests therefore author law through REGION
-  // contracts, which survive writes; sink-contract enforcement is covered at
-  // the pure layer (tests/work-pipeline.test.ts, tests/claims-stack.test.ts).
+  // Sink contracts (`ether.tasks.contract`) survive the authorial write path
+  // (stripRuntimeWorkProjection preserves contract and stationName) — proven
+  // by the boarding test below, which authors a checklist through
+  // canvases.write and reads its tickets back. These older service tests
+  // predate that and author law through REGION contracts; sink-contract
+  // enforcement is additionally covered at the pure layer
+  // (tests/work-pipeline.test.ts, tests/claims-stack.test.ts).
   it("forwards a completed task along the flow edge and re-homes it submitted", async () => {
     const name = "pipeline-forward";
     await workRuntime.runPromise(
