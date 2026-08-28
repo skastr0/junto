@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import {
 } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { ContentRef } from "../src/shared/content";
 import {
   InstallationId,
@@ -36,6 +36,7 @@ import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
 } from "./helpers/task-topology-authority";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const root = join(tmpdir(), `vellum-command-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -83,10 +84,7 @@ const fixtureTopology: CanvasDoc = {
   nodes: fixtureTaskSinkNodeIds.map(fixtureTaskNode),
   edges: [],
 };
-const fixtureTopologyBody = JSON.stringify(fixtureTopology);
-const fixtureTopologySha256 = createHash("sha256")
-  .update(fixtureTopologyBody, "utf8")
-  .digest("hex");
+const fixtureTopologyBody = serializeCanvas(fixtureTopology);
 const currentIntentSha256 = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
@@ -207,41 +205,15 @@ const seedInstallations = (
       `,
       [observedAt],
     );
-    for (const [generation, intentSha256] of [
-      ["0", staleIntentSha256],
-      ["1", currentIntentSha256],
-    ] as const) {
-      writer.run(
-        `
-          INSERT INTO canvas_generations(
-            generation,
-            created_at,
-            cause,
-            intent_sha256,
-            document_count
-          ) VALUES (?, ?, 'test intent', ?, 1)
-        `,
-        [generation, observedAt, intentSha256],
-      );
-      writer.run(
-        `
-          INSERT INTO canvas_generation_documents(
-            generation,
-            name,
-            body,
-            sha256,
-            modified_at
-          ) VALUES (?, 'factory', ?, ?, ?)
-        `,
-        [generation, fixtureTopologyBody, fixtureTopologySha256, observedAt],
-      );
-    }
-    writer.run(
-      `
-        INSERT INTO canvas_head(singleton, generation)
-        VALUES (1, '1')
-      `,
-    );
+    // Head-only relational authority: only the current generation "1" exists.
+    // The stale generation "0" survives solely as literal basis values whose
+    // rejection ("causal-conflict") is asserted below — a stale basis is
+    // unresolvable by construction in the head-only world.
+    seedCanvasAuthority(writer, {
+      generation: "1",
+      documents: new Map([["factory", fixtureTopology]]),
+      at: observedAt,
+    });
   });
 
 beforeAll(async () => {
@@ -1837,25 +1809,14 @@ describe("WorkRepository board CC-homed facts", () => {
             `,
             [cc, observedAt],
           );
-          writer.run(
-            `
-              INSERT INTO canvas_generations(
-                generation, created_at, cause, intent_sha256, document_count
-              ) VALUES ('1', ?, 'test', ?, 1)
-            `,
-            [observedAt, currentIntentSha256],
-          );
-          writer.run(
-            `
-              INSERT INTO canvas_generation_documents(
-                generation, name, body, sha256, modified_at
-              ) VALUES ('1', 'factory', '{}', ?, ?)
-            `,
-            ["1".repeat(64), observedAt],
-          );
-          writer.run(
-            `INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`,
-          );
+          // The old blob seed parked junk canvas rows here so the denial is
+          // attributable to the remote role, not to absent canvas data. Keep
+          // the relational analog: a minimal seeded head.
+          seedCanvasAuthority(writer, {
+            generation: "1",
+            documents: new Map([["factory", { nodes: [], edges: [] }]]),
+            at: observedAt,
+          });
         }),
       );
       const denied = await remoteRuntime.runPromise(

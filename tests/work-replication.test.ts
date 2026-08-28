@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ import {
 } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -44,6 +44,7 @@ import {
   currentProjectedTaskTopologyCapabilityForTest,
   retainedProjectedTaskTopologyCapabilityForTest,
 } from "./helpers/task-topology-authority";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const observedAt = "2026-07-27T18:00:00.000Z";
 const fixtureTaskSinkNodeIds: ReadonlyArray<string> = [
@@ -72,10 +73,7 @@ const fixtureTopology: CanvasDoc = {
   nodes: fixtureTaskSinkNodeIds.map(fixtureTaskNode),
   edges: [],
 };
-const authorialBody = JSON.stringify(fixtureTopology);
-const authorialDocumentSha256 = createHash("sha256")
-  .update(authorialBody, "utf8")
-  .digest("hex");
+const authorialBody = serializeCanvas(fixtureTopology);
 const authorialIntentSha256 = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
@@ -218,47 +216,11 @@ const openInstallation = async (
           ? [role, "local", null, null, observedAt]
           : [role, "remote", "remote", peers[0], observedAt],
       );
-      writer.run(
-        `
-          INSERT INTO canvas_generations(
-            generation,
-            created_at,
-            cause,
-            intent_sha256,
-            document_count
-          ) VALUES (?, ?, ?, ?, 1)
-        `,
-        [
-          authorialBasis.generation,
-          observedAt,
-          "test work replication basis",
-          authorialBasis.contentSha256,
-        ],
-      );
-      writer.run(
-        `
-          INSERT INTO canvas_generation_documents(
-            generation,
-            name,
-            body,
-            sha256,
-            modified_at
-          ) VALUES (?, 'factory', ?, ?, ?)
-        `,
-        [
-          authorialBasis.generation,
-          authorialBody,
-          authorialDocumentSha256,
-          observedAt,
-        ],
-      );
-      writer.run(
-        `
-          INSERT INTO canvas_head(singleton, generation)
-          VALUES (1, ?)
-        `,
-        [authorialBasis.generation],
-      );
+      seedCanvasAuthority(writer, {
+        generation: authorialBasis.generation,
+        documents: new Map([["factory", fixtureTopology]]),
+        at: observedAt,
+      });
       writer.run(
         `
           INSERT INTO station_projection_versions(

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -116,7 +117,7 @@ describe("canvas entity registry", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(
       STATE_SCHEMA_V8_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
 
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
     roots.push(root);
@@ -174,7 +175,7 @@ describe("canvas entity registry", () => {
         "1",
         "main",
         body,
-        "b".repeat(64),
+        createHash("sha256").update(body, "utf8").digest("hex"),
         "2026-07-31T00:00:00.000Z",
       );
       v5.prepare(
@@ -637,7 +638,7 @@ describe("canvas entity registry", () => {
         "1",
         "main",
         body,
-        "b".repeat(64),
+        createHash("sha256").update(body, "utf8").digest("hex"),
         "2026-07-31T00:00:00.000Z",
       );
       v5.prepare(

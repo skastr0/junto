@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ import {
 } from "../src/shared/pending-proposal-backfill";
 import { PIPELINE_ADMITTED_METADATA_KEY } from "../src/shared/claims";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
 import {
   IntentFactBasis,
@@ -50,6 +50,7 @@ import {
   makeInstallOpsLive,
 } from "../src/main/vellum/install-ops/engine";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
@@ -72,10 +73,7 @@ const backfillTopology: CanvasDoc = {
   ],
   edges: [],
 };
-const backfillTopologyBody = JSON.stringify(backfillTopology);
-const backfillTopologySha256 = createHash("sha256")
-  .update(backfillTopologyBody, "utf8")
-  .digest("hex");
+const backfillTopologyBody = serializeCanvas(backfillTopology);
 const backfillIntentSha256 = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
@@ -384,19 +382,11 @@ const openHarness = async () => {
          ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
         [observedAt],
       );
-      writer.run(
-        `INSERT INTO canvas_generations(
-           generation, created_at, cause, intent_sha256, document_count
-         ) VALUES ('1', ?, 'test intent', ?, 1)`,
-        [observedAt, intentSha],
-      );
-      writer.run(
-        `INSERT INTO canvas_generation_documents(
-           generation, name, body, sha256, modified_at
-         ) VALUES ('1', 'factory', ?, ?, ?)`,
-        [backfillTopologyBody, backfillTopologySha256, observedAt],
-      );
-      writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
+      seedCanvasAuthority(writer, {
+        generation: "1",
+        documents: new Map([["factory", backfillTopology]]),
+        at: observedAt,
+      });
     }),
   );
   const basis = Schema.decodeUnknownSync(IntentFactBasis, {

@@ -49,7 +49,7 @@ import {
   STATE_SCHEMA_V14_IDENTITY,
   STATE_SCHEMA_V15_IDENTITY,
   STATE_SCHEMA_V16_IDENTITY,
-  STATE_SCHEMA_V22_IDENTITY,
+  STATE_SCHEMA_V21_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
@@ -321,9 +321,9 @@ describe("content schema migration 11 → current", () => {
       STATE_SCHEMA_V14_IDENTITY,
     );
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
-      STATE_SCHEMA_V22_IDENTITY,
+      STATE_SCHEMA_V21_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
   });
 
   it("migrates v11 rows forward and preserves data; content + marker tables appear", () => {
@@ -333,7 +333,24 @@ describe("content schema migration 11 → current", () => {
       verifyAndStampStateSchema(database, STATE_SCHEMA_V11_SQL);
       database.exec("PRAGMA user_version = 11");
 
-      // Seed a non-content row that must survive.
+      // Seed a non-content canvas head that must survive: the 20 -> 21 step
+      // cuts the blob generation store over to the relational authority, so
+      // survival means the head generation and its document reappear as
+      // canvas_portfolio_head / canvas_documents rows.
+      const canvasBody = JSON.stringify({
+        nodes: [
+          {
+            id: "note",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 80,
+            text: "survive",
+          },
+        ],
+        edges: [],
+      });
       database.exec(`
         INSERT INTO canvas_generations(
           generation, created_at, cause, intent_sha256, document_count
@@ -342,21 +359,43 @@ describe("content schema migration 11 → current", () => {
           '2026-01-01T00:00:00.000Z',
           'test',
           '${"c".repeat(64)}',
-          0
+          1
         );
       `);
+      database
+        .prepare(
+          `INSERT INTO canvas_generation_documents(
+             generation, name, body, sha256, modified_at
+           ) VALUES ('1', 'main', ?, ?, '2026-01-01T00:00:00.000Z')`,
+        )
+        .run(canvasBody, sha256Hex(canvasBody));
+      database.exec("INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')");
 
       const result = migrateStateSchema(database);
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(11);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V22_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
       );
 
-      const gen = database
-        .prepare("SELECT generation FROM canvas_generations WHERE generation = '1'")
+      const head = database
+        .prepare(
+          "SELECT generation FROM canvas_portfolio_head WHERE singleton = 1",
+        )
         .get() as { generation: string };
-      expect(gen.generation).toBe("1");
+      expect(head.generation).toBe("1");
+      const document = database
+        .prepare(
+          "SELECT canvas_name FROM canvas_documents WHERE canvas_name = 'main'",
+        )
+        .get() as { canvas_name: string };
+      expect(document.canvas_name).toBe("main");
+      const node = database
+        .prepare(
+          "SELECT node_id, text_content FROM canvas_nodes WHERE node_id = 'note'",
+        )
+        .get() as { node_id: string; text_content: string };
+      expect(node.text_content).toBe("survive");
 
       for (const table of [
         "content_objects",
@@ -388,7 +427,7 @@ describe("content schema migration 11 → current", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(12);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V22_IDENTITY.actualSchemaSha256,
+        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
       );
 
       const marker = database

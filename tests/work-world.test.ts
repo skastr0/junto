@@ -49,8 +49,9 @@ import {
 import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
 import { makeWorkWorld, type WorkWorld } from "../src/main/vellum/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const CANVAS = "factory";
 const TASKS = "tasks-sink";
@@ -99,7 +100,7 @@ const fixtureAuthority = authorialMaterialForTest({
   documents: new Map(
     [...fixtureDocuments].map(([name, document]) => [
       name,
-      { document, rawBody: JSON.stringify(document) },
+      { document, rawBody: serializeCanvas(document) },
     ]),
   ),
 });
@@ -160,42 +161,14 @@ const seedInstallation = (installations: ReadonlyArray<InstallationIdValue>) =>
        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
       [observedAt],
     );
-    writer.run(
-      `INSERT INTO canvas_generations(
-         generation, created_at, cause, intent_sha256, document_count
-       ) VALUES ('1', ?, 'test intent', ?, 21)`,
-      [observedAt, intentSha256],
-    );
-    writer.run(
-      `INSERT INTO canvas_generation_documents(
-         generation, name, body, sha256, modified_at
-       ) VALUES ('1', ?, ?, ?, ?)`,
-      [
-        CANVAS,
-        fixtureAuthority.storedDocuments.get(CANVAS)!.rawBody,
-        fixtureAuthority.storedDocuments.get(CANVAS)!.revisionSha256,
-        observedAt,
-      ],
-    );
-    // Twenty extra canvases so the residency-bound test has more canvases
-    // than the world may hold. Each needs a document row in the head
-    // generation: local work refuses a basis whose canvas is not in it.
-    for (let index = 0; index < 20; index += 1) {
-      writer.run(
-        `INSERT INTO canvas_generation_documents(
-           generation, name, body, sha256, modified_at
-         ) VALUES ('1', ?, ?, ?, ?)`,
-        [
-          `bound-${index}`,
-          fixtureAuthority.storedDocuments.get(`bound-${index}`)!.rawBody,
-          fixtureAuthority.storedDocuments.get(`bound-${index}`)!.revisionSha256,
-          observedAt,
-        ],
-      );
-    }
-    writer.run(
-      `INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`,
-    );
+    // Twenty extra canvases (bound-N) so the residency-bound test has more
+    // canvases than the world may hold. Each needs a document row in the head
+    // portfolio: local work refuses a basis whose canvas is not in it.
+    seedCanvasAuthority(writer, {
+      generation: "1",
+      documents: fixtureDocuments,
+      at: observedAt,
+    });
   });
 
 /**

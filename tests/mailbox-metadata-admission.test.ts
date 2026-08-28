@@ -36,6 +36,11 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
+import type { CanvasDoc } from "../src/shared/canvas";
+import {
+  canvasAuthorityMaterialFixture,
+  seedCanvasAuthority,
+} from "./helpers/canvas-authority-material";
 
 const root = join(tmpdir(), `vellum-command-mailbox-admission-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -50,7 +55,25 @@ let state: Context.Service.Shape<typeof StateEngine>;
 
 const observedAt = "2026-08-12T10:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-mailbox-admission");
-const currentIntentSha256 = "d".repeat(64);
+const factoryDoc: CanvasDoc = {
+  nodes: [
+    {
+      id: "note",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      text: "factory",
+    },
+  ],
+  edges: [],
+};
+const fixtureDocuments = new Map<string, CanvasDoc>([["factory", factoryDoc]]);
+const currentIntentSha256 = canvasAuthorityMaterialFixture(
+  "1",
+  fixtureDocuments,
+).intentSha256;
 const authorialBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -100,36 +123,11 @@ const seedInstallations = () =>
       `,
       [observedAt],
     );
-    writer.run(
-      `
-        INSERT INTO canvas_generations(
-          generation,
-          created_at,
-          cause,
-          intent_sha256,
-          document_count
-        ) VALUES ('1', ?, 'test intent', ?, 1)
-      `,
-      [observedAt, currentIntentSha256],
-    );
-    writer.run(
-      `
-        INSERT INTO canvas_generation_documents(
-          generation,
-          name,
-          body,
-          sha256,
-          modified_at
-        ) VALUES ('1', 'factory', '{}', ?, ?)
-      `,
-      ["1".repeat(64), observedAt],
-    );
-    writer.run(
-      `
-        INSERT INTO canvas_head(singleton, generation)
-        VALUES (1, '1')
-      `,
-    );
+    seedCanvasAuthority(writer, {
+      generation: "1",
+      documents: fixtureDocuments,
+      at: observedAt,
+    });
   });
 
 beforeAll(async () => {

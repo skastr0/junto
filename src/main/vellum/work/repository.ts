@@ -5,9 +5,11 @@ import {
   CanvasDoc as CanvasDocSchema,
   compileEdgeGrant,
   decodeCanvasDoc,
+  serializeCanvas,
   type CanvasDoc,
   type CanvasNode,
 } from "@shared/canvas";
+import { reconstructCanvasDoc } from "../canvas/records";
 import { resolveSpec } from "@shared/physics";
 import type { ActorSeatId } from "@shared/actor-seat";
 import { InstallationId } from "@shared/installation-id";
@@ -1495,15 +1497,12 @@ const assertCurrentIntentBasis = (
     const current = reader.get<StateRow>(
       `
         SELECT 1
-        FROM canvas_head AS head
-        JOIN canvas_generations AS generation
-          ON generation.generation = head.generation
-        JOIN canvas_generation_documents AS document
-          ON document.generation = generation.generation
+        FROM canvas_portfolio_head AS head
+        JOIN canvas_documents AS document
         WHERE head.singleton = 1
-          AND generation.generation = ?
-          AND generation.intent_sha256 = ?
-          AND document.name = ?
+          AND head.generation = ?
+          AND head.intent_sha256 = ?
+          AND document.canvas_name = ?
       `,
       [basis.generation, basis.contentSha256, sink.canvasName],
     );
@@ -1614,6 +1613,7 @@ const requireDependencyCapability = (
 };
 
 type AuthorialCapabilityMaterialRow = StateRow & {
+  readonly canvas_id: string;
   readonly body: string;
   readonly revision_sha256: string;
 };
@@ -1632,21 +1632,17 @@ const assertAuthorialCapabilityCurrent = (
       "authorial Task topology capability has the wrong authority mode",
     );
   }
-  const rows = reader.all<AuthorialCapabilityMaterialRow>(
+  const row = reader.get<AuthorialCapabilityMaterialRow>(
     `
       SELECT
-        document.body,
-        document.sha256 AS revision_sha256
-      FROM canvas_head AS head
-      JOIN canvas_generations AS generation
-        ON generation.generation = head.generation
-      JOIN canvas_generation_documents AS document
-        ON document.generation = generation.generation
+        document.canvas_id,
+        document.revision_sha256
+      FROM canvas_portfolio_head AS head
+      JOIN canvas_documents AS document
       WHERE head.singleton = 1
-        AND generation.generation = ?
-        AND generation.intent_sha256 = ?
-        AND document.name = ?
-      LIMIT 2
+        AND head.generation = ?
+        AND head.intent_sha256 = ?
+        AND document.canvas_name = ?
     `,
     [
       data.basis.generation,
@@ -1654,11 +1650,12 @@ const assertAuthorialCapabilityCurrent = (
       data.authoringSink.canvasName,
     ],
   );
-  const row = rows.length === 1 ? rows[0]! : undefined;
   if (
     row === undefined ||
     row.revision_sha256 !== data.canvasBodySha256 ||
-    canvasBodySha256Of(row.body) !== data.canvasBodySha256
+    canvasBodySha256Of(
+      serializeCanvas(reconstructCanvasDoc(reader, row.canvas_id)),
+    ) !== data.canvasBodySha256
   ) {
     throw authorityError(
       "causal-conflict",
@@ -2155,33 +2152,24 @@ const inboundActorsForPad = (
   reader: StateReader,
   sink: SinkRefValue,
 ): ReadonlySet<string> => {
-  const head = reader.get<StateRow & { readonly sha256: string }>(
+  const head = reader.get<
+    StateRow & {
+      readonly canvas_id: string;
+      readonly revision_sha256: string;
+    }
+  >(
     `
-      SELECT document.sha256 AS sha256
-      FROM canvas_head AS head
-      JOIN canvas_generation_documents AS document
-        ON document.generation = head.generation
-      WHERE head.singleton = 1
-        AND document.name = ?
+      SELECT canvas_id, revision_sha256
+      FROM canvas_documents
+      WHERE canvas_name = ?
     `,
     [sink.canvasName],
   );
   if (head === undefined) return new Set();
   const index = inboundActorIndexFor(
     sink.canvasName,
-    head.sha256,
-    () =>
-      reader.get<StateRow & { readonly body: string }>(
-        `
-          SELECT document.body AS body
-          FROM canvas_head AS head
-          JOIN canvas_generation_documents AS document
-            ON document.generation = head.generation
-          WHERE head.singleton = 1
-            AND document.name = ?
-        `,
-        [sink.canvasName],
-      )?.body,
+    head.revision_sha256,
+    () => serializeCanvas(reconstructCanvasDoc(reader, head.canvas_id)),
   );
   if (index.doc === undefined) return new Set();
   const cached = index.byNode.get(sink.nodeId);

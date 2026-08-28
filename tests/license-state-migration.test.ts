@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdir, rm, mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +76,7 @@ describe("license state schema migration", () => {
         "1",
         "preserved",
         '{"nodes":[],"edges":[]}',
-        "b".repeat(64),
+        createHash("sha256").update('{"nodes":[],"edges":[]}', "utf8").digest("hex"),
         "2026-07-28T12:00:00.000Z",
       );
       versionOne
@@ -99,9 +100,8 @@ describe("license state schema migration", () => {
         state.read("test.license-migration", (reader) => ({
           document: reader.get(
             `
-              SELECT name, body
-              FROM canvas_generation_documents
-              WHERE generation = '1'
+              SELECT canvas_name AS name
+              FROM canvas_documents
             `,
           ),
           legacyLicenseTable: reader.get(
@@ -123,10 +123,7 @@ describe("license state schema migration", () => {
         })),
       ),
     ).toEqual({
-      document: {
-        name: "preserved",
-        body: '{"nodes":[],"edges":[]}',
-      },
+      document: { name: "preserved" },
       legacyLicenseTable: { name: "license_activation" },
       boundLicenseTable: { name: "license_entitlement" },
     });

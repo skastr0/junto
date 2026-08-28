@@ -65,18 +65,29 @@ type FixtureCase = {
   readonly fileName: string;
   readonly sha256: string;
   readonly preservedTables: ReadonlyArray<string>;
+  /**
+   * Populated v1 tables deliberately consolidated away by a later step: their
+   * rows are not preserved in place — the semantic content is asserted through
+   * the service reads, and the pre-migration backup retains them byte-exact.
+   */
+  readonly consolidatedTables?: ReadonlyArray<string>;
 };
 
-const cases = [
+const cases: ReadonlyArray<FixtureCase> = [
   {
     role: "command-center",
     fileName: "command-center-v1.db",
     sha256:
       "e1c12bcf3a662f52854936bfee1c0ef5fd41e024e80d7223bd3c90e0a1d00d2c",
-    preservedTables: [
+    // The blob canvas tables of v1 are consolidated into relational canvas
+    // authority by the 20 -> 21 step; their semantic content is asserted via
+    // CanvasesService below, and the backup still preserves them byte-exact.
+    consolidatedTables: [
       "canvas_generations",
       "canvas_generation_documents",
       "canvas_head",
+    ],
+    preservedTables: [
       "host_registry",
       "host_registry_state",
       "station_known_installations",
@@ -120,7 +131,7 @@ const cases = [
       "scheduler_interval_firings",
     ],
   },
-] as const satisfies ReadonlyArray<FixtureCase>;
+];
 
 type PreservedTable = {
   readonly columns: ReadonlyArray<string>;
@@ -183,6 +194,7 @@ const readTable = (
 const capturePreservationWitness = (
   database: DatabaseSync,
   tables: ReadonlyArray<string>,
+  consolidatedTables: ReadonlyArray<string> = [],
 ): PreservationWitness => {
   const nonEmptyTables = (
     database
@@ -202,7 +214,7 @@ const capturePreservationWitness = (
   )
     .map(({ name }) => String(name))
     .filter((table) => readTable(database, table).rows.length > 0);
-  expect([...tables].sort()).toEqual(nonEmptyTables);
+  expect([...tables, ...consolidatedTables].sort()).toEqual(nonEmptyTables);
   return Object.fromEntries(
     tables.map((table) => [table, readTable(database, table)]),
   );
@@ -340,8 +352,11 @@ const assertCommandCenterRepositories = async (
   expect(authority.documents.get("factory")?.nodes).toHaveLength(2);
   expect(() => verifyCanvasIntentMaterial(authority)).not.toThrow();
   const storedFactory = authority.storedDocuments.get("factory");
-  expect(storedFactory?.rawBody).toContain('"ports"');
-  expect(storedFactory?.rawBody).not.toBe(
+  // The 20 -> 21 cutover decoded the legacy blob exactly once: authority is
+  // relational, the derived body is canonical serialization, and the retired
+  // wire fields are gone from durable state for good.
+  expect(storedFactory?.rawBody).not.toContain('"ports"');
+  expect(storedFactory?.rawBody).toBe(
     serializeCanvas(storedFactory!.document),
   );
   expect(storedFactory?.document.edges[0]?.ether).toEqual({
@@ -423,19 +438,26 @@ const assertRemoteRepositories = async (
   const durableRemoteWitness = await runtime.runPromise(
     state.read("state-v1-fixture.remote-witness", (reader) => ({
       authorialRows: {
-        generations: Number(
+        blobTables: Number(
           reader.get<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM canvas_generations",
+            `SELECT COUNT(*) AS count
+             FROM sqlite_schema
+             WHERE type = 'table'
+               AND name IN (
+                 'canvas_generations',
+                 'canvas_generation_documents',
+                 'canvas_head'
+               )`,
           )?.count ?? -1,
         ),
         documents: Number(
           reader.get<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM canvas_generation_documents",
+            "SELECT COUNT(*) AS count FROM canvas_documents",
           )?.count ?? -1,
         ),
         heads: Number(
           reader.get<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM canvas_head",
+            "SELECT COUNT(*) AS count FROM canvas_portfolio_head",
           )?.count ?? -1,
         ),
       },
@@ -551,7 +573,7 @@ const assertRemoteRepositories = async (
   });
   expect(durableRemoteWitness).toEqual({
     authorialRows: {
-      generations: 0,
+      blobTables: 0,
       documents: 0,
       heads: 0,
     },
@@ -580,6 +602,7 @@ describe("frozen state schema v1 compatibility fixtures", () => {
         baseline = capturePreservationWitness(
           source,
           fixture.preservedTables,
+          fixture.consolidatedTables ?? [],
         );
       } finally {
         source.close();

@@ -1,11 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -32,6 +32,7 @@ import {
   authorialTaskTopologyCapabilityForTest,
   currentProjectedTaskTopologyCapabilityForTest,
 } from "./helpers/task-topology-authority";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 import {
   workRecordContentSha256,
   WorkRepository,
@@ -66,10 +67,7 @@ const topology: CanvasDoc = {
   ],
   edges: [],
 };
-const authorialBody = JSON.stringify(topology);
-const authorialDocumentSha256 = createHash("sha256")
-  .update(authorialBody, "utf8")
-  .digest("hex");
+const authorialBody = serializeCanvas(topology);
 const authorialIntentSha256 = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
@@ -202,32 +200,11 @@ const openInstallation = async (
           ? [role, "local", null, null, observedAt]
           : [role, "remote", "remote", peers[0], observedAt],
       );
-      writer.run(
-        `INSERT INTO canvas_generations(
-           generation, created_at, cause, intent_sha256, document_count
-         ) VALUES (?, ?, ?, ?, 1)`,
-        [
-          authorialBasis.generation,
-          observedAt,
-          "hardening test basis",
-          authorialBasis.contentSha256,
-        ],
-      );
-      writer.run(
-        `INSERT INTO canvas_generation_documents(
-           generation, name, body, sha256, modified_at
-         ) VALUES (?, 'factory', ?, ?, ?)`,
-        [
-          authorialBasis.generation,
-          authorialBody,
-          authorialDocumentSha256,
-          observedAt,
-        ],
-      );
-      writer.run(
-        `INSERT INTO canvas_head(singleton, generation) VALUES (1, ?)`,
-        [authorialBasis.generation],
-      );
+      seedCanvasAuthority(writer, {
+        generation: authorialBasis.generation,
+        documents: new Map([["factory", topology]]),
+        at: observedAt,
+      });
       writer.run(
         `INSERT INTO station_projection_versions(
            generation, content_sha256, source_canvas_generation,
@@ -718,26 +695,13 @@ describe("WorkRepository hardening across replication", () => {
     if (changedPrerequisite === undefined) {
       throw new Error("changed prerequisite node missing");
     }
-    (changedPrerequisite as { x: number }).x = 2_000;
-    const changedBody = JSON.stringify(changedTopology);
-    const changedDocumentSha256 = createHash("sha256")
-      .update(changedBody, "utf8")
-      .digest("hex");
     await cc.runtime.runPromise(
       cc.state.transaction("test.advance-topology-before-return", (writer) => {
-        writer.run(
-          `INSERT INTO canvas_generations(
-             generation, created_at, cause, intent_sha256, document_count
-           ) VALUES ('2', ?, ?, ?, 1)`,
-          [observedAt, "topology changed before response", "b".repeat(64)],
-        );
-        writer.run(
-          `INSERT INTO canvas_generation_documents(
-             generation, name, body, sha256, modified_at
-           ) VALUES ('2', 'factory', ?, ?, ?)`,
-          [changedBody, changedDocumentSha256, observedAt],
-        );
-        writer.run("UPDATE canvas_head SET generation = '2' WHERE singleton = 1");
+        seedCanvasAuthority(writer, {
+          generation: "2",
+          documents: new Map([["factory", changedTopology]]),
+          at: observedAt,
+        });
       }),
     );
 

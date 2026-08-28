@@ -197,17 +197,17 @@ describe("CanvasesService Station projection", () => {
         stateEngine.read("test.remote-authorial-rows", (reader) => ({
           heads: Number(
             reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM canvas_head",
+              "SELECT count(*) AS count FROM canvas_portfolio_head",
             )?.count ?? -1,
           ),
           documents: Number(
             reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM canvas_generation_documents",
+              "SELECT count(*) AS count FROM canvas_documents",
             )?.count ?? -1,
           ),
-          generations: Number(
+          nodes: Number(
             reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM canvas_generations",
+              "SELECT count(*) AS count FROM canvas_nodes",
             )?.count ?? -1,
           ),
         })),
@@ -215,7 +215,7 @@ describe("CanvasesService Station projection", () => {
       expect(authorialRows).toEqual({
         heads: 0,
         documents: 0,
-        generations: 0,
+        nodes: 0,
       });
     } finally {
       await runtime.dispose();

@@ -2692,3 +2692,79 @@ export const WORK_PROJECTION_REVISION_TRIGGERS_SQL = `
         SET revision = work_canvas_revisions.revision + 1;
     END;
 `;
+
+/**
+ * Work schema at version 21: the authorial fact basis resolves against the
+ * relational canvas portfolio head (canvas_portfolio_head + canvas_documents)
+ * instead of blob generation rows. The canvas_generations FOREIGN KEY leaves
+ * work_facts — SQLite cannot drop an FK without a table rebuild, which the
+ * 20 -> 21 consolidation step performs with rows copied forward byte-exact.
+ * Historical basis generations remain as opaque, CHECK-validated columns.
+ */
+const mustReplace = (source: string, find: string, replace: string): string => {
+  if (!source.includes(find)) {
+    throw new Error(
+      "work state schema derivation: expected fragment text is missing",
+    );
+  }
+  return source.replace(find, replace);
+};
+
+const WORK_FACTS_CANVAS_GENERATIONS_FK_SQL = "    FOREIGN KEY (basis_authorial_generation)\n      REFERENCES canvas_generations(generation)\n      ON DELETE RESTRICT\n      ON UPDATE RESTRICT,\n";
+
+const WORK_FACT_BASIS_TRIGGER_BLOB_SQL = "  CREATE TRIGGER IF NOT EXISTS work_fact_authorial_basis_resolves\n  BEFORE INSERT ON work_facts\n  WHEN\n    NEW.basis_kind = 'authorial-intent'\n    AND NOT EXISTS (\n      SELECT 1\n      FROM canvas_generations AS generation\n      JOIN canvas_generation_documents AS document\n        ON document.generation = generation.generation\n      JOIN work_events AS record\n        ON record.event_home = NEW.event_home\n        AND record.entity_home = NEW.entity_home\n        AND record.seq = NEW.seq\n      WHERE generation.generation = NEW.basis_authorial_generation\n        AND generation.intent_sha256 =\n          NEW.basis_authorial_content_sha256\n        AND document.name = record.item_canvas_name\n    )\n  BEGIN\n    SELECT RAISE(\n      ABORT,\n      'authorial fact basis must resolve its exact sink canvas generation'\n    );\n  END;";
+
+export const WORK_FACT_BASIS_TRIGGER_HEAD_SQL = "  CREATE TRIGGER IF NOT EXISTS work_fact_authorial_basis_resolves\n  BEFORE INSERT ON work_facts\n  WHEN\n    NEW.basis_kind = 'authorial-intent'\n    AND NOT EXISTS (\n      SELECT 1\n      FROM canvas_portfolio_head AS head\n      JOIN work_events AS record\n        ON record.event_home = NEW.event_home\n        AND record.entity_home = NEW.entity_home\n        AND record.seq = NEW.seq\n      JOIN canvas_documents AS document\n        ON document.canvas_name = record.item_canvas_name\n      WHERE head.singleton = 1\n        AND head.generation = NEW.basis_authorial_generation\n        AND head.intent_sha256 =\n          NEW.basis_authorial_content_sha256\n    )\n  BEGIN\n    SELECT RAISE(\n      ABORT,\n      'authorial fact basis must resolve its exact sink canvas head'\n    );\n  END;";
+
+export const WORK_STATE_SCHEMA_HEAD_BASIS_SQL = mustReplace(
+  mustReplace(
+    WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
+    WORK_FACTS_CANVAS_GENERATIONS_FK_SQL,
+    "",
+  ),
+  WORK_FACT_BASIS_TRIGGER_BLOB_SQL,
+  WORK_FACT_BASIS_TRIGGER_HEAD_SQL,
+);
+
+const sliceSection = (
+  source: string,
+  startMark: string,
+  endMark: string,
+): string => {
+  const start = source.indexOf(startMark);
+  if (start < 0) {
+    throw new Error("work state schema derivation: section start is missing");
+  }
+  const end = source.indexOf(endMark, start);
+  if (end < 0) {
+    throw new Error("work state schema derivation: section end is missing");
+  }
+  return source.slice(start, end + endMark.length);
+};
+
+/**
+ * Exact rebuild DDL for the 20 -> 21 work_facts table replacement, sliced
+ * from the composed head-basis fragment so the migration and the fresh
+ * install share one source. Table and triggers are separate: historical rows
+ * copy forward BEFORE the head-basis trigger exists, because history is
+ * served as written and only NEW facts must resolve the current head.
+ */
+export const WORK_FACTS_HEAD_BASIS_TABLE_SQL = sliceSection(
+  WORK_STATE_SCHEMA_HEAD_BASIS_SQL,
+  "CREATE TABLE IF NOT EXISTS work_facts (",
+  ") STRICT, WITHOUT ROWID;",
+);
+
+export const WORK_FACTS_HEAD_BASIS_TRIGGERS_SQL = [
+  WORK_FACT_BASIS_TRIGGER_HEAD_SQL,
+  sliceSection(
+    WORK_STATE_SCHEMA_HEAD_BASIS_SQL,
+    "CREATE TRIGGER IF NOT EXISTS work_facts_immutable_update",
+    "END;",
+  ),
+  sliceSection(
+    WORK_STATE_SCHEMA_HEAD_BASIS_SQL,
+    "CREATE TRIGGER IF NOT EXISTS work_facts_immutable_delete",
+    "END;",
+  ),
+].join("\n");

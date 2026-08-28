@@ -29,13 +29,13 @@ import {
   WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL,
   WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL,
+  WORK_STATE_SCHEMA_HEAD_BASIS_SQL,
   WORK_STATE_SCHEMA_SQL,
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
-import { CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
-import { CANVAS_AUTHORING_TAIL_SCHEMA_SQL } from "../canvas/authoring-tail-schema";
+import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -304,23 +304,19 @@ export const STATE_SCHEMA_V20_FRAGMENTS = [
 export const STATE_SCHEMA_V20_SQL = STATE_SCHEMA_V20_FRAGMENTS.join("\n");
 
 /**
- * Schema at version 21: v20 + relational canvas authority tables.
- * Frozen so 21 → 22 can start from a known identity.
+ * Current (version 21): relational canvas authority replaces the blob
+ * generation store, and the work fact basis resolves against the portfolio
+ * head. The 20 -> 21 consolidation step performs the equivalent surgery on
+ * installed databases; fresh installs compose the end state directly.
  */
-export const STATE_SCHEMA_V21_FRAGMENTS = [
-  ...STATE_SCHEMA_V20_FRAGMENTS,
-  CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL,
-];
-
-export const STATE_SCHEMA_V21_SQL = STATE_SCHEMA_V21_FRAGMENTS.join("\n");
-
-/**
- * Current (version 22): v21 + authoring change tail and envelope provenance.
- */
-export const STATE_SCHEMA_FRAGMENTS = [
-  ...STATE_SCHEMA_V21_FRAGMENTS,
-  CANVAS_AUTHORING_TAIL_SCHEMA_SQL,
-];
+export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V20_FRAGMENTS.map(
+  (fragment) =>
+    fragment === CANVAS_STATE_SCHEMA_SQL
+      ? CANVAS_AUTHORITY_SCHEMA_SQL
+      : fragment === WORK_STATE_SCHEMA_PAD_VOCAB_SQL
+        ? WORK_STATE_SCHEMA_HEAD_BASIS_SQL
+        : fragment,
+) as unknown as typeof STATE_SCHEMA_V20_FRAGMENTS;
 
 /**
  * Fresh-install and final-verification target for the current version.

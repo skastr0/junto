@@ -45,6 +45,11 @@
       "path": "scripts/electron-sqlite-smoke.mjs",
       "reason": "Electron smoke probe: proves node:sqlite is present and WAL-capable inside the packaged Electron runtime. Opens only a throwaway database under mkdtemp, never product state.",
       "retire": "Prove the packaged runtime from an e2e assertion inside the app, so no probe has to import the driver itself."
+    },
+    {
+      "path": "src/main/vellum/term/session-existence.ts",
+      "reason": "Opens harness-owned session index databases (e.g. a CLI's own SQLite session store) READ-ONLY to prove a named session id still exists before offering resume. Never the product state database.",
+      "retire": "Delete when every managed harness exposes a session-existence probe through its CLI instead of an on-disk index."
     }
   ],
   "mutationSeams": [
@@ -55,13 +60,14 @@
         "canvas_entities",
         "work_board_posts",
         "work_events",
+        "work_facts",
         "work_pending_commands",
         "work_pending_proposal_commands",
         "work_proposal_events",
         "work_task_transitions",
         "work_tasks"
       ],
-      "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read."
+      "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read.The 20 -> 21 consolidation step also rebuilds work_facts (rows copied forward byte-exact) to shed its FK into the retired blob generation store."
     },
     {
       "path": "src/main/vellum/state/schema-identity.ts",
@@ -162,14 +168,15 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum/canvases.ts",
+      "path": "src/main/vellum/canvas/records.ts",
       "kind": "debt",
       "tables": [
-        "canvas_generation_documents",
-        "canvas_generations",
-        "canvas_head"
+        "canvas_documents",
+        "canvas_edges",
+        "canvas_nodes",
+        "canvas_portfolio_head"
       ],
-      "reason": "Canvas authority seam: appends a full canvas generation and moves the head. Operator-authored writes only.",
+      "reason": "Relational canvas authority records: the sole writer of the portfolio head and canvas document/node/edge rows. CanvasesService and the 20 -> 21 consolidation migration both write through these helpers inside a StateEngine transaction.",
       "retire": "Stop copying every document body on every commit (insertFullGeneration) by content-addressing generations; the seam itself stays."
     },
     {
@@ -231,9 +238,6 @@
       "path": "src/main/vellum/station/repository.ts",
       "kind": "debt",
       "tables": [
-        "canvas_generation_documents",
-        "canvas_generations",
-        "canvas_head",
         "station_installation",
         "station_known_installations",
         "station_pairing",
@@ -393,33 +397,6 @@
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
-      "table": "canvas_generation_documents",
-      "owner": "src/main/vellum/canvases.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/station/repository.ts"
-      ],
-      "reason": "Same Remote canvas-store clear.",
-      "retire": "Retire with canvas_generations."
-    },
-    {
-      "table": "canvas_generations",
-      "owner": "src/main/vellum/canvases.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/station/repository.ts"
-      ],
-      "reason": "canvases.ts appends generations; station/repository.ts only DELETEs every row when a Remote drops its authorial canvas store.",
-      "retire": "Make dropping the local canvas store an operation on the canvas seam instead of a direct delete from the station seam."
-    },
-    {
-      "table": "canvas_head",
-      "owner": "src/main/vellum/canvases.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/station/repository.ts"
-      ],
-      "reason": "Same Remote canvas-store clear.",
-      "retire": "Retire with canvas_generations."
-    },
-    {
       "table": "host_registry",
       "owner": "src/main/vellum/hosts/registry.ts",
       "alsoWrittenBy": [
@@ -564,6 +541,15 @@
         "src/main/vellum/state/migrations.ts"
       ],
       "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
+      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_facts",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/migrations.ts"
+      ],
+      "reason": "The 20 -> 21 consolidation step rebuilds work_facts (bak -> drop -> recreate -> copy) to shed its FK into the retired blob generation store; rows copy forward byte-exact before any repository can read.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     }
   ],
@@ -1115,6 +1101,28 @@
         "constant"
       ],
       "reason": "Brands the one operator planning seat id literal, once at module load."
+    },
+    {
+      "path": "src/shared/pending-proposal-backfill.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Re-validates legacy proposal rows read back from SQLite before materializing pending-proposal work items.",
+      "retire": "Delete when the work.pending-proposals.v1 backfill marker is complete on every installation and the walker is removed."
+    },
+    {
+      "path": "src/shared/station-package-compatibility.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the decoder for the station package compatibility matrix receipt produced by the packaging pipeline."
+    },
+    {
+      "path": "src/shared/station-protocol-1-codec.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the frozen Station protocol 1 wire codec; every schema decode here is a wire-boundary decode by construction."
     }
   ],
   "journalFreeMutations": [

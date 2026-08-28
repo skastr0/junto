@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,10 +36,34 @@ import { StationRepositoryLive } from "../src/main/vellum/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/vellum/station/fleet-target-repository";
 import { StationLivePeerRegistryLive } from "../src/main/vellum/station/session-registry";
 import { SettingsLive, SettingsService } from "../src/main/vellum/settings/service";
+import {
+  canvasAuthorityMaterialFixture,
+  seedCanvasAuthority,
+} from "./helpers/canvas-authority-material";
 
 const observedAt = "2026-08-13T12:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-pad-work");
-const currentIntentSha256 = "d".repeat(64);
+const persistFactoryDoc: CanvasDoc = {
+  nodes: [
+    {
+      id: "note",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      text: "factory",
+    },
+  ],
+  edges: [],
+};
+const persistFactoryDocuments = new Map<string, CanvasDoc>([
+  ["factory", persistFactoryDoc],
+]);
+const currentIntentSha256 = canvasAuthorityMaterialFixture(
+  "1",
+  persistFactoryDocuments,
+).intentSha256;
 const authorialBasis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 })({
@@ -299,23 +323,11 @@ describe("pad persist", () => {
           `,
           [observedAt],
         );
-        writer.run(
-          `
-            INSERT INTO canvas_generations(
-              generation, created_at, cause, intent_sha256, document_count
-            ) VALUES ('1', ?, 'test intent', ?, 1)
-          `,
-          [observedAt, currentIntentSha256],
-        );
-        writer.run(
-          `
-            INSERT INTO canvas_generation_documents(
-              generation, name, body, sha256, modified_at
-            ) VALUES ('1', 'factory', '{}', ?, ?)
-          `,
-          ["1".repeat(64), observedAt],
-        );
-        writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
+        seedCanvasAuthority(writer, {
+          generation: "1",
+          documents: persistFactoryDocuments,
+          at: observedAt,
+        });
       }),
     );
   });
@@ -989,18 +1001,17 @@ describe("pad inbound-actor roster", () => {
 
   /**
    * Every shape the roster has to get right in one document: a plain inbound
-   * actor, a duplicated id where the FIRST node decides, a non-actor source, a
-   * seat drawn pad-first (the verb stores it agent-first either way), a group
-   * carrying an actor kind, an edge from a node that does not exist, and a self
-   * edge.
+   * actor, a non-actor source, a seat drawn pad-first (the verb stores it
+   * agent-first either way), a group carrying an actor kind, an edge from a
+   * node that does not exist, and a self edge. A duplicated node id is no
+   * longer representable: the relational authority keys nodes by
+   * (canvas_id, node_id), so that legacy case has no head-world equivalent.
    */
   const trickyDoc = {
     nodes: [
       node("actor-in", "agent"),
       node("actor-out", "agent"),
       node("task-in", "task"),
-      node("dup", "agent"),
-      node("dup", "task"),
       node("grp", "agent", "group"),
       node("pad-1", "pad"),
     ],
@@ -1009,7 +1020,6 @@ describe("pad inbound-actor roster", () => {
       { id: "e2", fromNode: "actor-in", toNode: "pad-1" },
       { id: "e3", fromNode: "pad-1", toNode: "actor-out" },
       { id: "e4", fromNode: "task-in", toNode: "pad-1" },
-      { id: "e5", fromNode: "dup", toNode: "pad-1" },
       { id: "e6", fromNode: "ghost", toNode: "pad-1" },
       { id: "e7", fromNode: "pad-1", toNode: "pad-1" },
       { id: "e8", fromNode: "grp", toNode: "pad-1" },
@@ -1022,8 +1032,15 @@ describe("pad inbound-actor roster", () => {
     edges: [{ id: "r1", fromNode: "actor-late", toNode: "pad-1" }],
   };
 
-  const intentOf = (generation: string): string =>
-    createHash("sha256").update(`intent-${generation}`, "utf8").digest("hex");
+  const decodeDoc = (doc: unknown): CanvasDoc => {
+    const decoded = decodeCanvasDoc(JSON.parse(JSON.stringify(doc)));
+    if (Result.isFailure(decoded)) {
+      throw new Error(decoded.failure.message);
+    }
+    return decoded.success;
+  };
+
+  const intentByGeneration = new Map<string, string>();
 
   const basisFor = (
     generation: string,
@@ -1031,40 +1048,18 @@ describe("pad inbound-actor roster", () => {
     Schema.decodeUnknownSync(IntentFactBasis, { onExcessProperty: "error" })({
       kind: "authorial-intent",
       generation,
-      contentSha256: intentOf(generation),
+      contentSha256: intentByGeneration.get(generation)!,
     });
 
-  const commitCanvas = (generation: string, doc: unknown) => {
-    const body = JSON.stringify(doc);
-    return state.transaction(`test.commit-${generation}`, (writer) => {
-      writer.run(
-        `
-          INSERT INTO canvas_generations(
-            generation, created_at, cause, intent_sha256, document_count
-          ) VALUES (?, ?, 'test intent', ?, 1)
-        `,
-        [generation, observedAt, intentOf(generation)],
-      );
-      writer.run(
-        `
-          INSERT INTO canvas_generation_documents(
-            generation, name, body, sha256, modified_at
-          ) VALUES (?, 'factory', ?, ?, ?)
-        `,
-        [
-          generation,
-          body,
-          createHash("sha256").update(body, "utf8").digest("hex"),
-          observedAt,
-        ],
-      );
-      writer.run(
-        `INSERT INTO canvas_head(singleton, generation) VALUES (1, ?)
-         ON CONFLICT(singleton) DO UPDATE SET generation = excluded.generation`,
-        [generation],
-      );
+  const commitCanvas = (generation: string, doc: unknown) =>
+    state.transaction(`test.commit-${generation}`, (writer) => {
+      const { intentSha256 } = seedCanvasAuthority(writer, {
+        generation,
+        documents: new Map([["factory", decodeDoc(doc)]]),
+        at: observedAt,
+      });
+      intentByGeneration.set(generation, intentSha256);
     });
-  };
 
   /** Undefined when the mention was admitted; the refusal message otherwise. */
   const mentionRefusal = async (
@@ -1127,13 +1122,12 @@ describe("pad inbound-actor roster", () => {
     const expected = inboundActorNodeIds(decoded.success, "pad-1");
     // actor-out is drawn pad-first; the verb stores it agent-first, so a seat
     // cannot be wired to a pad and stay outside its mention roster.
-    expect([...expected].sort()).toEqual(["actor-in", "actor-out", "dup"]);
+    expect([...expected].sort()).toEqual(["actor-in", "actor-out"]);
 
     const candidates = [
       "actor-in",
       "actor-out",
       "task-in",
-      "dup",
       "grp",
       "ghost",
       "pad-1",

@@ -1,11 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
@@ -30,6 +30,7 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const canvasName = "factory";
 const otherCanvasName = "other-factory";
@@ -75,22 +76,14 @@ const factoryTopology: CanvasDoc = {
   ],
   edges: [],
 };
-const factoryCanvasBody = JSON.stringify(factoryTopology);
-const factoryCanvasSha256 = createHash("sha256")
-  .update(factoryCanvasBody, "utf8")
-  .digest("hex");
-const emptyCanvasBody = JSON.stringify({ nodes: [], edges: [] });
-const emptyCanvasSha256 = createHash("sha256")
-  .update(emptyCanvasBody, "utf8")
-  .digest("hex");
+const factoryCanvasBody = serializeCanvas(factoryTopology);
+const emptyTopology: CanvasDoc = { nodes: [], edges: [] };
+const emptyCanvasBody = serializeCanvas(emptyTopology);
 const authorialMaterial = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
     [canvasName, { document: factoryTopology, rawBody: factoryCanvasBody }],
-    [
-      otherCanvasName,
-      { document: { nodes: [], edges: [] }, rawBody: emptyCanvasBody },
-    ],
+    [otherCanvasName, { document: emptyTopology, rawBody: emptyCanvasBody }],
   ]),
 });
 const intentSha256 = authorialMaterial.intentSha256;
@@ -152,38 +145,14 @@ const openRepository = async (
           ? [role, "local", null, null, atMinute(0)]
           : [role, "remote", "remote", peers[0], atMinute(0)],
       );
-      writer.run(
-        `
-          INSERT INTO canvas_generations(
-            generation,
-            created_at,
-            cause,
-            intent_sha256,
-            document_count
-          ) VALUES ('1', ?, ?, ?, 2)
-        `,
-        [atMinute(0), "test recent seat operations", intentSha256],
-      );
-      for (const name of [canvasName, otherCanvasName]) {
-        const body = name === canvasName ? factoryCanvasBody : emptyCanvasBody;
-        const sha256 =
-          name === canvasName ? factoryCanvasSha256 : emptyCanvasSha256;
-        writer.run(
-          `
-            INSERT INTO canvas_generation_documents(
-              generation,
-              name,
-              body,
-              sha256,
-              modified_at
-            ) VALUES ('1', ?, ?, ?, ?)
-          `,
-          [name, body, sha256, atMinute(0)],
-        );
-      }
-      writer.run(
-        "INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')",
-      );
+      seedCanvasAuthority(writer, {
+        generation: "1",
+        documents: new Map([
+          [canvasName, factoryTopology],
+          [otherCanvasName, emptyTopology],
+        ]),
+        at: atMinute(0),
+      });
     }),
   );
   const basis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({

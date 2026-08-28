@@ -367,21 +367,21 @@ afterAll(async () => {
 });
 
 describe("fresh compiler cohort provenance", () => {
-  it("reads the current schema-22 head without changing migrations", async () => {
+  it("reads the current schema head without changing migrations", async () => {
     const facts = await readPackageSourceFacts({
       repoRoot,
       requireClean: false,
     });
     expect(facts).toMatchObject({
       appVersion: "0.1.14",
-      currentStateSchemaVersion: 22,
+      currentStateSchemaVersion: 21,
       migrationHead: {
-        fromVersion: 21,
-        toVersion: 22,
-        name: "add-canvas-authoring-change-tail",
+        fromVersion: 20,
+        toVersion: 21,
+        name: "canvas-relational-authority-cutover",
       },
       migrationIdentitySha256:
-        "1687a4d228cf66231b4ea49a1d289ab5e6b08c58681960909df0928d2e7de3e1",
+        "3e45c771d981863bb41bfbd9cbcd2881144f0fcc118ce0f7824eb2c99886781f",
     });
   });
 

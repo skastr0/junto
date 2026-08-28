@@ -36,12 +36,27 @@ import {
   WORK_STATE_SCHEMA_BOARD_VOCAB_SQL,
   WORK_STATE_SCHEMA_PAD_VOCAB_SQL,
   WORK_STATE_SCHEMA_TASK_ARCHIVED_SQL,
+  WORK_FACTS_HEAD_BASIS_TABLE_SQL,
+  WORK_FACTS_HEAD_BASIS_TRIGGERS_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
 } from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
-import { CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
-import { CANVAS_AUTHORING_TAIL_SCHEMA_SQL } from "../canvas/authoring-tail-schema";
+import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
+import {
+  persistCanvas,
+  writePortfolioHead,
+  type CanvasSqlWriter,
+} from "../canvas/records";
+import {
+  containsWorkProjection as canvasContainsWorkProjection,
+  decodeCanvasDoc as decodeCanvasDocForCutover,
+  serializeCanvas as serializeCanvasForCutover,
+} from "@shared/canvas";
+import {
+  canvasBodySha256Of as canvasBodySha256ForCutover,
+  intentSha256Of as intentSha256ForCutover,
+} from "../canvas-intent-identity";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -49,12 +64,22 @@ export type StateSchemaMigrationDatabase = Pick<
 >;
 
 export const STATE_SCHEMA_MIGRATION_SAFETY = "expand-only" as const;
+/**
+ * A consolidation step retires durable tables whose content has been migrated
+ * into a canonical replacement inside the same step. It is the only step class
+ * allowed to DROP tables it names in `removesTables`.
+ */
+export const STATE_SCHEMA_CONSOLIDATE_SAFETY = "consolidate" as const;
+
+export type StateSchemaMigrationSafety =
+  | typeof STATE_SCHEMA_MIGRATION_SAFETY
+  | typeof STATE_SCHEMA_CONSOLIDATE_SAFETY;
 
 export type StateSchemaMigration = {
   readonly fromVersion: number;
   readonly toVersion: number;
   readonly name: string;
-  readonly safety: typeof STATE_SCHEMA_MIGRATION_SAFETY;
+  readonly safety: StateSchemaMigrationSafety;
   readonly fromIdentity: VerifiedStateSchemaIdentity;
   /** Exact non-table schema objects this step is authorized to replace. */
   readonly replacesObjects?: ReadonlyArray<`trigger:${string}`>;
@@ -71,6 +96,14 @@ export type StateSchemaMigration = {
    * restored after COMMIT/ROLLBACK; `PRAGMA foreign_key_check` still gates.
    */
   readonly replacesTables?: ReadonlyArray<string>;
+  /**
+   * Durable tables this consolidation step retires: their content is migrated
+   * into the canonical replacement inside the same step, then the table is
+   * DROPped and never recreated. Only valid with safety "consolidate". The
+   * same pre-transaction foreign_keys=OFF treatment as `replacesTables`
+   * applies.
+   */
+  readonly removesTables?: ReadonlyArray<string>;
   /**
    * Runs synchronously inside StateEngine's startup BEGIN IMMEDIATE. Throwing
    * rolls back DDL, copied-forward data, schema identity, and user_version.
@@ -222,22 +255,15 @@ export const STATE_SCHEMA_V20_IDENTITY = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+export const CURRENT_STATE_SCHEMA_VERSION = 21;
+
 /**
- * Exact witness of schema version 21 (relational canvas authority tables).
+ * Exact witness of schema version 21 (relational canvas authority; blob
+ * generation tables consolidated away).
  */
 export const STATE_SCHEMA_V21_IDENTITY = {
   actualSchemaSha256:
-    "ebf2f3d4d210fa0b390d3f4967597f8a8c50bc530000831cb4573cfe1cbf6509",
-} as const satisfies VerifiedStateSchemaIdentity;
-
-export const CURRENT_STATE_SCHEMA_VERSION = 22;
-
-/**
- * Exact witness of schema version 22 (authoring change tail + envelope provenance).
- */
-export const STATE_SCHEMA_V22_IDENTITY = {
-  actualSchemaSha256:
-    "1687a4d228cf66231b4ea49a1d289ab5e6b08c58681960909df0928d2e7de3e1",
+    "3e45c771d981863bb41bfbd9cbcd2881144f0fcc118ce0f7824eb2c99886781f",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 export const STATE_SCHEMA_MIGRATIONS =
@@ -606,21 +632,40 @@ export const STATE_SCHEMA_MIGRATIONS =
     {
       fromVersion: 20,
       toVersion: 21,
-      name: "add-canvas-relational-authority",
-      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      name: "canvas-relational-authority-cutover",
+      safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
       fromIdentity: STATE_SCHEMA_V20_IDENTITY,
+      replacesTables: ["work_facts"],
+      removesTables: [
+        "canvas_generation_documents",
+        "canvas_generations",
+        "canvas_head",
+      ],
       migrate: (database) => {
-        database.exec(CANVAS_RELATIONAL_AUTHORITY_SCHEMA_SQL);
-      },
-    },
-    {
-      fromVersion: 21,
-      toVersion: 22,
-      name: "add-canvas-authoring-change-tail",
-      safety: STATE_SCHEMA_MIGRATION_SAFETY,
-      fromIdentity: STATE_SCHEMA_V21_IDENTITY,
-      migrate: (database) => {
-        database.exec(CANVAS_AUTHORING_TAIL_SCHEMA_SQL);
+        database.exec(CANVAS_AUTHORITY_SCHEMA_SQL);
+        cutoverCanvasAuthorityFromBlobHead(database);
+        // work_facts carried a FOREIGN KEY into canvas_generations; SQLite
+        // cannot drop an FK without a rebuild. Rows copy forward byte-exact
+        // (the immutable-log law binds content, not the container), and the
+        // basis trigger is recreated against the portfolio head.
+        database.exec(`
+          CREATE TABLE work_facts__migrate_bak AS SELECT * FROM work_facts;
+          DROP TABLE work_facts;
+        `);
+        database.exec(WORK_FACTS_HEAD_BASIS_TABLE_SQL);
+        // History copies forward before the head-basis trigger exists:
+        // historical basis rows are served as written and only NEW facts
+        // must resolve the current portfolio head.
+        database.exec(`
+          INSERT INTO work_facts SELECT * FROM work_facts__migrate_bak;
+          DROP TABLE work_facts__migrate_bak;
+        `);
+        database.exec(WORK_FACTS_HEAD_BASIS_TRIGGERS_SQL);
+        database.exec(`
+          DROP TABLE canvas_generation_documents;
+          DROP TABLE canvas_generations;
+          DROP TABLE canvas_head;
+        `);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
@@ -760,6 +805,101 @@ const backfillCanvasEntitiesFromHead = (
       insert.run(document.name, entityId, kind, bindingId, now, now);
     }
   }
+};
+
+/**
+ * One-shot bridge from the retired blob generation store to relational canvas
+ * authority. Runs inside the 20 -> 21 consolidation step, before the blob
+ * tables are dropped: reads the head generation's documents, strictly decodes
+ * each body (the legacy edge conversion runs here for the last time), inserts
+ * relational rows, and writes the portfolio head with a freshly computed
+ * intent hash. Decode failure throws, rolling the whole startup migration
+ * back — the kernel took a verified backup before the chain began.
+ *
+ * The fresh relational tables are empty, so persistCanvas never prepares a
+ * DELETE here; the migration authorizer would refuse one.
+ */
+const cutoverCanvasAuthorityFromBlobHead = (
+  database: StateSchemaMigrationDatabase,
+): void => {
+  const writer: CanvasSqlWriter = {
+    get: (sql, bindings) =>
+      database.prepare(sql).get(...((bindings ?? []) as never[])) as never,
+    all: (sql, bindings) =>
+      database.prepare(sql).all(...((bindings ?? []) as never[])) as never,
+    run: (sql, bindings) =>
+      database.prepare(sql).run(...((bindings ?? []) as never[])) as never,
+  };
+
+  const head = database
+    .prepare("SELECT generation FROM canvas_head WHERE singleton = 1")
+    .get() as { readonly generation: SQLOutputValue } | undefined;
+  if (head === undefined) return;
+  const generation = String(head.generation);
+  const meta = database
+    .prepare(
+      "SELECT created_at FROM canvas_generations WHERE generation = ?",
+    )
+    .get(generation) as
+    | { readonly created_at: SQLOutputValue }
+    | undefined;
+  const at = meta === undefined
+    ? new Date().toISOString()
+    : String(meta.created_at);
+
+  const rows = database
+    .prepare(
+      `SELECT name, body, sha256, modified_at
+       FROM canvas_generation_documents
+       WHERE generation = ?
+       ORDER BY name`,
+    )
+    .all(generation) as unknown as ReadonlyArray<{
+    readonly name: SQLOutputValue;
+    readonly body: SQLOutputValue;
+    readonly sha256: SQLOutputValue;
+    readonly modified_at: SQLOutputValue;
+  }>;
+
+  const revisions = new Map<string, { readonly revisionSha256: string }>();
+  for (const row of rows) {
+    const name = String(row.name);
+    const storedBody = String(row.body);
+    if (canvasBodySha256ForCutover(storedBody) !== String(row.sha256)) {
+      throw new Error(
+        `canvas cutover: stored body hash mismatch for canvas "${name}"`,
+      );
+    }
+    const parsed: unknown = JSON.parse(storedBody);
+    if (canvasContainsWorkProjection(parsed)) {
+      throw new Error(
+        `canvas cutover: canvas "${name}" contains runtime work projection data`,
+      );
+    }
+    const decoded = decodeCanvasDocForCutover(parsed);
+    if (decoded._tag !== "Success") {
+      throw new Error(
+        `canvas cutover: canvas "${name}" failed strict decode: ${decoded.failure.message}`,
+      );
+    }
+    const doc = decoded.success;
+    const revisionSha256 = canvasBodySha256ForCutover(
+      serializeCanvasForCutover(doc),
+    );
+    persistCanvas(writer, {
+      canvasName: name,
+      doc,
+      revisionSha256,
+      modifiedAt: String(row.modified_at),
+    });
+    revisions.set(name, { revisionSha256 });
+  }
+
+  writePortfolioHead(writer, {
+    generation,
+    intentSha256: intentSha256ForCutover(revisions),
+    at,
+  });
 };
 
 export const STATE_SCHEMA_MIGRATION_PLAN: StateSchemaMigrationPlan = {
@@ -930,9 +1070,18 @@ const assertExpandSchemaPreserved = (
     readonly indexes: ReadonlySet<string>;
     readonly triggers: ReadonlySet<string>;
   } = { indexes: new Set(), triggers: new Set() },
+  removedTables: ReadonlySet<string> = new Set(),
 ): void => {
   const after = expandSchemaSnapshot(database);
   for (const [tableName, beforeColumns] of before.tables) {
+    if (removedTables.has(tableName)) {
+      if (after.tables.has(tableName)) {
+        throw new Error(
+          `state schema consolidation step retained table ${tableName} it declared removed`,
+        );
+      }
+      continue;
+    }
     const afterColumns = after.tables.get(tableName);
     if (afterColumns === undefined) {
       throw new Error(
@@ -1070,7 +1219,12 @@ const chainNeedsTableReplace = (
   while (version < plan.currentVersion) {
     const migration = migrations.get(version);
     if (migration === undefined) return false;
-    if ((migration.replacesTables?.length ?? 0) > 0) return true;
+    if (
+      (migration.replacesTables?.length ?? 0) > 0 ||
+      (migration.removesTables?.length ?? 0) > 0
+    ) {
+      return true;
+    }
     version = migration.toVersion;
   }
   return false;
@@ -1083,7 +1237,11 @@ const runMigrationStep = (
   const before = expandSchemaSnapshot(database);
   const replacesObjects = new Set<string>(migration.replacesObjects ?? []);
   const replacesTables = new Set<string>(migration.replacesTables ?? []);
-  const sideObjects = sideObjectsForReplacedTables(database, replacesTables);
+  const removesTables = new Set<string>(migration.removesTables ?? []);
+  const sideObjects = sideObjectsForReplacedTables(
+    database,
+    new Set([...replacesTables, ...removesTables]),
+  );
   const connection: StateSchemaMigrationDatabase = {
     exec: (sql) => {
       assertExpandOnlyMigrationSql(sql);
@@ -1099,6 +1257,7 @@ const runMigrationStep = (
     const isSchemaCatalog =
       arg1 === "sqlite_schema" || arg1 === "sqlite_master";
     const isReplacedTable = arg1 !== null && replacesTables.has(arg1);
+    const isRemovedTable = arg1 !== null && removesTables.has(arg1);
     const isMigrateBackup =
       arg1 !== null && arg1.endsWith("__migrate_bak");
     const isSideIndex = arg1 !== null && sideObjects.indexes.has(arg1);
@@ -1131,16 +1290,21 @@ const runMigrationStep = (
             // Catalog rewrites during DROP/recreate of authorized objects.
             (
               isSchemaCatalog &&
-              (replacesObjects.size > 0 || replacesTables.size > 0)
+              (
+                replacesObjects.size > 0 ||
+                replacesTables.size > 0 ||
+                removesTables.size > 0
+              )
             ) ||
             // DROP TABLE also emits DELETE against the table body.
             isReplacedTable ||
+            isRemovedTable ||
             isMigrateBackup
           )
         ) &&
         !(
           actionCode === constants.SQLITE_DROP_TABLE &&
-          (isReplacedTable || isMigrateBackup)
+          (isReplacedTable || isRemovedTable || isMigrateBackup)
         ) &&
         !(
           actionCode === constants.SQLITE_DROP_INDEX &&
@@ -1173,6 +1337,7 @@ const runMigrationStep = (
       database,
       replacesObjects,
       sideObjects,
+      removesTables,
     );
   } finally {
     database.setAuthorizer(null);
@@ -1247,7 +1412,10 @@ export const validateStateSchemaMigrationPlan = (
       migration.toVersion !== migration.fromVersion + 1 ||
       migration.toVersion > plan.currentVersion ||
       migration.name.length === 0 ||
-      migration.safety !== STATE_SCHEMA_MIGRATION_SAFETY
+      (migration.safety !== STATE_SCHEMA_MIGRATION_SAFETY &&
+        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
+      ((migration.removesTables?.length ?? 0) > 0) !==
+        (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY)
     ) {
       throw new Error(
         `invalid state schema migration ${migration.fromVersion} -> ${migration.toVersion}`,

@@ -14,6 +14,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
+import { reconstructCanvasDoc } from "../src/main/vellum/canvas/records";
 
 describe("E2E SQLite fixture seeding", () => {
   it("keeps work out of authorial canvas rows and starts active work by ActorRef", async () => {
@@ -47,13 +48,15 @@ describe("E2E SQLite fixture seeding", () => {
         const state = await runtime.runPromise(StateEngine);
         const witness = await runtime.runPromise(
           state.read("test.e2e-fixture-witness", (reader) => {
-            const canvas = reader.get<{ readonly body: string }>(
-              `SELECT d.body
-                 FROM canvas_head h
-                 JOIN canvas_generation_documents d
-                   ON d.generation = h.generation
-                WHERE h.singleton = 1 AND d.name = 'fixture'`,
+            const document = reader.get<{ readonly canvas_id: string }>(
+              `SELECT canvas_id
+                 FROM canvas_documents
+                WHERE canvas_name = 'fixture'`,
             );
+            const canvas =
+              document === undefined
+                ? undefined
+                : reconstructCanvasDoc(reader, document.canvas_id);
             const task = reader.get<{
               readonly state: string;
               readonly actor_seat_id: string | null;
@@ -72,14 +75,9 @@ describe("E2E SQLite fixture seeding", () => {
           state: "working",
           actor_seat_id: expect.stringMatching(/^seat_[a-f0-9]{64}$/),
         });
-        const authored = JSON.parse(witness.canvas!.body) as {
-          readonly nodes: ReadonlyArray<{
-            readonly id: string;
-            readonly ether?: { readonly tasks?: { readonly items?: ReadonlyArray<unknown> } };
-          }>;
-        };
         expect(
-          authored.nodes.find((node) => node.id === "tasks")?.ether?.tasks?.items,
+          witness.canvas?.nodes.find((node) => node.id === "tasks")?.ether
+            ?.tasks?.items,
         ).toEqual([]);
       } finally {
         await runtime.dispose();

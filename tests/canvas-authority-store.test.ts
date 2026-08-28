@@ -259,49 +259,35 @@ describe("CanvasesService SQLite authority", () => {
   it.each([
     [
       "document-backed work state",
-      taskSinkDoc(),
+      () => taskSinkDoc().nodes[0]!.ether,
       "runtime work projection data",
     ],
     [
       "document-backed pad projection",
-      padSinkDoc(),
+      () => padSinkDoc().nodes[0]!.ether,
       "runtime work projection data",
     ],
     [
-      "a top-level excess property",
-      { ...noteDoc("authorial"), topMystery: true },
+      "an excess ether property",
+      () => ({ entity: { kind: "note" }, mystery: true }),
       "failed validation",
     ],
     [
       "retired nested bindings",
-      {
-        nodes: [
+      () => ({
+        entity: { kind: "project", name: "demo" },
+        bindings: [
           {
-            id: "legacy",
-            type: "text",
-            text: "legacy",
-            x: 0,
-            y: 0,
-            width: 120,
-            height: 60,
-            ether: {
-              entity: { kind: "project", name: "demo" },
-              bindings: [
-                {
-                  source: "tower",
-                  ref: { type: "project", key: "demo" },
-                },
-              ],
-            },
+            source: "tower",
+            ref: { type: "project", key: "demo" },
           },
         ],
-        edges: [],
-      },
+      }),
       "failed validation",
     ],
-  ] as const)("fails closed when an authority body contains %s", async (
+  ] as const)("fails closed when an authority row contains %s", async (
     _case,
-    invalidDoc,
+    invalidEther,
     expectedMessage
   ) => {
     await installEnv();
@@ -310,18 +296,9 @@ describe("CanvasesService SQLite authority", () => {
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("work", noteDoc("authorial")));
 
-    const invalidBody = JSON.stringify(invalidDoc);
-    const bodySha256 = createHash("sha256")
-      .update(invalidBody, "utf8")
-      .digest("hex");
-    const intentSha256 = createHash("sha256")
-      .update(String(Buffer.byteLength("work", "utf8")))
-      .update("\0")
-      .update("work", "utf8")
-      .update("\0")
-      .update(bodySha256, "ascii")
-      .update("\0")
-      .digest("hex");
+    // Corrupt the relational authority directly: the app write path can never
+    // produce these rows, so the read path must fail closed rather than serve
+    // or repair them.
     const state = await runtime.runPromise(StateEngine);
     await runtime.runPromise(
       state.transaction("test.inject-invalid-canvas", (writer) => {
@@ -332,43 +309,8 @@ describe("CanvasesService SQLite authority", () => {
           throw new Error("expected work canvas_documents row");
         }
         writer.run(
-          `
-            INSERT INTO canvas_checkpoints (sha256, byte_length, body, created_at)
-            VALUES (?, ?, ?, ?)
-          `,
-          [
-            bodySha256,
-            Buffer.byteLength(invalidBody, "utf8"),
-            invalidBody,
-            new Date().toISOString(),
-          ],
-        );
-        writer.run(
-          `
-            INSERT INTO canvas_generations(
-              generation, created_at, cause, intent_sha256, document_count
-            ) VALUES ('2', ?, 'write', ?, 1)
-          `,
-          [new Date().toISOString(), intentSha256],
-        );
-        writer.run(
-          `
-            INSERT INTO canvas_generation_documents(
-              generation, name, body, sha256, modified_at
-            ) VALUES ('2', 'work', ?, ?, ?)
-          `,
-          [invalidBody, bodySha256, new Date().toISOString()],
-        );
-        writer.run(
-          `
-            INSERT INTO canvas_generation_manifests(
-              generation, canvas_id, checkpoint_sha256, semantic_sha256
-            ) VALUES ('2', ?, ?, ?)
-          `,
-          [canvasId, bodySha256, bodySha256],
-        );
-        writer.run(
-          `UPDATE canvas_head SET generation = '2' WHERE singleton = 1`,
+          `UPDATE canvas_nodes SET ether_json = ? WHERE canvas_id = ?`,
+          [JSON.stringify(invalidEther()), canvasId],
         );
       })
     );
@@ -474,7 +416,7 @@ describe("CanvasesService SQLite authority", () => {
     });
   });
 
-  it("keeps every generation document row and the head after many commits", async () => {
+  it("stores exactly the current graph after many commits", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
     const canvases = await runtime.runPromise(CanvasesService);
@@ -485,29 +427,28 @@ describe("CanvasesService SQLite authority", () => {
       await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
     }
 
+    // Relational authority holds the head and nothing else: one document row,
+    // exactly the current node set, zero growth with commit count.
     const counts = await runtime.runPromise(
       state.read("retention.counts", (reader) => ({
-        ledger: Number(
+        documents: Number(
           reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_generations",
+            "SELECT count(*) AS count FROM canvas_documents",
           )?.count ?? 0,
         ),
-        bodies: Number(
+        nodes: Number(
           reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_generation_documents",
+            "SELECT count(*) AS count FROM canvas_nodes",
           )?.count ?? 0,
         ),
-        checkpoints: Number(
+        edges: Number(
           reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_checkpoints",
+            "SELECT count(*) AS count FROM canvas_edges",
           )?.count ?? 0,
         ),
       })),
     );
-
-    expect(counts.ledger).toBe(commits);
-    expect(counts.bodies).toBe(commits);
-    expect(counts.checkpoints).toBe(commits);
+    expect(counts).toEqual({ documents: 1, nodes: 1, edges: 0 });
 
     const head = await runtime.runPromise(canvases.authoritySnapshot());
     expect(head.generation).toBe(String(commits));
@@ -525,7 +466,7 @@ describe("CanvasesService SQLite authority", () => {
     ).toMatchObject({ text: `rev-${commits - 1}` });
   });
 
-  it("preserves a work-fact authorial basis generation after later commits", async () => {
+  it("keeps a work-fact authorial basis as opaque history after later commits", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
     const settings = await runtime.runPromise(SettingsService);
@@ -565,22 +506,29 @@ describe("CanvasesService SQLite authority", () => {
       await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
     }
 
+    // The immutable fact keeps its founding basis generation verbatim while
+    // the portfolio head advances past it; nothing references the retired
+    // generation as a row, so no relational constraint can be violated.
     const survived = await runtime.runPromise(
-      state.read("retention.basis.survived", (reader) =>
-        reader.all<{ readonly generation: string; readonly bodies: number }>(
+      state.read("retention.basis.survived", (reader) => ({
+        basis: reader.all<{ readonly generation: string }>(
           `
-            SELECT generation, count(*) AS bodies
-            FROM canvas_generation_documents
-            GROUP BY generation
+            SELECT DISTINCT basis_authorial_generation AS generation
+            FROM work_facts
+            WHERE basis_authorial_generation IS NOT NULL
           `,
         ),
-      ),
+        head: reader.get<{ readonly generation: string }>(
+          "SELECT generation FROM canvas_portfolio_head WHERE singleton = 1",
+        ),
+        fkViolations: reader.all("PRAGMA foreign_key_check").length,
+      })),
     );
-    const held = new Set(survived.map((row) => row.generation));
-    for (const row of basis) {
-      expect(held.has(row.generation)).toBe(true);
-    }
-    expect(survived.length).toBeGreaterThanOrEqual(commits);
+    expect(survived.basis).toEqual(basis);
+    expect(BigInt(survived.head?.generation ?? "0")).toBeGreaterThan(
+      BigInt(basis[0]!.generation),
+    );
+    expect(survived.fkViolations).toBe(0);
   });
 
   it("starts empty when the authority pointer is absent", async () => {

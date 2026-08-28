@@ -20,8 +20,9 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import type { CanvasDoc } from "../src/shared/canvas";
+import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
@@ -53,7 +54,7 @@ const authorityTopology: CanvasDoc = {
   })),
   edges: [],
 };
-const authorityRawBody = JSON.stringify(authorityTopology);
+const authorityRawBody = serializeCanvas(authorityTopology);
 const authorityMaterial = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
@@ -95,23 +96,11 @@ const seed = () =>
        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
       [observedAt],
     );
-    writer.run(
-      `INSERT INTO canvas_generations(
-         generation, created_at, cause, intent_sha256, document_count
-       ) VALUES ('1', ?, 'test intent', ?, 1)`,
-      [observedAt, currentIntentSha256],
-    );
-    writer.run(
-      `INSERT INTO canvas_generation_documents(
-         generation, name, body, sha256, modified_at
-       ) VALUES ('1', 'factory', ?, ?, ?)`,
-      [
-        authorityRawBody,
-        authorityMaterial.storedDocuments.get("factory")!.revisionSha256,
-        observedAt,
-      ],
-    );
-    writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
+    seedCanvasAuthority(writer, {
+      generation: "1",
+      documents: new Map([["factory", authorityTopology]]),
+      at: observedAt,
+    });
   });
 
 beforeAll(async () => {

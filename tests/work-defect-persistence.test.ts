@@ -22,7 +22,11 @@ import {
   StateEngine,
 } from "../src/main/vellum/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import {
+  serializeCanvas,
+  type CanvasDoc,
+  type CanvasNode,
+} from "../src/shared/canvas";
 import type { Task, TasksSinkContract } from "../src/shared/work-model";
 import { workTaskTransition } from "../src/shared/work";
 import { buildTaskJourney } from "../src/renderer/components/work/task-journey";
@@ -30,6 +34,7 @@ import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
 } from "./helpers/task-topology-authority";
+import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const root = join(tmpdir(), `vellum-command-defect-persistence-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -57,7 +62,7 @@ const authorityTopology: CanvasDoc = {
   })),
   edges: [],
 };
-const authorityRawBody = JSON.stringify(authorityTopology);
+const authorityRawBody = serializeCanvas(authorityTopology);
 const authorityMaterial = authorialMaterialForTest({
   generation: "1",
   documents: new Map([
@@ -92,23 +97,11 @@ const seed = () =>
        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
       [observedAt],
     );
-    writer.run(
-      `INSERT INTO canvas_generations(
-         generation, created_at, cause, intent_sha256, document_count
-       ) VALUES ('1', ?, 'test intent', ?, 1)`,
-      [observedAt, currentIntentSha256],
-    );
-    writer.run(
-      `INSERT INTO canvas_generation_documents(
-         generation, name, body, sha256, modified_at
-       ) VALUES ('1', 'factory', ?, ?, ?)`,
-      [
-        authorityRawBody,
-        authorityMaterial.storedDocuments.get("factory")!.revisionSha256,
-        observedAt,
-      ],
-    );
-    writer.run(`INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')`);
+    seedCanvasAuthority(writer, {
+      generation: "1",
+      documents: new Map([["factory", authorityTopology]]),
+      at: observedAt,
+    });
   });
 
 beforeAll(async () => {

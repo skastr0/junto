@@ -57,28 +57,13 @@ import {
   syncCanvasEntities,
 } from "./entities/sync";
 import {
-  runCanvasRelationalBackfill,
-} from "./canvas/relational-backfill";
-import { persistRelationalPortfolio } from "./canvas/relational-records";
-import {
-  appendDocumentReplaceTail,
-  assertObjectHashesAdmit,
-  authoringPayloadHash,
-  changedObjectHashesJson,
-  findChangeTail,
-  readAuthoringTail as readAuthoringTailRows,
-  type AuthoringTailRead,
-} from "./canvas/authoring-tail";
-import {
-  AUTHORING_CODEC_FAMILY,
-  AUTHORING_CODEC_VERSION,
-  AUTHORING_ORIGIN_COMMAND_CENTER,
-  DOCUMENT_REPLACE_V1,
-  decodeAuthoringCommand,
-  type DocumentReplaceV1,
-} from "@shared/canvas-authoring";
-import { InstallOpsService } from "./install-ops/service";
-import { ulid } from "ulid";
+  deleteCanvas,
+  persistCanvas,
+  readDocumentRows,
+  readPortfolioHead,
+  reconstructCanvasDoc,
+  writePortfolioHead,
+} from "./canvas/records";
 import {
   canvasBodySha256Of,
   intentSha256Of,
@@ -239,23 +224,8 @@ export class CanvasesService extends Context.Service<CanvasesService,
       name: string,
       doc: CanvasDoc,
       expectedRevision?: string,
-      command?: {
-        readonly changeId?: string;
-        readonly objectHashes?: Readonly<Record<string, string>>;
-      },
     ) => Effect.Effect<CanvasWriteResult, CanvasError>;
-    /**
-     * Sequencer entry for typed authoring commands. Full-document renderer
-     * saves compile to document.replace/v1.
-     */
-    readonly applyAuthoringCommand: (
-      command: unknown,
-    ) => Effect.Effect<AuthoringCommandResult, CanvasError>;
-    readonly readAuthoringTail: (input?: {
-      readonly afterChangeId?: string;
-      readonly canvasName?: string;
-    }) => Effect.Effect<AuthoringTailRead, CanvasError>;
-    // Transactional RMW against the current full-map generation.
+    // Transactional RMW against the current portfolio head.
     readonly mutate: (
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
@@ -378,84 +348,15 @@ type CommitOutcome = {
   readonly changed: boolean;
 };
 
-export type AuthoringCommandResult = {
-  readonly revision: string;
-  readonly changeId: string;
-  readonly generation: string;
-  readonly duplicate: boolean;
-};
-
-type AuthoringProvenance = {
-  readonly changeId: string;
-  readonly payloadHash: string;
-  readonly admittedBaseGeneration: string | null;
-  readonly admittedBaseBodyHash: string | null;
-  readonly changedObjectHashesJson: string;
-};
-
-const HEAD_SQL = `
-  SELECT
-    h.generation AS generation,
-    g.created_at AS created_at,
-    g.intent_sha256 AS intent_sha256,
-    g.document_count AS document_count
-  FROM canvas_head h
-  JOIN canvas_generations g ON g.generation = h.generation
-  WHERE h.singleton = 1
-`;
-
-const DOCUMENTS_SQL = `
-  SELECT name, body, sha256, modified_at
-  FROM canvas_generation_documents
-  WHERE generation = ?
-  ORDER BY name
-`;
-
-const decodeStoredCanvas = (
-  name: CanvasName,
-  body: string,
-  expectedSha256: string,
-  modifiedAt: string,
-): StoredCanvas => {
-  const revisionSha256 = canvasBodySha256Of(body);
-  if (revisionSha256 !== expectedSha256) {
-    throw new CanvasError({
-      message: `canvas database body hash mismatch: ${canvasLabel(name)}`,
-    });
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch (error) {
-    throw new CanvasError({
-      message: `${canvasLabel(name)} in the database is not valid JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    });
-  }
-  if (containsWorkProjection(parsed)) {
-    throw new CanvasError({
-      message:
-        `${canvasLabel(name)} in the database contains runtime work projection data; ` +
-        "authorial canvas rows must contain structure and intent only",
-    });
-  }
-  const decoded = decodeCanvasDoc(parsed);
-  if (Result.isFailure(decoded)) {
-    throw new CanvasError({
-      message: `${canvasLabel(name)} in the database failed validation: ${decoded.failure.message}`,
-    });
-  }
-  return { doc: decoded.success, body, revisionSha256, modifiedAt };
-};
-
+/**
+ * Read the relational canvas authority: portfolio head + document rows +
+ * reconstructed documents. The serialized JSON Canvas body is DERIVED here —
+ * it exists in memory as the export/identity codec, never on disk. Each
+ * reconstructed document must reproduce its stored revision hash, and the
+ * portfolio must reproduce the stored intent hash, or the read fails closed.
+ */
 const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
-  const head = reader.get<{
-    readonly generation: string;
-    readonly created_at: string;
-    readonly intent_sha256: string;
-    readonly document_count: number;
-  }>(HEAD_SQL);
+  const head = readPortfolioHead(reader);
   if (head === undefined) {
     return {
       hasHead: false,
@@ -467,40 +368,43 @@ const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
   }
 
   const documents = new Map<string, StoredCanvas>();
-  // Relational v2 rows are derived verification state, not read authority. A
-  // matching manifest count cannot authenticate its checkpoint bytes. Until
-  // install-ops carries a durable source-prefix/parity witness, every current
-  // read and export stays on the preserved generation document that every
-  // authorial write still emits.
-  const sourceRows = reader.all<{
-    readonly name: string;
-    readonly body: string;
-    readonly sha256: string;
-    readonly modified_at: string;
-  }>(DOCUMENTS_SQL, [head.generation]);
-  for (const row of sourceRows) {
-    const name = canvasNameFrom(row.name);
-    if (name !== row.name || documents.has(name)) {
+  for (const row of readDocumentRows(reader)) {
+    const name = canvasNameFrom(row.canvas_name);
+    if (name !== row.canvas_name || documents.has(name)) {
       throw new CanvasError({
-        message: `canvas database contains a non-canonical or duplicate name: "${row.name}"`,
+        message: `canvas database contains a non-canonical or duplicate name: "${row.canvas_name}"`,
       });
     }
-    documents.set(
-      name,
-      decodeStoredCanvas(name, row.body, row.sha256, row.modified_at),
-    );
-  }
-  if (documents.size !== Number(head.document_count)) {
-    throw new CanvasError({
-      message:
-        `canvas generation ${head.generation} expected ${head.document_count} documents ` +
-        `but loaded ${documents.size}`,
-    });
+    let doc: CanvasDoc;
+    try {
+      doc = reconstructCanvasDoc(reader, row.canvas_id);
+    } catch (error) {
+      throw new CanvasError({
+        message: `${canvasLabel(name)} failed relational reconstruction: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+    if (containsWorkProjection(doc)) {
+      throw new CanvasError({
+        message:
+          `${canvasLabel(name)} in the database contains runtime work projection data; ` +
+          "authorial canvas rows must contain structure and intent only",
+      });
+    }
+    const body = serializeCanvas(doc);
+    const revisionSha256 = canvasBodySha256Of(body);
+    if (revisionSha256 !== row.revision_sha256) {
+      throw new CanvasError({
+        message: `canvas database revision hash mismatch: ${canvasLabel(name)}`,
+      });
+    }
+    documents.set(name, { doc, body, revisionSha256, modifiedAt: row.modified_at });
   }
   const intentSha256 = intentSha256Of(documents);
   if (intentSha256 !== head.intent_sha256) {
     throw new CanvasError({
-      message: `canvas generation ${head.generation} intent hash mismatch`,
+      message: `canvas portfolio generation ${head.generation} intent hash mismatch`,
     });
   }
   return {
@@ -702,16 +606,14 @@ const SEPARATOR = "\u0000";
  *
  * Two-branch, exactly like the read it guards:
  *
- * - Command Center: local role, the authority head (generation, the intent
- *   hash the head row records, its created_at and document_count) and the
- *   placement topology the actor-seat compiler consumes. Documents are pinned
- *   by generation because generation rows are append-only — `write`/`mutate`/
- *   `create`/`remove`/`ensureSeed` all insert a NEW generation and move the
- *   head; nothing rewrites the rows of a generation the head already points
- *   at. The only DELETE against canvas_head/canvas_generations lives in the
- *   Remote configure transaction (station/repository.ts), which sets the role
- *   to "remote" in that same transaction, so the role field of this identity
- *   moves with it and the reset can never read back as an unchanged key.
+ * - Command Center: local role, the portfolio head (generation, intent hash,
+ *   updated_at) and the placement topology the actor-seat compiler consumes.
+ *   Documents are pinned by the intent hash: it is recomputed from every
+ *   canvas's revision hash on each commit, so no row of any canvas can change
+ *   without moving it. The only whole-plane wipe is the Remote configure
+ *   transaction (station/repository.ts), which sets the role to "remote" in
+ *   that same transaction, so the role field of this identity moves with it
+ *   and the reset can never read back as an unchanged key.
  * - Remote: local role plus the projection head's generation, content hash and
  *   received_at. The body is pinned by its own content hash.
  *
@@ -746,12 +648,7 @@ const readActivePortfolioIdentity = (reader: StateReader): string => {
           head.received_at,
         ].join(SEPARATOR);
   }
-  const head = reader.get<{
-    readonly generation: string;
-    readonly created_at: string;
-    readonly intent_sha256: string;
-    readonly document_count: number;
-  }>(HEAD_SQL);
+  const head = readPortfolioHead(reader);
   const topology = [...readCommandCenterTopology(reader)]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([hostId, installationId]) => `${hostId}${installationId}`)
@@ -760,8 +657,7 @@ const readActivePortfolioIdentity = (reader: StateReader): string => {
     role === "" ? "unconfigured" : role,
     head?.generation ?? "none",
     head?.intent_sha256 ?? "none",
-    head?.created_at ?? "none",
-    String(head?.document_count ?? 0),
+    head?.updated_at ?? "none",
     topology,
   ].join(SEPARATOR);
 };
@@ -931,60 +827,16 @@ const assertAuthorialInstallation = (
 const nextGenerationAfter = (snapshot: StoredAuthoritySnapshot): string =>
   snapshot.hasHead ? (BigInt(snapshot.generation) + 1n).toString() : "1";
 
-const insertFullGeneration = (
-  writer: StateWriter,
-  generation: string,
-  createdAt: string,
-  cause: CanvasCommitCause,
-  documents: ReadonlyMap<string, StoredCanvas>,
-): void => {
-  const intentSha256 = intentSha256Of(documents);
-  writer.run(
-    `INSERT INTO canvas_generations(
-      generation, created_at, cause, intent_sha256, document_count
-    ) VALUES (?, ?, ?, ?, ?)`,
-    [generation, createdAt, cause, intentSha256, documents.size],
-  );
-  for (const [name, entry] of [...documents].sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
-    writer.run(
-      `INSERT INTO canvas_generation_documents(
-        generation, name, body, sha256, modified_at
-      ) VALUES (?, ?, ?, ?, ?)`,
-      [generation, name, entry.body, entry.revisionSha256, entry.modifiedAt],
-    );
-  }
-  writer.run(
-    `INSERT INTO canvas_head(singleton, generation)
-     VALUES (1, ?)
-     ON CONFLICT(singleton) DO UPDATE SET generation = excluded.generation`,
-    [generation],
-  );
-};
-
 /**
- * Retired automatic body-deletion window. Relational cutover stores unique
- * JSON Canvas bodies in `canvas_checkpoints` and never deletes generation
- * rows. Kept as a named constant so historical tests that measured the old
- * window can pin the number they used to expect.
+ * Commit the portfolio delta: upsert changed canvases' rows, delete removed
+ * canvases' rows, advance the singleton head. Only canvases whose revision
+ * hash moved are touched — an unchanged canvas costs nothing.
  */
-export const CANVAS_GENERATION_BODY_RETENTION = 256;
-export const CANVAS_GENERATION_COMPACTION_BATCH = 128;
-export const CANVAS_GENERATION_COMPACTION_SLACK = 64;
-
-const commitFullGeneration = (
+const commitPortfolio = (
   writer: StateWriter,
   previous: StoredAuthoritySnapshot,
   documents: ReadonlyMap<string, StoredCanvas>,
-  cause: CanvasCommitCause,
-  options: {
-    readonly generation?: string;
-    readonly createdAt?: string;
-    readonly provenance?: AuthoringProvenance & {
-      readonly canvasName: string;
-    };
-  } = {},
+  _cause: CanvasCommitCause,
 ): CommitOutcome => {
   const intentSha256 = intentSha256Of(documents);
   if (
@@ -994,48 +846,24 @@ const commitFullGeneration = (
   ) {
     return { generation: previous.generation, changed: false };
   }
-  const generation = options.generation ?? nextGenerationAfter(previous);
-  const createdAt = options.createdAt ?? new Date().toISOString();
-  const provenance = options.provenance;
-  insertFullGeneration(writer, generation, createdAt, cause, documents);
-  persistRelationalPortfolio(writer, {
-    generation,
-    parentGeneration: previous.hasHead ? previous.generation : null,
-    cause,
-    intentSha256,
-    createdAt,
-    documents,
-    origin: provenance ? AUTHORING_ORIGIN_COMMAND_CENTER : null,
-    admittedBaseGeneration: provenance?.admittedBaseGeneration ?? null,
-    admittedBaseBodyHash: provenance?.admittedBaseBodyHash ?? null,
-    codecFamily: provenance ? AUTHORING_CODEC_FAMILY : null,
-    codecVersion: provenance ? AUTHORING_CODEC_VERSION : null,
-    payloadHash: provenance?.payloadHash ?? null,
-    changedObjectHashesJson: provenance?.changedObjectHashesJson ?? null,
-    changeId: provenance?.changeId ?? null,
-  });
-  if (provenance !== undefined) {
-    const canvasId = writer.get<{ readonly canvas_id: string }>(
-      "SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?",
-      [provenance.canvasName],
-    )?.canvas_id;
-    if (canvasId === undefined) {
-      throw new CanvasError({
-        message: `cannot persist authoring tail: canvas "${provenance.canvasName}" has no relational identity`,
-      });
+  const generation = nextGenerationAfter(previous);
+  const createdAt = new Date().toISOString();
+  for (const name of previous.documents.keys()) {
+    if (!documents.has(name)) deleteCanvas(writer, name);
+  }
+  for (const [name, entry] of documents) {
+    const prior = previous.documents.get(name);
+    if (prior !== undefined && prior.revisionSha256 === entry.revisionSha256) {
+      continue;
     }
-    appendDocumentReplaceTail(writer, {
-      changeId: provenance.changeId,
-      canvasId,
-      generation,
-      payloadHash: provenance.payloadHash,
-      bodyHash: documents.get(provenance.canvasName)?.revisionSha256 ?? provenance.payloadHash,
-      admittedBaseGeneration: provenance.admittedBaseGeneration,
-      admittedBaseBodyHash: provenance.admittedBaseBodyHash,
-      changedObjectHashesJson: provenance.changedObjectHashesJson,
-      createdAt,
+    persistCanvas(writer, {
+      canvasName: name,
+      doc: entry.doc,
+      revisionSha256: entry.revisionSha256,
+      modifiedAt: entry.modifiedAt,
     });
   }
+  writePortfolioHead(writer, { generation, intentSha256, at: createdAt });
   return { generation, changed: true };
 };
 
@@ -1173,7 +1001,6 @@ export const CanvasesLive = Layer.effect(
       yield* Effect.addFinalizer(() => Effect.sync(() => world.close()));
     }
     const workProjections = makeWorkProjectionCache(world);
-    const installOpsOption = yield* Effect.serviceOption(InstallOpsService);
 
   const notifyListeners = (
     name: CanvasName | string,
@@ -1204,21 +1031,21 @@ export const CanvasesLive = Layer.effect(
       .read("canvas.bootstrap.status", (reader) => ({
         hasHead:
           reader.get<{ readonly generation: string }>(
-            "SELECT generation FROM canvas_head WHERE singleton = 1",
+            "SELECT generation FROM canvas_portfolio_head WHERE singleton = 1",
           ) !== undefined,
-        generations: Number(
+        documents: Number(
           reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_generations",
+            "SELECT count(*) AS count FROM canvas_documents",
           )?.count ?? 0,
         ),
       }))
       .pipe(Effect.mapError(toCanvasError));
 
-    if (!status.hasHead && status.generations > 0) {
+    if (!status.hasHead && status.documents > 0) {
       return yield* Effect.fail(
         new CanvasError({
           message:
-            "canvas database head is missing while generation rows exist; recovery required",
+            "canvas portfolio head is missing while canvas rows exist; recovery required",
         }),
       );
     }
@@ -1266,23 +1093,6 @@ export const CanvasesLive = Layer.effect(
       })
       .pipe(Effect.mapError(toCanvasError));
 
-    // Empty authorial source is still a parity claim: v2 must prove that no
-    // unverifiable live relational residue exists instead of returning early.
-    if (Option.isSome(installOpsOption)) {
-      yield* runCanvasRelationalBackfill({
-        state,
-        installOps: installOpsOption.value,
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.sync(() => {
-            console.error(
-              "[canvases] relational backfill deferred to next boot:",
-              error,
-            );
-          }),
-        ),
-      );
-    }
   });
 
   const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({
@@ -1448,205 +1258,62 @@ export const CanvasesLive = Layer.effect(
         .pipe(Effect.mapError(toCanvasError));
     });
 
-  const applyReplaceInTransaction = (
-    writer: StateWriter,
-    command: DocumentReplaceV1,
-  ): {
-    readonly result: AuthoringCommandResult;
-    readonly previous?: StoredCanvas;
-    readonly nextEntry: StoredCanvas;
-    readonly changed: boolean;
-  } => {
-    const canonicalName = canvasNameFrom(command.canvasName);
-    const duplicate = findChangeTail(writer, command.changeId);
-    if (duplicate !== undefined) {
-      const current = readStoredAuthority(writer);
-      const entry = current.documents.get(canonicalName);
-      if (entry === undefined) {
-        throw new CanvasError({
-          message: `duplicate change ${command.changeId} has no live canvas`,
-        });
-      }
-      return {
-        result: {
-          revision: duplicate.bodyHash,
-          changeId: command.changeId,
-          generation: duplicate.generation,
-          duplicate: true,
-        },
-        previous: entry,
-        nextEntry: entry,
-        changed: false,
-      };
-    }
-
-    const current = readStoredAuthority(writer);
-    const previous = current.documents.get(canonicalName);
-    if (
-      command.baseBodyHash !== undefined &&
-      (previous === undefined || previous.revisionSha256 !== command.baseBodyHash)
-    ) {
-      throw new CanvasError({
-        message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
-      });
-    }
-    if (
-      command.baseGeneration !== undefined &&
-      current.hasHead &&
-      command.baseGeneration !== current.generation
-    ) {
-      throw new CanvasError({
-        message: `${canvasLabel(canonicalName)} generation conflict; reload before saving`,
-      });
-    }
-    try {
-      assertObjectHashesAdmit(previous?.doc, command.objectHashes);
-    } catch (error) {
-      throw new CanvasError({
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    const modifiedAt = new Date().toISOString();
-    const candidate = normalizeCanvas(
-      canonicalName,
-      command.doc,
-      modifiedAt,
-      "write",
-    );
-    const nextEntry =
-      candidate.revisionSha256 === previous?.revisionSha256
-        ? { ...candidate, modifiedAt: previous.modifiedAt }
-        : candidate;
-    const documents = new Map(current.documents);
-    documents.set(canonicalName, nextEntry);
-    const payloadHash = authoringPayloadHash({
-      ...command,
-      canvasName: canonicalName,
-      doc: nextEntry.doc,
-    });
-    const provenance = {
-      changeId: command.changeId,
-      canvasName: canonicalName,
-      payloadHash,
-      admittedBaseGeneration: command.baseGeneration ?? (current.hasHead ? current.generation : null),
-      admittedBaseBodyHash: command.baseBodyHash ?? previous?.revisionSha256 ?? null,
-      changedObjectHashesJson: changedObjectHashesJson(nextEntry.doc),
-    };
-    const commit = commitFullGeneration(
-      writer,
-      current,
-      documents,
-      "write",
-      { provenance },
-    );
-    if (!commit.changed) {
-      const canvasId = writer.get<{ readonly canvas_id: string }>(
-        "SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?",
-        [canonicalName],
-      )?.canvas_id;
-      if (canvasId !== undefined) {
-        appendDocumentReplaceTail(writer, {
-          changeId: command.changeId,
-          canvasId,
-          generation: commit.generation,
-          payloadHash,
-          bodyHash: nextEntry.revisionSha256,
-          admittedBaseGeneration: provenance.admittedBaseGeneration,
-          admittedBaseBodyHash: provenance.admittedBaseBodyHash,
-          changedObjectHashesJson: provenance.changedObjectHashesJson,
-          createdAt: modifiedAt,
-        });
-      }
-    }
-    if (commit.changed || previous === undefined) {
-      syncCanvasEntities(
-        writer,
-        canonicalName,
-        nextEntry.doc,
-        nextEntry.modifiedAt,
-      );
-    }
-    return {
-      result: {
-        revision: nextEntry.revisionSha256,
-        changeId: command.changeId,
-        generation: commit.generation,
-        duplicate: false,
-      },
-      previous,
-      nextEntry,
-      changed: commit.changed,
-    };
-  };
-
   const write = (
     name: string,
     doc: CanvasDoc,
     expectedRevision?: string,
-    command?: {
-      readonly changeId?: string;
-      readonly objectHashes?: Readonly<Record<string, string>>;
-    },
   ): Effect.Effect<CanvasWriteResult, CanvasError> =>
-    ensureReady.pipe(
-      Effect.flatMap(() =>
-        applyAuthoringCommand({
-          kind: DOCUMENT_REPLACE_V1,
-          changeId: command?.changeId ?? `chg_${ulid().toLowerCase()}`,
-          canvasName: name,
-          doc,
-          ...(expectedRevision !== undefined
-            ? { baseBodyHash: expectedRevision }
-            : {}),
-          ...(command?.objectHashes !== undefined
-            ? { objectHashes: command.objectHashes }
-            : {}),
-        }),
-      ),
-      Effect.map(({ revision }) => ({ revision })),
-    );
-
-  const applyAuthoringCommand = (
-    command: unknown,
-  ): Effect.Effect<AuthoringCommandResult, CanvasError> =>
     Effect.gen(function* () {
       yield* ensureReady;
-      const decoded = decodeAuthoringCommand(command);
-      if (Result.isFailure(decoded)) {
-        return yield* Effect.fail(
-          new CanvasError({
-            message: `authoring command refused: ${decoded.failure.message}`,
-          }),
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(name),
+        catch: toCanvasError,
+      });
+      const outcome = yield* transaction("canvas.write", (writer) => {
+        const current = readStoredAuthority(writer);
+        const previous = current.documents.get(canonicalName);
+        if (
+          expectedRevision !== undefined &&
+          (previous === undefined ||
+            previous.revisionSha256 !== expectedRevision)
+        ) {
+          throw new CanvasError({
+            message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
+          });
+        }
+        const candidate = normalizeCanvas(
+          canonicalName,
+          doc,
+          new Date().toISOString(),
+          "write",
         );
-      }
-      const outcome = yield* transaction("canvas.authoring", (writer) =>
-        applyReplaceInTransaction(writer, decoded.success),
-      );
-      if (outcome.changed) {
+        const nextEntry =
+          candidate.revisionSha256 === previous?.revisionSha256
+            ? { ...candidate, modifiedAt: previous.modifiedAt }
+            : candidate;
+        const documents = new Map(current.documents);
+        documents.set(canonicalName, nextEntry);
+        const commit = commitPortfolio(writer, current, documents, "write");
+        if (commit.changed || previous === undefined) {
+          syncCanvasEntities(
+            writer,
+            canonicalName,
+            nextEntry.doc,
+            nextEntry.modifiedAt,
+          );
+        }
+        return { commit, previous, nextEntry };
+      });
+      if (outcome.commit.changed) {
         yield* Effect.sync(() =>
-          notifyListeners(canvasNameFrom(decoded.success.canvasName), {
+          notifyListeners(canonicalName, {
             previous: outcome.previous?.doc,
             next: outcome.nextEntry.doc,
           }),
         );
       }
-      return outcome.result;
+      return { revision: outcome.nextEntry.revisionSha256 };
     });
-
-  const readAuthoringTail = (input: {
-    readonly afterChangeId?: string;
-    readonly canvasName?: string;
-  } = {}): Effect.Effect<AuthoringTailRead, CanvasError> =>
-    ensureReady.pipe(
-      Effect.flatMap(() =>
-        state
-          .read("canvas.authoring-tail", (reader) =>
-            readAuthoringTailRows(reader, input),
-          )
-          .pipe(Effect.mapError(toCanvasError)),
-      ),
-    );
 
   const mutate = (
     name: string,
@@ -1679,7 +1346,7 @@ export const CanvasesLive = Layer.effect(
             : candidate;
         const documents = new Map(current.documents);
         documents.set(canonicalName, nextEntry);
-        const commit = commitFullGeneration(
+        const commit = commitPortfolio(
           writer,
           current,
           documents,
@@ -1727,7 +1394,7 @@ export const CanvasesLive = Layer.effect(
         );
         const documents = new Map(current.documents);
         documents.set(canonicalName, entry);
-        commitFullGeneration(writer, current, documents, "create");
+        commitPortfolio(writer, current, documents, "create");
         syncCanvasEntities(
           writer,
           canonicalName,
@@ -1762,7 +1429,7 @@ export const CanvasesLive = Layer.effect(
         }
         const documents = new Map(current.documents);
         documents.delete(canonicalName);
-        commitFullGeneration(writer, current, documents, "remove");
+        commitPortfolio(writer, current, documents, "remove");
         archiveAllCanvasEntities(
           writer,
           canonicalName,
@@ -1799,7 +1466,7 @@ export const CanvasesLive = Layer.effect(
         );
         const documents = new Map(current.documents);
         documents.set(name, entry);
-        const commit = commitFullGeneration(
+        const commit = commitPortfolio(
           writer,
           current,
           documents,
@@ -1989,8 +1656,6 @@ export const CanvasesLive = Layer.effect(
     readWithIntentWitness,
     readNodeStructure,
     write,
-    applyAuthoringCommand,
-    readAuthoringTail,
     mutate,
     create,
     remove,
