@@ -14,10 +14,9 @@ import { verifyAndStampStateSchema } from "../src/main/vellum/state/schema-ident
 import { reconstructCanvasDoc } from "../src/main/vellum/canvas/records";
 
 /**
- * The 20 -> 21 consolidation must admit bodies written by OLD builds: retired
- * node ether keys from removed integrations and legacy edge wire fields fail the strict
- * decoder, and the bridge is the one sanctioned conversion moment for both.
- * Caught live by the pty battery against a real dev home; this pins it.
+ * The 20 -> 21 consolidation runs the one-shot legacy EDGE conversion (wire
+ * fields -> verb) as it walks the head. Everything else is strict: a body the
+ * strict decoder refuses fails the migration closed.
  */
 
 const sha256 = (value: string): string =>
@@ -35,9 +34,6 @@ const LEGACY_BODY = JSON.stringify({
       text: "seat",
       ether: {
         entity: { kind: "agent", name: "local:seat" },
-        // Retired extension from a removed integration: strict decode refuses
-        // it; the cutover must drop it, not brick the boot.
-        retiredExtension: { profile: "legacy", attached: true },
       },
     },
     {
@@ -73,7 +69,7 @@ afterEach(async () => {
 });
 
 describe("canvas cutover with legacy bodies", () => {
-  it("admits retired node ether keys and legacy edge fields, once", async () => {
+  it("converts legacy edge wire fields to verbs, once", async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-cutover-legacy-"));
     const path = join(root, "vellum-command.db");
     const v20 = new DatabaseSync(path);
@@ -122,8 +118,6 @@ describe("canvas cutover with legacy bodies", () => {
     expect(migrated.name).toBe("factory");
     expect(migrated.head?.generation).toBe("7");
     expect(migrated.doc.nodes.map((node) => node.id)).toEqual(["seat", "queue"]);
-    // The retired extension is gone; the durable rows never carry it again.
-    expect(JSON.stringify(migrated.doc.nodes[0]?.ether)).not.toContain("retiredExtension");
     // The legacy wire converted to its verb (ports carried tasks.claim,
     // wake false — the access verb for a task sink is contributes).
     expect(migrated.doc.edges).toHaveLength(1);
