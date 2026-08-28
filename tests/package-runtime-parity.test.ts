@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -21,6 +21,7 @@ import {
   RUNTIME_BUILD_IDENTITY_SCHEMA,
   assertExactCommittedCheckout,
   embedRuntimeBuildIdentity,
+  assertPackageSourceFactsEqual,
   extractRuntimeBuildIdentity,
   makePackageRuntimeProvenance,
   preparePackageRuntimes,
@@ -31,19 +32,17 @@ import {
   verifyPackagedRuntimeParity,
   verifyPreparedPackageRuntimes,
   type PackageRuntime,
-  type PackageSourceFacts,
+  type VerifiedPackageSourceFacts,
   type RuntimeBuildIdentity,
 } from "../scripts/package-runtime-provenance";
 import {
   HISTORICAL_COMPARISON_RELATIVE,
   PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA,
-  assertPackageSourceFactsEqual,
   cloneExactCommit,
   decodePackageRuntimeParityReceipt,
   loadHistoricalPackageComparison,
   plantHistoricalStaleRemote,
   readLinuxX64ExecutionFacts,
-  validatePackageSourceFacts,
   withQualificationReceiptAttempt,
 } from "../scripts/qualify-package-runtime-parity";
 import {
@@ -68,386 +67,12 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const cohortNonce = "11111111-1111-4111-8111-111111111111";
-const source: PackageSourceFacts = {
-  appVersion: "0.1.14",
-  sourceCommit: "a".repeat(40),
-  currentStateSchemaVersion: 20,
-  migrationHead: {
-    fromVersion: 19,
-    toVersion: 20,
-    name: "witness-every-projected-work-table",
-  },
-  migrationIdentitySha256:
-    "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
-};
-
-const withTopLevelFact = (
-  key: string,
-  value: unknown,
-): PackageSourceFacts =>
-  ({ ...source, [key]: value }) as unknown as PackageSourceFacts;
-
-const withoutTopLevelFact = (key: string): PackageSourceFacts => {
-  const facts = { ...source } as Record<string, unknown>;
-  delete facts[key];
-  return facts as unknown as PackageSourceFacts;
-};
-
-const withMigrationHeadFact = (
-  key: string,
-  value: unknown,
-): PackageSourceFacts =>
-  ({
-    ...source,
-    migrationHead: { ...source.migrationHead, [key]: value },
-  }) as unknown as PackageSourceFacts;
-
-const withoutMigrationHeadFact = (key: string): PackageSourceFacts => {
-  const migrationHead = { ...source.migrationHead } as Record<string, unknown>;
-  delete migrationHead[key];
-  return { ...source, migrationHead } as unknown as PackageSourceFacts;
-};
-
-const strictFactsCases: ReadonlyArray<
-  readonly [label: string, make: () => PackageSourceFacts]
-> = [
-  ["missing appVersion", () => withoutTopLevelFact("appVersion")],
-  ["undefined appVersion", () => withTopLevelFact("appVersion", undefined)],
-  ["null appVersion", () => withTopLevelFact("appVersion", null)],
-  ["wrong appVersion type", () => withTopLevelFact("appVersion", 14)],
-  ["malformed appVersion", () => withTopLevelFact("appVersion", "v0.1.14")],
-  [
-    "leading-zero numeric prerelease",
-    () => withTopLevelFact("appVersion", "0.1.14-01"),
-  ],
-  [
-    "leading-zero numeric prerelease component",
-    () => withTopLevelFact("appVersion", "1.2.3-rc.01"),
-  ],
-  ["missing sourceCommit", () => withoutTopLevelFact("sourceCommit")],
-  ["undefined sourceCommit", () => withTopLevelFact("sourceCommit", undefined)],
-  ["null sourceCommit", () => withTopLevelFact("sourceCommit", null)],
-  ["wrong sourceCommit type", () => withTopLevelFact("sourceCommit", 40)],
-  [
-    "malformed sourceCommit",
-    () => withTopLevelFact("sourceCommit", "A".repeat(40)),
-  ],
-  [
-    "missing currentStateSchemaVersion",
-    () => withoutTopLevelFact("currentStateSchemaVersion"),
-  ],
-  [
-    "undefined currentStateSchemaVersion",
-    () => withTopLevelFact("currentStateSchemaVersion", undefined),
-  ],
-  [
-    "null currentStateSchemaVersion",
-    () => withTopLevelFact("currentStateSchemaVersion", null),
-  ],
-  [
-    "wrong currentStateSchemaVersion type",
-    () => withTopLevelFact("currentStateSchemaVersion", "20"),
-  ],
-  [
-    "malformed currentStateSchemaVersion",
-    () => withTopLevelFact("currentStateSchemaVersion", 20.5),
-  ],
-  [
-    "unsafe currentStateSchemaVersion",
-    () =>
-      withTopLevelFact(
-        "currentStateSchemaVersion",
-        Number.MAX_SAFE_INTEGER + 1,
-      ),
-  ],
-  [
-    "missing migrationIdentitySha256",
-    () => withoutTopLevelFact("migrationIdentitySha256"),
-  ],
-  [
-    "undefined migrationIdentitySha256",
-    () => withTopLevelFact("migrationIdentitySha256", undefined),
-  ],
-  [
-    "null migrationIdentitySha256",
-    () => withTopLevelFact("migrationIdentitySha256", null),
-  ],
-  [
-    "wrong migrationIdentitySha256 type",
-    () => withTopLevelFact("migrationIdentitySha256", 64),
-  ],
-  [
-    "malformed migrationIdentitySha256",
-    () => withTopLevelFact("migrationIdentitySha256", "f".repeat(63)),
-  ],
-  ["missing migrationHead", () => withoutTopLevelFact("migrationHead")],
-  [
-    "undefined migrationHead",
-    () => withTopLevelFact("migrationHead", undefined),
-  ],
-  ["null migrationHead", () => withTopLevelFact("migrationHead", null)],
-  [
-    "wrong migrationHead type",
-    () => withTopLevelFact("migrationHead", "19 to 20"),
-  ],
-  [
-    "excess top-level field",
-    () => ({ ...source, unexpected: true }) as unknown as PackageSourceFacts,
-  ],
-  [
-    "symbol top-level field",
-    () => {
-      const facts = { ...source } as Record<PropertyKey, unknown>;
-      facts[Symbol("unexpected")] = true;
-      return facts as PackageSourceFacts;
-    },
-  ],
-  [
-    "missing migrationHead.fromVersion",
-    () => withoutMigrationHeadFact("fromVersion"),
-  ],
-  [
-    "undefined migrationHead.fromVersion",
-    () => withMigrationHeadFact("fromVersion", undefined),
-  ],
-  [
-    "null migrationHead.fromVersion",
-    () => withMigrationHeadFact("fromVersion", null),
-  ],
-  [
-    "wrong migrationHead.fromVersion type",
-    () => withMigrationHeadFact("fromVersion", "19"),
-  ],
-  [
-    "malformed migrationHead.fromVersion",
-    () => withMigrationHeadFact("fromVersion", -1),
-  ],
-  [
-    "unsafe migrationHead.fromVersion",
-    () =>
-      withMigrationHeadFact("fromVersion", Number.MAX_SAFE_INTEGER + 1),
-  ],
-  [
-    "missing migrationHead.toVersion",
-    () => withoutMigrationHeadFact("toVersion"),
-  ],
-  [
-    "undefined migrationHead.toVersion",
-    () => withMigrationHeadFact("toVersion", undefined),
-  ],
-  [
-    "null migrationHead.toVersion",
-    () => withMigrationHeadFact("toVersion", null),
-  ],
-  [
-    "wrong migrationHead.toVersion type",
-    () => withMigrationHeadFact("toVersion", "20"),
-  ],
-  [
-    "malformed migrationHead.toVersion",
-    () => withMigrationHeadFact("toVersion", Number.POSITIVE_INFINITY),
-  ],
-  [
-    "unsafe migrationHead.toVersion",
-    () => withMigrationHeadFact("toVersion", Number.MAX_SAFE_INTEGER + 1),
-  ],
-  [
-    "migrationHead.toVersion is not current schema",
-    () => withMigrationHeadFact("toVersion", 21),
-  ],
-  [
-    "migrationHead.fromVersion is not contiguous",
-    () => withMigrationHeadFact("fromVersion", 18),
-  ],
-  ["missing migrationHead.name", () => withoutMigrationHeadFact("name")],
-  [
-    "undefined migrationHead.name",
-    () => withMigrationHeadFact("name", undefined),
-  ],
-  ["null migrationHead.name", () => withMigrationHeadFact("name", null)],
-  [
-    "wrong migrationHead.name type",
-    () => withMigrationHeadFact("name", 20),
-  ],
-  ["malformed migrationHead.name", () => withMigrationHeadFact("name", "")],
-  [
-    "excess migrationHead field",
-    () =>
-      ({
-        ...source,
-        migrationHead: { ...source.migrationHead, unexpected: true },
-      }) as unknown as PackageSourceFacts,
-  ],
-  [
-    "symbol migrationHead field",
-    () => {
-      const migrationHead = {
-        ...source.migrationHead,
-      } as Record<PropertyKey, unknown>;
-      migrationHead[Symbol("unexpected")] = true;
-      return { ...source, migrationHead } as PackageSourceFacts;
-    },
-  ],
-];
-
-const makeUnreadableProxy = (
-  target: object,
-  onRead: () => void,
-): object =>
-  new Proxy(target, {
-    get: () => {
-      onRead();
-      throw new Error("proxy get trap invoked");
-    },
-    getOwnPropertyDescriptor: () => {
-      onRead();
-      throw new Error("proxy descriptor trap invoked");
-    },
-    getPrototypeOf: () => {
-      onRead();
-      throw new Error("proxy prototype trap invoked");
-    },
-    ownKeys: () => {
-      onRead();
-      throw new Error("proxy ownKeys trap invoked");
-    },
-  });
-
-const withMigrationHeadPrototype = (
-  prototype: object | null,
-): PackageSourceFacts =>
-  ({
-    ...source,
-    migrationHead: Object.assign(
-      Object.create(prototype),
-      source.migrationHead,
-    ),
-  }) as unknown as PackageSourceFacts;
-
-const hostileShapeCases: ReadonlyArray<
-  readonly [label: string, make: () => unknown]
-> = [
-  ["top-level array", () => []],
-  ["top-level null prototype", () => Object.create(null)],
-  [
-    "top-level custom prototype",
-    () => Object.assign(Object.create({ custom: true }), source),
-  ],
-  ["nested migrationHead array", () => withMigrationHeadFact("fromVersion", [])],
-  [
-    "nested migrationHead null prototype",
-    () => withMigrationHeadPrototype(null),
-  ],
-  [
-    "nested migrationHead custom prototype",
-    () => withMigrationHeadPrototype({ custom: true }),
-  ],
-];
-
-const accessorFacts = (
-  nested: boolean,
-  onAccess: () => void,
-): PackageSourceFacts => {
-  const facts = { ...source };
-  if (nested) {
-    const migrationHead = { ...source.migrationHead };
-    Object.defineProperty(migrationHead, "name", {
-      configurable: true,
-      enumerable: true,
-      get: () => {
-        onAccess();
-        facts.sourceCommit = "c".repeat(40);
-        Reflect.deleteProperty(facts, "migrationHead");
-        return source.migrationHead.name;
-      },
-      set: () => {
-        onAccess();
-      },
-    });
-    facts.migrationHead = migrationHead;
-  } else {
-    Object.defineProperty(facts, "appVersion", {
-      configurable: true,
-      enumerable: true,
-      get: () => {
-        onAccess();
-        facts.sourceCommit = "c".repeat(40);
-        Reflect.deleteProperty(facts, "migrationHead");
-        return source.appVersion;
-      },
-      set: () => {
-        onAccess();
-      },
-    });
-  }
-  return facts;
-};
-
-type PrototypeAccessorCalls = {
-  get: number;
-  set: number;
-};
-
-/**
- * Install a synchronous Object.prototype probe and always put its exact prior
- * descriptor back. Keeping the callback synchronous prevents another test
- * from observing the temporary global mutation.
- */
-const withObjectPrototypeAccessors = <T>(
-  key: string,
-  calls: PrototypeAccessorCalls,
-  callback: () => T,
-): T => {
-  const previous = Object.getOwnPropertyDescriptor(Object.prototype, key);
-  try {
-    Object.defineProperty(Object.prototype, key, {
-      configurable: true,
-      enumerable: false,
-      get: () => {
-        calls.get += 1;
-        return undefined;
-      },
-      set: (_value: unknown) => {
-        calls.set += 1;
-      },
-    });
-    return callback();
-  } finally {
-    if (previous === undefined) {
-      Reflect.deleteProperty(Object.prototype, key);
-    } else {
-      Object.defineProperty(Object.prototype, key, previous);
-    }
-  }
-};
-
-type TopLevelPollutedField = "appVersion" | "sourceCommit" | "migrationHead";
-
-const topLevelMismatch = (field: TopLevelPollutedField): PackageSourceFacts => {
-  switch (field) {
-    case "appVersion":
-      return { ...source, appVersion: "0.1.15" };
-    case "sourceCommit":
-      return { ...source, sourceCommit: "c".repeat(40) };
-    case "migrationHead":
-      return {
-        ...source,
-        migrationHead: { ...source.migrationHead, name: "different-head" },
-      };
-  }
-};
-
-type NestedPollutedField = "fromVersion" | "toVersion";
-
-const nestedMismatch = (_field: NestedPollutedField): PackageSourceFacts => ({
-  ...source,
-  currentStateSchemaVersion: 21,
-  migrationHead: { ...source.migrationHead, fromVersion: 20, toVersion: 21 },
-});
+let source: VerifiedPackageSourceFacts;
+let sourceRepositoryRoot: string | undefined;
 
 const identity = (
   runtime: PackageRuntime,
-  facts: PackageSourceFacts = source,
+  facts: VerifiedPackageSourceFacts = source,
   nonce = cohortNonce,
 ): RuntimeBuildIdentity => ({
   schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
@@ -459,7 +84,7 @@ const identity = (
 const compiled = (
   runtime: PackageRuntime,
   body: string,
-  facts: PackageSourceFacts = source,
+  facts: VerifiedPackageSourceFacts = source,
   nonce = cohortNonce,
 ): Buffer =>
   embedRuntimeBuildIdentity({
@@ -471,7 +96,7 @@ const writeProvenance = async (input: {
   readonly runtime: PackageRuntime;
   readonly payload: Buffer;
   readonly file: string;
-  readonly facts?: PackageSourceFacts;
+  readonly facts?: VerifiedPackageSourceFacts;
 }): Promise<void> => {
   const provenance = makePackageRuntimeProvenance({
     runtime: input.runtime,
@@ -639,10 +264,26 @@ const git = (cwd: string, args: ReadonlyArray<string>): string => {
   return result.stdout.trim();
 };
 
-const createSourceRepository = async (): Promise<{
+type SourceRepositoryOptions = {
+  readonly appVersion?: string;
+  readonly schemaVersion?: number;
+  readonly migrationName?: string;
+  readonly migrationIdentitySha256?: string;
+};
+
+const createSourceRepository = async (
+  options: SourceRepositoryOptions = {},
+): Promise<{
   readonly root: string;
   readonly commit: string;
 }> => {
+  const appVersion = options.appVersion ?? "0.1.14";
+  const schemaVersion = options.schemaVersion ?? 20;
+  const migrationName =
+    options.migrationName ?? "witness-every-projected-work-table";
+  const migrationIdentitySha256 =
+    options.migrationIdentitySha256 ??
+    "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955";
   const root = await mkdtemp(path.join(tmpdir(), "vellum-package-source-git-"));
   git(root, ["init", "--quiet"]);
   git(root, ["config", "user.email", "package-test@example.invalid"]);
@@ -650,14 +291,14 @@ const createSourceRepository = async (): Promise<{
   await mkdir(path.join(root, "src/main/vellum/state"), { recursive: true });
   await writeFile(
     path.join(root, "package.json"),
-    `${JSON.stringify({ version: "0.1.14" })}\n`,
+    `${JSON.stringify({ version: appVersion })}\n`,
   );
   await writeFile(
     path.join(root, "src/main/vellum/state/migrations.ts"),
     [
-      "export const CURRENT_STATE_SCHEMA_VERSION = 20;",
-      'export const STATE_SCHEMA_V20_IDENTITY = { actualSchemaSha256: "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955" };',
-      'const migrations = [{ fromVersion: 19, toVersion: 20, name: "witness-every-projected-work-table" }];',
+      `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};`,
+      `export const STATE_SCHEMA_V${String(schemaVersion)}_IDENTITY = { actualSchemaSha256: ${JSON.stringify(migrationIdentitySha256)} };`,
+      `const migrations = [{ fromVersion: ${String(schemaVersion - 1)}, toVersion: ${String(schemaVersion)}, name: ${JSON.stringify(migrationName)} }];`,
       "",
     ].join("\n"),
   );
@@ -665,6 +306,21 @@ const createSourceRepository = async (): Promise<{
   git(root, ["commit", "--quiet", "-m", "fixture"]);
   return { root, commit: git(root, ["rev-parse", "HEAD"]) };
 };
+
+beforeAll(async () => {
+  const fixture = await createSourceRepository();
+  sourceRepositoryRoot = fixture.root;
+  source = await readPackageSourceFacts({
+    repoRoot: fixture.root,
+    requireClean: true,
+  });
+});
+
+afterAll(async () => {
+  if (sourceRepositoryRoot !== undefined) {
+    await rm(sourceRepositoryRoot, { recursive: true, force: true });
+  }
+});
 
 describe("fresh compiler cohort provenance", () => {
   it("reads the current schema-22 head without changing migrations", async () => {
@@ -850,248 +506,113 @@ describe("exact committed source admission", () => {
       await rm(work, { recursive: true, force: true });
     }
   });
+});
 
-  it.each([
-    ["appVersion", { ...source, appVersion: "0.1.15" }],
-    ["sourceCommit", { ...source, sourceCommit: "c".repeat(40) }],
-    [
-      "currentStateSchemaVersion",
-      {
-        ...source,
-        currentStateSchemaVersion: 21,
-        migrationHead: { ...source.migrationHead, fromVersion: 20, toVersion: 21 },
-      },
-    ],
-    [
-      "migrationHead.name",
-      { ...source, migrationHead: { ...source.migrationHead, name: "different-head" } },
-    ],
-    [
-      "currentStateSchemaIdentity",
-      { ...source, migrationIdentitySha256: "c".repeat(64) },
-    ],
-  ] as const)(
-    "rejects an isolated clone PackageSourceFacts mismatch in %s",
-    (field: string, cloneFacts: PackageSourceFacts) => {
-      expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).toThrow(
-        new RegExp(`PackageSourceFacts mismatch for ${field}`),
-      );
-    },
-  );
-
-  it.each(strictFactsCases)(
-    "rejects malformed root PackageSourceFacts (%s)",
-    (_label: string, makeFacts: () => PackageSourceFacts) => {
-      expect(() => assertPackageSourceFactsEqual(makeFacts(), source)).toThrow(
-        /invalid root PackageSourceFacts/u,
-      );
-    },
-  );
-
-  it.each(strictFactsCases)(
-    "rejects malformed clone PackageSourceFacts (%s)",
-    (_label: string, makeFacts: () => PackageSourceFacts) => {
-      expect(() => assertPackageSourceFactsEqual(source, makeFacts())).toThrow(
-        /invalid clone PackageSourceFacts/u,
-      );
-    },
-  );
-
-  it.each(strictFactsCases)(
-    "rejects matching malformed PackageSourceFacts on both sides (%s)",
-    (_label: string, makeFacts: () => PackageSourceFacts) => {
-      expect(() => assertPackageSourceFactsEqual(makeFacts(), makeFacts())).toThrow(
-        /invalid root PackageSourceFacts/u,
-      );
-    },
-  );
-  it.each(hostileShapeCases)(
-    "rejects hostile object shapes on root, clone, and both sides (%s)",
-    (_label: string, makeFacts: () => unknown) => {
-      expect(() => assertPackageSourceFactsEqual(makeFacts(), source)).toThrow(
-        /invalid root PackageSourceFacts/u,
-      );
-      expect(() => assertPackageSourceFactsEqual(source, makeFacts())).toThrow(
-        /invalid clone PackageSourceFacts/u,
-      );
-      expect(() =>
-        assertPackageSourceFactsEqual(makeFacts(), makeFacts()),
-      ).toThrow(/invalid root PackageSourceFacts/u);
-    },
-  );
-
-  it("rejects root and clone proxies before any proxy trap can run", () => {
-    let rootReads = 0;
-    let cloneReads = 0;
-    const rootProxy = makeUnreadableProxy(source, () => {
-      rootReads += 1;
+describe("verified source facts capability", () => {
+  it("accepts two independently minted facts with the same source values", async () => {
+    const root = sourceRepositoryRoot as string;
+    const rootFacts = await readPackageSourceFacts({
+      repoRoot: root,
+      requireClean: true,
     });
-    const cloneProxy = makeUnreadableProxy(source, () => {
-      cloneReads += 1;
+    const cloneFacts = await readPackageSourceFacts({
+      repoRoot: root,
+      requireClean: true,
     });
-
-    expect(() => assertPackageSourceFactsEqual(rootProxy, source)).toThrow(
-      /invalid root PackageSourceFacts/u,
-    );
-    expect(rootReads).toBe(0);
-    expect(() => assertPackageSourceFactsEqual(source, cloneProxy)).toThrow(
-      /invalid clone PackageSourceFacts/u,
-    );
-    expect(cloneReads).toBe(0);
-
-    expect(() => assertPackageSourceFactsEqual(rootProxy, cloneProxy)).toThrow(
-      /invalid root PackageSourceFacts/u,
-    );
-    expect(rootReads).toBe(0);
-    expect(cloneReads).toBe(0);
+    const comparison = assertPackageSourceFactsEqual(rootFacts, cloneFacts);
+    expect(comparison.root).toBe(rootFacts);
+    expect(comparison.clone).toBe(cloneFacts);
   });
 
-  it.each([false, true] as const)(
-    "rejects top-level and nested accessors without invoking them (%s)",
-    (nested: boolean) => {
-      let rootAccesses = 0;
-      let cloneAccesses = 0;
-      const rootFacts = accessorFacts(nested, () => {
-        rootAccesses += 1;
-      });
-      const cloneFacts = accessorFacts(nested, () => {
-        cloneAccesses += 1;
-      });
-
-      expect(() => assertPackageSourceFactsEqual(rootFacts, source)).toThrow(
-        /invalid root PackageSourceFacts/u,
-      );
-      expect(rootAccesses).toBe(0);
-      expect(rootFacts.sourceCommit).toBe(source.sourceCommit);
-      expect(Reflect.has(rootFacts, "migrationHead")).toBe(true);
-      expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).toThrow(
-        /invalid clone PackageSourceFacts/u,
-      );
-      expect(cloneAccesses).toBe(0);
-      expect(cloneFacts.sourceCommit).toBe(source.sourceCommit);
-      expect(Reflect.has(cloneFacts, "migrationHead")).toBe(true);
-      expect(() =>
-        assertPackageSourceFactsEqual(rootFacts, cloneFacts),
-      ).toThrow(/invalid root PackageSourceFacts/u);
-      expect(rootAccesses).toBe(0);
-      expect(cloneAccesses).toBe(0);
-    },
-  );
-
   it.each([
-    ["appVersion", "appVersion"],
-    ["sourceCommit", "sourceCommit"],
-    ["migrationHead", "migrationHead.name"],
+    ["app", { appVersion: "0.1.15" }],
+    ["schema", { schemaVersion: 21 }],
+    ["head", { migrationName: "different-head" }],
+    ["identity", { migrationIdentitySha256: "c".repeat(64) }],
   ] as const)(
-    "does not invoke polluted top-level Object.prototype accessors for %s",
-    (field: TopLevelPollutedField, mismatchField: string) => {
-      const calls: PrototypeAccessorCalls = { get: 0, set: 0 };
-      const rootFacts = { ...source };
-      const cloneFacts = { ...source };
-      const mismatchFacts = topLevelMismatch(field);
-
-      withObjectPrototypeAccessors(field, calls, () => {
-        expect(() => assertPackageSourceFactsEqual(rootFacts, source)).not.toThrow();
-        expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).not.toThrow();
-        expect(() => assertPackageSourceFactsEqual(rootFacts, cloneFacts)).not.toThrow();
+    "rejects independently minted differing %s facts",
+    async (_label, options) => {
+      const fixture = await createSourceRepository(options);
+      try {
+        const differingFacts = await readPackageSourceFacts({
+          repoRoot: fixture.root,
+          requireClean: true,
+        });
         expect(() =>
-          assertPackageSourceFactsEqual(source, mismatchFacts),
-        ).toThrow(new RegExp(`PackageSourceFacts mismatch for ${mismatchField}`));
-      });
-
-      expect(calls).toEqual({ get: 0, set: 0 });
-    },
-  );
-
-  it.each([
-    ["fromVersion"],
-    ["toVersion"],
-  ] as const)(
-    "does not invoke polluted nested Object.prototype accessors for %s",
-    (field: NestedPollutedField) => {
-      const calls: PrototypeAccessorCalls = { get: 0, set: 0 };
-      const rootFacts = {
-        ...source,
-        migrationHead: { ...source.migrationHead },
-      };
-      const cloneFacts = {
-        ...source,
-        migrationHead: { ...source.migrationHead },
-      };
-      const mismatchFacts = nestedMismatch(field);
-
-      withObjectPrototypeAccessors(field, calls, () => {
-        expect(() => assertPackageSourceFactsEqual(rootFacts, source)).not.toThrow();
-        expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).not.toThrow();
-        expect(() => assertPackageSourceFactsEqual(rootFacts, cloneFacts)).not.toThrow();
-        expect(() =>
-          assertPackageSourceFactsEqual(source, mismatchFacts),
+          assertPackageSourceFactsEqual(source, differingFacts),
         ).toThrow(/PackageSourceFacts mismatch/u);
-      });
-
-      expect(calls).toEqual({ get: 0, set: 0 });
+      } finally {
+        await rm(fixture.root, { recursive: true, force: true });
+      }
     },
   );
 
-  it("does not invoke a stateful getter that tries to mutate facts", () => {
-    const facts = { ...source };
-    let getterInvocations = 0;
-    Object.defineProperty(facts, "appVersion", {
-      configurable: true,
-      enumerable: true,
-      get: () => {
-        getterInvocations += 1;
-        facts.sourceCommit = "c".repeat(40);
-        Reflect.deleteProperty(facts, "migrationHead");
-        return source.appVersion;
-      },
-      set: () => {
-        getterInvocations += 1;
-      },
+  it("rejects an arbitrary lookalike and proxy cast as unminted", async () => {
+    const root = sourceRepositoryRoot as string;
+    const admitted = await readPackageSourceFacts({
+      repoRoot: root,
+      requireClean: true,
     });
-
-    expect(() => assertPackageSourceFactsEqual(facts, source)).toThrow(
-      /invalid root PackageSourceFacts/u,
-    );
-    expect(getterInvocations).toBe(0);
-    expect(facts.sourceCommit).toBe(source.sourceCommit);
-    expect(facts.migrationHead).toEqual(source.migrationHead);
-  });
-
-  it("returns fresh normalized facts for all downstream comparisons", () => {
-    const rootFacts = { ...source, migrationHead: { ...source.migrationHead } };
-    const cloneFacts = { ...source, migrationHead: { ...source.migrationHead } };
-    const admitted = assertPackageSourceFactsEqual(rootFacts, cloneFacts);
-
-    expect(admitted.root).toEqual(source);
-    expect(admitted.clone).toEqual(source);
-    expect(admitted.root).not.toBe(rootFacts);
-    expect(admitted.clone).not.toBe(cloneFacts);
-    expect(admitted.root.migrationHead).not.toBe(rootFacts.migrationHead);
-    expect(admitted.clone.migrationHead).not.toBe(cloneFacts.migrationHead);
-    expect(Object.getPrototypeOf(admitted.root)).toBe(Object.prototype);
-    expect(Object.getPrototypeOf(admitted.root.migrationHead)).toBe(
-      Object.prototype,
+    const lookalike = {
+      appVersion: admitted.appVersion,
+      sourceCommit: admitted.sourceCommit,
+      currentStateSchemaVersion: admitted.currentStateSchemaVersion,
+      migrationHead: { ...admitted.migrationHead },
+      migrationIdentitySha256: admitted.migrationIdentitySha256,
+    } as unknown as VerifiedPackageSourceFacts;
+    expect(() => assertPackageSourceFactsEqual(lookalike, admitted)).toThrow(
+      /not minted/u,
     );
 
-    rootFacts.appVersion = "9.9.9";
-    rootFacts.migrationHead.name = "mutated-after-admission";
-    cloneFacts.sourceCommit = "d".repeat(40);
-    cloneFacts.migrationHead.toVersion = 19;
-    expect(admitted.root).toEqual(source);
-    expect(admitted.clone).toEqual(source);
+    const proxy = new Proxy(lookalike, {
+      get: () => {
+        throw new Error("proxy trap invoked");
+      },
+    }) as unknown as VerifiedPackageSourceFacts;
+    expect(() => assertPackageSourceFactsEqual(admitted, proxy)).toThrow(
+      /not minted/u,
+    );
   });
 
-  it("accepts SemVer 2.0.0 prerelease and build forms that are valid", () => {
-    expect(() =>
-      validatePackageSourceFacts(
-        {
-          ...source,
-          appVersion: "1.2.3-rc.0+build.01",
-        },
-        "root",
+  it("returns deeply frozen ordinary own-data facts", async () => {
+    const facts = await readPackageSourceFacts({
+      repoRoot: sourceRepositoryRoot as string,
+      requireClean: true,
+    });
+    expect(Object.getPrototypeOf(facts)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(facts.migrationHead)).toBe(Object.prototype);
+    expect(Object.isFrozen(facts)).toBe(true);
+    expect(Object.isFrozen(facts.migrationHead)).toBe(true);
+    for (const value of Object.values(
+      Object.getOwnPropertyDescriptors(facts),
+    )) {
+      expect(value.get).toBeUndefined();
+      expect(value.set).toBeUndefined();
+    }
+    for (const value of Object.values(
+      Object.getOwnPropertyDescriptors(facts.migrationHead),
+    )) {
+      expect(value.get).toBeUndefined();
+      expect(value.set).toBeUndefined();
+    }
+    expect(
+      Reflect.set(
+        facts as unknown as Record<string, unknown>,
+        "appVersion",
+        "9.9.9",
       ),
-    ).not.toThrow();
+    ).toBe(false);
+    expect(
+      Reflect.set(
+        facts.migrationHead as unknown as Record<string, unknown>,
+        "name",
+        "mutated",
+      ),
+    ).toBe(false);
+    expect(facts.appVersion).toBe("0.1.14");
+    expect(facts.migrationHead.name).toBe(
+      "witness-every-projected-work-table",
+    );
   });
 });
 

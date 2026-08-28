@@ -17,7 +17,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { types as nodeUtilTypes } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -25,13 +24,13 @@ import {
   REMOTE_PROVENANCE_SOURCE_RELATIVE,
   RUNTIME_BUILD_IDENTITY_SCHEMA,
   assertExactCommittedCheckout,
+  assertPackageSourceFactsEqual,
   embedRuntimeBuildIdentity,
-  makePackageRuntimeProvenance,
   readPackageSourceFacts,
   sha256File,
   verifyPackagedRuntimeParity,
   type PackageRuntimeParityVerification,
-  type PackageSourceFacts,
+  type PackageRuntimeProvenance,
   type RuntimeBuildIdentity,
 } from "./package-runtime-provenance";
 import { REMOTE_ENTRY_SOURCE_RELATIVE } from "./build-linux-remote-runtime";
@@ -136,7 +135,7 @@ export type PackageRuntimeParityReceipt = {
     readonly appVersion: string;
     readonly commit: string;
     readonly currentStateSchemaVersion: number;
-    readonly migrationHead: PackageSourceFacts["migrationHead"];
+    readonly migrationHead: PackageRuntimeParityVerification["state"]["migrationHead"];
     readonly migrationIdentitySha256: string;
   };
   readonly candidateArchive: {
@@ -392,20 +391,28 @@ export const plantHistoricalStaleRemote = async (input: {
     runtime: "linux-remote",
   };
   const payload = embedRuntimeBuildIdentity({ payload: rawMarker, identity });
-  const historicalSource: PackageSourceFacts = {
+  // This is an explicitly synthetic stale probe, not admitted source facts.
+  // Keep its historical values isolated from the live source-facts capability.
+  const provenance: PackageRuntimeProvenance = {
+    schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
+    product: "Vellum Command",
+    runtime: "linux-remote",
     appVersion: input.comparison.release.appVersion,
     sourceCommit: input.comparison.release.sourceComparisonCommit,
-    currentStateSchemaVersion:
-      input.comparison.release.currentStateSchemaVersion,
-    migrationHead: input.comparison.release.migrationHead,
-    migrationIdentitySha256:
-      input.comparison.release.migrationIdentitySha256,
+    buildIdentity: identity,
+    state: {
+      currentStateSchemaVersion:
+        input.comparison.release.currentStateSchemaVersion,
+      migrationHead: input.comparison.release.migrationHead,
+      migrationIdentitySha256:
+        input.comparison.release.migrationIdentitySha256,
+    },
+    payload: {
+      packagedPath: "resources/app-remote/vellum-command-remote.js",
+      bytes: payload.byteLength,
+      sha256: sha256(payload),
+    },
   };
-  const provenance = makePackageRuntimeProvenance({
-    runtime: "linux-remote",
-    source: historicalSource,
-    payload,
-  });
   const provenanceBody = Buffer.from(
     `${JSON.stringify(provenance, null, 2)}\n`,
     "utf8",
@@ -430,264 +437,6 @@ export const plantHistoricalStaleRemote = async (input: {
     provenanceSha256: sha256(provenanceBody),
   };
 };
-
-const PACKAGE_SOURCE_FACTS_KEYS = {
-  appVersion: true,
-  sourceCommit: true,
-  currentStateSchemaVersion: true,
-  migrationHead: true,
-  migrationIdentitySha256: true,
-} as const satisfies Record<keyof PackageSourceFacts, true>;
-
-const PACKAGE_SOURCE_MIGRATION_HEAD_KEYS = {
-  fromVersion: true,
-  toVersion: true,
-  name: true,
-} as const satisfies Record<keyof PackageSourceFacts["migrationHead"], true>;
-
-// SemVer 2.0.0 permits leading zeroes in build metadata, but not in numeric
-// core or numeric prerelease identifiers.
-const SEMVER =
-  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
-
-const requirePlainObject = (
-  value: unknown,
-  label: string,
-): Record<string, unknown> => {
-  // This must be the first operation that could inspect an object. A proxy
-  // can lie about every later structural query, so it is never admitted to
-  // the descriptor snapshot path.
-  if (nodeUtilTypes.isProxy(value)) {
-    throw new Error(`invalid ${label}: Proxy objects are not accepted`);
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`invalid ${label}: expected a plain object`);
-  }
-  if (Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new Error(`invalid ${label}: expected a plain object`);
-  }
-  return value as Record<string, unknown>;
-};
-
-const defineOwnDataProperty = (
-  target: object,
-  key: string,
-  value: unknown,
-): void => {
-  Object.defineProperty(target, key, {
-    configurable: true,
-    enumerable: true,
-    writable: true,
-    value,
-  });
-};
-
-const createOwnDataObject = (
-  entries: ReadonlyArray<readonly [key: string, value: unknown]>,
-): Record<string, unknown> => {
-  // Object.defineProperty implements CreateDataProperty semantics even when
-  // Object.prototype carries a hostile setter for one of these keys.
-  const object = Object.create(Object.prototype) as Record<string, unknown>;
-  for (const [key, value] of entries) {
-    defineOwnDataProperty(object, key, value);
-  }
-  return object;
-};
-
-/**
- * Validate an exact object shape without invoking caller accessors, then
- * snapshot its own data values into a fresh ordinary object. Every consumer
- * after this boundary must use the returned snapshot, never the input.
- */
-const snapshotOwnDataProperties = (
-  value: unknown,
-  expected: Readonly<Record<string, true>>,
-  label: string,
-): Record<string, unknown> => {
-  const record = requirePlainObject(value, label);
-  const expectedKeys = Object.keys(expected);
-  const expectedSet = new Set(expectedKeys);
-  const actualKeys = Reflect.ownKeys(record);
-  if (
-    actualKeys.length !== expectedKeys.length ||
-    actualKeys.some(
-      (key) => typeof key !== "string" || !expectedSet.has(key),
-    )
-  ) {
-    const actual = actualKeys.map((key) =>
-      typeof key === "symbol" ? key.toString() : key,
-    );
-    throw new Error(
-      `invalid ${label} keys: expected=${expectedKeys.join(",")} actual=${actual.join(",")}`,
-    );
-  }
-
-  // Object.getOwnPropertyDescriptors obtains each own descriptor once and
-  // does not invoke a getter. Read only descriptor.value below, never record
-  // itself, so a caller-controlled object cannot win a later TOCTOU race.
-  const descriptors = Object.getOwnPropertyDescriptors(record);
-  const snapshot = Object.create(Object.prototype) as Record<string, unknown>;
-  for (const key of expectedKeys) {
-    const descriptor = descriptors[key];
-    if (
-      descriptor === undefined ||
-      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
-      Object.prototype.hasOwnProperty.call(descriptor, "get") ||
-      Object.prototype.hasOwnProperty.call(descriptor, "set")
-    ) {
-      throw new Error(`invalid ${label}: accessor properties are not accepted`);
-    }
-    defineOwnDataProperty(snapshot, key, descriptor.value);
-  }
-  return snapshot;
-};
-
-const requirePackageInteger = (
-  value: unknown,
-  label: string,
-  minimum: number,
-): number => {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < minimum
-  ) {
-    throw new Error(`invalid ${label}`);
-  }
-  return value;
-};
-
-export const validatePackageSourceFacts = (
-  input: unknown,
-  operand: "root" | "clone",
-): PackageSourceFacts => {
-  const label = `${operand} PackageSourceFacts`;
-  const record = snapshotOwnDataProperties(
-    input,
-    PACKAGE_SOURCE_FACTS_KEYS,
-    label,
-  );
-  const migrationHead = snapshotOwnDataProperties(
-    record.migrationHead,
-    PACKAGE_SOURCE_MIGRATION_HEAD_KEYS,
-    `${label}.migrationHead`,
-  );
-  const appVersion = requireString(
-    record.appVersion,
-    `${label}.appVersion`,
-    SEMVER,
-  );
-  const sourceCommit = requireString(
-    record.sourceCommit,
-    `${label}.sourceCommit`,
-    SOURCE_COMMIT,
-  );
-  const currentStateSchemaVersion = requirePackageInteger(
-    record.currentStateSchemaVersion,
-    `${label}.currentStateSchemaVersion`,
-    2,
-  );
-  const fromVersion = requirePackageInteger(
-    migrationHead.fromVersion,
-    `${label}.migrationHead.fromVersion`,
-    0,
-  );
-  const toVersion = requirePackageInteger(
-    migrationHead.toVersion,
-    `${label}.migrationHead.toVersion`,
-    0,
-  );
-  const name = requireString(
-    migrationHead.name,
-    `${label}.migrationHead.name`,
-  );
-  const migrationIdentitySha256 = requireString(
-    record.migrationIdentitySha256,
-    `${label}.migrationIdentitySha256`,
-    SHA256,
-  );
-  if (
-    toVersion !== currentStateSchemaVersion ||
-    fromVersion + 1 !== toVersion
-  ) {
-    throw new Error(
-      `invalid ${label}: migration head must end at currentStateSchemaVersion and be contiguous`,
-    );
-  }
-  const normalizedMigrationHead = createOwnDataObject([
-    ["fromVersion", fromVersion],
-    ["toVersion", toVersion],
-    ["name", name],
-  ]);
-  return createOwnDataObject([
-    ["appVersion", appVersion],
-    ["sourceCommit", sourceCommit],
-    ["currentStateSchemaVersion", currentStateSchemaVersion],
-    ["migrationHead", normalizedMigrationHead],
-    ["migrationIdentitySha256", migrationIdentitySha256],
-  ]) as PackageSourceFacts;
-};
-
-export type PackageSourceFactsComparison = {
-  readonly root: PackageSourceFacts;
-  readonly clone: PackageSourceFacts;
-};
-
-const compareNormalizedPackageSourceFacts = (
-  root: PackageSourceFacts,
-  clone: PackageSourceFacts,
-): PackageSourceFactsComparison => {
-  const comparisons: ReadonlyArray<
-    readonly [
-      label: string,
-      rootValue: string | number,
-      cloneValue: string | number,
-    ]
-  > = [
-    ["appVersion", root.appVersion, clone.appVersion],
-    ["sourceCommit", root.sourceCommit, clone.sourceCommit],
-    [
-      "currentStateSchemaVersion",
-      root.currentStateSchemaVersion,
-      clone.currentStateSchemaVersion,
-    ],
-    [
-      "migrationHead.fromVersion",
-      root.migrationHead.fromVersion,
-      clone.migrationHead.fromVersion,
-    ],
-    [
-      "migrationHead.toVersion",
-      root.migrationHead.toVersion,
-      clone.migrationHead.toVersion,
-    ],
-    ["migrationHead.name", root.migrationHead.name, clone.migrationHead.name],
-    [
-      "currentStateSchemaIdentity",
-      root.migrationIdentitySha256,
-      clone.migrationIdentitySha256,
-    ],
-  ];
-  const mismatch = comparisons.find(
-    ([, rootValue, cloneValue]) => rootValue !== cloneValue,
-  );
-  if (mismatch !== undefined) {
-    throw new Error(
-      `isolated clone PackageSourceFacts mismatch for ${mismatch[0]}: root=${String(mismatch[1])} clone=${String(mismatch[2])}`,
-    );
-  }
-  return { root, clone };
-};
-
-/** Validate both untrusted operands once, then compare only their snapshots. */
-export const assertPackageSourceFactsEqual = (
-  rootFacts: unknown,
-  cloneFacts: unknown,
-): PackageSourceFactsComparison =>
-  compareNormalizedPackageSourceFacts(
-    validatePackageSourceFacts(rootFacts, "root"),
-    validatePackageSourceFacts(cloneFacts, "clone"),
-  );
 
 export const cloneExactCommit = async (input: {
   readonly sourceRoot: string;
@@ -1072,15 +821,12 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
       const repoRoot = path.resolve(input.repoRoot);
       // Ambient worktree bytes are not build inputs. Read only HEAD identity,
       // then clone Git objects without local sharing or alternates.
-      // Admit and normalize root facts before any downstream use, including
-      // binding the attempt nonce to its commit.
-      const rootFacts = validatePackageSourceFacts(
-        await readPackageSourceFacts({
-          repoRoot,
-          requireClean: false,
-        }),
-        "root",
-      );
+      // Admit root facts before any downstream use, including binding the
+      // attempt nonce to its commit.
+      const rootFacts = await readPackageSourceFacts({
+        repoRoot,
+        requireClean: false,
+      });
       await attempt.setSourceCommit(rootFacts.sourceCommit);
       const workDirectory = await mkdtemp(
         path.join(tmpdir(), "vellum-command-package-parity-"),
@@ -1101,21 +847,12 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
           cloneRoot,
           commit: rootFacts.sourceCommit,
         });
-        const cloneFacts = validatePackageSourceFacts(
-          await readPackageSourceFacts({
-            repoRoot: cloneRoot,
-            requireClean: true,
-            expectedSourceCommit: rootFacts.sourceCommit,
-          }),
-          "clone",
-        );
-        // Compare only admitted snapshots and use the returned snapshot below,
-        // never the potentially stateful reader result.
-        const comparedFacts = compareNormalizedPackageSourceFacts(
-          rootFacts,
-          cloneFacts,
-        );
-        const source = comparedFacts.clone;
+        const cloneFacts = await readPackageSourceFacts({
+          repoRoot: cloneRoot,
+          requireClean: true,
+          expectedSourceCommit: rootFacts.sourceCommit,
+        });
+        const source = assertPackageSourceFactsEqual(rootFacts, cloneFacts).clone;
         const historical = await loadHistoricalPackageComparison(cloneRoot);
 
         run({
