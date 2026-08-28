@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -23,6 +24,7 @@ import {
   canvasDocSemanticHash,
 } from "../src/main/vellum/canvas/relational-backfill";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
+import { intentSha256Of } from "../src/main/vellum/canvas-intent-identity";
 
 describe("canvas relational authority schema migration 20 → 21", () => {
   it("freezes v20, v21, and current v22 identities", () => {
@@ -154,8 +156,10 @@ describe("canvas relational authority schema migration 20 → 21", () => {
       };
 
       const body = serializeCanvas(doc);
-      const docSha = "1".repeat(64);
-      const intentSha = "2".repeat(64);
+      const docSha = createHash("sha256").update(body, "utf8").digest("hex");
+      const intentSha = intentSha256Of(
+        new Map([["factory", { revisionSha256: docSha }]]),
+      );
 
       database.exec(`
         INSERT INTO canvas_generations (generation, created_at, cause, intent_sha256, document_count)

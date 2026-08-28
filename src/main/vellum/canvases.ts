@@ -1274,29 +1274,6 @@ export const CanvasesLive = Layer.effect(
         ),
       );
     }
-
-    yield* state
-      .transaction("canvas.relational.catch-up", (writer) => {
-        if (readLocalStationRole(writer) === "remote") return;
-        const snapshot = readStoredAuthority(writer);
-        if (!snapshot.hasHead || snapshot.intentSha256 === undefined) return;
-        const manifests = readManifestDocuments(writer, snapshot.generation);
-        if (manifests.length === snapshot.documents.size) return;
-        const genRow = writer.get<{ readonly cause: string }>(
-          "SELECT cause FROM canvas_generations WHERE generation = ?",
-          [snapshot.generation],
-        );
-        persistRelationalPortfolio(writer, {
-          generation: snapshot.generation,
-          parentGeneration:
-            snapshot.generation === "1" ? null : (BigInt(snapshot.generation) - 1n).toString(),
-          cause: genRow?.cause ?? "write",
-          intentSha256: snapshot.intentSha256,
-          createdAt: snapshot.createdAt ?? new Date().toISOString(),
-          documents: snapshot.documents,
-        });
-      })
-      .pipe(Effect.mapError(toCanvasError));
   });
 
   const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({

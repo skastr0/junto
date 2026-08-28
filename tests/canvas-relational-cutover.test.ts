@@ -89,6 +89,40 @@ const factoryDoc = (): CanvasDoc =>
     ],
   });
 
+const pipelineDoc = (sourceId: string): CanvasDoc =>
+  applyMirrorLaw({
+    nodes: [
+      {
+        id: sourceId,
+        type: "text",
+        text: "source",
+        x: 0,
+        y: 0,
+        width: 160,
+        height: 80,
+        ether: { entity: { kind: "task" } },
+      },
+      {
+        id: "target",
+        type: "text",
+        text: "target",
+        x: 240,
+        y: 0,
+        width: 160,
+        height: 80,
+        ether: { entity: { kind: "task" } },
+      },
+    ],
+    edges: [
+      {
+        id: "retained-edge",
+        fromNode: sourceId,
+        toNode: "target",
+        ether: { verb: "feeds" },
+      },
+    ],
+  });
+
 const crashingWriter = (writer: StateWriter, after: number): StateWriter => {
   let writes = 0;
   return {
@@ -248,6 +282,52 @@ describe("canvas relational authority cutover", () => {
     );
     expect(row.checkpoint).toBe(row.expected);
     expect(row.reconstructed).toBe(row.expected);
+  });
+
+  it("rewires a retained edge before deleting its former endpoint", async () => {
+    await installEnv();
+    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    const canvases = await runtime.runPromise(CanvasesService);
+    const state = await runtime.runPromise(StateEngine);
+
+    await runtime.runPromise(canvases.write("pipeline", pipelineDoc("old-source")));
+    await runtime.runPromise(canvases.write("pipeline", pipelineDoc("new-source")));
+
+    const rows = await runtime.runPromise(
+      state.read("cutover.rewire", (reader) => {
+        const canvasId = reader.get<{ readonly canvas_id: string }>(
+          "SELECT canvas_id FROM canvas_documents WHERE canvas_name = 'pipeline'",
+        )?.canvas_id;
+        if (canvasId === undefined) throw new Error("missing pipeline canvas");
+        return {
+          edge: reader.get<{
+            readonly from_node_id: string;
+            readonly to_node_id: string;
+          }>(
+            "SELECT from_node_id, to_node_id FROM canvas_edges WHERE canvas_id = ? AND edge_id = 'retained-edge'",
+            [canvasId],
+          ),
+          oldNodeCount: Number(
+            reader.get<{ readonly count: number | bigint }>(
+              "SELECT count(*) AS count FROM canvas_nodes WHERE canvas_id = ? AND node_id = 'old-source'",
+              [canvasId],
+            )?.count ?? 0,
+          ),
+          oldDeletedGeneration: reader.get<{
+            readonly deleted_generation: string | null;
+          }>(
+            "SELECT deleted_generation FROM canvas_objects WHERE canvas_id = ? AND object_id = 'old-source'",
+            [canvasId],
+          )?.deleted_generation,
+        };
+      }),
+    );
+    expect(rows.edge).toEqual({
+      from_node_id: "new-source",
+      to_node_id: "target",
+    });
+    expect(rows.oldNodeCount).toBe(0);
+    expect(rows.oldDeletedGeneration).toBe("2");
   });
 
   it("rolls a crashed relational persist back to the previous generation", async () => {

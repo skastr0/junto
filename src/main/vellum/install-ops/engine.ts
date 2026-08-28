@@ -22,6 +22,7 @@ import {
 export {
   BACKFILL_INLINE_MEDIA_V1,
   BACKFILL_CANVAS_RELATIONAL_V1,
+  BACKFILL_CANVAS_RELATIONAL_V2,
   INSTALL_OPS_SCHEMA_VERSION,
 } from "./schema";
 export { installOpsDatabasePath } from "./paths";

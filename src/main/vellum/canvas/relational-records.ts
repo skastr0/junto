@@ -11,7 +11,7 @@ import {
   canvasDocSemanticHash,
   edgeSemanticHash,
   nodeSemanticHash,
-} from "./relational-backfill";
+} from "./relational-hash";
 
 export type RelationalStoredCanvas = {
   readonly doc: CanvasDoc;
@@ -254,6 +254,19 @@ const upsertObject = (
   generation: string,
   createdAt: string,
 ): void => {
+  const existing = writer.get<{ readonly object_kind: "node" | "edge" }>(
+    `
+      SELECT object_kind
+      FROM canvas_objects
+      WHERE canvas_id = ? AND object_id = ?
+    `,
+    [canvasId, objectId],
+  );
+  if (existing !== undefined && existing.object_kind !== kind) {
+    throw new Error(
+      `cross-kind object id cannot be stored relationally: ${objectId} (${existing.object_kind} -> ${kind})`,
+    );
+  }
   writer.run(
     `
       INSERT INTO canvas_objects (
@@ -266,48 +279,61 @@ const upsertObject = (
   );
 };
 
-const tombstoneAbsentObjects = (
+type ActiveCanvasObject = {
+  readonly object_id: string;
+  readonly object_kind: "node" | "edge";
+};
+
+const readAbsentObjects = (
   writer: StateWriter,
   canvasId: string,
   liveNodeIds: ReadonlySet<string>,
   liveEdgeIds: ReadonlySet<string>,
-  generation: string,
+): ReadonlyArray<ActiveCanvasObject> =>
+  writer
+    .all<ActiveCanvasObject>(
+      `
+        SELECT object_id, object_kind
+        FROM canvas_objects
+        WHERE canvas_id = ?
+          AND deleted_generation IS NULL
+      `,
+      [canvasId],
+    )
+    .filter((row) =>
+      row.object_kind === "node"
+        ? !liveNodeIds.has(row.object_id)
+        : !liveEdgeIds.has(row.object_id),
+    );
+
+const deleteAbsentEdges = (
+  writer: StateWriter,
+  canvasId: string,
+  absent: ReadonlyArray<ActiveCanvasObject>,
 ): void => {
-  const live = new Set<string>([...liveNodeIds, ...liveEdgeIds]);
-  const present = writer.all<{
-    readonly object_id: string;
-    readonly object_kind: "node" | "edge";
-  }>(
-    `
-      SELECT object_id, object_kind
-      FROM canvas_objects
-      WHERE canvas_id = ?
-        AND deleted_generation IS NULL
-    `,
-    [canvasId],
-  );
-
-  const extraEdges = present.filter(
-    (row) => row.object_kind === "edge" && !liveEdgeIds.has(row.object_id),
-  );
-  const extraNodes = present.filter(
-    (row) => row.object_kind === "node" && !liveNodeIds.has(row.object_id),
-  );
-
-  for (const edge of extraEdges) {
+  for (const row of absent) {
+    if (row.object_kind !== "edge") continue;
     writer.run(
       "DELETE FROM canvas_edges WHERE canvas_id = ? AND edge_id = ?",
-      [canvasId, edge.object_id],
+      [canvasId, row.object_id],
     );
   }
-  for (const node of extraNodes) {
+};
+
+const deleteAbsentNodesAndTombstone = (
+  writer: StateWriter,
+  canvasId: string,
+  absent: ReadonlyArray<ActiveCanvasObject>,
+  generation: string,
+): void => {
+  for (const row of absent) {
+    if (row.object_kind !== "node") continue;
     writer.run(
       "DELETE FROM canvas_nodes WHERE canvas_id = ? AND node_id = ?",
-      [canvasId, node.object_id],
+      [canvasId, row.object_id],
     );
   }
-  for (const row of present) {
-    if (live.has(row.object_id)) continue;
+  for (const row of absent) {
     writer.run(
       `
         UPDATE canvas_objects
@@ -452,29 +478,49 @@ const applyCurrentGraph = (
   generation: string,
   updatedAt: string,
 ): void => {
-  const liveNodeIds = new Set(doc.nodes.map((node) => node.id));
-  const liveEdgeIds = new Set(
-    doc.edges
-      .filter(
-        (edge) => liveNodeIds.has(edge.fromNode) && liveNodeIds.has(edge.toNode),
-      )
-      .map((edge) => edge.id),
-  );
-  tombstoneAbsentObjects(writer, canvasId, liveNodeIds, liveEdgeIds, generation);
+  const liveNodeIds = new Set<string>();
+  for (const node of doc.nodes) {
+    if (liveNodeIds.has(node.id)) {
+      throw new Error(`duplicate node id cannot be stored relationally: ${node.id}`);
+    }
+    liveNodeIds.add(node.id);
+  }
+  const liveEdgeIds = new Set<string>();
+  for (const edge of doc.edges) {
+    if (liveNodeIds.has(edge.id) || liveEdgeIds.has(edge.id)) {
+      throw new Error(`duplicate or cross-kind object id cannot be stored relationally: ${edge.id}`);
+    }
+    if (!liveNodeIds.has(edge.fromNode) || !liveNodeIds.has(edge.toNode)) {
+      throw new Error(
+        `dangling edge cannot be stored relationally: ${edge.id} (${edge.fromNode} -> ${edge.toNode})`,
+      );
+    }
+    liveEdgeIds.add(edge.id);
+  }
 
+  const absent = readAbsentObjects(
+    writer,
+    canvasId,
+    liveNodeIds,
+    liveEdgeIds,
+  );
+
+  // New endpoints must exist before a retained edge is rewired. Removed edges
+  // release their references next. Retained edges then move away from old
+  // endpoints before those old nodes are deleted. StateEngine wraps the whole
+  // persist in one transaction, so no caller can observe an intermediate graph.
   let zIndex = 0;
   for (const node of doc.nodes) {
     upsertNode(writer, canvasId, node, zIndex, generation, updatedAt);
     zIndex += 1;
   }
+  deleteAbsentEdges(writer, canvasId, absent);
   let edgeZ = 0;
   for (const edge of doc.edges) {
-    if (!liveNodeIds.has(edge.fromNode) || !liveNodeIds.has(edge.toNode)) {
-      continue;
-    }
     upsertEdge(writer, canvasId, edge, edgeZ, generation, updatedAt);
     edgeZ += 1;
   }
+  deleteAbsentNodesAndTombstone(writer, canvasId, absent, generation);
 };
 
 const retireRemovedCanvases = (
@@ -488,7 +534,14 @@ const retireRemovedCanvases = (
   }>("SELECT canvas_id, canvas_name FROM canvas_documents");
   for (const row of rows) {
     if (liveNames.has(row.canvas_name)) continue;
-    tombstoneAbsentObjects(writer, row.canvas_id, new Set(), new Set(), generation);
+    const absent = readAbsentObjects(
+      writer,
+      row.canvas_id,
+      new Set(),
+      new Set(),
+    );
+    deleteAbsentEdges(writer, row.canvas_id, absent);
+    deleteAbsentNodesAndTombstone(writer, row.canvas_id, absent, generation);
   }
 };
 
