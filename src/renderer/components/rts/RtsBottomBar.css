@@ -69,10 +69,32 @@
   color: var(--color-faint);
 }
 .completed-task-notify__chrome-count {
+  /* Label + count read as one phrase on the left; the action sits far right. */
+  margin-right: auto;
   font-size: 10px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
   color: var(--color-faint);
+}
+.completed-task-notify__mark-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-faint);
+  padding: 2px 5px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+.completed-task-notify__mark-all:hover {
+  border-color: color-mix(in oklab, var(--color-main) 40%, transparent);
+  background: color-mix(in oklab, var(--color-main) 10%, transparent);
+  color: var(--color-amber);
 }
 .completed-task-notify__list {
   display: flex;

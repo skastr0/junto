@@ -239,6 +239,25 @@ export const dismissCompletedNotify = (
   stack: state.stack.filter((item) => item.id !== taskId),
 });
 
+/**
+ * Dismiss every entry currently on the stack. Same rule as the per-card
+ * dismiss, applied across the stack: each id is pinned known-completed so a
+ * projection gap cannot re-raise it, and only a later observed non-completed
+ * state clears the dismiss.
+ */
+export const dismissAllCompletedNotify = (
+  state: CompletedNotifyState,
+): CompletedNotifyState => {
+  if (state.stack.length === 0) return state;
+  const known: Record<string, TaskState> = { ...state.known };
+  const dismissed: Record<string, true> = { ...state.dismissed };
+  for (const item of state.stack) {
+    known[item.id] = state.known[item.id] ?? "completed";
+    dismissed[item.id] = true;
+  }
+  return { ...state, known, dismissed, stack: [] };
+};
+
 // --- process store (survives RTS remount without a renderer product store) ---
 
 const writePersist = (state: CompletedNotifyState): void => {
@@ -292,6 +311,13 @@ export const activateCompletedTaskNotify = (item: CompletedTaskNotifyItem): void
   selectNode(item.nodeId);
   state$.focusNodeId.set(item.nodeId);
   openWorkDetail(item.nodeId, { itemId: item.id });
+};
+
+/** Clear the whole stack without opening anything — the operator caught up. */
+export const markAllCompletedNotifyRead = (): void => {
+  notifyState = dismissAllCompletedNotify(notifyState);
+  writePersist(notifyState);
+  completedTaskNotify$.items.set(notifyState.stack);
 };
 
 /**

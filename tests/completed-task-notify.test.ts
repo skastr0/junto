@@ -6,10 +6,12 @@ import {
   clearCompletedNotifyPersistForTests,
   collectTaskSnapshots,
   completedTaskNotify$,
+  dismissAllCompletedNotify,
   dismissCompletedNotify,
   emptyCompletedNotifyPersist,
   emptyCompletedNotifyState,
   hydrateNotifyStateFromPersist,
+  markAllCompletedNotifyRead,
   observeCompletedTasks,
   persistFromNotifyState,
   resetCompletedTaskNotify,
@@ -444,6 +446,122 @@ describe("completed-task-notify", () => {
       syncCompletedTaskNotifyFromDoc(done, 3);
       expect(completedTaskNotify$.items.peek()).toEqual([]);
       expect(store.data.dismissed).toContain("t1");
+    } finally {
+      restore();
+      clearCompletedNotifyPersistForTests();
+    }
+  });
+  it("mark all read clears the whole stack and holds every id dismissed", () => {
+    let state = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([
+        taskNode("sink", [
+          { id: "t1", state: "working", brief: "A" },
+          { id: "t2", state: "working", brief: "B" },
+        ]),
+      ]),
+      1,
+    );
+    const done = [
+      taskNode("sink", [
+        { id: "t1", state: "completed", brief: "A" },
+        { id: "t2", state: "completed", brief: "B" },
+      ]),
+    ];
+    state = observeCompletedTasks(state, collectTaskSnapshots(done), 2);
+    expect(state.stack).toHaveLength(2);
+
+    state = dismissAllCompletedNotify(state);
+    expect(state.stack).toEqual([]);
+    expect(Object.keys(state.dismissed).sort()).toEqual(["t1", "t2"]);
+
+    // Same rows keep arriving completed — nothing comes back.
+    state = observeCompletedTasks(state, collectTaskSnapshots(done), 3);
+    expect(state.stack).toEqual([]);
+  });
+
+  it("mark all read survives a projection gap, and a re-completion still rises", () => {
+    let state = observeCompletedTasks(
+      emptyCompletedNotifyState(),
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ]),
+      1,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      2,
+    );
+    state = dismissAllCompletedNotify(state);
+
+    // Gap tick (row absent) must not re-raise it.
+    state = observeCompletedTasks(state, collectTaskSnapshots([]), 3);
+    expect(state.stack).toEqual([]);
+
+    // Reopened, then completed again: an observed non-completed state clears
+    // the dismiss, so the second completion is a real rising edge.
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "working", brief: "A" }]),
+      ]),
+      4,
+    );
+    state = observeCompletedTasks(
+      state,
+      collectTaskSnapshots([
+        taskNode("sink", [{ id: "t1", state: "completed", brief: "A" }]),
+      ]),
+      5,
+    );
+    expect(state.stack.map((item) => item.id)).toEqual(["t1"]);
+  });
+
+  it("mark all read on an empty stack is a no-op", () => {
+    const state = emptyCompletedNotifyState();
+    expect(dismissAllCompletedNotify(state)).toBe(state);
+  });
+
+  it("markAllCompletedNotifyRead empties the live stack and persists it", () => {
+    const store = { data: emptyCompletedNotifyPersist() };
+    const storage: CompletedNotifyStorage = {
+      load: () => store.data,
+      save: (next) => {
+        store.data = next;
+      },
+    };
+    const restore = setCompletedNotifyStorageForTests(storage);
+    try {
+      resetCompletedTaskNotify();
+      const working = [
+        taskNode("sink", [
+          { id: "t1", state: "working", brief: "A" },
+          { id: "t2", state: "working", brief: "B" },
+        ]),
+      ];
+      const done = [
+        taskNode("sink", [
+          { id: "t1", state: "completed", brief: "A" },
+          { id: "t2", state: "completed", brief: "B" },
+        ]),
+      ];
+      state$.doc.set({ nodes: working, edges: [] });
+      syncCompletedTaskNotifyFromDoc(working, 1);
+      state$.doc.set({ nodes: done, edges: [] });
+      syncCompletedTaskNotifyFromDoc(done, 2);
+      expect(completedTaskNotify$.items.peek()).toHaveLength(2);
+
+      markAllCompletedNotifyRead();
+      expect(completedTaskNotify$.items.peek()).toEqual([]);
+      expect(store.data.dismissed.sort()).toEqual(["t1", "t2"]);
+
+      // Cold process: the durable dismiss holds.
+      resetCompletedTaskNotify();
+      syncCompletedTaskNotifyFromDoc(done, 3);
+      expect(completedTaskNotify$.items.peek()).toEqual([]);
     } finally {
       restore();
       clearCompletedNotifyPersistForTests();

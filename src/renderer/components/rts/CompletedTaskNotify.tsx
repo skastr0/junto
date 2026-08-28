@@ -3,15 +3,17 @@
  * Click focuses the tasks node, opens the board with the task selected, and
  * durably dismisses this entry.
  *
- * Visual: one “completed” label on the plate; each card is icon + brief only.
+ * Visual: one “completed” label on the plate plus a mark-all-read button;
+ * each card is icon + brief only.
  * Boundless vertical stack — scroll the list; cards are never mid-clipped.
  */
 import { useEffect } from "react";
 import { use$ } from "@legendapp/state/react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCheck, CheckCircle2 } from "lucide-react";
 import {
   activateCompletedTaskNotify,
   completedTaskNotify$,
+  markAllCompletedNotifyRead,
   syncCompletedTaskNotifyFromDoc,
   type CompletedTaskNotifyItem,
 } from "../../lib/completed-task-notify";
@@ -43,6 +45,17 @@ export function CompletedTaskNotifyStack() {
         <span className="completed-task-notify__chrome-count" aria-live="polite">
           {items.length}
         </span>
+        <button
+          type="button"
+          className="completed-task-notify__mark-all"
+          title="Mark all read — clears the stack without opening anything"
+          aria-label={`Mark all ${String(items.length)} completed tasks read`}
+          data-testid="completed-task-notify-mark-all"
+          onClick={markAllCompletedNotifyRead}
+        >
+          <CheckCheck size={11} aria-hidden />
+          mark all read
+        </button>
       </div>
       <div className="completed-task-notify__list">
         {items.map((item) => (
