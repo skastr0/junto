@@ -32,7 +32,7 @@ import {
   verifyPackagedRuntimeParity,
   verifyPreparedPackageRuntimes,
   type PackageRuntime,
-  type VerifiedPackageSourceFacts,
+  type PackageSourceFacts,
   type RuntimeBuildIdentity,
 } from "../scripts/package-runtime-provenance";
 import {
@@ -67,12 +67,12 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const cohortNonce = "11111111-1111-4111-8111-111111111111";
-let source: VerifiedPackageSourceFacts;
+let source: PackageSourceFacts;
 let sourceRepositoryRoot: string | undefined;
 
 const identity = (
   runtime: PackageRuntime,
-  facts: VerifiedPackageSourceFacts = source,
+  facts: PackageSourceFacts = source,
   nonce = cohortNonce,
 ): RuntimeBuildIdentity => ({
   schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
@@ -84,7 +84,7 @@ const identity = (
 const compiled = (
   runtime: PackageRuntime,
   body: string,
-  facts: VerifiedPackageSourceFacts = source,
+  facts: PackageSourceFacts = source,
   nonce = cohortNonce,
 ): Buffer =>
   embedRuntimeBuildIdentity({
@@ -96,7 +96,7 @@ const writeProvenance = async (input: {
   readonly runtime: PackageRuntime;
   readonly payload: Buffer;
   readonly file: string;
-  readonly facts?: VerifiedPackageSourceFacts;
+  readonly facts?: PackageSourceFacts;
 }): Promise<void> => {
   const provenance = makePackageRuntimeProvenance({
     runtime: input.runtime,
@@ -307,6 +307,50 @@ const createSourceRepository = async (
   return { root, commit: git(root, ["rev-parse", "HEAD"]) };
 };
 
+const mutatePackageSourceFacts = async (
+  root: string,
+  field: "appVersion" | "schema" | "migrationHead" | "schemaIdentity",
+): Promise<void> => {
+  if (field === "appVersion") {
+    await writeFile(
+      path.join(root, "package.json"),
+      `${JSON.stringify({ version: "0.1.15" })}\n`,
+    );
+    return;
+  }
+  const migrationPath = path.join(
+    root,
+    "src/main/vellum/state/migrations.ts",
+  );
+  const body = await readFile(migrationPath, "utf8");
+  const substitutions: ReadonlyArray<readonly [string, string]> =
+    field === "schema"
+      ? [
+          [
+            "CURRENT_STATE_SCHEMA_VERSION = 20",
+            "CURRENT_STATE_SCHEMA_VERSION = 21",
+          ],
+          ["STATE_SCHEMA_V20_IDENTITY", "STATE_SCHEMA_V21_IDENTITY"],
+          ["fromVersion: 19, toVersion: 20", "fromVersion: 20, toVersion: 21"],
+        ]
+      : field === "migrationHead"
+        ? [["witness-every-projected-work-table", "different-head"]]
+        : [
+            [
+              "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
+              "c".repeat(64),
+            ],
+          ];
+  let mutated = body;
+  for (const [from, to] of substitutions) {
+    if (!mutated.includes(from)) {
+      throw new Error(`fixture source is missing ${from}`);
+    }
+    mutated = mutated.replace(from, to);
+  }
+  await writeFile(migrationPath, mutated);
+};
+
 beforeAll(async () => {
   const fixture = await createSourceRepository();
   sourceRepositoryRoot = fixture.root;
@@ -508,8 +552,8 @@ describe("exact committed source admission", () => {
   });
 });
 
-describe("verified source facts capability", () => {
-  it("accepts two independently minted facts with the same source values", async () => {
+describe("package source facts", () => {
+  it("accepts two independently read facts with the same source values", async () => {
     const root = sourceRepositoryRoot as string;
     const rootFacts = await readPackageSourceFacts({
       repoRoot: root,
@@ -525,53 +569,62 @@ describe("verified source facts capability", () => {
   });
 
   it.each([
-    ["app", { appVersion: "0.1.15" }],
-    ["schema", { schemaVersion: 21 }],
-    ["head", { migrationName: "different-head" }],
-    ["identity", { migrationIdentitySha256: "c".repeat(64) }],
+    ["app", "appVersion", "appVersion"],
+    ["schema", "schema", "currentStateSchemaVersion"],
+    ["migration head", "migrationHead", "migrationHead.name"],
+    ["schema identity", "schemaIdentity", "currentStateSchemaIdentity"],
   ] as const)(
-    "rejects independently minted differing %s facts",
-    async (_label, options) => {
-      const fixture = await createSourceRepository(options);
+    "rejects a same-HEAD working-tree %s mismatch in %s",
+    async (_label, field, expectedField) => {
+      const fixture = await createSourceRepository();
       try {
-        const differingFacts = await readPackageSourceFacts({
+        const rootFacts = await readPackageSourceFacts({
           repoRoot: fixture.root,
-          requireClean: true,
+          requireClean: false,
         });
+        await mutatePackageSourceFacts(fixture.root, field);
+        const variantFacts = await readPackageSourceFacts({
+          repoRoot: fixture.root,
+          requireClean: false,
+        });
+        expect(variantFacts.sourceCommit).toBe(rootFacts.sourceCommit);
         expect(() =>
-          assertPackageSourceFactsEqual(source, differingFacts),
-        ).toThrow(/PackageSourceFacts mismatch/u);
+          assertPackageSourceFactsEqual(rootFacts, variantFacts),
+        ).toThrow(
+          new RegExp(`PackageSourceFacts mismatch for ${expectedField}`),
+        );
       } finally {
         await rm(fixture.root, { recursive: true, force: true });
       }
     },
   );
 
-  it("rejects an arbitrary lookalike and proxy cast as unminted", async () => {
-    const root = sourceRepositoryRoot as string;
-    const admitted = await readPackageSourceFacts({
-      repoRoot: root,
-      requireClean: true,
-    });
-    const lookalike = {
-      appVersion: admitted.appVersion,
-      sourceCommit: admitted.sourceCommit,
-      currentStateSchemaVersion: admitted.currentStateSchemaVersion,
-      migrationHead: { ...admitted.migrationHead },
-      migrationIdentitySha256: admitted.migrationIdentitySha256,
-    } as unknown as VerifiedPackageSourceFacts;
-    expect(() => assertPackageSourceFactsEqual(lookalike, admitted)).toThrow(
-      /not minted/u,
-    );
+  it.each([
+    "1.2.3-rc.0+build.01",
+    "2.0.0-alpha-beta+build.001",
+  ] as const)("retains valid SemVer 2 prerelease/build admission (%s)", async (appVersion) => {
+    const fixture = await createSourceRepository({ appVersion });
+    try {
+      await expect(
+        readPackageSourceFacts({ repoRoot: fixture.root, requireClean: true }),
+      ).resolves.toMatchObject({ appVersion });
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
 
-    const proxy = new Proxy(lookalike, {
-      get: () => {
-        throw new Error("proxy trap invoked");
-      },
-    }) as unknown as VerifiedPackageSourceFacts;
-    expect(() => assertPackageSourceFactsEqual(admitted, proxy)).toThrow(
-      /not minted/u,
-    );
+  it.each([
+    "0.1.14-01",
+    "1.2.3-rc.01",
+  ] as const)("rejects SemVer 2 numeric prerelease leading zeroes (%s)", async (appVersion) => {
+    const fixture = await createSourceRepository({ appVersion });
+    try {
+      await expect(
+        readPackageSourceFacts({ repoRoot: fixture.root, requireClean: true }),
+      ).rejects.toThrow(/invalid package\.json version/u);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
   });
 
   it("returns deeply frozen ordinary own-data facts", async () => {
@@ -588,12 +641,18 @@ describe("verified source facts capability", () => {
     )) {
       expect(value.get).toBeUndefined();
       expect(value.set).toBeUndefined();
+      expect(value.configurable).toBe(false);
+      expect(value.enumerable).toBe(true);
+      expect(value.writable).toBe(false);
     }
     for (const value of Object.values(
       Object.getOwnPropertyDescriptors(facts.migrationHead),
     )) {
       expect(value.get).toBeUndefined();
       expect(value.set).toBeUndefined();
+      expect(value.configurable).toBe(false);
+      expect(value.enumerable).toBe(true);
+      expect(value.writable).toBe(false);
     }
     expect(
       Reflect.set(

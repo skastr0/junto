@@ -3,6 +3,9 @@
  * Qualify one Linux x64 execution build from an isolated exact-commit clone.
  * The command never claims physical amd64 hardware and never accepts prebuilt
  * candidates. Its requested receipt is invalidated before any gate can fail.
+ * Qualification starts in a fresh trusted process, before package data is
+ * handled. Primordials compromised before module import, or a runtime already
+ * compromised at startup, are outside this package-source qualification.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";

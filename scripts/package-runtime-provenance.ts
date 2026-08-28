@@ -52,8 +52,10 @@ const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+// Strict SemVer 2.0.0 admission: numeric prerelease identifiers may not
+// contain leading zeroes, while build metadata permits them.
 const SEMVER =
-  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+  /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const BUILD_MARKER =
   /\/\* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu;
 
@@ -74,17 +76,6 @@ export type PackageSourceFacts = PackageSchemaFacts & {
   readonly appVersion: string;
   readonly sourceCommit: string;
 };
-
-// The shape remains useful for persisted receipts, but source facts admitted by
-// readPackageSourceFacts carry an unforgeable module-private capability at
-// runtime. The brand keeps downstream source-consuming APIs honest at compile
-// time while the WeakSet below is the authoritative runtime check.
-declare const verifiedPackageSourceFactsBrand: unique symbol;
-export type VerifiedPackageSourceFacts = PackageSourceFacts & {
-  readonly [verifiedPackageSourceFactsBrand]: true;
-};
-
-const verifiedPackageSourceFacts = new WeakSet<object>();
 
 export type RuntimeBuildIdentity = {
   readonly schema: typeof RUNTIME_BUILD_IDENTITY_SCHEMA;
@@ -482,7 +473,7 @@ export const readPackageSourceFacts = async (input: {
   readonly repoRoot: string;
   readonly requireClean?: boolean;
   readonly expectedSourceCommit?: string;
-}): Promise<VerifiedPackageSourceFacts> => {
+}): Promise<PackageSourceFacts> => {
   const repoRoot = path.resolve(input.repoRoot);
   await requireDirectory(repoRoot, "repository root");
   if (input.requireClean !== false) {
@@ -518,46 +509,32 @@ export const readPackageSourceFacts = async (input: {
     );
   }
   const schema = await readPackageSchemaFacts(repoRoot);
-  // Construct the admitted value ourselves from primitive reads. This keeps
-  // both levels ordinary own-data objects, then freezes the complete value
-  // before handing it to any downstream compiler or qualifier operation.
+  // Construct the admitted value ourselves from primitive reads. Freeze both
+  // levels so downstream compiler and qualifier operations cannot mutate it.
   const migrationHead = Object.freeze({
     fromVersion: schema.migrationHead.fromVersion,
     toVersion: schema.migrationHead.toVersion,
     name: schema.migrationHead.name,
   });
-  const facts = Object.freeze({
+  return Object.freeze({
     appVersion,
     sourceCommit,
     currentStateSchemaVersion: schema.currentStateSchemaVersion,
     migrationHead,
     migrationIdentitySha256: schema.migrationIdentitySha256,
-  }) as VerifiedPackageSourceFacts;
-  verifiedPackageSourceFacts.add(facts);
-  return facts;
+  });
 };
 
-function requireVerifiedPackageSourceFacts(
-  facts: unknown,
-  operand: string,
-): asserts facts is VerifiedPackageSourceFacts {
-  if (!verifiedPackageSourceFacts.has(facts as object)) {
-    throw new Error(
-      `${operand} PackageSourceFacts was not minted by readPackageSourceFacts`,
-    );
-  }
-}
-
 type PackageSourceFactsEquality = (
-  root: VerifiedPackageSourceFacts,
-  clone: VerifiedPackageSourceFacts,
+  root: PackageSourceFacts,
+  clone: PackageSourceFacts,
 ) => boolean;
 type PackageSourceFactsEqualityEntry = {
   readonly label: string;
   readonly equal: PackageSourceFactsEquality;
   readonly values: (
-    root: VerifiedPackageSourceFacts,
-    clone: VerifiedPackageSourceFacts,
+    root: PackageSourceFacts,
+    clone: PackageSourceFacts,
   ) => readonly [unknown, unknown];
 };
 
@@ -636,22 +613,15 @@ const PACKAGE_SOURCE_FACTS_EQUALITY = {
 >;
 
 export type PackageSourceFactsComparison = {
-  readonly root: VerifiedPackageSourceFacts;
-  readonly clone: VerifiedPackageSourceFacts;
+  readonly root: PackageSourceFacts;
+  readonly clone: PackageSourceFacts;
 };
 
-/**
- * Compare only source facts minted by readPackageSourceFacts. Membership is
- * checked before either operand is dereferenced, so a caller-created object,
- * proxy, or post-admission replacement cannot enter the parity path.
- */
+/** Compare every source fact, including every migration-head field. */
 export const assertPackageSourceFactsEqual = (
-  rootFacts: VerifiedPackageSourceFacts,
-  cloneFacts: VerifiedPackageSourceFacts,
+  rootFacts: PackageSourceFacts,
+  cloneFacts: PackageSourceFacts,
 ): PackageSourceFactsComparison => {
-  requireVerifiedPackageSourceFacts(rootFacts, "root");
-  requireVerifiedPackageSourceFacts(cloneFacts, "clone");
-
   for (const [key, entry] of Object.entries(PACKAGE_SOURCE_FACTS_EQUALITY)) {
     if (entry.equal(rootFacts, cloneFacts)) continue;
     if (key === "migrationHead") {
@@ -748,10 +718,9 @@ export const embedRuntimeBuildIdentity = (input: {
 
 export const makePackageRuntimeProvenance = (input: {
   readonly runtime: PackageRuntime;
-  readonly source: VerifiedPackageSourceFacts;
+  readonly source: PackageSourceFacts;
   readonly payload: Uint8Array;
 }): PackageRuntimeProvenance => {
-  requireVerifiedPackageSourceFacts(input.source, "source");
   const buildIdentity = extractRuntimeBuildIdentity(input.payload);
   if (
     buildIdentity.runtime !== input.runtime ||
@@ -870,7 +839,7 @@ const writeAtomic = async (file: string, body: Uint8Array): Promise<void> => {
 const writeRuntimeProvenance = async (input: {
   readonly repoRoot: string;
   readonly runtime: PackageRuntime;
-  readonly source: VerifiedPackageSourceFacts;
+  readonly source: PackageSourceFacts;
 }): Promise<PackageRuntimeProvenance> => {
   const payloadRelative =
     input.runtime === "electron-main"
@@ -963,7 +932,7 @@ const runCompiler = (input: {
 
 export type PreparedPackageRuntimes = {
   readonly target: PackageTarget;
-  readonly source: VerifiedPackageSourceFacts;
+  readonly source: PackageSourceFacts;
   readonly cohortNonce: string;
   readonly main: PackageRuntimeProvenance;
   readonly remote: PackageRuntimeProvenance;
@@ -973,7 +942,7 @@ export type PreparedPackageRuntimes = {
 export const preparePackageRuntimes = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
-  readonly source?: VerifiedPackageSourceFacts;
+  readonly source?: PackageSourceFacts;
   readonly cohortNonce?: string;
   readonly buildMain?: (repoRoot: string) => Promise<void>;
   readonly buildRemote?: (repoRoot: string) => Promise<void>;
@@ -983,9 +952,6 @@ export const preparePackageRuntimes = async (input: {
   const source =
     input.source ??
     (await readPackageSourceFacts({ repoRoot, requireClean: true }));
-  if (input.source !== undefined) {
-    requireVerifiedPackageSourceFacts(input.source, "source");
-  }
   const cohortNonce = requiredString(
     input.cohortNonce ??
       process.env.VELLUM_COMMAND_PACKAGE_COHORT_NONCE ??
@@ -1076,7 +1042,7 @@ const verifyRuntimeProvenance = (input: {
   readonly runtime: PackageRuntime;
   readonly manifest: Uint8Array;
   readonly payload: Uint8Array;
-  readonly expected: VerifiedPackageSourceFacts;
+  readonly expected: PackageSourceFacts;
 }): VerifiedRuntimeProvenance => {
   let parsed: unknown;
   try {
@@ -1120,7 +1086,7 @@ const verifyRuntimeProvenance = (input: {
 const readSourceRuntime = async (input: {
   readonly repoRoot: string;
   readonly runtime: PackageRuntime;
-  readonly expected: VerifiedPackageSourceFacts;
+  readonly expected: PackageSourceFacts;
 }): Promise<VerifiedRuntimeProvenance> => {
   const provenanceRelative =
     input.runtime === "electron-main"
@@ -1161,16 +1127,13 @@ const requireSameCohort = (
 export const verifyPreparedPackageRuntimes = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
-  readonly expected?: VerifiedPackageSourceFacts;
+  readonly expected?: PackageSourceFacts;
 }): Promise<PackageRuntimeParityVerification> => {
   const repoRoot = path.resolve(input.repoRoot);
   const target = requireTarget(input.target);
   const expected =
     input.expected ??
     (await readPackageSourceFacts({ repoRoot, requireClean: true }));
-  if (input.expected !== undefined) {
-    requireVerifiedPackageSourceFacts(input.expected, "expected");
-  }
   const electronMain = await readSourceRuntime({
     repoRoot,
     runtime: "electron-main",
@@ -1500,16 +1463,13 @@ export const verifyPackagedRuntimeParity = async (input: {
   readonly target: PackageTarget;
   readonly appBundle?: string;
   readonly runtimeRoot?: string;
-  readonly expected?: VerifiedPackageSourceFacts;
+  readonly expected?: PackageSourceFacts;
 }): Promise<PackageRuntimeParityVerification> => {
   const repoRoot = path.resolve(input.repoRoot);
   const target = requireTarget(input.target);
   const expected =
     input.expected ??
     (await readPackageSourceFacts({ repoRoot, requireClean: true }));
-  if (input.expected !== undefined) {
-    requireVerifiedPackageSourceFacts(input.expected, "expected");
-  }
   const prepared = await verifyPreparedPackageRuntimes({
     repoRoot,
     target,
