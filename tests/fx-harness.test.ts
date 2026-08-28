@@ -247,8 +247,8 @@ describe("fx seat state", () => {
     bindingId: "b1",
   });
 
-  const TITLE = "fx · fx-probe · zai/glm-5.3-flash";
-  const FOOTER = "auto · glm-5.3-flash";
+  const TITLE = "fx \u00B7 fx-probe \u00B7 zai/glm-5.3-flash";
+  const FOOTER = "auto \u00B7 glm-5.3-flash";
 
   it("reads a live turn as working", () => {
     const r = evaluate(
@@ -268,7 +268,7 @@ describe("fx seat state", () => {
     // The token meter survives the turn; only the bullet line does not. A rule
     // keyed on the meter would pin this finished seat to working forever.
     const r = evaluate(
-      snap("fx · Reply with the single word PONG · zai/glm-5.3-flash", [
+      snap("fx \u00B7 Reply with the single word PONG \u00B7 zai/glm-5.3-flash", [
         "┃ Reply with the single word PONG and nothing else.",
         "  PONG",
         "  5s (↑13 ↓4)",
@@ -284,7 +284,7 @@ describe("fx seat state", () => {
   it("reads a fresh seat as idle", () => {
     const r = evaluate(
       snap(TITLE, [
-        "\u{1D453}x v0.0.6 · Run /help for commands",
+        "\u{1D453}x v0.0.6 \u00B7 Run /help for commands",
         "┃",
         FOOTER,
       ]),

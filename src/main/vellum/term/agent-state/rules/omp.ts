@@ -14,10 +14,10 @@
  * matched, because either alone would be a single point of failure and they
  * cost nothing together.
  *
- * The status bar is always present (`… · GLM-5.3-Flash (2x usage) · high · …`)
- * and therefore proves nothing about state on its own. Its separators are
- * U+00B7; rule sources spell them `·` rather than pasting the glyph, per
- * the repo's copy law.
+ * The status bar is always present (`… U+00B7 GLM-5.3-Flash (2x usage)
+ * U+00B7 high U+00B7 …`) and therefore proves nothing about state on its
+ * own. Its separators are U+00B7; rule sources spell them as the escape
+ * rather than pasting the glyph, per the repo's copy law.
  */
 
 import type { SeatRulePack } from "../types";

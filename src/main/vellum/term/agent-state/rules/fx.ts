@@ -17,8 +17,8 @@
  * The `(↑N ↓N)` token meter therefore proves nothing on its own: it survives
  * into the settled frame. The bullet plus a status word is the signal.
  *
- * Separators in fx chrome are U+00B7; rule sources spell them `·` rather
- * than pasting the glyph, per the repo's copy law.
+ * Separators in fx chrome are U+00B7; rule sources spell them as the escape
+ * rather than pasting the glyph, per the repo's copy law.
  */
 
 import type { SeatRulePack } from "../types";
@@ -77,8 +77,8 @@ export const fxRules: SeatRulePack = {
     {
       /**
        * Settled: the composer is an empty `┃` and the footer carries
-       * `<permission mode> · <model>`. Both together, because the footer
-       * alone is painted during a turn as well.
+       * `<permission mode> U+00B7 <model>`. Both together, because the
+       * footer alone is painted during a turn as well.
        */
       id: "empty_composer_idle",
       state: "idle",
