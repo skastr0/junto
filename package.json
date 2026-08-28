@@ -35,6 +35,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "theme:build": "bun scripts/theme-build.ts",
+    "schema:identity": "bun scripts/schema-identity.ts",
     "lint:product-name": "bun scripts/lint-product-name.ts",
     "lint:no-middot": "bun scripts/lint-no-middot.ts",
     "lint:effect-runpromise": "bun scripts/lint-effect-runpromise.ts",

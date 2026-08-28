@@ -13,7 +13,7 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V18_IDENTITY,
   STATE_SCHEMA_V19_IDENTITY,
-  STATE_SCHEMA_V21_IDENTITY,
+  CURRENT_STATE_SCHEMA_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
@@ -54,9 +54,8 @@ describe("work canvas revision migration 18 -> 19", () => {
       STATE_SCHEMA_V19_IDENTITY,
     );
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
-      STATE_SCHEMA_V21_IDENTITY,
+      CURRENT_STATE_SCHEMA_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
   });
 
   it("seeds installed canvases at the retired count and keeps their rows", () => {
@@ -80,7 +79,7 @@ describe("work canvas revision migration 18 -> 19", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(18);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
+        CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,
       );
 
       // Rows the migration must not touch.

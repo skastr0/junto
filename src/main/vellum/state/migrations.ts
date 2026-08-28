@@ -266,6 +266,14 @@ export const STATE_SCHEMA_V21_IDENTITY = {
     "3e45c771d981863bb41bfbd9cbcd2881144f0fcc118ce0f7824eb2c99886781f",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/**
+ * Stable alias for the head identity so tests and tooling never rename an
+ * import on a schema bump. `bun run schema:identity` rewrites the constant
+ * above after any schema change.
+ */
+export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
+  STATE_SCHEMA_V21_IDENTITY;
+
 export const STATE_SCHEMA_MIGRATIONS =
   [
     {

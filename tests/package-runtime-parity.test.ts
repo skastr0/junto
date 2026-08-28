@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CURRENT_STATE_SCHEMA_IDENTITY } from "../src/main/vellum/state/migrations";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -381,7 +382,7 @@ describe("fresh compiler cohort provenance", () => {
         name: "canvas-relational-authority-cutover",
       },
       migrationIdentitySha256:
-        "3e45c771d981863bb41bfbd9cbcd2881144f0fcc118ce0f7824eb2c99886781f",
+        CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,
     });
   });
 

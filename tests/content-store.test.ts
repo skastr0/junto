@@ -49,7 +49,7 @@ import {
   STATE_SCHEMA_V14_IDENTITY,
   STATE_SCHEMA_V15_IDENTITY,
   STATE_SCHEMA_V16_IDENTITY,
-  STATE_SCHEMA_V21_IDENTITY,
+  CURRENT_STATE_SCHEMA_IDENTITY,
 } from "../src/main/vellum/state/migrations";
 import {
   STATE_SCHEMA_SQL,
@@ -321,9 +321,8 @@ describe("content schema migration 11 → current", () => {
       STATE_SCHEMA_V14_IDENTITY,
     );
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(
-      STATE_SCHEMA_V21_IDENTITY,
+      CURRENT_STATE_SCHEMA_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
   });
 
   it("migrates v11 rows forward and preserves data; content + marker tables appear", () => {
@@ -375,7 +374,7 @@ describe("content schema migration 11 → current", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(11);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
+        CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,
       );
 
       const head = database
@@ -427,7 +426,7 @@ describe("content schema migration 11 → current", () => {
       expect(result.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
       expect(result.previousVersion).toBe(12);
       expect(result.actualSchemaSha256).toBe(
-        STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
+        CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,
       );
 
       const marker = database
