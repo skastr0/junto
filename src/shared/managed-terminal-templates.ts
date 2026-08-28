@@ -38,6 +38,7 @@ export const HarnessId = Schema.Literals([
   "agy",
   "amp",
   "fx",
+  "omp",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -241,6 +242,15 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
   // Recording knobs — inherited, they make a seat write tapes nobody asked for.
   "FX_RECORD",
   "FX_RECORD_INPUT",
+  // Oh My Pi shares the pi-family env namespace. Inherited, these silently
+  // redirect a seat's state home or reassign its model roles — the same class
+  // of ambient override as CLAUDE_CODE_CHILD_SESSION.
+  "OMP_PROFILE",
+  "PI_CODING_AGENT_DIR",
+  "PI_NO_PTY",
+  "PI_SMOL_MODEL",
+  "PI_SLOW_MODEL",
+  "PI_PLAN_MODEL",
 ] as const;
 
 /**
@@ -1084,6 +1094,66 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
   efforts: [],
 };
 
+/**
+ * Oh My Pi (binary: `omp`) — Tier A, capture session, OSC title + grid.
+ *
+ * Probed 18.0.9 (2026-08-28) against the installed binary and one live turn:
+ * - `--append-system-prompt <text|file>` exists and is repeatable, so doctrine
+ *   rides argv: Tier A, unlike the pi-family harnesses around it.
+ * - `--model` (fuzzy), `--thinking off|minimal|low|medium|high|xhigh|max|auto`,
+ *   `--approval-mode always-ask|write|yolo`, positional prompt.
+ * - No session pin. Sessions land at
+ *   `~/.omp/agent/sessions/<encoded-cwd>/<ISO-ts>_<uuidv7>.jsonl`, and the
+ *   encoding is NOT what either the proposal or omp's own `--export` example
+ *   says: a cwd under $HOME is home-relative with `/`→`-` (`-Projects-vellum`),
+ *   while a cwd outside it is the full path wrapped in dashes
+ *   (`--private-tmp-omp-probe--`). Verified by running in both.
+ * - `--resume <id-prefix>` continues the SAME session — proven by resuming a
+ *   probe session and watching the one existing file grow rather than a second
+ *   appear. So capture→cold-wake links up, and `-c` is never needed.
+ * - The TUI renders inline (no alt screen), enables bracketed paste, and its
+ *   OSC title is a real state machine (`π >` waiting, `π <braille>` running).
+ */
+export const OMP_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "omp",
+  displayName: "Oh My Pi",
+  probedVersion: "18.0.9",
+  argvSpec: {
+    binary: "omp",
+    prefix: [],
+    promptMode: "positional",
+    modelFlag: "--model",
+    effortFlag: "--thinking",
+    permissionModeFlag: "--approval-mode",
+    systemPromptFlag: "--append-system-prompt",
+    resumeMode: "flag",
+    resumeFlag: "--resume",
+    // Resume re-passes every dial: the flags are read from the new argv on a
+    // resumed run, so a cold wake restores the model and thinking level the
+    // seat was authored with instead of whatever the session last used.
+    resumeReinjection: "re-pass",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: {
+    tier: "A",
+    flags: ["--append-system-prompt"],
+    description:
+      "--append-system-prompt appends doctrine to the system prompt at spawn",
+  },
+  capabilityBadges: {
+    instructionInjection: "A",
+    hooks: false,
+    effortAtSpawn: true,
+    sessionId: "capture",
+    remote: false,
+    requiresGitCwd: false,
+    stateFeed: "OSC title state machine + grid",
+    attentionSource: "approval dialog (literals from the binary, uncaptured)",
+    labels: ["injection A", "OSC + grid", "thinking", "capture session"],
+  },
+  efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"],
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -1100,6 +1170,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   agy: AGY_TEMPLATE,
   amp: AMP_TEMPLATE,
   fx: FX_TEMPLATE,
+  omp: OMP_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

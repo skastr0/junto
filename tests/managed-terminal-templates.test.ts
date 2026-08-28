@@ -59,6 +59,7 @@ describe("managed-terminal templates (data)", () => {
     "agy",
     "amp",
     "fx",
+    "omp",
   ] as const;
 
   it("exports exactly the managed harnesses", () => {
@@ -207,6 +208,13 @@ describe("managed-terminal templates (data)", () => {
       "FX_MAX_AGENT_STEPS",
       "FX_RECORD",
       "FX_RECORD_INPUT",
+      // Oh My Pi shares the pi-family env namespace.
+      "OMP_PROFILE",
+      "PI_CODING_AGENT_DIR",
+      "PI_NO_PTY",
+      "PI_SMOL_MODEL",
+      "PI_SLOW_MODEL",
+      "PI_PLAN_MODEL",
     ]);
     expect(SPAWN_ENV_SCRUB_PREFIXES).toEqual(["PRIME_AGENT_INTERNAL_"]);
     for (const t of allTemplates()) {

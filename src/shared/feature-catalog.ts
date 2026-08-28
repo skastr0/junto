@@ -57,6 +57,10 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HARNESS_FX",
     define: "__VELLUM_COMMAND_HARNESS_FX_ENABLED__",
   },
+  harnessOmp: {
+    env: "VELLUM_COMMAND_HARNESS_OMP",
+    define: "__VELLUM_COMMAND_HARNESS_OMP_ENABLED__",
+  },
   /**
    * Shipped stock Prime Agent managed seat. The ship baseline enables authoring;
    * an explicit build override may still disable it. HarnessId decode remains
@@ -94,6 +98,7 @@ export const SHIP_FEATURES: FeatureSet = {
   harnessKimi: false,
   harnessMuse: false,
   harnessFx: true,
+  harnessOmp: false,
   harnessPrimeAgent: true,
   harnessSettings: false,
 };
@@ -111,6 +116,7 @@ export const ALL_FEATURES: FeatureSet = {
   harnessKimi: true,
   harnessMuse: true,
   harnessFx: true,
+  harnessOmp: true,
   harnessPrimeAgent: true,
   harnessSettings: true,
 };

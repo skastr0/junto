@@ -3,6 +3,7 @@ import type { SeatRulePack } from "../types";
 import { agyRules } from "./agy";
 import { ampRules } from "./amp";
 import { fxRules } from "./fx";
+import { ompRules } from "./omp";
 import { claudeRules } from "./claude";
 import { codexRules } from "./codex";
 import { cursorRules } from "./cursor";
@@ -17,6 +18,7 @@ import { primeAgentRules } from "./prime-agent";
 export { agyRules } from "./agy";
 export { ampRules } from "./amp";
 export { fxRules } from "./fx";
+export { ompRules } from "./omp";
 export { claudeRules } from "./claude";
 export { codexRules } from "./codex";
 export { cursorRules } from "./cursor";
@@ -32,6 +34,7 @@ const PACKS: Record<HarnessId, SeatRulePack> = {
   agy: agyRules,
   amp: ampRules,
   fx: fxRules,
+  omp: ompRules,
   claude: claudeRules,
   codex: codexRules,
   cursor: cursorRules,

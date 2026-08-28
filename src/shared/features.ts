@@ -22,6 +22,7 @@ declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_FX_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 
@@ -112,6 +113,19 @@ export const HARNESS_FX_ENABLED: boolean =
     ? __VELLUM_COMMAND_HARNESS_FX_ENABLED__
     : envEnabled("VELLUM_COMMAND_HARNESS_FX");
 
+/**
+ * Oh My Pi managed seat — ship/prod off until an approval dialog is captured.
+ *
+ * Everything else about the seat is proven against 18.0.9 (Tier-A doctrine on
+ * argv, title state machine, capture and same-session resume), but its
+ * attention rule matches literals taken from the shipped binary rather than a
+ * rendered frame, so a seat sitting on a permission prompt may read idle.
+ */
+export const HARNESS_OMP_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_OMP_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_OMP_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_OMP");
+
 /** Stock Prime Agent 0.7.1 managed seat; separately installed CLI required. */
 export const HARNESS_PRIME_AGENT_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__ === "boolean"
@@ -140,6 +154,7 @@ export const BUILD_FEATURES = {
   harnessKimi: HARNESS_KIMI_ENABLED,
   harnessMuse: HARNESS_MUSE_ENABLED,
   harnessFx: HARNESS_FX_ENABLED,
+  harnessOmp: HARNESS_OMP_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
 } as const;
@@ -167,6 +182,7 @@ export const managedHarnessEnabled = (harness: string): boolean => {
   if (harness === "kimi") return HARNESS_KIMI_ENABLED;
   if (harness === "muse") return HARNESS_MUSE_ENABLED;
   if (harness === "fx") return HARNESS_FX_ENABLED;
+  if (harness === "omp") return HARNESS_OMP_ENABLED;
   if (harness === "prime-agent") return HARNESS_PRIME_AGENT_ENABLED;
   return true;
 };

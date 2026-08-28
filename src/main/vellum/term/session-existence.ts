@@ -12,6 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { stripIdlessSessionContinue } from "@shared/managed-terminal-launch";
 import { isFxSessionId } from "./templates/fx-session";
+import { isOmpSessionId, ompSessionsDir } from "./templates/omp-session";
 import {
   templateFor,
   type HarnessId,
@@ -133,6 +134,8 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
         return museSessionExists(sessionId, home);
       case "fx":
         return fxSessionExists(sessionId, home);
+      case "omp":
+        return ompSessionExists(sessionId, probe.cwd, home);
       case "devin":
         return devinSessionExists(sessionId, home);
       case "cursor":
@@ -384,6 +387,26 @@ const kimiSessionExists = (sessionId: string, root: string): boolean => {
     if (isDir(join(root, workDirKey, sessionId))) return true;
   }
   return false;
+};
+
+/**
+ * Oh My Pi sessions: one jsonl per session under the encoded-cwd directory.
+ * Proof needs the cwd, because that directory IS the workspace.
+ */
+const ompSessionExists = (
+  sessionId: string,
+  cwd: string | undefined,
+  home: string,
+): boolean => {
+  const id = sessionId.trim();
+  if (!isOmpSessionId(id) || !cwd) return false;
+  try {
+    return readdirSync(ompSessionsDir(cwd, home)).some((name) =>
+      name.includes(id),
+    );
+  } catch {
+    return false;
+  }
 };
 
 /**

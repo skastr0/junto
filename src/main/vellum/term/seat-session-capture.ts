@@ -1,8 +1,8 @@
 /**
  * Catching a seat's session id after the fact.
  *
- * A provisioned harness (Amp) is told its session before the PTY opens. Muse
- * and fx are the other shape: the id exists only once the process is running,
+ * A provisioned harness (Amp) is told its session before the PTY opens. Muse,
+ * fx and Oh My Pi are the other shape: the id exists only once the process is running,
  * and neither prints it. So the seat watches for it — on each of its own state
  * boundaries, capture reads the harness's session store for the session started
  * in this seat's workspace after this seat spawned, then writes it to the node
@@ -16,6 +16,7 @@
 
 import { captureMuseSessionId, isMuseSessionId } from "./templates/muse-session";
 import { discoverFxSessionId, isFxSessionId } from "./templates/fx-session";
+import { discoverOmpSessionId, isOmpSessionId } from "./templates/omp-session";
 import { writeSeatSessionId } from "./seat-session-id";
 
 /** How a harness reveals the id it minted, and how to tell one when seen. */
@@ -31,6 +32,7 @@ export type SessionDiscovery = {
 const DISCOVERY: Readonly<Record<string, SessionDiscovery>> = {
   muse: { discover: captureMuseSessionId, isSessionId: isMuseSessionId },
   fx: { discover: discoverFxSessionId, isSessionId: isFxSessionId },
+  omp: { discover: discoverOmpSessionId, isSessionId: isOmpSessionId },
 };
 
 /** Harnesses whose id is found after the fact rather than pinned or minted. */
