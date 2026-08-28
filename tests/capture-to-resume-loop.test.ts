@@ -268,6 +268,23 @@ const CAPTURE_FIXTURES: readonly Fixture[] = [
       writeFileSync(join(dir, "transcript.jsonl"), "");
     },
   },
+  {
+    harness: "fx",
+    sessionId: "1787761861883-1787761861883720000-7afaf80c8f5acd35",
+    seed: (home, sid) => {
+      mkdirSync(join(home, ".fx", "sessions", sid), { recursive: true });
+    },
+  },
+  {
+    harness: "omp",
+    sessionId: "01a047a9-1234-4567-89ab-0123456789ab",
+    cwd: "/work",
+    seed: (home, sid) => {
+      const dir = join(home, ".omp", "agent", "sessions", "--work--");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, `2026-08-28T09-18-18-179Z_${sid}.jsonl`), "");
+    },
+  },
 ];
 
 describe("cold resume is proven per capture harness", () => {

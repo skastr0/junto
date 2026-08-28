@@ -183,7 +183,30 @@ export const writeFixtureCanvas = async (
           installationByHostId.set(host, installationId);
         }
 
-        yield* canvasService.write(name, doc);
+        const authorialDoc: CanvasDoc = {
+          ...doc,
+          nodes: doc.nodes.map((node) => {
+            const ether = node.ether;
+            if (ether === undefined) return node;
+            const {
+              tasks,
+              requests: _requests,
+              messages: _messages,
+              artifacts: _artifacts,
+              board: _board,
+              pad: _pad,
+              ...authorialEther
+            } = ether;
+            return {
+              ...node,
+              ether: {
+                ...authorialEther,
+                ...(tasks === undefined ? {} : { tasks: { ...tasks, items: [] } }),
+              },
+            };
+          }),
+        };
+        yield* canvasService.write(name, authorialDoc);
         const authority = yield* canvasService.authorityMaterialSnapshot();
         const basis = Schema.decodeUnknownSync(IntentFactBasis, {
           onExcessProperty: "error",

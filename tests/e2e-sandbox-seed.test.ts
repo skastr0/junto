@@ -75,12 +75,12 @@ describe("E2E SQLite fixture seeding", () => {
         const authored = JSON.parse(witness.canvas!.body) as {
           readonly nodes: ReadonlyArray<{
             readonly id: string;
-            readonly ether?: { readonly tasks?: unknown };
+            readonly ether?: { readonly tasks?: { readonly items?: ReadonlyArray<unknown> } };
           }>;
         };
         expect(
-          authored.nodes.find((node) => node.id === "tasks")?.ether?.tasks,
-        ).toBeUndefined();
+          authored.nodes.find((node) => node.id === "tasks")?.ether?.tasks?.items,
+        ).toEqual([]);
       } finally {
         await runtime.dispose();
       }

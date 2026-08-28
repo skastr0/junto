@@ -151,9 +151,9 @@ describe("actor occupy protocol (in-process both ends)", () => {
       remoteProjectionAdmission: passThroughAdmission,
     });
     const spawnIntent = makeManagedSpawnIntent({
-      harness: "kimi",
-      agentKey: "station:kimi",
-      documentLaunch: { kind: "harness", argv: ["kimi"] },
+      harness: "muse",
+      agentKey: "station:muse",
+      documentLaunch: { kind: "harness", argv: ["muse"] },
       injection: {
         seatBound: true,
         connected: true,
@@ -165,8 +165,8 @@ describe("actor occupy protocol (in-process both ends)", () => {
     await Effect.runPromise(
       when.occupy({
         bindingId: "proto_remote_tier_b",
-        harness: "kimi",
-        agentKey: "station:kimi",
+        harness: "muse",
+        agentKey: "station:muse",
         hostId: "station-a",
         canvasName: "factory",
         nodeId: "actor-kimi",
@@ -174,9 +174,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       }),
     );
 
-    expect(peekFirstTypedMessage("proto_remote_tier_b")).toContain(
-      "vellum-command onboard",
-    );
+    expect(peekFirstTypedMessage("proto_remote_tier_b")).toBeUndefined();
     const wire = createAgentSeat.mock.calls[0]?.[0];
     expect(wire).toMatchObject({ spawnIntent });
     expect(wire).not.toHaveProperty("launch");

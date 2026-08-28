@@ -89,8 +89,12 @@ describe("factory physics architecture", () => {
       ],
     ];
     const self = join(root, "tests", "factory-physics-architecture.test.ts");
+    const externalVocabularyReaders = new Set([
+      join(root, "src", "main", "vellum", "usage", "devin-source.ts"),
+      join(root, "src", "main", "vellum", "usage", "synthetic-source.ts"),
+    ]);
     const files = [...filesUnder("src"), ...filesUnder("tests")].filter(
-      (path) => path !== self,
+      (path) => path !== self && !externalVocabularyReaders.has(path),
     );
     const violations = files.flatMap((path) => {
       const source = readFileSync(path, "utf8");

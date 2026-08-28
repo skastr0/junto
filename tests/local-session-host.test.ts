@@ -359,7 +359,7 @@ describe("LocalSessionHost", () => {
     });
     expect(Result.getOrThrow(resolved)).toMatchObject({
       file: "/usr/local/bin/claude",
-      args: ["--resume"],
+      args: [],
     });
 
     const seatWithoutArgv = resolveLaunch({

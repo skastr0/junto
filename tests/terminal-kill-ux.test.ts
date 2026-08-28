@@ -43,7 +43,7 @@ describe("terminal kill UX copy", () => {
 
     const agent = deadStateCopy({ agentSeat: true });
     expect(agent.headline).toBe("Agent stopped");
-    expect(agent.detail).toMatch(/unclaim/i);
+    expect(agent.detail).toMatch(/unassign/i);
   });
 
   it("detects agent seats from harness or agentKey", () => {

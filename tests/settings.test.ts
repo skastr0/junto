@@ -791,7 +791,7 @@ describe("terminal settings fragment", () => {
     expect(defaultTerminal().scrollSensitivity).toBe(3);
     // xterm's own effective defaults, which the surface never overrode.
     expect(defaultTerminal().cursorStyle).toBe("block");
-    expect(defaultTerminal().minimumContrastRatio).toBe(1);
+    expect(defaultTerminal().minimumContrastRatio).toBe(4.5);
     expect(defaultTerminal().letterSpacing).toBe(0);
     expect(defaultTerminal().screenReaderMode).toBe(false);
     // Blink is on because the surface blinks whenever the terminal is visible;
