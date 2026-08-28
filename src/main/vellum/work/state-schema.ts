@@ -1745,17 +1745,6 @@ export const WORK_BOARD_STATE_SCHEMA_SQL = `
 `;
 
 /**
- * Expand-only: add tags_json to work_board_posts (board collaboration tags).
- * Applied as migration 15 → 16. Fresh installs use
- * WORK_BOARD_STATE_SCHEMA_WITH_TAGS_SQL (current composition only).
- */
-export const WORK_BOARD_POSTS_TAGS_EXPAND_SQL = `
-  ALTER TABLE work_board_posts
-    ADD COLUMN tags_json TEXT
-      CHECK (tags_json IS NULL OR json_valid(tags_json));
-`;
-
-/**
  * Board tables at version 16+: posts carry optional tags_json.
  * Frozen WORK_BOARD_STATE_SCHEMA_SQL stays immutable for V9–V15 identities.
  */

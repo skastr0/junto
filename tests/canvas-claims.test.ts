@@ -3,7 +3,6 @@ import { Result } from "effect";
 import {
   containsWorkProjection,
   decodeCanvasDoc,
-  edgeVerb,
   resolveSinkAdmission,
   serializeCanvas,
 } from "../src/shared/canvas";
@@ -118,7 +117,7 @@ describe("pipeline claims canvas contract", () => {
 
   it("the pipeline hop survives the input scrub as its verb", () => {
     const decoded = Result.getOrThrow(decodeCanvasDoc(rawDoc));
-    expect(edgeVerb(decoded.edges[0]?.ether)).toBe("feeds");
+    expect(decoded.edges[0]?.ether?.verb).toBe("feeds");
     // The verb is the whole edge ether — nothing else rides along.
     expect(decoded.edges[0]?.ether).toEqual({ verb: "feeds" });
   });

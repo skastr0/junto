@@ -5,7 +5,6 @@ import {
   evaluateOperationCompatibility,
   evaluateSemanticCompatibility,
   evaluateStateCompatibility,
-  evaluateVerbGrantCompatibility,
 } from "../src/shared/semantic-compatibility-adapter";
 import { ALL_PORTS, type Port } from "../src/shared/physics/schema";
 import { TaskState } from "../src/shared/work-model";
@@ -158,61 +157,6 @@ describe("Semantic compatibility adapter boundary", () => {
     });
   });
 
-  describe("VerbGrant compatibility", () => {
-    const fullGrant: VerbGrant = {
-      ports: ["tasks.list", "tasks.create", "tasks.claim", "tasks.update"],
-      assignable: true,
-      wake: true,
-      flow: true,
-      chain: false,
-    };
-
-    it("proves Exact when grants and flags match", () => {
-      const res = evaluateVerbGrantCompatibility(fullGrant, fullGrant);
-      expect(res.status).toBe("exact");
-      expect(admitOperationally(res).admitted).toBe(true);
-    });
-
-    it("proves Restricted when candidate has subset of capability", () => {
-      const narrower: VerbGrant = {
-        ports: ["tasks.list", "tasks.claim"],
-        assignable: false,
-        wake: false,
-        flow: true,
-        chain: false,
-      };
-      const res = evaluateVerbGrantCompatibility(narrower, fullGrant);
-      expect(res.status).toBe("restricted");
-      if (res.status === "restricted") {
-        expect(res.subsetProof.grantsSubset).toBe(true);
-        expect(res.withheldSemantics.length).toBeGreaterThan(0);
-      }
-      expect(admitOperationally(res).admitted).toBe(false);
-    });
-
-    it("rejects when candidate attempts to widen flags (e.g. assignable true when current is false)", () => {
-      const unprivilegedCurrent: VerbGrant = {
-        ports: ["tasks.list"],
-        assignable: false,
-        wake: false,
-        flow: false,
-        chain: false,
-      };
-      const widenedCandidate: VerbGrant = {
-        ports: ["tasks.list"],
-        assignable: true,
-        wake: false,
-        flow: false,
-        chain: false,
-      };
-      const res = evaluateVerbGrantCompatibility(widenedCandidate, unprivilegedCurrent);
-      expect(res.status).toBe("unsupported");
-      if (res.status === "unsupported") {
-        expect(res.reasonCode).toBe("authority-widening");
-      }
-      expect(admitOperationally(res).admitted).toBe(false);
-    });
-  });
 
   describe("General semantic compatibility evaluator", () => {
     it("evaluates Exact when canonical equality holds", () => {

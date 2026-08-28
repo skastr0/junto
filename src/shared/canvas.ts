@@ -388,10 +388,6 @@ export const EtherEdgeExtension = Schema.Struct({
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
-export const edgeVerb = (
-  ether: EtherEdgeExtension | undefined,
-): Verb | undefined => ether?.verb;
-
 const nodeBase = {
   id: Schema.String,
   x: Schema.Number,
