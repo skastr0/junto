@@ -383,6 +383,68 @@ const accessorFacts = (
   return facts;
 };
 
+type PrototypeAccessorCalls = {
+  get: number;
+  set: number;
+};
+
+/**
+ * Install a synchronous Object.prototype probe and always put its exact prior
+ * descriptor back. Keeping the callback synchronous prevents another test
+ * from observing the temporary global mutation.
+ */
+const withObjectPrototypeAccessors = <T>(
+  key: string,
+  calls: PrototypeAccessorCalls,
+  callback: () => T,
+): T => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, key);
+  try {
+    Object.defineProperty(Object.prototype, key, {
+      configurable: true,
+      enumerable: false,
+      get: () => {
+        calls.get += 1;
+        return undefined;
+      },
+      set: (_value: unknown) => {
+        calls.set += 1;
+      },
+    });
+    return callback();
+  } finally {
+    if (previous === undefined) {
+      Reflect.deleteProperty(Object.prototype, key);
+    } else {
+      Object.defineProperty(Object.prototype, key, previous);
+    }
+  }
+};
+
+type TopLevelPollutedField = "appVersion" | "sourceCommit" | "migrationHead";
+
+const topLevelMismatch = (field: TopLevelPollutedField): PackageSourceFacts => {
+  switch (field) {
+    case "appVersion":
+      return { ...source, appVersion: "0.1.15" };
+    case "sourceCommit":
+      return { ...source, sourceCommit: "c".repeat(40) };
+    case "migrationHead":
+      return {
+        ...source,
+        migrationHead: { ...source.migrationHead, name: "different-head" },
+      };
+  }
+};
+
+type NestedPollutedField = "fromVersion" | "toVersion";
+
+const nestedMismatch = (_field: NestedPollutedField): PackageSourceFacts => ({
+  ...source,
+  currentStateSchemaVersion: 21,
+  migrationHead: { ...source.migrationHead, fromVersion: 20, toVersion: 21 },
+});
+
 const identity = (
   runtime: PackageRuntime,
   facts: PackageSourceFacts = source,
@@ -913,6 +975,61 @@ describe("exact committed source admission", () => {
       ).toThrow(/invalid root PackageSourceFacts/u);
       expect(rootAccesses).toBe(0);
       expect(cloneAccesses).toBe(0);
+    },
+  );
+
+  it.each([
+    ["appVersion", "appVersion"],
+    ["sourceCommit", "sourceCommit"],
+    ["migrationHead", "migrationHead.name"],
+  ] as const)(
+    "does not invoke polluted top-level Object.prototype accessors for %s",
+    (field: TopLevelPollutedField, mismatchField: string) => {
+      const calls: PrototypeAccessorCalls = { get: 0, set: 0 };
+      const rootFacts = { ...source };
+      const cloneFacts = { ...source };
+      const mismatchFacts = topLevelMismatch(field);
+
+      withObjectPrototypeAccessors(field, calls, () => {
+        expect(() => assertPackageSourceFactsEqual(rootFacts, source)).not.toThrow();
+        expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).not.toThrow();
+        expect(() => assertPackageSourceFactsEqual(rootFacts, cloneFacts)).not.toThrow();
+        expect(() =>
+          assertPackageSourceFactsEqual(source, mismatchFacts),
+        ).toThrow(new RegExp(`PackageSourceFacts mismatch for ${mismatchField}`));
+      });
+
+      expect(calls).toEqual({ get: 0, set: 0 });
+    },
+  );
+
+  it.each([
+    ["fromVersion"],
+    ["toVersion"],
+  ] as const)(
+    "does not invoke polluted nested Object.prototype accessors for %s",
+    (field: NestedPollutedField) => {
+      const calls: PrototypeAccessorCalls = { get: 0, set: 0 };
+      const rootFacts = {
+        ...source,
+        migrationHead: { ...source.migrationHead },
+      };
+      const cloneFacts = {
+        ...source,
+        migrationHead: { ...source.migrationHead },
+      };
+      const mismatchFacts = nestedMismatch(field);
+
+      withObjectPrototypeAccessors(field, calls, () => {
+        expect(() => assertPackageSourceFactsEqual(rootFacts, source)).not.toThrow();
+        expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).not.toThrow();
+        expect(() => assertPackageSourceFactsEqual(rootFacts, cloneFacts)).not.toThrow();
+        expect(() =>
+          assertPackageSourceFactsEqual(source, mismatchFacts),
+        ).toThrow(/PackageSourceFacts mismatch/u);
+      });
+
+      expect(calls).toEqual({ get: 0, set: 0 });
     },
   );
 

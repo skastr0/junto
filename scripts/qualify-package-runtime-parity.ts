@@ -469,6 +469,31 @@ const requirePlainObject = (
   return value as Record<string, unknown>;
 };
 
+const defineOwnDataProperty = (
+  target: object,
+  key: string,
+  value: unknown,
+): void => {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value,
+  });
+};
+
+const createOwnDataObject = (
+  entries: ReadonlyArray<readonly [key: string, value: unknown]>,
+): Record<string, unknown> => {
+  // Object.defineProperty implements CreateDataProperty semantics even when
+  // Object.prototype carries a hostile setter for one of these keys.
+  const object = Object.create(Object.prototype) as Record<string, unknown>;
+  for (const [key, value] of entries) {
+    defineOwnDataProperty(object, key, value);
+  }
+  return object;
+};
+
 /**
  * Validate an exact object shape without invoking caller accessors, then
  * snapshot its own data values into a fresh ordinary object. Every consumer
@@ -501,7 +526,7 @@ const snapshotOwnDataProperties = (
   // does not invoke a getter. Read only descriptor.value below, never record
   // itself, so a caller-controlled object cannot win a later TOCTOU race.
   const descriptors = Object.getOwnPropertyDescriptors(record);
-  const snapshot: Record<string, unknown> = {};
+  const snapshot = Object.create(Object.prototype) as Record<string, unknown>;
   for (const key of expectedKeys) {
     const descriptor = descriptors[key];
     if (
@@ -512,7 +537,7 @@ const snapshotOwnDataProperties = (
     ) {
       throw new Error(`invalid ${label}: accessor properties are not accepted`);
     }
-    snapshot[key] = descriptor.value;
+    defineOwnDataProperty(snapshot, key, descriptor.value);
   }
   return snapshot;
 };
@@ -589,13 +614,18 @@ export const validatePackageSourceFacts = (
       `invalid ${label}: migration head must end at currentStateSchemaVersion and be contiguous`,
     );
   }
-  return {
-    appVersion,
-    sourceCommit,
-    currentStateSchemaVersion,
-    migrationHead: { fromVersion, toVersion, name },
-    migrationIdentitySha256,
-  };
+  const normalizedMigrationHead = createOwnDataObject([
+    ["fromVersion", fromVersion],
+    ["toVersion", toVersion],
+    ["name", name],
+  ]);
+  return createOwnDataObject([
+    ["appVersion", appVersion],
+    ["sourceCommit", sourceCommit],
+    ["currentStateSchemaVersion", currentStateSchemaVersion],
+    ["migrationHead", normalizedMigrationHead],
+    ["migrationIdentitySha256", migrationIdentitySha256],
+  ]) as PackageSourceFacts;
 };
 
 export type PackageSourceFactsComparison = {
