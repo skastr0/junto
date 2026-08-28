@@ -958,6 +958,26 @@ export function TerminalSurface({
     // FitAddon still loaded for xterm internals; host measure is geometry authority.
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Read-only screen-text registry for tests: under the WebGL renderer the
+    // DOM carries no text, so e2e reads the buffer through this instead of
+    // .xterm-rows. Display-only — no write path, no capability.
+    const screenTextRegistry = (
+      window as unknown as {
+        __vellumTermScreenText?: Map<string, () => string>;
+      }
+    );
+    screenTextRegistry.__vellumTermScreenText ??= new Map();
+    const screenTextKey = bindingId || `surface-${Math.random().toString(36).slice(2)}`;
+    screenTextRegistry.__vellumTermScreenText.set(screenTextKey, () => {
+      const buffer = term.buffer.active;
+      const rows: string[] = [];
+      for (let row = 0; row < term.rows; row += 1) {
+        rows.push(
+          buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "",
+        );
+      }
+      return rows.join("\n");
+    });
     host.replaceChildren();
     // The measurement moment. xterm requires the parent to be visible with real
     // dimensions here; a 0-size or not-yet-laid-out box poisons the cell metrics
@@ -1164,6 +1184,7 @@ export function TerminalSurface({
       gpuRef.current?.dispose();
       gpuRef.current = null;
       webglBlockedRef.current = false;
+      screenTextRegistry.__vellumTermScreenText?.delete(screenTextKey);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
