@@ -14,8 +14,10 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
+  NodeSide,
   TextNode,
 } from "../../src/shared/canvas";
+import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import {
   CanvasesLive,
   CanvasesService,
@@ -706,7 +708,83 @@ export const projectNode = (input: {
   ether: { entity: { kind: "project", name: input.name } },
 });
 
-/** A task sink and the seat it works through: the assignable relationship. */
+// --- edge fixtures -----------------------------------------------------------
+
+/**
+ * Where `verbEdge` reads endpoint kinds from: the fixture's own node list, or
+ * an explicit node id -> kind map when the nodes are not assembled yet.
+ * A node absent from either has no kind, which is exactly what geography is.
+ */
+export type EdgeKindSource =
+  | ReadonlyArray<CanvasNode>
+  | Readonly<Record<string, string | undefined>>;
+
+const kindOfNodeId = (
+  kinds: EdgeKindSource,
+  nodeId: string,
+): string | undefined => {
+  if (Array.isArray(kinds)) {
+    const node = (kinds as ReadonlyArray<CanvasNode>).find(
+      (candidate) => candidate.id === nodeId,
+    );
+    if (node === undefined) {
+      throw new Error(
+        `verbEdge: node ${JSON.stringify(nodeId)} is not in the fixture's node list`,
+      );
+    }
+    return node.ether?.entity?.kind;
+  }
+  return (kinds as Readonly<Record<string, string | undefined>>)[nodeId];
+};
+
+/**
+ * The one authored fact on an edge, checked against the grammar at
+ * fixture-build time.
+ *
+ * A verb its ordered pair does not admit is dropped by `scrubCanvasDocInput`
+ * on decode — the fixture silently loses the wire and the spec goes on
+ * asserting against a graph that never existed. Throwing here turns that
+ * silence into a build-time failure with the legal verbs in the message.
+ *
+ * Geography (plain text nodes, terminal) admits no verb at all, so any wire
+ * touching it fails loudly rather than vanishing.
+ */
+export const verbEdge = (
+  id: string,
+  fromNode: string,
+  toNode: string,
+  verb: Verb,
+  kinds: EdgeKindSource,
+  sides?: {
+    readonly fromSide?: NodeSide;
+    readonly toSide?: NodeSide;
+  },
+): CanvasEdge => {
+  const fromKind = kindOfNodeId(kinds, fromNode);
+  const toKind = kindOfNodeId(kinds, toNode);
+  const legal = verbsForPair(fromKind, toKind);
+  if (!legal.includes(verb)) {
+    throw new Error(
+      `verbEdge ${JSON.stringify(id)}: ${fromKind ?? "geography"} -> ${toKind ?? "geography"} ` +
+        `does not admit ${JSON.stringify(verb)}; legal verbs: ` +
+        `${legal.length > 0 ? legal.join(", ") : "(none — this pair cannot be wired)"}`,
+    );
+  }
+  return {
+    id,
+    fromNode,
+    toNode,
+    fromSide: sides?.fromSide ?? "right",
+    toSide: sides?.toSide ?? "left",
+    ether: { verb },
+  };
+};
+
+/**
+ * A task sink and the seat it works through: the assignable relationship.
+ * Unchecked — prefer `verbEdge`, which refuses a pair the grammar does not
+ * admit instead of stamping a verb that decode will drop.
+ */
 export const worksEdge = (
   id: string,
   fromNode: string,

@@ -24,8 +24,11 @@ import {
   requestsNode,
   taskItem,
   tasksNode,
+  verbEdge,
+  type EdgeKindSource,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
+import type { Verb } from "../../src/shared/physics/verbs";
 import type {
   Artifact,
   CanvasEdge,
@@ -110,23 +113,29 @@ const richTask = (
   };
 };
 
-const hEdge = (id: string, from: string, to: string): CanvasEdge => ({
-  id,
-  fromNode: from,
-  toNode: to,
-  fromSide: "right",
-  toSide: "left",
+/**
+ * Every wire names its verb. A verb-less edge is re-inferred on decode — a
+ * task → agent queue wire comes back as agent → task `contributes`, pointing
+ * the other way in frame — and a pair the grammar does not hold is dropped
+ * outright. `verbEdge` refuses the illegal pair at build time instead.
+ */
+const hEdge = (
+  id: string,
+  from: string,
+  to: string,
+  verb: Verb,
+  kinds: EdgeKindSource,
+): CanvasEdge =>
+  verbEdge(id, from, to, verb, kinds, { fromSide: "right", toSide: "left" });
 
-});
-
-const vEdge = (id: string, from: string, to: string): CanvasEdge => ({
-  id,
-  fromNode: from,
-  toNode: to,
-  fromSide: "bottom",
-  toSide: "top",
-
-});
+const vEdge = (
+  id: string,
+  from: string,
+  to: string,
+  verb: Verb,
+  kinds: EdgeKindSource,
+): CanvasEdge =>
+  verbEdge(id, from, to, verb, kinds, { fromSide: "bottom", toSide: "top" });
 
 const note = (id: string, text: string, x: number, y: number, width = 320): TextNode => ({
   id,
@@ -264,9 +273,9 @@ test("still 00 — factory hero board", async () => {
   };
   nodes.push(pageNode);
   edges.push(
-    hEdge("e-a-queue", "tasks-scribe", "a-writer"),
-    hEdge("e-a-out", "a-writer", "art-scribe"),
-    vEdge("e-a-page", "a-writer", "page-landing"),
+    hEdge("e-a-queue", "tasks-scribe", "a-writer", "works", nodes),
+    hEdge("e-a-out", "a-writer", "art-scribe", "publishes", nodes),
+    vEdge("e-a-page", "a-writer", "page-landing", "navigates", nodes),
   );
   nodes.push(
     note(
@@ -303,7 +312,7 @@ test("still 00 — factory hero board", async () => {
     }),
     tasksNode({ id: "tasks-survey", x: cX + PAD + COL, y: cY + PAD, items: [] }),
   );
-  edges.push(hEdge("e-c-queue", "a-research", "tasks-survey"));
+  edges.push(hEdge("e-c-queue", "a-research", "tasks-survey", "contributes", nodes));
   nodes.push(
     note(
       "note-survey",
@@ -363,17 +372,15 @@ test("still 00 — factory hero board", async () => {
       ],
     }),
   );
-  edges.push(hEdge("e-b-queue", "a-security", "tasks-forge"), {
-    // Real gate: criteria edge from the request sink into the claimant actor.
-    // The execution graph derives phase "blocks" from the claimed
-    // input-required item — the red is physics, not paint.
-    id: "e-b-req",
-    fromNode: "req-forge",
-    toNode: "a-security",
-    fromSide: "left",
-    toSide: "right",
-    ether: { verb: "works" },
-  });
+  edges.push(
+    hEdge("e-b-queue", "a-security", "tasks-forge", "contributes", nodes),
+    // Real gate: the seat's escalation wire into the request sink. The
+    // execution graph derives phase "blocks" from the claimed input-required
+    // item on that sink — the red is physics, not paint. (`works` here would
+    // have been a lie twice over: requests → agent admits no verb, so the
+    // wire was dropped and nothing rendered at all.)
+    hEdge("e-b-req", "a-security", "req-forge", "escalates", nodes),
+  );
   nodes.push(
     note(
       "note-forge",

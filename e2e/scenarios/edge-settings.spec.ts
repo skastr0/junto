@@ -1,25 +1,38 @@
-import type { CanvasEdge } from "../../src/shared/canvas";
-import { canvasDoc, textNode } from "../harness/sandbox";
+/**
+ * Double-clicking a wire selects it and the RTS relation surface reads it
+ * back. There is no edge settings form any more: an edge carries exactly one
+ * authored word, so the pair strip speaks the verb and offers the pair's
+ * other verb where there is one.
+ *
+ * Geography cannot carry the fixture — a wire between two plain text nodes
+ * holds no verb and is dropped at decode — so the pair is agent → task,
+ * which admits both `contributes` and `manages`.
+ */
+import { agentTextNode, canvasDoc, tasksNode, verbEdge } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const edge: CanvasEdge = {
-  id: "e-settings",
-  fromNode: "source",
-  toNode: "target",
-};
+const nodes = [
+  agentTextNode({
+    id: "source",
+    key: "local:edge-settings",
+    label: "Source node",
+    x: 0,
+    y: 0,
+  }),
+  { ...tasksNode({ id: "target", x: 420, y: 0 }), text: "Target node" },
+];
+
+const edge = verbEdge("e-settings", "source", "target", "contributes", nodes);
 
 test.use({
   vellumOptions: {
     seedCanvases: {
-      "edge-settings": canvasDoc([
-        textNode("source", "Source node", 0, 0),
-        textNode("target", "Target node", 420, 0),
-      ], [edge]),
+      "edge-settings": canvasDoc(nodes, [edge]),
     },
   },
 });
 
-test("double-clicking an edge opens its settings fields", async ({ vellumCommand }) => {
+test("double-clicking an edge opens its relation surface", async ({ vellumCommand }) => {
   const { page } = vellumCommand;
   const flowEdge = page.getByTestId("rf__edge-e-settings");
   const source = page.getByTestId("rf__node-source");
@@ -40,11 +53,17 @@ test("double-clicking an edge opens its settings fields", async ({ vellumCommand
     (sourceBox.y + sourceBox.height / 2 + targetBox.y + targetBox.height / 2) / 2,
   );
 
-  const fields = page.locator(".rts-kind-form-panel");
-  await expect(fields).toBeVisible({ timeout: 10_000 });
-  // The retired edge inspector is replaced by the Link settings focus
-  // surface: pair eyebrow, plain "Link" sheet title, and the delete action.
-  await expect(page.getByRole("dialog", { name: "Link settings" })).toBeVisible();
-  await expect(fields.getByText("Source node → Target node", { exact: false })).toBeVisible();
-  await expect(fields.getByRole("button", { name: "Delete link" })).toBeVisible();
+  // Middle third: the verb, then the sentence it makes of the two ends.
+  const kindSurface = page.locator(".rts-kind-surface");
+  await expect(kindSurface).toBeVisible({ timeout: 10_000 });
+  await expect(kindSurface.locator(".rts-kind-kind-label")).toHaveText("contributes");
+  const relation = kindSurface.locator('[role="toolbar"][aria-label="Relation"]');
+  await expect(relation).toBeVisible();
+  await expect(relation).toContainText("Source node contributes to Target node");
+  // agent → task holds two verbs, so the strip offers the swap to the other.
+  await expect(relation.getByRole("button", { name: "Change to manages" })).toBeVisible();
+
+  // Left third: the pair and the delete action.
+  await expect(page.locator(".rts-cmd__title")).toContainText("Source node → Target node");
+  await expect(page.getByRole("button", { name: "Delete relation" })).toBeVisible();
 });

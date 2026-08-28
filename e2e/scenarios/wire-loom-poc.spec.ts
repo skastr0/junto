@@ -1,11 +1,16 @@
 /**
  * Wire loom PoC — hub and spoke rendered evidence.
  *
- * Seeds one hub node fanning out to six agent-like nodes, all six of which
- * also connect to two shared sink nodes (task queues), plus one blocks-phase
+ * Seeds one hub seat fanning out to six agent seats, all six of which also
+ * connect to two shared sink nodes (task queues), plus one blocks-phase
  * edge (a claimed input-required item on sink1 stops one agent's wire into
  * it). Captures the rendered canvas — a real render over real topology, not
  * a synthetic mock. The loom is always on; there is no toggle.
+ *
+ * Every wire carries the verb its ordered pair admits: the hub fan is
+ * agent → agent `messages`, the sink fans are task → agent `works`. A plain
+ * geography hub would hold no verb, and all six spokes would be dropped at
+ * decode — the loom would have nothing to draw.
  *
  * Paint/geometry only: this scenario authors no new edge semantics. The
  * blocks-phase edge reuses the exact `tasksNode` + claimed input-required
@@ -20,20 +25,19 @@ import {
   claimByNodeId,
   taskItem,
   tasksNode,
+  verbEdge,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "_design_screenshots", "loom_poc");
 
-const hub: CanvasNode = {
+const hub: CanvasNode = agentTextNode({
   id: "hub",
-  type: "text",
-  text: "hub",
+  key: "local:hub",
+  label: "hub",
   x: 690,
   y: 20,
-  width: 240,
-  height: 96,
-};
+});
 
 const AGENT_COUNT = 6;
 const agents: CanvasNode[] = Array.from({ length: AGENT_COUNT }, (_, i) =>
@@ -75,25 +79,26 @@ const sink2 = {
   height: 160,
 };
 
-// Source fan of 6 at the hub's bottom handle.
-const hubEdges: CanvasEdge[] = agents.map((agent) => ({
-  id: `hub-${agent.id}`,
-  fromNode: "hub",
-  toNode: agent.id,
-  fromSide: "bottom",
-  toSide: "top",
-}));
+const loomNodes: CanvasNode[] = [hub, ...agents, sink1, sink2];
 
-// Target fan of 6 at each sink's top handle (every agent connects to both).
-const sinkEdges = (sinkId: string): CanvasEdge[] =>
-  agents.map((agent) => ({
-    id: `${agent.id}-${sinkId}`,
-    fromNode: agent.id,
-    toNode: sinkId,
+// Source fan of 6 at the hub's bottom handle.
+const hubEdges: CanvasEdge[] = agents.map((agent) =>
+  verbEdge(`hub-${agent.id}`, "hub", agent.id, "messages", loomNodes, {
     fromSide: "bottom",
     toSide: "top",
-    ether: { verb: "works" as const },
-  }));
+  }),
+);
+
+// Target fan of 6 at each sink's top handle (every agent connects to both).
+// `works` is the task → agent verb, so the sink is the wire's source; the
+// handles keep the same corridor the shot was composed around.
+const sinkEdges = (sinkId: string): CanvasEdge[] =>
+  agents.map((agent) =>
+    verbEdge(`${agent.id}-${sinkId}`, sinkId, agent.id, "works", loomNodes, {
+      fromSide: "top",
+      toSide: "bottom",
+    }),
+  );
 
 const edges: CanvasEdge[] = [...hubEdges, ...sinkEdges("sink1"), ...sinkEdges("sink2")];
 
@@ -101,7 +106,7 @@ test("wire loom PoC — hub and spoke rendered capture", async () => {
   await mkdir(SHOTS, { recursive: true });
   const vellumCommand = await launchVellum({
     seedCanvases: {
-      "wire-loom-poc": canvasDoc([hub, ...agents, sink1, sink2], edges),
+      "wire-loom-poc": canvasDoc(loomNodes, edges),
     },
   });
 

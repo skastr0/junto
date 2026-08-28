@@ -7,39 +7,72 @@
  * variance, tight enough to fail on an O(n) full-graph remint.
  */
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import { canvasDoc, textNode } from "../harness/sandbox";
+import {
+  agentTextNode,
+  canvasDoc,
+  tasksNode,
+  verbEdge,
+} from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const COLS = 10;
 const ROWS = 8;
 const NODE_COUNT = COLS * ROWS;
 
-const denseDoc = (): CanvasDoc => {
+/**
+ * A real factory graph, not a grid of notes: geography admits no verb, so a
+ * grid of plain text nodes loses every wire at decode and the budget would be
+ * measured on an edgeless canvas. Alternating agent / task kinds make each
+ * neighbour pair wireable in exactly one direction — agent → task
+ * `contributes`, task → agent `works`.
+ */
+const kindAt = (row: number, col: number): "agent" | "task" =>
+  (row + col) % 2 === 0 ? "agent" : "task";
+
+const denseNodes = (): CanvasNode[] => {
   const nodes: CanvasNode[] = [];
-  const edges: CanvasEdge[] = [];
   for (let row = 0; row < ROWS; row += 1) {
     for (let col = 0; col < COLS; col += 1) {
       const i = row * COLS + col;
       const id = `n${i}`;
-      nodes.push(textNode(id, `Perf node ${i}`, col * 280, row * 160));
-      if (col > 0) {
-        edges.push({
-          id: `e-${i}-h`,
-          fromNode: `n${i - 1}`,
-          toNode: id,
-        });
-      }
-      if (row > 0) {
-        edges.push({
-          id: `e-${i}-v`,
-          fromNode: `n${i - COLS}`,
-          toNode: id,
-        });
-      }
+      const x = col * 280;
+      const y = row * 160;
+      nodes.push(
+        kindAt(row, col) === "agent"
+          ? agentTextNode({
+              id,
+              key: `local:perf-${i}`,
+              label: `Perf node ${i}`,
+              x,
+              y,
+            })
+          : { ...tasksNode({ id, x, y }), text: `Perf node ${i}` },
+      );
+    }
+  }
+  return nodes;
+};
+
+const denseDoc = (): CanvasDoc => {
+  const nodes = denseNodes();
+  const edges: CanvasEdge[] = [];
+  const wire = (id: string, fromRow: number, fromCol: number, to: string) => {
+    const from = `n${fromRow * COLS + fromCol}`;
+    const verb = kindAt(fromRow, fromCol) === "agent" ? "contributes" : "works";
+    edges.push(verbEdge(id, from, to, verb, nodes));
+  };
+  for (let row = 0; row < ROWS; row += 1) {
+    for (let col = 0; col < COLS; col += 1) {
+      const id = `n${row * COLS + col}`;
+      if (col > 0) wire(`e-${id}-h`, row, col - 1, id);
+      if (row > 0) wire(`e-${id}-v`, row - 1, col, id);
     }
   }
   return canvasDoc(nodes, edges);
 };
+
+/** Authored wires — every one must survive decode and reach the canvas. */
+const EDGE_COUNT = denseDoc().edges.length;
 
 test.use({
   vellumOptions: {
@@ -57,6 +90,13 @@ test("dense canvas: selection stays under interaction budget", async ({ vellumCo
   const mid = page.getByTestId(`rf__node-n${Math.floor(NODE_COUNT / 2)}`);
   await expect(first).toBeVisible({ timeout: 30_000 });
   await expect(mid).toBeVisible();
+
+  // The budget is only a budget if the wires are actually on the board: an
+  // illegal or verb-less edge is dropped at decode, and a silently edgeless
+  // canvas would pass this test for the wrong reason.
+  await expect(page.locator('[data-testid^="rf__edge-"]')).toHaveCount(EDGE_COUNT, {
+    timeout: 30_000,
+  });
 
   // Warm: first selection pays mount costs.
   await first.click();

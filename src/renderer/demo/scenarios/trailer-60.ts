@@ -82,10 +82,25 @@ const selectOp = (nodeIds: readonly string[]): DemoOp => ({ kind: "select", node
 const sfxOp = (id: string): DemoOp => ({ kind: "sfx", id });
 const hudOp = (show: boolean): DemoOp => ({ kind: "hud", show });
 
-const mkEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
+/**
+ * A wire carries exactly one authored word, and only for a pair the grammar
+ * admits (VERB_TABLE). The crew are terminal cards and terminal admits no
+ * verb, so the only wire this film can hold is the queue handing work to the
+ * one agent seat — a verb-less or terminal-touching edge would paint during
+ * the take and then be dropped by the next decode.
+ */
+type EdgeVerb = NonNullable<CanvasEdge["ether"]>["verb"];
+
+const mkEdge = (
+  id: string,
+  fromNode: string,
+  toNode: string,
+  verb: EdgeVerb,
+): CanvasEdge => ({
   id,
   fromNode,
   toNode,
+  ether: { verb },
 });
 
 const smallTextNode = (id: string, text: string, x: number, y: number): TextNode => ({
@@ -336,30 +351,18 @@ at(14, addNodesOp([demoT3]));
 at(
   16,
   addNodesOp([demoAgent]),
-  addEdgesOp([mkEdge("demo-e1", "demo-task", "demo-agent")]),
+  addEdgesOp([mkEdge("demo-e1", "demo-task", "demo-agent", "works")]),
   cameraFit(["demo-task", "demo-agent"], 3),
 );
 at(20, cameraCenter(420, 160, 4, 1.2));
 
-// h01: the first crew card lands.
-at(
-  24,
-  addNodesOp([crewNode(h(1))]),
-  addEdgesOp([mkEdge("demo-e2", "demo-agent", "demo-h01")]),
-);
+// h01: the first crew card lands. Terminal cards take no wire.
+at(24, addNodesOp([crewNode(h(1))]));
 at(26, cameraFit(["demo-agent", "demo-h01"], 2));
 
-// h02 / h03 — spawn straight into working, each with its own edge.
-at(
-  28,
-  addNodesOp([crewNode(h(2))]),
-  addEdgesOp([mkEdge("demo-e3", "demo-agent", "demo-h02")]),
-);
-at(
-  28.5,
-  addNodesOp([crewNode(h(3))]),
-  addEdgesOp([mkEdge("demo-e4", "demo-h01", "demo-h03")]),
-);
+// h02 / h03 — spawn straight into working.
+at(28, addNodesOp([crewNode(h(2))]));
+at(28.5, addNodesOp([crewNode(h(3))]));
 
 // h04..h06, one per beat.
 spawnFleetStaggered(CREW.slice(3, 6), [30, 30.5, 31]);
@@ -368,17 +371,9 @@ spawnFleetStaggered(CREW.slice(3, 6), [30, 30.5, 31]);
 at(32, cameraFit(undefined, 4));
 spawnFleetStaggered(CREW.slice(6, 10), [32, 32.5, 33, 33.5]);
 
-// h11..h16, two per beat, with the two sprinkled edges.
-at(
-  36,
-  addNodesOp([crewNode(h(11)), crewNode(h(12))]),
-  addEdgesOp([mkEdge("demo-e5", "demo-h02", "demo-h11")]),
-);
-at(
-  37,
-  addNodesOp([crewNode(h(13)), crewNode(h(14))]),
-  addEdgesOp([mkEdge("demo-e6", "demo-h04", "demo-h13")]),
-);
+// h11..h16, two per beat.
+at(36, addNodesOp([crewNode(h(11)), crewNode(h(12))]));
+at(37, addNodesOp([crewNode(h(13)), crewNode(h(14))]));
 at(
   38,
   addNodesOp([crewNode(h(15)), crewNode(h(16))]),

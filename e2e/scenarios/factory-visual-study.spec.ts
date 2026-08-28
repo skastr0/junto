@@ -14,6 +14,7 @@ import {
   taskItem,
   tasksNode,
   terminalTextNode,
+  verbEdge,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
@@ -104,48 +105,37 @@ const board: CanvasNode = {
   ether: { entity: { kind: "board" }, board: { topics: [], unread: 0 } },
 };
 
-const taskEdges: CanvasEdge[] = actors.map((actor, index) => ({
-  id: `task-${actor.id}`,
-  fromNode: "tasks",
-  toNode: actor.id,
-  fromSide: "right",
-  toSide: "left",
-  ...(index === 0 ? { ether: { verb: "works" as const } } : {}),
-}));
+const nodes: CanvasNode[] = [
+  taskSink,
+  ...actors,
+  requestSink,
+  artifactSink,
+  cron,
+  board,
+  terminal,
+];
+
+const taskEdges: CanvasEdge[] = actors.map((actor) =>
+  verbEdge(`task-${actor.id}`, "tasks", actor.id, "works", nodes),
+);
 
 const edges: CanvasEdge[] = [
   ...taskEdges,
-  {
-    id: "request-flow",
-    fromNode: "claude",
-    toNode: "requests",
-    fromSide: "right",
-    toSide: "left",
-  },
-  {
-    id: "artifact-flow",
-    fromNode: "claude",
-    toNode: "artifacts",
-    fromSide: "right",
-    toSide: "left",
-  },
-  {
-    id: "soft-relation",
-    fromNode: "grok",
-    toNode: "cron",
-    fromSide: "right",
-    toSide: "left",
-  },
+  verbEdge("request-flow", "claude", "requests", "escalates", nodes),
+  verbEdge("artifact-flow", "claude", "artifacts", "publishes", nodes),
+  // The heartbeat pushes: a clock wakes a seat. Agent → cron is not a
+  // relationship the grammar holds, so the old wire here never rendered.
+  verbEdge("cron-wake", "cron", "grok", "wakes", nodes, {
+    fromSide: "left",
+    toSide: "right",
+  }),
 ];
 
 test("capture the implementation-near factory grammar", async () => {
   await mkdir(SHOTS, { recursive: true });
   const vellumCommand = await launchVellum({
     seedCanvases: {
-      "factory-visual-study": canvasDoc(
-        [taskSink, ...actors, requestSink, artifactSink, cron, board, terminal],
-        edges,
-      ),
+      "factory-visual-study": canvasDoc(nodes, edges),
     },
   });
 

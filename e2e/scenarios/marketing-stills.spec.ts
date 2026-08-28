@@ -28,8 +28,11 @@ import {
   requestsNode,
   taskItem,
   tasksNode,
+  verbEdge,
+  type EdgeKindSource,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
+import type { Verb } from "../../src/shared/physics/verbs";
 import type { Artifact, CanvasEdge, CanvasNode, GroupNode, Task } from "../../src/shared/canvas";
 
 const SHOTS =
@@ -113,25 +116,33 @@ const richTask = (
   };
 };
 
-/** Horizontal neighbor edge — clear corridor between columns. */
-const hEdge = (id: string, from: string, to: string): CanvasEdge => ({
-  id,
-  fromNode: from,
-  toNode: to,
-  fromSide: "right",
-  toSide: "left",
-
-});
+/**
+ * Horizontal neighbor edge — clear corridor between columns.
+ *
+ * The verb is authored, never left to inference: a verb-less edge is rewritten
+ * on decode (task → agent silently becomes agent → task `contributes`, which
+ * reverses the wire in the frame), and a pair that admits nothing at all —
+ * anything touching a terminal card, or one sink wired to another — is simply
+ * dropped. `verbEdge` refuses the illegal pair here instead.
+ */
+const hEdge = (
+  id: string,
+  from: string,
+  to: string,
+  verb: Verb,
+  kinds: EdgeKindSource,
+): CanvasEdge =>
+  verbEdge(id, from, to, verb, kinds, { fromSide: "right", toSide: "left" });
 
 /** Vertical neighbor edge — clear corridor between rows. */
-const vEdge = (id: string, from: string, to: string): CanvasEdge => ({
-  id,
-  fromNode: from,
-  toNode: to,
-  fromSide: "bottom",
-  toSide: "top",
-
-});
+const vEdge = (
+  id: string,
+  from: string,
+  to: string,
+  verb: Verb,
+  kinds: EdgeKindSource,
+): CanvasEdge =>
+  verbEdge(id, from, to, verb, kinds, { fromSide: "bottom", toSide: "top" });
 
 const TERM_LAUNCH = {
   kind: "command" as const,
@@ -273,10 +284,11 @@ test("still 01 — one region factory close", async () => {
     }),
   ];
 
+  // The shell card stands unwired: terminal holds no verb, so a wire from it
+  // into the queue is not a quiet edge, it is one the product drops.
   const edges: readonly CanvasEdge[] = [
-    hEdge("e1", "h1", "tasks"),
-    hEdge("e2", "tasks", "agent"),
-    hEdge("e3", "agent", "req"),
+    hEdge("e2", "tasks", "agent", "works", nodes),
+    hEdge("e3", "agent", "req", "escalates", nodes),
   ];
 
   const vellumCommand = await launchVellum({
@@ -406,11 +418,10 @@ test("still 02 — multi-host work board", async () => {
     }),
   ];
 
+  // Shell cards stay unwired — terminal admits no verb.
   const edges: readonly CanvasEdge[] = [
-    hEdge("e-f1", "h-local", "tasks-forge"),
-    hEdge("e-f2", "tasks-forge", "a-builder"),
-    hEdge("e-b1", "h-mini", "tasks-beacon"),
-    hEdge("e-b2", "tasks-beacon", "a-release"),
+    hEdge("e-f2", "tasks-forge", "a-builder", "works", nodes),
+    hEdge("e-b2", "tasks-beacon", "a-release", "works", nodes),
   ];
 
   const vellumCommand = await launchVellum({
@@ -600,7 +611,9 @@ test("still 03 — five region factory map", async () => {
       }),
     );
 
-    edges.push(hEdge(`e-${o.id}-1`, shellId, tasksId), hEdge(`e-${o.id}-2`, tasksId, agentId));
+    // shellId stays unwired: terminal admits no verb, so the queue → seat
+    // wire is the region's whole relationship.
+    edges.push(hEdge(`e-${o.id}-2`, tasksId, agentId, "works", nodes));
   }
 
   const allNodes: CanvasNode[] = [...regions, ...panes.map(paneNode), ...nodes];
@@ -806,7 +819,8 @@ test("still 05 — five regions agent square", async () => {
         y: y0,
       }),
     );
-    edges.push(hEdge(`e-${s.id}`, shellId, agentId));
+    // Satellite seats stand alone in frame — the shell card beside them is a
+    // terminal, and terminal holds no verb to wire with.
   }
 
   // Large forge below, left-aligned under the top row span
@@ -846,12 +860,12 @@ test("still 05 — five regions agent square", async () => {
       }),
     );
   }
-  // Square ring — no diagonals
+  // Square ring — no diagonals. Seat to seat is `messages`.
   edges.push(
-    hEdge("e-sq-top", "a-builder", "a-security"),
-    hEdge("e-sq-bot", "a-review", "a-release"),
-    vEdge("e-sq-left", "a-builder", "a-review"),
-    vEdge("e-sq-right", "a-security", "a-release"),
+    hEdge("e-sq-top", "a-builder", "a-security", "messages", nodes),
+    hEdge("e-sq-bot", "a-review", "a-release", "messages", nodes),
+    vEdge("e-sq-left", "a-builder", "a-review", "messages", nodes),
+    vEdge("e-sq-right", "a-security", "a-release", "messages", nodes),
   );
 
   // Sink column to the right of the square.
@@ -914,13 +928,13 @@ test("still 05 — five regions agent square", async () => {
 
   // Right-column agents feed sinks on clear horizontal corridors.
   // Left-column agents reach sinks via the square ring (no edge-over-node).
-  // Sink column is a vertical chain ending at artifacts.
+  // The sinks themselves are not wired to each other: sink → sink is not a
+  // relationship the grammar holds (only task → task `feeds` is), so that
+  // vertical chain never survived decode.
   edges.push(
-    hEdge("e-sec-tasks", "a-security", "tasks-forge"),
-    hEdge("e-rel-req", "a-release", "req-forge"),
-    hEdge("e-rel-art", "a-release", "art-forge"),
-    vEdge("e-tasks-req", "tasks-forge", "req-forge"),
-    vEdge("e-req-art", "req-forge", "art-forge"),
+    hEdge("e-sec-tasks", "a-security", "tasks-forge", "contributes", nodes),
+    hEdge("e-rel-req", "a-release", "req-forge", "escalates", nodes),
+    hEdge("e-rel-art", "a-release", "art-forge", "publishes", nodes),
   );
 
   // Grow forge height so artifacts sits inside the region.
@@ -963,7 +977,7 @@ test("still 05 — five regions agent square", async () => {
       y: oracleY + PAD,
     }),
   );
-  edges.push(hEdge("e-oracle", "h-oracle", "a-ops"));
+  // The oracle shell is a terminal card — no verb, so no wire.
 
   const allNodes: CanvasNode[] = [...nodes, ...panes.map(paneNode)];
 
@@ -1017,8 +1031,7 @@ test("still 06 — work UI grid", async () => {
   // Work-plane seeds require compiled local actor seats to raise claims,
   // requests, and artifacts; each seat owns at most one active task, so the
   // claimed kanban items are spread across four seats under the sink row.
-  const doc = canvasDoc(
-    [
+  const nodes: CanvasNode[] = [
     tasksNode({
       id: "tasks1",
       x: 40,
@@ -1157,13 +1170,16 @@ test("still 06 — work UI grid", async () => {
       x: 820,
       y: 200,
     }),
-  ],
-    [
-      hEdge("e-t1-builder", "tasks1", "a-builder"),
-      hEdge("e-r1-security", "req1", "a-security"),
-      hEdge("e-a1-ops", "art1", "a-ops"),
-    ],
-  );
+  ];
+
+  // Each wire in its verb's own order: the queue hands work to a seat, and a
+  // seat escalates into requests / publishes into artifacts. Authored the
+  // other way round, decode flips them and the frame reads backwards.
+  const doc = canvasDoc(nodes, [
+    hEdge("e-t1-builder", "tasks1", "a-builder", "works", nodes),
+    hEdge("e-r1-security", "a-security", "req1", "escalates", nodes),
+    hEdge("e-a1-ops", "a-ops", "art1", "publishes", nodes),
+  ]);
 
   const vellumCommand = await launchVellum({
     seedCanvases: { portfolio: doc },

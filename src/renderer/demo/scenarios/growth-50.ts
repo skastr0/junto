@@ -13,7 +13,6 @@
 
 import type {
   Artifact,
-  CanvasEdge,
   CanvasNode,
   EtherFlag,
   GroupNode,
@@ -39,7 +38,6 @@ const at = (atBeat: number, ...ops: DemoOp[]): void => {
 // --- op builders --------------------------------------------------------------
 
 const addNodesOp = (nodes: readonly CanvasNode[]): DemoOp => ({ kind: "add-nodes", nodes });
-const addEdgesOp = (edges: readonly CanvasEdge[]): DemoOp => ({ kind: "add-edges", edges });
 
 const cameraFit = (
   nodeIds: readonly string[] | undefined,
@@ -281,21 +279,10 @@ const artifactsNode: TextNode = {
   },
 };
 
-// Sided so the demo reads left-to-right. Terminal seats hold no verb, so these
-// carry no relationship — they are the lane the camera follows, nothing more.
-const laneEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
-  id,
-  fromNode,
-  toNode,
-  fromSide: "right",
-  toSide: "left",
-});
-
-const plainEdge = (id: string, fromNode: string, toNode: string): CanvasEdge => ({
-  id,
-  fromNode,
-  toNode,
-});
+// No wires in this scenario. The crew are terminal cards, and terminal admits
+// no verb in the grammar (see VERB_TABLE) — every ordered pair here is empty,
+// so an authored edge would paint during the take and then be dropped by the
+// next decode. The film reads by proximity and region membership instead.
 
 // --- the beat map (BPM 112; labels land in post from these beat windows) ------
 //
@@ -313,14 +300,10 @@ at(0, hudOp(false), addNodesOp([regionA, noteBrief]), ...spawn(A[0]), ...spawn(A
 at(0.5, cameraFit(["demo-g-h01", "demo-g-h02", "demo-g-note1"], 1.5, 0.22, 1.05));
 at(6, addNodesOp([noteScratch]));
 
-// Rung 2 — the queue lands, wired to the crew.
+// Rung 2 — the queue lands beside the crew.
 at(
   8,
   addNodesOp([queueNode]),
-  addEdgesOp([
-    laneEdge("demo-g-e1", "demo-g-tasks", "demo-g-h01"),
-    laneEdge("demo-g-e2", "demo-g-tasks", "demo-g-h02"),
-  ]),
   sfxOp("task"),
   cameraFit(["demo-g-tasks", "demo-g-h01", "demo-g-h02", "demo-g-note1"], 2, 0.18),
 );
@@ -339,14 +322,7 @@ at(26, addNodesOp([regionB]));
 at(28, ...spawn(B[0]), ...spawn(B[1]));
 at(30, ...spawn(B[2]), ...spawn(B[3]));
 at(32, ...spawn(B[4]));
-at(
-  33,
-  addEdgesOp([
-    laneEdge("demo-g-e3", "demo-g-tasks", "demo-g-h09"),
-    plainEdge("demo-g-e4", "demo-g-h03", "demo-g-h11"),
-  ]),
-  cameraFit(undefined, 2, 0.16),
-);
+at(33, cameraFit(undefined, 2, 0.16));
 at(36, flagOp(["demo-g-h06"], "blocker", true), sfxOp("alert"));
 at(40, flagOp(["demo-g-h13"], "blocker", true));
 
@@ -365,12 +341,7 @@ at(49, flagOp(["demo-g-requests"], "attention", false), selectOp([]));
 at(50, cameraFit(undefined, 2.5, 0.16));
 
 // Rung 6 — results land somewhere real.
-at(
-  54,
-  addNodesOp([artifactsNode]),
-  addEdgesOp([plainEdge("demo-g-e5", "demo-g-h03", "demo-g-artifacts")]),
-  sfxOp("artifact"),
-);
+at(54, addNodesOp([artifactsNode]), sfxOp("artifact"));
 
 // Rung 7 — the second machine joins the same board.
 at(62, addNodesOp([regionC]), cameraFit(undefined, 2, 0.15));

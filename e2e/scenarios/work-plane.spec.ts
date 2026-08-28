@@ -16,39 +16,42 @@ import {
   artifactsNode,
   canvasDoc,
   requestsNode,
-  worksEdge,
+  verbEdge,
   tasksNode,
 } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const fixtureDoc = canvasDoc(
-  [
-    tasksNode({ id: "tasks", x: 40, y: 40 }),
-    requestsNode({ id: "req", x: 320, y: 40 }),
-    artifactsNode({ id: "art", x: 600, y: 40 }),
-    agentTextNode({
-      id: "target",
-      key: "local:downstream",
-      label: "downstream",
-      x: 320,
-      y: 240,
-    }),
-    agentTextNode({
-      id: "rival",
-      key: "local:rival",
-      label: "rival",
-      x: 320,
-      y: 380,
-    }),
-  ],
-  [
-    worksEdge("e-req", "req", "target"),
-    // Actor-seat law: a claim must come from a compiled seat that is
-    // connected to the sink (edge or region co-membership).
-    { id: "e-target-tasks", fromNode: "target", toNode: "tasks" },
-    { id: "e-rival-tasks", fromNode: "rival", toNode: "tasks" },
-  ],
-);
+const fixtureNodes = [
+  tasksNode({ id: "tasks", x: 40, y: 40 }),
+  requestsNode({ id: "req", x: 320, y: 40 }),
+  artifactsNode({ id: "art", x: 600, y: 40 }),
+  agentTextNode({
+    id: "target",
+    key: "local:downstream",
+    label: "downstream",
+    x: 320,
+    y: 240,
+  }),
+  agentTextNode({
+    id: "rival",
+    key: "local:rival",
+    label: "rival",
+    x: 320,
+    y: 380,
+  }),
+];
+
+const fixtureDoc = canvasDoc(fixtureNodes, [
+  // The seat's wire into the requests sink is agent → requests `escalates`:
+  // requests → agent admits no verb at all, so the old `works` here was
+  // dropped at decode and the sink stood unwired.
+  verbEdge("e-req", "target", "req", "escalates", fixtureNodes),
+  // Actor-seat law: a claim must come from a compiled seat that is
+  // connected to the sink (edge or region co-membership). `contributes`
+  // is the agent → task verb that grants tasks.claim.
+  verbEdge("e-target-tasks", "target", "tasks", "contributes", fixtureNodes),
+  verbEdge("e-rival-tasks", "rival", "tasks", "contributes", fixtureNodes),
+]);
 
 /** Install authorial intent through the app-owned API. */
 const installWorkBoard = async (page: import("@playwright/test").Page): Promise<string> => {

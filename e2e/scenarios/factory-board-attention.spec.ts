@@ -5,17 +5,21 @@
  * SQLite runtime before Electron starts:
  * - tasks sink with a submitted item + an input-required item claimed by the worker
  * - actor edged via tasks criteria
- * - soft relates edge (must not stamp RELATES)
+ * - an unblocked publish wire (must not stamp RELATES)
  *
  * Asserts calm/fire phase membership, tasks glance, noise silence.
+ *
+ * The terminal card sits unwired on purpose: terminal admits no verb, so a
+ * wire into it is not a "soft edge" — it is an edge the product drops.
  */
 import type { Task, CanvasDoc } from "../../src/shared/canvas";
 import {
+  artifactsNode,
   claimByNodeId,
   taskItem,
   agentTextNode,
   canvasDoc,
-  worksEdge,
+  verbEdge,
   tasksNode,
   terminalTextNode,
 } from "../harness/sandbox";
@@ -31,36 +35,32 @@ const seededTasks: ReadonlyArray<Task> = [
   },
 ];
 
+const fixtureNodes = [
+  tasksNode({ id: "tasks", x: 40, y: 40, items: seededTasks }),
+  agentTextNode({
+    id: "worker",
+    key: "local:e2e-worker",
+    label: "worker seat",
+    x: 360,
+    y: 40,
+  }),
+  artifactsNode({ id: "shelf", x: 680, y: 40, items: [] }),
+  terminalTextNode({
+    id: "term",
+    bindingId: "e2e-term-1",
+    label: "shell",
+    x: 360,
+    y: 200,
+  }),
+];
+
 const fixtureDoc = (): CanvasDoc =>
-  canvasDoc(
-    [
-      tasksNode({ id: "tasks", x: 40, y: 40, items: seededTasks }),
-      agentTextNode({
-        id: "worker",
-        key: "local:e2e-worker",
-        label: "worker seat",
-        x: 360,
-        y: 40,
-      }),
-      terminalTextNode({
-        id: "term",
-        bindingId: "e2e-term-1",
-        label: "shell",
-        x: 360,
-        y: 200,
-      }),
-    ],
-    [
-      worksEdge("e-tasks-worker", "tasks", "worker"),
-      {
-        id: "e-soft",
-        fromNode: "worker",
-        toNode: "term",
-        fromSide: "bottom",
-        toSide: "top",
-      },
-    ],
-  );
+  canvasDoc(fixtureNodes, [
+    verbEdge("e-tasks-worker", "tasks", "worker", "works", fixtureNodes),
+    // The unblocked leg: a real wire that renders and stays quiet, since
+    // nothing on the artifacts shelf can stop a seat.
+    verbEdge("e-worker-shelf", "worker", "shelf", "publishes", fixtureNodes),
+  ]);
 
 const CANVAS_NAME = "factory-board";
 
@@ -96,7 +96,11 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(attentionPills).toContainText("worker");
   await expect(attentionPills).toContainText("queue work");
 
-  // Soft edges stay silent — no face label text "relates" on edge chips.
+  // The publish wire renders, and unblocked wires stay silent — no face
+  // label text "relates" on edge chips.
+  await expect(page.locator('[data-testid="rf__edge-e-worker-shelf"]')).toHaveCount(1, {
+    timeout: 15_000,
+  });
   const edgeFace = await page.locator(".vellum-edge-label").allTextContents();
   expect(edgeFace.every((t) => t.trim().toLowerCase() !== "relates")).toBe(true);
 
