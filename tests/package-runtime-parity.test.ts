@@ -37,6 +37,7 @@ import {
 import {
   HISTORICAL_COMPARISON_RELATIVE,
   PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA,
+  assertPackageSourceFactsEqual,
   cloneExactCommit,
   decodePackageRuntimeParityReceipt,
   loadHistoricalPackageComparison,
@@ -301,21 +302,21 @@ const createSourceRepository = async (): Promise<{
 };
 
 describe("fresh compiler cohort provenance", () => {
-  it("reads the immutable schema-20 head without changing migrations", async () => {
+  it("reads the current schema-22 head without changing migrations", async () => {
     const facts = await readPackageSourceFacts({
       repoRoot,
       requireClean: false,
     });
     expect(facts).toMatchObject({
       appVersion: "0.1.14",
-      currentStateSchemaVersion: 20,
+      currentStateSchemaVersion: 22,
       migrationHead: {
-        fromVersion: 19,
-        toVersion: 20,
-        name: "witness-every-projected-work-table",
+        fromVersion: 21,
+        toVersion: 22,
+        name: "add-canvas-authoring-change-tail",
       },
       migrationIdentitySha256:
-        "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
+        "1687a4d228cf66231b4ea49a1d289ab5e6b08c58681960909df0928d2e7de3e1",
     });
   });
 
@@ -484,6 +485,38 @@ describe("exact committed source admission", () => {
       await rm(work, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    ["appVersion", { ...source, appVersion: "0.1.15" }],
+    ["sourceCommit", { ...source, sourceCommit: "c".repeat(40) }],
+    [
+      "currentStateSchemaVersion",
+      { ...source, currentStateSchemaVersion: 21 },
+    ],
+    [
+      "migrationHead.fromVersion",
+      { ...source, migrationHead: { ...source.migrationHead, fromVersion: 18 } },
+    ],
+    [
+      "migrationHead.toVersion",
+      { ...source, migrationHead: { ...source.migrationHead, toVersion: 21 } },
+    ],
+    [
+      "migrationHead.name",
+      { ...source, migrationHead: { ...source.migrationHead, name: "different-head" } },
+    ],
+    [
+      "currentStateSchemaIdentity",
+      { ...source, migrationIdentitySha256: "c".repeat(64) },
+    ],
+  ] as const)(
+    "rejects an isolated clone PackageSourceFacts mismatch in %s",
+    (field: string, cloneFacts: PackageSourceFacts) => {
+      expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).toThrow(
+        new RegExp(`PackageSourceFacts mismatch for ${field}`),
+      );
+    },
+  );
 });
 
 describe("packaged runtime exact parity and closure", () => {

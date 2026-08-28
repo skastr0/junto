@@ -430,6 +430,49 @@ export const plantHistoricalStaleRemote = async (input: {
   };
 };
 
+export const assertPackageSourceFactsEqual = (
+  rootFacts: PackageSourceFacts,
+  cloneFacts: PackageSourceFacts,
+): void => {
+  const comparisons: ReadonlyArray<
+    readonly [
+      label: string,
+      rootValue: string | number,
+      cloneValue: string | number,
+    ]
+  > = [
+    ["appVersion", rootFacts.appVersion, cloneFacts.appVersion],
+    ["sourceCommit", rootFacts.sourceCommit, cloneFacts.sourceCommit],
+    [
+      "currentStateSchemaVersion",
+      rootFacts.currentStateSchemaVersion,
+      cloneFacts.currentStateSchemaVersion,
+    ],
+    [
+      "migrationHead.fromVersion",
+      rootFacts.migrationHead.fromVersion,
+      cloneFacts.migrationHead.fromVersion,
+    ],
+    [
+      "migrationHead.toVersion",
+      rootFacts.migrationHead.toVersion,
+      cloneFacts.migrationHead.toVersion,
+    ],
+    ["migrationHead.name", rootFacts.migrationHead.name, cloneFacts.migrationHead.name],
+    [
+      "currentStateSchemaIdentity",
+      rootFacts.migrationIdentitySha256,
+      cloneFacts.migrationIdentitySha256,
+    ],
+  ];
+  const mismatch = comparisons.find(([, rootValue, cloneValue]) => rootValue !== cloneValue);
+  if (mismatch !== undefined) {
+    throw new Error(
+      `isolated clone PackageSourceFacts mismatch for ${mismatch[0]}: root=${String(mismatch[1])} clone=${String(mismatch[2])}`,
+    );
+  }
+};
+
 export const cloneExactCommit = async (input: {
   readonly sourceRoot: string;
   readonly cloneRoot: string;
@@ -818,11 +861,6 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
         requireClean: false,
       });
       await attempt.setSourceCommit(rootFacts.sourceCommit);
-      if (rootFacts.currentStateSchemaVersion !== 20) {
-        throw new Error(
-          `package parity qualification requires CURRENT_STATE_SCHEMA_VERSION=20, got ${String(rootFacts.currentStateSchemaVersion)}`,
-        );
-      }
       const workDirectory = await mkdtemp(
         path.join(tmpdir(), "vellum-command-package-parity-"),
       );
@@ -847,9 +885,7 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
           requireClean: true,
           expectedSourceCommit: rootFacts.sourceCommit,
         });
-        if (source.currentStateSchemaVersion !== 20) {
-          throw new Error("isolated source clone is not schema 20");
-        }
+        assertPackageSourceFactsEqual(rootFacts, source);
         const historical = await loadHistoricalPackageComparison(cloneRoot);
 
         run({
@@ -1018,7 +1054,7 @@ const parseCli = (
       receiptPath ??
       path.resolve(
         path.dirname(fileURLToPath(import.meta.url)),
-        "../.local/schema-v20-package-parity-receipt.json",
+        "../.local/package-runtime-parity-receipt.json",
       ),
     keepWorkDirectory,
   };
