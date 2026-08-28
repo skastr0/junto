@@ -186,7 +186,7 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
       remove: (name: string) => Effect.succeed({ name }),
       ensureSeed: Effect.void,
       writeSidecar: () => Effect.succeed(""),
-      start: () => Effect.void,
+      start: () => {},
       subscribeChanges: () => () => {},
       announceInstalledProjection: () => {},
       liveDocuments: () => Effect.succeed([]),

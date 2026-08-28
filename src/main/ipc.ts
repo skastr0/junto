@@ -13,8 +13,8 @@ export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): voi
   registerVellumBrowserIpc(sessions);
 };
 
-export const registerIpcHandlers = async (): Promise<void> => {
-  await registerVellumIpc();
+export const registerIpcHandlers = (): void => {
+  registerVellumIpc();
   const privilegedIpc = licensedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
 

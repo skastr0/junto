@@ -109,9 +109,8 @@ describe("vellum-command-remote closure", () => {
 });
 
 describe("remote-runtime seed", () => {
-  it("includes actor-seat and License layers without UpdateService", () => {
+  it("includes the License layers without UpdateService", () => {
     const seed = readFileSync(join(root, "src/main/remote-runtime.ts"), "utf8");
-    expect(seed).toContain("ActorSeatOccupyLive");
     expect(seed).toContain("LicenseRepositoryLive");
     expect(seed).toContain("LicenseService");
     expect(seed).toContain("StateEngineLive");

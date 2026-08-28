@@ -291,14 +291,7 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
   }
 });
 
-export const registerVellumIpc = async (): Promise<void> => {
-  // Prove the active SQLite authority before admitting any renderer IPC. This
-  // Promise is intentionally the only awaited part of this registration path:
-  // provider fetches and long-lived services below remain background work.
-  await AppRuntime.runPromise(
-    Effect.flatMap(CanvasesService, (canvases) => canvases.start()),
-  );
-
+export const registerVellumIpc = (): void => {
   const privilegedIpc = licensedRendererIpc(ipcMain);
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
@@ -1792,6 +1785,7 @@ export const registerVellumIpc = async (): Promise<void> => {
       // and station planes have settled. Every gate re-checks inside.
       setTimeout(() => messageDelivery.onBooted(), 10_000);
 
+      canvases.start();
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
       // provider fetches can take tens of seconds so it never blocks window open.

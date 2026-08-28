@@ -59,10 +59,6 @@ import {
 import {
   runCanvasRelationalBackfill,
 } from "./canvas/relational-backfill";
-import {
-  compareDecimalGenerations,
-  parseDecimalGeneration,
-} from "./canvas/decimal-generation";
 import { persistRelationalPortfolio } from "./canvas/relational-records";
 import {
   appendDocumentReplaceTail,
@@ -277,9 +273,7 @@ export class CanvasesService extends Context.Service<CanvasesService,
       contents: string,
     ) => Effect.Effect<string, CanvasError>;
     // Bootstraps the live map from SQLite authority once (idempotent).
-    // Startup callers must await this Effect so authority failures reach the
-    // existing pre-window recovery path instead of opening a partial renderer.
-    readonly start: () => Effect.Effect<void, CanvasError>;
+    readonly start: () => void;
     /**
      * Document commits (write/mutate/create/remove). Optional detail carries
      * previous/next docs for same-tick edge-delete session teardown.
@@ -399,143 +393,16 @@ type AuthoringProvenance = {
   readonly changedObjectHashesJson: string;
 };
 
-type StoredHead = {
-  readonly generation: string;
-  readonly created_at: string;
-  readonly intent_sha256: string;
-  readonly document_count: number;
-};
-
-const ANY_SOURCE_GENERATION_SQL = `
-  SELECT generation
-  FROM canvas_generations
-  LIMIT 1
+const HEAD_SQL = `
+  SELECT
+    h.generation AS generation,
+    g.created_at AS created_at,
+    g.intent_sha256 AS intent_sha256,
+    g.document_count AS document_count
+  FROM canvas_head h
+  JOIN canvas_generations g ON g.generation = h.generation
+  WHERE h.singleton = 1
 `;
-
-const GREATEST_CANONICAL_SOURCE_GENERATION_SQL = `
-  SELECT generation
-  FROM canvas_generations
-  WHERE length(generation) > 0
-    AND generation NOT GLOB '*[^0-9]*'
-    AND (generation = '0' OR substr(generation, 1, 1) <> '0')
-  ORDER BY length(generation) DESC, generation COLLATE BINARY DESC
-  LIMIT 1
-`;
-
-const canonicalStoredGeneration = (value: unknown, label: string): string => {
-  try {
-    return parseDecimalGeneration(value, label);
-  } catch (error) {
-    throw new CanvasError({
-      message: error instanceof Error ? error.message : `${label} is malformed`,
-    });
-  }
-};
-
-const storedDocumentCount = (
-  value: number | bigint,
-  generation: string,
-): number => {
-  if (
-    (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) ||
-    (typeof value === "bigint" &&
-      value >= 0n &&
-      value <= BigInt(Number.MAX_SAFE_INTEGER))
-  ) {
-    return Number(value);
-  }
-  throw new CanvasError({
-    message: `canvas generation ${generation} has an invalid document count`,
-  });
-};
-
-/**
- * Prove that the current head names the exact end of canonical source history.
- *
- * Generation order is arbitrary-precision decimal order: digit length, then
- * binary lexical order. No SQLite integer cast or JavaScript numeric coercion
- * can truncate a stored generation. The schema normally enforces canonical
- * decimals. The selector ignores malformed non-head history so the full-prefix
- * backfill can log and defer that historical fault, while a malformed active
- * head still fails before BigInt-based commit allocation or renderer startup.
- */
-const readStoredHead = (reader: StateReader): StoredHead | undefined => {
-  const headRows = reader.all<{
-    readonly singleton: number | bigint;
-    readonly generation: string;
-  }>("SELECT singleton, generation FROM canvas_head");
-  if (
-    headRows.length > 1 ||
-    (headRows.length === 1 &&
-      headRows[0]?.singleton !== 1 &&
-      headRows[0]?.singleton !== 1n)
-  ) {
-    throw new CanvasError({
-      message: "canvas database contains an invalid head row",
-    });
-  }
-  const headRow = headRows[0];
-  const anySourceRow = reader.get<{ readonly generation: string }>(
-    ANY_SOURCE_GENERATION_SQL,
-  );
-  const greatestRow = reader.get<{ readonly generation: string }>(
-    GREATEST_CANONICAL_SOURCE_GENERATION_SQL,
-  );
-  if (headRow === undefined && anySourceRow === undefined) return undefined;
-  if (headRow === undefined) {
-    throw new CanvasError({
-      message:
-        "canvas database head is missing while generation rows exist; recovery required",
-    });
-  }
-  if (greatestRow === undefined) {
-    throw new CanvasError({
-      message:
-        "canvas database head exists without a canonical source generation; recovery required",
-    });
-  }
-
-  const headGeneration = canonicalStoredGeneration(
-    headRow.generation,
-    "canvas head generation",
-  );
-  const greatestGeneration = canonicalStoredGeneration(
-    greatestRow.generation,
-    "greatest canvas source generation",
-  );
-  if (compareDecimalGenerations(headGeneration, greatestGeneration) !== 0) {
-    throw new CanvasError({
-      message:
-        `canvas head ${headGeneration} is stale; exact greatest source generation ` +
-        `is ${greatestGeneration}; recovery required`,
-    });
-  }
-
-  const source = reader.get<{
-    readonly generation: string;
-    readonly created_at: string;
-    readonly intent_sha256: string;
-    readonly document_count: number | bigint;
-  }>(
-    `
-      SELECT generation, created_at, intent_sha256, document_count
-      FROM canvas_generations
-      WHERE generation = ?
-    `,
-    [headGeneration],
-  );
-  if (source === undefined) {
-    throw new CanvasError({
-      message:
-        `canvas head ${headGeneration} has no matching source generation; recovery required`,
-    });
-  }
-  return {
-    ...source,
-    generation: headGeneration,
-    document_count: storedDocumentCount(source.document_count, headGeneration),
-  };
-};
 
 const DOCUMENTS_SQL = `
   SELECT name, body, sha256, modified_at
@@ -583,7 +450,12 @@ const decodeStoredCanvas = (
 };
 
 const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
-  const head = readStoredHead(reader);
+  const head = reader.get<{
+    readonly generation: string;
+    readonly created_at: string;
+    readonly intent_sha256: string;
+    readonly document_count: number;
+  }>(HEAD_SQL);
   if (head === undefined) {
     return {
       hasHead: false,
@@ -618,7 +490,7 @@ const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
       decodeStoredCanvas(name, row.body, row.sha256, row.modified_at),
     );
   }
-  if (documents.size !== head.document_count) {
+  if (documents.size !== Number(head.document_count)) {
     throw new CanvasError({
       message:
         `canvas generation ${head.generation} expected ${head.document_count} documents ` +
@@ -874,25 +746,12 @@ const readActivePortfolioIdentity = (reader: StateReader): string => {
           head.received_at,
         ].join(SEPARATOR);
   }
-  // Bootstrap and every authority rebuild prove source/head topology through
-  // readStoredAuthority. The hot identity probe stays on the current head row:
-  // sorting the append-only history here would add an unindexed full scan to
-  // every memo hit, while the sole writer moves source and head atomically.
   const head = reader.get<{
     readonly generation: string;
     readonly created_at: string;
     readonly intent_sha256: string;
-    readonly document_count: number | bigint;
-  }>(`
-    SELECT
-      h.generation AS generation,
-      g.created_at AS created_at,
-      g.intent_sha256 AS intent_sha256,
-      g.document_count AS document_count
-    FROM canvas_head h
-    JOIN canvas_generations g ON g.generation = h.generation
-    WHERE h.singleton = 1
-  `);
+    readonly document_count: number;
+  }>(HEAD_SQL);
   const topology = [...readCommandCenterTopology(reader)]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([hostId, installationId]) => `${hostId}${installationId}`)
@@ -1341,18 +1200,38 @@ export const CanvasesLive = Layer.effect(
       .pipe(Effect.mapError(toCanvasError));
     if (stationRole === "remote") return;
 
+    const status = yield* state
+      .read("canvas.bootstrap.status", (reader) => ({
+        hasHead:
+          reader.get<{ readonly generation: string }>(
+            "SELECT generation FROM canvas_head WHERE singleton = 1",
+          ) !== undefined,
+        generations: Number(
+          reader.get<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM canvas_generations",
+          )?.count ?? 0,
+        ),
+      }))
+      .pipe(Effect.mapError(toCanvasError));
+
+    if (!status.hasHead && status.generations > 0) {
+      return yield* Effect.fail(
+        new CanvasError({
+          message:
+            "canvas database head is missing while generation rows exist; recovery required",
+        }),
+      );
+    }
+
     // Heal registry gaps when active membership diverges from the head doc
-    // (incomplete v5→v6 backfill, wiped rows). readStoredAuthority first proves
-    // that source/head existence agrees, that the head is the exact greatest
-    // canonical decimal generation, and that its current material is intact.
-    // An exact empty source or a valid zero-document head has no active
-    // authorial membership, so active registry rows are archived while the
-    // archived/soft-deleted identity ledger remains preserved.
+    // (incomplete v5→v6 backfill, wiped rows). An exact empty source has no
+    // active authorial membership, so archive active rows while preserving the
+    // archived/soft-deleted identity ledger. Missing-head nonempty history was
+    // refused above and never reaches reconciliation.
     yield* state
       .transaction("canvas.entity-reconcile", (writer) => {
         // Close a serialized configure race after the startup role guard.
         if (readLocalStationRole(writer) === "remote") return;
-        const snapshot = readStoredAuthority(writer);
         const now = new Date().toISOString();
         const activeCanvasNames = new Set(
           writer
@@ -1365,6 +1244,14 @@ export const CanvasesLive = Layer.effect(
             )
             .map((row) => row.canvas_name),
         );
+        if (!status.hasHead) {
+          for (const canvasName of activeCanvasNames) {
+            archiveAllCanvasEntities(writer, canvasName, now);
+          }
+          return;
+        }
+
+        const snapshot = readStoredAuthority(writer);
         for (const canvasName of activeCanvasNames) {
           if (!snapshot.documents.has(canvasName)) {
             archiveAllCanvasEntities(writer, canvasName, now);
@@ -1947,7 +1834,11 @@ export const CanvasesLive = Layer.effect(
       catch: toCanvasError,
     });
 
-  const start = (): Effect.Effect<void, CanvasError> => ensureReady;
+  const start = (): void => {
+    void Effect.runPromiseWith(runtime)(ensureReady).catch((error) => {
+      console.error("[canvases] SQLite authority bootstrap failed:", error);
+    });
+  };
 
   const subscribeChanges = (
     listener: (name: string, detail?: CanvasChangeDetail) => void,

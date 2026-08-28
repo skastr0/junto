@@ -153,7 +153,7 @@ describe("canvases.ts write() — same-name concurrency", () => {
     const name = "listener-commit";
     const notifications: string[] = [];
     const unsubscribe = canvases.subscribeChanges((changed) => notifications.push(changed));
-    await runtime.runPromise(canvases.start());
+    canvases.start();
 
     try {
       await runtime.runPromise(canvases.write(name, docFor(10)));
