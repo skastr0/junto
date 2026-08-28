@@ -194,6 +194,13 @@ export class ManagedTerminalDrive {
   private readonly bindingGenerations = new Map<string, number>();
   /** One mailbox interrupt per busy stretch; cleared at the idle boundary. */
   private readonly mailInterrupts = new Map<string, Promise<boolean>>();
+  /**
+   * Monotonic count of paste envelopes that actually reached the PTY writer.
+   * The delivery layer compares it around a failed attempt: an attempt that
+   * wrote NOTHING (refused at a gate or race) must not burn at-most-once
+   * bookkeeping that exists to stop re-pasting text already on the PTY.
+   */
+  private readonly pasteWrites = new Map<string, number>();
   private suspended = false;
   private lifecycleGeneration = 0;
 
@@ -577,6 +584,11 @@ export class ManagedTerminalDrive {
     return this.queues.get(bindingId)?.length ?? 0;
   }
 
+  /** Paste envelopes that actually reached the PTY writer (see pasteWrites). */
+  pasteWriteCount(bindingId: string): number {
+    return this.pasteWrites.get(bindingId) ?? 0;
+  }
+
   private async drainOne(bindingId: string): Promise<void> {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
@@ -786,6 +798,7 @@ export class ManagedTerminalDrive {
     const [paste, cr] = buildPromptWriteSequence(text);
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
+    this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
     }

@@ -8,7 +8,7 @@ import type { SeatRulePack } from "../types";
 
 export const cursorRules: SeatRulePack = {
   harness: "cursor",
-  version: "2026.08.17.1",
+  version: "2026.08.28.1",
   rules: [
     {
       id: "write_file_approval",
@@ -71,6 +71,28 @@ export const cursorRules: SeatRulePack = {
       visibleWorking: true,
       matchers: {
         lineRegex: ["[\\u2800-\\u28FF]"],
+      },
+    },
+    {
+      /**
+       * Text in the prompt bar is STILL an idle seat. Grounded live
+       * (2026-08-28): a factory paste replaces the placeholder, no other
+       * idle rule matches, the seat left idle mid paste->CR sequence, the
+       * drive refused its own CR, and the notice sat unsubmitted in the bar
+       * (write-failed). Same law as claude/agy/fx composer_draft_idle.
+       */
+      id: "composer_draft_idle",
+      state: "idle",
+      priority: 110,
+      region: "whole_recent",
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*\u2192\\s+\\S"],
+        not: [
+          { contains: ["ctrl+c to stop"] },
+          { contains: ["run this command?"] },
+          { contains: ["proceed (y)"] },
+        ],
       },
     },
     {

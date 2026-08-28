@@ -1814,3 +1814,133 @@ describe("composer gate and the bounded edge-map claim", () => {
     service.suspend();
   });
 });
+
+describe("bounded re-drive marks and the PTY write truth", () => {
+  const edgeMsg = (): Message =>
+    userMsg(ulid(), "[factory - map] edge contracts changed — Added: tasks", {
+      metadata: { edgeMapChange: true, addedIds: ["tasks"] },
+    });
+  const edgeDoc2 = (messages: ReadonlyArray<Message>): CanvasDoc => ({
+    nodes: [
+      {
+        id: "agent",
+        type: "text",
+        text: "mira",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: {
+          entity: { kind: "agent", name: "local:mira" },
+          terminal: { bindingId: "bind-mira", harness: "claude" },
+          messages: { items: [...messages] },
+        },
+      },
+      {
+        id: "tasks",
+        type: "text",
+        text: "tasks",
+        x: 200,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: {
+          entity: { kind: "task" },
+          tasks: { items: [] },
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "e1",
+        fromNode: "tasks",
+        toNode: "agent",
+        fromSide: "right",
+        toSide: "left",
+        ether: { verb: "works" },
+      },
+    ],
+  });
+
+  it("a refusal that wrote nothing re-drives; the eventual paste still happens once", async () => {
+    // The cursor-leg wedge: a flickery idle passed the gate, the drive
+    // refused at the paste boundary WITHOUT writing, and the notice's one
+    // per-topology claim was burned — parked until the map changed.
+    const msg = edgeMsg();
+    const store = makeStore({ c: edgeDoc2([msg]) });
+    const sent: string[] = [];
+    let writes = 0;
+    let driveAccepts = false;
+    const transport: MessageDeliveryTransport = {
+      sendTerminalPaste: () => false,
+      sendManagedTerminalPrompt: async (_bindingId, text) => {
+        if (!driveAccepts) return false; // refused BEFORE any byte
+        writes += 1;
+        sent.push(text);
+        return true;
+      },
+      pasteWriteCount: () => writes,
+      seatDeliverySnapshot: () => ({
+        idle: true,
+        generationKey: "g1",
+        operatorDraft: false,
+      }),
+    };
+    const service = new MessageDeliveryService();
+    let now = 100_000;
+    service.configure({ transport, store, now: () => now });
+
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 20));
+    now += 10_000;
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sent, "refused without writing — nothing pasted yet").toEqual([]);
+
+    // The seat truly settles; the SAME topology must still get its paste.
+    driveAccepts = true;
+    service.onComposerEmpty("bind-mira");
+    await waitUntil(() => sent.length === 1);
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sent, "delivered exactly once").toHaveLength(1);
+    service.suspend();
+  });
+
+  it("a paste that wrote but never acked stays bounded — the 4x law holds", async () => {
+    const msg = edgeMsg();
+    const store = makeStore({ c: edgeDoc2([msg]) });
+    let writes = 0;
+    let pastes = 0;
+    const transport: MessageDeliveryTransport = {
+      sendTerminalPaste: () => false,
+      sendManagedTerminalPrompt: async () => {
+        writes += 1; // bytes reached the PTY…
+        pastes += 1;
+        return false; // …but no turn-start ack
+      },
+      pasteWriteCount: () => writes,
+      seatDeliverySnapshot: () => ({
+        idle: true,
+        generationKey: "g1",
+        operatorDraft: false,
+      }),
+    };
+    const service = new MessageDeliveryService();
+    let now = 200_000;
+    service.configure({ transport, store, now: () => now });
+
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 20));
+    now += 10_000;
+    service.onManagedTerminalIdle("bind-mira");
+    await waitUntil(() => pastes === 1);
+
+    // Idle re-drives must NOT re-paste the same un-acked notice.
+    service.onManagedTerminalIdle("bind-mira");
+    service.onComposerEmpty("bind-mira");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(pastes, "the un-acked paste is never re-pasted — the 4x class").toBe(1);
+    service.suspend();
+  });
+});

@@ -94,6 +94,14 @@ export type MessageDeliveryTransport = {
     options?: ManagedTerminalPromptOptions,
   ) => Promise<boolean>;
   /**
+   * Monotonic paste-envelope counter from the managed drive. When a failed
+   * attempt wrote NOTHING to the PTY (gate race, seat left idle), the
+   * at-most-once bookkeeping below is rolled back — those bounds exist to
+   * stop re-pasting text already on the PTY, not to park a notice a refusal
+   * never typed. Absent → attempts are counted unconditionally.
+   */
+  readonly pasteWriteCount?: (bindingId: string) => number;
+  /**
    * Live seat snapshot for the product delivery gate. Absent → allow
    * (unit tests without a host). Operator draft must never be overwritten;
    * settle waits MESSAGE_DELIVERY_SETTLE_MS after first idle for the epoch.
@@ -1265,6 +1273,7 @@ export class MessageDeliveryService {
 
         // Edge-map notice law (bounded re-drive + stale re-validation):
         // AFTER the gate so a not-settled first consult cannot burn the claim.
+        let claimSetThisPass = false;
         if (live.metadata?.edgeMapChange === true) {
           const addedIds = edgeMapAddedIds(live);
           if (addedIds.length > 0) {
@@ -1279,6 +1288,7 @@ export class MessageDeliveryService {
               return; // already attempted against this edge-map state — bounded
             }
             this.attemptedClaims.set(key, { signature });
+            claimSetThisPass = true;
           }
         }
 
@@ -1295,6 +1305,7 @@ export class MessageDeliveryService {
               }
             : undefined;
         this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
+        const writesBefore = transport.pasteWriteCount?.(target.bindingId);
         const delivered = await this.deliver(
           transport,
           target,
@@ -1302,7 +1313,22 @@ export class MessageDeliveryService {
           live.messageId,
           promptOptions,
         );
-        if (!delivered) return;
+        if (!delivered) {
+          // A failure that never touched the PTY (drive refused at a gate
+          // race — seat left idle, composer stopped being provably empty)
+          // must not consume the bounded re-drive marks: nothing was pasted,
+          // so there is nothing a re-drive could duplicate. A failure that
+          // DID write (paste without ack — the live 4x class) keeps them.
+          if (
+            writesBefore !== undefined &&
+            transport.pasteWriteCount?.(target.bindingId) === writesBefore
+          ) {
+            if (claimSetThisPass) this.attemptedClaims.delete(key);
+            const attempts = this.transportAttempts.get(key) ?? 0;
+            if (attempts > 0) this.transportAttempts.set(key, attempts - 1);
+          }
+          return;
+        }
         this.transportAccepted.add(key);
       }
 

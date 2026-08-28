@@ -1676,6 +1676,8 @@ export const registerVellumIpc = (): void => {
           // managedAgent + rawTerminal → paste+CR via idle-gated drive.
           sendManagedTerminalPrompt: (bindingId, text, options) =>
             writeManagedPrompt(bindingId, text, options),
+          pasteWriteCount: (bindingId) =>
+            managedDrive.pasteWriteCount(bindingId),
           // Settled idle + do not paste over a live operator (recent
           // keystrokes or a stuck paste chip). Generation-lifetime typing
           // is not draft — a human-driven seat would never drain mail.
