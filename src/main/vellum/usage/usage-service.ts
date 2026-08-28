@@ -2,7 +2,6 @@ import { Context, Effect, Layer } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   hasUsageQuotas,
-  preferNativeUsageSnapshots,
   usageStateIsPartial,
   type UsageSnapshot,
   type UsageState,
@@ -12,14 +11,13 @@ import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
 //
-// Architecture (beta = codexbar only; natives unwired — WIP post-beta):
+// Architecture (native strategy pipelines):
 //   disk last-good  →  instant HUD paint when cached quotas match active sources
-//   primary fetch   →  fan-out active sources; preferNativeUsageSnapshots ranks
-//                      (no-op with a single source; ready when natives return)
-//   enrich stage    →  multi-account codexbar as a second push
+//   primary fetch   →  fan-out active sources
+//   enrich stage    →  optional source-specific enrichment as a second push
 //   failed live     →  KEEP last-good when present; else empty (HUD hides)
 //
-// Fail open: no codexbar / no quotas → empty state, no error chrome.
+// Fail open: no detected source / no quotas → empty state, no error chrome.
 // Failures are total at the source envelope, never throws across IPC.
 
 /**
@@ -139,11 +137,11 @@ export const UsageServiceLive = Layer.effect(
     const applyPrimary = async (
       snapshots: ReadonlyArray<UsageSnapshot>,
     ): Promise<UsageState> => {
-      const ranked = preferNativeUsageSnapshots(keepActive(snapshots));
-      const live: UsageState = { snapshots: [...ranked] };
+      const active = keepActive(snapshots);
+      const live: UsageState = { snapshots: [...active] };
       return hasUsageQuotas(live)
-        ? await commitLive(ranked)
-        : commitFailedLive(ranked);
+        ? await commitLive(active)
+        : commitFailedLive(active);
     };
 
     const runEnrich = async (primary: ReadonlyArray<UsageSnapshot>): Promise<void> => {
@@ -171,7 +169,7 @@ export const UsageServiceLive = Layer.effect(
         }
         changed = true;
       }
-      if (changed) await commitLive(preferNativeUsageSnapshots(keepActive(next)));
+      if (changed) await commitLive(keepActive(next));
     };
 
     const runRefresh = async (): Promise<UsageState> => {

@@ -9,11 +9,7 @@ import {
   mergeHermesPartials,
   parseHermesSqlRow,
 } from "../src/main/vellum/usage/hermes-source";
-import {
-  preferNativeUsageSnapshots,
-  usageStateIsPartial,
-  type UsageSnapshot,
-} from "../src/shared/usage";
+import { usageStateIsPartial } from "../src/shared/usage";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 
@@ -150,123 +146,6 @@ describe("hermes aggregate builders", () => {
     expect(quota?.provider).toBe("hermes");
     expect(quota?.extras?.billingMode).toBe("subscription_included");
     expect(quota?.extras?.partial).toBe(true);
-  });
-});
-
-describe("preferNativeUsageSnapshots", () => {
-  it("drops codexbar rows for providers already painted natively with plan windows", () => {
-    const snapshots: UsageSnapshot[] = [
-      {
-        source: "claude",
-        fetchedAt: FETCHED,
-        ok: true,
-        quotas: [
-          {
-            provider: "claude",
-            source: "claude.json",
-            status: "ok",
-            windows: [{ label: "primary", usedPercent: 10 }],
-            updatedAt: FETCHED,
-          },
-        ],
-      },
-      {
-        source: "codexbar",
-        fetchedAt: FETCHED,
-        ok: true,
-        quotas: [
-          {
-            provider: "claude",
-            source: "cli",
-            status: "ok",
-            windows: [{ label: "primary", usedPercent: 99 }],
-            updatedAt: FETCHED,
-          },
-          {
-            provider: "cursor",
-            source: "cli",
-            status: "ok",
-            windows: [{ label: "primary", usedPercent: 5 }],
-            updatedAt: FETCHED,
-          },
-        ],
-      },
-    ];
-    const ranked = preferNativeUsageSnapshots(snapshots);
-    const codexbar = ranked.find((s) => s.source === "codexbar");
-    expect(codexbar?.quotas.map((q) => q.provider)).toEqual(["cursor"]);
-    expect(ranked.find((s) => s.source === "claude")?.quotas[0]?.windows[0]?.usedPercent).toBe(10);
-  });
-
-  it("does not let tokens-only native displace codexbar plan %", () => {
-    const snapshots: UsageSnapshot[] = [
-      {
-        source: "grok",
-        fetchedAt: FETCHED,
-        ok: true,
-        quotas: [
-          {
-            provider: "grok",
-            source: "updates.jsonl",
-            status: "ok",
-            windows: [],
-            updatedAt: FETCHED,
-            extras: { partial: true, totalTokens: 128_600_000 },
-          },
-        ],
-      },
-      {
-        source: "codex",
-        fetchedAt: FETCHED,
-        ok: true,
-        quotas: [],
-      },
-      {
-        source: "hermes",
-        fetchedAt: FETCHED,
-        ok: true,
-        quotas: [
-          {
-            provider: "hermes",
-            source: "sessions.db",
-            status: "ok",
-            windows: [],
-            updatedAt: FETCHED,
-            extras: { partial: true, totalTokens: 521_000 },
-          },
-        ],
-      },
-      {
-        source: "codexbar",
-        fetchedAt: FETCHED,
-        ok: true,
-        quotas: [
-          {
-            provider: "grok",
-            source: "web",
-            status: "ok",
-            windows: [{ label: "primary", usedPercent: 42 }],
-            updatedAt: FETCHED,
-          },
-          {
-            provider: "codex",
-            source: "cli",
-            status: "ok",
-            account: "a@example.com",
-            windows: [{ label: "secondary", usedPercent: 57 }],
-            updatedAt: FETCHED,
-          },
-        ],
-      },
-    ];
-    const ranked = preferNativeUsageSnapshots(snapshots);
-    const codexbar = ranked.find((s) => s.source === "codexbar");
-    expect(codexbar?.quotas.map((q) => q.provider)).toEqual(["grok", "codex"]);
-    expect(codexbar?.quotas.find((q) => q.provider === "grok")?.windows[0]?.usedPercent).toBe(42);
-    // Tokens-only native yields to codexbar plan for the same provider name.
-    expect(ranked.find((s) => s.source === "grok")?.quotas).toEqual([]);
-    // Hermes has no codexbar plan row — tokens-only native stays.
-    expect(ranked.find((s) => s.source === "hermes")?.quotas[0]?.extras?.totalTokens).toBe(521_000);
   });
 });
 
