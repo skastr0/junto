@@ -26,9 +26,13 @@ import {
   BACKFILL_CANVAS_RELATIONAL_V2,
   makeInstallOpsLive,
 } from "../src/main/vellum/install-ops/engine";
-import { InstallOpsService } from "../src/main/vellum/install-ops/service";
+import {
+  InstallOpsService,
+  type InstallOpsServiceShape,
+} from "../src/main/vellum/install-ops/service";
 import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
 import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
 import {
   StationFleetTargetRepositoryLive,
 } from "../src/main/vellum/station/fleet-target-repository";
@@ -44,6 +48,7 @@ import {
   type CanvasDoc,
 } from "../src/shared/canvas";
 import { intentSha256Of } from "../src/main/vellum/canvas-intent-identity";
+import { DOCUMENT_REPLACE_V1 } from "../src/shared/canvas-authoring";
 
 type StoredSeedDocument = {
   readonly name: string;
@@ -150,6 +155,39 @@ const generationMaterial = (generation: SeedGeneration) => {
   return { ...generation, documents, intentSha256 };
 };
 
+const appendHistoryGeneration = (
+  writer: StateWriter,
+  generation: SeedGeneration,
+): void => {
+  const material = generationMaterial(generation);
+  writer.run(
+    `
+      INSERT INTO canvas_generations(
+        generation, created_at, cause, intent_sha256, document_count
+      ) VALUES (?, ?, 'seed', ?, ?)
+    `,
+    [
+      material.generation,
+      NOW,
+      material.intentSha256,
+      material.documentCount ?? material.documents.length,
+    ],
+  );
+  for (const document of material.documents) {
+    writer.run(
+      `
+        INSERT INTO canvas_generation_documents(
+          generation, name, body, sha256, modified_at
+        ) VALUES (?, ?, ?, ?, ?)
+      `,
+      [material.generation, document.name, document.body, document.sha256, NOW],
+    );
+  }
+  writer.run("UPDATE canvas_head SET generation = ? WHERE singleton = 1", [
+    material.generation,
+  ]);
+};
+
 const seedHistory = async (
   state: TestStateService,
   generations: ReadonlyArray<SeedGeneration>,
@@ -192,6 +230,308 @@ const seedHistory = async (
       writer.run(
         "INSERT INTO canvas_head(singleton, generation) VALUES (1, ?)",
         [headGeneration],
+      );
+    }),
+  );
+};
+
+const AUTHORIAL_CANVAS_TABLES = [
+  "canvas_generations",
+  "canvas_generation_documents",
+  "canvas_head",
+  "canvas_documents",
+  "canvas_objects",
+  "canvas_nodes",
+  "canvas_edges",
+  "canvas_checkpoints",
+  "canvas_generation_manifests",
+  "canvas_commit_envelopes",
+] as const;
+
+const stableJson = (value: unknown): string =>
+  JSON.stringify(value, (_key, entry: unknown) =>
+    typeof entry === "bigint" ? `bigint:${entry}` : entry,
+  );
+
+const snapshotCanvasAuthorityTables = (
+  reader: StateReader,
+): Readonly<Record<string, { readonly count: number; readonly bytes: string }>> =>
+  Object.fromEntries(
+    AUTHORIAL_CANVAS_TABLES.map((table) => {
+      const rows = reader.all(
+        `SELECT * FROM ${table} ORDER BY 1, 2`,
+      );
+      return [table, { count: rows.length, bytes: stableJson(rows) }] as const;
+    }),
+  );
+
+const snapshotCanvasEntities = (
+  reader: StateReader,
+): { readonly count: number; readonly bytes: string } => {
+  const rows = reader.all(
+    "SELECT * FROM canvas_entities ORDER BY canvas_name, entity_id",
+  );
+  return { count: rows.length, bytes: stableJson(rows) };
+};
+
+const snapshotRelationalCurrentGraph = (
+  reader: StateReader,
+): Readonly<Record<string, { readonly count: number; readonly bytes: string }>> =>
+  Object.fromEntries(
+    ["canvas_documents", "canvas_objects", "canvas_nodes", "canvas_edges"].map(
+      (table) => {
+        const rows = reader.all(
+          `SELECT * FROM ${table} ORDER BY 1, 2`,
+        );
+        return [table, { count: rows.length, bytes: stableJson(rows) }] as const;
+      },
+    ),
+  );
+
+const snapshotInstallOpsMarkers = (installOps: InstallOpsServiceShape) =>
+  Effect.all([
+    installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V1),
+    installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+  ]).pipe(
+    Effect.map((markers) => ({
+      count: markers.filter((marker) => marker !== undefined).length,
+      bytes: stableJson(markers),
+    })),
+  );
+
+const seedRemoteProjection = async (
+  state: TestStateService,
+  name: string,
+  doc: CanvasDoc,
+): Promise<{ readonly body: string; readonly contentSha256: string }> => {
+  const body = compileStationPortfolioBody(
+    new Map([[name, doc]]),
+    new Map(),
+  );
+  const contentSha256 = sha256(body);
+  await Effect.runPromise(
+    state.transaction("test.seed.remote-projection", (writer) => {
+      writer.run(
+        `
+          INSERT INTO station_known_installations(installation_id, registered_at)
+          VALUES ('command-installation', ?)
+        `,
+        [NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO station_configuration(
+            singleton, role, host_id, agent_host_id,
+            command_center_installation_id, supervised_preferred, configured_at
+          ) VALUES (
+            1, 'remote', 'remote-host', 'remote-host',
+            'command-installation', 1, ?
+          )
+        `,
+        [NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO station_projection_versions(
+            generation, content_sha256, source_canvas_generation,
+            source_intent_sha256, body, created_at, received_at
+          ) VALUES ('8', ?, '3', ?, ?, ?, ?)
+        `,
+        [contentSha256, sha256("remote source intent"), body, NOW, NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO station_projection_head(singleton, generation, content_sha256)
+          VALUES (1, '8', ?)
+        `,
+        [contentSha256],
+      );
+    }),
+  );
+  return { body, contentSha256 };
+};
+
+type SeedEntityRow = {
+  readonly canvasName: string;
+  readonly entityId: string;
+  readonly lifecycle: "active" | "archived" | "soft_deleted";
+  readonly kind?: string | null;
+  readonly bindingId?: string | null;
+  readonly updatedAt?: string;
+};
+
+const seedCanvasEntities = async (
+  state: TestStateService,
+  rows: ReadonlyArray<SeedEntityRow>,
+): Promise<void> => {
+  await Effect.runPromise(
+    state.transaction("test.seed.canvas-entities", (writer) => {
+      for (const row of rows) {
+        const archivedAt = row.lifecycle === "active" ? null : "2026-01-01T00:00:00.000Z";
+        const softDeletedAt =
+          row.lifecycle === "soft_deleted" ? "2026-01-02T00:00:00.000Z" : null;
+        writer.run(
+          `
+            INSERT INTO canvas_entities(
+              canvas_name, entity_id, kind, binding_id, lifecycle,
+              created_at, updated_at, archived_at, soft_deleted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            row.canvasName,
+            row.entityId,
+            row.kind === undefined ? "text" : row.kind,
+            row.bindingId ?? null,
+            row.lifecycle,
+            "2026-01-01T00:00:00.000Z",
+            row.updatedAt ?? "2026-01-03T00:00:00.000Z",
+            archivedAt,
+            softDeletedAt,
+          ],
+        );
+      }
+    }),
+  );
+};
+
+const seedStaleRelationalResidue = async (
+  state: TestStateService,
+): Promise<void> => {
+  const doc = noteDoc("stale-node", "unverifiable relational residue");
+  const body = serializeCanvas(doc);
+  const checkpointSha = sha256(body);
+  await Effect.runPromise(
+    state.transaction("test.seed.relational-residue", (writer) => {
+      writer.run(
+        `
+          INSERT INTO canvas_checkpoints(sha256, byte_length, body, created_at)
+          VALUES (?, ?, ?, ?)
+        `,
+        [checkpointSha, Buffer.byteLength(body, "utf8"), body, NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_documents(
+            canvas_id, canvas_name, head_generation,
+            head_checkpoint_sha256, head_semantic_sha256,
+            created_at, updated_at
+          ) VALUES ('canvas_stale', 'stale', '7', ?, ?, ?, ?)
+        `,
+        [checkpointSha, canvasDocSemanticHash(doc), NOW, NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_objects(
+            canvas_id, object_id, object_kind, first_seen_generation,
+            deleted_generation, created_at
+          ) VALUES ('canvas_stale', 'stale-node', 'node', '7', NULL, ?)
+        `,
+        [NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_nodes(
+            canvas_id, node_id, z_index, type, x, y, width, height,
+            text_content, semantic_sha256, updated_at
+          ) VALUES (
+            'canvas_stale', 'stale-node', 0, 'text', 0, 0, 160, 80,
+            'unverifiable relational residue', ?, ?
+          )
+        `,
+        ["a".repeat(64), NOW],
+      );
+    }),
+  );
+};
+
+const seedLegacyRelationalObject = async (
+  state: TestStateService,
+  input: {
+    readonly canvasName: string;
+    readonly headGeneration: string;
+    readonly doc: CanvasDoc;
+    readonly objectId: string;
+    readonly objectKind: "node" | "edge";
+    readonly firstSeenGeneration: string;
+    readonly createdAt: string;
+  },
+): Promise<void> => {
+  const body = serializeCanvas(input.doc);
+  await Effect.runPromise(
+    state.transaction("test.seed.legacy-relational-object", (writer) => {
+      writer.run(
+        `
+          INSERT INTO canvas_documents(
+            canvas_id, canvas_name, head_generation,
+            head_checkpoint_sha256, head_semantic_sha256,
+            created_at, updated_at
+          ) VALUES (
+            'canvas_legacy_object', ?, ?, ?, ?, ?, ?
+          )
+        `,
+        [
+          input.canvasName,
+          input.headGeneration,
+          sha256(body),
+          canvasDocSemanticHash(input.doc),
+          input.createdAt,
+          input.createdAt,
+        ],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_objects(
+            canvas_id, object_id, object_kind, first_seen_generation,
+            deleted_generation, created_at
+          ) VALUES (
+            'canvas_legacy_object', ?, ?, ?, NULL, ?
+          )
+        `,
+        [
+          input.objectId,
+          input.objectKind,
+          input.firstSeenGeneration,
+          input.createdAt,
+        ],
+      );
+    }),
+  );
+};
+
+const seedPoisonedManifest = async (
+  state: TestStateService,
+  generation: string,
+  name: string,
+  doc: CanvasDoc,
+): Promise<void> => {
+  const body = serializeCanvas(doc);
+  const checkpointSha = sha256(body);
+  await Effect.runPromise(
+    state.transaction("test.seed.poisoned-manifest", (writer) => {
+      writer.run(
+        `
+          INSERT INTO canvas_checkpoints(sha256, byte_length, body, created_at)
+          VALUES (?, ?, ?, ?)
+        `,
+        [checkpointSha, Buffer.byteLength(body, "utf8"), body, NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_documents(
+            canvas_id, canvas_name, head_generation,
+            head_checkpoint_sha256, head_semantic_sha256,
+            created_at, updated_at
+          ) VALUES ('canvas_poison', ?, ?, ?, ?, ?, ?)
+        `,
+        [name, generation, checkpointSha, canvasDocSemanticHash(doc), NOW, NOW],
+      );
+      writer.run(
+        `
+          INSERT INTO canvas_generation_manifests(
+            generation, canvas_id, checkpoint_sha256, semantic_sha256
+          ) VALUES (?, 'canvas_poison', ?, ?)
+        `,
+        [generation, checkpointSha, canvasDocSemanticHash(doc)],
       );
     }),
   );
@@ -315,6 +655,7 @@ describe("canvas relational v2 installed-state safety", () => {
     statePath: string,
     installOpsPath: string,
     root: string,
+    installOpsLayer = makeInstallOpsLive(installOpsPath),
   ) => {
     const repositories = Layer.provideMerge(
       Layer.mergeAll(
@@ -327,10 +668,7 @@ describe("canvas relational v2 installed-state safety", () => {
           skipInlineMediaMigration: true,
         }),
       ),
-      Layer.mergeAll(
-        makeStateEngineLive(statePath),
-        makeInstallOpsLive(installOpsPath),
-      ),
+      Layer.mergeAll(makeStateEngineLive(statePath), installOpsLayer),
     );
     const canvases = Layer.provideMerge(CanvasesLive, repositories);
     return ManagedRuntime.make(
@@ -362,6 +700,546 @@ describe("canvas relational v2 installed-state safety", () => {
     expect(() => compareDecimalGenerations("09", "9")).toThrow(
       /canonical unsigned decimal generation/,
     );
+  });
+
+  it("skips Remote startup before v2 marker or authorial relational mutation and keeps projection reads unchanged", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    await seedHistory(
+      state,
+      [
+        {
+          generation: "9",
+          documents: [seedDoc("stale-authorial", noteDoc("stale", "stale authorial"))],
+        },
+      ],
+      "9",
+    );
+    const projectedDoc = noteDoc("projected", "remote projection remains active");
+    const projection = await seedRemoteProjection(
+      state,
+      "command-floor",
+      projectedDoc,
+    );
+    await runtime!.runPromise(
+      installOps.markComplete(BACKFILL_CANVAS_RELATIONAL_V1, 77),
+    );
+    const authorityBefore = await runtime!.runPromise(
+      state.read("test.remote.authority.before", snapshotCanvasAuthorityTables),
+    );
+    const markersBefore = await runtime!.runPromise(
+      snapshotInstallOpsMarkers(installOps),
+    );
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toBeUndefined();
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect((await runtime!.runPromise(canvases.read("command-floor"))).doc).toEqual(
+      projectedDoc,
+    );
+    expect(
+      await runtime!.runPromise(
+        canvases.readWithIntentWitness("command-floor"),
+      ),
+    ).toMatchObject({
+      read: { doc: projectedDoc },
+      intentWitness: {
+        generation: "8",
+        contentSha256: projection.contentSha256,
+      },
+    });
+
+    const liveState = await runtime!.runPromise(StateEngine);
+    const liveInstallOps = await runtime!.runPromise(InstallOpsService);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.remote.authority.after", snapshotCanvasAuthorityTables),
+      ),
+    ).toEqual(authorityBefore);
+    expect(
+      await runtime!.runPromise(snapshotInstallOpsMarkers(liveInstallOps)),
+    ).toEqual(markersBefore);
+    expect(
+      await runtime!.runPromise(
+        liveInstallOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V1),
+      ),
+    ).toMatchObject({ status: "complete", objectsIngested: 77 });
+    expect(
+      await runtime!.runPromise(
+        liveInstallOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("skips the direct Remote boundary and Remote no-head startup with relational residue byte-for-byte", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    await seedStaleRelationalResidue(state);
+    await seedCanvasEntities(state, [
+      { canvasName: "stale", entityId: "remote-active", lifecycle: "active" },
+    ]);
+    const projectedDoc = noteDoc("projected", "remote no-head projection");
+    await seedRemoteProjection(state, "command-floor", projectedDoc);
+    await runtime!.runPromise(
+      installOps.markComplete(BACKFILL_CANVAS_RELATIONAL_V1, 11),
+    );
+    await runtime!.runPromise(
+      installOps.markComplete(BACKFILL_CANVAS_RELATIONAL_V2, 22),
+    );
+    const authorityBefore = await runtime!.runPromise(
+      state.read("test.remote-residue.before", snapshotCanvasAuthorityTables),
+    );
+    const entitiesBefore = await runtime!.runPromise(
+      state.read("test.remote-residue.entities-before", snapshotCanvasEntities),
+    );
+    const markersBefore = await runtime!.runPromise(
+      snapshotInstallOpsMarkers(installOps),
+    );
+
+    expect(
+      await runtime!.runPromise(
+        runCanvasRelationalBackfill({ state, installOps }),
+      ),
+    ).toEqual({
+      status: "skipped-remote",
+      reason: "authorial-relational-backfill-disabled-on-remote",
+    });
+    expect(
+      await runtime!.runPromise(
+        state.read("test.remote-residue.after-direct", snapshotCanvasAuthorityTables),
+      ),
+    ).toEqual(authorityBefore);
+    expect(
+      await runtime!.runPromise(
+        state.read("test.remote-residue.entities-after-direct", snapshotCanvasEntities),
+      ),
+    ).toEqual(entitiesBefore);
+    expect(
+      await runtime!.runPromise(snapshotInstallOpsMarkers(installOps)),
+    ).toEqual(markersBefore);
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect((await runtime!.runPromise(canvases.read("command-floor"))).doc).toEqual(
+      projectedDoc,
+    );
+    const liveState = await runtime!.runPromise(StateEngine);
+    const liveInstallOps = await runtime!.runPromise(InstallOpsService);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.remote-residue.after-startup", snapshotCanvasAuthorityTables),
+      ),
+    ).toEqual(authorityBefore);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.remote-residue.entities-after-startup", snapshotCanvasEntities),
+      ),
+    ).toEqual(entitiesBefore);
+    expect(
+      await runtime!.runPromise(snapshotInstallOpsMarkers(liveInstallOps)),
+    ).toEqual(markersBefore);
+  });
+
+  it("reopens a preseeded complete v2 marker on empty non-Remote startup without changing the empty relational index", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const seededInstallOps = await runtime!.runPromise(InstallOpsService);
+    await runtime!.runPromise(
+      seededInstallOps.markComplete(BACKFILL_CANVAS_RELATIONAL_V2, 41),
+    );
+    expect(
+      await runtime!.runPromise(
+        seededInstallOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "complete", objectsIngested: 41 });
+    const authorityBefore = await runtime!.runPromise(
+      state.read("test.empty.before", snapshotCanvasAuthorityTables),
+    );
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect(await runtime!.runPromise(canvases.list)).toEqual([]);
+    const liveState = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.empty.after", snapshotCanvasAuthorityTables),
+      ),
+    ).toEqual(authorityBefore);
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "pending", objectsIngested: 41 });
+  });
+
+  it("archives only active entity rows for an exact empty source and preserves archived history bytes", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedCanvasEntities(state, [
+      { canvasName: "orphan", entityId: "active", lifecycle: "active" },
+      { canvasName: "orphan", entityId: "archived", lifecycle: "archived" },
+      {
+        canvasName: "orphan",
+        entityId: "soft-deleted",
+        lifecycle: "soft_deleted",
+      },
+    ]);
+    const historicalBefore = await runtime!.runPromise(
+      state.read("test.empty-entities.historical-before", (reader) =>
+        stableJson(
+          reader.all(
+            `
+              SELECT * FROM canvas_entities
+              WHERE entity_id IN ('archived', 'soft-deleted')
+              ORDER BY entity_id
+            `,
+          ),
+        ),
+      ),
+    );
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect(await runtime!.runPromise(canvases.list)).toEqual([]);
+    const liveState = await runtime!.runPromise(StateEngine);
+    const entities = await runtime!.runPromise(
+      liveState.read("test.empty-entities.after", (reader) =>
+        reader.all<{
+          readonly entity_id: string;
+          readonly lifecycle: string;
+          readonly archived_at: string | null;
+          readonly soft_deleted_at: string | null;
+        }>(
+          `
+            SELECT entity_id, lifecycle, archived_at, soft_deleted_at
+            FROM canvas_entities
+            ORDER BY entity_id
+          `,
+        ),
+      ),
+    );
+    expect(entities).toMatchObject([
+      { entity_id: "active", lifecycle: "archived" },
+      { entity_id: "archived", lifecycle: "archived" },
+      { entity_id: "soft-deleted", lifecycle: "soft_deleted" },
+    ]);
+    expect(entities[0]?.archived_at).not.toBeNull();
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.empty-entities.historical-after", (reader) =>
+          stableJson(
+            reader.all(
+              `
+                SELECT * FROM canvas_entities
+                WHERE entity_id IN ('archived', 'soft-deleted')
+                ORDER BY entity_id
+              `,
+            ),
+          ),
+        ),
+      ),
+    ).toBe(historicalBefore);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "pending" });
+  });
+
+  it("archives stale active entities for a valid zero-document head", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedHistory(state, [{ generation: "9", documents: [] }], "9");
+    await seedCanvasEntities(state, [
+      { canvasName: "removed", entityId: "stale-active", lifecycle: "active" },
+    ]);
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect(await runtime!.runPromise(canvases.list)).toEqual([]);
+    const liveState = await runtime!.runPromise(StateEngine);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.zero-doc-entities", (reader) =>
+          reader.get<{ readonly lifecycle: string }>(
+            `
+              SELECT lifecycle FROM canvas_entities
+              WHERE canvas_name = 'removed' AND entity_id = 'stale-active'
+            `,
+          )?.lifecycle,
+        ),
+      ),
+    ).toBe("archived");
+  });
+
+  it("reconciles present entity membership and archives active names absent from a valid head", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const presentDoc = applyMirrorLaw({
+      nodes: [
+        {
+          id: "kept",
+          type: "text",
+          text: "present canvas",
+          x: 0,
+          y: 0,
+          width: 160,
+          height: 80,
+          ether: {
+            entity: { kind: "terminal" },
+            terminal: { bindingId: "binding-new" },
+          },
+        },
+        {
+          id: "aligned",
+          type: "text",
+          text: "already aligned",
+          x: 200,
+          y: 0,
+          width: 160,
+          height: 80,
+        },
+      ],
+      edges: [],
+    });
+    await seedHistory(
+      state,
+      [{ generation: "9", documents: [seedDoc("present", presentDoc)] }],
+      "9",
+    );
+    await seedCanvasEntities(state, [
+      {
+        canvasName: "present",
+        entityId: "kept",
+        lifecycle: "active",
+        kind: "agent",
+        bindingId: "binding-old",
+      },
+      {
+        canvasName: "present",
+        entityId: "aligned",
+        lifecycle: "active",
+        updatedAt: "2025-01-01T00:00:00.000Z",
+      },
+      { canvasName: "present", entityId: "extra", lifecycle: "active" },
+      { canvasName: "absent", entityId: "stale", lifecycle: "active" },
+      { canvasName: "absent", entityId: "history", lifecycle: "archived" },
+    ]);
+    const archivedBefore = await runtime!.runPromise(
+      state.read("test.mixed-entities.archived-before", (reader) =>
+        stableJson(
+          reader.get(
+            `
+              SELECT * FROM canvas_entities
+              WHERE canvas_name = 'absent' AND entity_id = 'history'
+            `,
+          ),
+        ),
+      ),
+    );
+    await dispose();
+
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect((await runtime!.runPromise(canvases.read("present"))).doc).toEqual(
+      presentDoc,
+    );
+    const liveState = await runtime!.runPromise(StateEngine);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.mixed-entities.after", (reader) =>
+          reader.all<{ readonly canvas_name: string; readonly entity_id: string; readonly lifecycle: string }>(
+            `
+              SELECT canvas_name, entity_id, lifecycle
+              FROM canvas_entities
+              ORDER BY canvas_name, entity_id
+            `,
+          ),
+        ),
+      ),
+    ).toEqual([
+      { canvas_name: "absent", entity_id: "history", lifecycle: "archived" },
+      { canvas_name: "absent", entity_id: "stale", lifecycle: "archived" },
+      { canvas_name: "present", entity_id: "aligned", lifecycle: "active" },
+      { canvas_name: "present", entity_id: "extra", lifecycle: "archived" },
+      { canvas_name: "present", entity_id: "kept", lifecycle: "active" },
+    ]);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.mixed-entities.drift-repaired", (reader) => ({
+          drifted: reader.get<{
+            readonly kind: string | null;
+            readonly binding_id: string | null;
+          }>(
+            `
+              SELECT kind, binding_id FROM canvas_entities
+              WHERE canvas_name = 'present' AND entity_id = 'kept'
+            `,
+          ),
+          alignedUpdatedAt: reader.get<{ readonly updated_at: string }>(
+            `
+              SELECT updated_at FROM canvas_entities
+              WHERE canvas_name = 'present' AND entity_id = 'aligned'
+            `,
+          )?.updated_at,
+        })),
+      ),
+    ).toEqual({
+      drifted: { kind: "terminal", binding_id: "binding-new" },
+      alignedUpdatedAt: "2025-01-01T00:00:00.000Z",
+    });
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.mixed-entities.archived-after", (reader) =>
+          stableJson(
+            reader.get(
+              `
+                SELECT * FROM canvas_entities
+                WHERE canvas_name = 'absent' AND entity_id = 'history'
+              `,
+            ),
+          ),
+        ),
+      ),
+    ).toBe(archivedBefore);
+  });
+
+  it("defers empty-source relational residue, preserves it exactly, and keeps non-Remote startup open", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedStaleRelationalResidue(state);
+    const authorityBefore = await runtime!.runPromise(
+      state.read("test.residue.before", snapshotCanvasAuthorityTables),
+    );
+    await dispose();
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect(await runtime!.runPromise(canvases.list)).toEqual([]);
+    expect(
+      errorSpy.mock.calls.some((call) =>
+        /unverifiable relational residue/.test(errorChainText(call[1])),
+      ),
+    ).toBe(true);
+    const liveState = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.residue.after", snapshotCanvasAuthorityTables),
+      ),
+    ).toEqual(authorityBefore);
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "pending", objectsIngested: 0 });
+  });
+
+  it("keeps legacy generation bytes authoritative when a matching-count relational manifest is poisoned", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const authoritative = noteDoc("authority", "legacy authority wins");
+    const poisoned = noteDoc("poison", "derived checkpoint must not win");
+    const source = generationMaterial({
+      generation: "9",
+      documents: [seedDoc("alpha", authoritative)],
+    });
+    await seedHistory(
+      state,
+      [{ generation: "9", documents: [seedDoc("alpha", authoritative)] }],
+      "9",
+    );
+    await seedPoisonedManifest(state, "9", "alpha", poisoned);
+    await dispose();
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    expect((await runtime!.runPromise(canvases.read("alpha"))).doc).toEqual(
+      authoritative,
+    );
+    const material = await runtime!.runPromise(
+      canvases.authorityMaterialSnapshot(),
+    );
+    expect(material.documents.get("alpha")).toEqual(authoritative);
+    expect(material.storedDocuments.get("alpha")).toMatchObject({
+      document: authoritative,
+      rawBody: serializeCanvas(authoritative),
+      revisionSha256: sha256(serializeCanvas(authoritative)),
+    });
+    expect(material.intentSha256).toBe(source.intentSha256);
+    expect(
+      await runtime!.runPromise(canvases.readWithIntentWitness("alpha")),
+    ).toMatchObject({
+      read: { doc: authoritative },
+      intentWitness: {
+        generation: "9",
+        contentSha256: source.intentSha256,
+      },
+    });
+    expect(await runtime!.runPromise(canvases.activeIntentWitness())).toEqual({
+      generation: "9",
+      contentSha256: source.intentSha256,
+    });
+    expect(
+      errorSpy.mock.calls.some((call) =>
+        /manifest|checkpoint/.test(errorChainText(call[1])),
+      ),
+    ).toBe(true);
   });
 
   it("walks a nonempty >2^63 gapped history, rewires before delete, retires removals, preserves logs, and restarts idempotently", async () => {
@@ -539,6 +1417,520 @@ describe("canvas relational v2 installed-state safety", () => {
     ).toEqual(countsBeforeRestart);
   });
 
+  it("preserves the first final absence generation and reproduces explicit resurrection semantics", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    const empty: CanvasDoc = applyMirrorLaw({ nodes: [], edges: [] });
+    await seedHistory(
+      state,
+      [
+        {
+          generation: "9",
+          documents: [
+            seedDoc("retired", noteDoc("retired-node", "present at nine")),
+            seedDoc("resurrected", noteDoc("returning-node", "first life")),
+          ],
+        },
+        {
+          generation: "11",
+          documents: [
+            seedDoc("retired", empty),
+            seedDoc("resurrected", empty),
+          ],
+        },
+        {
+          generation: "12",
+          documents: [
+            seedDoc("retired", empty),
+            seedDoc(
+              "resurrected",
+              noteDoc("returning-node", "resurrected at head"),
+            ),
+          ],
+        },
+      ],
+      "12",
+    );
+
+    expect(
+      await runtime!.runPromise(
+        runCanvasRelationalBackfill({ state, installOps }),
+      ),
+    ).toMatchObject({ status: "verified-pending-witness", headGeneration: "12" });
+    expect(
+      await runtime!.runPromise(
+        state.read("test.lifecycle-provenance", (reader) =>
+          reader.all<{
+            readonly canvas_name: string;
+            readonly object_id: string;
+            readonly first_seen_generation: string;
+            readonly deleted_generation: string | null;
+            readonly created_at: string;
+          }>(
+            `
+              SELECT document.canvas_name, object.object_id,
+                     object.first_seen_generation, object.deleted_generation,
+                     object.created_at
+              FROM canvas_objects AS object
+              JOIN canvas_documents AS document
+                ON document.canvas_id = object.canvas_id
+              WHERE object.object_id IN ('retired-node', 'returning-node')
+              ORDER BY document.canvas_name
+            `,
+          ),
+        ),
+      ),
+    ).toEqual([
+      {
+        canvas_name: "resurrected",
+        object_id: "returning-node",
+        first_seen_generation: "9",
+        deleted_generation: null,
+        created_at: NOW,
+      },
+      {
+        canvas_name: "retired",
+        object_id: "retired-node",
+        first_seen_generation: "9",
+        deleted_generation: "11",
+        created_at: NOW,
+      },
+    ]);
+  });
+
+  it("repairs legacy arbitrary-precision first-seen drift while preserving v1 created_at metadata", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    const empty: CanvasDoc = applyMirrorLaw({ nodes: [], edges: [] });
+    const live = noteDoc("late-node", "appears beyond signed 64-bit");
+    await seedHistory(
+      state,
+      [
+        { generation: "9", documents: [seedDoc("alpha", empty)] },
+        { generation: HUGE_1, documents: [seedDoc("alpha", live)] },
+        { generation: HUGE_2, documents: [seedDoc("alpha", live)] },
+      ],
+      HUGE_2,
+    );
+    const legacyCreatedAt = "2025-12-31T23:59:59.000Z";
+    await seedLegacyRelationalObject(state, {
+      canvasName: "alpha",
+      headGeneration: HUGE_2,
+      doc: live,
+      objectId: "late-node",
+      objectKind: "node",
+      firstSeenGeneration: HUGE_2,
+      createdAt: legacyCreatedAt,
+    });
+    await runtime!.runPromise(
+      installOps.markComplete(BACKFILL_CANVAS_RELATIONAL_V1, 1),
+    );
+
+    expect(
+      await runtime!.runPromise(
+        runCanvasRelationalBackfill({ state, installOps }),
+      ),
+    ).toMatchObject({ status: "verified-pending-witness" });
+    expect(
+      await runtime!.runPromise(
+        state.read("test.legacy-object-provenance", (reader) =>
+          reader.get<{
+            readonly first_seen_generation: string;
+            readonly created_at: string;
+          }>(
+            `
+              SELECT first_seen_generation, created_at
+              FROM canvas_objects
+              WHERE canvas_id = 'canvas_legacy_object'
+                AND object_id = 'late-node'
+            `,
+          ),
+        ),
+      ),
+    ).toEqual({
+      first_seen_generation: HUGE_1,
+      created_at: legacyCreatedAt,
+    });
+  });
+
+  it("defers existing object-kind drift and preserves the hostile row", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    const sourceDoc = noteDoc("stable-node", "source node");
+    await seedHistory(
+      state,
+      [{ generation: "9", documents: [seedDoc("alpha", sourceDoc)] }],
+      "9",
+    );
+    await seedLegacyRelationalObject(state, {
+      canvasName: "alpha",
+      headGeneration: "9",
+      doc: sourceDoc,
+      objectId: "stable-node",
+      objectKind: "edge",
+      firstSeenGeneration: "9",
+      createdAt: "2025-01-01T00:00:00.000Z",
+    });
+    const before = await runtime!.runPromise(
+      state.read("test.object-kind-drift.before", snapshotRelationalCurrentGraph),
+    );
+
+    let driftError: unknown;
+    try {
+      await runtime!.runPromise(
+        runCanvasRelationalBackfill({ state, installOps }),
+      );
+    } catch (error) {
+      driftError = error;
+    }
+    expect(errorChainText(driftError)).toMatch(/cross-kind identity/);
+    expect(
+      await runtime!.runPromise(
+        state.read("test.object-kind-drift.row", (reader) =>
+          reader.get<{
+            readonly object_kind: string;
+            readonly created_at: string;
+          }>(
+            `
+              SELECT object_kind, created_at
+              FROM canvas_objects
+              WHERE canvas_id = 'canvas_legacy_object'
+                AND object_id = 'stable-node'
+            `,
+          ),
+        ),
+      ),
+    ).toEqual({
+      object_kind: "edge",
+      created_at: "2025-01-01T00:00:00.000Z",
+    });
+    const after = await runtime!.runPromise(
+      state.read("test.object-kind-drift.after", snapshotRelationalCurrentGraph),
+    );
+    expect(after.canvas_objects).toEqual(before.canvas_objects);
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "pending" });
+  });
+
+  it("rechecks the captured source prefix inside current-head mutation and refuses a stale graph", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    await seedHistory(
+      state,
+      [{ generation: "9", documents: [seedDoc("alpha", noteDoc("node", "nine"))] }],
+      "9",
+    );
+    await runtime!.runPromise(
+      runCanvasRelationalBackfill({ state, installOps }),
+    );
+    const graphBefore = await runtime!.runPromise(
+      state.read("test.source-race.graph-before", snapshotRelationalCurrentGraph),
+    );
+
+    let advanced = false;
+    const advancingState: TestStateService = {
+      read: state.read,
+      transaction: <A>(
+        operation: string,
+        body: (writer: StateWriter) => A,
+      ): Effect.Effect<A, unknown> =>
+        operation === "canvas.relational.v2.current-head" && !advanced
+          ? Effect.gen(function* () {
+              advanced = true;
+              yield* state.transaction("test.source-race.advance", (writer) =>
+                appendHistoryGeneration(writer, {
+                  generation: "11",
+                  documents: [seedDoc("alpha", noteDoc("node", "eleven"))],
+                }),
+              );
+              return yield* state.transaction(operation, body);
+            })
+          : state.transaction(operation, body),
+    };
+
+    let advanceError: unknown;
+    try {
+      await runtime!.runPromise(
+        runCanvasRelationalBackfill({ state: advancingState, installOps }),
+      );
+    } catch (error) {
+      advanceError = error;
+    }
+    expect(errorChainText(advanceError)).toMatch(
+      /source prefix changed before relational current-head mutation/,
+    );
+    expect(advanced).toBe(true);
+    expect(
+      await runtime!.runPromise(
+        state.read("test.source-race.graph-after", snapshotRelationalCurrentGraph),
+      ),
+    ).toEqual(graphBefore);
+    expect(
+      await runtime!.runPromise(
+        state.read("test.source-race.head", (reader) =>
+          reader.get<{ readonly generation: string }>(
+            "SELECT generation FROM canvas_head WHERE singleton = 1",
+          )?.generation,
+        ),
+      ),
+    ).toBe("11");
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "pending" });
+  });
+
+  it("rechecks canonical role in every write transaction and commits nothing after a CC to Remote flip", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    const installOps = await runtime!.runPromise(InstallOpsService);
+    await seedHistory(
+      state,
+      [
+        { generation: "9", documents: [seedDoc("alpha", noteDoc("node", "nine"))] },
+        { generation: "11", documents: [seedDoc("alpha", noteDoc("node", "eleven"))] },
+      ],
+      "11",
+    );
+
+    let flipped = false;
+    let authorityAtFlip:
+      | Readonly<Record<string, { readonly count: number; readonly bytes: string }>>
+      | undefined;
+    const flippingState: TestStateService = {
+      read: state.read,
+      transaction: <A>(
+        operation: string,
+        body: (writer: StateWriter) => A,
+      ): Effect.Effect<A, unknown> =>
+        operation === "canvas.relational.v2.evidence.11" && !flipped
+          ? Effect.gen(function* () {
+              yield* state.transaction("test.role-race.flip", (writer) => {
+                writer.run(
+                  `
+                    INSERT INTO station_known_installations(
+                      installation_id, registered_at
+                    ) VALUES ('command-installation', ?)
+                  `,
+                  [NOW],
+                );
+                writer.run(
+                  `
+                    INSERT INTO station_configuration(
+                      singleton, role, host_id, agent_host_id,
+                      command_center_installation_id,
+                      supervised_preferred, configured_at
+                    ) VALUES (
+                      1, 'remote', 'remote-host', 'remote-host',
+                      'command-installation', 1, ?
+                    )
+                  `,
+                  [NOW],
+                );
+                authorityAtFlip = snapshotCanvasAuthorityTables(writer);
+              });
+              flipped = true;
+              return yield* state.transaction(operation, body);
+            })
+          : state.transaction(operation, body),
+    };
+
+    let roleRaceError: unknown;
+    try {
+      await runtime!.runPromise(
+        runCanvasRelationalBackfill({ state: flippingState, installOps }),
+      );
+    } catch (error) {
+      roleRaceError = error;
+    }
+    expect(errorChainText(roleRaceError)).toMatch(
+      /Remote role forbids authorial relational backfill mutation/,
+    );
+    expect(flipped).toBe(true);
+    expect(authorityAtFlip).toBeDefined();
+    expect(
+      await runtime!.runPromise(
+        state.read("test.role-race.after", snapshotCanvasAuthorityTables),
+      ),
+    ).toEqual(authorityAtFlip);
+    expect(
+      await runtime!.runPromise(
+        state.read("test.role-race.current-counts", (reader) => ({
+          objects: Number(
+            reader.get<{ readonly count: number | bigint }>(
+              "SELECT count(*) AS count FROM canvas_objects",
+            )?.count ?? -1,
+          ),
+          nodes: Number(
+            reader.get<{ readonly count: number | bigint }>(
+              "SELECT count(*) AS count FROM canvas_nodes",
+            )?.count ?? -1,
+          ),
+          edges: Number(
+            reader.get<{ readonly count: number | bigint }>(
+              "SELECT count(*) AS count FROM canvas_edges",
+            )?.count ?? -1,
+          ),
+        })),
+      ),
+    ).toEqual({ objects: 0, nodes: 0, edges: 0 });
+    expect(
+      await runtime!.runPromise(
+        installOps.getBackfill(BACKFILL_CANVAS_RELATIONAL_V2),
+      ),
+    ).toMatchObject({ status: "pending" });
+  });
+
+  it("holds real CanvasesLive authoring behind bootstrap and commits it after relational readiness", async () => {
+    const path = await paths();
+    runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
+    const state = await runtime!.runPromise(StateEngine);
+    await seedHistory(
+      state,
+      [{ generation: "9", documents: [seedDoc("alpha", noteDoc("node", "before"))] }],
+      "9",
+    );
+    await dispose();
+
+    let releaseBackfill!: () => void;
+    const backfillGate = new Promise<void>((resolve) => {
+      releaseBackfill = resolve;
+    });
+    let announceBackfillEntered!: () => void;
+    const backfillEntered = new Promise<void>((resolve) => {
+      announceBackfillEntered = resolve;
+    });
+    let paused = false;
+    const markers = new Map<string, {
+      readonly id: string;
+      readonly status: "pending" | "complete";
+      readonly objectsIngested: number;
+      readonly completedAt: string | undefined;
+    }>();
+    const pausedInstallOps = InstallOpsService.of({
+      path: path.installOpsPath,
+      availability: { status: "available" },
+      getBackfill: (id) => {
+        const read = () => Effect.succeed(markers.get(id));
+        if (id !== BACKFILL_CANVAS_RELATIONAL_V2 || paused) return read();
+        paused = true;
+        announceBackfillEntered();
+        return Effect.promise(() => backfillGate).pipe(Effect.flatMap(read));
+      },
+      ensurePending: (id) =>
+        Effect.sync(() => {
+          if (!markers.has(id)) {
+            markers.set(id, {
+              id,
+              status: "pending",
+              objectsIngested: 0,
+              completedAt: undefined,
+            });
+          }
+        }),
+      reopenPending: (id) =>
+        Effect.sync(() => {
+          const marker = markers.get(id);
+          markers.set(id, {
+            id,
+            status: "pending",
+            objectsIngested: marker?.objectsIngested ?? 0,
+            completedAt: undefined,
+          });
+        }),
+      markComplete: (id, objectsIngested) =>
+        Effect.sync(() => {
+          markers.set(id, {
+            id,
+            status: "complete",
+            objectsIngested,
+            completedAt: NOW,
+          });
+        }),
+    });
+    runtime = makeCanvasRuntime(
+      path.statePath,
+      path.installOpsPath,
+      path.root,
+      Layer.succeed(InstallOpsService, pausedInstallOps),
+    );
+    const canvases = await runtime!.runPromise(CanvasesService);
+    const liveState = await runtime!.runPromise(StateEngine);
+    canvases.start();
+    await backfillEntered;
+
+    let writeSettled = false;
+    const writePromise = runtime!
+      .runPromise(
+        canvases.applyAuthoringCommand({
+          kind: DOCUMENT_REPLACE_V1,
+          changeId: "chg_readiness_race",
+          canvasName: "alpha",
+          doc: noteDoc("node", "after readiness"),
+        }),
+      )
+      .finally(() => {
+        writeSettled = true;
+      });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(writeSettled).toBe(false);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.readiness.head-before-release", (reader) =>
+          reader.get<{ readonly generation: string }>(
+            "SELECT generation FROM canvas_head WHERE singleton = 1",
+          )?.generation,
+        ),
+      ),
+    ).toBe("9");
+
+    releaseBackfill();
+    await writePromise;
+    expect(writeSettled).toBe(true);
+    expect(
+      await runtime!.runPromise(
+        liveState.read("test.readiness.after", (reader) => ({
+          sourceHead: reader.get<{ readonly generation: string }>(
+            "SELECT generation FROM canvas_head WHERE singleton = 1",
+          )?.generation,
+          relationalHead: reader.get<{ readonly head_generation: string }>(
+            "SELECT head_generation FROM canvas_documents WHERE canvas_name = 'alpha'",
+          )?.head_generation,
+          relationalText: reader.get<{ readonly text_content: string | null }>(
+            `
+              SELECT node.text_content
+              FROM canvas_nodes AS node
+              JOIN canvas_documents AS document
+                ON document.canvas_id = node.canvas_id
+              WHERE document.canvas_name = 'alpha' AND node.node_id = 'node'
+            `,
+          )?.text_content,
+        })),
+      ),
+    ).toEqual({
+      sourceHead: "10",
+      relationalHead: "10",
+      relationalText: "after readiness",
+    });
+    expect(markers.get(BACKFILL_CANVAS_RELATIONAL_V2)).toMatchObject({
+      status: "pending",
+    });
+  });
+
   it("leaves v2 pending across an injected crash and completes the idempotent walk on restart", async () => {
     const path = await paths();
     runtime = makeCoreRuntime(path.statePath, path.installOpsPath);
@@ -606,10 +1998,11 @@ describe("canvas relational v2 installed-state safety", () => {
     readonly error: RegExp;
   };
 
-  const validHistorical = seedDoc("history", noteDoc("old", "history"));
+  const validHistoricalDoc = noteDoc("old", "history");
+  const validHistorical = seedDoc("history", validHistoricalDoc);
   const validCurrent = seedDoc("current", noteDoc("head", "current"));
   const historicalSha = sha256(validHistorical.body);
-  const historicalSemantic = canvasDocSemanticHash(noteDoc("old", "history"));
+  const historicalSemantic = canvasDocSemanticHash(validHistoricalDoc);
 
   const failureCases: ReadonlyArray<FailureCase> = [
     {

@@ -59,10 +59,7 @@ import {
 import {
   runCanvasRelationalBackfill,
 } from "./canvas/relational-backfill";
-import {
-  persistRelationalPortfolio,
-  readManifestDocuments,
-} from "./canvas/relational-records";
+import { persistRelationalPortfolio } from "./canvas/relational-records";
 import {
   appendDocumentReplaceTail,
   assertObjectHashesAdmit,
@@ -470,21 +467,17 @@ const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
   }
 
   const documents = new Map<string, StoredCanvas>();
-  const manifestRows = readManifestDocuments(reader, head.generation);
-  const sourceRows =
-    manifestRows.length === Number(head.document_count)
-      ? manifestRows.map((row) => ({
-          name: row.name,
-          body: row.body,
-          sha256: row.sha256,
-          modified_at: row.modifiedAt,
-        }))
-      : reader.all<{
-          readonly name: string;
-          readonly body: string;
-          readonly sha256: string;
-          readonly modified_at: string;
-        }>(DOCUMENTS_SQL, [head.generation]);
+  // Relational v2 rows are derived verification state, not read authority. A
+  // matching manifest count cannot authenticate its checkpoint bytes. Until
+  // install-ops carries a durable source-prefix/parity witness, every current
+  // read and export stays on the preserved generation document that every
+  // authorial write still emits.
+  const sourceRows = reader.all<{
+    readonly name: string;
+    readonly body: string;
+    readonly sha256: string;
+    readonly modified_at: string;
+  }>(DOCUMENTS_SQL, [head.generation]);
   for (const row of sourceRows) {
     const name = canvasNameFrom(row.name);
     if (name !== row.name || documents.has(name)) {
@@ -1198,6 +1191,15 @@ export const CanvasesLive = Layer.effect(
   };
 
   const bootstrap = Effect.gen(function* () {
+    // A Remote's active portfolio is its replace-only Station projection. Gate
+    // all authorial bootstrap work from canonical role state before even
+    // inspecting stale source rows. runCanvasRelationalBackfill repeats this
+    // check for direct callers and role races.
+    const stationRole = yield* state
+      .read("canvas.bootstrap.station-role", readLocalStationRole)
+      .pipe(Effect.mapError(toCanvasError));
+    if (stationRole === "remote") return;
+
     const status = yield* state
       .read("canvas.bootstrap.status", (reader) => ({
         hasHead:
@@ -1212,53 +1214,60 @@ export const CanvasesLive = Layer.effect(
       }))
       .pipe(Effect.mapError(toCanvasError));
 
-    if (!status.hasHead) {
-      if (status.generations > 0) {
-        return yield* Effect.fail(
-          new CanvasError({
-            message:
-              "canvas database head is missing while generation rows exist; recovery required",
-          }),
-        );
-      }
-      // Clean cutover: an empty database is a fresh installation. Derivative
-      // projection outputs are deliberately never consulted or imported.
-      return;
+    if (!status.hasHead && status.generations > 0) {
+      return yield* Effect.fail(
+        new CanvasError({
+          message:
+            "canvas database head is missing while generation rows exist; recovery required",
+        }),
+      );
     }
 
     // Heal registry gaps when active membership diverges from the head doc
-    // (incomplete v5→v6 backfill, wiped rows). Skip when already aligned so
-    // every launch does not rewrite entity rows. Remote has no authorial
-    // registry duty — projection is membership.
+    // (incomplete v5→v6 backfill, wiped rows). An exact empty source has no
+    // active authorial membership, so archive active rows while preserving the
+    // archived/soft-deleted identity ledger. Missing-head nonempty history was
+    // refused above and never reaches reconciliation.
     yield* state
       .transaction("canvas.entity-reconcile", (writer) => {
+        // Close a serialized configure race after the startup role guard.
         if (readLocalStationRole(writer) === "remote") return;
         const now = new Date().toISOString();
+        const activeCanvasNames = new Set(
+          writer
+            .all<{ readonly canvas_name: string }>(
+              `
+                SELECT DISTINCT canvas_name
+                FROM canvas_entities
+                WHERE lifecycle = 'active'
+              `,
+            )
+            .map((row) => row.canvas_name),
+        );
+        if (!status.hasHead) {
+          for (const canvasName of activeCanvasNames) {
+            archiveAllCanvasEntities(writer, canvasName, now);
+          }
+          return;
+        }
+
         const snapshot = readStoredAuthority(writer);
+        for (const canvasName of activeCanvasNames) {
+          if (!snapshot.documents.has(canvasName)) {
+            archiveAllCanvasEntities(writer, canvasName, now);
+          }
+        }
         for (const [name, entry] of snapshot.documents) {
-          const activeIds = new Set(
-            writer
-              .all<{ readonly entity_id: string }>(
-                `
-                  SELECT entity_id
-                  FROM canvas_entities
-                  WHERE canvas_name = ?
-                    AND lifecycle = 'active'
-                `,
-                [name],
-              )
-              .map((row) => row.entity_id),
-          );
-          const nodeIds = entry.doc.nodes.map((node) => node.id);
-          const aligned =
-            activeIds.size === nodeIds.length &&
-            nodeIds.every((id) => activeIds.has(id));
-          if (aligned) continue;
+          // syncCanvasEntities already reads the full lifecycle/kind/binding
+          // view once and writes only its dirty set. An ID-only shortcut would
+          // miss same-ID provenance drift and is not a safe alignment proof.
           syncCanvasEntities(writer, name, entry.doc, now);
         }
       })
       .pipe(Effect.mapError(toCanvasError));
 
+    // Empty authorial source is still a parity claim: v2 must prove that no
+    // unverifiable live relational residue exists instead of returning early.
     if (Option.isSome(installOpsOption)) {
       yield* runCanvasRelationalBackfill({
         state,
@@ -1580,21 +1589,29 @@ export const CanvasesLive = Layer.effect(
       readonly objectHashes?: Readonly<Record<string, string>>;
     },
   ): Effect.Effect<CanvasWriteResult, CanvasError> =>
-    applyAuthoringCommand({
-      kind: DOCUMENT_REPLACE_V1,
-      changeId: command?.changeId ?? `chg_${ulid().toLowerCase()}`,
-      canvasName: name,
-      doc,
-      ...(expectedRevision !== undefined ? { baseBodyHash: expectedRevision } : {}),
-      ...(command?.objectHashes !== undefined
-        ? { objectHashes: command.objectHashes }
-        : {}),
-    }).pipe(Effect.map(({ revision }) => ({ revision })));
+    ensureReady.pipe(
+      Effect.flatMap(() =>
+        applyAuthoringCommand({
+          kind: DOCUMENT_REPLACE_V1,
+          changeId: command?.changeId ?? `chg_${ulid().toLowerCase()}`,
+          canvasName: name,
+          doc,
+          ...(expectedRevision !== undefined
+            ? { baseBodyHash: expectedRevision }
+            : {}),
+          ...(command?.objectHashes !== undefined
+            ? { objectHashes: command.objectHashes }
+            : {}),
+        }),
+      ),
+      Effect.map(({ revision }) => ({ revision })),
+    );
 
   const applyAuthoringCommand = (
     command: unknown,
   ): Effect.Effect<AuthoringCommandResult, CanvasError> =>
     Effect.gen(function* () {
+      yield* ensureReady;
       const decoded = decodeAuthoringCommand(command);
       if (Result.isFailure(decoded)) {
         return yield* Effect.fail(
@@ -1636,6 +1653,7 @@ export const CanvasesLive = Layer.effect(
     fn: (doc: CanvasDoc) => CanvasDoc,
   ): Effect.Effect<void, CanvasError> =>
     Effect.gen(function* () {
+      yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
@@ -1689,6 +1707,7 @@ export const CanvasesLive = Layer.effect(
 
   const create = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
     Effect.gen(function* () {
+      yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
@@ -1728,6 +1747,7 @@ export const CanvasesLive = Layer.effect(
 
   const remove = (name: string): Effect.Effect<{ name: string }, CanvasError> =>
     Effect.gen(function* () {
+      yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
@@ -1765,32 +1785,32 @@ export const CanvasesLive = Layer.effect(
       return { name: canonicalName };
     });
 
-  const ensureSeed: Effect.Effect<void, CanvasError> = transaction(
-    "canvas.seed",
-    (writer) => {
-      const current = readStoredAuthority(writer);
-      if (current.documents.size > 0) return undefined;
-      const name = canvasNameFrom(SEED_CANVAS_NAME);
-      const entry = normalizeCanvas(
-        name,
-        { nodes: [], edges: [] },
-        new Date().toISOString(),
-        "seed",
-      );
-      const documents = new Map(current.documents);
-      documents.set(name, entry);
-      const commit = commitFullGeneration(
-        writer,
-        current,
-        documents,
-        "seed",
-      );
-      if (commit.changed) {
-        syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
-      }
-      return commit.changed ? { name, entry } : undefined;
-    },
-  ).pipe(
+  const ensureSeed: Effect.Effect<void, CanvasError> = ensureReady.pipe(
+    Effect.flatMap(() =>
+      transaction("canvas.seed", (writer) => {
+        const current = readStoredAuthority(writer);
+        if (current.documents.size > 0) return undefined;
+        const name = canvasNameFrom(SEED_CANVAS_NAME);
+        const entry = normalizeCanvas(
+          name,
+          { nodes: [], edges: [] },
+          new Date().toISOString(),
+          "seed",
+        );
+        const documents = new Map(current.documents);
+        documents.set(name, entry);
+        const commit = commitFullGeneration(
+          writer,
+          current,
+          documents,
+          "seed",
+        );
+        if (commit.changed) {
+          syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+        }
+        return commit.changed ? { name, entry } : undefined;
+      }),
+    ),
     Effect.tap((created) =>
       created === undefined
         ? Effect.void

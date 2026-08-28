@@ -15,6 +15,7 @@ import type {
   InstallOpsServiceShape,
 } from "../install-ops/service";
 import { BACKFILL_CANVAS_RELATIONAL_V2 } from "../install-ops/schema";
+import { selectStationConfiguration } from "../station/configuration-state";
 import {
   compareDecimalGenerations,
   orderDecimalGenerations,
@@ -52,16 +53,22 @@ export {
 export const CANVAS_RELATIONAL_V2_WITNESS_FOLLOW_UP =
   "install-ops needs an append-only v1 -> v2 schema step that binds canvas.relational.v2 completion atomically to source_prefix_sha256 and head_generation; until then the verified walk remains pending";
 
-export type CanvasRelationalBackfillReport = {
-  readonly status: "verified-pending-witness";
-  readonly canvasesProcessed: number;
-  readonly checkpointsCreated: number;
-  readonly nodesCreated: number;
-  readonly edgesCreated: number;
-  readonly headGeneration: string | null;
-  readonly sourcePrefixSha256: string;
-  readonly followUp: string;
-};
+export type CanvasRelationalBackfillReport =
+  | {
+      readonly status: "verified-pending-witness";
+      readonly canvasesProcessed: number;
+      readonly checkpointsCreated: number;
+      readonly nodesCreated: number;
+      readonly edgesCreated: number;
+      readonly headGeneration: string | null;
+      readonly sourcePrefixSha256: string;
+      readonly followUp: string;
+    }
+  | {
+      /** Remote projections are replace-only and never authorial backfill input. */
+      readonly status: "skipped-remote";
+      readonly reason: "authorial-relational-backfill-disabled-on-remote";
+    };
 
 export class CanvasRelationalBackfillError extends Error {
   constructor(message: string, options?: { readonly cause?: unknown }) {
@@ -118,6 +125,8 @@ type VerifiedSourceGeneration = {
 type HistoricalObjectIdentity = {
   readonly kind: "node" | "edge";
   readonly firstSeenGeneration: DecimalGeneration;
+  readonly deletedGeneration: DecimalGeneration | null;
+  /** Used only when the derived identity row is missing; never compared/re-written. */
   readonly createdAt: string;
 };
 
@@ -138,11 +147,29 @@ type EvidenceCounts = {
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 
+const RELATIONAL_AUTHORITY_TABLES = [
+  "canvas_documents",
+  "canvas_objects",
+  "canvas_nodes",
+  "canvas_edges",
+  "canvas_checkpoints",
+  "canvas_generation_manifests",
+  "canvas_commit_envelopes",
+] as const;
+
 const fail = (message: string, cause?: unknown): never => {
   throw new CanvasRelationalBackfillError(
     message,
     cause === undefined ? undefined : { cause },
   );
+};
+
+const assertAuthorialRelationalRole = (reader: StateReader): void => {
+  if (selectStationConfiguration(reader)?.configuration.role === "remote") {
+    return fail(
+      "Remote role forbids authorial relational backfill mutation",
+    );
+  }
 };
 
 const tableExists = (reader: StateReader, table: string): boolean =>
@@ -329,10 +356,7 @@ const readVerifiedSourcePrefix = (
     "canvas_generations",
     "canvas_generation_documents",
     "canvas_head",
-    "canvas_documents",
-    "canvas_checkpoints",
-    "canvas_commit_envelopes",
-    "canvas_generation_manifests",
+    ...RELATIONAL_AUTHORITY_TABLES,
   ]) {
     if (!tableExists(reader, table)) {
       return fail(`canvas relational v2 cannot run: missing table ${table}`);
@@ -445,6 +469,7 @@ const readVerifiedSourcePrefix = (
           history.set(node.id, {
             kind: "node",
             firstSeenGeneration: generation,
+            deletedGeneration: null,
             createdAt: document.modifiedAt,
           });
         }
@@ -460,6 +485,7 @@ const readVerifiedSourcePrefix = (
           history.set(edge.id, {
             kind: "edge",
             firstSeenGeneration: generation,
+            deletedGeneration: null,
             createdAt: document.modifiedAt,
           });
         }
@@ -483,6 +509,38 @@ const readVerifiedSourcePrefix = (
   for (const generation of rowsByGeneration.keys()) {
     if (!rowByGeneration.has(generation)) {
       return fail(`canvas document rows reference unknown generation ${generation}`);
+    }
+  }
+
+  // Normal per-generation persistence tombstones an object at the first
+  // generation where it becomes absent. A later upsert explicitly clears that
+  // tombstone, so a resurrection that remains live at head is representable as
+  // deleted_generation = NULL. For an object absent at head, retain the first
+  // generation of its final contiguous absent run rather than inventing the
+  // current head as its deletion provenance.
+  for (const [canvasName, history] of objectHistory) {
+    for (const [objectId, identity] of history) {
+      let seen = false;
+      let deletedGeneration: DecimalGeneration | null = null;
+      for (const generation of generations) {
+        const document = generation.documents.get(canvasName);
+        const present =
+          identity.kind === "node"
+            ? document?.doc.nodes.some((node) => node.id === objectId) === true
+            : document?.doc.edges.some((edge) => edge.id === objectId) === true;
+        if (present) {
+          seen = true;
+          deletedGeneration = null;
+        } else if (seen && deletedGeneration === null) {
+          deletedGeneration = generation.generation;
+        }
+      }
+      if (!seen) {
+        return fail(
+          `canvas ${canvasName} relational object ${objectId} has no source appearance`,
+        );
+      }
+      history.set(objectId, { ...identity, deletedGeneration });
     }
   }
 
@@ -866,6 +924,97 @@ const ensureHistoricalObjectIdentities = (
   }
 };
 
+const reconcileHistoricalObjectLifecycles = (
+  writer: StateWriter,
+  prefix: VerifiedSourcePrefix,
+): void => {
+  for (const [canvasName, history] of prefix.objectHistory) {
+    const canvas = writer.get<{ readonly canvas_id: string }>(
+      "SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?",
+      [canvasName],
+    );
+    if (canvas === undefined) {
+      return fail(`historical canvas ${canvasName} has no relational identity`);
+    }
+    for (const [objectId, identity] of history) {
+      const row = writer.get<{
+        readonly object_kind: "node" | "edge";
+        readonly first_seen_generation: string;
+        readonly deleted_generation: string | null;
+      }>(
+        `
+          SELECT object_kind, first_seen_generation, deleted_generation
+          FROM canvas_objects
+          WHERE canvas_id = ? AND object_id = ?
+        `,
+        [canvas.canvas_id, objectId],
+      );
+      if (row === undefined) {
+        return fail(
+          `canvas ${canvasName} relational object ${objectId} is missing its lifecycle row`,
+        );
+      }
+      if (
+        row.object_kind !== identity.kind ||
+        row.first_seen_generation !== identity.firstSeenGeneration
+      ) {
+        return fail(
+          `canvas ${canvasName} relational object ${objectId} lifecycle identity mismatch`,
+        );
+      }
+      if (row.deleted_generation !== identity.deletedGeneration) {
+        writer.run(
+          `
+            UPDATE canvas_objects
+            SET deleted_generation = ?
+            WHERE canvas_id = ? AND object_id = ?
+          `,
+          [identity.deletedGeneration, canvas.canvas_id, objectId],
+        );
+      }
+    }
+  }
+};
+
+const assertHistoricalObjectLifecycleParity = (
+  reader: StateReader,
+  prefix: VerifiedSourcePrefix,
+): void => {
+  for (const [canvasName, history] of prefix.objectHistory) {
+    const canvas = reader.get<{ readonly canvas_id: string }>(
+      "SELECT canvas_id FROM canvas_documents WHERE canvas_name = ?",
+      [canvasName],
+    );
+    if (canvas === undefined) {
+      return fail(`historical canvas ${canvasName} has no relational identity`);
+    }
+    for (const [objectId, identity] of history) {
+      const row = reader.get<{
+        readonly object_kind: "node" | "edge";
+        readonly first_seen_generation: string;
+        readonly deleted_generation: string | null;
+      }>(
+        `
+          SELECT object_kind, first_seen_generation, deleted_generation
+          FROM canvas_objects
+          WHERE canvas_id = ? AND object_id = ?
+        `,
+        [canvas.canvas_id, objectId],
+      );
+      if (
+        row === undefined ||
+        row.object_kind !== identity.kind ||
+        row.first_seen_generation !== identity.firstSeenGeneration ||
+        row.deleted_generation !== identity.deletedGeneration
+      ) {
+        return fail(
+          `canvas ${canvasName} relational object ${objectId} lifecycle provenance mismatch`,
+        );
+      }
+    }
+  }
+};
+
 const applyCurrentHead = (
   writer: StateWriter,
   prefix: VerifiedSourcePrefix,
@@ -899,7 +1048,22 @@ const assertCurrentHeadParity = (
   reader: StateReader,
   prefix: VerifiedSourcePrefix,
 ): void => {
-  if (prefix.headGeneration === null) return;
+  if (prefix.headGeneration === null) {
+    for (const table of RELATIONAL_AUTHORITY_TABLES) {
+      const row = reader.get<{ readonly count: number | bigint }>(
+        `SELECT count(*) AS count FROM ${table}`,
+      );
+      if (
+        row === undefined ||
+        checkedCount(row.count, `empty-source ${table} row count`) !== 0
+      ) {
+        return fail(
+          `empty canvas source has unverifiable relational residue in ${table}`,
+        );
+      }
+    }
+    return;
+  }
   const head = prefix.generations.at(-1);
   if (head === undefined || head.generation !== prefix.headGeneration) {
     return fail("cannot prove relational parity without the verified current head");
@@ -995,6 +1159,7 @@ const assertFullParity = (
   for (const generation of actualPrefix.generations) {
     assertGenerationEvidence(reader, generation);
   }
+  assertHistoricalObjectLifecycleParity(reader, actualPrefix);
   assertCurrentHeadParity(reader, actualPrefix);
 };
 
@@ -1011,6 +1176,7 @@ export const backfillGenerationToRelational = (
   readonly nodes: number;
   readonly edges: number;
 } => {
+  assertAuthorialRelationalRole(writer);
   const prefix = readVerifiedSourcePrefix(writer);
   const target = prefix.generations.find((entry) => entry.generation === generation);
   if (target === undefined) {
@@ -1018,12 +1184,16 @@ export const backfillGenerationToRelational = (
   }
   const evidence = ensureGenerationEvidence(writer, target);
   ensureHistoricalObjectIdentities(writer, prefix, target.generation);
-  const graph =
-    prefix.headGeneration === target.generation
-      ? applyCurrentHead(writer, prefix)
-      : { nodes: 0, edges: 0 };
+  const isHead = prefix.headGeneration === target.generation;
+  const graph = isHead
+    ? applyCurrentHead(writer, prefix)
+    : { nodes: 0, edges: 0 };
+  if (isHead) {
+    reconcileHistoricalObjectLifecycles(writer, prefix);
+  }
   assertGenerationEvidence(writer, target);
-  if (prefix.headGeneration === target.generation) {
+  if (isHead) {
+    assertHistoricalObjectLifecycleParity(writer, prefix);
     assertCurrentHeadParity(writer, prefix);
   }
   return { ...evidence, ...graph };
@@ -1043,6 +1213,21 @@ export const runCanvasRelationalBackfill = (input: {
   CanvasRelationalBackfillError | InstallOpsError | unknown
 > =>
   Effect.gen(function* () {
+    // Role is canonical product state. Check it before touching install-ops or
+    // reading any authorial source/relational row. The caller also gates Remote
+    // startup, but this boundary must remain safe when invoked directly.
+    const stationRole = yield* input.state.read(
+      "canvas.relational.v2.station-role",
+      (reader) =>
+        selectStationConfiguration(reader)?.configuration.role ?? "",
+    );
+    if (stationRole === "remote") {
+      return {
+        status: "skipped-remote" as const,
+        reason: "authorial-relational-backfill-disabled-on-remote" as const,
+      };
+    }
+
     const marker = yield* input.installOps.getBackfill(
       BACKFILL_CANVAS_RELATIONAL_V2,
     );
@@ -1060,22 +1245,52 @@ export const runCanvasRelationalBackfill = (input: {
     );
     let canvases = 0;
     let checkpoints = 0;
-    for (const generation of prefix.generations) {
-      const counts = yield* input.state.transaction(
-        `canvas.relational.v2.evidence.${generation.generation}`,
-        (writer) => ensureGenerationEvidence(writer, generation),
+    let graph = { nodes: 0, edges: 0 };
+    if (prefix.headGeneration !== null) {
+      for (const generation of prefix.generations) {
+        const counts = yield* input.state.transaction(
+          `canvas.relational.v2.evidence.${generation.generation}`,
+          (writer) => {
+            assertAuthorialRelationalRole(writer);
+            return ensureGenerationEvidence(writer, generation);
+          },
+        );
+        canvases += counts.canvases;
+        checkpoints += counts.checkpoints;
+      }
+      yield* input.state.transaction(
+        "canvas.relational.v2.object-history",
+        (writer) => {
+          assertAuthorialRelationalRole(writer);
+          return ensureHistoricalObjectIdentities(writer, prefix);
+        },
       );
-      canvases += counts.canvases;
-      checkpoints += counts.checkpoints;
+      graph = yield* input.state.transaction(
+        "canvas.relational.v2.current-head",
+        (writer) => {
+          // Role admission and source authentication share the exact SQLite
+          // transaction that mutates the graph. A serialized CC -> Remote flip
+          // therefore prevents every later authorial relational write.
+          assertAuthorialRelationalRole(writer);
+          // Re-authenticate inside the same SQLite transaction that mutates the
+          // current graph. This transaction serializes with normal authoring
+          // writes, so a head advance cannot make us apply a captured stale
+          // prefix and then discover the downgrade only in post-write parity.
+          const admittedPrefix = readVerifiedSourcePrefix(writer);
+          if (
+            admittedPrefix.headGeneration !== prefix.headGeneration ||
+            admittedPrefix.sourcePrefixSha256 !== prefix.sourcePrefixSha256
+          ) {
+            return fail(
+              "canvas source prefix changed before relational current-head mutation",
+            );
+          }
+          const counts = applyCurrentHead(writer, prefix);
+          reconcileHistoricalObjectLifecycles(writer, prefix);
+          return counts;
+        },
+      );
     }
-    yield* input.state.transaction(
-      "canvas.relational.v2.object-history",
-      (writer) => ensureHistoricalObjectIdentities(writer, prefix),
-    );
-    const graph = yield* input.state.transaction(
-      "canvas.relational.v2.current-head",
-      (writer) => applyCurrentHead(writer, prefix),
-    );
     yield* input.state.read(
       "canvas.relational.v2.parity",
       (reader) => assertFullParity(reader, prefix),
@@ -1096,9 +1311,11 @@ export const runCanvasRelationalBackfill = (input: {
   }).pipe(
     Effect.tap((report) =>
       Effect.sync(() => {
-        console.warn(
-          `[canvases] relational v2 verified ${report.sourcePrefixSha256}; ${report.followUp}`,
-        );
+        if (report.status === "verified-pending-witness") {
+          console.warn(
+            `[canvases] relational v2 verified ${report.sourcePrefixSha256}; ${report.followUp}`,
+          );
+        }
       }),
     ),
     Effect.mapError((error) =>
