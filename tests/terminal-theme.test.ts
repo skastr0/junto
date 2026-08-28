@@ -29,8 +29,23 @@ describe("xtermThemeFor", () => {
     const theme = xtermThemeFor("bright");
     expect(theme.background).toBe(t.ground);
     expect(theme.foreground).toBe(t.ink);
+    expect(theme.cursor).toBe(t["main-fg"]);
+    expect(theme.black).toBe(t.ink);
     expect(theme.red).toBe(t.crimson);
+    expect(theme.green).toBe(t.green);
+    expect(theme.yellow).toBe(t.gold);
+    expect(theme.blue).toBe(t.indigo);
+    expect(theme.magenta).toBe(t.violet);
     expect(theme.cyan).toBe(t.cyan);
+    expect(theme.white).toBe(t.well);
+    expect(theme.brightBlack).toBe(t.faint);
+    expect(theme.brightRed).toBe(t["crimson-fg"]);
+    expect(theme.brightGreen).toBe(t.green);
+    expect(theme.brightYellow).toBe(t.amber);
+    expect(theme.brightBlue).toBe(t.indigo);
+    expect(theme.brightMagenta).toBe(t.violet);
+    expect(theme.brightCyan).toBe(t["cyan-fg"]);
+    expect(theme.brightWhite).toBe(t.raise);
     // Bright paper ground is light; ink is dark.
     expect(theme.background).not.toBe(xtermThemeFor("dark").background);
     expect(theme.foreground).not.toBe(xtermThemeFor("dark").foreground);

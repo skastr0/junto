@@ -46,8 +46,9 @@ describe("Semantic compatibility adapter boundary", () => {
       // Operational admission must fail closed
       const admission = admitOperationally(evalResult);
       expect(admission.admitted).toBe(false);
-      if (admission.admitted) throw new Error("Restricted semantics were admitted");
-      expect(admission.reasonCode).toBe("restricted-semantics-not-admitted");
+      if (!admission.admitted) {
+        expect(admission.reasonCode).toBe("restricted-semantics-not-admitted");
+      }
     });
 
     it("fails closed with Unsupported on authority-widening grants", () => {
@@ -62,8 +63,9 @@ describe("Semantic compatibility adapter boundary", () => {
 
       const admission = admitOperationally(evalResult);
       expect(admission.admitted).toBe(false);
-      if (admission.admitted) throw new Error("Widened grants were admitted");
-      expect(admission.reasonCode).toBe("grant-widening");
+      if (!admission.admitted) {
+        expect(admission.reasonCode).toBe("grant-widening");
+      }
     });
 
     it("adversarial property testing: randomly generated port sets never widen authority", () => {

@@ -1,6 +1,6 @@
 /**
- * Typed wrappers over the demo/scripting engine's EDL/state IPC surface
- * (window.vellumCommand.demoWriteEdl / demoState — see src/shared/demo.ts).
+ * Typed wrappers over the demo/scripting engine's IPC surface
+ * (window.vellumCommand.demoWriteEdl — see src/shared/demo.ts).
  * Only live when the app was launched with `demo: true` (VELLUM_COMMAND_DEMO=1);
  * off-demo the channels answer inert ok:false, never touching real state.
  */

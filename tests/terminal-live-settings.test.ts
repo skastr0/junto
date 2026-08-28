@@ -273,7 +273,7 @@ describe("applyTerminalPreferences", () => {
       cursorStyle: "bar",
       scrollSensitivity: 6,
       screenReaderMode: true,
-      minimumContrastRatio: 4.5,
+      minimumContrastRatio: 7,
     });
 
     expect(options.fontSize).toBe(17);
@@ -281,12 +281,13 @@ describe("applyTerminalPreferences", () => {
     expect(options.scrollSensitivity).toBe(6);
     expect(options.fastScrollSensitivity).toBe(30);
     expect(options.screenReaderMode).toBe(true);
-    expect(options.minimumContrastRatio).toBe(4.5);
+    expect(options.minimumContrastRatio).toBe(7);
     expect([...applied.write.changed].sort()).toEqual(
       [
         "cursorStyle",
         "fastScrollSensitivity",
         "fontSize",
+        "minimumContrastRatio",
         "screenReaderMode",
         "scrollSensitivity",
       ].sort(),
