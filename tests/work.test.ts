@@ -30,6 +30,7 @@ import {
   PIPELINE_ADMITTED_METADATA_KEY,
   taskAdmissionState,
 } from "../src/shared/claims";
+import { TICKET_OUTPUT_TAIL_MAX_BYTES } from "../src/shared/work-model";
 import { materializePendingProposal } from "../src/shared/pending-proposal-backfill";
 import {
   ActorRef,
@@ -1758,6 +1759,93 @@ describe("WorkService — concurrent ops", () => {
     ).toBeUndefined();
   });
 
+  it("appends one operator comment to the task thread and binds a mailbox ack", async () => {
+    const name = "work-comment-react";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          emptyTaskNode("tasks"),
+          agentNode("sender"),
+          agentNode("owner"),
+        ],
+        edges: [
+          {
+            id: "edge-mail",
+            fromNode: "sender",
+            toNode: "owner",
+            ether: { verb: "messages" },
+          },
+        ],
+      })
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "tasks", "comment me", { details: "comment me" })
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const taskId = created.data.id;
+
+    const comment: Message = {
+      messageId: "operator-comment-1",
+      role: "user",
+      parts: [{ kind: "text", text: "Check the retry boundary." }],
+    };
+    const commented = await workRuntime.runPromise(
+      work.workTaskComment(name, "tasks", taskId, comment)
+    );
+    expect(commented.ok).toBe(true);
+    if (!commented.ok) return;
+
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const task = read.doc.nodes
+      .find((n) => n.id === "tasks")
+      ?.ether?.tasks?.items.find((t) => t.id === taskId);
+    // Exactly one appended message — brief + comment, with the author's own
+    // id and role intact (the thread is the record, not a rewrite of it).
+    expect(task?.history).toHaveLength(2);
+    expect(task?.history.at(-1)).toMatchObject({
+      messageId: "operator-comment-1",
+      role: "user",
+      taskId,
+      parts: [{ kind: "text", text: "Check the retry boundary." }],
+    });
+
+    const sender = read.actorRefs.find((ref) => ref.nodeId === "sender");
+    const owner = read.actorRefs.find((ref) => ref.nodeId === "owner");
+    if (sender === undefined || owner === undefined) {
+      throw new Error("missing actor refs");
+    }
+    const mail: Message = {
+      messageId: "mailbox-note-1",
+      role: "user",
+      parts: [{ kind: "text", text: "ping" }],
+    };
+    const delivered = await workRuntime.runPromise(
+      work.workMessageAppend(name, "owner", null, mail, sender)
+    );
+    expect(delivered.ok).toBe(true);
+
+    const reacted = await workRuntime.runPromise(
+      work.workMessageReact(name, "owner", "mailbox-note-1", "ack", owner)
+    );
+    expect(reacted.ok).toBe(true);
+    if (!reacted.ok) return;
+    expect(reacted.data.messageId).toBe("mailbox-note-1");
+    expect(reacted.data.reaction).toBe("ack");
+    // The receipt is durable: re-reacting reads the first one back.
+    const again = await workRuntime.runPromise(
+      work.workMessageReact(name, "owner", "mailbox-note-1", "ack", owner)
+    );
+    expect(again.ok).toBe(true);
+    if (again.ok) expect(again.data.reactedAt).toBe(reacted.data.reactedAt);
+    // A reaction binds to a message that exists — nothing else.
+    const missing = await workRuntime.runPromise(
+      work.workMessageReact(name, "owner", "mailbox-note-2", "ack", owner)
+    );
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.message).toContain("not found in mailbox");
+  });
+
   it("returns task and request notes from normalized thread history", async () => {
     const name = "work-thread-messages";
     await workRuntime.runPromise(
@@ -2585,6 +2673,319 @@ describe("WorkService — pipeline", () => {
     );
     expect(fast.ok).toBe(true);
     if (fast.ok) expect(fast.data.history).toHaveLength(1);
+  });
+
+  it("stamps boarding tickets from the sink contract, truncating oversized output", async () => {
+    const name = "pipeline-boarding";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          {
+            id: "b1",
+            type: "text",
+            text: "tasks",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: {
+              entity: { kind: "task" },
+              tasks: {
+                items: [],
+                contract: {
+                  outbound: {
+                    checklist: [
+                      {
+                        id: "out-1",
+                        label: "build the bundle",
+                        command: "bun run build",
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          {
+            id: "b2",
+            type: "text",
+            text: "tasks",
+            x: 400,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: {
+              entity: { kind: "task" },
+              tasks: {
+                items: [],
+                contract: {
+                  inbound: {
+                    checklist: [
+                      {
+                        id: "in-1",
+                        label: "lint the arrival",
+                        command: "bun run lint",
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+        edges: [
+          {
+            id: "flow-b",
+            fromNode: "b1",
+            toNode: "b2",
+            ether: { verb: "feeds" },
+          },
+        ],
+      })
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(name, "b1", "board me", { details: "board me" })
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const taskId = created.data.id;
+
+    // The seat submits an exit code and its output; label and command are the
+    // contract's words, and the tail is capped no matter how loud the run was.
+    const oversized = `${"n".repeat(9_000)}the last green line`;
+    const boarded = await workRuntime.runPromise(
+      work.workTaskBoard(name, "b1", taskId, [
+        {
+          checkId: "out-1",
+          side: "outbound",
+          exitCode: 0,
+          outputTail: oversized,
+        },
+        { checkId: "in-1", side: "inbound", exitCode: 0, outputTail: "lint ok" },
+      ])
+    );
+    expect(boarded.ok).toBe(true);
+    if (!boarded.ok) return;
+
+    const read = await workRuntime.runPromise(canvases.read(name));
+    const stored = read.doc.nodes
+      .find((n) => n.id === "b1")
+      ?.ether?.tasks?.items.find((t) => t.id === taskId);
+    const outbound = stored?.boarding?.find(
+      (ticket) => ticket.checkId === "out-1"
+    );
+    expect(outbound).toMatchObject({
+      side: "outbound",
+      label: "build the bundle",
+      command: "bun run build",
+      exitCode: 0,
+      epoch: 0,
+    });
+    expect(outbound?.outputTail).toHaveLength(TICKET_OUTPUT_TAIL_MAX_BYTES);
+    expect(outbound?.outputTail.endsWith("the last green line")).toBe(true);
+    expect(
+      stored?.boarding?.find((ticket) => ticket.checkId === "in-1")
+    ).toMatchObject({
+      side: "inbound",
+      label: "lint the arrival",
+      command: "bun run lint",
+      exitCode: 0,
+      epoch: 0,
+    });
+
+    // Green current-epoch tickets against the authored commands open the gate.
+    const forwarded = await workRuntime.runPromise(
+      work.workTaskTransition(name, "b1", taskId, "completed", undefined, {
+        artifacts: [],
+      })
+    );
+    expect(forwarded.ok).toBe(true);
+    if (forwarded.ok) {
+      expect(forwarded.data.journey?.at(-1)?.next).toBe("b2");
+    }
+  });
+
+  it("layers nested regions, the sink, and a station-addressed claim, and sheds a superseded receipt", async () => {
+    const name = "pipeline-onion-depth";
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [
+          {
+            id: "outer",
+            type: "group",
+            label: "Factory",
+            x: -200,
+            y: -200,
+            width: 1600,
+            height: 900,
+            ether: {
+              region: {
+                contract: {
+                  claims: [
+                    { id: "outer-claim", text: "the factory law", severity: "soft" },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "inner",
+            type: "group",
+            label: "Review Lane",
+            x: -100,
+            y: -100,
+            width: 900,
+            height: 500,
+            ether: {
+              region: {
+                contract: {
+                  claims: [
+                    { id: "inner-claim", text: "the lane law", severity: "soft" },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "d1",
+            type: "text",
+            text: "tasks",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: {
+              entity: { kind: "task" },
+              tasks: {
+                items: [],
+                contract: {
+                  claims: [
+                    { id: "sink-claim", text: "the station law", severity: "soft" },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            id: "d2",
+            type: "text",
+            text: "tasks",
+            x: 400,
+            y: 0,
+            width: 200,
+            height: 100,
+            ether: { entity: { kind: "task" } },
+          },
+        ],
+        edges: [
+          {
+            id: "flow-d",
+            fromNode: "d1",
+            toNode: "d2",
+            ether: { verb: "feeds" },
+          },
+        ],
+      })
+    );
+    const created = await workRuntime.runPromise(
+      work.workTaskCreate(
+        name,
+        "d1",
+        "deep onion",
+        { details: "deep onion" },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [
+          {
+            id: "task-claim",
+            text: "answer this here",
+            severity: "hard",
+            station: "d1",
+          },
+        ]
+      )
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const taskId = created.data.id;
+
+    const atD1 = await workRuntime.runPromise(
+      work.workTaskShow(name, "d1", taskId, "seat")
+    );
+    // Ambient law arrives outer to inner, then the sink's own, then the
+    // claim addressed to this station.
+    expect(atD1.claims.map((entry) => entry.claim.id)).toEqual([
+      "outer-claim",
+      "inner-claim",
+      "sink-claim",
+      "task-claim",
+    ]);
+    expect(atD1.claims.map((entry) => entry.provenance.kind)).toEqual([
+      "region",
+      "region",
+      "sink",
+      "task",
+    ]);
+    expect(atD1.ambient.regions.map((region) => region.label)).toEqual([
+      "Factory",
+      "Review Lane",
+    ]);
+
+    const forwarded = await workRuntime.runPromise(
+      work.workTaskTransition(name, "d1", taskId, "completed", "lane pass done", {
+        artifacts: [],
+        responses: [
+          { claimId: "outer-claim", response: "factory law held" },
+          { claimId: "inner-claim", response: "lane law held" },
+          { claimId: "sink-claim", response: "station law held" },
+          {
+            claimId: "task-claim",
+            response: "answered at d1",
+            refs: ["docs/lane-receipt.md"],
+          },
+        ],
+      })
+    );
+    expect(forwarded.ok).toBe(true);
+
+    const atD2 = await workRuntime.runPromise(
+      work.workTaskShow(name, "d2", taskId, "seat")
+    );
+    expect(atD2.journey.find((p) => p.nodeId === "d1")?.refs).toEqual([
+      "docs/lane-receipt.md",
+    ]);
+
+    const defected = await workRuntime.runPromise(
+      work.workTaskTransition(name, "d2", taskId, "rejected", undefined, undefined, {
+        defect: { summary: "the lane pass missed the acceptance case" },
+      })
+    );
+    expect(defected.ok).toBe(true);
+
+    const afterDefect = await workRuntime.runPromise(
+      work.workTaskShow(name, "d1", taskId, "seat")
+    );
+    // The defect shadows d1's receipt: the re-homed row carries no evidence,
+    // so the passages there stop citing refs the task no longer stands on.
+    const d1Passages = afterDefect.journey.filter((p) => p.nodeId === "d1");
+    expect(d1Passages).toHaveLength(2);
+    expect(d1Passages.map((p) => p.refs)).toEqual([[], []]);
+    expect(afterDefect.task.epoch).toBe(1);
+    // The claim addressed here is open again, and the layered stack is intact.
+    const claimsAfter = await workRuntime.runPromise(
+      work.workTaskClaims(name, "d1", taskId)
+    );
+    expect(claimsAfter.stack.map((entry) => entry.claim.id)).toEqual([
+      "outer-claim",
+      "inner-claim",
+      "sink-claim",
+      "task-claim",
+    ]);
+    expect(
+      claimsAfter.readiness?.unanswered.map((entry) => entry.claimId)
+    ).toContain("task-claim");
   });
 
   it("serves show/claims/rulings views with onion-scoped journeys", async () => {

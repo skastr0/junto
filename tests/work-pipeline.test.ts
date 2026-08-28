@@ -8,6 +8,9 @@ import type {
 } from "../src/shared/work-model";
 import {
   PIPELINE_ADMITTED_METADATA_KEY,
+  sinkContractOf,
+  taskAdmissionState,
+  taskPromoted,
 } from "../src/shared/claims";
 import {
   WorkError,
@@ -306,6 +309,122 @@ describe("forward", () => {
     expect(result.forwarded?.nodeId).toBe("s2");
     // Tickets are per-station stamps and stay behind on the passage record.
     expect(itemsAt(result.doc, "s2")[0]?.boarding).toBeUndefined();
+  });
+
+  it("drops the promotion marker so an operator-gated destination re-gates the arrival", () => {
+    const doc = docWith(
+      [
+        sinkNode("s1", { inbound: { admission: "operator-gated" } }),
+        sinkNode("s2", { inbound: { admission: "operator-gated" } }),
+      ],
+      [flowEdge("e1", "s1", "s2")],
+    );
+    const created = createTask(doc, "s1");
+    // The operator promoted this arrival at s1. Promotion is per-station and
+    // epoch-scoped, so the marker must not ride the forward to s2.
+    const promoted: CanvasDoc = {
+      ...created.doc,
+      nodes: created.doc.nodes.map((node) =>
+        node.id === "s1"
+          ? ({
+              ...node,
+              ether: {
+                ...node.ether,
+                tasks: {
+                  ...node.ether!.tasks!,
+                  items: node.ether!.tasks!.items.map((item) => ({
+                    ...item,
+                    metadata: {
+                      ...(item.metadata ?? {}),
+                      [PIPELINE_ADMITTED_METADATA_KEY]: 0,
+                    },
+                  })),
+                },
+              },
+            } as CanvasNode)
+          : node,
+      ),
+    };
+    const result = workTaskTransition(
+      promoted,
+      "alpha",
+      "s1",
+      created.task.id,
+      "completed",
+      undefined,
+      ids,
+      { artifacts: [] },
+      { nowMs: NOW },
+    );
+    const successor = itemsAt(result.doc, "s2")[0]!;
+    expect(successor.metadata?.[PIPELINE_ADMITTED_METADATA_KEY]).toBeUndefined();
+    // Only the marker is stripped — the rest of the bag travels.
+    expect(successor.metadata?.details).toBe("ship it");
+    expect(taskPromoted(successor)).toBe(false);
+    expect(
+      taskAdmissionState(
+        successor,
+        sinkContractOf(result.doc.nodes.find((node) => node.id === "s2")),
+        NOW,
+      ),
+    ).toBe("operator-gated");
+    // The gate is the point: no seat inherits s1's promotion at s2.
+    expect(() =>
+      workTaskClaim(
+        result.doc,
+        "alpha",
+        "s2",
+        created.task.id,
+        actorRef("1", "worker-1"),
+        ids,
+      ),
+    ).toThrow(/awaits operator approval/);
+  });
+
+  it("leaves dependsOn and the admission overlay behind, carrying id, epoch, and claims", () => {
+    const doc = docWith(
+      [sinkNode("s1"), sinkNode("s2")],
+      [flowEdge("e1", "s1", "s2")],
+    );
+    const prereq = createTask(doc, "s1", "land the migration");
+    const created = workTaskCreate(
+      prereq.doc,
+      "alpha",
+      "s1",
+      "ship it",
+      { details: "ship it" },
+      ids,
+      undefined,
+      undefined,
+      [prereq.task.id],
+      undefined,
+      [{ ...claim("c-s2"), station: "s2" }],
+      { admission: "operator-owned" },
+    );
+    expect(created.task.dependsOn).toEqual([prereq.task.id]);
+    expect(created.task.admission).toBe("operator-owned");
+
+    const result = workTaskTransition(
+      created.doc,
+      "alpha",
+      "s1",
+      created.task.id,
+      "completed",
+      undefined,
+      ids,
+      { artifacts: [] },
+      { nowMs: NOW },
+    );
+    const successor = itemsAt(result.doc, "s2")[0]!;
+    // Prereqs gate the first claim at the origin and the overlay is the
+    // origin operator's call — neither speaks for the next station.
+    expect(successor.dependsOn).toBeUndefined();
+    expect(successor.admission).toBeUndefined();
+    expect(taskAdmissionState(successor, undefined, NOW)).toBe("claimable");
+    // Identity, epoch, and the authored station-addressed law do travel.
+    expect(successor.id).toBe(created.task.id);
+    expect(successor.epoch).toBe(0);
+    expect(successor.claims).toEqual([{ ...claim("c-s2"), station: "s2" }]);
   });
 
   it("requires a fork waiver for station-addressed claims off the chosen branch", () => {
