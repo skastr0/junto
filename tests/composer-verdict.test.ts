@@ -119,6 +119,30 @@ describe("grok", () => {
       "draft",
     );
   });
+
+  // Full TUI (app launch, live capture 2026-08-28): the composer is a
+  // bordered box and the closing │ is chrome, never draft content.
+  it("boxed empty composer (full TUI) is empty", () => {
+    expect(
+      v([
+        " ╭──────────────────────────╮",
+        " │ ❯                        │",
+        " ╰───────── Grok 4.5 (low) ─╯",
+        " Shift+Tab:mode  Ctrl+x:shortcuts",
+      ]),
+    ).toBe("empty");
+  });
+
+  it("boxed typed text (full TUI) is a draft", () => {
+    expect(
+      v([
+        " ╭──────────────────────────╮",
+        " │ ❯ hello                  │",
+        " ╰───────── Grok 4.5 (low) ─╯",
+        " Shift+Tab:mode  Ctrl+x:shortcuts",
+      ]),
+    ).toBe("draft");
+  });
 });
 
 describe("pi", () => {
@@ -205,5 +229,16 @@ describe("fail-closed defaults", () => {
 
   it("an empty screen yields null for a probed harness", () => {
     expect(composerVerdictForHarness(snap({ lines: [] }), "claude")).toBe(null);
+  });
+});
+
+describe("codex v0.149 (live capture 2026-08-28)", () => {
+  const v = (lines: readonly string[]) =>
+    composerVerdictFor(snap({ lines }), rulePackFor("codex"));
+
+  it("the current placeholder is empty", () => {
+    expect(v(["› Ask Codex to do anything", "", "  ? for shortcuts"])).toBe(
+      "empty",
+    );
   });
 });

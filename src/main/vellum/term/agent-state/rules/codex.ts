@@ -11,7 +11,7 @@ const CODEX_TITLE_SPINNER =
 
 export const codexRules: SeatRulePack = {
   harness: "codex",
-  version: "2026.07.26.1",
+  version: "2026.08.28.1",
   rules: [
     {
       id: "osc_title_attention",
@@ -109,6 +109,47 @@ export const codexRules: SeatRulePack = {
         not: [{ contains: ["■ conversation interrupted"] }],
       },
     },
+    // Prompt-box idle chrome, grounded in a live capture of codex v0.149.1
+    // (2026-08-28): current builds set NO OSC title at idle, so the composer
+    // line is the visible idle proof. Below screen_working_fallback (500) so
+    // a live "Working (esc to interrupt)" status still wins while the
+    // composer persists under it.
+    {
+      id: "empty_prompt_idle",
+      state: "idle",
+      priority: 400,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      matchers: {
+        any: [
+          { lineRegex: ["^\\s*\u203a\\s*$"] },
+          { lineRegex: ["^\\s*\u203a Implement \\{feature\\}\\s*$"] },
+          { lineRegex: ["^\\s*\u203a Ask Codex to do anything\\s*$"] },
+        ],
+        not: [
+          { contains: ["[y/n]"] },
+          { contains: ["yes (y)"] },
+          { contains: ["press enter to confirm"] },
+        ],
+      },
+    },
+    {
+      id: "composer_draft_idle",
+      state: "idle",
+      priority: 390,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*\u203a\\s+\\S"],
+        not: [
+          { contains: ["[y/n]"] },
+          { contains: ["yes (y)"] },
+          { contains: ["press enter to confirm"] },
+        ],
+      },
+    },
     {
       id: "osc_title_idle",
       state: "idle",
@@ -144,7 +185,13 @@ export const codexRules: SeatRulePack = {
       verdict: "empty",
       region: "bottom_non_empty_lines",
       regionN: 4,
-      matchers: { lineRegex: ["^\\s*\u203a Implement \\{feature\\}\\s*$"] },
+      matchers: {
+        any: [
+          // v0.147 (P1 corpus) and v0.149 (live capture 2026-08-28).
+          { lineRegex: ["^\\s*\u203a Implement \\{feature\\}\\s*$"] },
+          { lineRegex: ["^\\s*\u203a Ask Codex to do anything\\s*$"] },
+        ],
+      },
     },
     {
       id: "composer_content_draft",

@@ -206,24 +206,27 @@ export const grokRules: SeatRulePack = {
       },
     },
   ],
-  // Composer probes — grounded in P1 corpus grok/startup-idle (bare `\u276f`
-  // above the model footer) and grok/type-echo (draft `\u276f hello`). Draft is
-  // declared FIRST: a stale bare `\u276f` in the bottom strip must never prove
-  // empty over a drafted composer line in the same window.
+  // Composer probes — grounded in the P1 corpus (minimal mode: bare `\u276f`
+  // above the model footer, draft `\u276f hello`) AND a live capture of the
+  // app-launched full TUI (2026-08-28): there the composer is a bordered box
+  // (`\u2502 \u276f ... \u2502` over a `Grok 4.5 (low)` border line), so the
+  // glyph line may open and close with `\u2502` — a closing border is chrome,
+  // never draft content. Draft is declared FIRST: a stale bare `\u276f` in
+  // the bottom strip must never prove empty over a drafted composer line.
   composer: [
     {
       id: "composer_content_draft",
       verdict: "draft",
       region: "bottom_non_empty_lines",
-      regionN: 3,
-      matchers: { lineRegex: ["^\\s*\u276f\\s+\\S"] },
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u2502?\\s*\u276f\\s+[^\\s\u2502]"] },
     },
     {
       id: "bare_prompt_empty",
       verdict: "empty",
       region: "bottom_non_empty_lines",
-      regionN: 3,
-      matchers: { lineRegex: ["^\\s*\u276f\\s*$"] },
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u2502?\\s*\u276f\\s*\u2502?\\s*$"] },
     },
   ],
 };
