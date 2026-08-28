@@ -254,8 +254,13 @@ describe("operator control server", () => {
     expect(retained.pendingDispatches).toBe(1);
 
     resolveDispatch(statusResponse(statusRequest()));
-    await Promise.resolve();
-    const clean = await server.close();
+    // Settle like the dispatch wait above: one bare microtask loses the race
+    // to the server's pending bookkeeping under a busy suite event loop.
+    let clean = await server.close();
+    for (let index = 0; index < 20 && !clean.clean; index++) {
+      await new Promise((resolve) => setImmediate(resolve));
+      clean = await server.close();
+    }
     expect(clean.clean).toBe(true);
   });
 });
