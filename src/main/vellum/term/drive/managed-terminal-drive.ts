@@ -34,6 +34,7 @@ export type DriveAttentionReason =
   | "prompt-stalled"
   | "write-failed"
   | "not-ready"
+  | "composer-unreadable"
   | "queue-timeout";
 
 /** Default max wait for a mid-turn queued prompt before resolving false. */
@@ -69,15 +70,21 @@ export type ClipboardSafeAssert = (
 export type PromptPendingLookup = (bindingId: string) => boolean;
 
 /**
- * Does the operator have unsubmitted text in this seat's prompt box?
+ * Screen-derived composer verdict (agent-state/composer.ts).
  *
  * An idle seat is NOT a free composer: the agent can be done while the
  * operator is mid-sentence. Pasting there appends to their draft and the CR
- * submits it. Every write this drive makes waits for the box to be clear —
- * queueing callers park until it is, non-queueing callers are refused and
- * retry from their own source.
+ * submits it. The verdict is read from the live grid by each harness's
+ * composer probes: "empty" is the ONLY state that authorizes typing; "draft"
+ * means visible unsubmitted text sits in the box; null means the probes
+ * matched nothing (dialog up, mid-transition, or an ungrounded harness) and
+ * typing refuses — an unreadable composer is never a writable one. Queueing
+ * callers park until the box is proven clear; non-queueing callers are
+ * refused and retry from their own source.
  */
-export type OperatorDraftLookup = (bindingId: string) => boolean;
+export type ComposerVerdictLookup = (
+  bindingId: string,
+) => "empty" | "draft" | null;
 
 export type WritePromptOptions = {
   /**
@@ -157,8 +164,8 @@ export type ManagedTerminalDriveOptions = {
   readonly pasteToCrSettleMs?: number;
   /** Evidence-gated acknowledgement (see PromptPendingLookup). */
   readonly pendingText?: PromptPendingLookup;
-  /** Operator draft gate (see OperatorDraftLookup). */
-  readonly hasOperatorDraft?: OperatorDraftLookup;
+  /** Composer typing gate (see ComposerVerdictLookup). */
+  readonly composerVerdict?: ComposerVerdictLookup;
 };
 
 export class ManagedTerminalDrive {
@@ -173,7 +180,7 @@ export class ManagedTerminalDrive {
   private readonly stallWatch: boolean;
   private readonly pasteToCrSettleMs: number;
   private readonly pendingText: PromptPendingLookup | undefined;
-  private readonly hasOperatorDraft: OperatorDraftLookup | undefined;
+  private readonly composerVerdict: ComposerVerdictLookup | undefined;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
@@ -202,25 +209,31 @@ export class ManagedTerminalDrive {
     this.stallWatch = options.stallWatch ?? true;
     this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
     this.pendingText = options.pendingText;
-    this.hasOperatorDraft = options.hasOperatorDraft;
+    this.composerVerdict = options.composerVerdict;
   }
 
   /**
    * True while a factory write must wait: the agent is mid-turn, a write is
    * already in flight, a turn is pending acknowledgement, or — the operator
-   * case this gate exists for — there is an unsubmitted draft in the box.
+   * case this gate exists for — the screen does not prove an empty composer.
    */
   private mustWait(bindingId: string): boolean {
     return (
       !this.isSeatIdle(bindingId) ||
       this.writing.has(bindingId) ||
       this.pendingTurns.has(bindingId) ||
-      this.operatorDrafting(bindingId)
+      this.composerBlocked(bindingId)
     );
   }
 
-  private operatorDrafting(bindingId: string): boolean {
-    return this.hasOperatorDraft?.(bindingId) === true;
+  /**
+   * Fail closed on the screen: only a proven-empty composer is typeable.
+   * "draft" holds for the operator; null holds because the box is unreadable
+   * (dialog, transition, ungrounded harness). Absent lookup = test seam.
+   */
+  private composerBlocked(bindingId: string): boolean {
+    if (this.composerVerdict === undefined) return false;
+    return this.composerVerdict(bindingId) !== "empty";
   }
 
   /** Mark a binding as just spawned — enforces min delay before first paste. */
@@ -339,8 +352,9 @@ export class ManagedTerminalDrive {
       if (
         opts.interruptIfBusy &&
         !this.isSeatIdle(bindingId) &&
-        // Ctrl+C mid-turn also wipes whatever the operator has typed.
-        !this.operatorDrafting(bindingId) &&
+        // Ctrl+C mid-turn also wipes whatever the operator has typed, so it
+        // needs the same proven-empty composer as a paste.
+        !this.composerBlocked(bindingId) &&
         !this.mailInterrupts.has(bindingId)
       ) {
         // Reserve the coalescing slot before awaiting the physical write so
@@ -351,7 +365,7 @@ export class ManagedTerminalDrive {
       if (
         opts.interruptIfBusy &&
         !this.isSeatIdle(bindingId) &&
-        !this.operatorDrafting(bindingId)
+        !this.composerBlocked(bindingId)
       ) {
         const interruption = this.mailInterrupts.get(bindingId);
         if (interruption !== undefined) {
@@ -601,9 +615,21 @@ export class ManagedTerminalDrive {
     }
     this.writing.add(bindingId);
     try {
-      // Second check under the writing lock: still refuse if seat left idle.
+      // Second check under the writing lock: still refuse if seat left idle
+      // or the composer stopped being provably empty (operator typing burst,
+      // dialog repaint). Only BEFORE our own paste — after it, our chip is
+      // legitimately in the box.
       if (!this.isSeatIdle(bindingId)) {
         this.onAttention?.(bindingId, "not-ready");
+        return false;
+      }
+      if (this.composerBlocked(bindingId)) {
+        this.onAttention?.(
+          bindingId,
+          this.composerVerdict?.(bindingId) === "draft"
+            ? "not-ready"
+            : "composer-unreadable",
+        );
         return false;
       }
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;

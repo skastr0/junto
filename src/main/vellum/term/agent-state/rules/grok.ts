@@ -206,4 +206,24 @@ export const grokRules: SeatRulePack = {
       },
     },
   ],
+  // Composer probes — grounded in P1 corpus grok/startup-idle (bare `\u276f`
+  // above the model footer) and grok/type-echo (draft `\u276f hello`). Draft is
+  // declared FIRST: a stale bare `\u276f` in the bottom strip must never prove
+  // empty over a drafted composer line in the same window.
+  composer: [
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 3,
+      matchers: { lineRegex: ["^\\s*\u276f\\s+\\S"] },
+    },
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 3,
+      matchers: { lineRegex: ["^\\s*\u276f\\s*$"] },
+    },
+  ],
 };

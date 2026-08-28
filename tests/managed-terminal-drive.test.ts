@@ -596,3 +596,120 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(1);
   });
 });
+
+describe("composer verdict gate (screen truth)", () => {
+  const writes: Array<{ bindingId: string; data: string }> = [];
+  let idle = true;
+  let verdict: "empty" | "draft" | null = "empty";
+  let drive: ManagedTerminalDrive;
+
+  const makeDrive = () =>
+    new ManagedTerminalDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return true;
+      },
+      isSeatIdle: () => idle,
+      composerVerdict: () => verdict,
+      stallWatch: false,
+      pasteToCrSettleMs: 0,
+    });
+
+  afterEach(() => {
+    drive?.resetForTest();
+    writes.length = 0;
+    idle = true;
+    verdict = "empty";
+  });
+
+  it("proven-empty composer types", async () => {
+    drive = makeDrive();
+    await expect(drive.writePrompt("b1", "notice")).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("notice"),
+      CR,
+    ]);
+  });
+
+  it("a visible draft holds the prompt and releases on composer clear", async () => {
+    verdict = "draft";
+    drive = makeDrive();
+    const pending = drive.writePrompt("b1", "notice");
+    expect(writes).toEqual([]);
+    expect(drive.queuedCount("b1")).toBe(1);
+
+    // Operator submits or clears; the screen proves empty; delivery flows.
+    verdict = "empty";
+    drive.onComposerClear("b1");
+    await expect(pending).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("notice"),
+      CR,
+    ]);
+  });
+
+  it("an unreadable composer (null) holds — fail closed, never paste blind", async () => {
+    verdict = null;
+    drive = makeDrive();
+    const pending = drive.writePrompt("b1", "notice");
+    expect(writes).toEqual([]);
+    expect(drive.queuedCount("b1")).toBe(1);
+    verdict = "empty";
+    drive.onComposerClear("b1");
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it("non-queuing callers are refused outright while the composer is not proven empty", async () => {
+    verdict = "draft";
+    drive = makeDrive();
+    await expect(
+      drive.writePrompt("b1", "pulse", { queueIfBusy: false }),
+    ).resolves.toBe(false);
+    expect(writes).toEqual([]);
+    expect(drive.queuedCount("b1")).toBe(0);
+  });
+
+  it("mail steering never sends Ctrl+C while the composer is not proven empty", async () => {
+    idle = false;
+    verdict = "draft";
+    drive = makeDrive();
+    const pending = drive.writePrompt("b1", "mail", { interruptIfBusy: true });
+    await Promise.resolve();
+    await Promise.resolve();
+    // No interrupt byte — Ctrl+C would wipe the operator's draft.
+    expect(writes).toEqual([]);
+    idle = true;
+    verdict = "empty";
+    drive.onComposerClear("b1");
+    await expect(pending).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("mail"),
+      CR,
+    ]);
+  });
+
+  it("a verdict flip between drain and paste refuses at the boundary", async () => {
+    drive = makeDrive();
+    const seen: string[] = [];
+    const gated = new ManagedTerminalDrive({
+      write: (bindingId, data) => {
+        seen.push(data);
+        return true;
+      },
+      isSeatIdle: () => true,
+      // Empty at the outer gate, draft by the paste boundary: the second
+      // check under the writing lock must refuse.
+      composerVerdict: (() => {
+        let calls = 0;
+        return () => (calls++ === 0 ? "empty" : "draft");
+      })(),
+      stallWatch: false,
+      pasteToCrSettleMs: 0,
+    });
+    await expect(
+      gated.writePrompt("b1", "notice", { queueIfBusy: false }),
+    ).resolves.toBe(false);
+    expect(seen).toEqual([]);
+    gated.resetForTest();
+  });
+});

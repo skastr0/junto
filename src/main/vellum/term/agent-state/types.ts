@@ -53,10 +53,45 @@ export type SeatRule = {
   readonly skipStateUpdate?: boolean;
 };
 
+/**
+ * What the screen proves about the seat's composer (the harness's input box).
+ * "empty" — the box is visibly empty (bare glyph or the harness's known
+ * placeholder hint); the only state in which a factory paste may land.
+ * "draft" — visible unsubmitted text sits in the box (operator draft or an
+ * unsubmitted paste chip); typing would append to it and CR would submit it.
+ * null — no probe matched: a dialog covers the box, the screen is
+ * mid-transition, or this harness has no grounded probes yet. Fail closed —
+ * an unreadable composer is never a writable one.
+ */
+export type ComposerVerdict = "empty" | "draft" | null;
+
+/**
+ * One screen probe for the composer question. Probes are evaluated in
+ * declared order and the FIRST match wins, so each pack encodes its own
+ * precedence (a pack whose empty-glyph literal can also appear in scrollback
+ * declares its draft probe first; a pack with precise whole-box empties
+ * declares those first and a catch-all draft last).
+ */
+export type ComposerProbe = {
+  readonly id: string;
+  readonly verdict: "empty" | "draft";
+  readonly region: SeatRuleRegion;
+  /** For `bottom_non_empty_lines` (default 5). */
+  readonly regionN?: number;
+  readonly matchers: SeatMatcher;
+};
+
 export type SeatRulePack = {
   readonly harness: HarnessId;
   readonly version: string;
   readonly rules: readonly SeatRule[];
+  /**
+   * Composer probes — the screen-truth source for "may the factory type
+   * here?". A pack without probes cannot prove an empty composer, so factory
+   * typing into its seats refuses (fail closed) until its real chrome is
+   * captured and encoded.
+   */
+  readonly composer?: readonly ComposerProbe[];
 };
 
 export type SeatEvaluation = {

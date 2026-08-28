@@ -308,4 +308,46 @@ export const claudeRules: SeatRulePack = {
       matchers: { regex: ["^4;0"] },
     },
   ],
+  // Composer probes — grounded in P1 corpus claude/startup-idle (placeholder
+  // `❯ Try "fix typecheck errors"`) and claude/type-echo (draft `❯ hello`,
+  // post-turn bare `❯`). The box is the prompt_box_body slice between the
+  // last two ─── rules; the whole-region regexes (no `m` flag — ^/$ anchor
+  // the full slice) refuse a bare-glyph first line over a multi-line draft.
+  // Empties are exact and ordered first; the glyph-anchored draft catch-all
+  // also covers our own `[Pasted text #N]` chips. Dialog chrome matches no
+  // probe → null → factory typing refuses.
+  composer: [
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "prompt_box_body",
+      matchers: {
+        regex: ["^\\s*[❯>]\\s*$"],
+        not: [
+          { contains: ["enter to select"] },
+          { contains: ["esc to cancel"] },
+        ],
+      },
+    },
+    {
+      // Fresh-session hint text; dim on screen but plain text in the grid.
+      // Separator is \s+ — Claude paints an NBSP (U+00A0) after the glyph.
+      id: "placeholder_hint_empty",
+      verdict: "empty",
+      region: "prompt_box_body",
+      matchers: {
+        regex: ['^\\s*[❯>]\\s+Try "[^\\n]*"\\s*$'],
+        not: [
+          { contains: ["enter to select"] },
+          { contains: ["esc to cancel"] },
+        ],
+      },
+    },
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "prompt_box_body",
+      matchers: { regex: ["^\\s*[❯>]"] },
+    },
+  ],
 };

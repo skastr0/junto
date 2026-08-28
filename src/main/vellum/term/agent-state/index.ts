@@ -14,6 +14,8 @@ export {
 } from "../../../../shared/agent-seat-state";
 
 export type {
+  ComposerProbe,
+  ComposerVerdict,
   SeatEvaluation,
   SeatMatcher,
   SeatRule,
@@ -22,6 +24,7 @@ export type {
 } from "./types";
 
 export { evaluate, FALLBACK_IDLE, type EvaluateOptions } from "./engine";
+export { composerVerdictFor, composerVerdictForHarness } from "./composer";
 export {
   SeatStateMachine,
   SEAT_DEBOUNCE,

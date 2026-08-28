@@ -134,7 +134,7 @@ describe("settings contract", () => {
     expect(decoded.appearance.theme).toBe("dark");
   });
 
-  it("rejects excess durable fields and patch fields instead of pruning them", () => {
+  it("ignores unknown stored keys (a removed feature's setting just goes away) but rejects unknown patch fields", () => {
     const defaults = defaultSettings();
     const {
       version: _version,
@@ -142,16 +142,18 @@ describe("settings contract", () => {
       ...preferences
     } = defaults;
 
-    expect(() =>
-      decodeStoredSettings(
-        SETTINGS_VERSION,
-        {
-          ...preferences,
-          retiredCompatibility: true,
-        },
-        station,
-      )
-    ).toThrow(/retiredCompatibility/u);
+    // Stored data: an old key from a removed feature must never brick the
+    // store — decode succeeds and the key is dropped from the result.
+    const decoded = decodeStoredSettings(
+      SETTINGS_VERSION,
+      {
+        ...preferences,
+        retiredCompatibility: true,
+      },
+      station,
+    );
+    expect("retiredCompatibility" in decoded).toBe(false);
+    // Live patch input is a caller's intent, not old data: typos still fail.
     expect(
       Result.isFailure(
         decodePatchInput({ retiredCompatibility: true }),
@@ -623,7 +625,7 @@ describe("SQLite settings service", () => {
     }
   });
 
-  it("fails closed on excess durable preferences without rewriting them", async () => {
+  it("ignores an unknown stored preference key without rewriting the row", async () => {
     const { service, state } = await openService();
     const before = await run(
       state.read(
@@ -662,10 +664,12 @@ describe("SQLite settings service", () => {
       ),
     );
 
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.code).toBe("corrupt");
-      expect(result.failure.message).toContain("retiredCompatibility");
+    // A removed feature's stored key simply goes away: get() succeeds, the
+    // unknown key is absent from the result, and the row is NOT rewritten
+    // on read (writes happen only through the patch path).
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isSuccess(result)) {
+      expect("retiredCompatibility" in result.success).toBe(false);
     }
     expect(after).toBe(encoded);
   });

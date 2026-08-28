@@ -170,60 +170,6 @@ export const messageBriefText = (message: Message): string => {
   return chunks.join(" ") || "(empty)";
 };
 
-/**
- * Screen residual only. Prefer {@link seatOperatorDraft} for the real
- * draft gate — harness chrome fills extractPromptBoxText on every real
- * startup-idle capture (claude/codex/grok/devin), so non-empty ≠ operator draft.
- *
- * Returns true only for a stuck product paste chip still occupying the box.
- */
-export const composerBlocksMailInject = (promptBoxText: string): boolean => {
-  const text = promptBoxText.trim();
-  if (text.length === 0) return false;
-  if (/^\[message\b/i.test(text)) return false;
-  // Stuck product paste chip — do not pile another inject on top.
-  return text.includes("[Pasted");
-};
-
-/** Same window as observer `deriveUserSignal` "present". */
-export const OPERATOR_PRESENT_WINDOW_MS = 10_000;
-
-/**
- * Operator typed into this generation if a keystroke was noted at/after spawn.
- * A generation fact, not the mail-inject draft gate — a human-driven seat
- * has keystrokes for its whole life; treating that as draft strands mail.
- */
-export const operatorTypedThisGeneration = (input: {
-  readonly lastUserInputAtMs: number | undefined;
-  readonly generationStartedAtMs: number;
-}): boolean => {
-  if (input.lastUserInputAtMs === undefined) return false;
-  return input.lastUserInputAtMs >= input.generationStartedAtMs;
-};
-
-/** True while the operator is still at the keyboard (recency, not generation). */
-export const operatorPresentNow = (input: {
-  readonly lastUserInputAtMs: number | undefined;
-  readonly nowMs: number;
-  readonly windowMs?: number;
-}): boolean => {
-  if (input.lastUserInputAtMs === undefined) return false;
-  const windowMs = input.windowMs ?? OPERATOR_PRESENT_WINDOW_MS;
-  return input.nowMs - input.lastUserInputAtMs <= windowMs;
-};
-
-/**
- * Mail-inject draft gate: recent keystrokes or a stuck paste chip.
- * Generation-lifetime typing is not enough — that never clears on a
- * human-driven seat, so queued mail would never drain after idle.
- */
-export const seatOperatorDraft = (input: {
-  readonly lastUserInputAtMs: number | undefined;
-  readonly nowMs: number;
-  readonly residualChip: boolean;
-  readonly windowMs?: number;
-}): boolean => input.residualChip || operatorPresentNow(input);
-
 /** True when metadata.deliveredAt is a finite number (already nudged the PTY). */
 export const isMessageDelivered = (message: Message): boolean => {
   const at = message.metadata?.deliveredAt;

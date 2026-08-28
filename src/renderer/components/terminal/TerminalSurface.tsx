@@ -958,15 +958,20 @@ export function TerminalSurface({
     // FitAddon still loaded for xterm internals; host measure is geometry authority.
     const fit = new FitAddon();
     term.loadAddon(fit);
-    // Read-only screen-text registry for tests: under the WebGL renderer the
-    // DOM carries no text, so e2e reads the buffer through this instead of
+    // Read-only screen-text registries for tests: under the WebGL renderer the
+    // DOM carries no text, so e2e reads the buffer through these instead of
     // .xterm-rows. Display-only — no write path, no capability.
+    // __vellumTermScreenText: the visible viewport (live composer/footer).
+    // __vellumTermTranscriptText: the WHOLE buffer including scrollback — the
+    // only witness for counts across a scrolling session (paste duplication).
     const screenTextRegistry = (
       window as unknown as {
         __vellumTermScreenText?: Map<string, () => string>;
+        __vellumTermTranscriptText?: Map<string, () => string>;
       }
     );
     screenTextRegistry.__vellumTermScreenText ??= new Map();
+    screenTextRegistry.__vellumTermTranscriptText ??= new Map();
     const screenTextKey = bindingId || `surface-${Math.random().toString(36).slice(2)}`;
     screenTextRegistry.__vellumTermScreenText.set(screenTextKey, () => {
       const buffer = term.buffer.active;
@@ -975,6 +980,14 @@ export function TerminalSurface({
         rows.push(
           buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "",
         );
+      }
+      return rows.join("\n");
+    });
+    screenTextRegistry.__vellumTermTranscriptText.set(screenTextKey, () => {
+      const buffer = term.buffer.active;
+      const rows: string[] = [];
+      for (let row = 0; row < buffer.length; row += 1) {
+        rows.push(buffer.getLine(row)?.translateToString(true) ?? "");
       }
       return rows.join("\n");
     });
@@ -1185,6 +1198,7 @@ export function TerminalSurface({
       gpuRef.current = null;
       webglBlockedRef.current = false;
       screenTextRegistry.__vellumTermScreenText?.delete(screenTextKey);
+      screenTextRegistry.__vellumTermTranscriptText?.delete(screenTextKey);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

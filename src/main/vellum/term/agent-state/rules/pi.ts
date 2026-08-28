@@ -132,4 +132,25 @@ export const piRules: SeatRulePack = {
       },
     },
   ],
+  // Composer probes — grounded in P1 corpus pi/startup-idle (blank editor
+  // interior between the last two ─── rules) and pi/type-echo (typed text in
+  // that interior). The editor borders render as full-width rules in the
+  // grid, so prompt_box_body IS the editor interior on current pi builds.
+  // Draft first: any visible content in the interior refuses typing; a blank
+  // interior on a pre-editor screen is harmless because the paste gate also
+  // requires the seat idle, which needs the editor footer on screen.
+  composer: [
+    {
+      id: "editor_content_draft",
+      verdict: "draft",
+      region: "prompt_box_body",
+      matchers: { regex: ["\\S"] },
+    },
+    {
+      id: "editor_blank_empty",
+      verdict: "empty",
+      region: "prompt_box_body",
+      matchers: { regex: ["^\\s*$"] },
+    },
+  ],
 };

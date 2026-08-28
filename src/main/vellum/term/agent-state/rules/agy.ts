@@ -143,4 +143,28 @@ export const agyRules: SeatRulePack = {
       },
     },
   ],
+  // Composer probes — lifted from this pack's grounded idle rules (empty
+  // `[\u276f>]` box, drafted `[\u276f>] text`). Whole-region regexes so a
+  // bare-glyph first line never proves empty over a multi-line draft.
+  composer: [
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "prompt_box_body",
+      matchers: {
+        regex: ["^\\s*[\u276f>]\\s*$"],
+        not: [
+          { contains: ["esc to cancel"] },
+          { contains: ["do you want to proceed?"] },
+          { contains: ["your answer:"] },
+        ],
+      },
+    },
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "prompt_box_body",
+      matchers: { regex: ["^\\s*[\u276f>]"] },
+    },
+  ],
 };

@@ -18,7 +18,7 @@ export {
   type DriveAttentionCallback,
   type DriveAttentionReason,
   type ManagedTerminalDriveOptions,
-  type OperatorDraftLookup,
+  type ComposerVerdictLookup,
   type PromptPendingLookup,
   type SeatIdleLookup,
   type TerminalWriter,

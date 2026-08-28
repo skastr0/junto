@@ -1715,3 +1715,102 @@ describe("MessageDeliveryService", () => {
     ]);
   });
 });
+
+describe("composer gate and the bounded edge-map claim", () => {
+  const edgeDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
+    nodes: [
+      {
+        id: "agent",
+        type: "text",
+        text: "mira",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: {
+          entity: { kind: "agent", name: "local:mira" },
+          terminal: { bindingId: "bind-mira", harness: "claude" },
+          messages: { items: [...messages] },
+        },
+      },
+      {
+        id: "tasks",
+        type: "text",
+        text: "tasks",
+        x: 200,
+        y: 0,
+        width: 100,
+        height: 80,
+        ether: {
+          entity: { kind: "task" },
+          tasks: { items: [] },
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "e1",
+        fromNode: "tasks",
+        toNode: "agent",
+        fromSide: "right",
+        toSide: "left",
+        ether: { verb: "works" },
+      },
+    ],
+  });
+
+  it("a composer hold does NOT burn the bounded edge-map claim; the empty boundary delivers it", async () => {
+    // The battery-caught wedge: idle publishes at the turn boundary before
+    // the composer repaint settles, the notice's ONE per-topology transport
+    // claim is burned by a refused attempt, and the notice parks until the
+    // canvas map changes. The gate must hold (no claim burn) while the
+    // composer is not proven empty, and deliver on the empty boundary.
+    const msg = userMsg(ulid(), "[factory - map] edge contracts changed — Added: tasks", {
+      metadata: { edgeMapChange: true, addedIds: ["tasks"] },
+    });
+    const store = makeStore({ c: edgeDoc([msg]) });
+    const sent: string[] = [];
+    let composerEmpty = false;
+    const transport: MessageDeliveryTransport = {
+      sendTerminalPaste: () => false,
+      sendManagedTerminalPrompt: async (_bindingId, text) => {
+        sent.push(text);
+        return true;
+      },
+      seatDeliverySnapshot: () => ({
+        idle: true,
+        generationKey: "g1",
+        operatorDraft: !composerEmpty,
+      }),
+    };
+    const service = new MessageDeliveryService();
+    // now(): far past the settle window so the idle-settle gate passes.
+    let now = 100_000;
+    service.configure({ transport, store, now: () => now });
+
+    service.notifyAppended("c", "agent", msg);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent, "held: idle not settled yet").toEqual([]);
+
+    // Past the idle-settle window with the composer STILL not proven empty:
+    // the draft hold alone must refuse, and refuse without burning the
+    // notice's one per-topology transport claim.
+    now += 10_000;
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent, "held: composer not proven empty").toEqual([]);
+
+    // Composer proven empty on screen — the boundary the notice waits on.
+    composerEmpty = true;
+    service.onComposerEmpty("bind-mira");
+    await waitUntil(() => sent.length === 1);
+    expect(sent[0]).toContain("edge contracts changed");
+
+    // At-most-once still holds: further boundaries never re-paste.
+    service.onComposerEmpty("bind-mira");
+    service.onManagedTerminalIdle("bind-mira");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent).toHaveLength(1);
+    service.suspend();
+  });
+});

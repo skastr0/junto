@@ -197,3 +197,60 @@ describe("SeatStateRuntime idle gate", () => {
     rt.stop();
   });
 });
+
+describe("SeatStateRuntime composer verdict", () => {
+  const HR = "─".repeat(40);
+
+  it("reads the live composer verdict from the fed screen", () => {
+    const rt = new SeatStateRuntime({ turnProgressWatch: false });
+    rt.bindHarness("b1", "claude", "e1");
+    rt.observe(snap("b1", { lines: [HR, "❯ ", HR, "footer"] }));
+    expect(rt.composerVerdict("b1")).toBe("empty");
+    rt.observe(snap("b1", { lines: [HR, "❯ half-typed draft", HR, "footer"] }));
+    expect(rt.composerVerdict("b1")).toBe("draft");
+    rt.stop();
+  });
+
+  it("unbound binding yields null (refuse typing)", () => {
+    const rt = new SeatStateRuntime({ turnProgressWatch: false });
+    expect(rt.composerVerdict("nobody")).toBe(null);
+    rt.stop();
+  });
+
+  it("notifies subscribers on verdict CHANGE only — draft→empty is the drain boundary", () => {
+    const rt = new SeatStateRuntime({ turnProgressWatch: false });
+    rt.bindHarness("b1", "claude", "e1");
+    const seen: Array<[string, string | null]> = [];
+    rt.subscribeComposerVerdict((bindingId, verdict) => {
+      seen.push([bindingId, verdict]);
+    });
+    rt.observe(snap("b1", { lines: [HR, "❯ draft", HR, "footer"] }));
+    rt.observe(snap("b1", { lines: [HR, "❯ draft", HR, "footer"] }));
+    rt.observe(snap("b1", { lines: [HR, "❯ ", HR, "footer"] }));
+    rt.observe(snap("b1", { lines: [HR, "❯ ", HR, "footer"] }));
+    expect(seen).toEqual([
+      ["b1", "draft"],
+      ["b1", "empty"],
+    ]);
+    rt.stop();
+  });
+
+  it("computes the verdict even under structured hook authority", () => {
+    const rt = new SeatStateRuntime({ turnProgressWatch: false });
+    rt.bindHarness("b1", "claude", "e1");
+    rt.observeStructuredHook({
+      bindingId: "b1",
+      epoch: "e1",
+      state: "idle",
+      reason: "reporter",
+    });
+    const seen: string[] = [];
+    rt.subscribeComposerVerdict((_, verdict) => {
+      seen.push(String(verdict));
+    });
+    rt.observe(snap("b1", { lines: [HR, "❯ typed under reporter", HR, "f"] }));
+    expect(seen).toEqual(["draft"]);
+    expect(rt.composerVerdict("b1")).toBe("draft");
+    rt.stop();
+  });
+});

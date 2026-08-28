@@ -115,4 +115,30 @@ export const devinRules: SeatRulePack = {
       },
     },
   ],
+  // Composer probes — grounded in P1 corpus devin/startup-idle (placeholder
+  // `\u276d Ask Devin to build features, fix bugs, or work on your code`) and
+  // devin/type-echo (draft `\u276d hello`, box between ─── rules). Exact
+  // empties first; glyph-anchored draft catch-all last.
+  composer: [
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "prompt_box_body",
+      matchers: { regex: ["^\\s*\u276d\\s*$"] },
+    },
+    {
+      id: "placeholder_hint_empty",
+      verdict: "empty",
+      region: "prompt_box_body",
+      matchers: {
+        regex: ["^\\s*\u276d Ask Devin to build features, fix bugs, or work on your code\\s*$"],
+      },
+    },
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "prompt_box_body",
+      matchers: { regex: ["^\\s*\u276d"] },
+    },
+  ],
 };

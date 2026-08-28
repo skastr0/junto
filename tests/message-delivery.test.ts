@@ -4,7 +4,6 @@ import type { CanvasDoc, Message } from "../src/shared/canvas";
 import {
   composeMessageDeliveryPayload,
   composeMessageDeliverySummary,
-  composerBlocksMailInject,
   deliveryTargetOf,
   isFactoryMailMessage,
   isForeignMessage,
@@ -14,10 +13,6 @@ import {
   messageBriefText,
   messageSenderLabel,
   MESSAGE_PTY_FULL_BODY_MAX,
-  OPERATOR_PRESENT_WINDOW_MS,
-  operatorPresentNow,
-  operatorTypedThisGeneration,
-  seatOperatorDraft,
   ptyInjectMarksRead,
   shouldSummarizeMessageForPty,
   sortMessagesNewestFirst,
@@ -153,92 +148,6 @@ describe("message-delivery pure helpers", () => {
     expect(composeMessageDeliveryPayload(latest)).toBe("[message - user] new ping");
   });
 
-  it("composerBlocksMailInject: harness chrome is NOT draft; only paste chip blocks", () => {
-    expect(composerBlocksMailInject("")).toBe(false);
-    expect(composerBlocksMailInject("   ")).toBe(false);
-    expect(composerBlocksMailInject("[message - user] mail — 01abc — vellum-command msg list")).toBe(
-      false,
-    );
-    // Real startup-idle chrome must not kill mail (review BLOCK #1).
-    expect(composerBlocksMailInject('Try "fix typecheck errors"')).toBe(false);
-    expect(composerBlocksMailInject("Grok 4.5 (low) \u00b7 22K / 500K (4%) \u00b7 ctrl+o transcript")).toBe(
-      false,
-    );
-    expect(composerBlocksMailInject("gpt-5.4-mini low \u00b7 /tmp")).toBe(false);
-    expect(composerBlocksMailInject("please fix the seat brick")).toBe(false);
-    expect(composerBlocksMailInject("[Pasted text #3 +12 lines]")).toBe(true);
-  });
-
-  it("operatorTypedThisGeneration is a generation fact, not the draft gate", () => {
-    expect(
-      operatorTypedThisGeneration({
-        lastUserInputAtMs: undefined,
-        generationStartedAtMs: 1000,
-      }),
-    ).toBe(false);
-    expect(
-      operatorTypedThisGeneration({
-        lastUserInputAtMs: 999,
-        generationStartedAtMs: 1000,
-      }),
-    ).toBe(false);
-    expect(
-      operatorTypedThisGeneration({
-        lastUserInputAtMs: 1000,
-        generationStartedAtMs: 1000,
-      }),
-    ).toBe(true);
-    expect(
-      operatorTypedThisGeneration({
-        lastUserInputAtMs: 1500,
-        generationStartedAtMs: 1000,
-      }),
-    ).toBe(true);
-  });
-
-  it("seatOperatorDraft holds only while the operator is present or a chip remains", () => {
-    const spawn = 1_000;
-    const typedAt = 2_000;
-    expect(
-      operatorTypedThisGeneration({
-        lastUserInputAtMs: typedAt,
-        generationStartedAtMs: spawn,
-      }),
-    ).toBe(true);
-    expect(
-      operatorPresentNow({
-        lastUserInputAtMs: typedAt,
-        nowMs: typedAt + 2_000,
-      }),
-    ).toBe(true);
-    expect(
-      operatorPresentNow({
-        lastUserInputAtMs: typedAt,
-        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
-      }),
-    ).toBe(false);
-    expect(
-      seatOperatorDraft({
-        lastUserInputAtMs: typedAt,
-        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
-        residualChip: false,
-      }),
-    ).toBe(false);
-    expect(
-      seatOperatorDraft({
-        lastUserInputAtMs: typedAt,
-        nowMs: typedAt + OPERATOR_PRESENT_WINDOW_MS + 1,
-        residualChip: true,
-      }),
-    ).toBe(true);
-    expect(
-      seatOperatorDraft({
-        lastUserInputAtMs: typedAt,
-        nowMs: typedAt + 1_000,
-        residualChip: false,
-      }),
-    ).toBe(true);
-  });
 
   it("sender is role only; brief strips controls and collapses whitespace", () => {
     expect(messageSenderLabel(userMsg({ metadata: { sender: "operator" } }))).toBe("user");

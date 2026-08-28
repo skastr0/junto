@@ -646,6 +646,16 @@ export class MessageDeliveryService {
     this.onSeatStateChanged(bindingId);
   }
 
+  /**
+   * The seat's composer was proven EMPTY on screen. A delivery refused at the
+   * turn boundary (idle published before the composer repaint settled) has no
+   * idle transition left to re-drive it — this boundary is what it waits on.
+   */
+  onComposerEmpty(bindingId: string): void {
+    if (this.suspended) return;
+    this.onSeatStateChanged(bindingId);
+  }
+
   /** Pause released — re-drive everything held pending while paused. */
   onResumed(): void {
     if (this.suspended) return;
@@ -1056,7 +1066,8 @@ export class MessageDeliveryService {
     }
 
     if (snap.operatorDraft) {
-      // Operator is typing — retry later; do not paste over their draft.
+      // The screen does not prove an empty composer (operator draft, stuck
+      // chip, or unreadable box) — retry later; never paste over it.
       this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
       return { allow: false, reason: "operator-draft" };
     }

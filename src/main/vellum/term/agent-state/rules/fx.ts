@@ -125,4 +125,35 @@ export const fxRules: SeatRulePack = {
       },
     },
   ],
+  // Composer probes — lifted from this pack's grounded idle rules: the
+  // composer is a `\u2503` line with the `<mode> \u00B7 <model>` footer in the
+  // same strip. Draft first: a stale bare `\u2503` must never prove empty
+  // over drafted content in the same window.
+  composer: [
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: {
+        all: [
+          { lineRegex: ["^\\s*\\u2503\\s+\\S"] },
+          { lineRegex: ["^\\s*\\S+\\s+\\u00B7\\s+\\S+\\s*$"] },
+        ],
+      },
+    },
+    {
+      id: "bare_composer_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: {
+        all: [
+          { lineRegex: ["^\\s*\\u2503\\s*$"] },
+          { lineRegex: ["^\\s*\\S+\\s+\\u00B7\\s+\\S+\\s*$"] },
+        ],
+        not: [{ contains: ["esc to cancel"] }],
+      },
+    },
+  ],
 };

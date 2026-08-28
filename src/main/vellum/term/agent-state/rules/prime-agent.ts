@@ -92,4 +92,31 @@ export const primeAgentRules: SeatRulePack = {
       matchers: { regex: ["^4;0"] },
     },
   ],
+  // Composer probes — grounded in a live capture of prime-agent v0.8.1
+  // (2026-08-28): the composer is a bare `>` line above the shortcut footer;
+  // empty shows `>   Try "refactor @<filepath>"`, a draft replaces it
+  // (`>  hello`). No ─── rule box, so probes scope to the bottom strip.
+  composer: [
+    {
+      id: "placeholder_hint_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 2,
+      matchers: { lineRegex: ["^\\s*>\\s+Try \"[^\\n]*\"\\s*$"] },
+    },
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 2,
+      matchers: { lineRegex: ["^\\s*>\\s*$"] },
+    },
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 2,
+      matchers: { lineRegex: ["^\\s*>\\s+\\S"] },
+    },
+  ],
 };

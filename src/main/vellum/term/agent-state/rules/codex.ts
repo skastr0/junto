@@ -125,4 +125,33 @@ export const codexRules: SeatRulePack = {
       },
     },
   ],
+  // Composer probes — grounded in P1 corpus codex/startup-idle (placeholder
+  // `› Implement {feature}`) and codex/type-echo (draft `› hello`). Codex
+  // paints no ─── rule box, so the probes scope to the bottom strip. Empties
+  // are EXACT literals ordered first: a rotated placeholder this pack does
+  // not know reads as draft and holds delivery loudly (battery check 3 goes
+  // red) instead of pasting into unknown chrome.
+  composer: [
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u203a\\s*$"] },
+    },
+    {
+      id: "placeholder_hint_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u203a Implement \\{feature\\}\\s*$"] },
+    },
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: { lineRegex: ["^\\s*\u203a\\s+\\S"] },
+    },
+  ],
 };

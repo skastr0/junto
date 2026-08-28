@@ -50,14 +50,9 @@ import {
   type MessageDeliveryReadSite,
 } from "./work/message-delivery";
 import {
-  composerBlocksMailInject,
-  seatOperatorDraft,
-} from "@shared/message-delivery";
-import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
 } from "./work/mailbox-receipts";
-import { extractPromptBoxText } from "./term/observer/interaction";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
@@ -76,7 +71,6 @@ import {
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { seatStateRuntime } from "./term/agent-state";
 import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
-import { composerDraft } from "./term/composer-draft";
 import { homedir } from "node:os";
 import {
   SeatSessionCapture,
@@ -1356,13 +1350,19 @@ export const registerVellumIpc = (): void => {
           if (!snap) return false;
           return promptStillPending(snap, text);
         },
-        // An idle seat with a half-typed operator prompt is not writeable:
-        // paste + CR would submit their draft. Wait for a clear box.
-        hasOperatorDraft: (bindingId) => composerDraft.hasDraft(bindingId),
+        // Screen truth: typing is authorized only while the harness's
+        // composer probes prove an EMPTY input box on the live grid.
+        composerVerdict: (bindingId) =>
+          seatStateRuntime.composerVerdict(bindingId),
       });
-      // The operator submitted or cleared their draft: release what waited.
-      composerDraft.onClear((bindingId) => {
+      // The composer went visibly empty (operator submitted or cleared, or a
+      // repaint settled): release the queued prompts that waited on it.
+      seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
+        if (verdict !== "empty") return;
         managedDrive.onComposerClear(bindingId);
+        // Deliveries refused at the turn boundary (idle published before the
+        // composer repaint settled) wait on exactly this boundary.
+        messageDelivery.onComposerEmpty(bindingId);
       });
       const productAutomationSuspension = Object.freeze({
         suspend: (): void => {
@@ -1515,14 +1515,12 @@ export const registerVellumIpc = (): void => {
         const epoch = payload.epoch;
         if (payload.status === "exited") {
           managedDrive.invalidateBinding(bindingId);
-          composerDraft.clear(bindingId);
           cancelManagedPulseReady(bindingId, epoch);
           acceptedClaudeRecoveryEpoch.delete(bindingId);
           return;
         }
         if (payload.status !== "running") return;
         managedDrive.invalidateBinding(bindingId);
-        composerDraft.clear(bindingId);
         cancelManagedPulseReady(bindingId);
         acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
@@ -1689,22 +1687,16 @@ export const registerVellumIpc = (): void => {
             ) {
               return undefined;
             }
-            const idle = seatStateRuntime.isSeatIdle(bindingId);
-            const snap = terminalObserverPlane.snapshot(bindingId);
-            const promptText = snap
-              ? extractPromptBoxText(snap.lines)
-              : "";
-            // Residual product paste chip still occupies the box.
-            const residualChip = composerBlocksMailInject(promptText);
             return {
-              idle,
+              idle: seatStateRuntime.isSeatIdle(bindingId),
               generationKey: live.epoch,
-              operatorDraft: seatOperatorDraft({
-                lastUserInputAtMs:
-                  injectionSupervisor.lastUserInputAt(bindingId),
-                nowMs: Date.now(),
-                residualChip,
-              }),
+              // Screen truth: the harness's composer probes must prove an
+              // EMPTY box. A visible operator draft, a stuck paste chip, and
+              // an unreadable composer all hold mail — the same verdict the
+              // drive enforces at the paste boundary, so the gate can never
+              // pass a message the transport is about to refuse.
+              operatorDraft:
+                seatStateRuntime.composerVerdict(bindingId) !== "empty",
             };
           },
         },

@@ -2,6 +2,11 @@
  * Amp CLI (`amp`) seat rules.
  *
  * Written from a real PTY capture of `amp --no-ide threads continue <T-id>`
+ *
+ * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
+ * capture on this machine, so composerVerdictFor returns null and factory
+ * typing into its seats REFUSES (composer-unreadable attention). Ground the
+ * real empty/draft chrome and add `composer` probes before shipping it.
  * (0.0.1787664850). What Amp actually paints, in order:
  *
  *   startup   title ""                              footer `~ Connecting`

@@ -2,6 +2,11 @@
  * Oh My Pi (`omp`) seat rules.
  *
  * Written from a live PTY capture of omp 18.0.9. Unlike some harnesses here,
+ *
+ * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
+ * capture on this machine, so composerVerdictFor returns null and factory
+ * typing into its seats REFUSES (composer-unreadable attention). Ground the
+ * real empty/draft chrome and add `composer` probes before shipping it.
  * omp's OSC title IS a state machine, and the body agrees with it:
  *
  *   idle      title `π > omp-probe`          status bar, no Working line

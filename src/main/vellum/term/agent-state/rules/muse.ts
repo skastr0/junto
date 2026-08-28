@@ -2,6 +2,11 @@
  * Muse seat rules.
  *
  * Sweep (docs/research/agent-cli-sweep/muse.md) + 2026-08 probe:
+ *
+ * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
+ * capture on this machine, so composerVerdictFor returns null and factory
+ * typing into its seats REFUSES (composer-unreadable attention). Ground the
+ * real empty/draft chrome and add `composer` probes before shipping it.
  * - Handshake surface verified: bracketed paste, focus, OSC palette, DSR.
  * - No OSC title, no alt screen, no evidenced attention/working literals.
  * - `--agents <JSON>` CLI accepts an object shape, but the binary reports

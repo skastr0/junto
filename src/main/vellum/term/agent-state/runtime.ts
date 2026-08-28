@@ -12,6 +12,8 @@ import type {
 import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
 import { peekFirstTypedMessage } from "../first-typed";
+import { composerVerdictForHarness } from "./composer";
+import type { ComposerVerdict } from "./types";
 import { FALLBACK_IDLE } from "./engine";
 import { hookStateFromSnapshot } from "./hook-feed";
 import { SeatStateMachine } from "./seat-state-machine";
@@ -57,6 +59,11 @@ export class SeatStateRuntime {
   private unsubObserver: (() => void) | undefined;
   private readonly harnessByBinding = new Map<string, HarnessId | string>();
   private readonly eventListeners = new Set<(event: AgentSeatStateEvent) => void>();
+  /** Last screen-derived composer verdict per binding (see composer.ts). */
+  private readonly composerByBinding = new Map<string, ComposerVerdict>();
+  private readonly composerListeners = new Set<
+    (bindingId: string, verdict: ComposerVerdict) => void
+  >();
   private readonly now: () => number;
   private readonly progressWatch: TurnProgressWatch | undefined;
   /** Sticky mid-turn stall: hold attention until progress or a non-working leave. */
@@ -121,6 +128,8 @@ export class SeatStateRuntime {
     this.machine.dispose();
     this.harnessByBinding.clear();
     this.eventListeners.clear();
+    this.composerByBinding.clear();
+    this.composerListeners.clear();
   }
 
   /** Bind a live terminal generation to a harness rule pack. */
@@ -147,6 +156,7 @@ export class SeatStateRuntime {
     const event = this.machine.unbind(bindingId, { epoch, reason });
     this.clearTurnWatch(bindingId);
     this.lastSnapshot.delete(bindingId);
+    this.composerByBinding.delete(bindingId);
     const structured = this.structuredHookByBinding.get(bindingId);
     if (
       structured !== undefined &&
@@ -265,6 +275,56 @@ export class SeatStateRuntime {
     return this.machine.getState(bindingId);
   }
 
+  /**
+   * Screen-derived composer verdict for the drive's typing gate.
+   *
+   * Reads the LIVE observer grid (not the cached last verdict), so a quiet
+   * idle seat that painted its empty composer minutes ago still answers
+   * truthfully at the paste moment. null — unbound seat, no snapshot yet, or
+   * the harness's probes matched nothing — always refuses typing.
+   */
+  composerVerdict(bindingId: string): ComposerVerdict {
+    const harness =
+      this.harnessByBinding.get(bindingId) ??
+      this.machine.getSlot(bindingId)?.harness;
+    if (!harness) return null;
+    // Live plane render first; the fed-snapshot cache covers direct-feed tests.
+    const snap =
+      terminalObserverPlane.snapshot(bindingId) ??
+      this.lastSnapshot.get(bindingId);
+    if (!snap) return null;
+    return composerVerdictForHarness(snap, String(harness));
+  }
+
+  /**
+   * Notified on every composer-verdict CHANGE (draft→empty is the boundary
+   * the drive's queued prompts wait on).
+   */
+  subscribeComposerVerdict(
+    listener: (bindingId: string, verdict: ComposerVerdict) => void,
+  ): () => void {
+    this.composerListeners.add(listener);
+    return () => {
+      this.composerListeners.delete(listener);
+    };
+  }
+
+  private noteComposerVerdict(
+    bindingId: string,
+    verdict: ComposerVerdict,
+  ): void {
+    const prior = this.composerByBinding.get(bindingId);
+    if (prior === verdict) return;
+    this.composerByBinding.set(bindingId, verdict);
+    for (const listener of this.composerListeners) {
+      try {
+        listener(bindingId, verdict);
+      } catch (err) {
+        console.error("[seat-state] composer listener failed:", err);
+      }
+    }
+  }
+
   /** True while sticky mid-turn stall holds attention (tests / diagnostics). */
   isTurnStalled(bindingId: string): boolean {
     return this.turnStalled.has(bindingId);
@@ -306,6 +366,13 @@ export class SeatStateRuntime {
       return null;
     }
     this.lastSnapshot.set(snap.bindingId, snap);
+    // Composer verdict on EVERY snapshot, before any state-authority branch —
+    // a structured hook feed owning seat state must not blind the composer
+    // question, and the drive's drain waits on the draft→empty transition.
+    this.noteComposerVerdict(
+      snap.bindingId,
+      composerVerdictForHarness(snap, String(harness)),
+    );
     const now = this.now();
     const structured = this.structuredHookByBinding.get(snap.bindingId);
     if (structured !== undefined && structured.epoch === slot?.epoch) {
