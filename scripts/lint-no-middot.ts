@@ -1,8 +1,12 @@
 #!/usr/bin/env bun
 /**
- * Forbid U+00B7 MIDDLE DOT anywhere in product text surfaces.
+ * Forbid U+00B7 MIDDLE DOT in product text surfaces.
  *
- * Operators banned middot staccato from Vellum Command UI and copy.
+ * Operators banned middot staccato from Vellum Command UI and copy. The ban is
+ * a PRODUCT rule: it governs strings a user can see (renderer, shared copy,
+ * main-process messages, docs). It does not govern tests, e2e, scripts, or the
+ * seat-state rule sources, whose job is to byte-match third-party TUI chrome
+ * that legitimately prints U+00B7.
  * Run: `bun run lint:no-middot`
  * Exit 0 = clean; exit 1 = violations with file:line.
  */
@@ -74,6 +78,19 @@ const SKIP_FILE_NAMES = new Set([
   "strip-middots.ts",
 ]);
 
+// Product surfaces only. Tests, e2e, scripts, experiments, and design-sync
+// previews transcribe external reality and are out of scope.
+const SCAN_ROOTS = ["src", "docs", "assets"];
+const ROOT_FILES = ["README.md", "AGENTS.md", "CLAUDE.md", "PRODUCT.md"];
+
+// The one src subtree whose purpose is matching third-party TUI bytes.
+const EXEMPT_SUBTREES = [
+  path.join("src", "main", "vellum", "term", "agent-state", "rules"),
+];
+
+const isExempt = (rel: string): boolean =>
+  EXEMPT_SUBTREES.some((sub) => rel === sub || rel.startsWith(sub + path.sep));
+
 const walk = async (dir: string, out: string[]): Promise<void> => {
   let entries;
   try {
@@ -101,9 +118,20 @@ const walk = async (dir: string, out: string[]): Promise<void> => {
 
 const main = async (): Promise<void> => {
   const files: string[] = [];
-  await walk(ROOT, files);
+  for (const root of SCAN_ROOTS) {
+    await walk(path.join(ROOT, root), files);
+  }
+  for (const name of ROOT_FILES) {
+    const full = path.join(ROOT, name);
+    try {
+      if ((await stat(full)).isFile()) files.push(full);
+    } catch {
+      // absent root file — fine
+    }
+  }
   const hits: Array<{ file: string; line: number; text: string }> = [];
   for (const file of files) {
+    if (isExempt(path.relative(ROOT, file))) continue;
     let body: string;
     try {
       body = await readFile(file, "utf8");
