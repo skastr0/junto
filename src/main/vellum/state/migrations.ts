@@ -50,7 +50,7 @@ import {
 } from "../canvas/records";
 import {
   containsWorkProjection as canvasContainsWorkProjection,
-  decodeCanvasDoc as decodeCanvasDocForCutover,
+  decodeCanvasDocForCutover,
   serializeCanvas as serializeCanvasForCutover,
 } from "@shared/canvas";
 import {

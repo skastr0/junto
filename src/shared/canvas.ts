@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
 import { EtherSheet } from "./sheet";
 import {
@@ -745,6 +745,27 @@ export const decodeCanvasDoc = (
   input: unknown,
 ): ReturnType<typeof decodeCanvasDocStrict> =>
   decodeCanvasDocStrict(scrubCanvasDocInput(input));
+
+const decodeCanvasDocDroppingExcess = Schema.decodeUnknownResult(CanvasDoc, {
+  onExcessProperty: "ignore",
+});
+
+/**
+ * One-shot conversion decode for the schema cutover ONLY. A body written by
+ * an old build may carry retired fields the strict decoder refuses (node
+ * ether keys like `herdr`, retired document fields); the bridge is the one
+ * sanctioned moment those are cleaned, exactly like the legacy edge -> verb
+ * conversion that runs in the same pass. Excess properties are DROPPED at
+ * every struct level, so everything persisted after the bridge round-trips
+ * the strict decoder. Never call this from a live read or write path.
+ */
+export const decodeCanvasDocForCutover = (
+  input: unknown,
+): ReturnType<typeof decodeCanvasDocStrict> => {
+  const strict = decodeCanvasDocStrict(scrubCanvasDocInput(input));
+  if (Result.isSuccess(strict)) return strict;
+  return decodeCanvasDocDroppingExcess(scrubCanvasDocInput(input));
+};
 
 const NODE_KEY_ORDER = [
   "id",
