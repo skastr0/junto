@@ -43,6 +43,7 @@ import {
   loadHistoricalPackageComparison,
   plantHistoricalStaleRemote,
   readLinuxX64ExecutionFacts,
+  validatePackageSourceFacts,
   withQualificationReceiptAttempt,
 } from "../scripts/qualify-package-runtime-parity";
 import {
@@ -115,6 +116,14 @@ const strictFactsCases: ReadonlyArray<
   ["null appVersion", () => withTopLevelFact("appVersion", null)],
   ["wrong appVersion type", () => withTopLevelFact("appVersion", 14)],
   ["malformed appVersion", () => withTopLevelFact("appVersion", "v0.1.14")],
+  [
+    "leading-zero numeric prerelease",
+    () => withTopLevelFact("appVersion", "0.1.14-01"),
+  ],
+  [
+    "leading-zero numeric prerelease component",
+    () => withTopLevelFact("appVersion", "1.2.3-rc.01"),
+  ],
   ["missing sourceCommit", () => withoutTopLevelFact("sourceCommit")],
   ["undefined sourceCommit", () => withTopLevelFact("sourceCommit", undefined)],
   ["null sourceCommit", () => withTopLevelFact("sourceCommit", null)],
@@ -142,6 +151,14 @@ const strictFactsCases: ReadonlyArray<
   [
     "malformed currentStateSchemaVersion",
     () => withTopLevelFact("currentStateSchemaVersion", 20.5),
+  ],
+  [
+    "unsafe currentStateSchemaVersion",
+    () =>
+      withTopLevelFact(
+        "currentStateSchemaVersion",
+        Number.MAX_SAFE_INTEGER + 1,
+      ),
   ],
   [
     "missing migrationIdentitySha256",
@@ -178,6 +195,14 @@ const strictFactsCases: ReadonlyArray<
     () => ({ ...source, unexpected: true }) as unknown as PackageSourceFacts,
   ],
   [
+    "symbol top-level field",
+    () => {
+      const facts = { ...source } as Record<PropertyKey, unknown>;
+      facts[Symbol("unexpected")] = true;
+      return facts as PackageSourceFacts;
+    },
+  ],
+  [
     "missing migrationHead.fromVersion",
     () => withoutMigrationHeadFact("fromVersion"),
   ],
@@ -196,6 +221,11 @@ const strictFactsCases: ReadonlyArray<
   [
     "malformed migrationHead.fromVersion",
     () => withMigrationHeadFact("fromVersion", -1),
+  ],
+  [
+    "unsafe migrationHead.fromVersion",
+    () =>
+      withMigrationHeadFact("fromVersion", Number.MAX_SAFE_INTEGER + 1),
   ],
   [
     "missing migrationHead.toVersion",
@@ -217,6 +247,18 @@ const strictFactsCases: ReadonlyArray<
     "malformed migrationHead.toVersion",
     () => withMigrationHeadFact("toVersion", Number.POSITIVE_INFINITY),
   ],
+  [
+    "unsafe migrationHead.toVersion",
+    () => withMigrationHeadFact("toVersion", Number.MAX_SAFE_INTEGER + 1),
+  ],
+  [
+    "migrationHead.toVersion is not current schema",
+    () => withMigrationHeadFact("toVersion", 21),
+  ],
+  [
+    "migrationHead.fromVersion is not contiguous",
+    () => withMigrationHeadFact("fromVersion", 18),
+  ],
   ["missing migrationHead.name", () => withoutMigrationHeadFact("name")],
   [
     "undefined migrationHead.name",
@@ -236,7 +278,110 @@ const strictFactsCases: ReadonlyArray<
         migrationHead: { ...source.migrationHead, unexpected: true },
       }) as unknown as PackageSourceFacts,
   ],
+  [
+    "symbol migrationHead field",
+    () => {
+      const migrationHead = {
+        ...source.migrationHead,
+      } as Record<PropertyKey, unknown>;
+      migrationHead[Symbol("unexpected")] = true;
+      return { ...source, migrationHead } as PackageSourceFacts;
+    },
+  ],
 ];
+
+const makeUnreadableProxy = (
+  target: object,
+  onRead: () => void,
+): object =>
+  new Proxy(target, {
+    get: () => {
+      onRead();
+      throw new Error("proxy get trap invoked");
+    },
+    getOwnPropertyDescriptor: () => {
+      onRead();
+      throw new Error("proxy descriptor trap invoked");
+    },
+    getPrototypeOf: () => {
+      onRead();
+      throw new Error("proxy prototype trap invoked");
+    },
+    ownKeys: () => {
+      onRead();
+      throw new Error("proxy ownKeys trap invoked");
+    },
+  });
+
+const withMigrationHeadPrototype = (
+  prototype: object | null,
+): PackageSourceFacts =>
+  ({
+    ...source,
+    migrationHead: Object.assign(
+      Object.create(prototype),
+      source.migrationHead,
+    ),
+  }) as unknown as PackageSourceFacts;
+
+const hostileShapeCases: ReadonlyArray<
+  readonly [label: string, make: () => unknown]
+> = [
+  ["top-level array", () => []],
+  ["top-level null prototype", () => Object.create(null)],
+  [
+    "top-level custom prototype",
+    () => Object.assign(Object.create({ custom: true }), source),
+  ],
+  ["nested migrationHead array", () => withMigrationHeadFact("fromVersion", [])],
+  [
+    "nested migrationHead null prototype",
+    () => withMigrationHeadPrototype(null),
+  ],
+  [
+    "nested migrationHead custom prototype",
+    () => withMigrationHeadPrototype({ custom: true }),
+  ],
+];
+
+const accessorFacts = (
+  nested: boolean,
+  onAccess: () => void,
+): PackageSourceFacts => {
+  const facts = { ...source };
+  if (nested) {
+    const migrationHead = { ...source.migrationHead };
+    Object.defineProperty(migrationHead, "name", {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        onAccess();
+        facts.sourceCommit = "c".repeat(40);
+        Reflect.deleteProperty(facts, "migrationHead");
+        return source.migrationHead.name;
+      },
+      set: () => {
+        onAccess();
+      },
+    });
+    facts.migrationHead = migrationHead;
+  } else {
+    Object.defineProperty(facts, "appVersion", {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        onAccess();
+        facts.sourceCommit = "c".repeat(40);
+        Reflect.deleteProperty(facts, "migrationHead");
+        return source.appVersion;
+      },
+      set: () => {
+        onAccess();
+      },
+    });
+  }
+  return facts;
+};
 
 const identity = (
   runtime: PackageRuntime,
@@ -649,15 +794,11 @@ describe("exact committed source admission", () => {
     ["sourceCommit", { ...source, sourceCommit: "c".repeat(40) }],
     [
       "currentStateSchemaVersion",
-      { ...source, currentStateSchemaVersion: 21 },
-    ],
-    [
-      "migrationHead.fromVersion",
-      { ...source, migrationHead: { ...source.migrationHead, fromVersion: 18 } },
-    ],
-    [
-      "migrationHead.toVersion",
-      { ...source, migrationHead: { ...source.migrationHead, toVersion: 21 } },
+      {
+        ...source,
+        currentStateSchemaVersion: 21,
+        migrationHead: { ...source.migrationHead, fromVersion: 20, toVersion: 21 },
+      },
     ],
     [
       "migrationHead.name",
@@ -702,6 +843,139 @@ describe("exact committed source admission", () => {
       );
     },
   );
+  it.each(hostileShapeCases)(
+    "rejects hostile object shapes on root, clone, and both sides (%s)",
+    (_label: string, makeFacts: () => unknown) => {
+      expect(() => assertPackageSourceFactsEqual(makeFacts(), source)).toThrow(
+        /invalid root PackageSourceFacts/u,
+      );
+      expect(() => assertPackageSourceFactsEqual(source, makeFacts())).toThrow(
+        /invalid clone PackageSourceFacts/u,
+      );
+      expect(() =>
+        assertPackageSourceFactsEqual(makeFacts(), makeFacts()),
+      ).toThrow(/invalid root PackageSourceFacts/u);
+    },
+  );
+
+  it("rejects root and clone proxies before any proxy trap can run", () => {
+    let rootReads = 0;
+    let cloneReads = 0;
+    const rootProxy = makeUnreadableProxy(source, () => {
+      rootReads += 1;
+    });
+    const cloneProxy = makeUnreadableProxy(source, () => {
+      cloneReads += 1;
+    });
+
+    expect(() => assertPackageSourceFactsEqual(rootProxy, source)).toThrow(
+      /invalid root PackageSourceFacts/u,
+    );
+    expect(rootReads).toBe(0);
+    expect(() => assertPackageSourceFactsEqual(source, cloneProxy)).toThrow(
+      /invalid clone PackageSourceFacts/u,
+    );
+    expect(cloneReads).toBe(0);
+
+    expect(() => assertPackageSourceFactsEqual(rootProxy, cloneProxy)).toThrow(
+      /invalid root PackageSourceFacts/u,
+    );
+    expect(rootReads).toBe(0);
+    expect(cloneReads).toBe(0);
+  });
+
+  it.each([false, true] as const)(
+    "rejects top-level and nested accessors without invoking them (%s)",
+    (nested: boolean) => {
+      let rootAccesses = 0;
+      let cloneAccesses = 0;
+      const rootFacts = accessorFacts(nested, () => {
+        rootAccesses += 1;
+      });
+      const cloneFacts = accessorFacts(nested, () => {
+        cloneAccesses += 1;
+      });
+
+      expect(() => assertPackageSourceFactsEqual(rootFacts, source)).toThrow(
+        /invalid root PackageSourceFacts/u,
+      );
+      expect(rootAccesses).toBe(0);
+      expect(rootFacts.sourceCommit).toBe(source.sourceCommit);
+      expect(Reflect.has(rootFacts, "migrationHead")).toBe(true);
+      expect(() => assertPackageSourceFactsEqual(source, cloneFacts)).toThrow(
+        /invalid clone PackageSourceFacts/u,
+      );
+      expect(cloneAccesses).toBe(0);
+      expect(cloneFacts.sourceCommit).toBe(source.sourceCommit);
+      expect(Reflect.has(cloneFacts, "migrationHead")).toBe(true);
+      expect(() =>
+        assertPackageSourceFactsEqual(rootFacts, cloneFacts),
+      ).toThrow(/invalid root PackageSourceFacts/u);
+      expect(rootAccesses).toBe(0);
+      expect(cloneAccesses).toBe(0);
+    },
+  );
+
+  it("does not invoke a stateful getter that tries to mutate facts", () => {
+    const facts = { ...source };
+    let getterInvocations = 0;
+    Object.defineProperty(facts, "appVersion", {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        getterInvocations += 1;
+        facts.sourceCommit = "c".repeat(40);
+        Reflect.deleteProperty(facts, "migrationHead");
+        return source.appVersion;
+      },
+      set: () => {
+        getterInvocations += 1;
+      },
+    });
+
+    expect(() => assertPackageSourceFactsEqual(facts, source)).toThrow(
+      /invalid root PackageSourceFacts/u,
+    );
+    expect(getterInvocations).toBe(0);
+    expect(facts.sourceCommit).toBe(source.sourceCommit);
+    expect(facts.migrationHead).toEqual(source.migrationHead);
+  });
+
+  it("returns fresh normalized facts for all downstream comparisons", () => {
+    const rootFacts = { ...source, migrationHead: { ...source.migrationHead } };
+    const cloneFacts = { ...source, migrationHead: { ...source.migrationHead } };
+    const admitted = assertPackageSourceFactsEqual(rootFacts, cloneFacts);
+
+    expect(admitted.root).toEqual(source);
+    expect(admitted.clone).toEqual(source);
+    expect(admitted.root).not.toBe(rootFacts);
+    expect(admitted.clone).not.toBe(cloneFacts);
+    expect(admitted.root.migrationHead).not.toBe(rootFacts.migrationHead);
+    expect(admitted.clone.migrationHead).not.toBe(cloneFacts.migrationHead);
+    expect(Object.getPrototypeOf(admitted.root)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(admitted.root.migrationHead)).toBe(
+      Object.prototype,
+    );
+
+    rootFacts.appVersion = "9.9.9";
+    rootFacts.migrationHead.name = "mutated-after-admission";
+    cloneFacts.sourceCommit = "d".repeat(40);
+    cloneFacts.migrationHead.toVersion = 19;
+    expect(admitted.root).toEqual(source);
+    expect(admitted.clone).toEqual(source);
+  });
+
+  it("accepts SemVer 2.0.0 prerelease and build forms that are valid", () => {
+    expect(() =>
+      validatePackageSourceFacts(
+        {
+          ...source,
+          appVersion: "1.2.3-rc.0+build.01",
+        },
+        "root",
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("packaged runtime exact parity and closure", () => {
