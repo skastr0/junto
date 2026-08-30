@@ -1091,6 +1091,15 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   pointer-events: none;
   opacity: var(--vellum-region-glance, 0);
 }
+/* A region one level in rides its own band, which is zero wherever the outer
+   band is not — the two names never print at the same time. */
+.vellum-region-glance--nested {
+  opacity: var(--vellum-region-glance-sub, 0);
+}
+.vellum-region-glance--nested .vellum-region-glance__text {
+  color: color-mix(in oklab, var(--color-ink) 38%, transparent);
+  letter-spacing: .14em;
+}
 .vellum-region-glance__text {
   max-width: 100%;
   color: color-mix(in oklab, var(--color-ink) 32%, transparent);

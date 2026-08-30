@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   GLANCE_FULL,
   GLANCE_START,
+  GLANCE_SUB_VAR,
   GLANCE_VAR,
   publishRegionGlance,
   regionGlanceFontSize,
   regionGlanceOpacity,
+  SUBREGION_BAND,
+  subregionGlanceOpacity,
 } from "../src/renderer/lib/region-glance";
 
 describe("regionGlanceFontSize", () => {
@@ -28,6 +31,46 @@ describe("regionGlanceFontSize", () => {
 
   it("keeps a floor for tiny plates", () => {
     expect(regionGlanceFontSize(40, 30, "Ops")).toBe(22);
+  });
+
+  it("sizes a nested plate smaller than the same box at top level", () => {
+    expect(regionGlanceFontSize(900, 560, "Build floor", true)).toBeLessThan(
+      regionGlanceFontSize(900, 560, "Build floor"),
+    );
+    // ...and goes below the outer floor, because a nested plate is a small box.
+    expect(regionGlanceFontSize(90, 60, "Ops", true)).toBeLessThan(22);
+  });
+});
+
+describe("subregionGlanceOpacity", () => {
+  it("stays silent while cards inside the nested plate are readable", () => {
+    expect(subregionGlanceOpacity(1.4)).toBe(0);
+    expect(subregionGlanceOpacity(SUBREGION_BAND.rise)).toBe(0);
+  });
+
+  it("inks fully across its own band", () => {
+    expect(subregionGlanceOpacity(SUBREGION_BAND.peak)).toBe(1);
+    expect(subregionGlanceOpacity(0.78)).toBe(1);
+    expect(subregionGlanceOpacity(SUBREGION_BAND.hold)).toBe(1);
+  });
+
+  it("fades back out before the outer band arrives", () => {
+    const fading = subregionGlanceOpacity(0.66);
+    expect(fading).toBeGreaterThan(0);
+    expect(fading).toBeLessThan(1);
+    expect(subregionGlanceOpacity(GLANCE_START)).toBe(0);
+    expect(subregionGlanceOpacity(0.4)).toBe(0);
+  });
+
+  it("never prints at the same zoom as the outer band", () => {
+    for (let zoom = 0.05; zoom <= 1.5; zoom += 0.01) {
+      const both = regionGlanceOpacity(zoom) > 0 && subregionGlanceOpacity(zoom) > 0;
+      expect(both, `zoom ${zoom.toFixed(2)}`).toBe(false);
+    }
+  });
+
+  it("treats a missing zoom as readable", () => {
+    expect(subregionGlanceOpacity(Number.NaN)).toBe(0);
   });
 });
 
@@ -73,6 +116,17 @@ describe("publishRegionGlance", () => {
     expect(publishRegionGlance(el, 0.18)).toBe(false);
     expect(publishRegionGlance(el, 1.2)).toBe(true);
     expect(el.style.getPropertyValue(GLANCE_VAR)).toBe("0");
+  });
+
+  it("publishes the nested band alongside the outer one", () => {
+    const el = host();
+    publishRegionGlance(el, 0.8);
+    expect(el.style.getPropertyValue(GLANCE_SUB_VAR)).toBe("1.00");
+    expect(el.style.getPropertyValue(GLANCE_VAR)).toBe("0");
+    // Moving inside the nested band alone still counts as a change.
+    expect(publishRegionGlance(el, 0.2)).toBe(true);
+    expect(el.style.getPropertyValue(GLANCE_SUB_VAR)).toBe("0");
+    expect(el.style.getPropertyValue(GLANCE_VAR)).toBe("1.00");
   });
 
   it("is a no-op without a host", () => {

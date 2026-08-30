@@ -161,12 +161,16 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // resizeNode) repaints it without this card watching the whole document.
   const nestingDepth = data.regionDepth ?? 0;
   const nestedTooDeep = nestingDepth > MAX_REGION_DEPTH;
-  // Zoomed-out watermark (see region-glance.ts). Outermost regions only: nested
-  // plates would stack names on top of each other and read as noise. Opacity is
-  // inherited from the ReactFlow root, so this costs no render on zoom.
+  // Zoomed-out watermark (see region-glance.ts). Two depths, two zoom bands:
+  // an outermost region names itself once cards die, a region one level in names
+  // itself a step earlier and is gone before its parent's name arrives. Past
+  // that the plates would stack names on top of each other and read as noise,
+  // so a third level stays silent. Opacity is inherited from the ReactFlow root,
+  // so this costs no render on zoom.
   // An unnamed region has nothing to say at a distance — print nothing rather
   // than a placeholder the operator cannot navigate by.
-  const glanceable = nestingDepth === 0 && label.trim().length > 0;
+  const nestedGlance = nestingDepth === 1;
+  const glanceable = nestingDepth <= 1 && label.trim().length > 0;
 
   useEffect(() => {
     if (!editing) return;
@@ -304,11 +308,15 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     }}
   >
     {glanceable ? (
-      <div className="vellum-region-glance" aria-hidden>
+      <div
+        className={`vellum-region-glance${nestedGlance ? " vellum-region-glance--nested" : ""}`}
+        data-testid={`region-glance-${node.id}`}
+        aria-hidden
+      >
         <span
           className="vellum-region-glance__text"
           style={{
-            fontSize: `${regionGlanceFontSize(node.width, node.height, label)}px`,
+            fontSize: `${regionGlanceFontSize(node.width, node.height, label, nestedGlance)}px`,
             ...(node.color ? { color: withAlpha(tint, 0.4) } : {}),
           }}
         >
