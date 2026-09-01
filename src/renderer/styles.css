@@ -1256,6 +1256,24 @@ html[data-viewport-busy] .react-flow .react-flow__viewport {
 .react-flow__node { background: transparent; border: 0; }
 .react-flow__node-group { background: transparent !important; border: 0 !important; }
 .react-flow__pane { background-image: radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--color-main) 1.8%, transparent), transparent 45%); }
+/* Dotted ground — a pseudo-element inside the composited viewport, so it moves
+   with the camera transform and never repaints during a pan. React Flow's
+   <Background> re-rendered a full-window SVG pattern on every viewport change,
+   which repainted the whole window on every pan frame. Same geometry as that
+   Background (26px gap, 1px dots, ink at 7%), written in flow units so zoom
+   scales it exactly as before. */
+.react-flow__viewport::before {
+  content: "";
+  position: absolute;
+  left: -100000px;
+  top: -100000px;
+  width: 200000px;
+  height: 200000px;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--color-ink) 7%, transparent) 0.5px, transparent 0.5px);
+  background-size: 26px 26px;
+}
 
 /* Surface motion gate — page hidden / prefers-reduced-motion (see
    surface-motion.ts). Pauses continuous CSS so the GPU helper can idle.

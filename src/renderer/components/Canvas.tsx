@@ -1,7 +1,5 @@
 import { Profiler, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Background,
-  BackgroundVariant,
   ConnectionMode,
   ControlButton,
   Controls,
@@ -1529,7 +1527,10 @@ function CanvasGraph() {
       proOptions={{ hideAttribution: true }}
       style={{ background: fieldTheme.ground }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color={withAlpha(fieldTheme.ink!, 0.07)} />
+      {/* The dotted ground is CSS inside the composited viewport (styles.css,
+          .react-flow__viewport::before): React Flow's <Background> re-renders a
+          full-window SVG pattern on every viewport change, which repainted the
+          whole window on every pan frame. */}
       <CanvasLoom edges={edges} />
       <CanvasMagnifier />
       <CanvasKeyboardPan />
