@@ -3,7 +3,6 @@ import {
   ConnectionMode,
   ControlButton,
   Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   SelectionMode,
@@ -87,6 +86,7 @@ import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { ViewportTransformLease } from "./ViewportTransformLease";
+import { FactoryMinimap } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
@@ -1097,13 +1097,12 @@ function RtsMinimapStack() {
     state$.focusNodeId.set(node.id);
   }, []);
 
-  // MiniMap stays mounted for every pan/zoom frame — chrome must not blank.
-  // Viewport-busy only freezes rebuilds/IPC/CSS, not this panel.
+  // The map stays mounted for every pan/zoom frame — chrome must not blank.
+  // FactoryMinimap applies the camera imperatively, so a pan costs it one
+  // attribute write and no React work (see FactoryMinimap.tsx).
   return (
     <>
-      <MiniMap
-        pannable
-        zoomable
+      <FactoryMinimap
         nodeColor={miniMapNodeColor}
         nodeStrokeColor={(node) => {
           const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
@@ -1115,10 +1114,6 @@ function RtsMinimapStack() {
         onClick={onMiniMapClick}
         onNodeClick={onMiniMapNodeClick}
         ariaLabel="Strategic minimap — click to move camera, double-click to zoom, click a node to focus"
-        // Never put width/height: "100%" here. xyflow reads style.width/height as
-        // *numbers* for viewScale + mask path math (`M${x}h${w}v${h}…`). A percent
-        // string → NaN → console spam on every pan/scroll. Size the panel via
-        // .rts-minimap-wrap CSS (100% inset); math falls back to 200×150 defaults.
         style={{ background: "color-mix(in oklab, var(--color-ground) 90%, transparent)", border: "1px solid var(--color-overlay-4)" }}
       />
       <FieldControls />
