@@ -86,6 +86,7 @@ import { GitWizard, createGitFromRegion } from "./git/GitWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
+import { ViewportTransformLease } from "./ViewportTransformLease";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
@@ -1531,6 +1532,7 @@ function CanvasGraph() {
           .react-flow__viewport::before): React Flow's <Background> re-renders a
           full-window SVG pattern on every viewport change, which repainted the
           whole window on every pan frame. */}
+      <ViewportTransformLease />
       <CanvasLoom edges={edges} />
       <CanvasMagnifier />
       <CanvasKeyboardPan />
