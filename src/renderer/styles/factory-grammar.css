@@ -234,7 +234,7 @@ path.vellum-edge {
 }
 /* Pan and zoom own the compositor: no wire filter may thrash it, and neither
    state may outrank that. */
-.react-flow.is-viewport-busy path.vellum-edge {
+html[data-viewport-busy] .react-flow path.vellum-edge {
   filter: none !important;
 }
 @media (prefers-reduced-motion: reduce) {

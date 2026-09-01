@@ -1240,11 +1240,11 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 }
 
 /* GPU-promote the viewport only while the camera is interacting
-   (is-viewport-busy). Permanent will-change kept the full node/edge/shadow
+   (html[data-viewport-busy]). Permanent will-change kept the full node/edge/shadow
    subtree promoted at idle (xyflow #4617 — promote during pan/zoom only).
-   Class is toggled on the ReactFlow root via viewport-busy (DOM classList,
-   zero React graph rerenders). */
-.react-flow.is-viewport-busy .react-flow__viewport {
+   The attribute is stamped on <html> by viewport-busy (a direct DOM write on
+   an element React never renders, so no canvas render can clear it). */
+html[data-viewport-busy] .react-flow .react-flow__viewport {
   will-change: transform;
 }
 
@@ -1268,23 +1268,23 @@ html[data-surface-motion="paused"] *::after {
 }
 
 /* Viewport busy freeze — pan/zoom owns the compositor; kill paint thrash. */
-.react-flow.is-viewport-busy .react-flow__node,
-.react-flow.is-viewport-busy .react-flow__edge,
-.react-flow.is-viewport-busy .vellum-node,
-.react-flow.is-viewport-busy .vellum-edge-label {
+html[data-viewport-busy] .react-flow .react-flow__node,
+html[data-viewport-busy] .react-flow .react-flow__edge,
+html[data-viewport-busy] .react-flow .vellum-node,
+html[data-viewport-busy] .react-flow .vellum-edge-label {
   transition: none !important;
   animation: none !important;
 }
-.react-flow.is-viewport-busy .react-flow__node:hover .vellum-node {
+html[data-viewport-busy] .react-flow .react-flow__node:hover .vellum-node {
   transform: none;
 }
 /* Impact-mode filter/opacity transitions are especially expensive mid-pan. */
-.react-flow.is-viewport-busy.impact-mode .react-flow__node,
-.react-flow.is-viewport-busy.connection-focus-mode .react-flow__node {
+html[data-viewport-busy] .react-flow.impact-mode .react-flow__node,
+html[data-viewport-busy] .react-flow.connection-focus-mode .react-flow__node {
   transition: none !important;
   filter: none;
 }
-.react-flow.is-viewport-busy .react-flow__edge-path {
+html[data-viewport-busy] .react-flow .react-flow__edge-path {
   transition: none !important;
 }
 

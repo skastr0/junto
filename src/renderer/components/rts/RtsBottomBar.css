@@ -1194,9 +1194,9 @@
 }
 
 /* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
-.react-flow.is-viewport-busy .rts-panel,
-.react-flow.is-viewport-busy .rts-region-strip,
-.react-flow.is-viewport-busy .rts-notify-strip {
+html[data-viewport-busy] .react-flow .rts-panel,
+html[data-viewport-busy] .react-flow .rts-region-strip,
+html[data-viewport-busy] .react-flow .rts-notify-strip {
   backdrop-filter: none !important;
 }
 

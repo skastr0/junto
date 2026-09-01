@@ -9,8 +9,14 @@
 // if onMoveEnd is dropped.
 //
 // Compositor promotion (will-change on .react-flow__viewport) is the same
-// lifecycle: CSS gates promotion on VIEWPORT_BUSY_CLASS so the large subtree
-// is promoted only during interaction, never while settled.
+// lifecycle: CSS gates promotion on the html[data-viewport-busy] attribute so
+// the large subtree is promoted only during interaction, never while settled.
+//
+// The marker lives on <html>, not on the ReactFlow root: React rewrites the
+// root's className on every canvas render (seat state, selection, mail), and a
+// class set imperatively on that element was dropped and re-added mid-gesture.
+// Every such flip de-promotes and re-promotes the viewport layer, which costs
+// a full re-raster of the visible canvas and reads as content popping out.
 
 import { observable } from "@legendapp/state";
 import { canvasPerformance } from "./performance/canvas-performance";
@@ -19,13 +25,14 @@ import { canvasPerformance } from "./performance/canvas-performance";
 export const viewportBusy$ = observable(false);
 
 /**
- * DOM class toggled on the ReactFlow root while busy. CSS uses it for:
+ * Attribute stamped on `<html>` while busy. CSS uses it for:
  * - paint-freeze (transitions/animations off)
  * - compositor promotion of `.react-flow__viewport` (will-change: transform)
  *
- * Must not be driven by React render state — classList only.
+ * Must not be driven by React render state — a direct DOM write on an element
+ * React never renders, so no render can clear it mid-gesture.
  */
-export const VIEWPORT_BUSY_CLASS = "is-viewport-busy";
+export const VIEWPORT_BUSY_ATTR = "data-viewport-busy";
 
 /** Hold past panOnScroll's ~150ms end debounce so consecutive ticks stay frozen. */
 export const VIEWPORT_BUSY_END_HOLD_MS = 160;
@@ -38,8 +45,6 @@ const MAX_BUSY_MS = VIEWPORT_BUSY_MAX_MS;
 
 let endTimer: ReturnType<typeof setTimeout> | undefined;
 let maxTimer: ReturnType<typeof setTimeout> | undefined;
-/** Optional host the busy class is mirrored onto (ReactFlow root). */
-let boundHost: HTMLElement | null = null;
 
 const clearEndTimer = (): void => {
   if (endTimer === undefined) return;
@@ -53,9 +58,9 @@ const clearMaxTimer = (): void => {
   maxTimer = undefined;
 };
 
-const syncHostClass = (): void => {
-  if (!boundHost) return;
-  boundHost.classList.toggle(VIEWPORT_BUSY_CLASS, viewportBusy$.peek());
+const syncDom = (): void => {
+  if (typeof document === "undefined") return;
+  document.documentElement.toggleAttribute(VIEWPORT_BUSY_ATTR, viewportBusy$.peek());
 };
 
 const setIdle = (): void => {
@@ -65,21 +70,7 @@ const setIdle = (): void => {
     viewportBusy$.set(false);
     canvasPerformance.recordViewportBusy(false);
   }
-  syncHostClass();
-};
-
-/**
- * Bind (or re-bind) the ReactFlow root so busy ↔ class stays coherent without
- * React renders. Re-call after renders that rewrite className.
- */
-export const bindViewportBusyHost = (host: HTMLElement | null): (() => void) => {
-  boundHost = host;
-  syncHostClass();
-  return () => {
-    if (boundHost !== host) return;
-    host?.classList.remove(VIEWPORT_BUSY_CLASS);
-    boundHost = null;
-  };
+  syncDom();
 };
 
 /** Enter (or stay in) the busy freeze + compositor promotion. Idempotent; cancels a pending release. */
@@ -88,15 +79,15 @@ export const markViewportBusy = (): void => {
   if (!viewportBusy$.peek()) {
     viewportBusy$.set(true);
     canvasPerformance.recordViewportBusy(true);
-    syncHostClass();
+    syncDom();
     clearMaxTimer();
     maxTimer = setTimeout(() => {
       maxTimer = undefined;
       setIdle();
     }, MAX_BUSY_MS);
   } else {
-    // Already busy — keep host class latched (no toggle thrash mid-gesture).
-    syncHostClass();
+    // Already busy — keep the attribute latched (no toggle thrash mid-gesture).
+    syncDom();
   }
 };
 
@@ -123,10 +114,7 @@ export const withViewportBusy = async <T>(work: () => Promise<T>): Promise<T> =>
   }
 };
 
-/** Test / unmount helper — drop timers, force idle, clear host class. */
+/** Test / unmount helper — drop timers, force idle, clear the attribute. */
 export const resetViewportBusy = (): void => {
   setIdle();
-  if (boundHost) {
-    boundHost.classList.remove(VIEWPORT_BUSY_CLASS);
-  }
 };

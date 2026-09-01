@@ -40,7 +40,6 @@ import {
   type ImpactSelection,
 } from "../lib/impact-mode";
 import {
-  bindViewportBusyHost,
   markViewportBusy,
   releaseViewportBusy,
   resetViewportBusy,
@@ -1461,12 +1460,9 @@ function CanvasGraph() {
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
-  // Viewport freeze without React: the busy class flips on the ReactFlow
-  // wrapper's classList directly, so a pan gesture costs zero renders. Re-bind
-  // after every render because React may rewrite className. MiniMap/Background
-  // stay mounted.
-  const rfRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => bindViewportBusyHost(rfRef.current));
+  // Viewport freeze without React: viewport-busy stamps html[data-viewport-busy]
+  // directly, so a pan gesture costs zero renders and no canvas render can
+  // clear it mid-gesture. MiniMap stays mounted.
   useEffect(() => () => resetViewportBusy(), []);
   const onMoveStart = useCallback(() => {
     markViewportBusy();
@@ -1484,7 +1480,6 @@ function CanvasGraph() {
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
     {gitAnchor ? <GitWizard anchor={gitAnchor} onClose={() => setGitAnchor(null)} /> : null}
     <ReactFlow
-      ref={rfRef}
       className={[
         connecting ? "is-connecting" : "",
         impactMode ? (connectionFocusNodeId ? "connection-focus-mode" : "impact-mode") : "",
