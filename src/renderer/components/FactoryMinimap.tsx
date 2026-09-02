@@ -16,6 +16,16 @@ import { useStoreApi, type Node } from "@xyflow/react";
  * changes and touches the viewBox only when the camera leaves the node
  * bounds. Pan and zoom on the map use the same math as React Flow's XYMinimap.
  *
+ * The mask write is the map's whole remaining cost, and it is not cheap: an
+ * SVG path rewrite re-lays out the drawing, and a layout marks the document
+ * dirty, so one write drags a style, layout, paint and layerize pass through
+ * the frame — measured at about a third of the main-thread cost of a pan on
+ * the live board. The map is small and the camera window inside it is smaller,
+ * so a pan step of a few screen pixels usually moves the window by a fraction
+ * of a map pixel. Those writes are skipped: the window is redrawn only when it
+ * would land on a different pixel of the map, so nothing the operator can see
+ * is dropped.
+ *
  * Must be mounted inside <ReactFlow> so the store resolves.
  */
 
@@ -94,6 +104,9 @@ export function FactoryMinimap({
   const store = useStoreApi();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const maskRef = useRef<SVGPathElement | null>(null);
+  // Pixel identity of the last camera window drawn; a viewport change that
+  // lands on the same map pixel writes nothing.
+  const cameraKeyRef = useRef<string>("");
   const [rects, setRects] = useState<ReadonlyArray<MinimapNodeRect>>([]);
   // Node bounds feed the viewBox; kept in a ref so the camera subscription
   // reads the latest without re-subscribing.
@@ -123,7 +136,20 @@ export function FactoryMinimap({
         svg.setAttribute("viewBox", next);
       }
     }
-    mask.setAttribute("d", maskPath(parseViewBox(viewBoxRef.current), view));
+    const box = parseViewBox(viewBoxRef.current);
+    // Camera window in pixels of the map, through the SVG's own placement of
+    // the viewBox (the default xMidYMid meet: one scale, then centred).
+    const elementWidth = Math.max(elementSizeRef.current.width, 1);
+    const elementHeight = Math.max(elementSizeRef.current.height, 1);
+    const unitsPerPixel = Math.max(box.width / elementWidth, box.height / elementHeight);
+    const density = unitsPerPixel > 0 ? 1 / unitsPerPixel : 0;
+    const key =
+      density > 0 && Number.isFinite(density)
+        ? `${viewBoxRef.current}|${Math.round(view.x * density)},${Math.round(view.y * density)},${Math.round(view.width * density)},${Math.round(view.height * density)}`
+        : "";
+    if (key !== "" && key === cameraKeyRef.current) return;
+    cameraKeyRef.current = key;
+    mask.setAttribute("d", maskPath(box, view));
   };
   const applyCameraRef = useRef(applyCamera);
   applyCameraRef.current = applyCamera;
