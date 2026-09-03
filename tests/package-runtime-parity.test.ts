@@ -373,8 +373,13 @@ describe("fresh compiler cohort provenance", () => {
       repoRoot,
       requireClean: false,
     });
+    const packageVersion = (
+      JSON.parse(
+        await readFile(path.join(repoRoot, "package.json"), "utf8"),
+      ) as { readonly version: string }
+    ).version;
     expect(facts).toMatchObject({
-      appVersion: "0.1.14",
+      appVersion: packageVersion,
       currentStateSchemaVersion: 21,
       migrationHead: {
         fromVersion: 20,
