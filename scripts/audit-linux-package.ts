@@ -103,6 +103,14 @@ const sha256File = async (file: string): Promise<string> => {
   return hash.digest("hex");
 };
 
+/**
+ * One locale-independent total order for inventory paths. Locale collation
+ * ranks "/" and "-" differently per host, so a per-directory name sort and a
+ * full-path sort disagree under ICU; code-point order agrees everywhere.
+ */
+const byCodePoint = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0;
+
 const walk = async (
   root: string,
   relative = "",
@@ -111,7 +119,7 @@ const walk = async (
   const entries = await readdir(path.join(root, relative), {
     withFileTypes: true,
   });
-  entries.sort((left, right) => left.name.localeCompare(right.name));
+  entries.sort((left, right) => byCodePoint(left.name, right.name));
   for (const entry of entries) {
     if (
       entry.name.length === 0 ||
@@ -175,14 +183,12 @@ export const collectLinuxRuntimeInventory = async (
   ) {
     throw new Error(`Linux runtime root must be a non-symlink directory: ${root}`);
   }
-  const entries = await walk(root);
+  const entries = (await walk(root)).sort((left, right) =>
+    byCodePoint(left.path, right.path),
+  );
   const paths = entries.map((entry) => entry.path);
   if (new Set(paths).size !== paths.length) {
     throw new Error("Linux runtime inventory contains duplicate paths");
-  }
-  const sorted = [...paths].sort((left, right) => left.localeCompare(right));
-  if (!paths.every((value, index) => value === sorted[index])) {
-    throw new Error("Linux runtime inventory is not sorted");
   }
   return {
     schema: "vellum-command/linux-runtime-inventory/v1",
@@ -246,9 +252,7 @@ export const requireExactLinuxRemoteClosure = (
   const actualAppRemote = inventory.entries
     .map((entry) => entry.path)
     .filter((entry) => entry.startsWith("resources/app-remote/"));
-  const expectedAppRemote = [...LINUX_REMOTE_APP_EXACT_FILES].sort((left, right) =>
-    left.localeCompare(right),
-  );
+  const expectedAppRemote = [...LINUX_REMOTE_APP_EXACT_FILES].sort(byCodePoint);
   if (
     actualAppRemote.length !== expectedAppRemote.length ||
     !actualAppRemote.every((entry, index) => entry === expectedAppRemote[index])
@@ -272,7 +276,7 @@ export const requireExactLinuxRemoteClosure = (
     }
     return entry;
   });
-  return [...closure].sort((left, right) => left.path.localeCompare(right.path));
+  return [...closure].sort((left, right) => byCodePoint(left.path, right.path));
 };
 
 const asRecord = (value: unknown, label: string): Record<string, unknown> => {
@@ -331,7 +335,7 @@ export const validateLinuxRuntimeInventory = (
     };
   });
   const sorted = [...entries].sort((left, right) =>
-    left.path.localeCompare(right.path),
+    byCodePoint(left.path, right.path),
   );
   if (
     new Set(entries.map((entry) => entry.path)).size !== entries.length ||

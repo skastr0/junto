@@ -697,7 +697,7 @@ describe("packaged runtime exact parity and closure", () => {
         receipt.compiledRuntimes.linuxRemote.payloadSha256,
       );
       expect(receipt.linuxRuntimeClosure?.remoteEntries.map((entry) => entry.path)).toEqual(
-        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort((left, right) => left.localeCompare(right)),
+        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort(),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
