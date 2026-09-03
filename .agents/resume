@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '[resume] No runtime services or authentication need reconnecting\n'

@@ -14,6 +14,9 @@ src/main/vellum/plugin-install/payloads/.pack-tmp/
 build/electron-observation.json
 build/electron-observation-high-water.json
 
+# Amp orb runtime state
+.amp/portals/
+
 # design-sync machine state
 .ds-sync/
 ds-bundle/
