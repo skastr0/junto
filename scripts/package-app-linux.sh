@@ -46,27 +46,6 @@ cleanup_package_attempt() {
 }
 trap cleanup_package_attempt EXIT
 
-# A direct package-app-linux.sh invocation must not reuse out/main. The shared
-# coordinator compiles BOTH entries, stamps one cohort identity, and re-admits
-# the exact committed checkout before this package attempt can continue.
-printf 'vellum-command: building fresh two-runtime compiler cohort …\n'
-bash "$SCRIPT_DIR/build-app.sh" --target linux --runtime-cohort-only
-bun "$SCRIPT_DIR/package-runtime-provenance.ts" verify-source --target linux >/dev/null
-
-# One stock Node line owns both the Linux release toolchain and displayless
-# Remote ABI. These are x64 execution facts, not a physical-host claim.
-REQUIRED_NODE_VERSION="$(bun -e 'import { DEFAULT_NODE_REMOTE_VERSION } from "./scripts/build-linux-remote-runtime.ts"; process.stdout.write(DEFAULT_NODE_REMOTE_VERSION)')"
-NODE_EXECUTABLE="$(type -P node || true)"
-NODE_VERSION=""
-if [[ -n "$NODE_EXECUTABLE" && -x "$NODE_EXECUTABLE" ]]; then
-  NODE_VERSION="$("$NODE_EXECUTABLE" --version 2>/dev/null || true)"
-fi
-if [[ "$NODE_VERSION" != "v$REQUIRED_NODE_VERSION" ]]; then
-  printf 'vellum-command: error: Linux packaging requires stock Node %s exactly; found %s\n' \
-    "$REQUIRED_NODE_VERSION" "${NODE_VERSION:-missing}" >&2
-  exit 1
-fi
-
 # Rebuild only the one native production dependency. install-app-deps and
 # electron-builder's default npmRebuild traverse unrelated development addons.
 ELECTRON_VERSION="$(bun -e 'process.stdout.write(require("./node_modules/electron/package.json").version)')"

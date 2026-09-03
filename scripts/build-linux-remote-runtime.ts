@@ -36,8 +36,8 @@ import {
 import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
 
 /** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
-export const DEFAULT_NODE_REMOTE_VERSION = "24.18.0";
-export const DEFAULT_NODE_REMOTE_MODULE_ABI = "137";
+export const DEFAULT_NODE_REMOTE_VERSION = "26.5.1";
+export const DEFAULT_NODE_REMOTE_MODULE_ABI = "147";
 
 /**
  * Reviewed official Node linux-x64 tarball digests keyed by exact version.
@@ -47,8 +47,8 @@ export const DEFAULT_NODE_REMOTE_MODULE_ABI = "137";
 export const PINNED_NODE_LINUX_X64_ARCHIVE_SHA256: Readonly<
   Record<string, string>
 > = Object.freeze({
-  "24.18.0":
-    "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
+  "26.5.1":
+    "2b07f09c218d473a26442bff5a90151f53f7b7c0a23bad244eda2c26303a2ba7",
 });
 
 export const pinnedNodeLinuxX64ArchiveSha256 = (
@@ -107,9 +107,9 @@ export const requireNodeRemoteVersion = (value: unknown): string => {
     );
   }
   const major = Number(value.split(".")[0]);
-  if (major !== 24) {
+  if (major !== 26) {
     throw new Error(
-      `NODE_REMOTE_VERSION must be Node 24 LTS (got ${value}); remote ABI is pinned to 24.x`,
+      `NODE_REMOTE_VERSION must be Node 26 (got ${value}); remote ABI is pinned to 26.x`,
     );
   }
   return value;
@@ -792,7 +792,7 @@ export const installLinuxRemoteRuntime = async (input: {
   readonly requireEntry?: boolean;
   readonly buildIfMissing?: boolean;
   readonly download?: (url: string, destination: string) => Promise<void>;
-  /** Skip native rebuild — only for pure-layout unit tests, never packaging. */
+  /** Skip bundled Node and native rebuild — only for pure-layout unit tests. */
   readonly skipNativeRebuild?: boolean;
 }): Promise<LinuxRemoteRuntimeReceipt> => {
   const repoRoot = path.resolve(input.repoRoot);
@@ -843,14 +843,15 @@ export const installLinuxRemoteRuntime = async (input: {
     }
 
     const canBuildNative = process.platform === "linux" && process.arch === "x64";
-    if (!canBuildNative && input.skipNativeRebuild !== true) {
+    const stageNative = input.skipNativeRebuild !== true;
+    if (!canBuildNative && stageNative) {
       throw new Error(
         "installLinuxRemoteRuntime native stage requires Linux x64 execution (set skipNativeRebuild for layout-only tests)",
       );
     }
 
     let stagedNodePath = path.join(stageRoot, REMOTE_NODE_RELATIVE);
-    if (canBuildNative) {
+    if (stageNative) {
       const stagedNode = await stageOfficialNodeBinary({
         repoRoot,
         runtimeRoot: stageRoot,
@@ -860,20 +861,18 @@ export const installLinuxRemoteRuntime = async (input: {
       });
       stagedNodePath = stagedNode.nodePath;
       archiveSha256 = stagedNode.archiveSha256;
-      if (input.skipNativeRebuild !== true) {
-        const pty = await stageNodePtyForBundledNode({
-          repoRoot,
-          runtimeRoot: stageRoot,
-          bundledNode: stagedNode.nodePath,
-          nodeVersion,
-        });
-      }
+      await stageNodePtyForBundledNode({
+        repoRoot,
+        runtimeRoot: stageRoot,
+        bundledNode: stagedNode.nodePath,
+        nodeVersion,
+      });
     }
 
     await assertExactStagedRemoteApp({
       appRoot: stagedAppRoot,
       requireProvenance,
-      requireNative: canBuildNative && input.skipNativeRebuild !== true,
+      requireNative: stageNative,
     });
 
     const resources = path.join(runtimeRoot, "resources");
@@ -888,7 +887,7 @@ export const installLinuxRemoteRuntime = async (input: {
       stagedWrapper,
       path.join(runtimeRoot, REMOTE_WRAPPER_RELATIVE),
     );
-    if (canBuildNative) {
+    if (stageNative) {
       await replaceOwnedRegularFile(
         stagedNodePath,
         path.join(runtimeRoot, REMOTE_NODE_RELATIVE),

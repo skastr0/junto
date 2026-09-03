@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Build one fresh Electron-main/Linux-Remote compiler cohort and prove that
- * package bytes are the exact outputs from that cohort and committed source.
+ * Build the runtimes shipped by one package target and prove that package bytes
+ * are the exact outputs from that build and committed source.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -116,7 +116,7 @@ export type PackageRuntimeParityVerification = {
   readonly state: PackageSchemaFacts;
   readonly compiledRuntimes: {
     readonly electronMain: VerifiedRuntimeProvenance;
-    readonly linuxRemote: VerifiedRuntimeProvenance;
+    readonly linuxRemote?: VerifiedRuntimeProvenance;
   };
   readonly runtimes: {
     readonly electronMain: VerifiedRuntimeProvenance;
@@ -935,10 +935,10 @@ export type PreparedPackageRuntimes = {
   readonly source: PackageSourceFacts;
   readonly cohortNonce: string;
   readonly main: PackageRuntimeProvenance;
-  readonly remote: PackageRuntimeProvenance;
+  readonly remote?: PackageRuntimeProvenance;
 };
 
-/** One coordinator always compiles both runtime entries from one admitted tree. */
+/** One coordinator compiles every runtime shipped for the selected target. */
 export const preparePackageRuntimes = async (input: {
   readonly repoRoot: string;
   readonly target: PackageTarget;
@@ -986,19 +986,21 @@ export const preparePackageRuntimes = async (input: {
   });
 
   await resetOwnedOutputDirectory(repoRoot, "out/remote");
-  await (input.buildRemote ?? (async (root) => {
-    await buildRemoteEntryBundle({ repoRoot: root });
-  }))(repoRoot);
-  await stampRuntimePayload({
-    repoRoot,
-    runtime: "linux-remote",
-    identity: {
-      schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
-      cohortNonce,
-      sourceCommit: source.sourceCommit,
+  if (target === "linux") {
+    await (input.buildRemote ?? (async (root) => {
+      await buildRemoteEntryBundle({ repoRoot: root });
+    }))(repoRoot);
+    await stampRuntimePayload({
+      repoRoot,
       runtime: "linux-remote",
-    },
-  });
+      identity: {
+        schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
+        cohortNonce,
+        sourceCommit: source.sourceCommit,
+        runtime: "linux-remote",
+      },
+    });
+  }
 
   if (input.source === undefined) {
     const after = await readPackageSourceFacts({
@@ -1020,12 +1022,15 @@ export const preparePackageRuntimes = async (input: {
     runtime: "electron-main",
     source,
   });
-  const remote = await writeRuntimeProvenance({
-    repoRoot,
-    runtime: "linux-remote",
-    source,
-  });
-  return { target, source, cohortNonce, main, remote };
+  const remote =
+    target === "linux"
+      ? await writeRuntimeProvenance({
+          repoRoot,
+          runtime: "linux-remote",
+          source,
+        })
+      : undefined;
+  return { target, source, cohortNonce, main, ...(remote === undefined ? {} : { remote }) };
 };
 
 const sameSchemaFacts = (
@@ -1139,12 +1144,18 @@ export const verifyPreparedPackageRuntimes = async (input: {
     runtime: "electron-main",
     expected,
   });
-  const linuxRemote = await readSourceRuntime({
-    repoRoot,
-    runtime: "linux-remote",
-    expected,
-  });
-  const cohortNonce = requireSameCohort(electronMain, linuxRemote);
+  const linuxRemote =
+    target === "linux"
+      ? await readSourceRuntime({
+          repoRoot,
+          runtime: "linux-remote",
+          expected,
+        })
+      : undefined;
+  const cohortNonce =
+    linuxRemote === undefined
+      ? electronMain.buildIdentity.cohortNonce
+      : requireSameCohort(electronMain, linuxRemote);
   return {
     target,
     appVersion: expected.appVersion,
@@ -1155,7 +1166,10 @@ export const verifyPreparedPackageRuntimes = async (input: {
       migrationHead: expected.migrationHead,
       migrationIdentitySha256: expected.migrationIdentitySha256,
     },
-    compiledRuntimes: { electronMain, linuxRemote },
+    compiledRuntimes: {
+      electronMain,
+      ...(linuxRemote === undefined ? {} : { linuxRemote }),
+    },
     runtimes: {
       electronMain,
       ...(target === "linux" ? { linuxRemote } : {}),
@@ -1541,9 +1555,13 @@ export const verifyPackagedRuntimeParity = async (input: {
       payload: await readFile(payloadPath),
       expected,
     });
+    const compiledLinuxRemote = prepared.compiledRuntimes.linuxRemote;
+    if (compiledLinuxRemote === undefined) {
+      throw new Error("Linux package build is missing its compiled Remote");
+    }
     requireExactCompiledRuntime(
       linuxRemote,
-      prepared.compiledRuntimes.linuxRemote,
+      compiledLinuxRemote,
     );
     if (linuxRemote.buildIdentity.cohortNonce !== electronMain.buildIdentity.cohortNonce) {
       throw new Error("packaged runtimes have different compiler cohort identities");
@@ -1613,12 +1631,8 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   const root = path.resolve(options.get("--repo") ?? repoRoot);
   const target = requireTarget(requiredOption(options, "--target"));
   let receipt: unknown;
-  if (command === "preflight") {
-    receipt = await readPackageSourceFacts({ repoRoot: root, requireClean: true });
-  } else if (command === "prepare") {
+  if (command === "prepare") {
     receipt = await preparePackageRuntimes({ repoRoot: root, target });
-  } else if (command === "verify-source") {
-    receipt = await verifyPreparedPackageRuntimes({ repoRoot: root, target });
   } else if (command === "verify-package") {
     receipt = await verifyPackagedRuntimeParity({
       repoRoot: root,
@@ -1629,7 +1643,7 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
     });
   } else {
     throw new Error(
-      "usage: package-runtime-provenance.ts preflight|prepare|verify-source --target mac|linux [--repo PATH] | verify-package --target mac --app PATH [--repo PATH] | verify-package --target linux --runtime PATH [--repo PATH]",
+      "usage: package-runtime-provenance.ts prepare --target mac|linux [--repo PATH] | verify-package --target mac --app PATH [--repo PATH] | verify-package --target linux --runtime PATH [--repo PATH]",
     );
   }
   process.stdout.write(`${JSON.stringify(receipt)}\n`);

@@ -289,6 +289,7 @@ const createSourceRepository = async (
   git(root, ["init", "--quiet"]);
   git(root, ["config", "user.email", "package-test@example.invalid"]);
   git(root, ["config", "user.name", "Package Test"]);
+  git(root, ["config", "commit.gpgsign", "false"]);
   await mkdir(path.join(root, "src/main/vellum/state"), { recursive: true });
   await writeFile(
     path.join(root, "package.json"),
@@ -412,7 +413,7 @@ describe("fresh compiler cohort provenance", () => {
       let remoteWasAbsent = false;
       await preparePackageRuntimes({
         repoRoot: root,
-        target: "mac",
+        target: "linux",
         source,
         cohortNonce,
         buildMain: async (candidate) => {
@@ -443,7 +444,7 @@ describe("fresh compiler cohort provenance", () => {
       );
       const verified = await verifyPreparedPackageRuntimes({
         repoRoot: root,
-        target: "mac",
+        target: "linux",
         expected: source,
       });
       expect(verified.cohortNonce).toBe(cohortNonce);
@@ -453,6 +454,42 @@ describe("fresh compiler cohort provenance", () => {
           await readFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE)),
         ).cohortNonce,
       ).toBe(cohortNonce);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not compile an unshipped Linux Remote for mac packages", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-mac-cohort-build-"));
+    try {
+      await mkdir(path.join(root, "out/remote"), { recursive: true });
+      await writeFile(path.join(root, "out/remote/stale"), "stale\n");
+      let remoteCompilerCalled = false;
+      const prepared = await preparePackageRuntimes({
+        repoRoot: root,
+        target: "mac",
+        source,
+        cohortNonce,
+        buildMain: async (candidate) => {
+          await writeFile(
+            path.join(candidate, MAIN_PAYLOAD_SOURCE_RELATIVE),
+            "fresh main compiler bytes\n",
+          );
+        },
+        buildRemote: async () => {
+          remoteCompilerCalled = true;
+        },
+      });
+      expect(remoteCompilerCalled).toBe(false);
+      expect(prepared.remote).toBeUndefined();
+      await expect(lstat(path.join(root, "out/remote/stale"))).rejects.toThrow();
+
+      const verified = await verifyPreparedPackageRuntimes({
+        repoRoot: root,
+        target: "mac",
+        expected: source,
+      });
+      expect(verified.compiledRuntimes.linuxRemote).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -694,7 +731,7 @@ describe("packaged runtime exact parity and closure", () => {
       });
       expect(receipt.cohortNonce).toBe(cohortNonce);
       expect(receipt.runtimes.linuxRemote?.payloadSha256).toBe(
-        receipt.compiledRuntimes.linuxRemote.payloadSha256,
+        receipt.compiledRuntimes.linuxRemote?.payloadSha256,
       );
       expect(receipt.linuxRuntimeClosure?.remoteEntries.map((entry) => entry.path)).toEqual(
         [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort(),
@@ -870,10 +907,10 @@ describe("packaged runtime exact parity and closure", () => {
           chromeSandbox: "absent",
           stockNode: {
             source: "pinned-official-nodejs-linux-x64-archive",
-            version: "24.18.0",
-            moduleAbi: "137",
+            version: "26.5.1",
+            moduleAbi: "147",
             officialArchiveSha256:
-              "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
+              "2b07f09c218d473a26442bff5a90151f53f7b7c0a23bad244eda2c26303a2ba7",
             binarySha256: byPath.get("resources/bin/node")?.sha256,
           },
           nodePty: {
@@ -1144,7 +1181,7 @@ describe("qualification receipt lifecycle", () => {
       kernelRelease: "fixture",
       env: {},
       bunVersion: "1.3.14",
-      nodeVersion: "v24.18.0",
+      nodeVersion: "v26.5.1",
       executable: "/runner/bun",
     });
     expect(facts.architectureClaim).toBe("linux-x64-process");
@@ -1186,7 +1223,7 @@ describe("historical probe and official wiring", () => {
     }
   });
 
-  it("wires direct macOS and Linux package commands through the fresh coordinator", async () => {
+  it("builds once and verifies package drafts before publication", async () => {
     const [buildApp, macPackage, linuxPackage, qualifier] = await Promise.all([
       readFile(path.join(repoRoot, "scripts/build-app.sh"), "utf8"),
       readFile(path.join(repoRoot, "scripts/package-app-macos.sh"), "utf8"),
@@ -1196,10 +1233,12 @@ describe("historical probe and official wiring", () => {
         "utf8",
       ),
     ]);
-    expect(buildApp).toContain("--runtime-cohort-only");
+    expect(buildApp).toContain('prepare --target "$TARGET"');
+    expect(buildApp).not.toContain("--runtime-cohort-only");
+    expect(buildApp).not.toContain("preflight --target");
     for (const script of [macPackage, linuxPackage]) {
-      expect(script).toContain("--runtime-cohort-only");
-      expect(script).toContain("verify-source");
+      expect(script).not.toContain("build-app.sh");
+      expect(script).not.toContain("verify-source");
       expect(script).toContain("$ATTEMPT_DIR");
       expect(script.indexOf("verify-package")).toBeLessThan(
         script.indexOf("publish-attempt"),

@@ -11,21 +11,21 @@ describe("Linux userland runtime audit", () => {
     expect(() => validateElfX64(elf, "native")).toThrow(/x86-64/u);
   });
   it("accepts only the reviewed bundled Node runtime", () => {
-    expect(validateBundledNodeVersion("v24.18.0\n")).toBe("24.18.0");
-    expect(() => validateBundledNodeVersion("v24.17.1\n")).toThrow(
+    expect(validateBundledNodeVersion("v26.5.1\n")).toBe("26.5.1");
+    expect(() => validateBundledNodeVersion("v26.4.1\n")).toThrow(
       /bundled Node version mismatch/u,
     );
-    expect(() => validateBundledNodeVersion("v25.0.0\n")).toThrow(
+    expect(() => validateBundledNodeVersion("v27.0.0\n")).toThrow(
       /bundled Node version mismatch/u,
     );
     expect(
       validateBundledNodeRuntimeIdentity(
-        JSON.stringify({ node: "24.18.0", modules: "137" }),
+        JSON.stringify({ node: "26.5.1", modules: "147" }),
       ),
-    ).toEqual({ nodeVersion: "24.18.0", moduleAbi: "137" });
+    ).toEqual({ nodeVersion: "26.5.1", moduleAbi: "147" });
     expect(() =>
       validateBundledNodeRuntimeIdentity(
-        JSON.stringify({ node: "24.18.0", modules: "136" }),
+        JSON.stringify({ node: "26.5.1", modules: "146" }),
       ),
     ).toThrow(/module ABI mismatch/u);
     expect(() => validateBundledNodeRuntimeIdentity("not-json")).toThrow(

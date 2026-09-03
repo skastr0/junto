@@ -54,12 +54,6 @@ cleanup_package_attempt() {
 }
 trap cleanup_package_attempt EXIT
 
-# Direct package-app-macos.sh use cannot attest an ignored stale main. The same
-# coordinator freshly compiles both entries and stamps one cohort identity.
-printf 'vellum-command: building fresh two-runtime compiler cohort …\n'
-bash "$SCRIPT_DIR/build-app.sh" --target mac --runtime-cohort-only
-"$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
-  verify-source --target mac >/dev/null
 PACKAGE_VERSION="$("$BUN_EXECUTABLE" -e 'process.stdout.write(require("./package.json").version)')"
 NODE_SHIM_DIR="$(mktemp -d /tmp/vellum-command-node-shim.XXXXXXXXXX)"
 ln -s -- "$BUN_EXECUTABLE" "$NODE_SHIM_DIR/node"
