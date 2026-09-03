@@ -121,7 +121,7 @@ test("five-stop fork renders one compact line-wide law", async ({}, testInfo) =>
       name: "Stations this task will travel",
     });
     await expect(strip).toBeVisible();
-    await expect(strip).toContainText("5 stops, 1 claim, 1 hard");
+    await expect(strip).toContainText("5 boards, 1 claim");
     await expect(
       strip.getByText(
         "Every shipment includes a reproducible verification receipt.",
@@ -144,17 +144,11 @@ test("five-stop fork renders one compact line-wide law", async ({}, testInfo) =>
     await expect(branch).toHaveCount(1);
     await expect(branch).toContainText("Review");
     await expect(branch).toContainText("Security");
-    await expect(
-      strip.getByText(
-        "Open a stop to add a claim there. A skipped branch waives only its own claims.",
-        { exact: true },
-      ),
-    ).toHaveCount(1);
     await expect(strip.getByLabel("Claim strength")).toContainText(
-      "hard must be answered",
+      "Required: must be answered.",
     );
     await expect(strip.getByLabel("Claim strength")).toContainText(
-      "soft may be waived",
+      "Optional: may be waived with a reason.",
     );
 
     await strip.getByRole("button", { name: /^Build,/ }).click();
@@ -164,16 +158,7 @@ test("five-stop fork renders one compact line-wide law", async ({}, testInfo) =>
     await expect(details.getByRole("button", { name: "Add claim" })).toBeVisible();
     await expect(
       details.getByRole("button", { name: "Copy an existing claim" }),
-    ).toContainText("copy existing 1");
-    await details.getByRole("button", { name: "Copy an existing claim" }).click();
-    await expect(details.getByRole("button", { name: "this line 1" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await expect(details.getByRole("button", { name: "entire canvas 1" })).toBeVisible();
-    await expect(details).toContainText(
-      "Showing claims from stations and regions on this line.",
-    );
+    ).toHaveCount(0);
     await creator.locator("*").evaluateAll((elements) => {
       for (const element of elements) {
         if (element instanceof HTMLElement && element.scrollTop > 0) {

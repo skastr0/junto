@@ -97,7 +97,7 @@ describe("claim packet station law", () => {
     expect(text).toContain("[soft] typecheck is clean");
     expect(text).toContain("from this station");
     expect(text).toContain("prices stay in BRL");
-    expect(text).toContain('sends the task to station review (next: "review")');
+    expect(text).toContain('sends the task to Tasks review (next: "review")');
     expect(text).toContain("outbound: typecheck");
     expect(text).toContain("vellum-command tasks board");
   });
@@ -122,7 +122,7 @@ describe("claim packet station law", () => {
     });
 
     expect(text).toContain("Where this task has already been:");
-    expect(text).toContain("- station review (rejected-back): the endpoint does not exist");
+    expect(text).toContain("- Tasks review (rejected-back): the endpoint does not exist");
     expect(text).toContain("sent back to you (epoch 1)");
   });
 
@@ -149,7 +149,7 @@ describe("claim packet station law", () => {
       role: "implement and gate the change",
     });
     expect(packet.forwardStations).toEqual([
-      { nodeId: "review", name: "station review" },
+      { nodeId: "review", name: "Tasks review" },
     ]);
   });
 

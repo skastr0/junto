@@ -38,13 +38,13 @@ function SeverityToggle({
       className="inspector-flag-toggle shrink-0"
       aria-label={
         severity === "hard"
-          ? `Hard ${noun}, switch to soft`
-          : `Soft ${noun}, switch to hard`
+          ? `Required ${noun}, switch to optional`
+          : `Optional ${noun}, switch to required`
       }
       title={
         severity === "hard"
-          ? "Hard — must be answered before the task closes"
-          : "Soft — may be waived with a reason"
+          ? "Required: must be answered before the task closes"
+          : "Optional: may be waived with a reason"
       }
       style={{
         color: hue,
@@ -53,7 +53,7 @@ function SeverityToggle({
       }}
       onClick={() => onChange(severity === "hard" ? "soft" : "hard")}
     >
-      {severity}
+      {severity === "hard" ? "Required" : "Optional"}
     </button>
   );
 }
@@ -267,7 +267,7 @@ function ClaimReusePicker({
               <span className="text-[11px] leading-snug text-ink">{entry.claim.text}</span>
               <span className="flex flex-wrap items-center gap-1">
                 <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
-                  {entry.claim.severity}
+                  {entry.claim.severity === "hard" ? "Required" : "Optional"}
                 </Chip>
                 <Chip tone={entry.origin.kind === "region" ? "violet" : "cyan"}>
                   {claimOriginLabel(entry.origin)}
@@ -298,6 +298,7 @@ export function ClaimList({
   hint,
   scopeNodeIds,
   vocabulary = "claim",
+  copyExisting = true,
   onChange,
 }: {
   readonly ownerNodeId: string;
@@ -307,6 +308,8 @@ export function ClaimList({
   /** Creation-line stations. Their region stacks join the default copy scope. */
   readonly scopeNodeIds?: ReadonlyArray<string>;
   readonly vocabulary?: "claim" | "check";
+  /** Offer the reuse picker. Off on surfaces that keep authoring to one move. */
+  readonly copyExisting?: boolean;
   readonly onChange: (next: ReadonlyArray<ClaimDef>) => void;
 }) {
   const doc = use$(state$.doc);
@@ -369,7 +372,7 @@ export function ClaimList({
           <Plus size={11} />
           {`add ${vocabulary}`}
         </Button>
-        {canvasCandidates.length > 0 ? (
+        {copyExisting && canvasCandidates.length > 0 ? (
           <Button
             size="xs"
             variant="subtle"
@@ -385,7 +388,7 @@ export function ClaimList({
           </Button>
         ) : null}
       </div>
-      {picking ? (
+      {copyExisting && picking ? (
         <ClaimReusePicker
           lineCandidates={lineCandidates}
           canvasCandidates={canvasCandidates}

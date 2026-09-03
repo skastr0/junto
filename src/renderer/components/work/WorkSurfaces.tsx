@@ -236,7 +236,7 @@ export function TasksCard({
                 style={{ color: needsInput > 0 ? HUE.amber : DIM }}
                 data-testid="tasks-glance"
               >
-                {inFlight} in flight
+                {inFlight} open
                 {needsInput > 0 ? ` - ${needsInput} need input` : ""}
               </span>
               <span

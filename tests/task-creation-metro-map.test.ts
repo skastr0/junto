@@ -223,14 +223,14 @@ describe("stationLine", () => {
 describe("formatHops and admissionLabel", () => {
   it("says the distance in words", () => {
     expect(formatHops(0)).toBe("here");
-    expect(formatHops(1)).toBe("next stop");
+    expect(formatHops(1)).toBe("next");
     expect(formatHops(3)).toBe("3 stops on");
   });
 
   it("says how a stop admits arrivals", () => {
     expect(admissionLabel("auto")).toBe("Immediate");
     expect(admissionLabel("operator-gated")).toBe("Approval");
-    expect(admissionLabel("operator-owned")).toBe("Mine");
+    expect(admissionLabel("operator-owned")).toBe("Me");
   });
 });
 
@@ -332,7 +332,7 @@ describe("lineProfile", () => {
       soft: 0,
       pinned: 0,
     });
-    expect(formatProfile(profile)).toBe("5 stops, 1 claim, 1 hard");
+    expect(formatProfile(profile)).toBe("5 boards, 1 claim");
   });
 
   it("counts stops, standing law, and pins in one glance", () => {
@@ -352,7 +352,7 @@ describe("lineProfile", () => {
       soft: 1,
       pinned: 1,
     });
-    expect(formatProfile(profile)).toBe("2 stops, 4 claims, 3 hard");
+    expect(formatProfile(profile)).toBe("2 boards, 4 claims");
   });
 
   it("does not merge same-hop stops that belong to parallel chains", () => {
@@ -383,7 +383,7 @@ describe("lineProfile", () => {
   it("says so when nothing stands on the line", () => {
     const board = doc([sink("solo")], []);
     expect(formatProfile(lineProfile(stationLine(board, "solo")))).toBe(
-      "1 stop, no standing claims",
+      "1 board, no standing claims",
     );
   });
 });

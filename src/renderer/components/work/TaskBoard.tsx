@@ -116,7 +116,6 @@ import {
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
-  admissionFloorOutcome,
   defaultTaskAdmission,
   parseTaskHold,
   taskAdmissionChoices,
@@ -344,11 +343,11 @@ const INBOUND_LANE: LaneDefinition = {
 
 const OUTBOUND_LANE: LaneDefinition = {
   id: "outbound",
-  label: "Outbound",
+  label: "Sent on",
   tone: "green",
   chipTone: "green",
   icon: ArrowUpRight,
-  hint: "Passages grouped by where the work went next",
+  hint: "",
 };
 
 const ALL_LANES: ReadonlyArray<LaneDefinition> = [
@@ -700,7 +699,7 @@ function TaskLane({
       {headerDetail ? (
         <div className="task-board-lane__contract-glance">{headerDetail}</div>
       ) : null}
-      <p className="task-board-lane__hint">{lane.hint}</p>
+      {lane.hint ? <p className="task-board-lane__hint">{lane.hint}</p> : null}
 
       <div className="task-board-lane__list" role="list">
         {groups
@@ -758,12 +757,12 @@ function TaskContractPanel({
       data-testid={`task-board-contract-${side}`}
     >
       <OverlayHeader
-        eyebrow="station contract"
-        title={arrivals ? "Arrivals" : "Departures"}
+        eyebrow="Board settings"
+        title="Board settings"
         status={
           arrivals
-            ? "How work enters this station and becomes claimable"
-            : "What this station publishes before work moves on"
+            ? "How tasks enter this board and who can start them"
+            : "What leaves this board with a task, and what runs before it goes."
         }
         actions={
           <IconButton
@@ -1489,10 +1488,10 @@ export function TaskCreateDialog({
                 <details className="task-create-dialog__line">
                   <summary>
                     <span>
-                      <strong>The line</strong>
-                      <small>Stations and standing claims this work can reach</small>
+                      <strong>Path</strong>
+                      <small>Boards this task can move to, and the claims in force there</small>
                     </span>
-                    <span className="task-create-dialog__line-action">Show route</span>
+                    <span className="task-create-dialog__line-action">Show path</span>
                   </summary>
                   <div className="task-create-dialog__line-map">{preamble}</div>
                 </details>
@@ -1517,8 +1516,8 @@ export function TaskCreateDialog({
                 <section className="task-create-dialog__admission" aria-labelledby="task-admission-label">
                   <div className="task-create-dialog__admission-heading">
                     <div>
-                      <strong id="task-admission-label">Admission</strong>
-                      <span>{`Sink floor: ${admissionFloorOutcome(admissionFloor)}`}</span>
+                      <strong id="task-admission-label">Who starts it</strong>
+                      <span>{`This board's default: ${admissionLabel(admissionFloor)}`}</span>
                     </div>
                   </div>
                   <div className="task-create-dialog__admission-options" role="group" aria-label="Task admission">
@@ -1541,11 +1540,11 @@ export function TaskCreateDialog({
                   </div>
                   <label className="task-create-dialog__hold">
                     <FieldCaption
-                      label="Optional hold"
+                      label="Wait before starting"
                       help="Delay claimability from creation. The station bake still applies when this is blank."
                     />
                     <Input
-                      aria-label="Optional hold duration"
+                      aria-label="Wait before starting duration"
                       value={holdFor}
                       onChange={(event) => {
                         setHoldFor(event.target.value);
@@ -1748,8 +1747,8 @@ export function TaskCreateDialog({
 
   const header = (
     <OverlayHeader
-      eyebrow={isProposal ? "approval queue" : stayOpen ? "quick enqueue" : "new task"}
-      title={stayOpen ? "Add to the queue" : "Define the work"}
+      eyebrow={isProposal ? "approval queue" : stayOpen ? "quick enqueue" : undefined}
+      title={stayOpen ? "Add to the queue" : "New task"}
       actions={
         headerActions !== undefined ? (
           headerActions
@@ -2508,8 +2507,8 @@ export function TaskBoard({
     const admission = resolveSinkAdmission(sinkContract);
     const bake = formatBakeTime(sinkContract?.inbound?.claimableAfterMs);
     return {
-      admission: `Admission: ${admissionLabel(admission)}`,
-      bake: `Bake: ${bake || "none"}`,
+      admission: `Starts: ${admissionLabel(admission)}`,
+      bake: `Wait: ${bake || "none"}`,
     };
   }, [sinkContract]);
 
@@ -3242,11 +3241,11 @@ export function TaskBoard({
         onDragEnd={onDragEnd}
       >
         <OverlayHeader
-          eyebrow="station"
+          eyebrow="Tasks"
           title={currentStation.name}
           status={
             <>
-              {glance.inFlight} in flight
+              {glance.inFlight} open
               {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
             </>
           }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ClaimDef, TaskClaim } from "@shared/work-model";
-import { Chip, Eyebrow } from "../../ui";
+import { Chip } from "../../ui";
 import { ClaimList } from "../ClaimList";
 import { formatHops, type StationStop } from "./station-map";
 import { StationStopCard } from "./StationStopCard";
@@ -45,7 +45,6 @@ export function TaskMetroMap({
   return (
     <section className="task-metro" aria-label="Stations this task will travel">
       <header className="task-metro__head">
-        <Eyebrow tone="cyan">the line this task will travel</Eyebrow>
         <span className="task-metro__profile">{formatProfile(profile)}</span>
       </header>
 
@@ -68,7 +67,7 @@ export function TaskMetroMap({
                     <span>{entry.claim.text}</span>
                     <span className="task-metro-law__meta">
                       <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
-                        {entry.claim.severity}
+                        {entry.claim.severity === "hard" ? "Required" : "Optional"}
                       </Chip>
                     </span>
                   </li>
@@ -123,13 +122,8 @@ export function TaskMetroMap({
 
       {onPinsChange ? (
         <div className="task-metro__authoring-guide">
-          <p className="task-metro__pin-primer">
-            Open a stop to add a claim there. A skipped branch waives only its own claims.
-          </p>
           <div className="task-metro__severity-legend" aria-label="Claim strength">
-            <strong>Claim strength</strong>
-            <span><Chip tone="amber">hard</Chip> must be answered</span>
-            <span><Chip tone="steel">soft</Chip> may be waived</span>
+            <span>Required: must be answered. Optional: may be waived with a reason.</span>
           </div>
         </div>
       ) : null}
@@ -147,6 +141,7 @@ export function TaskMetroMap({
               label={`Claims at ${activeStop.label}`}
               scopeNodeIds={lineNodeIds}
               vocabulary="claim"
+              copyExisting={false}
               onChange={(claims: ReadonlyArray<ClaimDef>) =>
                 onPinsChange(replacePinsAt(pinned, activeStop.nodeId, claims))
               }

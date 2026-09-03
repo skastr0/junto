@@ -75,19 +75,19 @@ test("flow columns teach their real route and open the matching contract side", 
     await expect(board.getByText("Awaiting approval", { exact: true })).toHaveCount(0);
 
     const inbound = board.getByTestId("task-lane-inbound");
-    await expect(inbound).toContainText("Admission: Approval");
-    await expect(inbound).toContainText("Bake: 12h");
+    await expect(inbound).toContainText("Starts: Approval");
+    await expect(inbound).toContainText("Wait: 12h");
     await expect(inbound).toContainText("Arrivals from Intake land here.");
 
     const outbound = board.getByTestId("task-lane-outbound");
-    await expect(outbound).toContainText("Destinations: Review and Ship");
-    await expect(outbound).toContainText("Completed work goes to Review and Ship.");
+    await expect(outbound).toContainText("Goes to Review and Ship");
+    await expect(outbound).toContainText("Completed tasks move to Review and Ship.");
 
     await inbound.getByRole("button", { name: "Edit arrivals contract" }).press("Enter");
     const arrivals = board.getByTestId("task-board-contract-inbound");
     await expect(arrivals).toBeVisible();
-    await expect(arrivals.getByText("arrivals", { exact: true })).toBeVisible();
-    await expect(arrivals.getByText("departures", { exact: true })).toHaveCount(0);
+    await expect(arrivals.getByText("Incoming", { exact: true })).toBeVisible();
+    await expect(arrivals.getByText("Outgoing", { exact: true })).toHaveCount(0);
     const arrivalsScreenshot = join(
       process.cwd(),
       "_design_screenshots/task_flow/arrivals-contract.png",
@@ -102,8 +102,8 @@ test("flow columns teach their real route and open the matching contract side", 
     await outbound.getByRole("button", { name: "Edit departures contract" }).click();
     const departures = board.getByTestId("task-board-contract-outbound");
     await expect(departures).toBeVisible();
-    await expect(departures.getByText("departures", { exact: true })).toBeVisible();
-    await expect(departures.getByText("arrivals", { exact: true })).toHaveCount(0);
+    await expect(departures.getByText("Outgoing", { exact: true })).toBeVisible();
+    await expect(departures.getByText("Incoming", { exact: true })).toHaveCount(0);
     const departuresScreenshot = join(
       process.cwd(),
       "_design_screenshots/task_flow/departures-contract.png",

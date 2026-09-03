@@ -105,10 +105,10 @@ export const stationLine = (
   });
 };
 
-/** Distance from the origin, in words: "here", "next stop", "3 stops on". */
+/** Distance from the origin, in words: "here", "next", "3 stops on". */
 export const formatHops = (hops: number): string => {
   if (hops <= 0) return "here";
-  if (hops === 1) return "next stop";
+  if (hops === 1) return "next";
   return `${hops} stops on`;
 };
 

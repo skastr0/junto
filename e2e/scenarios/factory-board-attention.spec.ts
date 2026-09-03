@@ -81,7 +81,7 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
 
   const tasksCard = page.locator('.react-flow__node[data-id="tasks"]');
   await expect(tasksCard).toBeVisible({ timeout: 30_000 });
-  await expect(tasksCard.getByTestId("tasks-glance")).toContainText("in flight");
+  await expect(tasksCard.getByTestId("tasks-glance")).toContainText("open");
   await expect(tasksCard.getByTestId("tasks-glance")).toContainText("need input");
   await expect(tasksCard.locator("text=SUBMITTED")).toHaveCount(0);
 

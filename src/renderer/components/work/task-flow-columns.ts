@@ -57,8 +57,8 @@ export const pipelineLaneCopy = (
   return {
     inboundHint: `Arrivals from ${upstream}`,
     inboundEmpty: `Arrivals from ${upstream} land here.`,
-    outboundHint: `Destinations: ${destinations}`,
-    outboundEmpty: `Completed work goes to ${destinations}.`,
+    outboundHint: `Goes to ${destinations}`,
+    outboundEmpty: `Completed tasks move to ${destinations}.`,
   };
 };
 

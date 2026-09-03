@@ -90,7 +90,7 @@ export const stationIdentity = (
     };
   }
   return {
-    name: `station ${shortStationId(nodeId)}`,
+    name: `Tasks ${shortStationId(nodeId)}`,
     source: "id",
     namingHint: "Name this node to name the station.",
   };

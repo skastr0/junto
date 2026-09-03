@@ -123,7 +123,7 @@ const provenanceText = (provenance: ClaimProvenance, doc: CanvasDoc): string => 
     case "region":
       return `region ${provenance.label}`;
     case "sink":
-      return `station ${stationLabel(doc, provenance.nodeId)}`;
+      return stationLabel(doc, provenance.nodeId);
     case "task":
       return "task claim";
   }

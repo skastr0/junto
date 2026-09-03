@@ -74,7 +74,7 @@ function LayerInterior({ layer }: { readonly layer: JourneyLayer }) {
                   </Chip>
                   {receipt.severity ? (
                     <Chip tone={receipt.severity === "hard" ? "crimson" : "steel"}>
-                      {receipt.severity}
+                      {receipt.severity === "hard" ? "Required" : "Optional"}
                     </Chip>
                   ) : null}
                   <strong>{receipt.claimText ?? receipt.claimId}</strong>
@@ -105,7 +105,7 @@ function LayerInterior({ layer }: { readonly layer: JourneyLayer }) {
             {layer.openClaims.map((claim) => (
               <li key={claim.claimId}>
                 <Chip tone={claim.severity === "hard" ? "crimson" : "steel"}>
-                  {claim.severity}
+                  {claim.severity === "hard" ? "Required" : "Optional"}
                 </Chip>
                 <span>{claim.text}</span>
                 <span className="task-journey__provenance">{claim.provenance}</span>

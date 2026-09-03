@@ -1815,7 +1815,7 @@ describe("work control transport", () => {
       emission: "name the verified fix and cite the failing test",
     });
     expect(sinkEntry?.destinations).toEqual([
-      expect.objectContaining({ station: "review", name: "station review" }),
+      expect.objectContaining({ station: "review", name: "Tasks review" }),
     ]);
 
     const renamed = await runtime.runPromise(canvases.read("work-cli"));

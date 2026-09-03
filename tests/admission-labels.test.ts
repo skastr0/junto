@@ -13,7 +13,7 @@ describe("admissionLabels", () => {
       {
         value: "auto",
         label: "Immediate",
-        outcome: "Goes live immediately",
+        outcome: "Agents can start it right away",
       },
       {
         value: "operator-gated",
@@ -22,14 +22,14 @@ describe("admissionLabels", () => {
       },
       {
         value: "operator-owned",
-        label: "Mine",
+        label: "Me",
         outcome: "I work it myself",
       },
     ]);
     expect(admissionLabel("auto")).toBe("Immediate");
     expect(admissionOutcome("operator-gated")).toBe("Waits for my approval");
     expect(admissionChoiceLabel("operator-owned")).toBe(
-      "Mine — I work it myself",
+      "Me — I work it myself",
     );
   });
 });

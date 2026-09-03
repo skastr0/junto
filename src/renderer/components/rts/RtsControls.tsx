@@ -427,8 +427,8 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
         <Pencil size={ICON} />
       </KindKey>
       <KindKey
-        label="Admission"
-        title={`Admission: ${admissionLabel(admission)}`}
+        label="Who starts tasks"
+        title={`Starts: ${admissionLabel(admission)}`}
         active={pop === "admission" || admission !== "auto"}
         style={pop === "admission" || admission !== "auto" ? { color: HUE.amber } : undefined}
         onClick={() => setPop((current) => (current === "admission" ? null : "admission"))}
@@ -436,8 +436,8 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
         <Gauge size={ICON} />
       </KindKey>
       <KindKey
-        label="Bake"
-        title={`Bake: ${formatBakeTime(bakeMs) || "none"}`}
+        label="Wait before starting"
+        title={`Wait: ${formatBakeTime(bakeMs) || "none"}`}
         active={pop === "bake" || bakeMs !== undefined}
         style={pop === "bake" || bakeMs !== undefined ? { color: HUE.amber } : undefined}
         onClick={() => setPop((current) => (current === "bake" ? null : "bake"))}
@@ -457,7 +457,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       ) : null}
       {pop === "admission" ? (
         <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Admission quick select">
-          <span className="rts-kind-pop__title">Admission</span>
+          <span className="rts-kind-pop__title">Who starts tasks</span>
           <div className="rts-kind-pop__choices">
             {ADMISSION_ORDER.map((value) => (
               <Button
@@ -474,12 +474,12 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
               </Button>
             ))}
           </div>
-          <span className="rts-kind-pop__hint">Choose how arrivals become claimable.</span>
+          <span className="rts-kind-pop__hint">Who can start new tasks on this board.</span>
         </div>
       ) : null}
       {pop === "bake" ? (
         <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Bake quick set">
-          <span className="rts-kind-pop__title">Bake</span>
+          <span className="rts-kind-pop__title">Wait before starting</span>
           <div className="rts-kind-pop__choices">
             {([
               [undefined, "None"],
@@ -503,7 +503,8 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
             ))}
           </div>
           <span className="rts-kind-pop__hint">
-            Current: {formatBakeTime(bakeMs) || "none"}. Use the board editor for a custom duration.
+            Current: {formatBakeTime(bakeMs) || "none"}. Tasks wait this long before any agent can
+            start them. Set a custom time in Board settings.
           </span>
         </div>
       ) : null}

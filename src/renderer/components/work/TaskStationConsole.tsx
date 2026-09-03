@@ -50,7 +50,7 @@ const parseRefs = (text: string): ReadonlyArray<string> =>
 const provenanceChip = (claim: EffectiveClaim): string => {
   switch (claim.provenance.kind) {
     case "region":
-      return `Region ${claim.provenance.label}`;
+      return `in ${claim.provenance.label}`;
     case "sink":
       return "This station";
     case "task":
@@ -262,7 +262,7 @@ export function TaskStationConsole({
               >
                 <div className="task-station-claim__top">
                   <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
-                    {entry.claim.severity}
+                    {entry.claim.severity === "hard" ? "Required" : "Optional"}
                   </Chip>
                   <p className="task-station-claim__text">{entry.claim.text}</p>
                 </div>

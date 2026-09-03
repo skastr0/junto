@@ -842,7 +842,7 @@
 }
 
 .task-create-dialog__line[open] .task-create-dialog__line-action::before {
-  content: "Hide route";
+  content: "Hide path";
 }
 
 .task-create-dialog__line[open] .task-create-dialog__line-action {

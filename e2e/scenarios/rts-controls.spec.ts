@@ -163,10 +163,10 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(kindStrip.getByRole("button", { name: "Add task" })).toBeVisible();
   await expect(kindStrip.getByRole("button", { name: "Sink contract" })).toHaveCount(0);
 
-  const admissionKey = kindStrip.getByRole("button", { name: "Admission" });
-  const bakeKey = kindStrip.getByRole("button", { name: "Bake" });
-  await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Admission: Immediate");
-  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Bake: none");
+  const admissionKey = kindStrip.getByRole("button", { name: "Who starts tasks" });
+  const bakeKey = kindStrip.getByRole("button", { name: "Wait before starting" });
+  await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Starts: Immediate");
+  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Wait: none");
 
   await admissionKey.click();
   const admissionQuickSelect = page.getByLabel("Admission quick select");
@@ -174,7 +174,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await admissionQuickSelect.getByRole("button", { name: "Approval" }).click();
   await expect(admissionKey).toHaveAttribute(
     "data-vellum-tooltip",
-    "Admission: Approval",
+    "Starts: Approval",
   );
 
   await bakeKey.click();
@@ -182,7 +182,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(bakeQuickSet).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "03-task-sink-bake-key.png"), fullPage: false });
   await bakeQuickSet.getByRole("button", { name: "1h" }).click();
-  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Bake: 1h");
+  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Wait: 1h");
   // The install-time fit centers the region, so the tasks sink sits outside
   // the viewport and its floating toolbar (fixed-position) cannot be clicked.
   // Frame the selected node through the command card first.

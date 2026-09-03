@@ -108,8 +108,8 @@ describe("pipeline lane copy", () => {
     expect(pipelineLaneCopy(shape, label)).toEqual({
       inboundHint: "Arrivals from Intake and Triage",
       inboundEmpty: "Arrivals from Intake and Triage land here.",
-      outboundHint: "Destinations: Review and Ship",
-      outboundEmpty: "Completed work goes to Review and Ship.",
+      outboundHint: "Goes to Review and Ship",
+      outboundEmpty: "Completed tasks move to Review and Ship.",
     });
   });
 

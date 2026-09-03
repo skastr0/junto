@@ -132,9 +132,9 @@ function InheritedLaw({ node }: { readonly node: CanvasNode }) {
 
   return (
     <div className="inspector-section">
-      <div className="inspector-section__label">inherited law</div>
+      <div className="inspector-section__label">Region claims</div>
       <div className="inspector-detail mt-1">
-        From the regions holding this sink. Edit them on the region.
+        From the regions this board sits in. Edit them on the region.
       </div>
       <div className="mt-2 grid gap-1.5" role="list">
         {inherited.map((entry, index) => (
@@ -146,10 +146,10 @@ function InheritedLaw({ node }: { readonly node: CanvasNode }) {
             <div className="text-[11px] leading-snug text-ink">{entry.claim.text}</div>
             <div className="mt-1 flex flex-wrap items-center gap-1">
               <Chip tone={entry.claim.severity === "hard" ? "amber" : "steel"}>
-                {entry.claim.severity}
+                {entry.claim.severity === "hard" ? "Required" : "Optional"}
               </Chip>
               {entry.provenance.kind === "region" ? (
-                <Chip tone="violet">region {entry.provenance.label}</Chip>
+                <Chip tone="violet">in {entry.provenance.label}</Chip>
               ) : null}
             </div>
           </div>
@@ -189,7 +189,7 @@ function BakeTimeField({
 
   return (
     <label className="inspector-editor">
-      <span>bake time</span>
+      <span>Wait before starting</span>
       <input
         data-focus-owner="canvas-draft"
         aria-label="Bake time before an arrival is claimable"
@@ -214,7 +214,7 @@ function BakeTimeField({
       <span className="inspector-detail normal-case tracking-normal">
         {invalid
           ? "Use a duration like 90m, 12h, or 7d. Empty means claimable on arrival."
-          : "How long an arrival waits before any seat may be assigned it."}
+          : "Tasks wait this long before any agent can start them."}
       </span>
     </label>
   );
@@ -262,11 +262,11 @@ export function SinkContractEditor({
       outbound?.checklist?.length ? `${outbound.checklist.length} checks` : undefined,
     ]
       .filter(Boolean)
-      .join(", ") || "nothing set";
+      .join(", ") || "Not set";
 
   const inboundFold = (
     <Fold
-      title="arrivals"
+      title="Incoming"
       summary={inboundSummary}
       open={openFolds.inbound}
       onToggle={() =>
@@ -274,7 +274,7 @@ export function SinkContractEditor({
       }
       >
         <label className="inspector-editor">
-          <span>admission</span>
+          <span>Who starts tasks</span>
           <Select
             dense
             aria-label="How arrivals become claimable"
@@ -292,33 +292,34 @@ export function SinkContractEditor({
           onCommit={(ms) => writeInbound({ claimableAfterMs: ms })}
         />
         <ContractText
-          label="triage"
+          label="Handling"
           ariaLabel="Sink inbound instruction"
           resetKey={node.id}
           value={inbound?.instruction ?? ""}
-          placeholder="How should arrivals be handled here?"
+          placeholder="How should new tasks be handled here?"
           onCommit={(instruction) => writeInbound({ instruction })}
         />
         <ContractText
-          label="description"
-          hint="Read by upstream stations choosing where to forward."
+          label="What this board takes"
+          hint="Agents on earlier boards read this when choosing where to send a task."
           ariaLabel="Sink inbound description"
           resetKey={node.id}
           value={inbound?.description ?? ""}
-          placeholder="What this station takes in."
+          placeholder="What kind of work belongs here?"
           onCommit={(description) => writeInbound({ description })}
         />
         <CheckList
           ownerKey={`${node.id}:inbound`}
           checklist={inbound?.checklist ?? []}
-          hint="Run by the seat on boarding an arrival here."
+          label="Checks on entry"
+          hint="Commands the agent runs when a task enters this board. Exit 0 passes."
           onChange={(checklist: ReadonlyArray<CheckDef>) => writeInbound({ checklist })}
         />
       </Fold>
   );
   const outboundFold = (
     <Fold
-      title="departures"
+      title="Outgoing"
       summary={outboundSummary}
       open={openFolds.outbound}
       onToggle={() =>
@@ -326,26 +327,27 @@ export function SinkContractEditor({
       }
       >
         <ContractText
-          label="emission"
-          hint="What a seat publishes forward when it hands the task on."
+          label="Handoff note"
+          hint="What the agent must write down when sending a task onward."
           ariaLabel="Sink outbound emission"
           resetKey={node.id}
           value={outbound?.emission ?? ""}
-          placeholder="What must travel with the task from here?"
+          placeholder="What should the next board know?"
           onCommit={(emission) => writeOutbound({ emission })}
         />
         <ContractText
-          label="description"
+          label="What this board sends"
           ariaLabel="Sink outbound description"
           resetKey={node.id}
           value={outbound?.description ?? ""}
-          placeholder="What this station sends on."
+          placeholder="What kind of work leaves here?"
           onCommit={(description) => writeOutbound({ description })}
         />
         <CheckList
           ownerKey={`${node.id}:outbound`}
           checklist={outbound?.checklist ?? []}
-          hint="Run by the seat before the task leaves this station."
+          label="Checks on exit"
+          hint="Commands the agent runs before a task leaves this board. Exit 0 passes."
           onChange={(checklist: ReadonlyArray<CheckDef>) => writeOutbound({ checklist })}
         />
       </Fold>
@@ -354,12 +356,12 @@ export function SinkContractEditor({
   return (
     <>
       <ContractText
-        label="stage"
-        hint="Seats claiming here receive this as ambient context."
+        label="Instructions"
+        hint="Agents read this when they start a task here."
         ariaLabel="Sink stage instruction"
         resetKey={node.id}
         value={contract?.instruction ?? ""}
-        placeholder="What is this stage for?"
+        placeholder="What is this board for?"
         onCommit={(instruction) => write({ ...contract, instruction })}
       />
 
@@ -368,7 +370,8 @@ export function SinkContractEditor({
       <ClaimList
         ownerNodeId={node.id}
         claims={claims}
-        label="claims at this sink"
+        copyExisting={false}
+        label="This board's claims"
         hint="Answered by whoever closes a task here, on top of the region law above."
         onChange={(next: ReadonlyArray<ClaimDef>) => write({ ...contract, claims: next })}
       />

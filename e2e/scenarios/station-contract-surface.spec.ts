@@ -89,8 +89,8 @@ test("station contract has one full-size home with side-specific board entry", a
     await expect(arrivals.getByLabel("Claim text")).toHaveValue(
       "Keep one canonical task data structure.",
     );
-    await expect(arrivals.getByText("arrivals", { exact: true })).toBeVisible();
-    await expect(arrivals.getByText("departures", { exact: true })).toHaveCount(0);
+    await expect(arrivals.getByText("Incoming", { exact: true })).toBeVisible();
+    await expect(arrivals.getByText("Outgoing", { exact: true })).toHaveCount(0);
     const arrivalsShot = join(SHOTS, "full-arrivals.png");
     await board.screenshot({ path: arrivalsShot });
     await testInfo.attach("station-contract-full-arrivals", {
@@ -110,8 +110,8 @@ test("station contract has one full-size home with side-specific board entry", a
     await expect(departures.getByLabel("Claim text")).toHaveValue(
       "Keep one canonical task data structure.",
     );
-    await expect(departures.getByText("departures", { exact: true })).toBeVisible();
-    await expect(departures.getByText("arrivals", { exact: true })).toHaveCount(0);
+    await expect(departures.getByText("Outgoing", { exact: true })).toBeVisible();
+    await expect(departures.getByText("Incoming", { exact: true })).toHaveCount(0);
     const departuresShot = join(SHOTS, "full-departures.png");
     await board.screenshot({ path: departuresShot });
     await testInfo.attach("station-contract-full-departures", {

@@ -53,7 +53,7 @@ function CheckRow({
         aria-label="Check command"
         className="min-h-[28px] py-1 font-mono text-[11px]"
         value={command}
-        placeholder="command, exit 0 is green"
+        placeholder="command, exit 0 passes"
         spellCheck={false}
         onChange={(event) => setCommand(event.target.value)}
         onBlur={commit}
@@ -105,7 +105,7 @@ function CheckDraftRow({
         aria-label="New check command"
         className="min-h-[28px] py-1 font-mono text-[11px]"
         value={command}
-        placeholder="command, exit 0 is green"
+        placeholder="command, exit 0 passes"
         spellCheck={false}
         onChange={(event) => setCommand(event.target.value)}
         onKeyDown={(event) => {
@@ -129,11 +129,13 @@ function CheckDraftRow({
 export function CheckList({
   ownerKey,
   checklist,
+  label,
   hint,
   onChange,
 }: {
   readonly ownerKey: string;
   readonly checklist: ReadonlyArray<CheckDef>;
+  readonly label: string;
   readonly hint: string;
   readonly onChange: (next: ReadonlyArray<CheckDef>) => void;
 }) {
@@ -144,7 +146,7 @@ export function CheckList({
 
   return (
     <div className="mt-3">
-      <div className="text-[9px] tracking-[0.14em] text-dim uppercase">boarding checks</div>
+      <div className="text-[9px] tracking-[0.14em] text-dim uppercase">{label}</div>
       <div className="inspector-detail mt-1">{hint}</div>
       {checklist.length > 0 ? (
         <div className="mt-2 grid gap-1.5">
@@ -178,7 +180,7 @@ export function CheckList({
           onClick={() => setAdding(true)}
         >
           <Plus size={11} />
-          check
+          Add check
         </Button>
       )}
     </div>

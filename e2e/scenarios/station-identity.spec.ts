@@ -74,7 +74,7 @@ test("named stations carry through the board and task travel strip", async ({}, 
       }),
     ).toBeVisible();
     await expect(board.getByTestId("task-lane-outbound")).toContainText(
-      "Destinations: Review",
+      "Goes to Review",
     );
 
     const boardScreenshot = join(

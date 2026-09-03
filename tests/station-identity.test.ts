@@ -40,13 +40,13 @@ describe("station identity", () => {
 
   it("uses a short id and teaches how to name a station when no title or role exists", () => {
     expect(stationIdentity(station("tasks", undefined))).toEqual({
-      name: "station 12345678",
+      name: "Tasks 12345678",
       source: "id",
       namingHint: "Name this node to name the station.",
     });
   });
 
   it("resolves missing historical nodes through the same short-id fallback", () => {
-    expect(stationName(undefined, "missing-station-ABCDEF12")).toBe("station ABCDEF12");
+    expect(stationName(undefined, "missing-station-ABCDEF12")).toBe("Tasks ABCDEF12");
   });
 });

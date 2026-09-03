@@ -112,7 +112,7 @@ test("task creation hierarchy and admission", async ({}, testInfo) => {
 
     await title.fill("Hold the release proof");
     await description.fill("Verify the release proof before a worker claims it.");
-    await creator.getByLabel("Optional hold duration").fill("12h");
+    await creator.getByLabel("Wait before starting duration").fill("12h");
     await creator.getByRole("button", { name: "Create task", exact: true }).click();
     await expect(creator).toBeHidden();
 

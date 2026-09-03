@@ -26,7 +26,7 @@ export const lineLaw = (
 };
 
 export const REGION_LAW_SCOPE =
-  "asked when work completes at a stop it covers";
+  "Answered when a task completes on any board in this region";
 export const SINK_LAW_SCOPE = "asked when work completes at this station";
 
 /**
@@ -225,10 +225,10 @@ export const lineProfile = (
   };
 };
 
-/** The profile in words: "4 stops, 9 claims, 6 hard". */
+/** The profile in words: "4 boards, 9 claims". */
 export const formatProfile = (profile: LineProfile): string => {
   const claims = profile.standing + profile.pinned;
-  const stops = `${profile.stops} ${profile.stops === 1 ? "stop" : "stops"}`;
-  if (claims === 0) return `${stops}, no standing claims`;
-  return `${stops}, ${claims} ${claims === 1 ? "claim" : "claims"}, ${profile.hard} hard`;
+  const boards = `${profile.stops} ${profile.stops === 1 ? "board" : "boards"}`;
+  if (claims === 0) return `${boards}, no standing claims`;
+  return `${boards}, ${claims} ${claims === 1 ? "claim" : "claims"}`;
 };

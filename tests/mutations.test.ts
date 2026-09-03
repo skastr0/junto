@@ -1027,10 +1027,10 @@ describe("renderer graph mutations", () => {
     expect(confirms).toEqual([
       [
         "Delete this node?",
-        "“station review” holds 1 live task.",
-        "1 live journey references “station review” as a stop or send-back target.",
-        "“station intake” has 1 live task that will lose “station review” as a forward destination.",
-        "This removes “station intake”’s last forward connection, leaving it with nowhere to forward. Connected edges (1) will also be removed.",
+        "“Tasks review” holds 1 live task.",
+        "1 live journey references “Tasks review” as a stop or send-back target.",
+        "“Tasks intake” has 1 live task that will lose “Tasks review” as a forward destination.",
+        "This removes “Tasks intake”’s last forward connection, leaving it with nowhere to forward. Connected edges (1) will also be removed.",
       ].join("\n"),
     ]);
     expect(state$.doc.peek().nodes).toHaveLength(2);
@@ -1089,7 +1089,7 @@ describe("renderer graph mutations", () => {
     deleteEdges(["flow"]);
 
     expect(confirms).toEqual([
-      "Delete this relation? “station intake” has 1 live task that will lose “Review” as a forward destination. This removes “station intake”’s last forward connection, leaving it with nowhere to forward.",
+      "Delete this relation? “Tasks intake” has 1 live task that will lose “Review” as a forward destination. This removes “Tasks intake”’s last forward connection, leaving it with nowhere to forward.",
     ]);
     expect(state$.doc.peek().edges).toHaveLength(1);
 

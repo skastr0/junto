@@ -11,7 +11,7 @@ export const ADMISSION_LABELS: Readonly<Record<SinkAdmission, AdmissionLabels>> 
   auto: {
     value: "auto",
     label: "Immediate",
-    outcome: "Goes live immediately",
+    outcome: "Agents can start it right away",
   },
   "operator-gated": {
     value: "operator-gated",
@@ -20,7 +20,7 @@ export const ADMISSION_LABELS: Readonly<Record<SinkAdmission, AdmissionLabels>> 
   },
   "operator-owned": {
     value: "operator-owned",
-    label: "Mine",
+    label: "Me",
     outcome: "I work it myself",
   },
 };
