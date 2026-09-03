@@ -27,9 +27,10 @@ const ELECTRON_RUNTIME_VERSION_PATH = fileURLToPath(
 const LINUX_RELEASE_ROOT = fileURLToPath(
   new URL("../release", import.meta.url),
 );
-const LINUX_ARTIFACT_ROOT = fileURLToPath(
-  new URL("../release/linux-unpacked", import.meta.url),
-);
+// package-app-linux.sh packages into a private attempt directory directly
+// under release/; finalize-linux-package.ts owns the same attempt name rule.
+const LINUX_ATTEMPT_NAME = /^\.vellum-package-attempt-[0-9A-Za-z._-]+$/u;
+const LINUX_ARTIFACT_ROOT_SHAPE = `${LINUX_RELEASE_ROOT}/.vellum-package-attempt-*/linux-unpacked`;
 const LINUX_FIXED_MODE_DIRECTORIES = [
   "resources",
   "resources/bin",
@@ -110,9 +111,19 @@ const assertFuseWire = (wire, policy) => {
   }
 };
 
+/** release/<attempt>/linux-unpacked, where <attempt> is an owned attempt name. */
+export const linuxAttemptRootOf = (candidate) => {
+  if (typeof candidate !== "string" || candidate === "") return undefined;
+  const resolved = path.resolve(candidate);
+  if (path.basename(resolved) !== "linux-unpacked") return undefined;
+  const attempt = path.dirname(resolved);
+  if (!LINUX_ATTEMPT_NAME.test(path.basename(attempt))) return undefined;
+  if (path.dirname(attempt) !== LINUX_RELEASE_ROOT) return undefined;
+  return attempt;
+};
+
 export const isExpectedLinuxArtifactRoot = (candidate) =>
-  typeof candidate === "string" &&
-  path.resolve(candidate) === LINUX_ARTIFACT_ROOT;
+  linuxAttemptRootOf(candidate) !== undefined;
 
 const sameIdentity = (left, right) =>
   left.dev === right.dev && left.ino === right.ino;
@@ -163,9 +174,10 @@ const fixedParentHandle = (artifact, relativePath) => {
 };
 
 const admitLinuxArtifact = async (candidate) => {
-  if (!isExpectedLinuxArtifactRoot(candidate)) {
+  const attemptRoot = linuxAttemptRootOf(candidate);
+  if (attemptRoot === undefined) {
     throw new Error(
-      `Linux package artifact root must be ${LINUX_ARTIFACT_ROOT}`,
+      `Linux package artifact root must be ${LINUX_ARTIFACT_ROOT_SHAPE}`,
     );
   }
   if (
@@ -174,7 +186,7 @@ const admitLinuxArtifact = async (candidate) => {
   ) {
     throw new Error("Linux package admission requires no-follow opens");
   }
-  const releasePathMetadata = await lstat(LINUX_RELEASE_ROOT);
+  const releasePathMetadata = await lstat(attemptRoot);
   if (
     releasePathMetadata.isSymbolicLink() ||
     !releasePathMetadata.isDirectory()
@@ -184,7 +196,7 @@ const admitLinuxArtifact = async (candidate) => {
     );
   }
   const releaseHandle = await open(
-    LINUX_RELEASE_ROOT,
+    attemptRoot,
     fsConstants.O_RDONLY |
       fsConstants.O_DIRECTORY |
       fsConstants.O_NOFOLLOW,
@@ -244,6 +256,7 @@ const admitLinuxArtifact = async (candidate) => {
         },
       },
       release: {
+        path: attemptRoot,
         handle: releaseHandle,
         identity: {
           dev: releaseHandleMetadata.dev,
@@ -423,7 +436,7 @@ const admitLinuxArtifact = async (candidate) => {
 
 const assertLinuxArtifactIdentity = async (artifact) => {
   const [releasePathMetadata, releaseHandleMetadata] = await Promise.all([
-    lstat(LINUX_RELEASE_ROOT),
+    lstat(artifact.release.path),
     artifact.release.handle.stat(),
   ]);
   if (

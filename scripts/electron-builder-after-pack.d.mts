@@ -1,3 +1,7 @@
+export declare const linuxAttemptRootOf: (
+  candidate: unknown,
+) => string | undefined;
+
 export declare const isExpectedLinuxArtifactRoot: (
   candidate: unknown,
 ) => boolean;
