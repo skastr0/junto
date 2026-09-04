@@ -46,6 +46,7 @@
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
     "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh",
+    "test:e2e:license": "VELLUM_COMMAND_LICENSE_CHANNEL=production VELLUM_COMMAND_E2E_LICENSE_FIXTURE=valid VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && VELLUM_COMMAND_E2E_LICENSE_STARTUP=1 scripts/run-e2e.sh e2e/scenarios/license-startup-refresh.spec.ts",
     "pty:verify": "bun scripts/pty-verify.ts",
     "test:e2e:fast": "scripts/run-e2e.sh",
     "test:e2e:perf": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/canvas-interaction-perf.spec.ts",

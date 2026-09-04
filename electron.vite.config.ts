@@ -29,6 +29,10 @@ const licenseProfile =
         businessId: process.env.VELLUM_COMMAND_DODO_BUSINESS_ID,
         productIds: process.env.VELLUM_COMMAND_DODO_PRODUCT_IDS,
       });
+const e2eLicenseFixture = process.env.VELLUM_COMMAND_E2E_LICENSE_FIXTURE;
+if (e2eLicenseFixture !== undefined && e2eLicenseFixture !== "valid") {
+  throw new Error("VELLUM_COMMAND_E2E_LICENSE_FIXTURE must be valid when set");
+}
 
 const licenseDefines = {
   __VELLUM_COMMAND_LICENSE_CHANNEL__: JSON.stringify(licenseChannel),
@@ -41,6 +45,9 @@ const licenseDefines = {
         .split(",")
         .map((productId) => productId.trim())
         .filter((productId) => productId.length > 0),
+  ),
+  __VELLUM_COMMAND_E2E_LICENSE_FIXTURE__: JSON.stringify(
+    e2eLicenseFixture === "valid",
   ),
 };
 

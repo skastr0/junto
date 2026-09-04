@@ -107,7 +107,11 @@ import {
   StationLivePeerRegistryLive,
 } from "./vellum/station/session-registry";
 import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
-import { makeDodoLicenseClient } from "./vellum/license/dodo-client";
+import {
+  DODO_LICENSE_BASE_URL,
+  makeDodoLicenseClient,
+  type DodoLicenseFetch,
+} from "./vellum/license/dodo-client";
 import {
   LicenseRepository,
   LicenseRepositoryLive,
@@ -152,6 +156,29 @@ const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(StateEngineLive, InstallOpsLive),
 );
 
+const e2eLicenseFixtureEnabled =
+  typeof __VELLUM_COMMAND_E2E_LICENSE_FIXTURE__ === "boolean" &&
+  __VELLUM_COMMAND_E2E_LICENSE_FIXTURE__;
+
+const e2eValidLicenseFetch: DodoLicenseFetch = async (input, init) => {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url;
+  if (
+    url !== `${DODO_LICENSE_BASE_URL}/licenses/validate` ||
+    init?.method !== "POST"
+  ) {
+    throw new Error(`unexpected E2E license request: ${init?.method ?? "GET"} ${url}`);
+  }
+  return new Response(JSON.stringify({ valid: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
 const LicenseServiceFromStateLive = Layer.effect(
   LicenseService,
   Effect.gen(function* () {
@@ -161,7 +188,11 @@ const LicenseServiceFromStateLive = Layer.effect(
     const config = compiledLicenseBuildConfig(app.isPackaged);
     const client =
       config.configured && config.channel === "production"
-        ? makeDodoLicenseClient()
+        ? makeDodoLicenseClient(
+            e2eLicenseFixtureEnabled
+              ? { fetch: e2eValidLicenseFetch }
+              : {},
+          )
         : undefined;
 
     return makeLicenseService({

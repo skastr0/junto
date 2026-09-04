@@ -59,6 +59,10 @@ if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
   printf 'vellum-command: error: notarization is only available for the mac target\n' >&2
   exit 1
 fi
+if [[ -n "${VELLUM_COMMAND_E2E_LICENSE_FIXTURE+x}" ]]; then
+  printf 'vellum-command: error: packaged builds refuse VELLUM_COMMAND_E2E_LICENSE_FIXTURE\n' >&2
+  exit 1
+fi
 
 BUN_EXECUTABLE="$(type -P bun || true)"
 if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then

@@ -53,6 +53,11 @@ import {
   IntentFactBasis,
   type ActorRef,
 } from "../../src/shared/work-protocol";
+import type { ActivatedLicense } from "../../src/main/vellum/license/domain";
+import {
+  LicenseRepository,
+  LicenseRepositoryLive,
+} from "../../src/main/vellum/license/repository";
 
 export interface Sandbox {
   readonly root: string;
@@ -104,6 +109,30 @@ export const createSandbox = async (): Promise<Sandbox> => {
 /** Best-effort recursive removal — never throws (temp cleanup is not load-bearing). */
 export const destroySandbox = async (sandbox: Sandbox): Promise<void> => {
   await rm(sandbox.root, { recursive: true, force: true }).catch(() => undefined);
+};
+
+/** Seed the production license row through the repository Electron uses. */
+export const writeFixtureLicense = async (
+  sandbox: Sandbox,
+  license: ActivatedLicense,
+): Promise<void> => {
+  const runtime = ManagedRuntime.make(
+    Layer.provideMerge(
+      LicenseRepositoryLive,
+      makeStateEngineLive(
+        join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+      ),
+    ),
+  );
+  try {
+    await runtime.runPromise(
+      Effect.flatMap(LicenseRepository, (repository) =>
+        repository.write(license),
+      ),
+    );
+  } finally {
+    await runtime.dispose();
+  }
 };
 
 /**
