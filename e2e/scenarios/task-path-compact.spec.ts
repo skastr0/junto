@@ -140,7 +140,7 @@ test("five-board fork renders one compact path", async ({}, testInfo) => {
 
     await creator.getByRole("complementary", { name: "Details and hard gates" }).hover();
     const screenshot = testInfo.outputPath("path.png");
-    await creator.screenshot({ path: screenshot });
+    await strip.screenshot({ path: screenshot });
     await testInfo.attach("task-path-after", {
       path: screenshot,
       contentType: "image/png",
@@ -155,7 +155,7 @@ test("five-board fork renders one compact path", async ({}, testInfo) => {
     });
     await creator.getByRole("complementary", { name: "Details and hard gates" }).hover();
     const expandedScreenshot = testInfo.outputPath("rules-expanded.png");
-    await creator.screenshot({ path: expandedScreenshot });
+    await strip.screenshot({ path: expandedScreenshot });
     await testInfo.attach("task-path-rules-expanded", {
       path: expandedScreenshot,
       contentType: "image/png",
