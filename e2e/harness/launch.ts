@@ -18,8 +18,8 @@
  *    a visible window for debugging with VELLUM_COMMAND_E2E_SHOW=1 (not --vellum-headless —
  *    that mode has no authoring renderer at all).
  */
-import { readFileSync } from "node:fs";
 import { lstat, readdir, stat, unlink } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -45,14 +45,10 @@ import { startRendererServer, type RendererServer } from "./renderer-server";
 // "test:e2e"/"test:e2e:fast"); resolving from cwd avoids ESM __dirname
 // ambiguity under the project's "type": "module".
 const REPO_ROOT = process.cwd();
-const ELECTRON_PACKAGE_DIR = join(REPO_ROOT, "node_modules/electron");
-const ELECTRON_BINARY = join(
-  ELECTRON_PACKAGE_DIR,
-  "dist",
-  // Electron's installer writes its platform-specific executable path here:
-  // `electron` on Linux and `Electron.app/Contents/MacOS/Electron` on macOS.
-  readFileSync(join(ELECTRON_PACKAGE_DIR, "path.txt"), "utf8").trim(),
-);
+// Electron 43 resolves and, on a fresh install, downloads its platform binary
+// through the package entry. Reading its internal path.txt directly bypasses
+// that supported bootstrap and makes clean Linux/macOS E2E checkouts fail.
+const ELECTRON_BINARY = createRequire(import.meta.url)("electron") as string;
 // Launch with the repo root as the app path (Electron resolves the app dir
 // from the main-script's package.json walk): the app must see itself at the
 // repo root so resources like scripts/unix-peer-pid.py resolve (process-bind
