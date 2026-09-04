@@ -8,6 +8,7 @@ dist/
 test-results/
 playwright-report/
 blob-report/
+_design_screenshots/
 .local/
 *.digest.txt
 src/main/vellum/plugin-install/payloads/.pack-tmp/
@@ -15,6 +16,7 @@ build/electron-observation.json
 build/electron-observation-high-water.json
 
 # Amp orb runtime state
+.amp/in/
 .amp/portals/
 
 # design-sync machine state
