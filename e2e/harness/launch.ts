@@ -18,6 +18,7 @@
  *    a visible window for debugging with VELLUM_COMMAND_E2E_SHOW=1 (not --vellum-headless —
  *    that mode has no authoring renderer at all).
  */
+import { readFileSync } from "node:fs";
 import { lstat, readdir, stat, unlink } from "node:fs/promises";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
@@ -42,9 +43,13 @@ import { startRendererServer, type RendererServer } from "./renderer-server";
 // "test:e2e"/"test:e2e:fast"); resolving from cwd avoids ESM __dirname
 // ambiguity under the project's "type": "module".
 const REPO_ROOT = process.cwd();
+const ELECTRON_PACKAGE_DIR = join(REPO_ROOT, "node_modules/electron");
 const ELECTRON_BINARY = join(
-  REPO_ROOT,
-  "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+  ELECTRON_PACKAGE_DIR,
+  "dist",
+  // Electron's installer writes its platform-specific executable path here:
+  // `electron` on Linux and `Electron.app/Contents/MacOS/Electron` on macOS.
+  readFileSync(join(ELECTRON_PACKAGE_DIR, "path.txt"), "utf8").trim(),
 );
 // Launch with the repo root as the app path (Electron resolves the app dir
 // from the main-script's package.json walk): the app must see itself at the
@@ -53,6 +58,12 @@ const ELECTRON_BINARY = join(
 // the app dir as out/main and every work-socket connection is refused.
 const MAIN_ENTRY = REPO_ROOT;
 const RENDERER_DIR = join(REPO_ROOT, "out/renderer");
+// Xvfb has no hardware GL device. Electron's bundled SwiftShader keeps WebGL
+// and Three.js real without weakening Chromium's process sandbox.
+const PLATFORM_ELECTRON_ARGS =
+  process.platform === "linux"
+    ? ["--use-angle=swiftshader-webgl", "--enable-unsafe-swiftshader"]
+    : [];
 
 // e2e/fakes/bin/{ssh,hermes} — stock-protocol emulators (see
 // e2e/fakes/*.ts for the scenario-file contract each one reads). The system
@@ -473,6 +484,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       args: [
         MAIN_ENTRY,
         `--user-data-dir=${sandbox.userDataDir}`,
+        ...PLATFORM_ELECTRON_ARGS,
         ...(options.electronArgs ?? []),
       ],
       env,

@@ -4,6 +4,27 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+install_system_packages() {
+  local missing=()
+  local package
+  for package in xvfb xauth; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -Fqx 'install ok installed'; then
+      missing+=("$package")
+    fi
+  done
+
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    printf '[setup] E2E display dependencies already installed\n'
+    return
+  fi
+
+  printf '[setup] Installing E2E display dependencies: %s\n' "${missing[*]}"
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+}
+
+install_system_packages
+
 bun_version="$(sed -n 's/.*"packageManager": "bun@\([^"]*\)".*/\1/p' package.json)"
 if [[ -z "$bun_version" ]]; then
   printf '[setup] error: package.json must declare packageManager as bun@<version>\n' >&2

@@ -860,6 +860,10 @@ const createWindow = () => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A hidden Linux/Xvfb window otherwise falls to roughly one frame per
+      // second. E2E still renders the real UI; it just must not be background
+      // throttled while Playwright drives it.
+      ...(e2eIsolateFocus ? { backgroundThrottling: false } : {}),
     },
   });
   if (BROWSER_ENABLED && productRuntimeStarted && !productRuntimeSuspended) {
@@ -1112,6 +1116,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      ...(e2eIsolateFocus ? { backgroundThrottling: false } : {}),
     },
   });
   rendererFailureWindow = failureWindow;
