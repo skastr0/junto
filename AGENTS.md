@@ -97,7 +97,9 @@ source/runtime schema is version 21, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and reached through the immutable contiguous steps declared in `migrations.ts`.
 The public macOS 0.1.14 package remains historical evidence for schema version
 18; it does not define the current source/runtime head. The frozen `18 → 19`,
-`19 → 20`, and `20 → 21` migrations must never be edited, squashed, renumbered, or reused.
+and `19 → 20` migrations must never be edited, squashed, renumbered, or reused.
+The original Tasks-bearing `20 → 21` result was invalid and is replaced by the
+corrected version-21 definition below.
 The next schema change must append `21 → 22`.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
@@ -105,15 +107,20 @@ schema edit must increment the current version, append an atomic `N → N+1`
 migration, and prove old rows survive. Shipped migration history is immutable:
 never edit, delete, reorder, or renumber a released step.
 
-**Ruled one-shot Tasks consolidation exception.** Migration `21 → 22` is the
-operator-approved, startup-atomic retirement of the Tasks feature's railway
-vocabulary and proposal-first model. It rewrites every affected mutable row and
-immutable Work payload in place, recomputes every correlated content hash,
-materializes proposal state as canonical Tasks, and removes the retired
-proposal storage. No old Tasks key, codec, table, decoder, dual read/write, or
-fallback survives the successful transaction. This exception applies only to
-that exact migration and vocabulary cutover; the normal evolution and immutable
-history laws continue to govern every other migration.
+**Corrective Tasks removal, not legacy policy.** Corrected schema 21 removes a
+broken, unshippable Tasks representation whose railway vocabulary and
+proposal-first model must not remain in the product or codebase. The old shape
+is invalid implementation residue, not previously respected legacy data. The
+startup-atomic repair rewrites an existing invalid version-21 database in
+place before normal decode, recomputes every correlated content hash,
+materializes proposal state as canonical Tasks, and removes the broken
+storage. Fresh upgrades build only the corrected version 21. The schema and
+Remote wire versions do not increment for this repair. No old Tasks key,
+active codec, table, decoder, dual read/write, or fallback survives; only the
+isolated corrective input converter knows the invalid shape. This removal is
+required for codebase health and is not a precedent for rewriting valid
+history; the normal evolution and immutable-history laws govern every other
+migration.
 
 Routine migrations are **expand → preserve → deprecate**:
 
@@ -487,7 +494,7 @@ Two kinds of migration exist and they never mix:
    `src/main/vellum/state/migrations.ts`: versioned (`user_version` N→N+1),
    identity-witnessed, one startup transaction, authorizer-guarded. A schema
    step adds tables/columns/triggers; it never rewrites rows. The sole exception
-   is the operator-ruled Tasks vocabulary consolidation in `21 → 22` above.
+   is the corrected version-21 Tasks repair above.
 2. **Data backfills** — marker-gated, idempotent walks that run after
    StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
    markers live in install-ops (`install-ops.db` / `InstallOpsService`), not
@@ -501,7 +508,7 @@ Backfill laws (each one broke, or nearly broke, a real release):
   are never UPDATEd or DELETEd — not even to "modernize" old payloads. History
   is served as written; decode paths admit historical shapes
   (decode-admits-history). Backfills rewrite material projections only. The
-  sole exception is the complete `21 → 22` Tasks consolidation ruled above;
+  sole exception is the corrected version-21 Tasks consolidation ruled above;
   after that cutover there is no historical Tasks decoder.
 - **A backfill never gates boot.** Failure = log it, leave the marker pending,
   retry next boot. The app always opens; a half-done backfill is a deferred

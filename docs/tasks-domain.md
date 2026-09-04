@@ -7,11 +7,15 @@ operator copy, and agent-facing docs all use these words and no others.
 Where the code still uses older words, that is migration work tracked in
 [`tasks-consolidation-plan.md`](tasks-consolidation-plan.md).
 
-The ruled cutover is complete and startup-atomic: migration `21 → 22` rewrites all
-affected current state and Work history, recomputes correlated hashes,
-materializes proposal state as Tasks, and removes the old storage and code.
-After a successful migration the product carries no permanent compatibility
-reader, old key, old table, or retired Tasks vocabulary.
+This is corrective removal of broken code, not accommodation of respected
+legacy behavior. Corrected schema 21 rewrites an existing invalid version-21
+database atomically on open, including current state and Work history,
+recomputes correlated hashes, materializes proposal state as Tasks, and removes
+the invalid storage and code. Fresh upgrades build the corrected shape
+directly. Neither the schema version nor the disabled Remote wire protocol is
+bumped. After repair the product carries no compatibility reader, old key, old
+table, or retired Tasks vocabulary; only the isolated corrective converter can
+recognize an invalid pre-fix version 21.
 
 ## Why this exists
 

@@ -4,11 +4,11 @@ Companion to [`tasks-domain.md`](tasks-domain.md), which is the vocabulary.
 This file is the execution plan that moves code, wire, storage, copy, and
 docs to that vocabulary in one direction with no compatibility layers.
 
-Doctrine applied: consolidation first. Old paths are presumed wrong until
-proven necessary. The only exception classes admitted are destructive state
-transitions (the SQLite migration). Remote Stations are unreleased, so the
-cutover replaces their protocol-1 Work codec in place and deliberately does
-not support a pre-cutover Remote binary.
+Doctrine applied: consolidation first. This is corrective removal of broken,
+unshippable code, not migration support for respected legacy behavior. The old
+paths and vocabulary are invalid and must disappear completely. Remote is
+disabled and is not part of this cutover; no Station compatibility path or
+pre-cutover Remote accommodation is added.
 
 ## Canonical end state
 
@@ -40,8 +40,10 @@ approval", and the second creation mode.
 
 ## Durable storage
 
-Schema head in code is 21 (`src/main/vellum/state/migrations.ts`). The next
-migration is `21 -> 22`.
+Schema head remains 21 (`src/main/vellum/state/migrations.ts`). This corrective
+repair does not consume a schema version: fresh upgrades construct the fixed
+version 21, while an existing invalid version-21 database is rewritten before
+normal decode. The next unrelated schema migration remains `21 -> 22`.
 
 None of the affected fields are SQL columns. They are keys inside JSON
 columns:
@@ -62,8 +64,9 @@ columns:
 
 ### Migration shape, ruled
 
-The operator ruled a complete in-place cutover on 2026-09-04. Migration
-`21 -> 22` runs in the normal startup migration transaction and:
+The operator ruled a complete in-place corrective migration on 2026-09-04.
+Corrected version 21 is installed transactionally during a fresh `20 -> 21`
+upgrade or by a same-version pre-decode repair of an existing invalid 21. It:
 
 - rewrites every affected authorial and material JSON value to the canonical
   Tasks vocabulary;
@@ -77,10 +80,10 @@ The operator ruled a complete in-place cutover on 2026-09-04. Migration
   authorial documents;
 - leaves no old key, column, table, codec, decoder, fallback, or dual writer.
 
-The StateEngine's existing pre-migration backup and transaction rollback are
-the recovery boundary. A conversion failure aborts startup and surfaces the
-normal recovery flow; there is no deferred backfill or partially converted
-runtime.
+The StateEngine's existing backup and transaction rollback are the recovery
+boundary. A conversion failure aborts startup and surfaces the normal recovery
+flow; there is no deferred backfill or partially converted runtime. Remote is
+disabled for this change, so its wire version remains unchanged.
 
 ## Batches
 
@@ -97,8 +100,9 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
 - `claims.ts` becomes `rules.ts`: `rulesInForce`, `claimsRecorded`,
   `evaluateRules`, `evaluateForkWaivers`, `evaluateTerminalClose`,
   `requiredChecks`, `evaluateChecks`, admission helpers.
-- Migration `21 -> 22` with identity witness and a fixture proving old rows
-  decode. `bun run schema:identity` after.
+- Corrected `20 -> 21` construction plus same-version invalid-21 repair, with
+  identity witness and a fixture proving old rows become canonical. `bun run
+  schema:identity` after.
 - Repository bag key and fold/lift renamed.
 
 ### B2. Gates and factory tick
