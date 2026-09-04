@@ -449,7 +449,7 @@ Mutable work remains single-home:
 - claiming a Command Center-home task for a Remote actor requires a live,
   synchronous Command Center-to-Remote exchange;
 - claim is the atomic `submitted → working` start of work, not a separate
-  assignment state;
+  reservation state;
 - one compiled `ActorSeatId` owns at most one pending claim attempt or active
   task across every canvas reference to that executable seat;
 - after claim, the task remains homed to that Remote and progresses there
@@ -592,7 +592,7 @@ artifacts, receipts, or completed history.
 
 An active task claimed by a retired seat remains claimed and single-home. It
 becomes a visible stalled/orphaned lifecycle condition; it is never silently
-unclaimed, requeued, stolen, or assigned to a replacement actor. Any future
+unclaimed, requeued, stolen, or claimed by a replacement actor. Any future
 operator recovery action must name an explicit disposition and perform one
 atomic authority transition. Until that contract exists, preservation and
 honest stoppage are safer than invented progress.
@@ -733,7 +733,7 @@ If no compatible Station protocol exists:
 
 No-common is a coordination lockdown, not a host-process kill. The Remote
 continues already-homed work under its last complete projection, but accepts
-no new projection, task claim, proposal approval, command, or acknowledgement
+no new projection, task claim, task approval, command, or acknowledgement
 until it updates. The signed candidate preflight must verify the retained
 backup and disposable-clone migration before the incumbent is replaced; a
 failed preflight leaves the incumbent and its 24/7 local work intact.
@@ -1062,7 +1062,7 @@ A release is blocked while any product path preserves:
   any of them;
 - Remote-opened or reverse fleet connections to Command Center,
   Remote-to-Remote routes, or credentials that create lateral fleet reach;
-- shared offline task claiming, actor backlogs, assignment distinct from task
+- shared offline task claiming, actor backlogs, reservation distinct from task
   start, unclaim, steal, or implicit work re-home;
 - wall-clock ordering or a cursor that drops part of
   `(event_home, entity_home)`;

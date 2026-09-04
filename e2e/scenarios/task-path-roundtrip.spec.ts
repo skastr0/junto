@@ -1,13 +1,13 @@
 /**
- * THE critical Tasks e2e — full pipeline data fidelity in the real app.
+ * THE critical Tasks e2e — full task path data fidelity in the real app.
  *
  * Topology: intake forks to build and review; both converge on ship.
- * One agent seat holds `contributes` on every station. Every hop is driven
+ * One agent seat holds `contributes` on every board. Every hop is driven
  * through the product IPC (operator gestures — no live agent process), and
  * after EVERY transition the canvas is re-read and the full task field set
- * is asserted: state, claimedBy, journey passages (entry/exit/epoch/notes),
- * defects, epoch, claims carried, promotion gate, dropped re-home fields,
- * completion evidence — then the rendered journey onion in the task detail.
+ * is asserted: state, claimedBy, visits (entry/exit/epoch/notes), defects,
+ * epoch, rules carried, approval gate, dropped re-home fields, completion
+ * evidence — then the rendered visits list in the task detail.
  *
  * Verb law: every edge here authors its verb explicitly. Nothing in this
  * fixture relies on decode-time inference.
@@ -16,12 +16,12 @@ import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import { agentTextNode, canvasDoc, tasksNode } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
-const station = (
+const board = (
   id: string,
   label: string,
   x: number,
   y: number,
-  admission?: "operator-gated",
+  admission?: "approval",
 ): TextNode => {
   const node = tasksNode({ id, x, y, items: [] });
   return {
@@ -32,8 +32,9 @@ const station = (
       entity: { kind: "task", name: label },
       tasks: {
         items: [],
+        name: label,
         ...(admission
-          ? { contract: { inbound: { admission } } }
+          ? { contract: { incoming: { admission } } }
           : {}),
       },
     },
@@ -43,10 +44,10 @@ const station = (
 const fixture = (): CanvasDoc =>
   canvasDoc(
     [
-      station("intake", "Intake", 80, 220),
-      station("build", "Build", 420, 80),
-      station("review", "Review", 420, 360, "operator-gated"),
-      station("ship", "Ship", 760, 220),
+      board("intake", "Intake", 80, 220),
+      board("build", "Build", 420, 80),
+      board("review", "Review", 420, 360, "approval"),
+      board("ship", "Ship", 760, 220),
       agentTextNode({
         id: "worker",
         key: "local:worker",
@@ -74,30 +75,30 @@ type AnyTask = {
   readonly history: ReadonlyArray<{
     readonly parts: ReadonlyArray<{ readonly kind: string; readonly text?: string }>;
   }>;
-  readonly claims?: ReadonlyArray<{ readonly id: string; readonly station: string }>;
+  readonly rules?: ReadonlyArray<{ readonly id: string; readonly board: string }>;
   readonly reason?: string;
   readonly raisedBy?: unknown;
   readonly epoch?: number;
-  readonly journey?: ReadonlyArray<{
-    readonly nodeId: string;
+  readonly visits?: ReadonlyArray<{
+    readonly board: string;
     readonly enteredAt: string;
     readonly epoch: number;
     readonly claimedBy?: string;
     readonly exitedAt?: string;
     readonly exit?: string;
     readonly next?: string;
-    readonly emissionNote?: string;
+    readonly handoffNote?: string;
   }>;
   readonly defects?: ReadonlyArray<{ readonly epoch: number; readonly target: string; readonly at: string }>;
-  readonly holdUntil?: string;
-  readonly boarding?: ReadonlyArray<unknown>;
+  readonly waitUntil?: string;
+  readonly checkResults?: ReadonlyArray<unknown>;
   readonly dependsOn?: ReadonlyArray<string>;
   readonly admission?: string;
   readonly completionEvidence?: unknown;
   readonly metadata?: Readonly<Record<string, unknown>>;
 };
 
-test("task pipeline carries exact data through fork, defect, gate, converge, and close", async () => {
+test("task path carries exact data through fork, defect, gate, converge, and close", async () => {
   test.setTimeout(180_000);
   const vellumCommand = await launchVellum({
     seedCanvases: { factory: fixture() },
@@ -125,12 +126,12 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
         "factory",
         "intake",
         "Cut the release",
-        { details: "Prove the pipeline carries exact data." },
+        { details: "Prove the task path carries exact data." },
         "release readiness",
         undefined,
         undefined,
         undefined,
-        [{ id: "c-ship", text: "cite the build receipt", severity: "hard", station: "ship" }],
+        [{ id: "c-ship", text: "cite the build receipt", board: "ship" }],
       );
     });
     expect(created).toMatchObject({ ok: true });
@@ -140,10 +141,10 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     expect(birth).toMatchObject({
       state: "submitted",
       reason: "release readiness",
-      claims: [{ id: "c-ship", station: "ship" }],
+      rules: [{ id: "c-ship", board: "ship" }],
     });
     expect(birth?.claimedBy).toBeUndefined();
-    expect(birth?.journey ?? []).toHaveLength(0);
+    expect(birth?.visits ?? []).toHaveLength(0);
     expect(birth?.epoch ?? 0).toBe(0);
     expect(birth?.history[0]?.parts.some((part) => part.text?.includes("Cut the release"))).toBe(true);
 
@@ -159,7 +160,7 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     expect(typeof seatId).toBe("string");
     expect(seatId).toMatch(/^seat_/);
 
-    // ---- forward: fork demands an explicit next ---------------------------
+    // ---- send on: fork demands an explicit next ---------------------------
     const forkless = await page.evaluate(
       ([id]) =>
         window.vellumCommand!.workTaskTransition(
@@ -172,48 +173,49 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     const toBuild = await page.evaluate(
       ([id]) =>
         window.vellumCommand!.workTaskTransition(
-          "factory", "intake", id, "completed", "intake accepted", { artifacts: [] }, { next: "build" },
+          "factory", "intake", id, "completed", "intake accepted", { artifacts: [] },
+          { next: "build", handoffNote: "intake accepted" },
         ),
       [taskId] as const,
     );
     expect(toBuild).toMatchObject({ ok: true });
 
-    const sourceAfterForward = await readTask("intake", taskId);
-    expect(sourceAfterForward).toMatchObject({ state: "completed" });
-    expect(sourceAfterForward?.completionEvidence).toBeDefined();
-    expect(sourceAfterForward?.journey?.at(-1)).toMatchObject({
-      nodeId: "intake",
+    const intakeAfterSendOn = await readTask("intake", taskId);
+    expect(intakeAfterSendOn).toMatchObject({ state: "completed" });
+    expect(intakeAfterSendOn?.completionEvidence).toBeDefined();
+    expect(intakeAfterSendOn?.visits?.at(-1)).toMatchObject({
+      board: "intake",
       epoch: 0,
-      exit: "forwarded",
+      exit: "sent-on",
       next: "build",
-      emissionNote: "intake accepted",
+      handoffNote: "intake accepted",
       claimedBy: seatId,
     });
-    expect(sourceAfterForward?.journey?.at(-1)?.exitedAt).toBeDefined();
+    expect(intakeAfterSendOn?.visits?.at(-1)?.exitedAt).toBeDefined();
 
-    const arrivalAtBuild = await readTask("build", taskId);
-    expect(arrivalAtBuild).toMatchObject({
+    const atBuild = await readTask("build", taskId);
+    expect(atBuild).toMatchObject({
       id: taskId,
       state: "submitted",
       epoch: 0,
-      claims: [{ id: "c-ship", station: "ship" }],
+      rules: [{ id: "c-ship", board: "ship" }],
     });
-    expect(arrivalAtBuild?.claimedBy).toBeUndefined();
-    expect(arrivalAtBuild?.completionEvidence).toBeUndefined();
-    expect(arrivalAtBuild?.dependsOn).toBeUndefined();
-    expect(arrivalAtBuild?.boarding).toBeUndefined();
-    expect(arrivalAtBuild?.admission).toBeUndefined();
-    expect(arrivalAtBuild?.journey?.map((p) => [p.nodeId, p.exit ?? "open"])).toEqual([
-      ["intake", "forwarded"],
+    expect(atBuild?.claimedBy).toBeUndefined();
+    expect(atBuild?.completionEvidence).toBeUndefined();
+    expect(atBuild?.dependsOn).toBeUndefined();
+    expect(atBuild?.checkResults).toBeUndefined();
+    expect(atBuild?.admission).toBeUndefined();
+    expect(atBuild?.visits?.map((p) => [p.board, p.exit ?? "open"])).toEqual([
+      ["intake", "sent-on"],
       ["build", "open"],
     ]);
-    // Arrival thread: authored brief plus the re-home marker, nothing else.
-    expect(arrivalAtBuild?.history).toHaveLength(2);
+    // Entry thread: authored brief plus the re-home marker, nothing else.
+    expect(atBuild?.history).toHaveLength(2);
     expect(
-      arrivalAtBuild?.history[1]?.parts.some((part) => part.text?.includes('forwarded from "intake"')),
+      atBuild?.history[1]?.parts.some((part) => part.text?.includes('sent on from "intake"')),
     ).toBe(true);
 
-    // ---- defect back to intake --------------------------------------------
+    // ---- send back to intake ----------------------------------------------
     const claimBuild = await page.evaluate(
       ([id]) => window.vellumCommand!.workTaskClaim("factory", "build", id, "worker"),
       [taskId] as const,
@@ -233,9 +235,9 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     const rejectedAtBuild = await readTask("build", taskId);
     expect(rejectedAtBuild?.state).toBe("rejected");
     expect(rejectedAtBuild?.completionEvidence).toBeUndefined();
-    expect(rejectedAtBuild?.journey?.at(-1)).toMatchObject({
-      nodeId: "build",
-      exit: "rejected-back",
+    expect(rejectedAtBuild?.visits?.at(-1)).toMatchObject({
+      board: "build",
+      exit: "sent-back",
       next: "intake",
     });
 
@@ -251,7 +253,7 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
       ),
     ).toBe(true);
 
-    // ---- re-claim, re-forward down the other fork arm ---------------------
+    // ---- re-claim, send on down the other fork arm ------------------------
     const reclaim = await page.evaluate(
       ([id]) => window.vellumCommand!.workTaskClaim("factory", "intake", id, "worker"),
       [taskId] as const,
@@ -260,19 +262,20 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     const toReview = await page.evaluate(
       ([id]) =>
         window.vellumCommand!.workTaskTransition(
-          "factory", "intake", id, "completed", "redone for review", { artifacts: [] }, { next: "review" },
+          "factory", "intake", id, "completed", "redone for review", { artifacts: [] },
+          { next: "review", handoffNote: "redone for review" },
         ),
       [taskId] as const,
     );
     expect(toReview).toMatchObject({ ok: true });
 
-    // ---- operator gate at review ------------------------------------------
+    // ---- approval gate at review ------------------------------------------
     const gatedClaim = await page.evaluate(
       ([id]) => window.vellumCommand!.workTaskClaim("factory", "review", id, "worker"),
       [taskId] as const,
     );
     expect(gatedClaim).toMatchObject({ ok: false });
-    expect(JSON.stringify(gatedClaim)).toContain("operator approval");
+    expect(JSON.stringify(gatedClaim)).toContain("approval");
 
     const promote = await page.evaluate(
       ([id]) => window.vellumCommand!.workTaskPromote("factory", "review", id, "reviewed the redo"),
@@ -286,23 +289,24 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     );
     expect(promotedClaim).toMatchObject({ ok: true });
 
-    // ---- converge onto ship; the promotion marker must NOT travel ---------
+    // ---- converge onto ship; the approval marker must NOT travel ----------
     const toShip = await page.evaluate(
       ([id]) =>
         window.vellumCommand!.workTaskTransition(
-          "factory", "review", id, "completed", "review accepted", { artifacts: [] }, { next: "ship" },
+          "factory", "review", id, "completed", "review accepted", { artifacts: [] },
+          { next: "ship", handoffNote: "review accepted" },
         ),
       [taskId] as const,
     );
     expect(toShip).toMatchObject({ ok: true });
 
-    const arrivalAtShip = await readTask("ship", taskId);
-    expect(arrivalAtShip).toMatchObject({ state: "submitted", epoch: 1 });
-    expect(arrivalAtShip?.claimedBy).toBeUndefined();
-    // Promotion is per-station: the review admission marker may not re-home.
+    const atShip = await readTask("ship", taskId);
+    expect(atShip).toMatchObject({ state: "submitted", epoch: 1 });
+    expect(atShip?.claimedBy).toBeUndefined();
+    // Approval is per-board: the review approval marker may not re-home.
     expect(
-      JSON.stringify(arrivalAtShip?.metadata ?? {}),
-    ).not.toContain("admittedEpoch");
+      JSON.stringify(atShip?.metadata ?? {}),
+    ).not.toContain("approvedEpoch");
 
     // ---- terminal close at ship -------------------------------------------
     const claimShip = await page.evaluate(
@@ -310,8 +314,8 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
       [taskId] as const,
     );
     expect(claimShip).toMatchObject({ ok: true });
-    // The station-addressed claim gates the close: refusing an unanswered
-    // claim IS the product law this spec exists to prove.
+    // The board-addressed rule gates the close: refusing an unanswered
+    // rule is the product requirement this spec exists to prove.
     const unanswered = await page.evaluate(
       ([id]) =>
         window.vellumCommand!.workTaskTransition(
@@ -328,10 +332,10 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
           "factory", "ship", id, "completed", "shipped",
           {
             artifacts: [],
-            responses: [
+            claims: [
               {
-                claimId: "c-ship",
-                response: "build receipt cited",
+                ruleId: "c-ship",
+                text: "build receipt cited",
                 refs: ["receipt://build/1"],
               },
             ],
@@ -344,35 +348,35 @@ test("task pipeline carries exact data through fork, defect, gate, converge, and
     const closed = await readTask("ship", taskId);
     expect(closed?.state).toBe("completed");
     expect(closed?.completionEvidence).toBeDefined();
-    // The whole onion, in order, with per-passage exits and epochs.
+    // The whole visit list, in order, with per-visit exits and epochs.
     expect(
-      closed?.journey?.map((p) => [p.nodeId, p.exit ?? "open", p.epoch]),
+      closed?.visits?.map((p) => [p.board, p.exit ?? "open", p.epoch]),
     ).toEqual([
-      ["intake", "forwarded", 0],
-      ["build", "rejected-back", 0],
-      ["intake", "forwarded", 1],
-      ["review", "forwarded", 1],
-      ["ship", "closed", 1],
+      ["intake", "sent-on", 0],
+      ["build", "sent-back", 0],
+      ["intake", "sent-on", 1],
+      ["review", "sent-on", 1],
+      ["ship", "completed", 1],
     ]);
-    expect(closed?.journey?.at(-1)).toMatchObject({ claimedBy: seatId });
-    expect(closed?.journey?.every((p) => p.enteredAt !== undefined)).toBe(true);
-    expect(closed?.journey?.every((p) => p.exitedAt !== undefined)).toBe(true);
+    expect(closed?.visits?.at(-1)).toMatchObject({ claimedBy: seatId });
+    expect(closed?.visits?.every((p) => p.enteredAt !== undefined)).toBe(true);
+    expect(closed?.visits?.every((p) => p.exitedAt !== undefined)).toBe(true);
 
-    // ---- the rendered onion ------------------------------------------------
+    // ---- the rendered visits ----------------------------------------------
     const shipNode = page.locator('.react-flow__node[data-id="ship"]');
     await expect(shipNode).toBeVisible({ timeout: 30_000 });
     await shipNode.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const board = page.getByRole("dialog", { name: "Task flow" });
+    const board = page.getByRole("dialog", { name: "Task board" });
     await expect(board).toBeVisible();
     await board.getByLabel("Open details for Cut the release").click();
     const details = board.getByRole("complementary", {
       name: "Details for Cut the release",
     });
-    await expect(details.locator('[data-testid^="task-journey-layer-"]')).toHaveCount(5);
-    // Layer ordinals are 1-based, in passage order.
-    await expect(details.locator('[data-testid="task-journey-layer-1"]')).toContainText("Intake");
-    await expect(details.locator('[data-testid="task-journey-layer-2"]')).toContainText("Build");
-    await expect(details.locator('[data-testid="task-journey-layer-5"]')).toContainText("Ship");
+    await expect(details.locator('[data-testid^="task-visits-layer-"]')).toHaveCount(5);
+    // Layer ordinals are 1-based, in visit order.
+    await expect(details.locator('[data-testid="task-visits-layer-1"]')).toContainText("Intake");
+    await expect(details.locator('[data-testid="task-visits-layer-2"]')).toContainText("Build");
+    await expect(details.locator('[data-testid="task-visits-layer-5"]')).toContainText("Ship");
   } finally {
     await vellumCommand.close();
   }

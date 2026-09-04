@@ -293,7 +293,7 @@ surface.
 
 A submitted task claim is the one explicit work-home cutover. Claim is the
 atomic start of work (`submitted → working` plus one claimant), never an
-assignment backlog. A Command Center-home queue may fan out to a Remote actor
+actor backlog. A Command Center-home queue may fan out to a Remote actor
 only through a live synchronous Command Center-to-Remote exchange. While that
 session is live, Command Center transactionally reserves one exact task and
 actor and persists the claim command; that commit is the attempt boundary. If

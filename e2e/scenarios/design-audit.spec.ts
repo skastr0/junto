@@ -466,35 +466,35 @@ test("capture every surface for design review", async () => {
     await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
     await tasksNodeCard.screenshot({ path: join(SHOTS, "06-node-tasks.png") });
 
-    // Task flow: attention + terminal variants. Double-click is the work-surface
+    // Task board: attention + terminal variants. Double-click is the work-surface
     // affordance on canvas nodes.
     await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const taskFlow = page.getByRole("dialog", { name: "Task flow" });
-    await expect(taskFlow).toBeVisible({ timeout: 10_000 });
-    await expect(taskFlow.getByTestId("task-board")).toBeVisible();
+    const taskBoard = page.getByRole("dialog", { name: "Task board" });
+    await expect(taskBoard).toBeVisible({ timeout: 10_000 });
+    await expect(taskBoard.getByTestId("task-board")).toBeVisible();
     await expect(
-      taskFlow.getByText("Needs input", { exact: true }),
+      taskBoard.getByText("Needs input", { exact: true }),
     ).toBeVisible();
-    await shot(page, "06b-task-flow-kanban");
-    await taskFlow
+    await shot(page, "06b-task-board-kanban");
+    await taskBoard
       .getByLabel("Open details for Clarify claim tick rules")
       .click();
     await expect(
-      taskFlow.getByRole("complementary", {
+      taskBoard.getByRole("complementary", {
         name: "Details for Clarify claim tick rules",
       }),
     ).toBeVisible();
-    await shot(page, "06c-task-flow-details");
-    await taskFlow.getByTestId("task-board-enqueue").click();
+    await shot(page, "06c-task-board-details");
+    await taskBoard.getByTestId("task-board-enqueue").click();
     const taskCreator = page.getByRole("dialog", { name: "Create task" });
     await expect(taskCreator).toBeVisible();
-    await shot(page, "06d-task-flow-create");
+    await shot(page, "06d-task-board-create");
     await taskCreator
       .getByRole("button", { name: "Close task creator" })
       .click();
     await expect(taskCreator).toBeHidden();
-    await taskFlow.locator('button[title="Close"]').click();
-    await expect(taskFlow).toBeHidden();
+    await taskBoard.locator('button[title="Close"]').click();
+    await expect(taskBoard).toBeHidden();
 
     // Requests and artifacts reuse the same master-detail grammar.
     const requestsNodeCard = page.locator('.react-flow__node[data-id="req1"]');

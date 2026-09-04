@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Seed review tasks with hard dependsOn after implement packs are *tasks*
-# (approved proposals), not merely pending proposals.
+# Seed review tasks with hard dependsOn after implementation tasks exist.
 #
 # Usage:
 #   export PATH="/Applications/Vellum Command.app/Contents/Resources/bin:$PATH"
@@ -39,11 +38,6 @@ def list_tasks(target: str) -> dict[str, dict]:
         tid = t.get("id") or t.get("taskId") or t.get("itemId")
         if tid:
             out[str(tid)] = t
-    # Also index proposals by id for diagnostics
-    for p in data.get("proposals") or []:
-        pid = p.get("id")
-        if pid and pid not in out:
-            out[f"proposal:{pid}"] = p
     return out
 
 def create(target: str, payload: dict) -> None:
@@ -72,7 +66,7 @@ Completion: git commits only. NO artifacts.
 parallel = list_tasks(parallel_sink)
 deep = list_tasks(deep_sink)
 
-# Known implement proposal/task ids from campaign seed (same id survives approve)
+# Known implementation task ids from the campaign seed.
 PACKS = [
     ("S4-work", "01KZ21BZCBV8V173EHBP556ZRB", "src/main/vellum/work/**", "R4-work"),
     ("S4-station", "01KZ21BZKTNGKDHFN58HW4PWZH", "src/main/vellum/station/**", "R4-station"),
@@ -103,7 +97,7 @@ for slice_id, tid, rid in DEEP_SLICES:
         missing.append(f"deep {slice_id}={tid}")
 
 if missing:
-    print("Implement packs not yet tasks (approve proposals first):", file=sys.stderr)
+    print("Implementation tasks not found:", file=sys.stderr)
     for m in missing:
         print(f"  - {m}", file=sys.stderr)
     print("Still seeding reviews only for packs that exist as tasks…", file=sys.stderr)

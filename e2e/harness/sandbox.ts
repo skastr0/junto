@@ -781,7 +781,7 @@ export const verbEdge = (
 };
 
 /**
- * A task sink and the seat it works through: the assignable relationship.
+ * A Tasks node and the seat it works through: the claimable relationship.
  * Unchecked — prefer `verbEdge`, which refuses a pair the grammar does not
  * admit instead of stamping a verb that decode will drop.
  */

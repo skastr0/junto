@@ -164,9 +164,9 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(kindStrip.getByRole("button", { name: "Sink contract" })).toHaveCount(0);
 
   const admissionKey = kindStrip.getByRole("button", { name: "Who starts tasks" });
-  const bakeKey = kindStrip.getByRole("button", { name: "Wait before starting" });
+  const waitKey = kindStrip.getByRole("button", { name: "Wait before starting" });
   await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Starts: Immediate");
-  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Wait: none");
+  await expect(waitKey).toHaveAttribute("data-vellum-tooltip", "Wait: none");
 
   await admissionKey.click();
   const admissionQuickSelect = page.getByLabel("Admission quick select");
@@ -177,12 +177,12 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
     "Starts: Approval",
   );
 
-  await bakeKey.click();
-  const bakeQuickSet = page.getByLabel("Bake quick set");
-  await expect(bakeQuickSet).toBeVisible();
-  await page.screenshot({ path: join(SHOTS, "03-task-sink-bake-key.png"), fullPage: false });
-  await bakeQuickSet.getByRole("button", { name: "1h" }).click();
-  await expect(bakeKey).toHaveAttribute("data-vellum-tooltip", "Wait: 1h");
+  await waitKey.click();
+  const waitQuickSet = page.getByLabel("Wait quick set");
+  await expect(waitQuickSet).toBeVisible();
+  await page.screenshot({ path: join(SHOTS, "03-task-board-wait.png"), fullPage: false });
+  await waitQuickSet.getByRole("button", { name: "1h" }).click();
+  await expect(waitKey).toHaveAttribute("data-vellum-tooltip", "Wait: 1h");
   // The install-time fit centers the region, so the tasks sink sits outside
   // the viewport and its floating toolbar (fixed-position) cannot be clicked.
   // Frame the selected node through the command card first.

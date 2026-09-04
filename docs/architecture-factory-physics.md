@@ -59,7 +59,7 @@ No “same region ⇒ power.”
 | Action | Effect |
 |--------|--------|
 | Human **draws** edge, picks a **verb** | Mint ocap; verb selects the relationship (`src/shared/physics/verbs.ts`) |
-| Compiled **ports** | Ports, `assignable`, `wake`, and scheduler facets are all derived from the verb (access filter) — never authored separately |
+| Compiled **ports** | Ports, `claimable`, `wake`, and scheduler facets are all derived from the verb (access filter) — never authored separately |
 | Human **deletes** edge | Revoke ocap immediately |
 | Edge reaching a sink with no claimed blocking item | Capability to *relate*; never invents stoppage |
 
@@ -134,7 +134,7 @@ single `verb`, and every one of those is compiled from it (`src/shared/physics/v
 ### 3. Ports vs derived stoppage
 
 Two planes on the same edge geometry; different jobs. An edge authors exactly
-one fact, its **verb**; ports, `assignable`, `wake` (board megaphone), and the
+one fact, its **verb**; ports, `claimable`, `wake` (board megaphone), and the
 scheduler facets (`when` / `does` / `flow` / `chain`) are all **compiled**
 from the verb plus the two endpoint kinds (`compileVerb`,
 `src/shared/physics/verbs.ts`). There is **no authorable Hold / stops field**
@@ -185,8 +185,7 @@ them across installation placement. Mutable rows do not become shared:
 - each work entity and event has one authoritative installation home;
 - a Command Center-home task may be claimed by a Remote actor only through a
   live synchronous Command Center-opened claim exchange;
-- claim is task start (`submitted → working`), never a separate assignment,
-  reservation backlog, or future work delegation;
+- claim is task start (`submitted → working`);
 - one actor has at most one pending claim attempt or active task;
 - after the accepted claim, that exact task is Remote-homed and may advance
   there while Command Center is closed;
@@ -197,6 +196,29 @@ them across installation placement. Mutable rows do not become shared:
 
 Edges and ports authorize each operation. Projection visibility, matching
 placement, or network reach alone authorizes nothing.
+
+### 4b. Tasks rules, claims, checks, and visits
+
+A Tasks node opens as a board. Its contract has **Incoming** and **Outgoing**
+settings plus instructions and rules. Enclosing region rules stack from outer
+to inner; board rules follow; task rules are addressed to one board on the
+task's path. The stack is concatenated without override or deduplication.
+
+- Claiming a task is still the atomic `submitted → working` start above.
+- A completion claim answers one rule. The service validates presence and
+  references, not truth.
+- A waiver exists only when a selected fork makes a task rule's board
+  unreachable. Any defect cancels all waivers.
+- Checks run in the claiming seat's environment. Outgoing checks for the
+  current board and incoming checks for the selected next board must pass for
+  the exact command and epoch before the task can be sent on.
+- Visits are the append-only path record. A visit exits `sent-on`, `completed`,
+  or `sent-back`, with its next board and handoff note where applicable.
+- Sending back records a defect and increments the epoch. Claims at or after
+  the target board stop counting; claims before it remain valid.
+
+The complete vocabulary and validation boundary live in
+[`tasks-domain.md`](tasks-domain.md).
 
 ### 5. Trust (org) vs attention (operator)
 
@@ -274,7 +296,7 @@ the act can touch the OS.
 | Human draws edge, picks verb, in Command Center | Mint ocap |
 | `ether.verb` on edge | Sole authored fact; compiles ports, stoppage-eligibility, wake, and every scheduler facet |
 | Compiled `wake` (board verbs) | Operator megaphone eligibility (`participates` on, `messages` off) |
-| Compiled `when` / `does` / `flow` / `chain` | Scheduler watch predicate / fire action / pipeline hop / chain — all from the verb |
+| Compiled `when` / `does` / `flow` / `chain` | Scheduler watch predicate / fire action / task-path hop / chain — all from the verb |
 | Work control socket + token | Transport; not identity |
 | Process-bind (peer PID) | Occupant admission to seat |
 | `authz` / `ScopeError` | Capability plane enforcement |

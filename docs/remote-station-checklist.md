@@ -112,7 +112,7 @@ The Remote must never merge or author the projection.
 2. Keep the Remote app and service running.
 3. While Command Center is still reachable, let one idle Remote actor claim
    exactly one submitted Command Center-home task. Confirm the accepted claim
-   is already `working`; there is no assignment or queued actor backlog.
+   is already `working`; there is no separate reservation or actor backlog.
 4. Stop Command Center. Advance that exact claimed task through several
    transitions on the Remote. Confirm those rows and events remain durable
    across a Remote restart.

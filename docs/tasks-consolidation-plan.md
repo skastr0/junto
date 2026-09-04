@@ -4,6 +4,9 @@ Companion to [`tasks-domain.md`](tasks-domain.md), which is the vocabulary.
 This file is the execution plan that moves code, wire, storage, copy, and
 docs to that vocabulary in one direction with no compatibility layers.
 
+Status: completed in place on 2026-09-04. The batches below remain as the
+execution record and acceptance boundary for the corrective cutover.
+
 Doctrine applied: consolidation first. This is corrective removal of broken,
 unshippable code, not migration support for respected legacy behavior. The old
 paths and vocabulary are invalid and must disappear completely. Remote is
@@ -45,8 +48,8 @@ repair does not consume a schema version: fresh upgrades construct the fixed
 version 21, while an existing invalid version-21 database is rewritten before
 normal decode. The next unrelated schema migration remains `21 -> 22`.
 
-None of the affected fields are SQL columns. They are keys inside JSON
-columns:
+None of the affected fields are SQL columns. In the invalid schema they are
+keys inside JSON columns:
 
 1. `work_tasks.metadata_json["vellum.pipeline"]` holds `claims`, `epoch`,
    `journey`, `defects`, `holdUntil`, `boarding`, `admission`, `raisedBy`.
@@ -61,6 +64,11 @@ columns:
    `operator-gated` and `operator-owned`.
 4. `work_task_proposals`, `work_proposal_events`,
    `work_pending_proposal_commands`, `work_proposal_planning` hold proposals.
+
+Corrected schema 21 stores the first-class task fields in the reserved
+`work_tasks.metadata_json["vellum.tasks"]` bag. The invalid
+`"vellum.pipeline"` key is consumed only by the corrective converter and does
+not survive startup.
 
 ### Migration shape, ruled
 
@@ -115,7 +123,7 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
 - `factory-tick.ts`: `continue` instead of `break` when a task is not
   claimable and free actors remain; claim key joined with a separator; wake
   filter applies admission.
-- Ownership: complete and forward require `claimedBy === caller`; fail,
+- Ownership: complete and send on require `claimedBy === caller`; fail,
   cancel, and input requests allowed for any connected seat; `archived` and
   `submitted` are operator only on the seat wire.
 - Validate task rules at create: board exists, is a Tasks node, is on the
@@ -131,7 +139,7 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
   `wrong_home`, `operator_owned` map to typed errors with `next_step`.
 - `tasks check` prints one JSON envelope to stdout, no table on stderr.
 - `vellum-docs.ts` port descriptions generated from `TaskState` and the update
-  args. Injection copy, few-shots, and the claim prompt (renamed rules packet)
+  args. Injection copy, few-shots, and the task briefing
   rewritten in the domain words with a paste-able completion example that
   includes `claims`.
 - `docs/managed-terminal-plan.md` op table regenerated.
@@ -144,7 +152,8 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
   for admission `approval` and is labeled Approve.
 - Awaiting approval lane removed. Tasks with admission `approval` show inside
   Queue with an Approve control. Structural, minimal.
-- Proposal tables stop being written and read. Rows retained.
+- Proposal data is consolidated into Tasks, then the proposal tables are
+  dropped. No retired row or table remains after correction.
 
 ### B5. Renderer identifiers, files, copy
 
@@ -171,7 +180,7 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
 - AGENTS.md: schema head corrected, lexicon pointer to `tasks-domain.md`.
 - Tests added: factory-tick starvation and key collision, wake with
   non-claimable tasks, per-task admission overlay, readiness and gate parity,
-  region stack tie order by code point, `tasks list` and rules packet parity,
+  region stack tie order by code point, `tasks list` and rules output parity,
   migration fixture.
 
 Order: B1, B2, B3, B5, B4, B6. B4 is separable.
@@ -183,7 +192,7 @@ Order: B1, B2, B3, B5, B4, B6. B4 is separable.
 | Severity and soft waivers | Rules were first imagined as gradeable |
 | Proposals as code | The merge moved data, not code |
 | Regex over error text | Shortcut at the CLI boundary |
-| Four projections of law | Accretion, one per caller |
+| Four projections of rules | Accretion, one per caller |
 | Railway identifiers | Copy and code were renamed together the first time |
 | Awaiting approval lane | Held both leftover proposals and approval tasks |
 
@@ -192,5 +201,5 @@ Order: B1, B2, B3, B5, B4, B6. B4 is separable.
 Creation dialog redesign, single settings panel with two sections, TaskBoard
 split into card, dialog, detail, and ops hook, thread and defect facts stamped
 as message metadata, CLI filters and idempotency keys, region nesting bugs
-(inner editor shows no outer rules, locale tie-break), law snapshot at claim
+(inner editor shows no outer rules, locale tie-break), rule snapshot at claim
 time.

@@ -56,11 +56,11 @@ This is why the plan is short. Most of the factory is built.
 | PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/vellum/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
 | Remote terminals over SSH | **built** | `term/remote/`, and `hermes --profile X -m Y` over `ssh -t` verified working (R1–R3) |
 | Renderer terminal surface (xterm) | **built** | `src/renderer/components/terminal/{TerminalSurface,TerminalCard,TerminalWizard,TerminalInventory}.tsx` |
-| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops: `ping doctor capabilities onboard tasks.list tasks.claim tasks.update msg.list msg.send request.escalate artifact.publish` |
+| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops include `ping doctor capabilities onboard tasks.create tasks.list tasks.show tasks.rules tasks.check tasks.claim tasks.update msg.list msg.send request.escalate artifact.publish` |
 | **Station CLI, agent-native** | **built** | `src/cli/` — `vellum-command onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| escalate \| artifact publish \| browser \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum-command` via `bun run cli:build`; browser commands retain their host-local control socket behind the one agent-facing command |
 | **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
 | Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
-| Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim law | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
+| Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim contract | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
 | Attention/alert surfaces | **partially built** | `alert-attention.ts`, `alert-queue.ts` exist |
 | vellum prism plugin (7 tools + session-start hook + global rule + skill) | **built, to be pruned** | `packages/vellum-plugin/` |
 
@@ -150,7 +150,7 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
   1. Worker doctrine — factory seat, pull queue, claim-is-factory, requests block, artifacts never block, identity is process-bind, reach is edges.
   2. The CLI contract — call **`vellum-command onboard`** at session start and after compaction; the work op table plus `vellum-command browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
-- **Then the task arrives as a typed prompt** carrying the task assignment. `vellum-command onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
+- **Then the task arrives as a typed prompt** carrying the claim. `vellum-command onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
 - **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Vellum Command-spawned template.
 
 **Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.

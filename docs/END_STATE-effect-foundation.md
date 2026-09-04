@@ -129,7 +129,7 @@ Claim-ready only after implement is **completed**. Reviewers are different seats
 5. Confirm finishCriteria of implement pack was commit-based (no artifact theater).
 6. Commit review note or in-path nits; complete with git evidence.
 
-**Hard `dependsOn`:** only works once implement proposals are **approved into tasks**. Soft order in briefs is a fallback until then.
+**Hard `dependsOn`:** review tasks become claimable only after their implementation tasks complete. Soft order in briefs is a fallback until then.
 
 ## Parallelization boundaries (hard)
 
@@ -145,7 +145,7 @@ Claim-ready only after implement is **completed**. Reviewers are different seats
 - Complete with git commits on `main` (or campaign branch if operator says so).
 - Point finish description at slice id + END_STATE path.
 
-## Proposal / task authoring (CLI → UI)
+## Task authoring (CLI → UI)
 
 Task detail UI maps fields as follows (not the free-text `brief` alone):
 
@@ -174,7 +174,7 @@ Task detail UI maps fields as follows (not the free-text `brief` alone):
 }
 ```
 
-Prefer proposals tagged `briefVersion: 3` (full description). Reject/ignore older empty-Description drafts when approving.
+Prefer tasks tagged `briefVersion: 3` (full description). Reject or repair empty-Description tasks before admission.
 
 ## Repo roots
 

@@ -1204,12 +1204,12 @@ test("still 06 — work UI grid", async () => {
       .locator('.react-flow__node[data-id="tasks1"]')
       .getByTestId("tasks-card")
       .dispatchEvent("dblclick");
-    const taskFlow = page.getByRole("dialog", { name: "Task flow" });
-    await expect(taskFlow).toBeVisible({ timeout: 10_000 });
-    await expect(taskFlow.getByTestId("task-board")).toBeVisible();
+    const taskBoard = page.getByRole("dialog", { name: "Task board" });
+    await expect(taskBoard).toBeVisible({ timeout: 10_000 });
+    await expect(taskBoard.getByTestId("task-board")).toBeVisible();
     const kanbanPath = await grab("06a-ui-kanban.png");
-    await taskFlow.locator('button[title="Close"]').click();
-    await expect(taskFlow).toBeHidden();
+    await taskBoard.locator('button[title="Close"]').click();
+    await expect(taskBoard).toBeHidden();
 
     // Requests
     await page

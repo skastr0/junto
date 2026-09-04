@@ -47,7 +47,7 @@ const installBoard = async (
   }, doc);
 };
 
-test("task board supports creation, operator responses, layered status, and body dragging", async () => {
+test("task board supports creation, operator responses, layered status, and handle dragging", async () => {
   // The canvas write path strips ether.tasks (work lives in the repository),
   // so the layered-status fixture is seeded through the sandbox's work-plane
   // seed: claims translate node id -> compiled ActorSeatId (claimByNodeId).
@@ -129,7 +129,7 @@ test("task board supports creation, operator responses, layered status, and body
       .getByTestId("tasks-card")
       .dispatchEvent("dblclick");
 
-    const board = page.getByRole("dialog", { name: "Task flow" });
+    const board = page.getByRole("dialog", { name: "Task board" });
     await expect(board).toBeVisible();
 
     await board.getByTestId("task-board-enqueue").click();
@@ -195,8 +195,11 @@ test("task board supports creation, operator responses, layered status, and body
     await expect(
       board.getByTestId("task-lane-working").getByText("Clarify release scope", { exact: true }),
     ).toBeVisible();
-    await expect(inputDetails.getByText("Operator")).toBeVisible();
-    await expect(inputDetails).toContainText(
+    const operatorResponse = inputDetails.getByRole("article").filter({
+      hasText: "Keep this release scoped to the stable station adapters.",
+    });
+    await expect(operatorResponse.getByText("Operator", { exact: true })).toBeVisible();
+    await expect(operatorResponse).toContainText(
       "Keep this release scoped to the stable station adapters.",
     );
 
@@ -235,22 +238,29 @@ test("task board supports creation, operator responses, layered status, and body
     await actionTrigger.click();
     const actionMenu = page.getByRole("menu");
     await expect(actionMenu).toBeVisible();
-    await board.getByText("Ready to be assigned", { exact: true }).click();
+    await board.getByText("Ready to claim", { exact: true }).click();
     await expect(actionMenu).toBeHidden();
 
     const workingCard = board.getByLabel("Open details for Working task");
+    const dragHandle = workingCard.getByLabel("Drag Working task");
     const inputLane = board.getByTestId("task-lane-input");
-    const sourceBox = await workingCard.boundingBox();
+    const sourceBox = await dragHandle.boundingBox();
     const targetBox = await inputLane.boundingBox();
     expect(sourceBox).not.toBeNull();
     expect(targetBox).not.toBeNull();
     if (!sourceBox || !targetBox) return;
 
     await page.mouse.move(
-      sourceBox.x + sourceBox.width * 0.72,
-      sourceBox.y + sourceBox.height * 0.72,
+      sourceBox.x + sourceBox.width * 0.5,
+      sourceBox.y + sourceBox.height * 0.5,
     );
     await page.mouse.down();
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width * 0.5 + 12,
+      sourceBox.y + sourceBox.height * 0.5,
+      { steps: 3 },
+    );
+    await expect(workingCard).toHaveClass(/task-board-card--dragging/);
     await page.mouse.move(
       targetBox.x + targetBox.width * 0.5,
       targetBox.y + Math.min(180, targetBox.height * 0.4),
@@ -266,7 +276,7 @@ test("task board supports creation, operator responses, layered status, and body
   }
 });
 
-test("Kanban enqueue opens the normal modal above the task flow", async () => {
+test("Kanban enqueue opens the normal modal above the task board", async () => {
   const fixture = canvasDoc([
     tasksNode({
       id: "tasks",
@@ -285,7 +295,7 @@ test("Kanban enqueue opens the normal modal above the task flow", async () => {
     await expect(tasksNodeCard).toBeVisible({ timeout: 30_000 });
     await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
 
-    const board = page.getByRole("dialog", { name: "Task flow" });
+    const board = page.getByRole("dialog", { name: "Task board" });
     await expect(board).toBeVisible();
     await board.getByTestId("task-board-enqueue").click();
 
@@ -354,7 +364,7 @@ test("task detail media uses the full panel width", async () => {
     await expect(tasksNodeCard).toBeVisible({ timeout: 30_000 });
     await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
 
-    const board = page.getByRole("dialog", { name: "Task flow" });
+    const board = page.getByRole("dialog", { name: "Task board" });
     await expect(board).toBeVisible();
     await board.getByLabel("Open details for Task with media").click();
 

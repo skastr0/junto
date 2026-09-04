@@ -68,7 +68,7 @@ Command Center selects an idle Remote actor for a CC-home submitted task
 ```
 
 The pending command above is part of one synchronous claim transaction. It is
-not an assignment state, a queued reservation, or an actor backlog. Claim means
+not a separate queued reservation or an actor backlog. Claim means
 `submitted → working`: one actor starts one task. If the connection becomes
 uncertain, reconnect resolves that same command identity; Command Center does
 not select another task or reserve future work for that actor.
@@ -186,7 +186,7 @@ node runs; it does not grant a capability.
   claim exchange, then continues there with Command Center closed.
 - A Remote cannot queue or perform a new claim against an unreachable
   Command Center-home queue.
-- One actor never receives an assignment, reservation backlog, or more than
+- One actor never accumulates a reservation backlog or more than
   one active task.
 - A Remote-home task may be claimed locally, and permitted request/artifact
   creation remains available while Command Center is closed.

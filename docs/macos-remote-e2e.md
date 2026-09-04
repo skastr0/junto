@@ -93,8 +93,8 @@ browser RPC.
 - [ ] Station status reports database/work/simulation ready
 - [ ] Complete projection generation/hash persists across Remote restart
 - [ ] A CC-home submitted task starts on one Remote actor only through a live
-      synchronous claim exchange; it is immediately `working`, not assigned
-      into a backlog
+      synchronous claim exchange; it is immediately `working`, with no queued
+      backlog
 - [ ] With CC closed, that exact claimed task and Remote-home work continue
       from the Remote SQLite database; no new CC-home task is claimed
 - [ ] Permitted Remote-home request/artifact creation persists offline and

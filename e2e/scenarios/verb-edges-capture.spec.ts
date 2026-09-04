@@ -4,7 +4,7 @@
  * Four canvases, each seeded through the same SQLite path the app boots from,
  * captured out of a real Electron render:
  *   - the task trio: manages, contributes, and works around one tasks node
- *   - a feeds pipeline: three task stations in a row
+ *   - a feeds path: three Tasks boards in a row
  *   - a board read two ways: the quiet verb beside the participating one
  *   - a relay: what announces into it, and what it enqueues out
  *
@@ -12,8 +12,6 @@
  * eyeballed off a PNG: each wire is one solid hairline (no dash array, one
  * stroke width), and within a frame each verb paints its own colour.
  */
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import type { CanvasEdge, CanvasNode } from "../../src/shared/canvas";
 import {
   agentTextNode,
@@ -23,8 +21,6 @@ import {
 } from "../harness/sandbox";
 import type { Task } from "../../src/shared/work-model";
 import { expect, launchVellum, test } from "../harness/launch";
-
-const SHOTS = join(process.cwd(), "_design_screenshots", "verb_edges");
 
 const WIRE_WIDTH = "1.2px";
 
@@ -55,11 +51,11 @@ const readWires = async (page: {
   });
 
 /**
- * A named task station. A sink whose live items overwrite its authored text
- * falls back to "station <id>" without an authored `stationName`, which reads
+ * A named Tasks node. A board whose live items overwrite its authored text
+ * falls back to "Tasks <short id>" without an authored name, which reads
  * as noise in a frame about the wires.
  */
-const station = (input: {
+const tasksBoard = (input: {
   readonly id: string;
   readonly name: string;
   readonly x: number;
@@ -80,7 +76,7 @@ const station = (input: {
     height: input.height ?? 160,
     ether: {
       ...base.ether,
-      tasks: { ...base.ether?.tasks, stationName: input.name },
+      tasks: { ...base.ether?.tasks, name: input.name },
     },
   } as CanvasNode;
 };
@@ -112,9 +108,8 @@ const capture = async (
   nodes: ReadonlyArray<CanvasNode>,
   edges: ReadonlyArray<CanvasEdge>,
   anchorNodeId: string,
-  shot: string,
+  screenshotPath: string,
 ): Promise<WireFacts> => {
-  await mkdir(SHOTS, { recursive: true });
   const vellumCommand = await launchVellum({
     seedCanvases: { [name]: canvasDoc(nodes, edges) },
   });
@@ -131,7 +126,7 @@ const capture = async (
     await page.waitForTimeout(900);
     await expect(page.locator("path.vellum-edge")).toHaveCount(edges.length);
     const facts = await readWires(page);
-    await page.screenshot({ path: join(SHOTS, shot), fullPage: false });
+    await page.screenshot({ path: screenshotPath, fullPage: false });
     return facts;
   } finally {
     await vellumCommand.close();
@@ -144,8 +139,8 @@ const expectSolidHairlines = (facts: WireFacts): void => {
   for (const width of facts.widths) expect(width).toBe(WIRE_WIDTH);
 };
 
-test("task trio — manages, contributes, and works read apart", async () => {
-  const tasks = station({
+test("task trio — manages, contributes, and works read apart", async ({}, testInfo) => {
+  const tasks = tasksBoard({
     id: "tasks",
     name: "Backlog",
     x: 520,
@@ -194,7 +189,7 @@ test("task trio — manages, contributes, and works read apart", async () => {
     nodes,
     edges,
     "tasks",
-    "task_trio.png",
+    testInfo.outputPath("task_trio.png"),
   );
   expectSolidHairlines(facts);
   // Three relationships around one sink, three colours — the trio is legible
@@ -202,9 +197,9 @@ test("task trio — manages, contributes, and works read apart", async () => {
   expect(new Set(facts.strokes).size).toBe(3);
 });
 
-test("feeds pipeline — three stations, one hop word", async () => {
+test("feeds path — three boards, one hop word", async ({}, testInfo) => {
   const hop = (id: string, name: string, brief: string, x: number): CanvasNode =>
-    station({ id, name, x, items: [taskItem(`${id}-1`, brief, "submitted")] });
+    tasksBoard({ id, name, x, items: [taskItem(`${id}-1`, brief, "submitted")] });
   const nodes: CanvasNode[] = [
     hop("intake", "Intake", "Draft the release notes", 60),
     hop("review", "Review", "Review the release notes", 460),
@@ -234,14 +229,14 @@ test("feeds pipeline — three stations, one hop word", async () => {
     nodes,
     edges,
     "intake",
-    "feeds_pipeline.png",
+    testInfo.outputPath("feeds_path.png"),
   );
   expectSolidHairlines(facts);
-  // One verb along the whole pipeline: the hops must not drift in colour.
+  // One verb along the whole path: the hops must not drift in colour.
   expect(new Set(facts.strokes).size).toBe(1);
 });
 
-test("board — the quiet verb beside the participating one", async () => {
+test("board — the quiet verb beside the participating one", async ({}, testInfo) => {
   const nodes: CanvasNode[] = [
     board("board", 520, 240),
     agentTextNode({ id: "reader", key: "local:reader", label: "Reader", x: 60, y: 120 }),
@@ -271,21 +266,21 @@ test("board — the quiet verb beside the participating one", async () => {
     nodes,
     edges,
     "board",
-    "board_messages_vs_participates.png",
+    testInfo.outputPath("board_messages_vs_participates.png"),
   );
   expectSolidHairlines(facts);
   // Same pair of cards, two relationships: the megaphone is a different wire.
   expect(new Set(facts.strokes).size).toBe(2);
 });
 
-test("relay — what announces in, what it enqueues out", async () => {
-  const source = station({
+test("relay — what announces in, what it enqueues out", async ({}, testInfo) => {
+  const source = tasksBoard({
     id: "source",
     name: "Build",
     x: 60,
     items: [taskItem("s1", "Cut the build", "completed")],
   });
-  const followup = station({ id: "followup", name: "Follow-up", x: 940 });
+  const followup = tasksBoard({ id: "followup", name: "Follow-up", x: 940 });
   const nodes: CanvasNode[] = [
     source,
     relay("relay", 520, 260),
@@ -324,7 +319,7 @@ test("relay — what announces in, what it enqueues out", async () => {
     nodes,
     edges,
     "relay",
-    "relay_announces_enqueues.png",
+    testInfo.outputPath("relay_announces_enqueues.png"),
   );
   expectSolidHairlines(facts);
   // Cold in, hot out: the watch and the fire cannot share a colour.

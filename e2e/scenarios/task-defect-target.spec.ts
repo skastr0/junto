@@ -2,7 +2,7 @@ import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import { canvasDoc, tasksNode } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
-const operatorStation = (
+const operatorBoard = (
   id: string,
   label: string,
   x: number,
@@ -16,7 +16,8 @@ const operatorStation = (
       entity: { kind: "task", name: label },
       tasks: {
         items: [],
-        contract: { inbound: { admission: "operator-owned" } },
+        name: label,
+        contract: { incoming: { admission: "operator" } },
       },
     },
   };
@@ -25,9 +26,9 @@ const operatorStation = (
 const fixture = (): CanvasDoc =>
   canvasDoc(
     [
-      operatorStation("plan", "Plan", 80),
-      operatorStation("build", "Build", 400),
-      operatorStation("verify", "Verify", 720),
+      operatorBoard("plan", "Plan", 80),
+      operatorBoard("build", "Build", 400),
+      operatorBoard("verify", "Verify", 720),
     ],
     [
       {
@@ -45,7 +46,7 @@ const fixture = (): CanvasDoc =>
     ],
   );
 
-test("operator sends a task back to a deep visited station", async () => {
+test("operator sends a task back to a deep visited board", async () => {
   const vellumCommand = await launchVellum({
     seedCanvases: { factory: fixture() },
   });
@@ -93,16 +94,16 @@ test("operator sends a task back to a deep visited station", async () => {
     await expect(verifyNode).toBeVisible({ timeout: 30_000 });
     await verifyNode.getByTestId("tasks-card").dispatchEvent("dblclick");
 
-    const board = page.getByRole("dialog", { name: "Task flow" });
+    const board = page.getByRole("dialog", { name: "Task board" });
     await expect(board).toBeVisible();
     await board.getByLabel("Open details for Repair the release proof").click();
     const details = board.getByRole("complementary", {
       name: "Details for Repair the release proof",
     });
-    await details.getByTestId("task-station-defect-open").click();
+    await details.getByTestId("task-operator-defect-open").click();
 
     const targetDisclosure = details.locator(
-      ".task-station-console__defect-targets",
+      ".task-operator-panel__defect-targets",
     );
     await expect(targetDisclosure).toContainText("Build");
     await targetDisclosure.locator("summary").click();
@@ -117,7 +118,7 @@ test("operator sends a task back to a deep visited station", async () => {
     await details
       .getByPlaceholder("What is wrong, and what would make it right?")
       .fill("The plan chose the wrong release proof.");
-    await details.getByTestId("task-station-defect-send").click();
+    await details.getByTestId("task-operator-defect-send").click();
 
     await expect
       .poll(async () =>
@@ -131,7 +132,7 @@ test("operator sends a task back to a deep visited station", async () => {
           const rejected = itemAt("verify");
           return {
             returnedState: returned?.state,
-            returnedHome: returned?.journey?.at(-1)?.nodeId,
+            returnedHome: returned?.visits?.at(-1)?.board,
             returnedEpoch: returned?.epoch,
             defectTarget: returned?.defects?.at(-1)?.target,
             defectInThread: returned?.history.some((message) =>

@@ -206,7 +206,7 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
     await shot(page, "07-queue-home-ship");
 
     await tasks.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const taskBoard = page.getByRole("dialog", { name: "Task flow" });
+    const taskBoard = page.getByRole("dialog", { name: "Task board" });
     await expect(taskBoard).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(taskBoard).toHaveCount(0);

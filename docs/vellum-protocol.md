@@ -459,49 +459,43 @@ Terminal states are:
 completed | canceled | failed | rejected
 ```
 
-### Stable planning identity, admission, and dependencies
+### Task identity, admission, and dependencies
 
-A planning create is a Task create, not a separate proposal identity that later
-turns into a Task. The stable contract is:
+The Task contract is:
 
 1. Creation allocates one `TaskId` and persists the submitted Task immediately.
    Review, approval, claim, and later transitions retain that same identity.
-2. `dependsOn` contains `TaskId` values only. It does not admit `ProposalId` or
-   infer a prerequisite from a brief, reason, or other prose. The dependency
-   edges persist in the same create transaction, before approval. Creation
-   refuses a missing Task, a Task outside the same-region dependency scope, a
-   duplicate, self-dependency, or a cycle instead of silently changing the
-   authored list.
-3. When an agent omits `admission`, Vellum Command persists `operator-gated`,
-   clamped to the sink's admission floor. An unpromoted gated Task is submitted
-   but not claimable.
-4. Approval is a local Command Center operation on the Command Center-homed
-   Task. It stamps promotion on the existing Task; it does not mint a
-   replacement Task or change the `TaskId`. Only a completed prerequisite
-   satisfies `dependsOn`. A rejected, failed, or canceled prerequisite appears
-   as a derived broken root without changing the dependent Task's authored
-   state.
-5. Station protocol 1 has no Task approval action. Creation refuses an
-   effectively `operator-gated` Task whose home is a Remote before content,
-   Work, or command emission. Move that Task sink to Command Center rather than
-   down-converting or adding a protocol path.
+2. `dependsOn` contains `TaskId` values only. The dependency edges persist in
+   the same create transaction. Creation refuses a missing Task, a Task outside
+   the same-region dependency scope, a duplicate, self-dependency, or a cycle
+   instead of silently changing the authored list.
+3. Admission storage is `auto | approval | operator`; operator copy is
+   **Immediate**, **Approval**, and **Me**. An agent omission becomes
+   `approval`; an operator omission inherits the board setting. A task may
+   tighten, but never weaken, its board's setting.
+4. Approval stamps the existing Task for its current epoch. It does not replace
+   the Task or change its `TaskId`. Only a completed prerequisite satisfies
+   `dependsOn`. A rejected, failed, or canceled prerequisite appears as a
+   derived broken root without changing the dependent Task's authored state.
+5. `waitFor` at creation becomes an absolute `waitUntil` on the Task. The
+   board's `incoming.waitMs` remains the default wait before starting.
 
-Older installed states can contain proposal rows from the retired
-proposal-first creation model. They are reconciled under these rules:
+### Rules, checks, and visits
 
-- proposal events remain immutable history;
-- a pending proposal is materialized at Command Center as one submitted,
-  unpromoted `operator-gated` Task with the same identifier, preserving its
-  explicit authoring fields;
-- reconciliation walks explicit `dependsOn` Task IDs to a fixed point, resumes
-  safely after interruption, and reopens its install-local marker for late
-  arrivals;
-- approved proposals that already name a Task and rejected proposals remain
-  documentary history. They are not rematerialized or auto-rewired;
-- reconciliation never infers an edge from proposal prose and never retargets
-  a dependency from a documentary proposal to another Task. Missing, cyclic,
-  or malformed explicit references remain visible reconciliation work rather
-  than being guessed away.
+- Rules in force concatenate enclosing region rules from outer to inner, then
+  board rules, then task rules addressed to this board. There is no override,
+  precedence, or deduplication.
+- Completion requires one agent claim per applicable rule. A waiver is allowed
+  only for a task rule whose board is unreachable after the selected fork; a
+  defect cancels every waiver.
+- `tasks.check` runs this board's outgoing checks and the selected next board's
+  incoming checks in the seat environment. The Work service records bounded
+  results against the exact command and current epoch. Exit 0 passes.
+- `visits` is the append-only path record. Each entry names the board and epoch,
+  then records a `sent-on`, `completed`, or `sent-back` exit with the applicable
+  next board and handoff note.
+- Sending back records a defect, increments the epoch, and reopens the target
+  board. Claims at and after that board no longer count; earlier claims remain.
 
 ### Finish criteria and completion evidence
 
@@ -521,6 +515,8 @@ FinishCriteria {
 CompletionEvidence {
   artifacts: Array<{ artifactId: string; nodeId: string }>
   git?: { commits: string[] }       // free-form hashes for now
+  claims?: Array<{ ruleId: string; text: string; refs?: string[] }>
+  waivers?: Array<{ ruleId: string; reason: string }>
 }
 ```
 
@@ -530,9 +526,9 @@ Laws:
    immutable across `task.transition` facts (preserved on the material Task).
 2. `completionEvidence` is stamped only on a successful transition to
    `completed`. It is forbidden on any other state.
-3. Hard arms (`artifacts` / `git`) are gated **only at the task entity home**
+3. Required `artifacts` / `git` criteria are gated **only at the task entity home**
    against that installation's SQLite artifact shelf and the commanded
-   evidence. Soft `description` alone never blocks complete.
+   evidence. `description` alone never blocks completion.
 4. Artifact citations must exist on the required sink node, be linked via
    `Artifact.task` to this exact task, and match required names when set.
 5. Publish does **not** auto-append task associations; the agent supplies
@@ -556,8 +552,8 @@ actor.
 
 ### Claim is start
 
-There is no `assigned` state, actor backlog, reservation queue, or batch of
-tasks attached to one actor.
+There is no actor backlog, reservation queue, or batch of tasks attached to
+one actor.
 
 A successful claim atomically means:
 
@@ -576,7 +572,7 @@ first claimant. Resuming the same claimed task from `input-required` to
 
 The transport may expose a pending command during a live claim round trip or
 while recovering its uncertain result after a connection loss. That is
-delivery state, not a task assignment state. The task remains `submitted`
+delivery state, not task state. The task remains `submitted`
 until the Remote transaction starts it.
 
 When the selected actor is homed on Command Center, claim is one local SQLite
@@ -707,7 +703,6 @@ There is no automatic:
 - unclaim;
 - steal;
 - lease expiry;
-- reassignment after timeout;
 - return to submitted;
 - speculative second executor.
 
@@ -719,12 +714,12 @@ Deleting an actor retires its stable seat and stops its Vellum Command-owned run
 it never deletes attribution, artifacts, receipts, or completed history. An
 active task claimed by that seat stays claimed and single-home and is surfaced
 as stalled/orphaned lifecycle state. Vellum Command does not silently turn actor
-deletion into unclaim, requeue, steal, or reassignment.
+deletion into unclaim, requeue, or steal.
 
 ### Starting the managed actor process
 
 The durable task transition and process notification are distinct mechanisms,
-but not distinct assignment states:
+but not distinct task states:
 
 1. the claim transaction starts the task;
 2. a durable delivery record identifies the exact task/actor/revision prompt;
@@ -833,7 +828,7 @@ Actor mailboxes are the first residency:
 
 - messages are Command Center-homed;
 - `destination: { kind: "mailbox" }` must address a projected actor node;
-- they are not used to represent task assignment;
+- they never start or claim tasks;
 - every append command and resulting fact carries the exact projected
   `ActorRef` of its sender; the material mailbox row retains that immutable
   `ActorSeatId`;
@@ -1362,7 +1357,7 @@ An acknowledgement means:
 
 It does not mean:
 
-- a task was assigned;
+- a task was claimed;
 - an actor saw a prompt;
 - an operator approved work;
 - a projection is current;
@@ -2144,7 +2139,7 @@ The canonical protocol blocks release while any live path preserves:
 - canvas mutation for tasks, requests, messages, artifacts, claims, or
   transitions;
 - shared offline task claiming;
-- task assignment distinct from starting work;
+- starting work without a claim;
 - actor backlogs or more than one active task;
 - unclaim, steal, lease expiry, or implicit re-home;
 - wall-clock ordering;
@@ -2164,14 +2159,11 @@ Station protocol 1 is the sole live, unreleased Station contract in source. Its
 current implementation surface is:
 
 - the wire has exactly `pair | configure | project | report | status`;
-- planning creation persists one submitted Task with a stable `TaskId`;
-  omitted admission is `operator-gated`, and local Command Center approval
-  promotes that same Task at its home instead of minting a replacement;
-- `dependsOn` is TaskId-only and is persisted before approval; legacy proposal
-  events remain immutable while pending rows reconcile to same-ID gated Tasks
-  without inferring dependencies or auto-rewiring documentary proposals;
-- Station protocol 1 carries no Task approval action, so an effectively
-  `operator-gated` Remote-home creation is refused before emission;
+- creation persists one submitted Task with a stable `TaskId`; admission is
+  `auto | approval | operator`, and approval retains the same Task identity;
+- `dependsOn` is TaskId-only and is persisted in the create transaction;
+- rules, claims, waivers, checks, check results, visits, defects, and waits use
+  the canonical Tasks contract without alternate readers or writers;
 - every request, response, Work record, handshake, frame, cursor, and
   disposition is strictly decoded with bounded Effect schemas;
 - negotiation selects the highest common exact Station protocol from declared

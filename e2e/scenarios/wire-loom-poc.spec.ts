@@ -16,8 +16,6 @@
  * blocks-phase edge reuses the exact `tasksNode` + claimed input-required
  * item pattern already proven in factory-board-attention.spec.ts.
  */
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import type { CanvasEdge, CanvasNode } from "../../src/shared/canvas";
 import {
   agentTextNode,
@@ -28,8 +26,6 @@ import {
   verbEdge,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
-
-const SHOTS = join(process.cwd(), "_design_screenshots", "loom_poc");
 
 const hub: CanvasNode = agentTextNode({
   id: "hub",
@@ -102,8 +98,7 @@ const sinkEdges = (sinkId: string): CanvasEdge[] =>
 
 const edges: CanvasEdge[] = [...hubEdges, ...sinkEdges("sink1"), ...sinkEdges("sink2")];
 
-test("wire loom PoC — hub and spoke rendered capture", async () => {
-  await mkdir(SHOTS, { recursive: true });
+test("wire loom PoC — hub and spoke rendered capture", async ({}, testInfo) => {
   const vellumCommand = await launchVellum({
     seedCanvases: {
       "wire-loom-poc": canvasDoc(loomNodes, edges),
@@ -122,7 +117,10 @@ test("wire loom PoC — hub and spoke rendered capture", async () => {
     };
 
     await fitAll();
-    await page.screenshot({ path: join(SHOTS, "loom_on.png"), fullPage: false });
+    await page.screenshot({
+      path: testInfo.outputPath("loom_on.png"),
+      fullPage: false,
+    });
   } finally {
     await vellumCommand.close();
   }

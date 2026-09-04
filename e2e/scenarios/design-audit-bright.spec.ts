@@ -164,16 +164,16 @@ test("capture key surfaces in bright mode", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
-    // 4. Task flow overlay (kanban work surface).
+    // 4. Task board overlay (kanban work surface).
     const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks1"]');
     await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
     await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const taskFlow = page.getByRole("dialog", { name: "Task flow" });
-    await expect(taskFlow).toBeVisible({ timeout: 10_000 });
-    await expect(taskFlow.getByTestId("task-board")).toBeVisible();
-    await shot(page, "04-task-flow-kanban");
-    await taskFlow.locator('button[title="Close"]').click();
-    await expect(taskFlow).toBeHidden();
+    const taskBoard = page.getByRole("dialog", { name: "Task board" });
+    await expect(taskBoard).toBeVisible({ timeout: 10_000 });
+    await expect(taskBoard.getByTestId("task-board")).toBeVisible();
+    await shot(page, "04-task-board-kanban");
+    await taskBoard.locator('button[title="Close"]').click();
+    await expect(taskBoard).toBeHidden();
 
     // 5. Settings panel (Appearance with Bright active).
     await page.getByRole("button", { name: "Open settings" }).click();

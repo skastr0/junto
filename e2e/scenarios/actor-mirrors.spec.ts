@@ -10,8 +10,6 @@
  *   - ONE Close press after cycling dismisses the whole modal — the parked
  *     stack never pops one press per cycled actor
  */
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import {
   agentTextNode,
   canvasDoc,
@@ -20,7 +18,6 @@ import {
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
-const SHOTS = join(process.cwd(), "_design_screenshots", "actor_mirrors");
 const CANVAS = "actor-mirrors";
 
 const fixture = canvasDoc(
@@ -67,8 +64,7 @@ const fixture = canvasDoc(
   ],
 );
 
-test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async () => {
-  await mkdir(SHOTS, { recursive: true });
+test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async ({}, testInfo) => {
   const vellumCommand = await launchVellum({
     seedCanvases: { [CANVAS]: fixture },
   });
@@ -101,7 +97,7 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
     await expect(glance.locator(".actor-edges-glance__cycle-hint")).toBeVisible();
 
     await page.screenshot({
-      path: join(SHOTS, "rail_mirrors.png"),
+      path: testInfo.outputPath("rail_mirrors.png"),
       fullPage: false,
     });
 
@@ -135,7 +131,7 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
     ).toHaveCount(2);
 
     await page.screenshot({
-      path: join(SHOTS, "after_cycle.png"),
+      path: testInfo.outputPath("after_cycle.png"),
       fullPage: false,
     });
 

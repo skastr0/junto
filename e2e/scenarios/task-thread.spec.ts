@@ -1,5 +1,3 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import {
   agentTextNode,
@@ -8,8 +6,6 @@ import {
   tasksNode,
 } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
-
-const SHOTS = join(process.cwd(), "_design_screenshots", "task_thread");
 
 const fixture = (): CanvasDoc => {
   const seat = claimByNodeId("builder-alpha");
@@ -40,7 +36,7 @@ const fixture = (): CanvasDoc => {
               {
                 messageId: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
                 role: "agent",
-                parts: [{ kind: "text", text: "Connected the chronological rail." }],
+                parts: [{ kind: "text", text: "Connected the chronological timeline." }],
                 taskId: "thread-task",
                 metadata: { fromSeat: "builder-alpha" },
               },
@@ -82,7 +78,6 @@ const fixture = (): CanvasDoc => {
 };
 
 test("task detail renders the attributed thread and operator comments notify its owner", async ({}, testInfo) => {
-  await mkdir(SHOTS, { recursive: true });
   const vellumCommand = await launchVellum({ seedCanvases: { factory: fixture() } });
 
   try {
@@ -93,13 +88,13 @@ test("task detail renders the attributed thread and operator comments notify its
       .getByTestId("tasks-card")
       .dispatchEvent("dblclick");
 
-    const board = page.getByRole("dialog", { name: "Task flow" });
+    const board = page.getByRole("dialog", { name: "Task board" });
     const card = board.getByTestId("task-board-card").filter({
       hasText: "Make task history legible",
     });
     await expect(card).toContainText("Builder Alpha");
 
-    const ownerShot = join(SHOTS, "owner-card.png");
+    const ownerShot = testInfo.outputPath("owner-card.png");
     await board.screenshot({ path: ownerShot });
     await testInfo.attach("task-owner-card", {
       path: ownerShot,
@@ -117,7 +112,7 @@ test("task detail renders the attributed thread and operator comments notify its
     await expect(thread.locator('[data-kind="defect"]')).toContainText("defect");
     await expect(thread.locator('[data-kind="comment"]')).toContainText("Operator");
 
-    const threadShot = join(SHOTS, "thread-detail.png");
+    const threadShot = testInfo.outputPath("thread-detail.png");
     await board.screenshot({ path: threadShot });
     await testInfo.attach("task-thread-detail", {
       path: threadShot,
@@ -147,7 +142,7 @@ test("task detail renders the attributed thread and operator comments notify its
       )
       .toBe(true);
 
-    const commentShot = join(SHOTS, "thread-comment.png");
+    const commentShot = testInfo.outputPath("thread-comment.png");
     await board.screenshot({ path: commentShot });
     await testInfo.attach("task-thread-comment", {
       path: commentShot,

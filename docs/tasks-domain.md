@@ -3,8 +3,8 @@
 Status: ruled by the operator on 2026-09-03, with the complete in-place
 migration ruled on 2026-09-04. This document is the canonical
 vocabulary for the Tasks node. Code identifiers, wire fields, CLI commands,
-operator copy, and agent-facing docs all use these words and no others.
-Where the code still uses older words, that is migration work tracked in
+operator copy, and agent-facing docs all use these words and no others. The
+completed correction is recorded in
 [`tasks-consolidation-plan.md`](tasks-consolidation-plan.md).
 
 This is corrective removal of broken code, not accommodation of respected
@@ -93,16 +93,9 @@ region (outer)  brief, rules, rulings
 ```
 
 An agent sitting in a nested region reads three briefs and answers three
-layers of rules. That is the point of nesting: geography is prompting.
-
-## Open questions, with the current default
-
-- **Region and board rules across several boards.** Once per epoch at the
-  last board inside the rule's scope, or again at every board. Current
-  default: once per epoch. The completion gate adopts this reading; today the
-  gate and the readiness report disagree.
-- **Proposals.** Merged into tasks with admission Approval. The leftover
-  proposal tables, ops, and the Awaiting approval lane are retirement work.
+layers of rules. That is the point of nesting: geography is prompting. Region
+and board rules are answered once per epoch, and completion gating and
+readiness use the same shared evaluation.
 
 ## Words that are retired
 
