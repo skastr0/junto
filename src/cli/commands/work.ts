@@ -17,14 +17,14 @@ import {
   RequestEscalateArgs,
   RulingsArgs,
   TasksClaimArgs,
-  TasksClaimsArgs,
+  TasksRulesArgs,
   TasksCreateCliArgs,
   TasksListArgs,
   TasksShowArgs,
   TasksUpdateCliArgs,
   type WorkOpName,
 } from "../../shared/work-control";
-import { tasksBoardCommand } from "./board";
+import { tasksCheckCommand } from "./board";
 import { toTasksCreateArgs, toTasksUpdateArgs } from "../core/duration";
 import { InputError } from "../core/errors";
 import { materializeArtifactParts } from "../core/artifact-parts";
@@ -94,7 +94,7 @@ const tasksClaimCommand = Command.make(
         run: (item) => callDomain("tasks.claim", item, toUndefined(timeout)),
       }),
     ),
-).pipe(Command.withDescription("Assign one or more tasks to this seat (batch-capable)"));
+).pipe(Command.withDescription("Claim one or more tasks for this seat (batch-capable)"));
 
 const tasksCreateCommand = Command.make(
   "create",
@@ -113,8 +113,8 @@ const tasksCreateCommand = Command.make(
               return yield* Effect.fail(
                 new InputError({
                   message: lowered.message,
-                  path: "holdFor",
-                  received: item.holdFor,
+                  path: "waitFor",
+                  received: item.waitFor,
                 }),
               );
             }
@@ -145,8 +145,8 @@ const tasksUpdateCommand = Command.make(
               return yield* Effect.fail(
                 new InputError({
                   message: lowered.message,
-                  path: "holdFor",
-                  received: item.holdFor,
+                  path: "waitFor",
+                  received: item.waitFor,
                 }),
               );
             }
@@ -160,7 +160,7 @@ const tasksUpdateCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Update task state — claim responses and waivers on completionEvidence, forward with next, send back with defect (batch-capable)",
+    "Update task state — claims and waivers on completionEvidence, send on with next, send back with defect (batch-capable)",
   ),
 );
 
@@ -177,24 +177,24 @@ const tasksShowCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Show one task with its journey — prior stations appear as what they published, never their interiors",
+    "Show one task with its visits — prior boards expose handoff notes and cited refs, never their interiors",
   ),
 );
 
-const tasksClaimsCommand = Command.make(
-  "claims",
+const tasksRulesCommand = Command.make(
+  "rules",
   { input: jsonInputArg, timeout: timeoutOption },
   ({ input, timeout }) =>
     executeJsonCommand(
-      "tasks claims",
+      "tasks rules",
       Effect.gen(function* () {
-        const item = yield* loadJsonInput(TasksClaimsArgs, input);
-        return yield* callDomain("tasks.claims", item, toUndefined(timeout));
+        const item = yield* loadJsonInput(TasksRulesArgs, input);
+        return yield* callDomain("tasks.rules", item, toUndefined(timeout));
       }),
     ),
 ).pipe(
   Command.withDescription(
-    "Effective claims at a station with provenance; name a task for readiness (unanswered claims, ticket status)",
+    "Rules in force at a board with provenance; name a task for readiness",
   ),
 );
 
@@ -205,9 +205,9 @@ export const tasksCommand = Command.make("tasks").pipe(
     tasksShowCommand,
     tasksCreateCommand,
     tasksClaimCommand,
-    tasksClaimsCommand,
+    tasksRulesCommand,
     tasksUpdateCommand,
-    tasksBoardCommand,
+    tasksCheckCommand,
   ]),
 );
 

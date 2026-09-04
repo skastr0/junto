@@ -6,7 +6,7 @@ import {
   TasksUpdateArgs,
   TasksUpdateCliArgs,
   ArtifactPublishCliArgs,
-  HOLD_FOR_MAX_MS,
+  WAIT_FOR_MAX_MS,
   PreambleArgs,
   RequestEscalateArgs,
 } from "../src/shared/work-control";
@@ -94,7 +94,7 @@ describe("work CLI json input modes", () => {
     expect(batch).toHaveLength(2);
   });
 
-  it("tasks.create accepts the same authoring fields as task/proposal domain", async () => {
+  it("tasks.create accepts the same authoring fields as the task domain", async () => {
     const created = await Effect.runPromise(
       loadJsonInput(
         TasksCreateArgs,
@@ -202,11 +202,11 @@ describe("work CLI json input modes", () => {
         JSON.stringify({
           target: "requests",
           brief: "need a decision",
-          metadata: { details: "checklist items remain open" },
+          metadata: { details: "checks remain open" },
         }),
       ),
     );
-    expect(viaDetails.metadata?.details).toBe("checklist items remain open");
+    expect(viaDetails.metadata?.details).toBe("checks remain open");
   });
 });
 
@@ -268,24 +268,24 @@ describe("tasks update state-conditional filters", () => {
     expect(decode(TasksUpdateArgs, item)).toBe(false);
   });
 
-  it("rejects holdForMs off completed on the wire schema", () => {
+  it("rejects waitFor off completed on the wire schema", () => {
     expect(
       decode(TasksUpdateArgs, {
         target: "n7",
         task: "t1",
         state: "working",
-        holdForMs: 1000,
+        waitFor: 1000,
       }),
     ).toBe(false);
   });
 
-  it("rejects a holdForMs stamp past HOLD_FOR_MAX_MS on the wire schema", () => {
+  it("rejects a waitFor stamp past WAIT_FOR_MAX_MS on the wire schema", () => {
     expect(
       decode(TasksUpdateArgs, {
         target: "n7",
         task: "t1",
         state: "completed",
-        holdForMs: HOLD_FOR_MAX_MS + 1,
+        waitFor: WAIT_FOR_MAX_MS + 1,
       }),
     ).toBe(false);
     expect(
@@ -293,19 +293,20 @@ describe("tasks update state-conditional filters", () => {
         target: "n7",
         task: "t1",
         state: "completed",
-        holdForMs: HOLD_FOR_MAX_MS,
+        waitFor: WAIT_FOR_MAX_MS,
       }),
     ).toBe(true);
   });
 
-  // TasksUpdateCliArgs is the CLI-facing twin of TasksUpdateArgs (holdFor vs
-  // holdForMs); it must carry the same state-conditional guards or the CLI
-  // accepts combinations the daemon would reject.
+  // TasksUpdateCliArgs is the CLI-facing twin of TasksUpdateArgs (the CLI
+  // parses spoken durations like "12h" into the wire's milliseconds); it must
+  // carry the same state-conditional guards or the CLI accepts combinations
+  // the daemon would reject.
   it.each([
     ["completionEvidence", { target: "n7", task: "t1", state: "working", completionEvidence: { artifacts: [] } }],
     ["next", { target: "n7", task: "t1", state: "working", next: "n8" }],
     ["defect", { target: "n7", task: "t1", state: "completed", defect: { summary: "no" } }],
-    ["holdFor", { target: "n7", task: "t1", state: "working", holdFor: "12h" }],
+    ["waitFor", { target: "n7", task: "t1", state: "working", waitFor: "12h" }],
   ] as const)("rejects %s off its required state on the CLI schema", (_name, item) => {
     expect(decode(TasksUpdateCliArgs, item)).toBe(false);
   });
@@ -318,7 +319,7 @@ describe("tasks update state-conditional filters", () => {
         state: "completed",
         completionEvidence: { artifacts: [] },
         next: "n8",
-        holdFor: "12h",
+        waitFor: "12h",
       }),
     ).toBe(true);
     expect(
@@ -425,20 +426,18 @@ describe("schema/examples from validating schemas", () => {
     ).toBe(false);
   });
 
-  it("discovers tasks board with schema, example, and capability", () => {
+  it("discovers the tasks rules and check schemas with canonical ids", () => {
     const schemaIds = allSchemas.map((contract) => contract.command_id);
-    const capabilityIds = commandCapabilities.map(
-      (capability) => capability.command_id,
+    expect(schemaIds).toContain("tasks.rules");
+    expect(schemaIds).toContain("tasks.check");
+    const rulesSchema = allSchemas.find(
+      (contract) => contract.command_id === "tasks.rules",
     );
-    const exampleIds = allExamples.map((example) => example.command_id);
-    expect(schemaIds).toContain("tasks.board");
-    expect(capabilityIds).toContain("tasks.board");
-    expect(exampleIds).toContain("tasks.board");
-    const schema = allSchemas.find(
-      (contract) => contract.command_id === "tasks.board",
+    expect(rulesSchema?.schema_id).toBe("tasks.rules.input/v1");
+    const checkSchema = allSchemas.find(
+      (contract) => contract.command_id === "tasks.check",
     );
-    expect(schema?.schema_id).toBe("tasks.board.input/v1");
-    expect(schema?.command).toBe("tasks board");
+    expect(checkSchema?.schema_id).toBe("tasks.check.input/v1");
   });
 
   it("discovers the seat-local preamble command", () => {

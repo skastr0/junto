@@ -183,7 +183,7 @@ describe("compiled grants", () => {
     });
   });
 
-  it("marks only works as assignable", () => {
+  it("marks only works as claimable", () => {
     expect(compileVerb("works", "task", "agent")).toEqual({
       ports: [
         "tasks.list",
@@ -192,13 +192,13 @@ describe("compiled grants", () => {
         "msg.list",
         "msg.send",
       ],
-      assignable: true,
+      claimable: true,
     });
     for (const pair of PAIRS) {
       for (const verb of verbsForPair(pair[0], pair[1])) {
         if (verb === "works") continue;
         expect(
-          compileVerb(verb, pair[0], pair[1])?.assignable,
+          compileVerb(verb, pair[0], pair[1])?.claimable,
           `${verb} on ${pair[0]}>${pair[1]}`,
         ).toBeUndefined();
       }
@@ -328,7 +328,7 @@ describe("compiled grants", () => {
           "msg.list",
           "msg.send",
         ],
-        assignable: true,
+        claimable: true,
       },
       "escalates @ agent>requests": {
         ports: ["request.escalate", "msg.list", "msg.send"],

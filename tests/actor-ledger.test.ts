@@ -255,8 +255,7 @@ describe("recentOpLabel", () => {
     expect(
       recentOpLabel(entry("artifact.publish", { kind: "artifact", artifactId: "01B" })),
     ).toBe("published an artifact");
-    expect(recentOpLabel(entry("task.claim", { kind: "task", taskId: "01C" }))).toBe("was assigned a task");
-    expect(recentOpLabel(entry("proposal.create", { kind: "proposal", proposalId: "01D" }))).toBe("proposed a task");
+    expect(recentOpLabel(entry("task.claim", { kind: "task", taskId: "01C" }))).toBe("claimed a task");
     expect(recentOpLabel(entry("request.create", { kind: "request", requestId: "01E" }))).toBe("raised a request");
     expect(
       recentOpLabel(

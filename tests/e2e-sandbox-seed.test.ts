@@ -78,7 +78,7 @@ describe("E2E SQLite fixture seeding", () => {
         expect(
           witness.canvas?.nodes.find((node) => node.id === "tasks")?.ether
             ?.tasks?.items,
-        ).toEqual([]);
+        ).toBeUndefined();
       } finally {
         await runtime.dispose();
       }

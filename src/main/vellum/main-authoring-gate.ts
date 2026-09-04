@@ -17,13 +17,9 @@ export const MAIN_AUTHORING_LABELS = [
   "kernel.claim-tick",
   "startup.canvas.ensure-seed",
   "ipc.work.task-create",
-  "ipc.work.task-propose",
-  "ipc.work.task-approve-proposal",
-  "ipc.work.task-reject-proposal",
   "ipc.work.task-describe",
   "ipc.work.task-transition",
   "ipc.work.task-promote",
-  "ipc.work.task-reject-arrival",
   "ipc.work.task-comment",
   "ipc.work.task-respond",
   "ipc.work.task-claim",
@@ -93,9 +89,9 @@ const WORK_OPERATION_CLASSIFICATION = {
   "tasks.claim": "authorial",
   "tasks.update": "authorial",
   "tasks.show": "read",
-  "tasks.claims": "read",
+  "tasks.rules": "read",
+  "tasks.check": "authorial",
   rulings: "read",
-  "tasks.board": "authorial",
   "content.path": "read",
   "content.stat": "read",
   "content.materialize": "read",
@@ -125,9 +121,9 @@ const WORK_AUTHORING_LABELS = {
   "tasks.create": "control.work.tasks-create",
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
-  // Boarding stamps tickets on the task row — same authorial family as an
+  // Check results stamp on the task row — same authorial family as an
   // update, so it carries the same label rather than minting a new one.
-  "tasks.board": "control.work.tasks-update",
+  "tasks.check": "control.work.tasks-update",
   "msg.list": "control.work.msg-send",
   "msg.send": "control.work.msg-send",
   "msg.read": "control.work.msg-send",
@@ -146,7 +142,7 @@ const WORK_AUTHORING_LABELS = {
     | "tasks.create"
     | "tasks.claim"
     | "tasks.update"
-    | "tasks.board"
+    | "tasks.check"
     | "msg.list"
     | "msg.send"
     | "msg.read"

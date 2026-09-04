@@ -2,8 +2,8 @@
  * Semantic verbs — the single authored fact on an edge.
  *
  * An edge says one thing: *what this relationship is*. `verb` is the only word
- * the operator writes; ports, assignability, board wake, watch predicates,
- * scheduler effects, pipeline flow, and scheduler chaining are all **compiled**
+ * the operator writes; ports, claimability, board wake, watch predicates,
+ * scheduler effects, task-path flow, and scheduler chaining are all **compiled**
  * from the verb plus the two endpoint kinds. There is no second authoring
  * surface and no mirror to keep in sync.
  *
@@ -80,7 +80,7 @@ export type WatchWhen = typeof WatchWhen.Type;
 // Fire actions — compiled by `enqueues` / `wakes` / `flags`
 //
 // Three, and only three: those are the verbs a scheduler holds. Kernel-home
-// fire applies them; never a process-bind ocap. Claim assignment stays the
+// fire applies them; never a process-bind ocap. Task claiming stays in the
 // factory tick. `data` is opaque here; the target sink's closed create schema
 // is decoded fail-closed at apply.
 
@@ -289,15 +289,15 @@ export const defaultVerbForPair = (
 export type VerbGrant = {
   /** Ports this relationship opens. Empty for non-access verbs. */
   readonly ports: ReadonlyArray<Port>;
-  /** Actor seat may be assigned work by the factory tick. */
-  readonly assignable?: boolean;
+  /** Actor seat may claim work through the factory tick. */
+  readonly claimable?: boolean;
   /** Board megaphone reaches this seat. */
   readonly wake?: boolean;
   /** Watch predicate the relay evaluates on the source. */
   readonly when?: WatchWhen;
   /** Fire action applied to the target. */
   readonly does?: EdgeEffect;
-  /** Pipeline hop between task sinks (DAG-guarded). */
+  /** Task path hop between Tasks nodes (DAG-guarded). */
   readonly flow?: boolean;
   /** Upstream scheduler fires downstream (cycle-guarded). */
   readonly chain?: boolean;
@@ -406,7 +406,7 @@ export const compileVerb = (
     case "contributes":
       return { ports: CONTRIBUTE_PORTS };
     case "works":
-      return { ports: WORK_PORTS, assignable: true };
+      return { ports: WORK_PORTS, claimable: true };
     case "escalates":
       return { ports: ESCALATE_PORTS };
     case "publishes":

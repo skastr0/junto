@@ -116,7 +116,7 @@ export {
 } from "./work-ports";
 export type { TargetWorkOpName } from "./work-ports";
 
-export { canvasDocToCapabilityView, pairIsAssignable } from "./view";
+export { canvasDocToCapabilityView, pairIsClaimable } from "./view";
 export type { CapabilityViewOptions, VerbCapabilityView } from "./view";
 
 export {

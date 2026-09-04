@@ -39,28 +39,10 @@ describe("task-board-selection", () => {
     expect(columnSelectionState(new Set(["a", "b", "c", "z"]), column)).toBe("all");
   });
 
-  it("bulk-approves only pure proposal selections", () => {
-    const proposals = resolveTaskBoardBulkActions([
-      { id: "1", state: "submitted", isProposal: true, hardFinishGate: false },
-      { id: "2", state: "submitted", isProposal: true, hardFinishGate: false },
-    ]);
-    expect(proposals.map((a) => a.kind)).toEqual([
-      "approve_proposals",
-      "reject_proposals",
-    ]);
-    expect(proposals[0]?.label).toContain("2");
-
-    const mixed = resolveTaskBoardBulkActions([
-      { id: "1", state: "submitted", isProposal: true, hardFinishGate: false },
-      { id: "2", state: "submitted", isProposal: false, hardFinishGate: false },
-    ]);
-    expect(mixed).toEqual([]);
-  });
-
   it("intersects transition bulk actions for queue tasks", () => {
     const actions = resolveTaskBoardBulkActions([
-      { id: "1", state: "submitted", isProposal: false, hardFinishGate: false },
-      { id: "2", state: "submitted", isProposal: false, hardFinishGate: false },
+      { id: "1", state: "submitted", hardFinishGate: false },
+      { id: "2", state: "submitted", hardFinishGate: false },
     ]);
     const states = actions
       .filter((a) => a.kind === "transition")
@@ -72,8 +54,8 @@ describe("task-board-selection", () => {
 
   it("hides complete when any selected task has a hard finish gate", () => {
     const actions = resolveTaskBoardBulkActions([
-      { id: "1", state: "working", isProposal: false, hardFinishGate: true },
-      { id: "2", state: "working", isProposal: false, hardFinishGate: false },
+      { id: "1", state: "working", hardFinishGate: true },
+      { id: "2", state: "working", hardFinishGate: false },
     ]);
     const states = actions
       .filter((a) => a.kind === "transition")

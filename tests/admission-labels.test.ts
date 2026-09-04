@@ -8,7 +8,7 @@ import {
 } from "../src/renderer/lib/admission-labels";
 
 describe("admissionLabels", () => {
-  it("names every SinkAdmission with one short label and one outcome", () => {
+  it("names every TaskAdmission with one short label and one outcome", () => {
     expect(ADMISSION_ORDER.map((value) => admissionLabels(value))).toEqual([
       {
         value: "auto",
@@ -16,19 +16,19 @@ describe("admissionLabels", () => {
         outcome: "Agents can start it right away",
       },
       {
-        value: "operator-gated",
+        value: "approval",
         label: "Approval",
         outcome: "Waits for my approval",
       },
       {
-        value: "operator-owned",
+        value: "operator",
         label: "Me",
         outcome: "I work it myself",
       },
     ]);
     expect(admissionLabel("auto")).toBe("Immediate");
-    expect(admissionOutcome("operator-gated")).toBe("Waits for my approval");
-    expect(admissionChoiceLabel("operator-owned")).toBe(
+    expect(admissionOutcome("approval")).toBe("Waits for my approval");
+    expect(admissionChoiceLabel("operator")).toBe(
       "Me — I work it myself",
     );
   });

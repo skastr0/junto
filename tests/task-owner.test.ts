@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import type { Task, TasksSinkContract } from "../src/shared/work-model";
+import type { Task, TasksContract } from "../src/shared/work-model";
 import { ActorRef, ActorSeatId } from "../src/shared/work-protocol";
 import {
   currentTaskOwner,
@@ -38,15 +38,14 @@ describe("currentTaskOwner", () => {
     });
   });
 
-  it("makes the operator the owner at an operator-owned station", () => {
-    const contract: TasksSinkContract = {
-      inbound: { admission: "operator-owned" },
+  it("makes the operator the owner at a Me board", () => {
+    const contract: TasksContract = {
+      incoming: { admission: "operator" },
     };
     expect(currentTaskOwner(task({ state: "submitted" }), contract)).toEqual({
       kind: "operator",
     });
-    // Even a (historically) claimed row at an owned station routes to the
-    // operator — the station's mind is the operator, full stop.
+    // Even a previously claimed row at a Me board belongs to the operator.
     expect(currentTaskOwner(task({ claimedBy: SEAT }), contract)).toEqual({
       kind: "operator",
     });
@@ -80,7 +79,7 @@ describe("taskCommentRecipient", () => {
   const ref = (seatId: typeof SEAT, nodeId: string, canvasName = "alpha") =>
     Schema.decodeUnknownSync(ActorRef)({ seatId, canvasName, nodeId });
 
-  it("routes to the live owning seat when someone else comments", () => {
+  it("delivers to the live owning seat when someone else comments", () => {
     const recipient = taskCommentRecipient(
       task({ claimedBy: SEAT }),
       undefined,
@@ -103,15 +102,15 @@ describe("taskCommentRecipient", () => {
     ).toBeUndefined();
   });
 
-  it("stays silent for unclaimed, operator-owned, terminal, and dead-seat rows", () => {
-    const contract: TasksSinkContract = {
-      inbound: { admission: "operator-owned" },
+  it("stays silent for unclaimed, Me-board, terminal, and dead-seat rows", () => {
+    const contract: TasksContract = {
+      incoming: { admission: "operator" },
     };
     // Unclaimed: no owner.
     expect(
       taskCommentRecipient(task(), undefined, { seatId: OTHER }, [ref(SEAT, "n")], "alpha"),
     ).toBeUndefined();
-    // Operator-owned: the operator has no mailbox seat.
+    // Me board: the operator has no mailbox seat.
     expect(
       taskCommentRecipient(
         task({ claimedBy: SEAT }),

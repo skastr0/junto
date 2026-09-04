@@ -60,11 +60,11 @@ import {
   RelayTriggerArgs,
   RequestEscalateArgs,
   RulingsArgs,
-  TasksBoardArgs,
+  TasksCheckArgs,
   TasksClaimArgs,
-  TasksClaimsArgs,
   TasksCreateArgs,
   TasksListArgs,
+  TasksRulesArgs,
   TasksShowArgs,
   TasksUpdateArgs,
   WORK_MAX_FRAME_BYTES,
@@ -78,6 +78,7 @@ import {
   workControlDir,
   workControlSocketPath,
   workControlTokenPath,
+  type WorkErrorDetails,
   type WorkErrorBody,
   type WorkErrorType,
   type WorkOpName as WorkOp,
@@ -108,7 +109,7 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "tasks.claim",
   "tasks.create",
   "tasks.update",
-  "tasks.board",
+  "tasks.check",
   "content.materialize",
   "preamble",
   "msg.list",
@@ -136,8 +137,8 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "tasks.create",
   "tasks.update",
   "tasks.show",
-  "tasks.claims",
-  "tasks.board",
+  "tasks.rules",
+  "tasks.check",
   "content.path",
   "content.stat",
   "content.materialize",
@@ -166,17 +167,20 @@ import {
   regionVisibility,
   summarizeNode,
 } from "./authz";
-import { resolveSinkAdmission } from "@shared/work-model";
-import { stationIdentity, stationName } from "@shared/station-identity";
+import { resolveTaskAdmission } from "@shared/work-model";
 import {
-  effectiveClaimsStack,
-  sinkContractOf,
+  boardContractOf,
+  rulesInForce,
   taskAdmissionState,
-} from "@shared/claims";
+} from "@shared/rules";
 import { regionStack } from "@shared/graph";
 import { sheetToMarkdown } from "@shared/sheet";
-import { flowDestinations, reachableStations } from "@shared/flow-graph";
+import { flowDestinations, reachableBoards } from "@shared/flow-graph";
 import { resolveCallerAcrossCanvases } from "./caller-resolve";
+import {
+  tasksNodeIdentity,
+  tasksNodeName,
+} from "@shared/tasks-node-identity";
 import { injectionSupervisor } from "../term/injection-supervisor";
 import {
   admitProcessIdentity,
@@ -335,55 +339,67 @@ const occupantKeyForPrincipal = (
 // ---------------------------------------------------------------------------
 // Domain error mapping
 
+/**
+ * Deterministic code → wire mapping. Structured facts travel in
+ * WorkServiceError.details straight from the service; nothing here is parsed
+ * out of message text.
+ */
 const mapWorkCode = (
-  code: string,
+  code: import("./service").WorkServiceErrorCode,
   message: string,
+  details?: WorkErrorDetails,
 ): WorkErrorBody => {
   switch (code) {
-    case "claim_contention": {
-      const holder =
-        message.match(/assigned to "([^"]+)"/)?.[1] ??
-        message.match(/claimed by "([^"]+)"/)?.[1];
+    case "claim_contention":
       return {
         type: "ClaimConflict",
         message,
         details: {
-          holder,
+          ...details,
           retryable: false,
-          next_step: "wait for the holder to release, or pick another task",
+          next_step:
+            details?.next_step ??
+            "wait for the holder to release, or pick another task",
         },
       };
-    }
-    case "illegal_transition": {
-      const m = message.match(/from (\S+) to (\S+)/);
-      const missing = message.match(/\[([^\]]+)\]/)?.[1];
-      const nextStep = message.match(/\(next: ([^)]+)\)/)?.[1];
+    case "operator_owned":
+      return {
+        type: "ClaimConflict",
+        message,
+        details: {
+          ...details,
+          retryable: false,
+          next_step:
+            details?.next_step ??
+            "the operator works tasks at this board; pick a board agents can claim",
+        },
+      };
+    case "illegal_transition":
       return {
         type: "InvalidTransition",
         message,
         details: {
-          from: m?.[1],
-          to: m?.[2],
-          ...(missing !== undefined ? { missing } : {}),
-          ...(nextStep !== undefined ? { next_step: nextStep } : {}),
+          ...details,
           retryable: false,
         },
       };
-    }
     case "node_not_found":
     case "task_not_found":
       return {
         type: "UnknownTarget",
         message,
-        details: { retryable: false },
+        details: { ...details, retryable: false },
       };
     case "canvas_not_found":
       return {
         type: "StaleNodeRef",
         message,
         details: {
+          ...details,
           retryable: false,
-          next_step: "the canvas for this call is not loaded; ask the operator to open it in Vellum Command",
+          next_step:
+            details?.next_step ??
+            "the canvas for this call is not loaded; ask the operator to open it in Vellum Command",
         },
       };
     case "illegal_kind":
@@ -391,24 +407,73 @@ const mapWorkCode = (
         type: "ScopeError",
         message,
         details: {
+          ...details,
           retryable: false,
-          hint: "pick a target whose kind supports this op",
-          next_step: "call a connected node of a kind that supports this op; if none is connected, ask the operator to wire an edge to one on the canvas",
+          hint: details?.hint ?? "pick a target whose kind supports this op",
+          next_step:
+            details?.next_step ??
+            "call a connected node of a kind that supports this op; if none is connected, ask the operator to wire an edge to one on the canvas",
+        },
+      };
+    case "not_ready":
+      return {
+        type: "InputError",
+        message,
+        details: {
+          ...details,
+          retryable: false,
+          next_step:
+            details?.next_step ??
+            "finish the prerequisites before claiming this task",
+        },
+      };
+    case "unadmitted":
+      return {
+        type: "InputError",
+        message,
+        details: {
+          ...details,
+          retryable: false,
+          next_step:
+            details?.next_step ??
+            "wait for the operator or for the wait before starting to pass, or pick another task",
+        },
+      };
+    case "fork_choice":
+      return {
+        type: "InputError",
+        message,
+        details: {
+          ...details,
+          retryable: false,
+          next_step: details?.next_step ?? "name the next board",
+        },
+      };
+    case "wrong_home":
+      return {
+        type: "InputError",
+        message,
+        details: {
+          ...details,
+          retryable: false,
+          next_step:
+            details?.next_step ??
+            "run this op on the installation that owns the task",
         },
       };
     default:
       return {
         type: "InputError",
         message,
-        details: { retryable: false },
+        details: { ...details, retryable: false },
       };
   }
 };
 
 /**
- * Seat-wire only. Operator promote / reject IPC is the door into unadmitted
- * arrivals; a connected seat must not complete, cancel, reject, or board a
- * submitted row whose admission is not yet claimable.
+ * Seat-wire only. Operator approve / reject IPC is the door into unadmitted
+ * tasks; a connected seat must not update or run checks on a submitted row
+ * whose admission is not yet claimable.
  */
 const refuseUnadmittedSubmitted = (
   task: Task | undefined,
@@ -417,25 +482,28 @@ const refuseUnadmittedSubmitted = (
   if (task === undefined || task.state !== "submitted") return undefined;
   const admission = taskAdmissionState(
     task,
-    sinkContractOf(node),
+    boardContractOf(node),
     Date.now(),
   );
   if (admission === "claimable") return undefined;
-  const promotion =
-    admission === "operator-gated"
-      ? `task "${task.id}" awaits operator approval and is not yet assignable`
-      : admission === "held"
-        ? `task "${task.id}" is not assignable before ${task.holdUntil} (station bake)`
-        : `task "${task.id}" is operator-owned; seats cannot update it`;
+  const refusal =
+    admission === "approval"
+      ? `task "${task.id}" awaits operator approval at board "${node?.id ?? "?"}"`
+      : admission === "waiting"
+        ? `task "${task.id}" is not claimable before ${task.waitUntil} (wait before starting)`
+        : `board "${node?.id ?? "?"}" is set to Me — the operator works tasks here; no seat update`;
   return {
     type: "InputError",
-    message: promotion,
+    message: refusal,
     details: {
+      target: task.id,
       retryable: false,
       next_step:
-        admission === "operator-gated"
-          ? "wait for the operator to approve this arrival, or pick an assignable task"
-          : "pick an assignable task; only the operator can approve or refuse unadmitted work",
+        admission === "approval"
+          ? "wait for the operator to approve this task, or claim another task"
+          : admission === "waiting"
+            ? "wait until the wait before starting passes, or claim another task"
+            : "only the operator works tasks at this board",
     },
   };
 };
@@ -456,7 +524,9 @@ const fromWorkResult = <T>(
       ...(result.message === undefined ? {} : { message: result.message }),
     });
   }
-  return Result.fail(mapWorkCode(result.code, result.message));
+  return Result.fail(
+    mapWorkCode(result.code, result.message, result.details),
+  );
 };
 
 const exposeWorkMutation = <T extends object>(
@@ -489,94 +559,104 @@ const decodeArgs = <S extends Schema.Top>(
 };
 
 /**
- * Standing law per station a task raised here can still reach: the region
- * stack claims plus the sink's own, with provenance, and how arrivals are
- * admitted. Pure projection of the document — no work rows involved.
+ * Standing rules per board a task raised here can still reach, with
+ * provenance, and how incoming tasks are admitted. Pure projection of the document
+ * — no work rows involved.
  */
 /**
- * Trimmed contract guidance for one station. Emission is forwarding guidance,
- * so it only surfaces when the station actually forwards somewhere; blank or
- * whitespace-only authored values never surface (JSON Canvas can hold them
- * even though the editor normalizes).
+ * Trimmed contract guidance for one board. Blank or whitespace-only authored
+ * values never surface (JSON Canvas can hold them even though the editor
+ * normalizes).
  */
-const stationGuidance = (
+const boardGuidance = (
   doc: CanvasDoc,
-  station: string,
-): { instruction?: string; triage?: string; emission?: string } => {
-  const contract = sinkContractOf(doc.nodes.find((node) => node.id === station));
-  const instruction = contract?.instruction?.trim();
-  const triage = contract?.inbound?.instruction?.trim();
-  const emission =
-    flowDestinations(doc, station).length > 0
-      ? contract?.outbound?.emission?.trim()
-      : undefined;
+  board: string,
+): {
+  instructions?: string;
+  incomingHandling?: string;
+  incomingDescription?: string;
+  outgoingHandoff?: string;
+  outgoingDescription?: string;
+} => {
+  const contract = boardContractOf(
+    doc.nodes.find((node) => node.id === board),
+  );
+  const instructions = contract?.instructions?.trim();
+  const incomingHandling = contract?.incoming?.handling?.trim();
+  const incomingDescription = contract?.incoming?.description?.trim();
+  // Handoff prose only surfaces when the board can send the task on.
+  const hasNext = flowDestinations(doc, board).length > 0;
+  const outgoingHandoff = hasNext ? contract?.outgoing?.handoff?.trim() : undefined;
+  const outgoingDescription = hasNext
+    ? contract?.outgoing?.description?.trim()
+    : undefined;
   return {
-    ...(instruction ? { instruction } : {}),
-    ...(triage ? { triage } : {}),
-    ...(emission ? { emission } : {}),
+    ...(instructions ? { instructions } : {}),
+    ...(incomingHandling ? { incomingHandling } : {}),
+    ...(incomingDescription ? { incomingDescription } : {}),
+    ...(outgoingHandoff ? { outgoingHandoff } : {}),
+    ...(outgoingDescription ? { outgoingDescription } : {}),
   };
 };
 
-const stationLawMap = (doc: CanvasDoc, fromNodeId: string) =>
-  [...reachableStations(doc, fromNodeId)].map((station) => {
-    const node = doc.nodes.find((candidate) => candidate.id === station);
-    const identity = stationIdentity(node, station);
-    const contract = sinkContractOf(node);
-    const inbound = contract?.inbound;
+/** Rules in force per reachable board, with the board's admission posture. */
+const boardRulesMap = (doc: CanvasDoc, fromNodeId: string) =>
+  [...reachableBoards(doc, fromNodeId)].map((board) => {
+    const node = doc.nodes.find((candidate) => candidate.id === board);
+    const identity = tasksNodeIdentity(node, board);
+    const contract = boardContractOf(node);
+    const incoming = contract?.incoming;
     return {
-      station,
+      board,
       name: identity.name,
-      ...(identity.role ? { role: identity.role } : {}),
-      claims: effectiveClaimsStack(doc, station).map((entry) => ({
-        id: entry.claim.id,
-        text: entry.claim.text,
-        severity: entry.claim.severity,
+      rules: rulesInForce(doc, board).map((entry) => ({
+        id: entry.rule.id,
+        text: entry.rule.text,
         provenance: entry.provenance,
       })),
-      admission: resolveSinkAdmission(contract),
-      ...(inbound?.description !== undefined
-        ? { description: inbound.description }
+      admission: resolveTaskAdmission(contract),
+      ...(incoming?.description !== undefined
+        ? { description: incoming.description }
         : {}),
-      ...stationGuidance(doc, station),
+      ...boardGuidance(doc, board),
     };
   });
 
 /**
- * Onboard's per-sink pipeline summary: what this station stands for, how much
- * standing law it carries, and where work goes next. Undefined for nodes that
- * carry no sink contract and no flow edges, so plain sinks stay quiet.
+ * Onboard's per-board summary: what this board stands for, how many rules
+ * it carries, and where work goes next. Undefined for nodes that carry no
+ * board contract and no flow edges, so plain nodes stay quiet.
  */
-const sinkPipelineBriefing = (doc: CanvasDoc, nodeId: string) => {
+const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-  const identity = stationIdentity(node, nodeId);
-  const contract = sinkContractOf(node);
-  const destinations = flowDestinations(doc, nodeId).map((destination) => {
-    const destinationNode = doc.nodes.find((candidate) => candidate.id === destination);
-    const inbound = sinkContractOf(destinationNode)?.inbound;
+  const identity = tasksNodeIdentity(node, nodeId);
+  const contract = boardContractOf(node);
+  const next = flowDestinations(doc, nodeId).map((destination) => {
+    const destinationNode = doc.nodes.find(
+      (candidate) => candidate.id === destination,
+    );
+    const incoming = boardContractOf(destinationNode)?.incoming;
     return {
-      station: destination,
-      name: stationName(destinationNode, destination),
-      ...(inbound?.description !== undefined
-        ? { description: inbound.description }
+      board: destination,
+      name: tasksNodeName(destinationNode, destination),
+      ...(incoming?.description !== undefined
+        ? { description: incoming.description }
         : {}),
-      admission: resolveSinkAdmission(
-        sinkContractOf(doc.nodes.find((node) => node.id === destination)),
-      ),
+      admission: resolveTaskAdmission(boardContractOf(destinationNode)),
     };
   });
-  if (contract === undefined && destinations.length === 0) return undefined;
+  if (contract === undefined && next.length === 0) return undefined;
   return {
-    station: {
+    board: {
       name: identity.name,
-      ...(identity.role ? { role: identity.role } : {}),
       ...(identity.namingHint ? { namingHint: identity.namingHint } : {}),
     },
     contract: {
-      ...stationGuidance(doc, nodeId),
-      claims: effectiveClaimsStack(doc, nodeId).length,
-      admission: resolveSinkAdmission(contract),
+      ...boardGuidance(doc, nodeId),
+      rules: rulesInForce(doc, nodeId).length,
+      admission: resolveTaskAdmission(contract),
     },
-    destinations,
+    next,
   };
 };
 
@@ -831,7 +911,7 @@ const dispatchOp = (
           summary: c.summary,
           role: c.role,
           grants: c.grants,
-          ...(sinkPipelineBriefing(board, c.id) ?? {}),
+          ...(boardBriefing(board, c.id) ?? {}),
         })),
         // Operator-pinned precedent from the seat's own region stack.
         rulings: rulingsForRegionStack(board, caller.nodeId),
@@ -884,23 +964,21 @@ const dispatchOp = (
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       const items = gate.node?.ether?.tasks?.items ?? [];
-      const proposals = gate.node?.ether?.tasks?.proposals ?? [];
-      // Onion visibility holds by construction: rows at this sink carry only
-      // the current passage's thread; prior interiors live on prior stations'
-      // rows. Ambient law (station purpose + region stack briefings) is
+      // Onion visibility holds by construction: rows at this board carry only
+      // the current visit's thread; prior interiors live on prior boards'
+      // rows. Ambient guidance (board purpose + region stack briefings) is
       // additive so seats can compose against the standing contract.
       const contract = gate.node?.ether?.tasks?.contract;
       const ambient = regionStackFor(board, decoded.success.target);
       return {
         target: decoded.success.target,
         items,
-        proposals,
         ...(contract !== undefined
           ? {
               contract: {
-                ...stationGuidance(board, decoded.success.target),
-                claims: contract.claims ?? [],
-                admission: resolveSinkAdmission(contract),
+                ...boardGuidance(board, decoded.success.target),
+                rules: contract.rules ?? [],
+                admission: resolveTaskAdmission(contract),
               },
             }
           : {}),
@@ -1029,22 +1107,22 @@ const dispatchOp = (
         decoded.success.media,
         decoded.success.dependsOn,
         decoded.success.finishCriteria,
-        decoded.success.claims,
+        decoded.success.rules,
         {
           admission: decoded.success.admission,
-          admissionOmitted: "operator-gated",
-          ...(decoded.success.holdForMs !== undefined
-            ? { holdForMs: decoded.success.holdForMs }
+          admissionOmitted: "approval",
+          ...(decoded.success.waitFor !== undefined
+            ? { waitForMs: decoded.success.waitFor }
             : {}),
           raisedBy: actor.success,
         },
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      const law = stationLawMap(board, decoded.success.target);
+      const path = boardRulesMap(board, decoded.success.target);
       return {
         ...exposeWorkMutation(mapped.success),
-        ...(law.length > 0 ? { law } : {}),
+        ...(path.length > 0 ? { path } : {}),
       };
     }
 
@@ -1076,25 +1154,59 @@ const dispatchOp = (
       const task = gate.node?.ether?.tasks?.items.find(
         (candidate) => candidate.id === decoded.success.task,
       );
-      if (
-        task?.claimedBy !== undefined &&
-        task.claimedBy !== actor.success.seatId
-      ) {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "ClaimConflict",
-          message:
-            `task "${decoded.success.task}" is already assigned to another agent`,
-          details: {
-            holder: task.claimedBy,
-            caller: actor.success.seatId,
-            retryable: false,
-            next_step: "pick another task; only the assigned agent can update it",
-          },
-        });
-      }
+      // Unadmitted submitted rows refuse every seat mutation first — a
+      // submitted task waiting on approval, wait, or a Me board is not the
+      // caller's to complete, send on, or release.
       const unadmitted = refuseUnadmittedSubmitted(task, gate.node);
       if (unadmitted !== undefined) {
         return yield* Effect.fail(unadmitted);
+      }
+      // Seat/agent wire ownership (tasks-consolidation plan B2): completing
+      // or sending work on (including defect send-back) requires the calling
+      // seat to be the claimant; failing, canceling, and input requests may
+      // come from any connected agent; returning to Queue and archiving are
+      // operator-only and refused on the seat wire.
+      const sendOn =
+        decoded.success.state === "completed" ||
+        (decoded.success.state === "rejected" &&
+          decoded.success.defect !== undefined);
+      if (sendOn) {
+        if (
+          task?.claimedBy === undefined ||
+          task.claimedBy !== actor.success.seatId
+        ) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "ClaimConflict",
+            message:
+              `task "${decoded.success.task}" must be claimed by you before completing or sending it on`,
+            details: {
+              ...(task?.claimedBy === undefined
+                ? {}
+                : { holder: task.claimedBy }),
+              caller: actor.success.seatId,
+              retryable: false,
+              next_step:
+                "claim the task first; only the claiming seat completes or sends on work",
+            },
+          });
+        }
+      } else if (
+        decoded.success.state === "submitted" ||
+        decoded.success.state === "archived"
+      ) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "ScopeError",
+          message:
+            decoded.success.state === "submitted"
+              ? "only the operator may return a task to Queue"
+              : "only the operator may archive a task",
+          details: {
+            caller: actor.success.seatId,
+            retryable: false,
+            next_step:
+              "ask the operator to perform this action from the Command Center",
+          },
+        });
       }
       const result = yield* work.workTaskTransition(
         caller.canvasName,
@@ -1110,8 +1222,11 @@ const dispatchOp = (
           ...(decoded.success.defect !== undefined
             ? { defect: decoded.success.defect }
             : {}),
-          ...(decoded.success.holdForMs !== undefined
-            ? { holdForMs: decoded.success.holdForMs }
+          ...(decoded.success.waitFor !== undefined
+            ? { waitForMs: decoded.success.waitFor }
+            : {}),
+          ...(decoded.success.handoffNote !== undefined
+            ? { handoffNote: decoded.success.handoffNote }
             : {}),
         },
       );
@@ -1135,25 +1250,29 @@ const dispatchOp = (
         )
         .pipe(
           Effect.catch((error) =>
-            Effect.fail(mapWorkCode(error.code, error.message)),
+            Effect.fail(
+              mapWorkCode(error.code, error.message, error.details),
+            ),
           ),
         );
     }
 
-    if (op === "tasks.claims") {
-      const decoded = decodeArgs(TasksClaimsArgs, args);
+    if (op === "tasks.rules") {
+      const decoded = decodeArgs(TasksRulesArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
       return yield* work
-        .workTaskClaims(
+        .workTaskRules(
           caller.canvasName,
           decoded.success.target,
           decoded.success.task,
         )
         .pipe(
           Effect.catch((error) =>
-            Effect.fail(mapWorkCode(error.code, error.message)),
+            Effect.fail(
+              mapWorkCode(error.code, error.message, error.details),
+            ),
           ),
         );
     }
@@ -1172,13 +1291,15 @@ const dispatchOp = (
         .workRulingsList(caller.canvasName, target ?? caller.nodeId)
         .pipe(
           Effect.catch((error) =>
-            Effect.fail(mapWorkCode(error.code, error.message)),
+            Effect.fail(
+              mapWorkCode(error.code, error.message, error.details),
+            ),
           ),
         );
     }
 
-    if (op === "tasks.board") {
-      const decoded = decodeArgs(TasksBoardArgs, args);
+    if (op === "tasks.check") {
+      const decoded = decodeArgs(TasksCheckArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       const gate = requireTarget(board, caller.nodeId, decoded.success.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
@@ -1194,12 +1315,13 @@ const dispatchOp = (
         return yield* Effect.fail<WorkErrorBody>({
           type: "ClaimConflict",
           message:
-            `task "${decoded.success.task}" is already assigned to another agent`,
+            `task "${decoded.success.task}" is claimed by another seat; only the claiming seat runs its checks`,
           details: {
             holder: task.claimedBy,
             caller: actor.success.seatId,
             retryable: false,
-            next_step: "pick another task; only the assigned agent can board it",
+            next_step:
+              "only the claiming seat runs checks on this task",
           },
         });
       }
@@ -1207,7 +1329,7 @@ const dispatchOp = (
       if (unadmitted !== undefined) {
         return yield* Effect.fail(unadmitted);
       }
-      const result = yield* work.workTaskBoard(
+      const result = yield* work.workTaskCheck(
         caller.canvasName,
         decoded.success.target,
         decoded.success.task,

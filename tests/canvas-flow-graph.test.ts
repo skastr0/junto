@@ -6,7 +6,7 @@ import {
   flowDestinations,
   flowHops,
   flowSources,
-  reachableStations,
+  reachableBoards,
   validateFlowDag,
 } from "../src/shared/flow-graph";
 
@@ -130,8 +130,8 @@ describe("flowDestinations / flowSources", () => {
   });
 });
 
-describe("reachableStations", () => {
-  const pipeline = doc(
+describe("reachableBoards", () => {
+  const path = doc(
     ["a", "b", "c", "d", "island"],
     [
       flowEdge("e1", "a", "b"),
@@ -140,18 +140,18 @@ describe("reachableStations", () => {
     ],
   );
 
-  it("includes the starting station itself", () => {
-    expect(reachableStations(pipeline, "b").has("b")).toBe(true);
+  it("includes the starting board itself", () => {
+    expect(reachableBoards(path, "b").has("b")).toBe(true);
   });
 
   it("walks transitively forward only", () => {
-    expect([...reachableStations(pipeline, "a")].sort()).toEqual(["a", "b", "c", "d"]);
-    expect([...reachableStations(pipeline, "c")].sort()).toEqual(["c"]);
-    expect(reachableStations(pipeline, "b").has("a")).toBe(false);
+    expect([...reachableBoards(path, "a")].sort()).toEqual(["a", "b", "c", "d"]);
+    expect([...reachableBoards(path, "c")].sort()).toEqual(["c"]);
+    expect(reachableBoards(path, "b").has("a")).toBe(false);
   });
 
-  it("returns only the station itself when it has no flow", () => {
-    expect([...reachableStations(pipeline, "island")]).toEqual(["island"]);
+  it("returns only the board itself when it has no flow", () => {
+    expect([...reachableBoards(path, "island")]).toEqual(["island"]);
   });
 
   it("terminates on cyclic input", () => {
@@ -159,6 +159,6 @@ describe("reachableStations", () => {
       ["a", "b"],
       [flowEdge("e1", "a", "b"), flowEdge("e2", "b", "a")],
     );
-    expect([...reachableStations(cyclic, "a")].sort()).toEqual(["a", "b"]);
+    expect([...reachableBoards(cyclic, "a")].sort()).toEqual(["a", "b"]);
   });
 });

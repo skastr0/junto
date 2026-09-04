@@ -45,12 +45,12 @@ export type CapabilityViewOptions = {
 /**
  * The capability view plus the facts a verb grants that are not ports.
  *
- * `assignable` holds the undirected pair keys whose relationship lets the
+ * `claimable` holds the undirected pair keys whose relationship lets the
  * factory tick hand work to the actor seat — the `works` verb says so
  * explicitly, where a port only ever said the seat *may* claim.
  */
 export type VerbCapabilityView = CapabilityView & {
-  readonly assignable: HashSet.HashSet<string>;
+  readonly claimable: HashSet.HashSet<string>;
 };
 
 /**
@@ -59,7 +59,7 @@ export type VerbCapabilityView = CapabilityView & {
  * - regionPeers: group co-members (excluding self), geometry-derived
  * - nodeMeta: kind + isGroup
  * - edgePortMask: union of the compiled grants on that undirected pair
- * - assignable: pairs whose verb marks the actor seat assignable
+ * - claimable: pairs whose verb lets the factory claim for the actor seat
  * - placement: from topology resolve or explicit map (I18)
  */
 export const canvasDocToCapabilityView = (
@@ -86,7 +86,7 @@ export const canvasDocToCapabilityView = (
   // the union can never smuggle a port the target does not offer.
   const kinds = edgeKindIndex(doc);
   const pairPorts = new Map<string, HashSet.HashSet<Port>>();
-  let assignable = HashSet.empty<string>();
+  let claimable = HashSet.empty<string>();
 
   for (const edge of doc.edges) {
     const a = asNodeId(edge.fromNode);
@@ -99,8 +99,8 @@ export const canvasDocToCapabilityView = (
     const ports = HashSet.fromIterable(grant?.ports ?? []);
     const prev = pairPorts.get(key);
     pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
-    if (grant?.assignable === true) {
-      assignable = HashSet.add(assignable, key);
+    if (grant?.claimable === true) {
+      claimable = HashSet.add(claimable, key);
     }
   }
 
@@ -132,12 +132,12 @@ export const canvasDocToCapabilityView = (
     options?.placement ??
     placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY);
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, assignable, placement };
+  return { nodeMeta, connected, regionPeers, edgePortMask, claimable, placement };
 };
 
-/** Whether the relationship between two nodes lets the tick assign work. */
-export const pairIsAssignable = (
+/** Whether the relationship between two nodes lets the tick claim work. */
+export const pairIsClaimable = (
   view: VerbCapabilityView,
   a: string,
   b: string,
-): boolean => HashSet.has(view.assignable, undirectedEdgeKey(a, b));
+): boolean => HashSet.has(view.claimable, undirectedEdgeKey(a, b));

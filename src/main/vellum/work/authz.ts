@@ -19,7 +19,7 @@ import {
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { Result, Match } from "effect";
 import { RELAY_ENABLED } from "@shared/features";
-import { stationName } from "@shared/station-identity";
+import { tasksNodeName } from "@shared/tasks-node-identity";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
 // (admitPure + ports). Region co-members: {id, kind, title} visibility only.
@@ -31,7 +31,7 @@ export const nodeKind = (node: CanvasNode | undefined): string | undefined =>
   node?.ether?.entity?.kind;
 
 export const nodeTitle = (node: CanvasNode): string => {
-  if (nodeKind(node) === "task") return stationName(node);
+  if (nodeKind(node) === "task") return tasksNodeName(node, node.id);
   if (node.type === "text") {
     const first = node.text?.split("\n")[0]?.trim();
     if (first) return first;
@@ -149,8 +149,8 @@ export const requiresConnection = (op: WorkOpName): boolean => {
     case "tasks.claim":
     case "tasks.update":
     case "tasks.show":
-    case "tasks.claims":
-    case "tasks.board":
+    case "tasks.rules":
+    case "tasks.check":
     case "rulings":
     case "content.path":
     case "content.stat":

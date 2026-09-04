@@ -428,7 +428,7 @@ const vellumApi: VellumCommandApi = {
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>
     invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
-  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims, options) =>
+  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options) =>
     invoke(
       IPC_CHANNELS.workTaskCreate,
       IPC_TIMEOUT_MS,
@@ -440,27 +440,9 @@ const vellumApi: VellumCommandApi = {
       media,
       dependsOn,
       finishCriteria,
-      claims,
+      rules,
       options,
     ),
-  workTaskPropose: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, claims) =>
-    invoke(
-      IPC_CHANNELS.workTaskPropose,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      brief,
-      metadata,
-      reason,
-      media,
-      dependsOn,
-      finishCriteria,
-      claims,
-    ),
-  workTaskApproveProposal: (canvas, nodeId, taskId) =>
-    invoke(IPC_CHANNELS.workTaskApproveProposal, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
-  workTaskRejectProposal: (canvas, nodeId, taskId) =>
-    invoke(IPC_CHANNELS.workTaskRejectProposal, IPC_TIMEOUT_MS, canvas, nodeId, taskId),
   workTaskDescribe: (canvas, nodeId, taskId, brief) =>
     invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
   workTaskTransition: (
@@ -470,7 +452,7 @@ const vellumApi: VellumCommandApi = {
     state,
     note,
     completionEvidence,
-    pipeline,
+    path,
   ) =>
     invoke(
       IPC_CHANNELS.workTaskTransition,
@@ -481,19 +463,10 @@ const vellumApi: VellumCommandApi = {
       state,
       note,
       completionEvidence,
-      pipeline,
+      path,
     ),
   workTaskPromote: (canvas, nodeId, taskId, note) =>
     invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId, note),
-  workTaskRejectArrival: (canvas, nodeId, taskId, note) =>
-    invoke(
-      IPC_CHANNELS.workTaskRejectArrival,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      note,
-    ),
   workTaskComment: (canvas, nodeId, taskId, text) =>
     invoke(
       IPC_CHANNELS.workTaskComment,

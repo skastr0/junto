@@ -11,13 +11,13 @@ import {
   type VerbGrant,
 } from "./physics/verbs";
 import {
-  ClaimDef,
   EtherArtifacts,
   EtherBoard,
   EtherMessages,
   EtherPad,
   EtherRequests,
   EtherTasks,
+  Rule,
   Ruling,
 } from "./work-model";
 
@@ -29,11 +29,11 @@ export {
   BoardGlanceTopic,
   BoardPost,
   BoardTopic,
-  CheckDef,
-  ClaimDef,
-  ClaimResponse,
-  ClaimSeverity,
-  ClaimWaiver,
+  Check,
+  CheckResult,
+  CheckSide,
+  Claim,
+  CHECK_OUTPUT_TAIL_MAX_BYTES,
   ContentAvailability,
   ContentByteLength,
   ContentCorrupt,
@@ -63,24 +63,22 @@ export {
   Message,
   MessageRole,
   Part,
-  Passage,
-  PassageExit,
   RawPart,
-  resolveSinkAdmission,
+  resolveTaskAdmission,
+  Rule,
   Ruling,
-  SinkAdmission,
   Task,
-  TaskClaim,
-  TaskProposal,
+  TaskAdmission,
+  TaskRule,
   TaskState,
-  TasksInboundContract,
-  TasksOutboundContract,
-  TasksSinkContract,
+  TasksContract,
+  TasksIncoming,
+  TasksOutgoing,
   TextPart,
-  Ticket,
-  TicketSide,
-  TICKET_OUTPUT_TAIL_MAX_BYTES,
   UrlPart,
+  Visit,
+  VisitExit,
+  Waiver,
   isContentPart,
   WorkArtifacts,
   WorkBoard,
@@ -263,12 +261,12 @@ export const EtherRegionDefaults = Schema.Struct({
 });
 export type EtherRegionDefaults = typeof EtherRegionDefaults.Type;
 
-// Operator-authored region standing law. Claims stack onto every task closing
-// at a sink inside the region (outer → inner across the region stack);
-// rulings are pinned escalation precedents served via onboard / claim packet.
-// Seats have no authorial write path to this contract.
+// Operator-authored region rules. Rules stack onto every task closing at a
+// board inside the region (outer → inner across the region stack); rulings are
+// pinned escalation precedents served via onboard and task rules. Agents have
+// no authorial write path to this contract.
 export const EtherRegionContract = Schema.Struct({
-  claims: Schema.optionalKey(Schema.Array(ClaimDef)),
+  rules: Schema.optionalKey(Schema.Array(Rule)),
   rulings: Schema.optionalKey(Schema.Array(Ruling)),
 });
 export type EtherRegionContract = typeof EtherRegionContract.Type;
@@ -335,7 +333,7 @@ export type EtherTimer = typeof EtherTimer.Type;
 // Work read plane — normalized WorkService rows are projected into these
 // fields for renderer/kernel consumers. They remain part of the composed
 // CanvasDoc shape, but authorial persistence and Station portfolio boundaries
-// reject them. Old checklist {id,text,done} is dead and fails decode.
+// reject them.
 
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalKey(EtherEntity),
@@ -378,7 +376,7 @@ export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 /**
  * The one authored fact on an edge: what the relationship **is**.
  *
- * Ports, assignability, board wake, watch predicates, fire actions, pipeline
+ * Ports, claimability, board wake, watch predicates, fire actions, task-path
  * flow, and scheduler chaining are compiled from the verb plus the two endpoint
  * kinds (`physics/verbs.ts`) — never stored, never mirrored. `fromNode` is
  * always the verb's source end, whichever way the operator dragged.
@@ -516,7 +514,7 @@ const isNonEmptyArrayField = (value: unknown, key: string): boolean => {
  * readers have one shape. Persistence boundaries use this detector before
  * decode because a valid projected store must never become durable intent.
  * `ether.tasks` is special: its `contract` is operator-authored document
- * truth, so only projected rows (items/proposals) make it a work projection.
+ * truth, so only projected task rows make it a work projection.
  */
 export const containsWorkProjection = (input: unknown): boolean => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
@@ -540,10 +538,7 @@ export const containsWorkProjection = (input: unknown): boolean => {
       return true;
     }
     const tasks = (ether as { readonly tasks?: unknown }).tasks;
-    return (
-      isNonEmptyArrayField(tasks, "items") ||
-      isNonEmptyArrayField(tasks, "proposals")
-    );
+    return isNonEmptyArrayField(tasks, "items");
   });
 };
 

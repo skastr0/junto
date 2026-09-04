@@ -11,7 +11,7 @@
  * then read the world and read SQLite through the SAME reader in the SAME
  * snapshot, and require them to be equal. The mutations below walk every lane
  * a snapshot projects (tasks, requests, mailbox, artifacts, board, pad,
- * proposals, delivery receipts, read cursors) plus the two operator paths that
+ * delivery receipts, read cursors) plus the two operator paths that
  * deliberately mint no journal record.
  *
  * Two assertions keep this from being a tautology:

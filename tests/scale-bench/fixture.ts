@@ -228,7 +228,6 @@ export type FixtureShape = {
   readonly sinkNodes: number;
   readonly messages: number;
   readonly tasks: number;
-  readonly proposals: number;
   readonly requests: number;
   readonly artifacts: number;
   readonly boardTopics: number;
@@ -243,7 +242,6 @@ export type FixtureShape = {
 const COUNT_QUERIES: ReadonlyArray<readonly [keyof FixtureShape, string]> = [
   ["messages", "SELECT count(*) AS n FROM work_messages WHERE canvas_name = ?"],
   ["tasks", "SELECT count(*) AS n FROM work_tasks WHERE canvas_name = ?"],
-  ["proposals", "SELECT count(*) AS n FROM work_task_proposals WHERE canvas_name = ?"],
   ["requests", "SELECT count(*) AS n FROM work_requests WHERE canvas_name = ?"],
   ["artifacts", "SELECT count(*) AS n FROM work_artifacts WHERE canvas_name = ?"],
   ["boardTopics", "SELECT count(*) AS n FROM work_board_topics WHERE canvas_name = ?"],
@@ -287,7 +285,6 @@ export const probeShape = async (
           `
             SELECT count(*) AS n FROM (
               SELECT node_id FROM work_tasks WHERE canvas_name = ?1
-              UNION SELECT node_id FROM work_task_proposals WHERE canvas_name = ?1
               UNION SELECT node_id FROM work_requests WHERE canvas_name = ?1
               UNION SELECT node_id FROM work_messages WHERE canvas_name = ?1
               UNION SELECT node_id FROM work_artifacts WHERE canvas_name = ?1
@@ -315,7 +312,6 @@ export const probeShape = async (
     sinkNodes: counts.sinkNodes ?? 0,
     messages: counts.messages ?? 0,
     tasks: counts.tasks ?? 0,
-    proposals: counts.proposals ?? 0,
     requests: counts.requests ?? 0,
     artifacts: counts.artifacts ?? 0,
     boardTopics: counts.boardTopics ?? 0,
@@ -337,7 +333,7 @@ const authorialBasis = (generation: string, contentSha256: string) =>
 
 const specKey = (spec: ScaleSpec): string =>
   createHash("sha256")
-    .update(JSON.stringify({ spec, schema: CURRENT_STATE_SCHEMA_VERSION, version: 2 }))
+    .update(JSON.stringify({ spec, schema: CURRENT_STATE_SCHEMA_VERSION, version: 3 }))
     .digest("hex")
     .slice(0, 16);
 

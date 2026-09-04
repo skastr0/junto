@@ -2,13 +2,13 @@ import { Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import { NodeSpec, resolveSpec } from "./physics/kinds";
 
-// Task-flow graph derived from the `feeds` verb. Pure — no I/O.
+// Task path graph derived from the `feeds` verb. Pure — no I/O.
 // A `feeds` edge is stored in its own direction (fromNode is the upstream
-// station), so the hop needs no separate direction config. The flow graph must
+// board), so the hop needs no separate direction config. The flow graph must
 // be a DAG: a hop that would close a cycle is rejected with FlowCycleError at
 // mutation time and at act time.
 
-/** One configured task-flow hop. */
+/** One configured task path hop. */
 export type FlowHop = {
   readonly edgeId: string;
   readonly source: string;
@@ -19,7 +19,7 @@ export type FlowHop = {
 export class FlowCycleError extends Schema.TaggedError<FlowCycleError>()(
   "FlowCycleError",
   {
-    /** Station node ids along the cycle, in walk order; the first id closes it. */
+    /** Tasks node ids along the cycle, in walk order; the first id closes it. */
     cycle: Schema.Array(Schema.String),
     message: Schema.String,
   },
@@ -28,7 +28,7 @@ export class FlowCycleError extends Schema.TaggedError<FlowCycleError>()(
 const isSinkSpec = NodeSpec.$is("Sink");
 
 /**
- * A task sink — the only station a hop may name. Forwarding writes the row
+ * A Tasks node, the only board a hop may name. Sending on writes the row
  * into the destination's `ether.tasks` (`workTaskTransition`), and no other
  * sink kind projects that: a pad/board/page/requests destination would take
  * delivery of work it can never show, claim, or close.
@@ -41,8 +41,8 @@ export const isTaskSinkNode = (node: CanvasNode | undefined): boolean => {
   return isSinkSpec(spec) && spec.kind === "task";
 };
 
-/** Both endpoints of a hop must be task sinks — the pair a flow config needs. */
-export const isTaskFlowPair = (
+/** Both endpoints of a hop must be Tasks nodes — the pair a path needs. */
+export const isTaskPathPair = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
 ): boolean => isTaskSinkNode(fromNode) && isTaskSinkNode(toNode);
@@ -110,14 +110,14 @@ export const validateFlowDag = (doc: CanvasDoc): FlowCycleError | undefined => {
     if (cycle !== undefined) {
       return new FlowCycleError({
         cycle,
-        message: `task flow must stay a DAG; cycle: ${cycle.join(" -> ")} -> ${cycle[0]}`,
+        message: `task path must stay a DAG; cycle: ${cycle.join(" -> ")} -> ${cycle[0]}`,
       });
     }
   }
   return undefined;
 };
 
-/** Direct forward stations from a sink, deduped in document edge order. */
+/** Direct next boards, deduped in document edge order. */
 export const flowDestinations = (
   doc: CanvasDoc,
   nodeId: string,
@@ -131,7 +131,7 @@ export const flowDestinations = (
   return out;
 };
 
-/** Direct upstream stations of a sink, deduped in document edge order. */
+/** Direct previous boards, deduped in document edge order. */
 export const flowSources = (
   doc: CanvasDoc,
   nodeId: string,
@@ -146,12 +146,10 @@ export const flowSources = (
 };
 
 /**
- * Every station a journey starting at `fromNodeId` can still visit — BFS over
- * flow edges, INCLUDING `fromNodeId` itself (the journey visits its next stop,
- * so claims addressed there remain answerable; fork-waiver accounting depends
- * on this). Terminates on cyclic input via the visited set.
+ * Every board a task starting at `fromNodeId` can still visit, including the
+ * starting board. Terminates on cyclic input via the visited set.
  */
-export const reachableStations = (
+export const reachableBoards = (
   doc: CanvasDoc,
   fromNodeId: string,
 ): ReadonlySet<string> => {

@@ -6,9 +6,9 @@
  * remains for schema identity only and is no longer the authority.
  *
  * Scope law: this walk rewrites MATERIAL PROJECTIONS ONLY (parts_json /
- * brief_json columns). The work logs — work_events, work_facts,
- * work_commands, work_dispositions, work_proposal_events — are immutable by
- * schema trigger and are never touched: historical records keep their inline
+ * parts_json columns). The work logs — work_events, work_facts,
+ * work_commands, work_dispositions — are immutable by schema trigger and are
+ * never touched: historical records keep their inline
  * Base64 forever, and every decode path admits it (decode-admits-history).
  * New media flows through the content store at write time.
  *
@@ -286,27 +286,6 @@ const PARTS_TARGETS: ReadonlyArray<JsonColumnTarget> = [
     rowKey: (row) =>
       `work_board_posts:${row.canvas_name}/${row.node_id}/${row.topic_id}/${row.post_id}`,
   },
-  {
-    table: "work_task_proposals",
-    jsonColumn: "brief_json",
-    selectSql: `
-      SELECT canvas_name, node_id, proposal_id, brief_json
-      FROM work_task_proposals
-    `,
-    updateSql: `
-      UPDATE work_task_proposals
-      SET brief_json = ?
-      WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-    `,
-    ownerFromRow: (row) => ({
-      kind: "task",
-      canvasName: String(row.canvas_name),
-      nodeId: String(row.node_id),
-      recordId: String(row.proposal_id),
-    }),
-    rowKey: (row) =>
-      `work_task_proposals:${row.canvas_name}/${row.node_id}/${row.proposal_id}`,
-  },
 ];
 
 const parseJson = (text: string, label: string): unknown => {
@@ -441,13 +420,6 @@ const updateBindingsForPartsTarget = (
         String(row.node_id),
         String(row.topic_id),
         String(row.post_id),
-      ];
-    case "work_task_proposals":
-      return [
-        json,
-        String(row.canvas_name),
-        String(row.node_id),
-        String(row.proposal_id),
       ];
     default:
       throw new InlineMediaMigrationError(

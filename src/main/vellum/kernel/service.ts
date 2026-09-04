@@ -40,7 +40,7 @@ import {
   makeUserMessage,
   taskReleaseBoundary,
 } from "@shared/task";
-import { sinkContractOf, taskAdmissionState } from "@shared/claims";
+import { boardContractOf, taskAdmissionState } from "@shared/rules";
 import { ulid } from "ulid";
 import type { Task } from "@shared/work-model";
 import type { InstallationId } from "@shared/installation-id";
@@ -963,6 +963,18 @@ const makeKernelService = (
           seatPaused(state, doc, nodeId);
         const wanted = actorsNeedingWake(doc, canvasName, registry.resolve, {
           seatPaused: seatPausedHere,
+          claimEligible: (task, actor, sink) =>
+            taskAdmissionState(
+              task,
+              boardContractOf(doc.nodes.find((node) => node.id === sink.id)),
+              Date.now(),
+            ) === "claimable" &&
+            claimEligibleAfterRelease(
+              canvasName,
+              sink.id,
+              task,
+              actor.seatId,
+            ),
           // Awake covers both "already live here" and "not this station's seat
           // to start" — a Remote's actor is started by its own installation.
           isAwake: (node) => {
@@ -1109,12 +1121,11 @@ const makeKernelService = (
               );
             },
             claimEligible: (task, actor, sink) =>
-              // Pipeline admission: the auto-claim loop skips arrivals whose
-              // holdUntil is still in the future, unpromoted operator-gated
-              // arrivals, and every task at an operator-owned sink.
+              // The auto-claim loop skips tasks still waiting, tasks awaiting
+              // approval, and every task on a board set to Me.
               taskAdmissionState(
                 task,
-                sinkContractOf(doc.nodes.find((n) => n.id === sink.id)),
+                boardContractOf(doc.nodes.find((n) => n.id === sink.id)),
                 Date.now(),
               ) === "claimable" &&
               claimEligibleAfterRelease(
@@ -1158,7 +1169,7 @@ const makeKernelService = (
       }
     });
 
-  // A claim is the start of work. The durable task row is the assignment;
+  // A claim is the start of work. The durable task row records that claim;
   // this is only its local managed-seat wake-up. Failed idle-gated writes are
   // retried when that seat becomes deliverable; the safety cycle is repair.
   const deliverWorkingClaims = (
@@ -1225,20 +1236,20 @@ const makeKernelService = (
               actorSeatOccupy,
             );
             // Claim brief only — never a prior `/compact` gate. Compact is not
-            // part of claim delivery; the seat receives one complete CLI packet.
+            // part of claim delivery; the seat receives one complete CLI briefing.
             if (!running || !generationIsActive(generation)) continue;
             const accepted = yield* Effect.promise(() =>
               managedPulseDeliver(
                 surface.bindingId,
                 buildFactoryClaimPrompt({
-                  sinkNodeId: sink.id,
+                  boardId: sink.id,
                   task,
                   doc,
                 }),
               ),
             );
             if (!accepted) continue;
-            // Claim acceptance re-grounds the seat (packet teaches the CLI):
+            // Claim acceptance re-grounds the seat (the briefing teaches the CLI):
             // the supervisor counts it as factory proof.
             injectionSupervisor.noteClaimAccepted(surface.bindingId);
 

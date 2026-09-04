@@ -1,38 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultTaskAdmission,
-  parseTaskHold,
+  parseTaskWait,
   taskAdmissionChoices,
 } from "../src/renderer/components/work/task-create-admission";
 
 describe("task creation admission", () => {
-  it("defaults to approval unless the sink floor is operator-owned", () => {
-    expect(defaultTaskAdmission("auto")).toBe("operator-gated");
-    expect(defaultTaskAdmission("operator-gated")).toBe("operator-gated");
-    expect(defaultTaskAdmission("operator-owned")).toBe("operator-owned");
+  it("defaults to approval unless the board floor is Me", () => {
+    expect(defaultTaskAdmission("auto")).toBe("approval");
+    expect(defaultTaskAdmission("approval")).toBe("approval");
+    expect(defaultTaskAdmission("operator")).toBe("operator");
   });
 
-  it("disables every choice that would loosen the named sink floor", () => {
-    const gated = taskAdmissionChoices("operator-gated");
-    expect(gated.map(({ value, disabled }) => [value, disabled])).toEqual([
-      ["auto", true],
-      ["operator-gated", false],
-      ["operator-owned", false],
+  it("offers every admission choice", () => {
+    const choices = taskAdmissionChoices("approval");
+    expect(choices.map(({ value }) => value)).toEqual([
+      "auto",
+      "approval",
+      "operator",
     ]);
-    expect(gated[0]?.reason).toContain("sink floor");
-    expect(gated[0]?.reason).toContain("Waits for my approval");
-
-    const owned = taskAdmissionChoices("operator-owned");
-    expect(owned.map(({ disabled }) => disabled)).toEqual([true, true, false]);
+    expect(choices.every((choice) => !choice.disabled)).toBe(true);
   });
 
-  it("parses spoken holds and enforces the work-plane ceiling", () => {
-    expect(parseTaskHold("")).toEqual({ ok: true, ms: undefined });
-    expect(parseTaskHold("12h")).toEqual({ ok: true, ms: 43_200_000 });
-    expect(parseTaskHold("91d")).toEqual({
+  it("parses spoken waits and enforces the work-plane ceiling", () => {
+    expect(parseTaskWait("")).toEqual({ ok: true, ms: undefined });
+    expect(parseTaskWait("12h")).toEqual({ ok: true, ms: 43_200_000 });
+    expect(parseTaskWait("91d")).toEqual({
       ok: false,
-      message: "Hold duration cannot exceed 90 days.",
+      message: "Wait duration cannot exceed 90 days.",
     });
-    expect(parseTaskHold("later").ok).toBe(false);
+    expect(parseTaskWait("later").ok).toBe(false);
   });
 });

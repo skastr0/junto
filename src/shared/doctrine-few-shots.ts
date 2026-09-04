@@ -58,7 +58,7 @@ export const FEW_SHOT_ESCALATE: DoctrineFewShotPayload = {
   lesson: "Escalating blocks the seat and returns a stop directive — stop work ops until the operator answers.",
 };
 
-export const FEW_SHOT_TASK_FLOW: readonly DoctrineFewShotPayload[] = [
+export const FEW_SHOT_TASK_LIFECYCLE: readonly DoctrineFewShotPayload[] = [
   FEW_SHOT_CLAIM,
   FEW_SHOT_PROGRESS,
   FEW_SHOT_COMPLETE_EVIDENCE,

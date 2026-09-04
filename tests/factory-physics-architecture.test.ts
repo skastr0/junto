@@ -105,8 +105,8 @@ describe("factory physics architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("delivers factory claims as a complete CLI packet on the direct claim path", () => {
-    // Forward law (PTY-Factory A): claim delivery builds one complete packet.
+  it("delivers factory claims as a complete CLI briefing on the direct claim path", () => {
+    // Direct-claim contract (PTY-Factory A): delivery builds one complete briefing.
     // Do not encode ban-lists of retired symbols here — standing ruling against
     // mistake-tombstone tests; the positive contract is the gate.
     const kernel = readFileSync(

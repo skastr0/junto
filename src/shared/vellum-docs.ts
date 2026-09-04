@@ -40,7 +40,7 @@ import {
 
 export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "tasks.list": "List tasks on the connected tasks node.",
-  "tasks.create": "Propose new work for operator review.",
+  "tasks.create": "Author a new task on the connected Tasks board.",
   "tasks.claim": "Claim a submitted task (submitted → working).",
   "tasks.update": "Transition a task state (working/completed/failed/canceled/input-required).",
   "msg.list": "List messages on the connected node's mailbox.",
@@ -89,9 +89,9 @@ type NodeDoc = {
 
 const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   task: [
-    "task.create — one submitted Task is persisted immediately with a stable TaskId; omitted admission is operator-gated",
+    "task.create — one submitted Task is persisted immediately with a stable TaskId; omitted admission is approval",
     "task.claim — submitted → working only after admission and every dependsOn TaskId is completed",
-    "task.transition — local Command Center approval promotes the same TaskId; state changes may carry completionEvidence",
+    "task.transition — completed sends the task on (sent-on) or closes it (completed); a defect sends it back (sent-back); state changes may carry completionEvidence",
     "content.* — ContentRef materialization events for task media",
   ],
   requests: [
@@ -145,7 +145,7 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
-  task: "Tasks sink: planning persists one stable TaskId immediately. Omitted admission is operator-gated, and local Command Center approval promotes that same Task. dependsOn contains TaskIds only and gates claim until every prerequisite completes. Station protocol 1 has no Task approval action, so Remote-home operator-gated creation is refused. Legacy proposal events stay immutable history: reconciliation materializes only pending rows as same-ID gated Tasks, leaves approved and rejected documentary proposals alone, and never infers or rewires dependencies from prose. Finish criteria + completionEvidence gate the completed transition.",
+  task: "Tasks board: one stable TaskId is persisted immediately. Omitted admission is approval — the operator's approval lets a seat claim; admission never loosens the board floor (Immediate / Approval / Me). dependsOn contains TaskIds only and gates claim until every prerequisite completes. Finish criteria + completionEvidence gate the completed transition; every rule in force needs a claim (or a waiver when the chosen path no longer reaches its board); checks gate sending on.",
   requests: "Requests sink: items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts sink: items (Artifact[]) published through the admitted, process-bound path.",
   board: "Board sink: topics with posts; glance strip in ether, full posts on list/detail.",
@@ -162,7 +162,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
 
 const KIND_NOTE: Readonly<Record<string, string>> = {
   agent: "The actor role: pulls work through edges, holds a mailbox, runs a harness.",
-  task: "The pull queue: submitted tasks are assigned to connected actor seats.",
+  task: "The pull queue: submitted tasks are claimed by connected actor seats.",
   requests: "The escalation surface: file a request to block your seat and wait for the operator.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
@@ -316,7 +316,7 @@ export const buildDoctrineDoc = (): string => {
     "writes to your harness. The doctrine is the pointer; the CLI is the map.",
     "",
     "### The operational events",
-    "Beyond the doctrine you receive: claim packets (task data at claim), edge",
+    "Beyond the doctrine you receive: claim notices (task data at claim), edge",
     "map-change notices (contracts added/removed), orient notices (re-grounding),",
     "repair notes (environment fixes), and factory mail. All are compact; the",
     "full context is always one `onboard` away.",
@@ -336,7 +336,7 @@ export const buildConceptsDoc = (): string =>
     "## The factory",
     "Tasks are a pull queue. The factory (edges + live state) decides what is",
     "available; seats claim and work. Claims are atomic and delivered as a",
-    "complete CLI packet. Idle seats wait — they do not invent backlog.",
+    "complete CLI task briefing. Idle seats wait — they do not invent backlog.",
     "",
     "## Grants and ports",
     `Every edge hands the seat the ports the node offers. The port set:`,

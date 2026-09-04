@@ -10,8 +10,7 @@ import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
-import { materializePendingProposal } from "../src/shared/pending-proposal-backfill";
-import type { Task, TaskProposal } from "../src/shared/work-model";
+import type { Task } from "../src/shared/work-model";
 import {
   AuthorialIntentFactBasis,
   ProjectedIntentFactBasis,
@@ -131,14 +130,6 @@ const task = (
   ...overrides,
 });
 
-const proposal = (id: string): TaskProposal => ({
-  id,
-  state: "pending",
-  brief: message(`brief-${id}`, id, id),
-  proposedBy: actor("1"),
-  metadata: { exact: true },
-  reason: "operator review",
-});
 
 const scope = (
   nodeId: string,
@@ -296,133 +287,6 @@ const pendingRouteCount = async (
   );
 
 describe("WorkRepository hardening across replication", () => {
-  it("retires Remote approval emission before sequence allocation and denies a legacy split pair", async () => {
-    const ccId = installation("cc-approval-hardening");
-    const remoteId = installation("remote-approval-hardening");
-    const cc = await openInstallation(ccId, [remoteId], "command-center");
-    const remote = await openInstallation(remoteId, [ccId], "remote");
-    const sink = { canvasName: "factory", nodeId: "tasks-main" };
-    const source = proposal("legacy-approval-pair");
-    const exactTask = materializePendingProposal({ proposal: source }).task;
-
-    const createCommand = await remote.runtime.runPromise(
-      remote.repository.enqueueRemoteCommand({
-        targetInstallationId: ccId,
-        sink,
-        item: { kind: "proposal", itemId: source.id, sink },
-        action: { operation: "proposal.create", proposal: source },
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    const createResult = await cc.runtime.runPromise(
-      accept(cc.repository, remoteId, [createCommand]),
-    );
-    const createFact = createResult.emitted.find(
-      (record) => record.recordType === "fact",
-    );
-    if (createFact === undefined) throw new Error("proposal create fact missing");
-    await remote.runtime.runPromise(
-      accept(remote.repository, ccId, createResult.emitted),
-    );
-
-    const before = await pendingRouteCount(remote, remoteId, ccId);
-    const approvalInput = {
-      targetInstallationId: ccId,
-      sink,
-      item: { kind: "proposal" as const, itemId: source.id, sink },
-      action: {
-        operation: "proposal.approve" as const,
-        proposalId: source.id,
-        task: exactTask,
-      },
-      originAt: observedAt,
-      receivedAt: observedAt,
-    };
-    await expect(
-      remote.runtime.runPromise(
-        remote.repository.enqueueRemoteProposalApproval(approvalInput),
-      ),
-    ).rejects.toThrow(/remote proposal approval is retired/);
-    await expect(
-      remote.runtime.runPromise(
-        remote.repository.enqueueRemoteCommand(approvalInput),
-      ),
-    ).rejects.toThrow(/remote proposal approval is retired/);
-    expect(await pendingRouteCount(remote, remoteId, ccId)).toBe(before);
-
-    const decoyProposal = proposal("decoy-for-legacy-sequence");
-    const decoyApprovalCommand = await remote.runtime.runPromise(
-      remote.repository.enqueueRemoteCommand({
-        targetInstallationId: ccId,
-        sink,
-        item: { kind: "proposal", itemId: decoyProposal.id, sink },
-        action: { operation: "proposal.create", proposal: decoyProposal },
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    const legacyApproval = reseal({
-      ...decoyApprovalCommand,
-      item: { kind: "proposal", itemId: source.id, sink },
-      operation: "proposal.approve",
-      predecessor: createFact.id,
-      body: {
-        operation: "proposal.approve",
-        proposalId: source.id,
-        task: exactTask,
-      },
-    });
-    const deniedApproval = await cc.runtime.runPromise(
-      accept(cc.repository, remoteId, [legacyApproval], {
-        authorizeCommand: () => admitted(scope(sink.nodeId, authorialBasis)),
-      }),
-    );
-    expect(deniedApproval.emitted).toEqual([
-      expect.objectContaining({
-        recordType: "disposition",
-        body: expect.objectContaining({ status: "rejected" }),
-      }),
-    ]);
-
-    const decoyTask = task("decoy-task-for-legacy-sequence");
-    const decoyCreateCommand = await remote.runtime.runPromise(
-      remote.repository.enqueueRemoteCommand({
-        targetInstallationId: ccId,
-        sink,
-        item: { kind: "task", itemId: decoyTask.id, sink },
-        action: { operation: "task.create", task: decoyTask },
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    const pairedTaskCreate = reseal({
-      ...decoyCreateCommand,
-      item: { kind: "task", itemId: exactTask.id, sink },
-      operation: "task.create",
-      predecessor: null,
-      body: { operation: "task.create", task: exactTask },
-    });
-    const deniedCreate = await cc.runtime.runPromise(
-      accept(cc.repository, remoteId, [pairedTaskCreate], {
-        authorizeCommand: () => admitted(scope(sink.nodeId, authorialBasis)),
-      }),
-    );
-    expect(deniedCreate.emitted).toEqual([
-      expect.objectContaining({
-        recordType: "disposition",
-        body: expect.objectContaining({ status: "rejected" }),
-      }),
-    ]);
-    const snapshot = await cc.runtime.runPromise(
-      cc.repository.readSnapshot(sink.canvasName, sink.nodeId),
-    );
-    expect(snapshot.tasks.items).toEqual([]);
-    expect(snapshot.tasks.proposals).toEqual([
-      expect.objectContaining({ id: source.id, state: "pending" }),
-    ]);
-  });
-
   it("fails closed for absent and wrong-sink dependency capabilities on commands", async () => {
     const ccId = installation("cc-command-capabilities");
     const remoteId = installation("remote-command-capabilities");

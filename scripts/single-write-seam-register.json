@@ -67,7 +67,7 @@
         "work_task_transitions",
         "work_tasks"
       ],
-      "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read.The 20 -> 21 consolidation step also rebuilds work_facts (rows copied forward byte-exact) to shed its FK into the retired blob generation store."
+      "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read. The 20 -> 21 consolidation step also rebuilds work_facts (rows copied forward byte-exact) to shed its FK into the retired blob generation store."
     },
     {
       "path": "src/main/vellum/state/schema-identity.ts",
@@ -94,12 +94,10 @@
         "work_event_sequences",
         "work_events",
         "work_facts",
-        "work_pending_commands",
-        "work_pending_proposal_commands",
-        "work_proposal_events"
+        "work_pending_commands"
       ],
       "reason": "THE EVENT JOURNAL APPEND. SQLite is the factory world's append-only journal and this file is the only place a journal record is written: allocateSequence / rememberIncomingSequence number a route, appendWorkRecord writes the record envelope plus its command / fact / disposition variant, appendPendingCommand indexes a command as unresolved. It decides nothing \u2014 minting, authority, and materialization stay in repository.ts. The runtime half of the same law is work/mutation-seam.ts, which refuses a projection write that no append here explains.",
-      "retire": "The five record tables plus work_event_sequences are the destination shape and stay. work_pending_commands / work_pending_proposal_commands are the debt: they are a derived index of unresolved commands, so once the in-memory world holds that index they leave this file's table set and the entry becomes permanent."
+      "retire": "The four record tables plus work_event_sequences are the destination shape and stay. work_pending_commands is the debt: it is a derived index of unresolved commands, so once the in-memory world holds that index it leaves this file's table set and the entry becomes permanent."
     },
     {
       "path": "src/main/vellum/work/repository.ts",
@@ -122,13 +120,10 @@
         "work_pad_read_cursors",
         "work_pad_shapes",
         "work_pending_commands",
-        "work_pending_proposal_commands",
-        "work_proposal_planning",
         "work_requests",
         "work_task_dependencies",
         "work_task_finish",
         "work_task_messages",
-        "work_task_proposals",
         "work_task_transitions",
         "work_tasks"
       ],
@@ -141,15 +136,6 @@
             "work_requests"
           ],
           "reason": "The task-record writer selects the lane table: `const table = lane === \"task\" ? \"work_tasks\" : \"work_requests\"`."
-        },
-        {
-          "statement": "UPDATE",
-          "expression": "${pendingTable}",
-          "resolvesTo": [
-            "work_pending_commands",
-            "work_pending_proposal_commands"
-          ],
-          "reason": "Disposition resolution selects the pending table by the referenced command's kind."
         },
         {
           "statement": "DELETE",
@@ -228,10 +214,9 @@
         "work_board_posts",
         "work_board_topics",
         "work_messages",
-        "work_task_messages",
-        "work_task_proposals"
+        "work_task_messages"
       ],
-      "reason": "One-shot backfill that rewrites parts_json in place to externalize inline media. It is a SECOND writer of six work_* tables and mints no work fact; only the schema-20 revision triggers keep the projection cache correct across it.",
+      "reason": "One-shot backfill that rewrites parts_json in place to externalize inline media. It is a SECOND writer of five work_* tables and mints no work fact; only the schema-20 revision triggers keep the projection cache correct across it.",
       "retire": "Delete this file once BACKFILL_INLINE_MEDIA_V1 is complete on every install. It is a migration, not a product path, and must not outlive the backfill."
     },
     {
@@ -375,6 +360,38 @@
       ],
       "reason": "Electron smoke probe writing a throwaway database under mkdtemp. Its tables exist only inside the probe.",
       "retire": "Prove the packaged runtime from an e2e assertion inside the app, so the probe and its tables go away."
+    },
+    {
+      "path": "src/main/vellum/state/tasks-schema21-correction.ts",
+      "kind": "debt",
+      "tables": [
+        "canvas_nodes",
+        "work_commands",
+        "work_dispositions",
+        "work_event_sequences",
+        "work_events",
+        "work_facts",
+        "work_task_dependencies",
+        "work_task_finish",
+        "work_task_messages",
+        "work_task_transitions",
+        "work_tasks"
+      ],
+      "reason": "The schema-21 corrective converter: rewrites retired Tasks vocabulary in authorial canvas ether, task metadata bags, completion evidence, and Work action/result JSON; repairs journal content hashes and their correlated copies; materializes proposal rows into canonical task records; and rebuilds changed canvases. Runs only inside migrateStateSchema's startup transaction, gated by the exact invalid-21 schema identity (or the 20 -> 21 consolidation step).",
+      "retire": "Delete the converter once every installed database has advanced past the invalid schema-21 shape (no invalid-21 identity remains in the field).",
+      "dynamicTableSites": [
+        {
+          "statement": "UPDATE",
+          "expression": "${table}",
+          "resolvesTo": [
+            "work_commands",
+            "work_facts",
+            "work_tasks",
+            "work_task_finish"
+          ],
+          "reason": "rewriteJsonColumn runs the same canonicalizing UPDATE against the four JSON-bearing tables the converter is authorized to repair."
+        }
+      ]
     }
   ],
   "sharedTableExceptions": [
@@ -464,7 +481,8 @@
       "table": "work_events",
       "owner": "src/main/vellum/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/state/tasks-schema21-correction.ts"
       ],
       "reason": "Same schema-advance table rebuild.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
@@ -489,38 +507,11 @@
       "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
     },
     {
-      "table": "work_pending_proposal_commands",
-      "owner": "src/main/vellum/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts",
-        "src/main/vellum/work/repository.ts"
-      ],
-      "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry. state/migrations.ts rebuilds the table on a schema step.",
-      "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
-    },
-    {
-      "table": "work_proposal_events",
-      "owner": "src/main/vellum/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
       "table": "work_task_messages",
       "owner": "src/main/vellum/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_task_proposals",
-      "owner": "src/main/vellum/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/vellum/content/inline-media-migration.ts"
+        "src/main/vellum/content/inline-media-migration.ts",
+        "src/main/vellum/state/tasks-schema21-correction.ts"
       ],
       "reason": "Same inline-media backfill.",
       "retire": "Delete src/main/vellum/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
@@ -529,7 +520,8 @@
       "table": "work_task_transitions",
       "owner": "src/main/vellum/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/state/tasks-schema21-correction.ts"
       ],
       "reason": "Same schema-advance table rebuild.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
@@ -538,7 +530,8 @@
       "table": "work_tasks",
       "owner": "src/main/vellum/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/state/tasks-schema21-correction.ts"
       ],
       "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
@@ -547,10 +540,65 @@
       "table": "work_facts",
       "owner": "src/main/vellum/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum/state/migrations.ts"
+        "src/main/vellum/state/migrations.ts",
+        "src/main/vellum/state/tasks-schema21-correction.ts"
       ],
       "reason": "The 20 -> 21 consolidation step rebuilds work_facts (bak -> drop -> recreate -> copy) to shed its FK into the retired blob generation store; rows copy forward byte-exact before any repository can read.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
+    },
+    {
+      "table": "work_dispositions",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/tasks-schema21-correction.ts"
+      ],
+      "reason": "The corrective converter rewrites command_sha256/fact_sha256 referents and rehashes affected disposition events; journal.ts remains the runtime append seam.",
+      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
+    },
+    {
+      "table": "work_event_sequences",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/tasks-schema21-correction.ts"
+      ],
+      "reason": "The corrective converter allocates fresh sequences when a proposal record's seq slot is occupied; journal.ts remains the runtime allocator.",
+      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
+    },
+    {
+      "table": "work_task_dependencies",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/tasks-schema21-correction.ts"
+      ],
+      "reason": "The corrective converter materializes proposal planning dependsOn rows into the normalized dependency table.",
+      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
+    },
+    {
+      "table": "work_task_finish",
+      "owner": "src/main/vellum/work/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/tasks-schema21-correction.ts"
+      ],
+      "reason": "The corrective converter materializes proposal planning finish criteria and rewrites retired completion evidence in place.",
+      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
+    },
+    {
+      "table": "canvas_nodes",
+      "owner": "src/main/vellum/canvas/records.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/tasks-schema21-correction.ts"
+      ],
+      "reason": "The corrective converter rewrites retired Tasks/region ether in place and rebuilds changed canvases through persistCanvas.",
+      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
+    },
+    {
+      "table": "work_commands",
+      "owner": "src/main/vellum/work/journal.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum/state/tasks-schema21-correction.ts"
+      ],
+      "reason": "The corrective converter rewrites retired action_json task payloads in place and rehashes the command events; journal.ts remains the runtime append seam.",
+      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     }
   ],
   "decodeBoundaries": [
@@ -559,7 +607,7 @@
       "kinds": [
         "wire"
       ],
-      "reason": "Decodes the tasks.claims boarding plan returned over the work control socket before the CLI executes any checklist command."
+      "reason": "Decodes the tasks.rules result returned over the work control socket before the CLI plans and executes checks."
     },
     {
       "path": "src/cli/core/batch.ts",
@@ -1101,14 +1149,6 @@
         "constant"
       ],
       "reason": "Brands the one operator planning seat id literal, once at module load."
-    },
-    {
-      "path": "src/shared/pending-proposal-backfill.ts",
-      "kinds": [
-        "row"
-      ],
-      "reason": "Re-validates legacy proposal rows read back from SQLite before materializing pending-proposal work items.",
-      "retire": "Delete when the work.pending-proposals.v1 backfill marker is complete on every installation and the walker is removed."
     },
     {
       "path": "src/shared/station-package-compatibility.ts",

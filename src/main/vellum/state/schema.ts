@@ -34,6 +34,7 @@ import {
   WORK_STATE_SCHEMA_V3_SQL,
   WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
   WORK_TASK_FINISH_STATE_SCHEMA_SQL,
+  withoutProposalStorage,
 } from "../work/state-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
 
@@ -323,4 +324,6 @@ export const STATE_SCHEMA_FRAGMENTS = STATE_SCHEMA_V20_FRAGMENTS.map(
  * Historical DDL belongs in forward migrations, never in compatibility
  * branches inside these fragments.
  */
-export const STATE_SCHEMA_SQL = STATE_SCHEMA_FRAGMENTS.join("\n");
+export const STATE_SCHEMA_SQL = withoutProposalStorage(
+  STATE_SCHEMA_FRAGMENTS.join("\n"),
+);

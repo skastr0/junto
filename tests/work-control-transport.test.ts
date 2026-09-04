@@ -827,7 +827,7 @@ describe("work control transport", () => {
     expect(claimAfter.data.disposition).toBe("applied");
   });
 
-  it("creates attributed proposals that require operator approval before claim", async () => {
+  it("creates attributed tasks that require operator approval before claim", async () => {
     const server = servers[0]!;
     const actor = await projectedProcessActor();
     const created = (await call(server.socketPath, {
@@ -854,7 +854,7 @@ describe("work control transport", () => {
       seatId: actor.seatId,
       nodeId: actor.nodeId,
     });
-    expect(created.data.admission).toBe("operator-gated");
+    expect(created.data.admission).toBe("approval");
 
     const taskId = created.data.id;
     const denied = (await call(server.socketPath, {
@@ -874,21 +874,21 @@ describe("work control transport", () => {
       })) as { ok: false; error: { type: string; message: string } };
       expect(blocked.ok).toBe(false);
       expect(blocked.error.type).toBe("InputError");
-      expect(blocked.error.message).toMatch(/approval|not yet assignable/i);
+      expect(blocked.error.message).toMatch(/approval|not yet claimable/i);
     }
 
-    const boarded = (await call(server.socketPath, {
+    const checked = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.board",
+      op: "tasks.check",
       args: { target: "tasks", task: taskId, results: [] },
     })) as { ok: false; error: { type: string; message: string } };
-    expect(boarded.ok).toBe(false);
-    expect(boarded.error.type).toBe("InputError");
-    expect(boarded.error.message).toMatch(/approval|not yet assignable/i);
+    expect(checked.ok).toBe(false);
+    expect(checked.error.type).toBe("InputError");
+    expect(checked.error.message).toMatch(/approval|not yet claimable/i);
 
     const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
     const approved = await runtimes[runtimes.length - 1]!.runPromise(
-      work.workTaskApproveProposal("work-cli", "tasks", taskId),
+      work.workTaskPromote("work-cli", "tasks", taskId),
     );
     expect(approved.ok).toBe(true);
     if (!approved.ok) throw new Error(approved.message);
@@ -984,7 +984,7 @@ describe("work control transport", () => {
     if (runtime === undefined) throw new Error("missing work-control runtime");
     const work = await runtime.runPromise(WorkService);
     const approved = await runtime.runPromise(
-      work.workTaskApproveProposal("work-cli", "tasks", created.data.id),
+      work.workTaskPromote("work-cli", "tasks", created.data.id),
     );
     expect(approved.ok).toBe(true);
     if (!approved.ok) throw new Error(approved.message);
@@ -1289,7 +1289,7 @@ describe("work control transport", () => {
         disposition: "applied",
       },
     });
-    expect(replay.data.message).toMatch(/already assigned to you/i);
+    expect(replay.data.message).toMatch(/already claimed by you/i);
   });
 
   it("publishes exact task provenance through the local control boundary", async () => {
@@ -1354,7 +1354,7 @@ describe("work control transport", () => {
     expect(legacy.error.details?.path).toBe("args");
   });
 
-  it("denies task updates from a connected actor that does not own the claim", async () => {
+  it("lets any connected agent file an input request on another seat's task", async () => {
     const runtime = runtimes.at(-1);
     if (runtime === undefined) throw new Error("missing work-control runtime");
     const caller = await projectedProcessActor();
@@ -1385,32 +1385,22 @@ describe("work control transport", () => {
         note: "waiting",
       },
     })) as {
-      ok: false;
-      error: {
-        type: string;
-        details?: { holder?: string; caller?: string; retryable?: boolean };
-      };
+      ok: true;
+      data: { disposition: "applied" | "queued" };
     };
 
-    expect(response.ok).toBe(false);
-    expect(response.error).toMatchObject({
-      type: "ClaimConflict",
-      details: {
-        holder: other.seatId,
-        caller: caller.seatId,
-        retryable: false,
-      },
-    });
+    expect(response.ok).toBe(true);
+    expect(response.data.disposition).toBe("applied");
     const snapshot = await runtime.runPromise(
       repository.readSnapshot("work-cli", "tasks"),
     );
     expect(snapshot.tasks.items.find((task) => task.id === "t1")).toMatchObject({
-      state: "working",
+      state: "input-required",
       claimedBy: other.seatId,
     });
   });
 
-  it("denies boarding submissions from a connected actor that does not own the claim", async () => {
+  it("denies check submissions from a connected actor that does not own the claim", async () => {
     const runtime = runtimes.at(-1);
     if (runtime === undefined) throw new Error("missing work-control runtime");
     const caller = await projectedProcessActor();
@@ -1433,7 +1423,7 @@ describe("work control transport", () => {
 
     const response = (await call(servers[0]!.socketPath, {
       token: token(),
-      op: "tasks.board",
+      op: "tasks.check",
       args: { target: "tasks", task: "t1", results: [] },
     })) as {
       ok: false;
@@ -1457,7 +1447,7 @@ describe("work control transport", () => {
     );
     const stored = snapshot.tasks.items.find((task) => task.id === "t1");
     expect(stored).toMatchObject({ state: "working", claimedBy: other.seatId });
-    expect(stored?.boarding).toBeUndefined();
+    expect(stored?.checkResults).toBeUndefined();
   });
 
   it("rejects client-supplied actor identity", async () => {
@@ -1716,7 +1706,7 @@ describe("work control transport", () => {
     expect(res.error.message).toMatch(/own mailbox/i);
   });
 
-  it("tasks.list and onboard carry the station triage and emission guidance", async () => {
+  it("tasks.list and onboard carry the board incoming and outgoing guidance", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
     const canvases = await runtime.runPromise(CanvasesService);
@@ -1735,12 +1725,12 @@ describe("work control transport", () => {
                       ...node.ether?.tasks,
                       items: node.ether?.tasks?.items ?? [],
                       contract: {
-                        instruction: "implement and gate the change",
-                        inbound: {
-                          instruction: "  reproduce the defect before touching code  ",
+                        instructions: "implement and gate the change",
+                        incoming: {
+                          handling: "  reproduce the defect before touching code  ",
                         },
-                        outbound: {
-                          emission: "name the verified fix and cite the failing test",
+                        outgoing: {
+                          handoff: "name the verified fix and cite the failing test",
                         },
                       },
                     },
@@ -1778,14 +1768,18 @@ describe("work control transport", () => {
     })) as {
       ok: true;
       data: {
-        contract?: { instruction?: string; triage?: string; emission?: string };
+        contract?: {
+          instructions?: string;
+          incomingHandling?: string;
+          outgoingHandoff?: string;
+        };
       };
     };
     expect(list.ok).toBe(true);
     expect(list.data.contract).toMatchObject({
-      instruction: "implement and gate the change",
-      triage: "reproduce the defect before touching code",
-      emission: "name the verified fix and cite the failing test",
+      instructions: "implement and gate the change",
+      incomingHandling: "reproduce the defect before touching code",
+      outgoingHandoff: "name the verified fix and cite the failing test",
     });
 
     const onboard = (await call(server.socketPath, {
@@ -1797,25 +1791,24 @@ describe("work control transport", () => {
         connected: Array<{
           id: string;
           title: string;
-          station?: { name: string; role?: string };
-          contract?: { triage?: string; emission?: string };
-          destinations?: Array<{ station: string; name: string }>;
+          board?: { name: string };
+          contract?: { incomingHandling?: string; outgoingHandoff?: string };
+          next?: Array<{ board: string; name: string; admission?: string }>;
         }>;
       };
     };
     expect(onboard.ok).toBe(true);
     const sinkEntry = onboard.data.connected.find((c) => c.id === "tasks");
     expect(sinkEntry?.title).toBe("implement and gate the change");
-    expect(sinkEntry?.station).toEqual({
+    expect(sinkEntry?.board).toEqual({
       name: "implement and gate the change",
-      role: "implement and gate the change",
     });
     expect(sinkEntry?.contract).toMatchObject({
-      triage: "reproduce the defect before touching code",
-      emission: "name the verified fix and cite the failing test",
+      incomingHandling: "reproduce the defect before touching code",
+      outgoingHandoff: "name the verified fix and cite the failing test",
     });
-    expect(sinkEntry?.destinations).toEqual([
-      expect.objectContaining({ station: "review", name: "Tasks review" }),
+    expect(sinkEntry?.next).toEqual([
+      expect.objectContaining({ board: "review", name: "Tasks review" }),
     ]);
 
     const renamed = await runtime.runPromise(canvases.read("work-cli"));
@@ -1832,7 +1825,7 @@ describe("work control transport", () => {
                   tasks: {
                     items: node.ether?.tasks?.items ?? [],
                     ...(node.ether?.tasks ?? {}),
-                    stationName: "Build",
+                    name: "Build",
                   },
                 },
               }
@@ -1855,34 +1848,33 @@ describe("work control transport", () => {
     })) as {
       ok: true;
       data: {
-        station: { nodeId: string; name: string; role?: string };
+        board: { nodeId: string; name: string };
         ambient: {
-          sinkInstruction?: string;
-          sinkTriage?: string;
-          sinkEmission?: string;
+          boardInstructions?: string;
+          incoming?: { handling?: string };
+          outgoing?: { handoff?: string };
         };
       };
     };
     expect(show.ok).toBe(true);
-    expect(show.data.station).toEqual({
+    expect(show.data.board).toEqual({
       nodeId: "tasks",
       name: "Build",
-      role: "implement and gate the change",
     });
     expect(show.data.ambient).toMatchObject({
-      sinkInstruction: "implement and gate the change",
-      sinkTriage: "reproduce the defect before touching code",
-      sinkEmission: "name the verified fix and cite the failing test",
+      boardInstructions: "implement and gate the change",
+      incoming: { handling: "reproduce the defect before touching code" },
+      outgoing: { handoff: "name the verified fix and cite the failing test" },
     });
   });
 
-  it("blank triage never surfaces and emission drops at a terminal station", async () => {
+  it("blank handling never surfaces and handoff drops at a terminal board", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
     const canvases = await runtime.runPromise(CanvasesService);
     const current = await runtime.runPromise(canvases.read("work-cli"));
-    // Same contract, but no flow edge: the station is terminal, and the
-    // authored triage is whitespace-only (JSON Canvas can hold that even
+    // Same contract, but no flow edge: the board is terminal, and the
+    // authored handling is whitespace-only (JSON Canvas can hold that even
     // though the editor normalizes it away).
     await runtime.runPromise(
       canvases.write("work-cli", {
@@ -1897,9 +1889,9 @@ describe("work control transport", () => {
                     ...node.ether?.tasks,
                     items: node.ether?.tasks?.items ?? [],
                     contract: {
-                      instruction: "  close the journey  ",
-                      inbound: { instruction: "   " },
-                      outbound: { emission: "hand off cleanly" },
+                      instructions: "  close the work  ",
+                      incoming: { handling: "   " },
+                      outgoing: { handoff: "hand off cleanly" },
                     },
                   },
                 },
@@ -1916,13 +1908,17 @@ describe("work control transport", () => {
     })) as {
       ok: true;
       data: {
-        contract?: { instruction?: string; triage?: string; emission?: string };
+        contract?: {
+          instructions?: string;
+          incomingHandling?: string;
+          outgoingHandoff?: string;
+        };
       };
     };
     expect(list.ok).toBe(true);
-    expect(list.data.contract?.instruction).toBe("close the journey");
-    expect(list.data.contract?.triage).toBeUndefined();
-    expect(list.data.contract?.emission).toBeUndefined();
+    expect(list.data.contract?.instructions).toBe("close the work");
+    expect(list.data.contract?.incomingHandling).toBeUndefined();
+    expect(list.data.contract?.outgoingHandoff).toBeUndefined();
 
     const show = (await call(server.socketPath, {
       token: token(),
@@ -1930,11 +1926,16 @@ describe("work control transport", () => {
       args: { target: "tasks", task: "t1" },
     })) as {
       ok: true;
-      data: { ambient: { sinkTriage?: string; sinkEmission?: string } };
+      data: {
+        ambient: {
+          incoming?: { handling?: string };
+          outgoing?: { handoff?: string };
+        };
+      };
     };
     expect(show.ok).toBe(true);
-    expect(show.data.ambient.sinkTriage).toBeUndefined();
-    expect(show.data.ambient.sinkEmission).toBeUndefined();
+    expect(show.data.ambient.incoming).toBeUndefined();
+    expect(show.data.ambient.outgoing).toBeUndefined();
   });
 });
 

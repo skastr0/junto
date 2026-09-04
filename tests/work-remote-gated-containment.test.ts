@@ -131,7 +131,7 @@ const filesBelow = async (root: string): Promise<ReadonlyArray<string>> => {
   return visit(root);
 };
 
-describe("Remote-home operator-gated Task containment", () => {
+describe("Remote-home approval Task containment", () => {
   it("refuses before content, command, event, fact, or Task persistence", async () => {
     const root = join(
       tmpdir(),
@@ -174,38 +174,48 @@ describe("Remote-home operator-gated Task containment", () => {
       const beforeFiles = await filesBelow(contentRoot);
 
       const planningResult = await runtime.runPromise(
-        work.workTaskProposeOperator(
+        work.workTaskCreate(
           canvasName,
           "remote-tasks",
           "plan on the Remote",
           { details: "plan on the Remote" },
           undefined,
           rawMedia("planning-media-must-not-persist"),
+          undefined,
+          undefined,
+          undefined,
+          { admission: "approval" },
         ),
       );
       const gatedCreateResult = await runtime.runPromise(
         work.workTaskCreate(
           canvasName,
           "remote-tasks",
-          "create a gated Task on the Remote",
-          { details: "create a gated Task on the Remote" },
+          "create an approval Task on the Remote",
+          { details: "create an approval Task on the Remote" },
           undefined,
           rawMedia("create-media-must-not-persist"),
           undefined,
           undefined,
           undefined,
-          { admission: "operator-gated" },
+          { admission: "approval" },
         ),
       );
 
       for (const result of [planningResult, gatedCreateResult]) {
         expect(result).toEqual({
           ok: false,
-          code: "invalid",
+          code: "wrong_home",
           message:
-            "operator-gated Task creation cannot target a Remote home because " +
-            "Station protocol 1 cannot carry Task approval; move the Task sink " +
+            "approval Task creation cannot target a Remote home because " +
+            "Station protocol 1 cannot carry Task approval; move the Tasks node " +
             "to Command Center before creating the Task",
+          details: {
+            target: "remote-tasks",
+            retryable: false,
+            next_step:
+              "move the Tasks node to Command Center before creating the Task",
+          },
         });
       }
 
@@ -223,17 +233,23 @@ describe("Remote-home operator-gated Task containment", () => {
       ).toEqual([]);
 
       const localPlanning = await runtime.runPromise(
-        work.workTaskProposeOperator(
+        work.workTaskCreate(
           canvasName,
           "command-center-tasks",
           "plan at Command Center",
           { details: "plan at Command Center" },
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { admission: "approval" },
         ),
       );
       expect(localPlanning).toMatchObject({
         ok: true,
         disposition: "applied",
-        data: { admission: "operator-gated" },
+        data: { admission: "approval" },
       });
     } finally {
       await runtime.dispose();

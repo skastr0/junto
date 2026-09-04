@@ -171,6 +171,106 @@ export const WORK_PROPOSAL_STATE_SCHEMA_SQL = `
 `;
 
 /**
+ * Exact text of one trigger inside a composed fragment, sliced from the
+ * fragment that defines it so the removal and the definition share one source.
+ */
+const sliceTrigger = (source: string, name: string): string => {
+  const start = source.indexOf(`CREATE TRIGGER IF NOT EXISTS ${name}`);
+  if (start < 0) {
+    throw new Error(
+      `work state schema derivation: trigger ${name} is missing from its fragment`,
+    );
+  }
+  const end = source.indexOf("END;", start);
+  if (end < 0) {
+    throw new Error(
+      `work state schema derivation: trigger ${name} is not closed in its fragment`,
+    );
+  }
+  return source.slice(start, end + "END;".length);
+};
+
+/**
+ * Corrected schema-21 Work DDL: the proposal storage block, the proposal
+ * planning fragment, and the seven proposal revision triggers are removed by
+ * exact text, never by pattern. Historical schema constants above remain
+ * frozen; only the composed corrected schema loses proposal storage.
+ */
+export const withoutProposalStorage = (sql: string): string => {
+  // Computed on first call: the revision-trigger fragments are declared later
+  // in this module, so module-load evaluation would hit the TDZ.
+  const proposalRevisionTriggers = [
+    "work_canvas_revision_proposal_events_insert",
+    "work_canvas_revision_task_proposals_insert",
+    "work_canvas_revision_task_proposals_update",
+    "work_canvas_revision_task_proposals_delete",
+    "work_canvas_revision_proposal_planning_insert",
+    "work_canvas_revision_proposal_planning_update",
+    "work_canvas_revision_proposal_planning_delete",
+  ].map((name) =>
+    sliceTrigger(
+      `${WORK_CANVAS_REVISIONS_SQL}\n${WORK_PROJECTION_REVISION_TRIGGERS_SQL}`,
+      name,
+    ),
+  );
+  // The composed head-basis fragment carries the proposal block with the
+  // proposal.reject event vocabulary (WORK_STATE_SCHEMA_PROPOSAL_REJECT_SQL
+  // rewrites the CHECK inside the block), so the block text is sliced from
+  // the fragment that embeds it rather than from the untransformed constant.
+  const proposalBlockStart =
+    WORK_STATE_SCHEMA_HEAD_BASIS_SQL.indexOf(
+      "CREATE TABLE IF NOT EXISTS work_proposal_events",
+    );
+  if (proposalBlockStart < 0) {
+    throw new Error(
+      "work state schema derivation: proposal storage block is missing from the head-basis fragment",
+    );
+  }
+  const proposalBlock =
+    WORK_STATE_SCHEMA_HEAD_BASIS_SQL.slice(proposalBlockStart);
+  const mustRemove = (
+    source: string,
+    fragment: string,
+    label: string,
+  ): string => {
+    if (!source.includes(fragment)) {
+      throw new Error(
+        `work state schema derivation: ${label} is missing from the corrected composition`,
+      );
+    }
+    return source.replace(fragment, "");
+  };
+  let corrected = mustRemove(
+    sql,
+    proposalBlock,
+    "proposal storage block",
+  );
+  corrected = mustRemove(
+    corrected,
+    WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
+    "proposal planning fragment",
+  );
+  for (const trigger of proposalRevisionTriggers) {
+    corrected = mustRemove(
+      corrected,
+      trigger,
+      `proposal revision trigger ${sliceTriggerName(trigger)}`,
+    );
+  }
+  return corrected;
+};
+
+const sliceTriggerName = (sql: string): string => {
+  const match = /CREATE TRIGGER IF NOT EXISTS (\w+)/u.exec(sql);
+  if (match === null) {
+    throw new Error(
+      "work state schema derivation: proposal revision trigger text has no name",
+    );
+  }
+  return match[1]!;
+};
+
+/**
  * Exact-current durable Work v2 schema.
  *
  * Every durable record has the full route identity

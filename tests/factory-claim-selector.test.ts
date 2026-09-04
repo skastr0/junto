@@ -7,6 +7,7 @@ import {
 import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
 import { admitWorkTarget } from "../src/main/vellum/work/authz";
 import { ActorRef } from "../src/shared/work-protocol";
+import { taskAdmissionState } from "../src/shared/rules";
 
 const worker = Schema.decodeUnknownSync(ActorRef)({
   seatId: `seat_${"1".repeat(64)}`,
@@ -129,6 +130,42 @@ describe("factory claim selector", () => {
     expect(selected[0]?.actor).toEqual(peer);
   });
 
+  it("does not let one ineligible task starve a later eligible task", () => {
+    const first = doc.nodes[1]!.ether!.tasks!.items[0]!;
+    const withTwoTasks: CanvasDoc = {
+      ...doc,
+      nodes: doc.nodes.map((node) =>
+        node.id === "tasks"
+          ? {
+            ...node,
+            ether: {
+              ...node.ether,
+              tasks: {
+                items: [
+                  first,
+                  {
+                    ...first,
+                    id: "t2",
+                    history: [{ ...first.history[0]!, messageId: "m2" }],
+                  },
+                ],
+              },
+            },
+          }
+          : node,
+      ),
+    };
+
+    const selected = selectFactoryClaims(
+      withTwoTasks,
+      "demo",
+      (ref) => ref.nodeId === "worker" ? worker : undefined,
+      { claimEligible: (task) => task.id === "t2" },
+    );
+
+    expect(selected.map((selection) => selection.task.itemId)).toEqual(["t2"]);
+  });
+
   describe("lazy actor wake", () => {
     const peer = Schema.decodeUnknownSync(ActorRef)({
       seatId: `seat_${"2".repeat(64)}`,
@@ -184,6 +221,85 @@ describe("factory claim selector", () => {
       expect([
         ...actorsNeedingWake(twoActors, "demo", resolve, {
           isAwake: (actor) => actor.id === "worker",
+        }),
+      ]).toEqual([]);
+    });
+
+    it("keeps collision-prone board and task ids as separate coverage keys", () => {
+      const task = doc.nodes[1]!.ether!.tasks!.items[0]!;
+      const collisionDoc: CanvasDoc = {
+        nodes: [
+          doc.nodes[0]!,
+          {
+            ...doc.nodes[0]!,
+            id: "peer",
+            ether: {
+              ...doc.nodes[0]!.ether,
+              terminal: { bindingId: "bind-2", harness: "claude" },
+            },
+          },
+          {
+            ...doc.nodes[1]!,
+            id: "a",
+            ether: {
+              ...doc.nodes[1]!.ether,
+              tasks: { items: [{ ...task, id: "bc" }] },
+            },
+          },
+          {
+            ...doc.nodes[1]!,
+            id: "ab",
+            ether: {
+              ...doc.nodes[1]!.ether,
+              tasks: { items: [{ ...task, id: "c" }] },
+            },
+          },
+        ],
+        edges: [
+          { id: "e1", fromNode: "a", toNode: "worker", ether: { verb: "works" } },
+          { id: "e2", fromNode: "ab", toNode: "peer", ether: { verb: "works" } },
+        ],
+      };
+
+      expect([
+        ...actorsNeedingWake(collisionDoc, "demo", resolve, {
+          isAwake: (actor) => actor.id === "worker",
+        }),
+      ]).toEqual(["peer"]);
+    });
+
+    it("does not wake actors for Approval, waiting, or Me tasks", () => {
+      const task = doc.nodes[1]!.ether!.tasks!.items[0]!;
+      const gated: CanvasDoc = {
+        ...twoActors,
+        nodes: twoActors.nodes.map((node) =>
+          node.id === "tasks"
+            ? {
+              ...node,
+              ether: {
+                ...node.ether,
+                tasks: {
+                  items: [
+                    { ...task, id: "approval", admission: "approval" },
+                    { ...task, id: "operator", admission: "operator" },
+                    {
+                      ...task,
+                      id: "waiting",
+                      waitUntil: "1970-01-01T00:00:00.100Z",
+                    },
+                  ],
+                },
+              },
+            }
+            : node,
+        ),
+      };
+
+      expect([
+        ...actorsNeedingWake(gated, "demo", resolve, {
+          isAwake: () => false,
+          claimEligible: (candidate) =>
+            taskAdmissionState(candidate, undefined, 0) === "claimable",
         }),
       ]).toEqual([]);
     });

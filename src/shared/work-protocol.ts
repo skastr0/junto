@@ -10,7 +10,6 @@ import {
   CompletionEvidence,
   Message,
   Task,
-  TaskProposal,
   TaskState,
 } from "./work-model";
 import {
@@ -167,9 +166,7 @@ export const RouteCursor = Schema.Struct({
 });
 export type RouteCursor = typeof RouteCursor.Type;
 
-export const WorkOperation = Schema.Literals(["proposal.create", "proposal.approve",
-"proposal.reject",
-"task.create",
+export const WorkOperation = Schema.Literals(["task.create",
 "task.describe",
 "task.transition",
 "task.claim",
@@ -182,33 +179,6 @@ export const WorkOperation = Schema.Literals(["proposal.create", "proposal.appro
 "board.post.append",
 "pad.patch",]);
 export type WorkOperation = typeof WorkOperation.Type;
-
-export const ProposalCreateAction = Schema.Struct({
-  operation: Schema.Literal("proposal.create"),
-  proposal: TaskProposal,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ proposal }) =>
-    proposal.state === "pending" ||
-    "proposal.create requires a pending proposal",)),
-);
-export type ProposalCreateAction = typeof ProposalCreateAction.Type;
-
-export const ProposalApproveAction = Schema.Struct({
-  operation: Schema.Literal("proposal.approve"),
-  proposalId: BoundedWorkId,
-  task: Task,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ task }) =>
-    (task.state === "submitted" && task.claimedBy === undefined) ||
-    "proposal.approve requires a submitted unclaimed task",)),
-);
-export type ProposalApproveAction = typeof ProposalApproveAction.Type;
-
-export const ProposalRejectAction = Schema.Struct({
-  operation: Schema.Literal("proposal.reject"),
-  proposalId: BoundedWorkId,
-});
-export type ProposalRejectAction = typeof ProposalRejectAction.Type;
 
 export const DeliveryReceipt = Schema.Struct({
   deliveryId: BoundedWorkId,
@@ -387,10 +357,7 @@ export const PadPatchAction = Schema.Struct({
 });
 export type PadPatchAction = typeof PadPatchAction.Type;
 
-export const WorkAction = Schema.Union([ProposalCreateAction,
-ProposalApproveAction,
-ProposalRejectAction,
-TaskCreateAction,
+export const WorkAction = Schema.Union([TaskCreateAction,
 TaskDescribeAction,
 TaskTransitionAction,
 TaskClaimAction,
@@ -403,40 +370,6 @@ BoardTopicCreateAction,
 BoardPostAppendAction,
 PadPatchAction,]);
 export type WorkAction = typeof WorkAction.Type;
-
-export const ProposalCreateResult = Schema.Struct({
-  operation: Schema.Literal("proposal.create"),
-  proposal: TaskProposal,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ proposal }) =>
-    proposal.state === "pending" ||
-    "proposal.create result requires a pending proposal",)),
-);
-export type ProposalCreateResult = typeof ProposalCreateResult.Type;
-
-export const ProposalApproveResult = Schema.Struct({
-  operation: Schema.Literal("proposal.approve"),
-  proposal: TaskProposal,
-  task: Task,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ proposal, task }) =>
-    (proposal.state === "approved" &&
-      proposal.approvedTaskId === task.id &&
-      task.state === "submitted" &&
-      task.claimedBy === undefined) ||
-    "proposal.approve result must bind the approved proposal to its submitted task",)),
-);
-export type ProposalApproveResult = typeof ProposalApproveResult.Type;
-
-export const ProposalRejectResult = Schema.Struct({
-  operation: Schema.Literal("proposal.reject"),
-  proposal: TaskProposal,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ proposal }) =>
-    proposal.state === "rejected" ||
-    "proposal.reject result requires a rejected proposal",)),
-);
-export type ProposalRejectResult = typeof ProposalRejectResult.Type;
 
 export const TaskCreateResult = Schema.Struct({
   operation: Schema.Literal("task.create"),
@@ -534,10 +467,7 @@ export const PadPatchResult = Schema.Struct({
 });
 export type PadPatchResult = typeof PadPatchResult.Type;
 
-export const WorkResult = Schema.Union([ProposalCreateResult,
-ProposalApproveResult,
-ProposalRejectResult,
-TaskCreateResult,
+export const WorkResult = Schema.Union([TaskCreateResult,
 TaskMutationResult,
 TaskClaimResult,
 RequestResult,
@@ -612,11 +542,6 @@ const itemMatchesAction = (
   action: WorkAction,
 ): boolean => {
   switch (action.operation) {
-    case "proposal.create":
-      return item.kind === "proposal" && item.itemId === action.proposal.id;
-    case "proposal.approve":
-    case "proposal.reject":
-      return item.kind === "proposal" && item.itemId === action.proposalId;
     case "task.create":
       return item.kind === "task" && item.itemId === action.task.id;
     case "task.describe":
@@ -661,10 +586,6 @@ const itemMatchesResult = (
   result: WorkResult,
 ): boolean => {
   switch (result.operation) {
-    case "proposal.create":
-    case "proposal.approve":
-    case "proposal.reject":
-      return item.kind === "proposal" && item.itemId === result.proposal.id;
     case "task.create":
     case "task.describe":
     case "task.transition":
@@ -698,7 +619,6 @@ const itemMatchesResult = (
 };
 
 const noPriorMaterialFact = (operation: WorkOperation): boolean =>
-  operation === "proposal.create" ||
   operation === "task.create" ||
   operation === "task.claim" ||
   operation === "request.create" ||

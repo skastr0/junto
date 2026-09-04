@@ -200,23 +200,12 @@ describe("inline media migration", () => {
         },
       ],
     });
-    const proposalRecord = JSON.stringify({
-      brief: {
-        parts: [
-          {
-            kind: "raw",
-            bytesBase64: TINY_PNG.toString("base64"),
-            mediaType: "image/png",
-          },
-        ],
-      },
-    });
     const sha = "a".repeat(64);
     const now = "2026-01-01T00:00:00.000Z";
 
-    // Historical fact + proposal event with inline Base64, seeded against the
-    // REAL schema — immutability triggers active. This is the exact shape
-    // that must never abort the migration.
+    // Historical fact with inline Base64, seeded against the REAL schema —
+    // immutability triggers active. This is the exact shape that must never
+    // abort the migration.
     await Effect.runPromise(
       state.transaction("seed.immutable-logs", (writer) => {
         writer.run(
@@ -277,29 +266,6 @@ describe("inline media migration", () => {
           `,
           ["home1", "home1", "1", factBody, "projected-intent", "1", sha],
         );
-        writer.run(
-          `
-            INSERT INTO work_proposal_events(
-              event_home, entity_home, seq, record_type,
-              canvas_name, node_id, proposal_id, operation,
-              content_sha256, record_json, origin_at, received_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            "home1",
-            "home1",
-            "2",
-            "fact",
-            "main",
-            "node-1",
-            "prop-1",
-            "proposal.create",
-            sha,
-            proposalRecord,
-            now,
-            now,
-          ],
-        );
       }),
     );
 
@@ -331,18 +297,10 @@ describe("inline media migration", () => {
           `,
           ["home1", "home1", "1"],
         ),
-        proposal: reader.get<{ readonly record_json: string }>(
-          `
-            SELECT record_json FROM work_proposal_events
-            WHERE event_home = ? AND entity_home = ? AND seq = ?
-          `,
-          ["home1", "home1", "2"],
-        ),
       })),
     );
     expect(rows.fact?.result_json).toBe(factBody);
     expect(rows.event?.content_sha256).toBe(sha);
-    expect(rows.proposal?.record_json).toBe(proposalRecord);
 
     const marker = await Effect.runPromise(
       installOps.getBackfill(BACKFILL_INLINE_MEDIA_V1),

@@ -1,6 +1,6 @@
 /**
  * Apply scheduler edge effects after a home-local fire.
- * Claim assignment is never done here — only inventory / flags.
+ * Task claiming is never done here — only inventory / flags.
  */
 
 import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";

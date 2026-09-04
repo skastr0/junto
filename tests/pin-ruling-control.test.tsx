@@ -9,7 +9,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
-import { PinRulingControl } from "../src/renderer/components/claims/PinRulingControl";
+import { PinRulingControl } from "../src/renderer/components/rules/PinRulingControl";
 import { EMPTY_DOC, state$ } from "../src/renderer/lib/state";
 
 const region = (id: string, label: string, box: number): CanvasNode =>

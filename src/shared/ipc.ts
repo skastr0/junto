@@ -19,11 +19,10 @@ import type {
   TaskState,
   FinishCriteria,
   CompletionEvidence,
-  TaskProposal,
-  TaskClaim,
   EtherFlag,
 } from "./canvas";
-import type { SinkAdmission, TaskPipelineArm } from "./work-model";
+import type { TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
+import type { WorkErrorDetails } from "./work-control";
 import type { ContentRef } from "./content";
 import type {
   DemoEdl,
@@ -113,13 +112,9 @@ export const IPC_CHANNELS = {
   contentPutImage: "vellum-command:content-put-image",
   // work plane (serialized canvas mutations)
   workTaskCreate: "vellum-command:work-task-create",
-  workTaskPropose: "vellum-command:work-task-propose",
-  workTaskApproveProposal: "vellum-command:work-task-approve-proposal",
-  workTaskRejectProposal: "vellum-command:work-task-reject-proposal",
   workTaskDescribe: "vellum-command:work-task-describe",
   workTaskTransition: "vellum-command:work-task-transition",
   workTaskPromote: "vellum-command:work-task-promote",
-  workTaskRejectArrival: "vellum-command:work-task-reject-arrival",
   workTaskComment: "vellum-command:work-task-comment",
   workTaskRespond: "vellum-command:work-task-respond",
   workTaskClaim: "vellum-command:work-task-claim",
@@ -269,10 +264,11 @@ export const IPC_CHANNELS = {
   observabilityCleared: "vellum-command:observability-cleared",
 } as const;
 
-/** Operator-authored per-task arrival policy on the create surface. */
+/** Operator-authored per-task admission and wait overlay on the create surface. */
 export type TaskCreateOptions = {
-  readonly admission: SinkAdmission;
-  readonly holdForMs?: number;
+  readonly admission: TaskAdmission;
+  /** Explicit task wait before the first claim, in ms; wins over the board default. */
+  readonly waitForMs?: number;
 };
 
 export interface ChassisApi {
@@ -416,7 +412,12 @@ export type WorkErrorCode =
   | "illegal_kind"
   | "illegal_transition"
   | "claim_contention"
-  | "invalid";
+  | "invalid"
+  | "not_ready"
+  | "unadmitted"
+  | "fork_choice"
+  | "wrong_home"
+  | "operator_owned";
 
 /** Success carries the written document + revision so the renderer can
  *  baseline without racing canvasChanged → flush → recovery-canvas. */
@@ -430,7 +431,13 @@ export type WorkOpResult<T> =
       /** Human-readable context for an idempotent or otherwise notable mutation. */
       readonly message?: string;
     }
-  | { readonly ok: false; readonly code: WorkErrorCode; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly code: WorkErrorCode;
+      readonly message: string;
+      /** Structured facts for the control plane; never parsed out of message. */
+      readonly details?: WorkErrorDetails;
+    };
 
 // --- hermes agent messaging -------------------------------------------------
 
@@ -623,40 +630,15 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     brief: string,
     metadata?: WorkMetadata,
     reason?: string,
-    /** First-class task media (raw image parts) projected into remote claims. */
+    /** First-class task media (raw image parts) authored into the task thread. */
     media?: ReadonlyArray<Part>,
     /** Same-sink hard prerequisites (task ids). */
     dependsOn?: ReadonlyArray<string>,
     finishCriteria?: FinishCriteria,
-    /** Station-addressed claims; set at creation. */
-    claims?: ReadonlyArray<TaskClaim>,
-    /** Per-task admission overlay and optional origin hold. */
+    /** Board-addressed rules; set at creation, immutable on generic transitions. */
+    rules?: ReadonlyArray<TaskRule>,
+    /** Per-task admission overlay and optional wait before the first claim. */
     options?: TaskCreateOptions,
-  ) => Promise<WorkOpResult<Task>>;
-  /**
-   * Operator planning proposal — same authoring contract as workTaskCreate;
-   * pending until Approve to Queue.
-   */
-  readonly workTaskPropose: (
-    canvas: string,
-    nodeId: string,
-    brief: string,
-    metadata?: WorkMetadata,
-    reason?: string,
-    media?: ReadonlyArray<Part>,
-    dependsOn?: ReadonlyArray<string>,
-    finishCriteria?: FinishCriteria,
-    claims?: ReadonlyArray<TaskClaim>,
-  ) => Promise<WorkOpResult<Task>>;
-  readonly workTaskApproveProposal: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-  ) => Promise<WorkOpResult<Task>>;
-  readonly workTaskRejectProposal: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
   ) => Promise<WorkOpResult<Task>>;
   readonly workTaskDescribe: (
     canvas: string,
@@ -671,17 +653,10 @@ export interface VellumCommandApi extends LicenseApi, UpdateApi {
     state: TaskState,
     note?: string,
     completionEvidence?: CompletionEvidence,
-    pipeline?: TaskPipelineArm,
+    path?: TaskPathArm,
   ) => Promise<WorkOpResult<Task>>;
-  /** Operator promotion of an operator-gated pipeline arrival. */
+  /** Operator approval of an approval-admission task for its current epoch. */
   readonly workTaskPromote: (
-    canvas: string,
-    nodeId: string,
-    taskId: string,
-    note?: string,
-  ) => Promise<WorkOpResult<Task>>;
-  /** Operator rejection of an unpromoted operator-gated arrival. */
-  readonly workTaskRejectArrival: (
     canvas: string,
     nodeId: string,
     taskId: string,

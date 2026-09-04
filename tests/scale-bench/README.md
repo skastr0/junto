@@ -42,13 +42,11 @@ Skipped by default, so `bun run test` is unaffected.
 | `VELLUM_SCALE_BENCH_OUT` | JSONL file to append records to |
 | `VELLUM_SCALE_BENCH_REGEN=1` | rebuild the synthetic fixtures from scratch |
 
-Output is exactly one JSON line per scale, so before/after is a diff:
+Output is exactly one JSON line per scale, so two runs are easy to compare:
 
 ```bash
-diff <(jq -S . baseline-before.jsonl) <(jq -S . /tmp/after.jsonl)
+diff <(jq -S . /tmp/run-a.jsonl) <(jq -S . /tmp/run-b.jsonl)
 ```
-
-`baseline-before.jsonl` in this directory is the recorded "before" state.
 
 ## Scales
 
@@ -86,31 +84,3 @@ Delete `<tmpdir>/vellum-scale-bench` to reclaim the space.
   pays this for **every** sink on the canvas.
 - `budget.msOfWorkPerSecondAtTarget` — canvas-read p50 x 133 events/sec. Above
   1000 means the target load cannot fit on one core at all.
-
-## Baseline — before the refactor
-
-Recorded from `baseline-before.jsonl` (Node 26.5.0 / V8 14.6 / darwin-arm64,
-10 cores, working tree at `cfa1c27e` + uncommitted work). The machine was
-shared with other agents at the time (1-minute load average 14-21), so wall
-time is if anything pessimistic; `cpuMsPerCall` tracks it within ~10% and the
-statement counts are load-independent.
-
-| | real (96 nodes) | synthetic-500 | synthetic-1000 |
-|---|---|---|---|
-| sinks / messages | 71 / 441 | 500 / 25,000 | 1000 / 50,000 |
-| `canvases.read` p50 | 42.7 ms | 1291 ms | 2173 ms |
-| synchronous block p50 | 42.4 ms | 1298 ms | 2205 ms |
-| CPU per call | 49.5 ms | 1107 ms | 2156 ms |
-| SQL statements per call | 2,272 | 84,516 | 169,016 |
-| of those, receipt lookups | 1,323 | 75,000 | 150,000 |
-| SQLite / decode split | 41% / 59% | 59% / 41% | 61% / 39% |
-| stored doc → decoded | 100 KB → 1.66 MB (16.6x) | 178 KB → 46 MB (260x) | 356 KB → 93 MB (260x) |
-| `loadSnapshot` mean / max per sink | 0.66 / 9.5 ms | 2.08 / 13.2 ms | 2.54 / 13.6 ms |
-| sinks over the 4 ms budget | 3 of 71 | 100 of 500 | 200 of 1000 |
-| wake read path p50 | 48.6 ms | 1044 ms | 2494 ms |
-| over the 4 ms invariant | 10.7x | 323x | 543x |
-| cores needed at 133 events/s | 5.7 | 172 | 289 |
-
-The receipt-lookup row is the N+1 in `loadInbox` (`repository.ts:1570`): three
-single-row `work_delivery_receipts` lookups per message, so the statement count
-is `3 x messages` regardless of how many receipts exist.

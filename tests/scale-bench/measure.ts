@@ -137,7 +137,6 @@ export const listSinkNodes = async (
         reader.all<{ readonly node_id: string }>(
           `
             SELECT node_id FROM work_tasks WHERE canvas_name = ?1
-            UNION SELECT node_id FROM work_task_proposals WHERE canvas_name = ?1
             UNION SELECT node_id FROM work_requests WHERE canvas_name = ?1
             UNION SELECT node_id FROM work_messages WHERE canvas_name = ?1
             UNION SELECT node_id FROM work_artifacts WHERE canvas_name = ?1

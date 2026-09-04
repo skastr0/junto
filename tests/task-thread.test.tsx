@@ -67,7 +67,7 @@ describe("TaskThread", () => {
     ]);
   });
 
-  it("renders the full rail, attachment affordance, times, and compose control", () => {
+  it("renders the full timeline, attachment affordance, times, and compose control", () => {
     const html = renderToStaticMarkup(
       <TaskThread
         task={task}

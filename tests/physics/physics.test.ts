@@ -28,7 +28,7 @@ import {
   routeAllowed,
   seatMayBeBlocked,
   selectGrant,
-  pairIsAssignable,
+  pairIsClaimable,
   undirectedEdgeKey,
   type NodePlacement,
   type Port,
@@ -612,18 +612,18 @@ describe("physics grant union (I7 — parallel edges combine as union)", () => {
     expect(admittedPorts(view).sort()).toEqual(MANAGE_ONLY);
   });
 
-  it("only works marks the pair assignable, whichever edge carries it", () => {
+  it("only works marks the pair claimable, whichever edge carries it", () => {
     const contributed = canvasDocToCapabilityView(
       taskDoc([verbEdge("e1", "agent", "task1", "contributes")]),
     );
-    expect(pairIsAssignable(contributed, "agent", "task1")).toBe(false);
+    expect(pairIsClaimable(contributed, "agent", "task1")).toBe(false);
     const worked = canvasDocToCapabilityView(
       taskDoc([
         verbEdge("e1", "agent", "task1", "manages"),
         verbEdge("e2", "task1", "agent", "works"),
       ]),
     );
-    expect(pairIsAssignable(worked, "agent", "task1")).toBe(true);
+    expect(pairIsClaimable(worked, "agent", "task1")).toBe(true);
   });
 });
 
@@ -790,9 +790,9 @@ describe("physics placement admit (I18/I19)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A task pipeline hop is plumbing between sinks, never a capability.
+// A task path hop is plumbing between boards, never a capability.
 
-describe("a task pipeline hop grants nothing", () => {
+describe("a task path hop grants nothing", () => {
   // seat —contributes— intake —feeds— review. The hop must add no port
   // anywhere, and must not extend the seat's reach past its own sink.
   const doc: CanvasDoc = {

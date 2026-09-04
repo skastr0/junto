@@ -38,7 +38,7 @@ export const compareTasksByLatestActivityDesc = (a: Task, b: Task): number =>
   taskLatestActivityKey(b).localeCompare(taskLatestActivityKey(a));
 
 /**
- * Activity after the brief (history[0]), newest first for the task detail rail.
+ * Activity after the brief (history[0]), newest first for the task detail panel.
  */
 export const taskActivityNewestFirst = (task: Task): ReadonlyArray<Message> =>
   task.history.length <= 1 ? [] : [...task.history.slice(1)].reverse();
@@ -55,7 +55,7 @@ export const isTerminalTaskState = (state: TaskState): boolean =>
 export const isArchivedTaskState = (state: TaskState): boolean =>
   state === "archived";
 
-/** Legal outbound transitions. Completed work has one operator-only QA exit. */
+/** Legal state transitions. Completed work has one operator-only QA exit. */
 const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
   submitted: new Set([
     "completed",
@@ -104,9 +104,9 @@ const LEGAL_TRANSITIONS: Readonly<Record<TaskState, ReadonlySet<TaskState>>> = {
   completed: new Set(["submitted", "archived"]),
   canceled: new Set(["archived"]),
   failed: new Set(["archived"]),
-  // Rejected stays terminal in this generic matrix — defect-back re-homing
-  // (rejected passage row -> submitted at the destination on a later forward)
-  // is authorized locally by repository.forwardTask, not opened here, so no
+  // Rejected stays terminal in this generic matrix — send-back re-homing
+  // (rejected visit row -> submitted at the destination on a later send-on)
+  // is authorized locally by repository.sendTaskOn, not opened here, so no
   // other caller can resurrect a rejected task in place.
   rejected: new Set(["archived"]),
   archived: new Set(),

@@ -671,7 +671,7 @@ export const registerVellumIpc = (): void => {
       media?: ReadonlyArray<Part>,
       dependsOn?: ReadonlyArray<string>,
       finishCriteria?: import("@shared/work-model").FinishCriteria,
-      claims?: ReadonlyArray<import("@shared/work-model").TaskClaim>,
+      rules?: ReadonlyArray<import("@shared/work-model").TaskRule>,
       options?: import("@shared/ipc").TaskCreateOptions,
     ) =>
       runRendererWorkAuthoring(
@@ -690,75 +690,9 @@ export const registerVellumIpc = (): void => {
               media,
               dependsOn,
               finishCriteria,
-              claims,
+              rules,
               options,
             );
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.workTaskPropose,
-    (
-      _event,
-      canvas: string,
-      nodeId: string,
-      brief: string,
-      metadata?: WorkMetadata,
-      reason?: string,
-      media?: ReadonlyArray<Part>,
-      dependsOn?: ReadonlyArray<string>,
-      finishCriteria?: import("@shared/work-model").FinishCriteria,
-      claims?: ReadonlyArray<import("@shared/work-model").TaskClaim>,
-    ) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-propose",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            const work = yield* WorkService;
-            return yield* work.workTaskProposeOperator(
-              canvas,
-              nodeId,
-              brief,
-              metadata,
-              reason,
-              media,
-              dependsOn,
-              finishCriteria,
-              claims,
-            );
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.workTaskApproveProposal,
-    (_event, canvas: string, nodeId: string, taskId: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-approve-proposal",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            const work = yield* WorkService;
-            return yield* work.workTaskApproveProposal(canvas, nodeId, taskId);
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.workTaskRejectProposal,
-    (_event, canvas: string, nodeId: string, taskId: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-reject-proposal",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            const work = yield* WorkService;
-            return yield* work.workTaskRejectProposal(canvas, nodeId, taskId);
           }),
         ),
       ),
@@ -788,7 +722,7 @@ export const registerVellumIpc = (): void => {
       state: TaskState,
       note?: string,
       completionEvidence?: import("@shared/work-model").CompletionEvidence,
-      pipeline?: import("./work/service").WorkTaskPipelineOptions,
+      path?: import("@shared/work-model").TaskPathArm,
     ) =>
       runRendererWorkAuthoring(
         "ipc.work.task-transition",
@@ -804,13 +738,13 @@ export const registerVellumIpc = (): void => {
               state,
               note,
               completionEvidence,
-              pipeline,
+              path,
             );
           }),
         ),
       ),
   );
-  // Operator promotion of an operator-gated pipeline arrival.
+  // Operator approval of a task waiting at an Approval board.
   privilegedIpc.handle(
     IPC_CHANNELS.workTaskPromote,
     (_event, canvas: string, nodeId: string, taskId: string, note?: string) =>
@@ -822,26 +756,6 @@ export const registerVellumIpc = (): void => {
             if (denied) return denied;
             const work = yield* WorkService;
             return yield* work.workTaskPromote(canvas, nodeId, taskId, note);
-          }),
-        ),
-      ),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.workTaskRejectArrival,
-    (_event, canvas: string, nodeId: string, taskId: string, note?: string) =>
-      runRendererWorkAuthoring(
-        "ipc.work.task-reject-arrival",
-        () => AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const denied = yield* denyRemoteWork;
-            if (denied) return denied;
-            const work = yield* WorkService;
-            return yield* work.workTaskRejectArrival(
-              canvas,
-              nodeId,
-              taskId,
-              note,
-            );
           }),
         ),
       ),

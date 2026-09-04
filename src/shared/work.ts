@@ -9,15 +9,14 @@ import type {
   Artifact,
   Message,
   Part,
-  Passage,
-  SinkAdmission,
-  TaskProposal,
+  TaskRule,
   TaskState,
+  TaskAdmission,
   FinishCriteria,
   CompletionEvidence,
-  TaskClaim,
+  Visit,
 } from "./work-model";
-import { resolveSinkAdmission } from "./work-model";
+import { resolveTaskAdmission } from "./work-model";
 import type { ActorRef } from "./work-protocol";
 import {
   canTransitionTaskState,
@@ -45,24 +44,22 @@ import {
   normalizeCompletionEvidence,
   normalizeFinishCriteria,
 } from "./finish-criteria";
-import { materializePendingProposal } from "./pending-proposal-backfill";
 import {
-  PIPELINE_ADMITTED_METADATA_KEY,
-  carryClaimEvidence,
+  boardContractOf,
   clampRequestedAdmission,
-  computeHoldUntil,
-  effectiveClaimsStack,
-  evaluateBoarding,
-  evaluateClaimCompletion,
+  computeWaitUntil,
+  evaluateChecks,
   evaluateForkWaivers,
+  evaluateRules,
   evaluateTerminalClose,
-  requiredBoardingChecks,
-  sinkContractOf,
+  normalizeRuleEvidence,
+  requiredChecks,
+  rulesInForce,
   taskAdmissionState,
   taskEpoch,
-  type ClaimCheckFailure,
-} from "./claims";
-import { flowDestinations } from "./flow-graph";
+  type RuleFailure,
+} from "./rules";
+import { flowDestinations, reachableBoards } from "./flow-graph";
 import { groupMembers, isGroup } from "./graph";
 import {
   ACTOR_ACTOR_INBOX_PORTS,
@@ -73,9 +70,9 @@ import {
 } from "./physics";
 import { HashSet } from "effect";
 
-// Pure topology validation plus work-item draft/projection transforms.
-// WorkService uses their results to invoke specific SQLite repository verbs;
-// these helpers never authorize or commit a canvas-document mutation.
+// Pure topology validation plus work-item transforms. WorkService uses their
+// results to invoke specific SQLite repository verbs; these helpers never
+// authorize or commit a canvas-document mutation.
 // No dual shapes: only Task / Message / Artifact.
 
 export type WorkErrorCode =
@@ -177,11 +174,15 @@ const requireMessageInbox = (node: CanvasNode): void => {
   if (!holdsInbox) throw illegalKind(node, "an actor inbox");
 };
 
+/**
+ * Write a Tasks board projection. Items are the runtime Work rows; `name` and
+ * `contract` are operator-authored document truth that projections must never
+ * erase.
+ */
 const withTasks = (
   doc: CanvasDoc,
   nodeId: string,
   items: ReadonlyArray<Task>,
-  proposals?: ReadonlyArray<TaskProposal>,
 ): CanvasDoc => ({
   ...doc,
   nodes: doc.nodes.map((n) => {
@@ -198,9 +199,9 @@ const withTasks = (
         entity: n.ether?.entity ?? { kind: "task" },
         tasks: {
           items: [...items],
-          proposals: [...(proposals ?? n.ether?.tasks?.proposals ?? [])],
-          // Operator-authored document truth rides along untouched — work
-          // projections must never erase the sink contract.
+          ...(n.ether?.tasks?.name !== undefined
+            ? { name: n.ether.tasks.name }
+            : {}),
           ...(n.ether?.tasks?.contract !== undefined
             ? { contract: n.ether.tasks.contract }
             : {}),
@@ -300,33 +301,29 @@ const rejectRetiredClaimMetadata = (
 };
 
 /**
- * Authoring-input-only guard (create/propose): pipeline state is
- * system-stamped — journeys, tickets, and the operator promotion marker are
- * never accepted from caller metadata. Existing durable rows legitimately
- * carry the promotion marker, so this never runs on patched tasks.
+ * Authoring-input-only guard (create): system-stamped task state — the
+ * approval marker and canonical task bag — is never accepted from caller
+ * metadata. Existing durable rows legitimately carry the approval marker, so
+ * this never runs on patched tasks.
  */
-const rejectReservedPipelineMetadata = (
+const rejectReservedTaskMetadata = (
   metadata: WorkMetadata | undefined,
 ): void => {
-  if (
-    metadata !== undefined &&
-    (Object.prototype.hasOwnProperty.call(metadata, "vellum.pipeline") ||
-      Object.prototype.hasOwnProperty.call(
-        metadata,
-        PIPELINE_ADMITTED_METADATA_KEY,
-      ))
-  ) {
-    throw new WorkError(
-      "invalid",
-      "metadata keys under vellum.pipeline are reserved for the work service",
-    );
+  if (metadata === undefined) return;
+  for (const key of Object.keys(metadata)) {
+    if (key.startsWith("vellum.tasks")) {
+      throw new WorkError(
+        "invalid",
+        "metadata keys under vellum.tasks are reserved for the work service",
+      );
+    }
   }
 };
 
 /**
- * Tasks and proposals always carry a non-empty description (`metadata.details`).
- * Title/brief alone is not enough — create and propose both reject empty/missing
- * description. Historical rows without details still decode (create-only gate).
+ * Tasks always carry a non-empty description (`metadata.details`).
+ * Title/brief alone is not enough — create rejects empty/missing description.
+ * Historical rows without details still decode (create-only gate).
  */
 export const requireTaskDescription = (
   metadata: WorkMetadata | undefined,
@@ -338,7 +335,7 @@ export const requireTaskDescription = (
   return raw.trim();
 };
 
-/** Normalize metadata so create/propose always persist trimmed details. */
+/** Normalize metadata so create always persists trimmed details. */
 const withRequiredDescription = (
   metadata: WorkMetadata | undefined,
 ): WorkMetadata => {
@@ -347,28 +344,60 @@ const withRequiredDescription = (
 };
 
 export type WorkTaskCreateOptions = {
-  readonly admission?: SinkAdmission;
-  /** Agent wire omit persists operator-gated. Operator enqueue inherits the sink. */
-  readonly admissionOmitted?: "operator-gated" | "inherit";
-  readonly holdForMs?: number;
+  readonly admission?: TaskAdmission;
+  /**
+   * Agent wire omit persists an explicit `approval` stamp; operator enqueue
+   * inherits the board floor.
+   */
+  readonly admissionOmitted?: "approval" | "inherit";
+  /** Explicit task wait before the first claim, in ms; wins over the board default. */
+  readonly waitForMs?: number;
   readonly raisedBy?: ActorRef;
   readonly nowMs?: number;
 };
 
 export type WorkTaskCreateResult = { readonly doc: CanvasDoc; readonly task: Task };
 export type WorkTaskResult = { readonly doc: CanvasDoc; readonly task: Task };
-export type WorkProposalResult = {
-  readonly doc: CanvasDoc;
-  readonly proposal: TaskProposal;
-};
-export type WorkProposalApprovalResult = WorkProposalResult & {
-  readonly task: Task;
-};
 export type WorkTaskClaimResult = WorkTaskResult & {
   readonly claimedBy: ActorRef;
 };
 export type WorkMessageResult = { readonly doc: CanvasDoc; readonly message: Message };
 export type WorkArtifactResult = { readonly doc: CanvasDoc; readonly artifact: Artifact };
+
+/**
+ * Authoring-input validation for board-addressed task rules: every rule id is
+ * unique, and every board target exists, is a Tasks node, and is reachable
+ * from the origin board on the current flow graph.
+ */
+const validateTaskRules = (
+  doc: CanvasDoc,
+  originNodeId: string,
+  rules: ReadonlyArray<TaskRule> | undefined,
+): void => {
+  if (rules === undefined || rules.length === 0) return;
+  const seen = new Set<string>();
+  const reachable = reachableBoards(doc, originNodeId);
+  for (const rule of rules) {
+    if (seen.has(rule.id)) {
+      throw new WorkError("invalid", `task rule id "${rule.id}" is duplicated`);
+    }
+    seen.add(rule.id);
+    const target = doc.nodes.find((n) => n.id === rule.board);
+    if (target === undefined) {
+      throw new WorkError(
+        "invalid",
+        `task rule "${rule.id}" targets unknown board "${rule.board}"`,
+      );
+    }
+    requireSink(target, ["task"]);
+    if (!reachable.has(rule.board)) {
+      throw new WorkError(
+        "invalid",
+        `task rule "${rule.id}" targets board "${rule.board}", which is not reachable from "${originNodeId}" on the current flow graph`,
+      );
+    }
+  }
+};
 
 export const workTaskCreate = (
   doc: CanvasDoc,
@@ -387,8 +416,8 @@ export const workTaskCreate = (
   /** Same-region hard prerequisites (task ids; cross-sink ok). Empty / omitted = free. */
   dependsOn?: ReadonlyArray<string>,
   finishCriteria?: FinishCriteria,
-  /** Station-addressed claims; set at creation, immutable on generic transitions. */
-  claims?: ReadonlyArray<TaskClaim>,
+  /** Board-addressed rules; set at creation, immutable on generic transitions. */
+  rules?: ReadonlyArray<TaskRule>,
   options?: WorkTaskCreateOptions,
 ): WorkTaskCreateResult => {
   const node = requireNode(doc, nodeId);
@@ -396,23 +425,24 @@ export const workTaskCreate = (
   const trimmed = brief.trim();
   if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
   rejectRetiredClaimMetadata(metadata);
-  rejectReservedPipelineMetadata(metadata);
+  rejectReservedTaskMetadata(metadata);
   const nextMetadata = withRequiredDescription(metadata);
   const mediaError = validateTaskMediaParts(media);
   if (mediaError) throw new WorkError("invalid", mediaError);
   const authoredDepError = validateAuthoredTaskDependsOn(dependsOn);
   if (authoredDepError) throw new WorkError("invalid", authoredDepError);
-  const contract = sinkContractOf(node);
+  validateTaskRules(doc, nodeId, rules);
+  const contract = boardContractOf(node);
   const clamped = clampRequestedAdmission({
-    floor: resolveSinkAdmission(contract),
+    floor: resolveTaskAdmission(contract),
     requested: options?.admission,
     omitted: options?.admissionOmitted ?? "inherit",
   });
   if (!clamped.ok) throw new WorkError("invalid", clamped.message);
-  const holdUntil = computeHoldUntil(
+  const waitUntil = computeWaitUntil(
     options?.nowMs ?? Date.now(),
-    contract?.inbound?.claimableAfterMs,
-    options?.holdForMs,
+    contract?.incoming?.waitMs,
+    options?.waitForMs,
   );
   const taskId = ids.id();
   const existing = node.ether?.tasks?.items ?? [];
@@ -441,7 +471,7 @@ export const workTaskCreate = (
     ...(media && media.length > 0 ? { extraParts: media } : {}),
   });
   const why = reason?.trim();
-  const normalizedClaims = claims && claims.length > 0 ? claims : undefined;
+  const normalizedRules = rules && rules.length > 0 ? rules : undefined;
   const task: Task = {
     id: taskId,
     state: "submitted",
@@ -450,10 +480,10 @@ export const workTaskCreate = (
     ...(why ? { reason: why } : {}),
     ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
-    ...(normalizedClaims ? { claims: normalizedClaims } : {}),
+    ...(normalizedRules ? { rules: normalizedRules } : {}),
     ...(clamped.stamp !== undefined ? { admission: clamped.stamp } : {}),
     ...(options?.raisedBy !== undefined ? { raisedBy: options.raisedBy } : {}),
-    ...(holdUntil !== undefined ? { holdUntil } : {}),
+    ...(waitUntil !== undefined ? { waitUntil } : {}),
   };
   const items = [...existing, task];
   return { doc: withTasks(doc, nodeId, items), task };
@@ -499,191 +529,6 @@ export const workTaskSetFinishCriteria = (
   return { doc: withTasks(doc, nodeId, nextItems), task };
 };
 
-export const workTaskPropose = (
-  doc: CanvasDoc,
-  canvasName: string,
-  nodeId: string,
-  brief: string,
-  metadata: WorkMetadata | undefined,
-  ids: WorkIds,
-  proposedBy: ActorRef,
-  reason?: string,
-  /**
-   * First-class media on the brief message — same contract as task.create.
-   */
-  media?: ReadonlyArray<Part>,
-  /** Same-region hard prerequisites (task ids; cross-sink ok). Empty / omitted = free. */
-  dependsOn?: ReadonlyArray<string>,
-  finishCriteria?: FinishCriteria,
-  /** Station-addressed claims; set at creation, carried onto the minted Task on approve. */
-  claims?: ReadonlyArray<TaskClaim>,
-): WorkProposalResult => {
-  const node = requireNode(doc, nodeId);
-  requireSink(node, ["task"]);
-  const trimmed = brief.trim();
-  if (!trimmed) throw new WorkError("invalid", "brief must be non-empty");
-  rejectRetiredClaimMetadata(metadata);
-  rejectReservedPipelineMetadata(metadata);
-  const nextMetadata = withRequiredDescription(metadata);
-  const mediaError = validateTaskMediaParts(media);
-  if (mediaError) throw new WorkError("invalid", mediaError);
-  const authoredDepError = validateAuthoredTaskDependsOn(dependsOn);
-  if (authoredDepError) throw new WorkError("invalid", authoredDepError);
-  const proposalId = ids.id();
-  const existing = node.ether?.tasks?.items ?? [];
-  const depError = validateTaskDependsOn({
-    taskId: proposalId,
-    dependsOn,
-    byId: dependencyScopeIndex(doc, nodeId),
-  });
-  if (depError) throw new WorkError("invalid", depError);
-  const normalizedDeps = normalizeDependsOn(dependsOn);
-  let criteria: FinishCriteria | undefined;
-  try {
-    criteria = normalizeFinishCriteria(finishCriteria);
-  } catch (cause) {
-    throw new WorkError(
-      "invalid",
-      cause instanceof Error ? cause.message : String(cause),
-    );
-  }
-  const contextId = regionContextId(doc, nodeId, canvasName);
-  const proposal: TaskProposal = {
-    id: proposalId,
-    state: "pending",
-    brief: makeUserMessage({
-      messageId: ids.messageId(),
-      text: trimmed,
-      contextId,
-      taskId: proposalId,
-      ...(media && media.length > 0 ? { extraParts: media } : {}),
-    }),
-    proposedBy,
-    metadata: nextMetadata,
-    ...(reason?.trim() ? { reason: reason.trim() } : {}),
-    ...(normalizedDeps ? { dependsOn: normalizedDeps } : {}),
-    ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
-    ...(claims && claims.length > 0 ? { claims } : {}),
-  };
-  return {
-    doc: withTasks(
-      doc,
-      nodeId,
-      existing,
-      [...(node.ether?.tasks?.proposals ?? []), proposal],
-    ),
-    proposal,
-  };
-};
-
-/**
- * @deprecated Legacy proposal-first compatibility bridge. Production approval
- * promotes the already-stable planning Task in place. The retained signature
- * does not consume either WorkIds generator.
- */
-export const workTaskApproveProposal = (
-  doc: CanvasDoc,
-  canvasName: string,
-  nodeId: string,
-  proposalId: string,
-  ids: WorkIds,
-): WorkProposalApprovalResult => {
-  void canvasName;
-  void ids;
-  const node = requireNode(doc, nodeId);
-  requireSink(node, ["task"]);
-  const items = node.ether?.tasks?.items ?? [];
-  const proposals = node.ether?.tasks?.proposals ?? [];
-  const index = proposals.findIndex((proposal) => proposal.id === proposalId);
-  if (index < 0) {
-    throw new WorkError(
-      "task_not_found",
-      `proposal "${proposalId}" not found`,
-    );
-  }
-  const current = proposals[index]!;
-  if (current.state !== "pending") {
-    throw new WorkError(
-      "illegal_transition",
-      `proposal "${proposalId}" is not pending`,
-    );
-  }
-  if (items.some((task) => task.id === current.id)) {
-    throw new WorkError(
-      "invalid",
-      `task "${current.id}" already exists; proposal approval refuses an unrelated same-ID Task`,
-    );
-  }
-  // Re-validate deps against region-scoped items at approve time (still not self).
-  const depError = validateTaskDependsOn({
-    taskId: current.id,
-    dependsOn: current.dependsOn,
-    byId: dependencyScopeIndex(doc, nodeId),
-  });
-  if (depError) throw new WorkError("invalid", depError);
-  const materialized = materializePendingProposal({ proposal: current }).task;
-  const task: Task = {
-    ...materialized,
-    metadata: {
-      ...(materialized.metadata ?? {}),
-      [PIPELINE_ADMITTED_METADATA_KEY]: taskEpoch(materialized),
-    },
-  };
-  const proposal: TaskProposal = {
-    ...current,
-    state: "approved",
-    approvedTaskId: current.id,
-  };
-  const nextProposals = proposals.map((candidate, proposalIndex) =>
-    proposalIndex === index ? proposal : candidate
-  );
-  return {
-    doc: withTasks(doc, nodeId, [...items, task], nextProposals),
-    proposal,
-    task,
-  };
-};
-
-/**
- * Operator discard of a pending proposal. Terminal on the planning lane —
- * never mints a task. Rejected proposals drop out of the board's pending view.
- */
-export const workTaskRejectProposal = (
-  doc: CanvasDoc,
-  nodeId: string,
-  proposalId: string,
-): WorkProposalResult => {
-  const node = requireNode(doc, nodeId);
-  requireSink(node, ["task"]);
-  const items = node.ether?.tasks?.items ?? [];
-  const proposals = node.ether?.tasks?.proposals ?? [];
-  const index = proposals.findIndex((proposal) => proposal.id === proposalId);
-  if (index < 0) {
-    throw new WorkError(
-      "task_not_found",
-      `proposal "${proposalId}" not found`,
-    );
-  }
-  const current = proposals[index]!;
-  if (current.state !== "pending") {
-    throw new WorkError(
-      "illegal_transition",
-      `proposal "${proposalId}" is not pending`,
-    );
-  }
-  const proposal: TaskProposal = {
-    ...current,
-    state: "rejected",
-  };
-  const nextProposals = proposals.map((candidate, proposalIndex) =>
-    proposalIndex === index ? proposal : candidate
-  );
-  return {
-    doc: withTasks(doc, nodeId, items, nextProposals),
-    proposal,
-  };
-};
-
 export const workTaskDescribe = (
   doc: CanvasDoc,
   canvasName: string,
@@ -725,108 +570,112 @@ export type WorkTaskTransitionOptions = {
    */
   readonly evaluateFinishCriteria?: boolean;
   /**
-   * Forward destination on → completed at a sink with flow destinations.
-   * Required when the sink has more than one destination; auto-resolved when
+   * Next board on → completed at a board with a task path.
+   * Required when the board has more than one Next; auto-resolved when
    * it has exactly one. Validated against live flow edges (act-time DAG law).
    */
   readonly next?: string;
-  /** Defect payload on → rejected for a task with a prior passage. */
+  /** Defect payload on → rejected for a task with a prior visit. */
   readonly defect?: {
     readonly summary: string;
     readonly refs?: ReadonlyArray<string>;
-    /** Visited station to send the task back to; omitted = the previous station. */
+    /** Visited board to send the task back to; omitted = the previous board. */
     readonly target?: string;
   };
-  /** Per-task forward hold stamp (ms); wins over destination claimableAfterMs. */
-  readonly holdForMs?: number;
-  /** Clock for passage/hold stamps. Default Date.now(). */
+  /** Per-task send-on wait stamp (ms); wins over the next board's waitMs. */
+  readonly waitForMs?: number;
+  /** Prose the agent writes when sending a task onward. */
+  readonly handoffNote?: string;
+  /** Clock for visit/wait stamps. Default Date.now(). */
   readonly nowMs?: number;
 };
 
 export type WorkTaskTransitionResult = WorkTaskResult & {
-  /** Present when the completion forwarded the task along a flow edge. */
-  readonly forwarded?: { readonly nodeId: string; readonly task: Task };
-  /** Present when a defect-back re-homed the task to its previous station. */
-  readonly defectBack?: { readonly nodeId: string; readonly task: Task };
+  /** Present when completion sent the task on to its next board. */
+  readonly sentOn?: { readonly nodeId: string; readonly task: Task };
+  /** Present when a defect sent the task back to an earlier board. */
+  readonly sentBack?: { readonly nodeId: string; readonly task: Task };
 };
 
-const claimGateError = (failure: ClaimCheckFailure): WorkError =>
+const completionGateError = (failure: RuleFailure): WorkError =>
   // Same shape as the finish-criteria failure so the control plane surfaces
   // missing/next_step through the one InvalidTransition mapping.
   new WorkError(
     "illegal_transition",
-    `claims unsatisfied [${failure.missing}]: ${failure.message} (next: ${failure.next_step})`,
+    `completion gate unsatisfied [${failure.missing}]: ${failure.message} (next: ${failure.next_step})`,
   );
 
 /**
- * True when `task`'s current-epoch journey tail closed here with an exit
- * that already re-homed the live successor to another station (forward or
- * defect-back). Such a row is a passage record, not live work — re-opening
+ * True when `task`'s current-epoch visits tail closed here with an exit
+ * that already re-homed the live successor to another board (sent-on or
+ * sent-back). Such a row is a closed visit record, not live work — re-opening
  * it via the generic submitted-entry path would mint a second live row for
  * the same task id (invariant: no split/rejoin).
  */
-const isExitedPassageRow = (task: Task, nodeId: string): boolean => {
-  const last = (task.journey ?? []).at(-1);
+const isExitedVisitRow = (task: Task, nodeId: string): boolean => {
+  const last = (task.visits ?? []).at(-1);
   return (
     last !== undefined &&
-    last.nodeId === nodeId &&
+    last.board === nodeId &&
     last.epoch === taskEpoch(task) &&
-    (last.exit === "forwarded" || last.exit === "rejected-back")
+    (last.exit === "sent-on" || last.exit === "sent-back")
   );
 };
 
 /**
- * The passage the task is currently living: the last journey entry when it
- * names this station and has not exited; otherwise a fresh entry synthesized
- * at exit time (tasks born before the pipeline have no arrival passage).
+ * The visit the task is currently living: the last visits entry when it names
+ * this board and has not exited; otherwise a fresh entry synthesized at exit
+ * time (tasks born before visits were recorded have no entry).
  */
-const currentPassageFor = (
+const currentVisitFor = (
   task: Task,
   nodeId: string,
   nowIso: string,
-): { readonly journey: ReadonlyArray<Passage>; readonly passage: Passage } => {
-  const journey = task.journey ?? [];
-  const last = journey[journey.length - 1];
-  if (last !== undefined && last.nodeId === nodeId && last.exit === undefined) {
-    return { journey: journey.slice(0, -1), passage: last };
+): { readonly visits: ReadonlyArray<Visit>; readonly visit: Visit } => {
+  const visits = task.visits ?? [];
+  const last = visits[visits.length - 1];
+  if (last !== undefined && last.board === nodeId && last.exit === undefined) {
+    return { visits: visits.slice(0, -1), visit: last };
   }
   return {
-    journey,
-    passage: { nodeId, enteredAt: nowIso, epoch: taskEpoch(task) },
+    visits,
+    visit: { board: nodeId, enteredAt: nowIso, epoch: taskEpoch(task) },
   };
 };
 
-/** Metadata for a re-homed task: promotion is per-station, so the marker drops. */
+/** Metadata for a re-homed task: the approval marker is epoch-scoped, so it drops. */
 const rehomedMetadata = (
   metadata: WorkMetadata | undefined,
 ): WorkMetadata | undefined => {
   if (metadata === undefined) return undefined;
-  if (!(PIPELINE_ADMITTED_METADATA_KEY in metadata)) return metadata;
-  const { [PIPELINE_ADMITTED_METADATA_KEY]: _promoted, ...rest } = metadata;
+  const keys = Object.keys(metadata).filter(
+    (key) => key.startsWith("vellum.tasks"),
+  );
+  if (keys.length === 0) return metadata;
+  const rest = { ...metadata };
+  for (const key of keys) delete rest[key];
   return Object.keys(rest).length > 0 ? (rest as WorkMetadata) : undefined;
 };
 
 /**
  * Build the submitted successor of `task` at `destination`. dependsOn stays
- * behind: prerequisites gate the first claim at the origin station and are
- * already satisfied by the time the task travels. Boarding tickets stay
- * behind too — tickets are per-station stamps.
+ * behind: prerequisites gate the first claim at the origin board and are
+ * already satisfied by the time the task travels.
  */
 const rehomedTask = (
   task: Task,
-  closedJourney: ReadonlyArray<Passage>,
+  closedVisits: ReadonlyArray<Visit>,
   destination: string,
   epoch: number,
   enteredAt: string,
-  holdUntil: string | undefined,
+  waitUntil: string | undefined,
   history: ReadonlyArray<Message>,
 ): Task => {
   const {
     claimedBy: _claimedBy,
     completionEvidence: _evidence,
     dependsOn: _deps,
-    boarding: _boarding,
-    holdUntil: _hold,
+    waitUntil: _wait,
     response: _response,
     metadata: _metadata,
     admission: _admission,
@@ -838,17 +687,17 @@ const rehomedTask = (
     state: "submitted",
     history: [...history],
     epoch,
-    journey: [...closedJourney, { nodeId: destination, enteredAt, epoch }],
-    ...(holdUntil !== undefined ? { holdUntil } : {}),
+    visits: [...closedVisits, { board: destination, enteredAt, epoch }],
+    ...(waitUntil !== undefined ? { waitUntil } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
   };
 };
 
 /**
- * The successor thread at `destination`: extend the station's existing row
- * thread when the journey has been here before (defect-back cycles), else
- * start from a fresh copy of the brief. Onion law holds by construction —
- * prior passages' interiors stay on their own station rows.
+ * The successor thread at `destination`: extend the board's existing row
+ * thread when the task has been here before (send-back cycles), else start
+ * from a fresh copy of the brief. Prior visits' interiors stay on their own
+ * board rows.
  */
 const rehomedHistory = (
   doc: CanvasDoc,
@@ -894,37 +743,38 @@ export const workTaskTransition = (
   const runFinishGate = options?.evaluateFinishCriteria !== false;
   const nowMs = options?.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
+  const handoff = options?.handoffNote?.trim();
   const evidence =
     state === "completed"
-      ? carryClaimEvidence(
+      ? normalizeRuleEvidence(
           normalizeCompletionEvidence(completionEvidence),
           completionEvidence,
         )
       : undefined;
   const destinations =
     state === "completed" ? flowDestinations(doc, nodeId) : [];
-  const forwardTo =
+  const nextBoardId =
     destinations.length === 0
       ? undefined
       : options?.next ?? (destinations.length === 1 ? destinations[0] : undefined);
   if (destinations.length > 1 && options?.next === undefined && state === "completed") {
     throw new WorkError(
       "invalid",
-      `sink "${nodeId}" forwards to more than one station; pick next from [${destinations.join(", ")}]`,
+      `board "${nodeId}" has more than one Next; pick next from [${destinations.join(", ")}]`,
     );
   }
-  if (forwardTo !== undefined && !destinations.includes(forwardTo)) {
+  if (nextBoardId !== undefined && !destinations.includes(nextBoardId)) {
     throw new WorkError(
       "invalid",
-      `"${forwardTo}" is not a live flow destination of sink "${nodeId}" [${destinations.join(", ")}]`,
+      `"${nextBoardId}" is not a live Next for board "${nodeId}" [${destinations.join(", ")}]`,
     );
   }
-  if (forwardTo === nodeId) {
-    throw new WorkError("invalid", `sink "${nodeId}" cannot forward to itself`);
+  if (nextBoardId === nodeId) {
+    throw new WorkError("invalid", `board "${nodeId}" cannot send a task on to itself`);
   }
 
-  let forwarded: { readonly nodeId: string; readonly task: Task } | undefined;
-  let defectBack: { readonly nodeId: string; readonly task: Task } | undefined;
+  let sentOn: { readonly nodeId: string; readonly task: Task } | undefined;
+  let sentBack: { readonly nodeId: string; readonly task: Task } | undefined;
 
   const { items: nextItems, task } = patchTaskInList(items, taskId, (current) => {
     if (!canTransitionTaskState(current.state, state)) {
@@ -933,10 +783,10 @@ export const workTaskTransition = (
         `cannot transition task "${taskId}" from ${current.state} to ${state}`,
       );
     }
-    if (state === "submitted" && isExitedPassageRow(current, nodeId)) {
+    if (state === "submitted" && isExitedVisitRow(current, nodeId)) {
       throw new WorkError(
         "illegal_transition",
-        `task "${taskId}" at "${nodeId}" is a closed passage record (exit: ${current.journey?.at(-1)?.exit}) — re-opening it here would create a second live row for this task; forward/defect-back already re-homed the live copy`,
+        `task "${taskId}" at "${nodeId}" is a closed visit record (exit: ${current.visits?.at(-1)?.exit}) — re-opening it here would create a second live row for this task; the live copy was already re-homed`,
       );
     }
     if (current.state === "completed" && state === "submitted" && !note?.trim()) {
@@ -961,35 +811,35 @@ export const workTaskTransition = (
       }
     }
     if (state === "completed") {
-      // Structural claims gate — doc-derived, so it runs at every caller
+      // Structural rules gate — doc-derived, so it runs at every caller
       // (unlike the SQLite-shelf finish gate, which is home-local).
-      const claimsGate = evaluateClaimCompletion({
-        stack: effectiveClaimsStack(doc, nodeId, current),
+      const rulesGate = evaluateRules({
+        rules: rulesInForce(doc, nodeId, current),
         evidence,
       });
-      if (claimsGate !== undefined) throw claimGateError(claimsGate);
-      if (forwardTo !== undefined) {
-        const boardingGate = evaluateBoarding({
+      if (rulesGate !== undefined) throw completionGateError(rulesGate);
+      if (nextBoardId !== undefined) {
+        const checksGate = evaluateChecks({
           task: current,
-          checks: requiredBoardingChecks(doc, nodeId, forwardTo),
+          checks: requiredChecks(doc, nodeId, nextBoardId),
         });
-        if (boardingGate !== undefined) throw claimGateError(boardingGate);
+        if (checksGate !== undefined) throw completionGateError(checksGate);
         const forkGate = evaluateForkWaivers({
           doc,
-          sinkNodeId: nodeId,
+          boardId: nodeId,
           task: current,
-          next: forwardTo,
+          next: nextBoardId,
           evidence,
         });
-        if (forkGate !== undefined) throw claimGateError(forkGate);
+        if (forkGate !== undefined) throw completionGateError(forkGate);
       } else {
         const terminalGate = evaluateTerminalClose({
           doc,
-          sinkNodeId: nodeId,
+          boardId: nodeId,
           task: current,
           evidence,
         });
-        if (terminalGate !== undefined) throw claimGateError(terminalGate);
+        if (terminalGate !== undefined) throw completionGateError(terminalGate);
       }
     }
     const defect = state === "rejected" ? options?.defect : undefined;
@@ -1031,102 +881,103 @@ export const workTaskTransition = (
     }
     let next = { ...taskWithTransitionState(current, state), history };
 
-    if (state === "completed" && forwardTo !== undefined) {
-      // Forward: stamp the passage exit here and mint the submitted successor
-      // at the destination (re-homed, fresh claimedBy, computed holdUntil).
-      const { journey, passage } = currentPassageFor(current, nodeId, nowIso);
+    if (state === "completed" && nextBoardId !== undefined) {
+      // Send on: stamp the visit exit here and mint the submitted successor
+      // at the next board (re-homed, fresh claimedBy, computed waitUntil).
+      const { visits, visit } = currentVisitFor(current, nodeId, nowIso);
       const claimedBy = claimedByOf(current);
-      const exited: Passage = {
-        ...passage,
-        ...(claimedBy !== undefined && passage.claimedBy === undefined
+      const exited: Visit = {
+        ...visit,
+        ...(claimedBy !== undefined && visit.claimedBy === undefined
           ? { claimedBy }
           : {}),
         exitedAt: nowIso,
-        exit: "forwarded",
-        next: forwardTo,
-        ...(note?.trim() ? { emissionNote: note.trim() } : {}),
+        exit: "sent-on",
+        next: nextBoardId,
+        ...(handoff ? { handoffNote: handoff } : {}),
       };
-      const closedJourney = [...journey, exited];
-      next = { ...next, journey: closedJourney };
-      const destinationNode = requireNode(doc, forwardTo);
+      const closedVisits = [...visits, exited];
+      next = { ...next, visits: closedVisits };
+      const destinationNode = requireNode(doc, nextBoardId);
       requireSink(destinationNode, ["task"]);
-      const holdUntil = computeHoldUntil(
+      const waitUntil = computeWaitUntil(
         nowMs,
-        sinkContractOf(destinationNode)?.inbound?.claimableAfterMs,
-        options?.holdForMs,
+        boardContractOf(destinationNode)?.incoming?.waitMs,
+        options?.waitForMs,
       );
       const brief: Message = {
         ...current.history[0]!,
         messageId: ids.messageId(),
         taskId,
       };
-      const arrival = makeAgentMessage({
+      const sentOnNote = makeAgentMessage({
         messageId: ids.messageId(),
-        text: note?.trim()
-          ? `forwarded from "${nodeId}" — ${note.trim()}`
-          : `forwarded from "${nodeId}"`,
+        text: handoff
+          ? `sent on from "${nodeId}" — ${handoff}`
+          : note?.trim()
+            ? `sent on from "${nodeId}" — ${note.trim()}`
+            : `sent on from "${nodeId}"`,
         contextId,
         taskId,
       });
-      forwarded = {
-        nodeId: forwardTo,
+      sentOn = {
+        nodeId: nextBoardId,
         task: rehomedTask(
           current,
-          closedJourney,
-          forwardTo,
+          closedVisits,
+          nextBoardId,
           taskEpoch(current),
           nowIso,
-          holdUntil,
-          rehomedHistory(doc, forwardTo, current, brief, arrival),
+          waitUntil,
+          rehomedHistory(doc, nextBoardId, current, brief, sentOnNote),
         ),
       };
-    } else if (state === "completed" && (current.journey?.length ?? 0) > 0) {
-      // Terminal close of a pipeline task: the passage record closes here.
-      const { journey, passage } = currentPassageFor(current, nodeId, nowIso);
+    } else if (state === "completed" && (current.visits?.length ?? 0) > 0) {
+      // Terminal close of a moved task: the visit record closes here.
+      const { visits, visit } = currentVisitFor(current, nodeId, nowIso);
       const claimedBy = claimedByOf(current);
       next = {
         ...next,
-        journey: [
-          ...journey,
+        visits: [
+          ...visits,
           {
-            ...passage,
-            ...(claimedBy !== undefined && passage.claimedBy === undefined
+            ...visit,
+            ...(claimedBy !== undefined && visit.claimedBy === undefined
               ? { claimedBy }
               : {}),
             exitedAt: nowIso,
-            exit: "closed",
+            exit: "completed",
           },
         ],
       };
     }
 
     if (defect !== undefined) {
-      const { journey, passage } = currentPassageFor(current, nodeId, nowIso);
-      const previous = journey[journey.length - 1];
-      // Defect-to-target: any station the journey already visited is a legal
-      // target; no target keeps today's meaning (the previous station).
-      // Beginning and previous are just targets, never separate code paths.
-      const target = defect.target ?? previous?.nodeId;
+      const { visits, visit } = currentVisitFor(current, nodeId, nowIso);
+      const previous = visits[visits.length - 1];
+      // Defect-to-target: any board the task already visited is a legal
+      // target; no target keeps today's meaning (the previous board).
+      const target = defect.target ?? previous?.board;
       if (defect.target !== undefined) {
-        const visited = [...new Set(journey.map((entry) => entry.nodeId))];
+        const visited = [...new Set(visits.map((entry) => entry.board))];
         if (defect.target === nodeId) {
           throw new WorkError(
             "invalid",
-            `defect target "${defect.target}" is this station — a defect sends the task back to a prior station`,
+            `defect target "${defect.target}" is this board — a defect sends the task back to a prior board`,
           );
         }
         if (!visited.includes(defect.target)) {
           throw new WorkError(
             "invalid",
             visited.length === 0
-              ? `task "${taskId}" has no prior station to defect to`
-              : `defect target "${defect.target}" is not a station this task has visited — pick one of [${visited.join(", ")}]`,
+              ? `task "${taskId}" has no prior board to send back to`
+              : `defect target "${defect.target}" is not a board this task has visited — pick one of [${visited.join(", ")}]`,
           );
         }
       }
       if (target !== undefined) {
         // Targeted defect: epoch++ and one append-only log entry. Liveness of
-        // prior receipts is DERIVED from the log (a defect shadows receipts at
+        // prior claims is DERIVED from the log (a defect shadows claims at
         // and downstream of its target); nothing is re-stamped or erased.
         const bumpedEpoch = taskEpoch(current) + 1;
         const defects = [
@@ -1134,22 +985,22 @@ export const workTaskTransition = (
           { epoch: bumpedEpoch, target, at: nowIso },
         ];
         const claimedBy = claimedByOf(current);
-        const exited: Passage = {
-          ...passage,
-          ...(claimedBy !== undefined && passage.claimedBy === undefined
+        const exited: Visit = {
+          ...visit,
+          ...(claimedBy !== undefined && visit.claimedBy === undefined
             ? { claimedBy }
             : {}),
           exitedAt: nowIso,
-          exit: "rejected-back",
+          exit: "sent-back",
           next: target,
         };
-        const closedJourney = [...journey, exited];
-        next = { ...next, journey: closedJourney, defects };
+        const closedVisits = [...visits, exited];
+        next = { ...next, visits: closedVisits, defects };
         const targetNode = requireNode(doc, target);
         requireSink(targetNode, ["task"]);
-        const holdUntil = computeHoldUntil(
+        const waitUntil = computeWaitUntil(
           nowMs,
-          sinkContractOf(targetNode)?.inbound?.claimableAfterMs,
+          boardContractOf(targetNode)?.incoming?.waitMs,
           undefined,
         );
         const brief: Message = {
@@ -1166,15 +1017,15 @@ export const workTaskTransition = (
           contextId,
           taskId,
         });
-        defectBack = {
+        sentBack = {
           nodeId: target,
           task: rehomedTask(
             { ...current, defects },
-            closedJourney,
+            closedVisits,
             target,
             bumpedEpoch,
             nowIso,
-            holdUntil,
+            waitUntil,
             rehomedHistory(doc, target, current, brief, defectNote),
           ),
         };
@@ -1192,31 +1043,31 @@ export const workTaskTransition = (
   });
 
   let nextDoc = withTasks(doc, nodeId, nextItems);
-  if (forwarded !== undefined) {
+  if (sentOn !== undefined) {
     const destinationItems =
-      nextDoc.nodes.find((n) => n.id === forwarded!.nodeId)?.ether?.tasks
+      nextDoc.nodes.find((n) => n.id === sentOn!.nodeId)?.ether?.tasks
         ?.items ?? [];
     nextDoc = withTasks(
       nextDoc,
-      forwarded.nodeId,
-      replaceOrAppendTask(destinationItems, forwarded.task),
+      sentOn.nodeId,
+      replaceOrAppendTask(destinationItems, sentOn.task),
     );
   }
-  if (defectBack !== undefined) {
+  if (sentBack !== undefined) {
     const previousItems =
-      nextDoc.nodes.find((n) => n.id === defectBack!.nodeId)?.ether?.tasks
+      nextDoc.nodes.find((n) => n.id === sentBack!.nodeId)?.ether?.tasks
         ?.items ?? [];
     nextDoc = withTasks(
       nextDoc,
-      defectBack.nodeId,
-      replaceOrAppendTask(previousItems, defectBack.task),
+      sentBack.nodeId,
+      replaceOrAppendTask(previousItems, sentBack.task),
     );
   }
   return {
     doc: nextDoc,
     task,
-    ...(forwarded !== undefined ? { forwarded } : {}),
-    ...(defectBack !== undefined ? { defectBack } : {}),
+    ...(sentOn !== undefined ? { sentOn } : {}),
+    ...(sentBack !== undefined ? { sentBack } : {}),
   };
 };
 
@@ -1286,7 +1137,7 @@ export const workTaskClaim = (
     if (existing && existing !== actor.seatId) {
       throw new WorkError(
         "claim_contention",
-        `task "${taskId}" already assigned to "${existing}"`,
+        `task "${taskId}" already claimed by "${existing}"`,
       );
     }
     // Claims take submitted or working items only. An attention task is
@@ -1305,31 +1156,31 @@ export const workTaskClaim = (
       return current;
     }
     // Hard prereqs: first claim only when every dependsOn is completed
-    // (deps may live on other task sinks in the same region).
+    // (deps may live on other Tasks boards in the same region).
     if (current.state === "submitted") {
-      // Pipeline admission: seats never claim at operator-owned sinks; baking
-      // and unpromoted operator-gated arrivals are not claimable yet.
+      // Admission: seats never claim at a Me board; waiting and Approval
+      // boards are not claimable yet.
       const admission = taskAdmissionState(
         current,
-        sinkContractOf(node),
+        boardContractOf(node),
         Date.now(),
       );
-      if (admission === "operator-owned") {
+      if (admission === "operator") {
         throw new WorkError(
           "claim_contention",
-          `sink "${nodeId}" is operator-owned; the operator works tasks here — no seat claim`,
+          `board "${nodeId}" is set to Me — the operator works tasks here; no seat claim`,
         );
       }
-      if (admission === "held") {
+      if (admission === "waiting") {
         throw new WorkError(
           "invalid",
-          `task "${taskId}" is not assignable before ${current.holdUntil} (station bake)`,
+          `task "${taskId}" is not claimable before ${current.waitUntil} (wait before starting)`,
         );
       }
-      if (admission === "operator-gated") {
+      if (admission === "approval") {
         throw new WorkError(
           "invalid",
-          `task "${taskId}" awaits operator approval at sink "${nodeId}"`,
+          `task "${taskId}" awaits operator approval at board "${nodeId}"`,
         );
       }
       const byId = dependencyScopeIndex(doc, nodeId);
@@ -1344,7 +1195,7 @@ export const workTaskClaim = (
       ...current.history,
       makeAgentMessage({
         messageId: ids.messageId(),
-        text: `assigned to ${actor.seatId}`,
+        text: `claimed by ${actor.seatId}`,
         contextId,
         taskId,
       }),
@@ -1426,7 +1277,7 @@ export const workRequestCreate = (
     );
   }
   rejectRetiredClaimMetadata(metadata);
-  rejectReservedPipelineMetadata(metadata);
+  rejectReservedTaskMetadata(metadata);
   // A request is actor-originated and claimed by its raiser at birth. The
   // raiser is the worker waiting on the answer, so stoppage lands on it.
   const taskId = ids.id();

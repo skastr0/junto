@@ -303,8 +303,6 @@ const expectedSinkKind = (
   kind: WorkRecord["item"]["kind"],
 ): string | undefined => {
   switch (kind) {
-    case "proposal":
-      return "task";
     case "task":
       return "task";
     case "request":
@@ -330,11 +328,6 @@ const operationForActor = (
   deliveredKind?: WorkRecord["item"]["kind"],
 ): WorkOpName | undefined => {
   switch (operation) {
-    case "proposal.create":
-      return "tasks.create";
-    case "proposal.approve":
-    case "proposal.reject":
-      return undefined;
     case "task.claim":
       return "tasks.claim";
     case "task.describe":
@@ -384,10 +377,6 @@ const commandDependencies = (
   command: WorkCommand,
 ): ReadonlyArray<string> | undefined => {
   switch (command.body.operation) {
-    case "proposal.create":
-      return command.body.proposal.dependsOn;
-    case "proposal.approve":
-      return command.body.task.dependsOn;
     case "task.create":
       return command.body.task.dependsOn;
     case "task.claim":
@@ -401,9 +390,6 @@ const factDependencies = (
   fact: WorkFact,
 ): ReadonlyArray<string> | undefined => {
   switch (fact.body.operation) {
-    case "proposal.create":
-      return fact.body.proposal.dependsOn;
-    case "proposal.approve":
     case "task.create":
     case "task.claim":
       return fact.body.task.dependsOn;
@@ -493,13 +479,11 @@ const admitDependencyScope = (
 };
 
 const commandRequiresTaskTopology = (command: WorkCommand): boolean =>
-  command.body.operation === "proposal.approve" ||
   command.body.operation === "task.create" ||
   command.body.operation === "task.claim" ||
   (commandDependencies(command)?.length ?? 0) > 0;
 
 const factRequiresTaskTopology = (fact: WorkFact): boolean =>
-  fact.body.operation === "proposal.approve" ||
   fact.body.operation === "task.create" ||
   fact.body.operation === "task.claim" ||
   (factDependencies(fact)?.length ?? 0) > 0;
@@ -824,11 +808,6 @@ const actorFromFact = (
   fact: WorkFact,
 ): ActorRef | undefined => {
   switch (fact.body.operation) {
-    case "proposal.create":
-      return fact.body.proposal.proposedBy;
-    case "proposal.approve":
-    case "proposal.reject":
-      return undefined;
     case "task.claim":
       return fact.body.claimedBy;
     case "task.describe":
@@ -943,20 +922,6 @@ export const makeStationWorkAdmission = (
           "tasks.create",
         );
       }
-      if (command.body.operation === "proposal.create") {
-        return sinkAuthority(topology, sink) !== topology.localInstallationId
-          ? rejected(
-              "locality-mismatch",
-              "proposal command targets a queue not homed on Command Center",
-            )
-          : authorizeActor(
-              topology,
-              command.body.proposal.proposedBy,
-              topology.peerInstallationId,
-              command.item.sink,
-              "tasks.create",
-            );
-      }
       if (
         command.body.operation === "board.topic.create" ||
         command.body.operation === "board.post.append"
@@ -1033,14 +998,6 @@ export const makeStationWorkAdmission = (
     }
 
     switch (command.body.operation) {
-      case "proposal.approve":
-      case "proposal.reject":
-        return admitted();
-      case "proposal.create":
-        return rejected(
-          "authority-mismatch",
-          "a Remote cannot command another Remote to create a proposal",
-        );
       case "task.claim": {
         if (
           command.body.targetHome !== topology.localInstallationId ||

@@ -17,6 +17,7 @@ import {
   type WorkRecord,
 } from "../src/shared/work-protocol";
 import {
+  WORK_SEAT_RECENT_OPS_COVERAGE,
   WORK_SEAT_RECENT_OP_DEFAULT_LIMIT,
   WORK_SEAT_RECENT_OP_MAX_LIMIT,
 } from "../src/shared/work-recent-ops";
@@ -231,24 +232,6 @@ describe("WorkRepository recent actor-seat operations", () => {
     const taskSink = { canvasName, nodeId: "tasks" };
 
     await runtime.runPromise(
-      repository.createProposal({
-        sink: taskSink,
-        basis,
-        proposal: {
-          id: "proposal-1",
-          state: "pending",
-          brief: message(
-            "proposal-brief",
-            "SECRET_PROPOSAL_BODY",
-            "proposal-1",
-          ),
-          proposedBy: seat,
-        },
-        originAt: atMinute(1),
-        receivedAt: atMinute(1),
-      }),
-    );
-    await runtime.runPromise(
       repository.createTask({
         sink: taskSink,
         basis,
@@ -446,23 +429,9 @@ describe("WorkRepository recent actor-seat operations", () => {
       "message.append",
       "request.create",
       "task.claim",
-      "proposal.create",
     ]);
     expect(feed.lastOpAt).toBe(atMinute(10));
-    expect(feed.coverage).toMatchObject({
-      kind: "explicit-actor-only",
-      includes: [
-        "proposal.create",
-        "task.claim",
-        "request.create",
-        "message.append",
-        "artifact.publish",
-        "delivery.accepted",
-        "board.topic.create",
-        "board.post.append",
-      ],
-      excludes: expect.arrayContaining(["task.describe", "task.transition"]),
-    });
+    expect(feed.coverage).toEqual(WORK_SEAT_RECENT_OPS_COVERAGE);
     expect(feed.operations).toEqual([
       expect.objectContaining({
         targetNodeId: "board",
@@ -500,13 +469,9 @@ describe("WorkRepository recent actor-seat operations", () => {
       expect.objectContaining({
         summary: { kind: "task", taskId: "task-1" },
       }),
-      expect.objectContaining({
-        summary: { kind: "proposal", proposalId: "proposal-1" },
-      }),
     ]);
     const exposed = JSON.stringify(feed);
     for (const secret of [
-      "SECRET_PROPOSAL_BODY",
       "SECRET_TASK_BODY",
       "SECRET_OPERATOR_TRANSITION",
       "SECRET_REQUEST_BODY",
@@ -624,39 +589,6 @@ describe("WorkRepository recent actor-seat operations", () => {
         }),
       ),
     );
-    const proposal = {
-      id: "remote-proposal",
-      state: "pending" as const,
-      brief: message(
-        "remote-proposal-brief",
-        "SECRET_REMOTE_PROPOSAL",
-        "remote-proposal",
-      ),
-      proposedBy: seat,
-    };
-    const proposalCommand = await remote.runtime.runPromise(
-      remote.repository.enqueueRemoteCommand({
-        targetInstallationId: commandCenterId,
-        sink: { canvasName, nodeId: "tasks" },
-        item: {
-          kind: "proposal",
-          itemId: proposal.id,
-          sink: { canvasName, nodeId: "tasks" },
-        },
-        action: { operation: "proposal.create", proposal },
-        originAt: atMinute(5),
-        receivedAt: atMinute(5),
-      }),
-    );
-    await commandCenter.runtime.runPromise(
-      accept(
-        commandCenter.repository,
-        remoteId,
-        [proposalCommand],
-        atMinute(6),
-      ),
-    );
-
     const feed = await commandCenter.runtime.runPromise(
       commandCenter.repository.recentOpsForSeat({
         canvasName,
@@ -666,13 +598,6 @@ describe("WorkRepository recent actor-seat operations", () => {
 
     expect(feed.operations).toEqual([
       {
-        operation: "proposal.create",
-        originAt: atMinute(5),
-        appliedAt: atMinute(6),
-        targetNodeId: "tasks",
-        summary: { kind: "proposal", proposalId: "remote-proposal" },
-      },
-      {
         operation: "message.append",
         originAt: atMinute(1),
         appliedAt: atMinute(2),
@@ -680,9 +605,8 @@ describe("WorkRepository recent actor-seat operations", () => {
         summary: { kind: "message", messageId: "remote-message" },
       },
     ]);
-    expect(feed.lastOpAt).toBe(atMinute(6));
+    expect(feed.lastOpAt).toBe(atMinute(2));
     expect(JSON.stringify(feed)).not.toContain("SECRET_REMOTE_MESSAGE");
     expect(JSON.stringify(feed)).not.toContain("SECRET_REJECTED_MESSAGE");
-    expect(JSON.stringify(feed)).not.toContain("SECRET_REMOTE_PROPOSAL");
   });
 });

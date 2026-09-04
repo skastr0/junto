@@ -63,15 +63,11 @@ describe("main authoring architecture", () => {
       "ipc.work.board-topic-create",
       "ipc.work.pad-patch",
       "ipc.work.request-resolve",
-      "ipc.work.task-approve-proposal",
       "ipc.work.task-claim",
       "ipc.work.task-comment",
       "ipc.work.task-create",
       "ipc.work.task-describe",
-      "ipc.work.task-propose",
       "ipc.work.task-promote",
-      "ipc.work.task-reject-arrival",
-      "ipc.work.task-reject-proposal",
       "ipc.work.task-respond",
       "ipc.work.task-transition",
       "startup.canvas.ensure-seed",
@@ -126,7 +122,9 @@ describe("main authoring architecture", () => {
     const control = source("src/main/vellum/work/control.ts");
 
     expect(ipc).toContain("resolveProjectedIpcActorRef");
-    expect(ipc).toContain("read.success.actorRefs");
+    // Claim resolves the projected actor at the trusted IPC boundary; other
+    // actor operations remain process-bound to the control plane.
+    expect(ipc).toContain("resolveRendererActor");
     for (const actorOperation of [
       "workMessageAppend",
       "workRequestCreate",

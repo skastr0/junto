@@ -874,9 +874,9 @@ const commitPortfolio = (
  * boundary because no repository-private document transform may be required
  * to make authorial persistence safe.
  *
- * `ether.tasks.stationName` and `ether.tasks.contract` are operator-authored
- * document truth, so they survive the strip while projected rows beside them
- * do not. `items` stays present-and-empty because WorkTasks requires it.
+ * `ether.tasks.name` and `ether.tasks.contract` are operator-authored document
+ * truth, so they survive the strip while projected rows beside them do not.
+ * `items` stays present-and-empty because WorkTasks requires it.
  */
 const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
   ...doc,
@@ -905,25 +905,15 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
       pad: _pad,
       ...rest
     } = etherIn;
+    const name = strippedTasks?.name;
     const contract = strippedTasks?.contract;
-    const nativeTaskTitle =
-      node.type === "text" &&
-      etherIn.entity?.kind === "task" &&
-      (strippedTasks?.items?.length ?? 0) === 0
-        ? node.text.split("\n")[0]?.replace(/^#+\s*/, "").trim()
-        : undefined;
-    const stationName =
-      strippedTasks?.stationName?.trim() ||
-      (nativeTaskTitle && !/^(?:task|tasks)$/i.test(nativeTaskTitle)
-        ? nativeTaskTitle
-        : undefined);
-    const ether = contract === undefined && stationName === undefined
+    const ether = contract === undefined && name === undefined
       ? rest
       : {
           ...rest,
           tasks: {
             items: [],
-            ...(stationName ? { stationName } : {}),
+            ...(name ? { name } : {}),
             ...(contract ? { contract } : {}),
           },
         };

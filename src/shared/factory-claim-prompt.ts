@@ -1,8 +1,8 @@
 /**
- * Factory claim pulse text — the complete CLI work packet delivered to a
+ * Factory claim pulse text — the complete CLI work briefing delivered to a
  * managed seat when a task becomes `working` on that actor.
  *
- * Law: an agent that only reads this string must be able to form a valid
+ * Contract: an agent that only reads this string must be able to form a valid
  * `vellum-command tasks list` / `vellum-command tasks update` without schema discovery.
  * Claim delivery must never gate on a prior `/compact` harness turn.
  */
@@ -11,25 +11,24 @@ import type { CanvasDoc } from "./canvas";
 import type { Task } from "./work-model";
 import { taskBrief, taskMediaParts } from "./task";
 import {
-  effectiveClaimsStack,
-  requiredBoardingChecks,
-  sinkContractOf,
+  boardContractOf,
+  requiredChecks,
+  rulesInForce,
   taskEpoch,
-  type EffectiveClaim,
-} from "./claims";
+  type RuleInForce,
+} from "./rules";
 import { flowDestinations } from "./flow-graph";
 import { regionStack } from "./graph";
-import { stationIdentity, stationName } from "./station-identity";
+import { tasksNodeIdentity, tasksNodeName } from "./tasks-node-identity";
 
 export type FactoryClaimPromptInput = {
-  /** Task sink node id on the canvas (CLI `target`). */
-  readonly sinkNodeId: string;
+  /** Tasks node id on the canvas (CLI `target`). */
+  readonly boardId: string;
   readonly task: Task;
   /**
-   * Live document. Supplies the station's standing law: sink instruction,
-   * effective claims stack, pinned rulings, boarding expectations, and the
-   * forward destinations. Omitted (tests, callers without a document) leaves
-   * the packet at its base contract.
+   * Live document. Supplies the board's standing rules: instructions, rules in
+   * force, pinned rulings, checks, and the next boards. Omitted
+   * (tests, callers without a document) leaves the briefing at its base contract.
    */
   readonly doc?: CanvasDoc;
 };
@@ -37,44 +36,44 @@ export type FactoryClaimPromptInput = {
 const nodeById = (doc: CanvasDoc, nodeId: string) =>
   doc.nodes.find((node) => node.id === nodeId);
 
-const provenanceOf = (entry: EffectiveClaim): string => {
+const provenanceOf = (entry: RuleInForce): string => {
   switch (entry.provenance.kind) {
     case "region":
       return `region ${entry.provenance.label}`;
-    case "sink":
-      return "this station";
+    case "board":
+      return "this board";
     case "task":
       return "raised with the task";
   }
 };
 
 /**
- * Station law, journey, and boarding sections. Every line is derived from the
- * document the operator authored — the packet never invents a rule.
+ * Board rules, visits, and checks sections. Every line is derived from the
+ * document the operator authored — the briefing never invents a rule.
  */
-const stationSections = (
+const boardSections = (
   doc: CanvasDoc,
-  sinkNodeId: string,
+  boardId: string,
   task: Task,
 ): readonly string[] => {
   const lines: string[] = [];
 
-  const sinkNode = nodeById(doc, sinkNodeId);
-  const identity = stationIdentity(sinkNode, sinkNodeId);
-  const contract = sinkContractOf(sinkNode);
-  lines.push("", `Station: ${identity.name}`);
+  const boardNode = nodeById(doc, boardId);
+  const identity = tasksNodeIdentity(boardNode, boardId);
+  const contract = boardContractOf(boardNode);
+  lines.push("", `Board: ${identity.name}`);
   if (identity.namingHint) lines.push(identity.namingHint);
-  const instruction = contract?.instruction;
-  if (instruction !== undefined && instruction.trim().length > 0) {
-    lines.push("", "What this station is for:", instruction.trim());
+  const instructions = contract?.instructions;
+  if (instructions !== undefined && instructions.trim().length > 0) {
+    lines.push("", "What this board is for:", instructions.trim());
   }
 
-  const triage = contract?.inbound?.instruction;
-  if (triage !== undefined && triage.trim().length > 0) {
-    lines.push("", "How work arriving here is handled:", triage.trim());
+  const handling = contract?.incoming?.handling;
+  if (handling !== undefined && handling.trim().length > 0) {
+    lines.push("", "How work arriving here is handled:", handling.trim());
   }
 
-  const regions = regionStack(doc, sinkNodeId);
+  const regions = regionStack(doc, boardId);
   const briefings = regions
     .map((group) => group.ether?.region?.instruction)
     .filter((text): text is string => typeof text === "string" && text.trim().length > 0);
@@ -83,17 +82,17 @@ const stationSections = (
     for (const text of briefings) lines.push(`- ${text.trim()}`);
   }
 
-  const claims = effectiveClaimsStack(doc, sinkNodeId, task);
-  if (claims.length > 0) {
+  const rules = rulesInForce(doc, boardId, task);
+  if (rules.length > 0) {
     lines.push(
       "",
-      "Claims in force here (answer each before completed):",
-      ...claims.map(
+      "Rules in force here (answer each before completed):",
+      ...rules.map(
         (entry) =>
-          `- [${entry.claim.severity}] ${entry.claim.text}  (id ${entry.claim.id}, from ${provenanceOf(entry)})`,
+          `- ${entry.rule.text}  (id ${entry.rule.id}, from ${provenanceOf(entry)})`,
       ),
-      "Answer with completionEvidence.responses: [{ claimId, response, refs }]. A soft claim may instead carry completionEvidence.claimWaivers: [{ claimId, reason }]. A hard claim must be answered.",
-      `Read the live stack any time: vellum-command tasks claims '{"target":"${sinkNodeId}","task":"${task.id}"}'`,
+      "Answer with completionEvidence.claims: [{ ruleId, text, refs }]. A task rule whose board your chosen path no longer reaches may instead carry completionEvidence.waivers: [{ ruleId, reason }].",
+      `Read the live stack any time: vellum-command tasks rules '{"target":"${boardId}","task":"${task.id}"}'`,
     );
   }
 
@@ -106,52 +105,52 @@ const stationSections = (
     lines.push("", "Pinned rulings for this region stack:", ...rulings);
   }
 
-  const destinations = flowDestinations(doc, sinkNodeId);
+  const destinations = flowDestinations(doc, boardId);
   if (destinations.length > 0) {
     const namedDestinations = destinations.map((destination) => ({
       id: destination,
-      name: stationName(nodeById(doc, destination), destination),
+      name: tasksNodeName(nodeById(doc, destination), destination),
     }));
     lines.push(
       "",
       destinations.length === 1
-        ? `Forward: completing here sends the task to ${namedDestinations[0]!.name} (next: "${namedDestinations[0]!.id}").`
-        : `Forward: this station forks — choose ${namedDestinations.map(({ name, id }) => `${name} ("${id}")`).join(", ")} as next when you complete.`,
+        ? `Completing here sends the task to ${namedDestinations[0]!.name} (next: "${namedDestinations[0]!.id}").`
+        : `Completing here forks — choose ${namedDestinations.map(({ name, id }) => `${name} ("${id}")`).join(", ")} as next when you complete.`,
     );
-    const emission = contract?.outbound?.emission;
-    if (emission !== undefined && emission.trim().length > 0) {
+    const handoff = contract?.outgoing?.handoff;
+    if (handoff !== undefined && handoff.trim().length > 0) {
       lines.push(
-        `What this station publishes forward (put this in your completion note): ${emission.trim()}`,
+        `Write this in the handoff note when you send the task on (completion update "handoffNote"): ${handoff.trim()}`,
       );
     }
     for (const destination of destinations) {
-      const checks = requiredBoardingChecks(doc, sinkNodeId, destination);
+      const checks = requiredChecks(doc, boardId, destination);
       if (checks.length === 0) continue;
-      const destinationName = stationName(nodeById(doc, destination), destination);
+      const destinationName = tasksNodeName(nodeById(doc, destination), destination);
       lines.push(
-        `Boarding checks for ${destinationName} (green tickets are required to forward):`,
+        `Checks required before sending on to ${destinationName}:`,
         ...checks.map(({ check, side }) => `- ${side}: ${check.label}`),
       );
     }
     const anyChecks = destinations.some(
-      (destination) => requiredBoardingChecks(doc, sinkNodeId, destination).length > 0,
+      (destination) => requiredChecks(doc, boardId, destination).length > 0,
     );
     if (anyChecks) {
       lines.push(
-        `Run them here and submit the results: vellum-command tasks board '{"target":"${sinkNodeId}","task":"${task.id}"${destinations.length > 1 ? ',"next":"<station>"' : ""}}'`,
+        `Run them here and submit the results: vellum-command tasks check '{"target":"${boardId}","task":"${task.id}"${destinations.length > 1 ? ',"next":"<board>"' : ""}}'`,
       );
     }
   }
 
-  const priorPassages = (task.journey ?? []).filter(
-    (passage) => passage.exitedAt !== undefined,
+  const priorVisits = (task.visits ?? []).filter(
+    (visit) => visit.exitedAt !== undefined,
   );
-  if (priorPassages.length > 0) {
+  if (priorVisits.length > 0) {
     lines.push("", "Where this task has already been:");
-    for (const passage of priorPassages) {
-      const emission = passage.emissionNote?.trim();
+    for (const visit of priorVisits) {
+      const handoffNote = visit.handoffNote?.trim();
       lines.push(
-        `- ${stationName(nodeById(doc, passage.nodeId), passage.nodeId)} (${passage.exit ?? "left"})${emission ? `: ${emission}` : ""}`,
+        `- ${tasksNodeName(nodeById(doc, visit.board), visit.board)} (${visit.exit ?? "left"})${handoffNote ? `: ${handoffNote}` : ""}`,
       );
     }
   }
@@ -159,12 +158,12 @@ const stationSections = (
   const epoch = taskEpoch(task);
   if (epoch > 0) {
     // The defect itself is recorded as the newest history note by the
-    // send-back transition; the packet points at it rather than restating it.
-    // The packet is delivered at the defect target, so "this station onward"
-    // names exactly the shadowed receipts.
+    // send-back transition; the briefing points at it rather than restating it.
+    // The briefing is delivered at the defect target, so "from this board
+    // onward" names exactly the shadowed claims.
     lines.push(
       "",
-      `This task was sent back to you (epoch ${epoch}). Receipts from this station onward are stale, along with all waivers and tickets — answer the claims here again and re-run boarding. The defect is the newest note in the task history.`,
+      `This task was sent back to you (epoch ${epoch}). Claims and waivers recorded from this board onward are stale — answer the rules here again and re-run the checks. The defect is the newest note in the task history.`,
     );
   }
 
@@ -178,11 +177,11 @@ const stationSections = (
 export const buildFactoryClaimPrompt = (
   input: FactoryClaimPromptInput,
 ): string => {
-  const { sinkNodeId, task, doc } = input;
+  const { boardId, task, doc } = input;
   const brief = taskBrief(task);
-  const listExample = `vellum-command tasks list '{"target":"${sinkNodeId}"}'`;
-  const updateExample = `vellum-command tasks update '{"target":"${sinkNodeId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
-  const workingExample = `vellum-command tasks update '{"target":"${sinkNodeId}","task":"${task.id}","state":"working","note":"<progress>"}'`;
+  const listExample = `vellum-command tasks list '{"target":"${boardId}"}'`;
+  const updateExample = `vellum-command tasks update '{"target":"${boardId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
+  const workingExample = `vellum-command tasks update '{"target":"${boardId}","task":"${task.id}","state":"working","note":"<progress>"}'`;
 
   const media = taskMediaParts(task);
   const mediaNote =
@@ -191,7 +190,7 @@ export const buildFactoryClaimPrompt = (
       : [
           "",
           `This task includes ${media.length} first-class media attachment${media.length === 1 ? "" : "s"} (${media.map((part) => part.mediaType ?? "raw").join(", ")}) on history[0] as raw parts.`,
-          `Inspect via ${listExample} (bytesBase64 + mediaType travel with the projected claim — no host path).`,
+          `Inspect via ${listExample} (bytesBase64 + mediaType travel with the projected task — no host path).`,
         ];
 
   const criteria = task.finishCriteria;
@@ -221,38 +220,36 @@ export const buildFactoryClaimPrompt = (
     }
   }
 
-  const station = doc === undefined ? [] : stationSections(doc, sinkNodeId, task);
-  const claims =
-    doc === undefined ? [] : effectiveClaimsStack(doc, sinkNodeId, task);
+  const board = doc === undefined ? [] : boardSections(doc, boardId, task);
+  const rules = doc === undefined ? [] : rulesInForce(doc, boardId, task);
 
   // Machine-readable mirror of the prose guidance: a seat that parses only the
-  // JSON packet must see the same station law the prose carries. Emission is
-  // forwarding guidance, so it only travels when the station forwards.
+  // JSON briefing must carry the same board guidance as the prose. Handoff only
+  // travels when the board can send the task on.
   const contract =
-    doc === undefined ? undefined : sinkContractOf(nodeById(doc, sinkNodeId));
+    doc === undefined ? undefined : boardContractOf(nodeById(doc, boardId));
   const identity =
     doc === undefined
       ? undefined
-      : stationIdentity(nodeById(doc, sinkNodeId), sinkNodeId);
-  const guidanceInstruction = contract?.instruction?.trim();
-  const guidanceTriage = contract?.inbound?.instruction?.trim();
-  const guidanceEmission =
-    doc !== undefined && flowDestinations(doc, sinkNodeId).length > 0
-      ? contract?.outbound?.emission?.trim()
+      : tasksNodeIdentity(nodeById(doc, boardId), boardId);
+  const guidanceInstructions = contract?.instructions?.trim();
+  const guidanceHandling = contract?.incoming?.handling?.trim();
+  const guidanceHandoff =
+    doc !== undefined && flowDestinations(doc, boardId).length > 0
+      ? contract?.outgoing?.handoff?.trim()
       : undefined;
   const guidance = {
-    ...(guidanceInstruction ? { instruction: guidanceInstruction } : {}),
-    ...(guidanceTriage ? { triage: guidanceTriage } : {}),
-    ...(guidanceEmission ? { emission: guidanceEmission } : {}),
+    ...(guidanceInstructions ? { instructions: guidanceInstructions } : {}),
+    ...(guidanceHandling ? { handling: guidanceHandling } : {}),
+    ...(guidanceHandoff ? { handoff: guidanceHandoff } : {}),
   };
 
-  const packet = {
-    sinkTarget: sinkNodeId,
+  const briefing = {
+    target: boardId,
     ...(identity !== undefined
       ? {
-          station: {
+          board: {
             name: identity.name,
-            ...(identity.role ? { role: identity.role } : {}),
           },
         }
       : {}),
@@ -262,22 +259,20 @@ export const buildFactoryClaimPrompt = (
     ...(criteria !== undefined ? { finishCriteria: criteria } : {}),
     ...(task.metadata !== undefined ? { metadata: task.metadata } : {}),
     mediaCount: media.length,
-    ...(claims.length > 0
+    ...(rules.length > 0
       ? {
-          claims: claims.map((entry) => ({
-            id: entry.claim.id,
-            text: entry.claim.text,
-            severity: entry.claim.severity,
+          rules: rules.map((entry) => ({
+            id: entry.rule.id,
+            text: entry.rule.text,
             from: provenanceOf(entry),
           })),
         }
       : {}),
-    ...(doc !== undefined && flowDestinations(doc, sinkNodeId).length > 0
+    ...(doc !== undefined && flowDestinations(doc, boardId).length > 0
       ? {
-          forwardsTo: flowDestinations(doc, sinkNodeId),
-          forwardStations: flowDestinations(doc, sinkNodeId).map((nodeId) => ({
+          next: flowDestinations(doc, boardId).map((nodeId) => ({
             nodeId,
-            name: stationName(nodeById(doc, nodeId), nodeId),
+            name: tasksNodeName(nodeById(doc, nodeId), nodeId),
           })),
         }
       : {}),
@@ -288,8 +283,8 @@ export const buildFactoryClaimPrompt = (
   return [
     `[factory claim] task ${task.id}: ${brief}`,
     "",
-    "This task is assigned to you.",
-    `Sink target (tasks node id): ${sinkNodeId}`,
+    "This task is claimed by you.",
+    `Board target (Tasks node id): ${boardId}`,
     `Task id: ${task.id}`,
     "",
     "CLI contract (copy-paste JSON — do not invent flags):",
@@ -299,20 +294,20 @@ export const buildFactoryClaimPrompt = (
     `- complete:${updateExample}`,
     "- blocked: vellum-command escalate  (JSON per `vellum-command schema show request.escalate` / examples)",
     "",
-    "You can start from the task packet below; list is optional once you have target + task id.",
+    "You can start from the task briefing below; list is optional once you have target + task id.",
     "",
     "Operating contract for this task:",
     "- PLAN — one line: what you will change and how you will verify it.",
     "- VERIFY — before completed, check every finish criterion (above). The server enforces them; a rejection names the missing pieces.",
-    "- EVIDENCE — attach completionEvidence: artifacts published with task linkage + real git SHAs, and a response for every claim in force (below).",
-    "- BOARD — where this station forwards, run the boarding checks and submit them before you complete.",
+    "- EVIDENCE — attach completionEvidence: artifacts published with task linkage + real git SHAs, and a claim for every rule in force (below).",
+    "- CHECKS — before sending on, run the checks and submit them before you complete.",
     "- BLOCK — if you cannot proceed, escalate with what you tried and what you need. Do not mark failed unless the task is truly dead.",
     "",
     ...mediaNote,
     ...criteriaNote,
-    ...station,
+    ...board,
     "",
-    "--- task packet (JSON) ---",
-    JSON.stringify(packet, null, 2),
+    "--- task briefing (JSON) ---",
+    JSON.stringify(briefing, null, 2),
   ].join("\n");
 };

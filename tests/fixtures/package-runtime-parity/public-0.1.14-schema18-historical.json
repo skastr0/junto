@@ -15,16 +15,8 @@
   },
   "evidence": [
     {
-      "path": "../planning-task-package-compat/public-package-receipt.json",
-      "sha256": "55540bccd9538329cea3df55846cdcaa2585a7a1374ff0129528d4cb7249e7c5"
-    },
-    {
-      "path": "../planning-task-package-compat/released-main-static/released-main-state-schema-version.txt.fixture",
+      "path": "public-0.1.14-state-schema-version.txt.fixture",
       "sha256": "1bb1c941e0bf1cd40ffa1df5c9b43dbf0e90779fd3f9eb85a75eb54325812ef3"
-    },
-    {
-      "path": "../planning-task-package-compat/released-main-static/released-main-slice-receipt.json",
-      "sha256": "c417ff2d4285f60539a85b7cbb2f6598f0b3d3336b9fbda00bd05085c28fcc1b"
     }
   ],
   "constraint": "This comparison does not claim that the public macOS package carried a Linux Remote payload. It is never a package input or compatibility target."

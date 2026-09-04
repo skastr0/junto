@@ -275,7 +275,7 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkAction({
-          operation: "task.assign",
+          operation: "task.invalid",
           taskId: "task-1",
           actor,
         }),
@@ -285,7 +285,7 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkResult({
-          operation: "task.assigned",
+          operation: "task.unknown",
           task: sourceTask,
         }),
       ),

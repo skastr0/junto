@@ -1,12 +1,14 @@
 import { Result, Schema } from "effect";
 import { TaskState, WorkMetadata } from "./canvas";
 import {
+  CheckSide,
   CompletionEvidence,
   ContentPart,
   FinishCriteria,
   RawPart,
-  SinkAdmission,
-  TaskClaim,
+  Rule,
+  TaskAdmission,
+  TaskRule,
 } from "./work-model";
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
@@ -50,8 +52,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "tasks.claim",
 "tasks.update",
 "tasks.show",
-"tasks.claims",
-"tasks.board",
+"tasks.rules",
+"tasks.check",
 "rulings",
 "content.path",
 "content.stat",
@@ -197,13 +199,13 @@ export const TasksListArgs = Schema.Struct({
 });
 export type TasksListArgs = typeof TasksListArgs.Type;
 
-/** Outer bound on a hold/park stamp — no operator recourse beyond this. */
-export const HOLD_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
+/** Outer bound on a wait before starting. */
+export const WAIT_FOR_MAX_MS = 90 * 24 * 60 * 60 * 1000;
 
-const holdForMsField = Schema.optionalKey(
+const waitForField = Schema.optionalKey(
   Schema.Number.pipe(
     Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-    Schema.check(Schema.isLessThanOrEqualTo(HOLD_FOR_MAX_MS)),
+    Schema.check(Schema.isLessThanOrEqualTo(WAIT_FOR_MAX_MS)),
   ),
 );
 
@@ -218,23 +220,22 @@ const tasksCreateFields = {
   dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Operator done-definition. */
   finishCriteria: Schema.optionalKey(FinishCriteria),
-  /** Station-addressed claims; set at creation. */
-  claims: Schema.optionalKey(Schema.Array(TaskClaim)),
+  /** Board-addressed rules; set at creation. */
+  rules: Schema.optionalKey(Schema.Array(TaskRule)),
   /**
-   * Requested admission overlay. Omitted on the agent wire persists
-   * operator-gated (clamped to the sink floor). Explicit auto is allowed
-   * only when the sink floor is auto.
+   * Requested start policy. An agent omission becomes approval; an operator
+   * omission inherits the board setting. A task may only tighten that setting.
    */
-  admission: Schema.optionalKey(SinkAdmission),
+  admission: Schema.optionalKey(TaskAdmission),
 } as const;
 
 /**
- * Author a task on a connected sink. Agents omit admission => operator-gated
- * (persisted). Optional holdForMs bakes the origin arrival.
+ * Author a task on a connected Tasks node. Agents that omit admission create
+ * work requiring approval. Optional waitFor delays the first claim.
  */
 export const TasksCreateArgs = Schema.Struct({
   ...tasksCreateFields,
-  holdForMs: holdForMsField,
+  waitFor: waitForField,
 }).pipe(
   Schema.check(Schema.makeFilter((args) => {
     const details = args.metadata?.details;
@@ -249,12 +250,12 @@ export const TasksCreateArgs = Schema.Struct({
 export type TasksCreateArgs = typeof TasksCreateArgs.Type;
 
 /**
- * CLI-side create input. Identical to the wire except `holdFor`, which accepts
- * a spoken duration or milliseconds; the CLI parses it to `holdForMs`.
+ * CLI-side create input. `waitFor` accepts a spoken duration or milliseconds;
+ * the CLI parses it to milliseconds before sending the same field.
  */
 export const TasksCreateCliArgs = Schema.Struct({
   ...tasksCreateFields,
-  holdFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
+  waitFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
 }).pipe(
   Schema.check(Schema.makeFilter((args) => {
     const details = args.metadata?.details;
@@ -276,13 +277,12 @@ export const TasksClaimArgs = Schema.Struct({
 });
 export type TasksClaimArgs = typeof TasksClaimArgs.Type;
 
-/** Defect filed with a send-back — the reason the upstream station must fix. */
+/** Defect filed with a send-back: what the earlier board must fix. */
 export const TaskDefectArgs = Schema.Struct({
   summary: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   refs: Schema.optionalKey(Schema.Array(Schema.String)),
   /**
-   * Visited station to send the task back to. Omitted keeps today's meaning:
-   * the previous station. The beginning of the line is just a target too.
+   * Visited board to send the task back to. Omitted means the previous board.
    */
   target: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
 });
@@ -294,16 +294,18 @@ const tasksUpdateFields = {
   state: TaskState,
   note: Schema.optionalKey(Schema.String),
   completionEvidence: Schema.optionalKey(CompletionEvidence),
-  /** Forward destination sink id — required when the station forks. */
+  /** Next board id, required when the path forks. */
   next: Schema.optionalKey(Schema.String),
-  /** Send the task back to the previous station with a defect on record. */
+  /** Send the task back to an earlier board with a defect on record. */
   defect: Schema.optionalKey(TaskDefectArgs),
+  /** Required prose when the board's outgoing contract asks for it. */
+  handoffNote: Schema.optionalKey(Schema.String),
 } as const;
 
 export const TasksUpdateArgs = Schema.Struct({
   ...tasksUpdateFields,
-  /** Bake time stamped on arrival at `next`, in milliseconds. */
-  holdForMs: holdForMsField,
+  /** Delay stamped when the task enters `next`, in milliseconds. */
+  waitFor: waitForField,
 }).pipe(
   Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
     completionEvidence === undefined ||
@@ -313,10 +315,14 @@ export const TasksUpdateArgs = Schema.Struct({
     next === undefined ||
     state === "completed" ||
     "next is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, holdForMs }) =>
-    holdForMs === undefined ||
+  Schema.check(Schema.makeFilter(({ state, waitFor }) =>
+    waitFor === undefined ||
     state === "completed" ||
-    "holdForMs is only allowed when state is completed",)),
+    "waitFor is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, handoffNote }) =>
+    handoffNote === undefined ||
+    state === "completed" ||
+    "handoffNote is only allowed when state is completed",)),
   Schema.check(Schema.makeFilter(({ state, defect }) =>
     defect === undefined ||
     state === "rejected" ||
@@ -327,13 +333,13 @@ export const TasksUpdateArgs = Schema.Struct({
 export type TasksUpdateArgs = typeof TasksUpdateArgs.Type;
 
 /**
- * CLI-side update input. Identical to the wire shape except `holdFor`, which
+ * CLI-side update input. Identical to the wire shape except `waitFor`, which
  * accepts a duration the operator would speak ("7d", "12h", "90m") or plain
- * milliseconds; the CLI parses it to `holdForMs` before the call.
+ * milliseconds; the CLI parses it before the call.
  */
 export const TasksUpdateCliArgs = Schema.Struct({
   ...tasksUpdateFields,
-  holdFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
+  waitFor: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
 }).pipe(
   Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
     completionEvidence === undefined ||
@@ -343,10 +349,14 @@ export const TasksUpdateCliArgs = Schema.Struct({
     next === undefined ||
     state === "completed" ||
     "next is only allowed when state is completed",)),
-  Schema.check(Schema.makeFilter(({ state, holdFor }) =>
-    holdFor === undefined ||
+  Schema.check(Schema.makeFilter(({ state, waitFor }) =>
+    waitFor === undefined ||
     state === "completed" ||
-    "holdFor is only allowed when state is completed",)),
+    "waitFor is only allowed when state is completed",)),
+  Schema.check(Schema.makeFilter(({ state, handoffNote }) =>
+    handoffNote === undefined ||
+    state === "completed" ||
+    "handoffNote is only allowed when state is completed",)),
   Schema.check(Schema.makeFilter(({ state, defect }) =>
     defect === undefined ||
     state === "rejected" ||
@@ -364,62 +374,104 @@ export const TasksShowArgs = Schema.Struct({
 });
 export type TasksShowArgs = typeof TasksShowArgs.Type;
 
-export const TasksClaimsArgs = Schema.Struct({
+export const TasksRulesArgs = Schema.Struct({
   target: Schema.String,
-  /** Omitted: the station's standing law. Named: readiness for that task. */
+  /** Omitted: board rules. Named: rules and readiness for that task. */
   task: Schema.optionalKey(Schema.String),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
-export type TasksClaimsArgs = typeof TasksClaimsArgs.Type;
+export type TasksRulesArgs = typeof TasksRulesArgs.Type;
+
+const RuleProvenanceView = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("region"),
+    regionId: Schema.String,
+    label: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("board"),
+    boardId: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("task"),
+    board: Schema.String,
+  }),
+]);
+
+const RuleInForceView = Schema.Struct({
+  rule: Rule,
+  provenance: RuleProvenanceView,
+});
+
+/** Strict response contract consumed by `tasks check`. */
+export const TasksRulesView = Schema.Struct({
+  rules: Schema.Array(RuleInForceView),
+  readiness: Schema.optionalKey(Schema.Struct({
+    unanswered: Schema.Array(Schema.Struct({
+      ruleId: Schema.String,
+      text: Schema.String,
+      provenance: RuleProvenanceView,
+    })),
+    checks: Schema.Array(Schema.Struct({
+      destination: Schema.String,
+      checks: Schema.Array(Schema.Struct({
+        checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+        side: CheckSide,
+        label: Schema.String,
+        command: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+        status: Schema.Literals(["green", "red", "missing", "stale"]),
+      })),
+    })),
+  })),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type TasksRulesView = typeof TasksRulesView.Type;
 
 /**
- * Boarding submission. The seat's CLI executes each checklist command in its
- * own environment; this payload carries only what it observed. The work
- * service validates the results against the authored checklists and stamps
- * the tickets — Vellum Command never runs a check itself.
+ * Check submission. The agent CLI executes each command in its own environment
+ * and submits only the observed results. Vellum Command never runs a check.
  */
-export const TasksBoardArgs = Schema.Struct({
+export const TasksCheckArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
-  /** Destination whose inbound checklist applies — required when it forks. */
+  /** Next board whose incoming checks apply, required when the path forks. */
   next: Schema.optionalKey(Schema.String),
   results: Schema.Array(Schema.Struct({
     checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-    side: Schema.Literals(["outbound", "inbound"]),
+    side: Schema.Literals(["outgoing", "incoming"]),
     exitCode: Schema.Number,
     outputTail: Schema.String,
   })),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
-export type TasksBoardArgs = typeof TasksBoardArgs.Type;
+export type TasksCheckArgs = typeof TasksCheckArgs.Type;
 
 /**
- * CLI-facing `tasks board` input. The CLI resolves the applicable
- * checklists, runs each command in the seat's own environment, and submits
- * what it observed as `TasksBoardArgs` — the caller only ever supplies
- * target/task/next, never `results`.
+ * CLI-facing `tasks check` input. The CLI resolves and runs the applicable
+ * commands; the caller supplies target/task/next, never `results`.
  */
-export const TasksBoardCliArgs = Schema.Struct({
+export const TasksCheckCliArgs = Schema.Struct({
   target: Schema.String,
   task: Schema.String,
-  /** Destination whose inbound checklist applies — required when it forks. */
+  /** Next board whose incoming checks apply, required when the path forks. */
   next: Schema.optionalKey(Schema.String),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
-export type TasksBoardCliArgs = typeof TasksBoardCliArgs.Type;
+export type TasksCheckCliArgs = typeof TasksCheckCliArgs.Type;
 
 export const RulingsArgs = Schema.Struct({
-  /** Omitted: the seat's own region stack. */
+  /** Omitted: the agent's own region stack. */
   target: Schema.optionalKey(Schema.String),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type RulingsArgs = typeof RulingsArgs.Type;
 
-/** Process-bound content access always names the connected task sink. */
+/** Process-bound content access always names the connected Tasks node. */
 const StrictContentRef = ContentRef.annotate({
   parseOptions: { onExcessProperty: "error" },
 });

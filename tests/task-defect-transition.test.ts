@@ -6,13 +6,13 @@ import {
 import { taskItem } from "./helpers/task-fixtures";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 
-// Defect-back semantics: rejected work with a prior passage re-homes to the
-// previous journey sink as submitted (epoch bump owned by the work service).
+// Send-back semantics: rejected work with a prior visit returns to the
+// previous board as submitted (epoch bump owned by the work service).
 // The generic transition matrix keeps "rejected" terminal (archive only) so
-// no caller can resurrect a rejected task in place; the pipeline's re-home
-// of a rejected passage row back to submitted is authorized locally by
-// repository.forwardTask on a later forward through that station (see
-// tests/work-pipeline-repository.test.ts), not opened here.
+// no caller can resurrect a rejected task in place; the task path re-home
+// of a rejected visit row back to submitted is authorized locally by
+// repository.sendTaskOn on a later send-on through that board (see
+// tests/work-path-repository.test.ts), not opened here.
 
 describe("rejected transition", () => {
   it("stays terminal in the generic matrix — only archive is a legal exit", () => {

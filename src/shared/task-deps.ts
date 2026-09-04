@@ -202,9 +202,9 @@ export const taskDepStatus = (
 };
 
 /**
- * Index sink items by id. A forward leaves two live rows sharing a task id
- * (the closed source passage + the re-homed successor) — completed is
- * sticky over a duplicate: local passage completion satisfies dependsOn
+ * Index task rows by id. A send-on leaves two rows sharing a task id
+ * (the completed source visit + the re-homed successor) — completed is
+ * sticky over a duplicate: local visit completion satisfies dependsOn
  * regardless of the task's downstream fate, so a `completed` row is never
  * displaced by a later same-id row in another state. Otherwise last wins.
  */

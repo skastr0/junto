@@ -5,7 +5,7 @@ import type {
   TasksUpdateCliArgs,
 } from "@shared/work-control";
 
-// Hold durations as an operator speaks them. The wire carries milliseconds
+// Wait durations as an operator speaks them. The wire carries milliseconds
 // only; this is the CLI-side surface so a seat never has to compute
 // 7 * 24 * 60 * 60 * 1000 by hand.
 
@@ -18,14 +18,14 @@ const UNIT_MS: Readonly<Record<string, number>> = {
   w: 604_800_000,
 };
 
-export type HoldForParse =
+export type WaitForParse =
   | { readonly ok: true; readonly ms: number }
   | { readonly ok: false; readonly message: string };
 
-const rejection = (received: unknown): HoldForParse => ({
+const rejection = (received: unknown): WaitForParse => ({
   ok: false,
   message:
-    `holdFor must be milliseconds or a duration like "90m", "12h", "7d" (received ${JSON.stringify(received)})`,
+    `waitFor must be milliseconds or a duration like "90m", "12h", "7d" (received ${JSON.stringify(received)})`,
 });
 
 /**
@@ -33,7 +33,7 @@ const rejection = (received: unknown): HoldForParse => ({
  * positive integer followed by a unit. Compound spellings ("1d12h") are not
  * accepted — one unit keeps the value unambiguous when it is echoed back.
  */
-export const parseHoldFor = (value: string | number): HoldForParse => {
+export const parseWaitFor = (value: string | number): WaitForParse => {
   if (typeof value === "number") {
     if (!Number.isFinite(value) || value < 0) return rejection(value);
     return { ok: true, ms: Math.round(value) };
@@ -55,11 +55,11 @@ export type TasksUpdateWireResult =
 export const toTasksUpdateArgs = (
   item: TasksUpdateCliArgs,
 ): TasksUpdateWireResult => {
-  const { holdFor, ...rest } = item;
-  if (holdFor === undefined) return { ok: true, args: rest };
-  const parsed = parseHoldFor(holdFor);
+  const { waitFor, ...rest } = item;
+  if (waitFor === undefined) return { ok: true, args: rest };
+  const parsed = parseWaitFor(waitFor);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  return { ok: true, args: { ...rest, holdForMs: parsed.ms } };
+  return { ok: true, args: { ...rest, waitFor: parsed.ms } };
 };
 
 export type TasksCreateWireResult =
@@ -70,9 +70,9 @@ export type TasksCreateWireResult =
 export const toTasksCreateArgs = (
   item: TasksCreateCliArgs,
 ): TasksCreateWireResult => {
-  const { holdFor, ...rest } = item;
-  if (holdFor === undefined) return { ok: true, args: rest };
-  const parsed = parseHoldFor(holdFor);
+  const { waitFor, ...rest } = item;
+  if (waitFor === undefined) return { ok: true, args: rest };
+  const parsed = parseWaitFor(waitFor);
   if (!parsed.ok) return { ok: false, message: parsed.message };
-  return { ok: true, args: { ...rest, holdForMs: parsed.ms } };
+  return { ok: true, args: { ...rest, waitFor: parsed.ms } };
 };

@@ -14,14 +14,10 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum/state/engine";
-import { materializePendingProposal } from "../src/shared/pending-proposal-backfill";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
-import type {
-  Task,
-  TaskProposal,
-} from "../src/shared/work-model";
+import type { Task } from "../src/shared/work-model";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { ActorRef } from "../src/shared/work-reference";
 import {
@@ -97,9 +93,9 @@ const topology: CanvasDoc = {
         tasks: {
           items: [],
           ...(id === "tasks-floor-gated"
-            ? { contract: { inbound: { admission: "operator-gated" as const } } }
+            ? { contract: { incoming: { admission: "approval" as const } } }
             : id === "tasks-floor-owned"
-              ? { contract: { inbound: { admission: "operator-owned" as const } } }
+              ? { contract: { incoming: { admission: "operator" as const } } }
               : {}),
         },
       },
@@ -160,7 +156,7 @@ const task = (
   options?: {
     readonly dependsOn?: ReadonlyArray<string>;
     readonly admission?: Task["admission"];
-    readonly holdUntil?: string;
+    readonly waitUntil?: string;
     readonly raisedBy?: ActorRef;
   },
 ): Task => ({
@@ -174,44 +170,12 @@ const task = (
   ...(options?.admission === undefined
     ? {}
     : { admission: options.admission }),
-  ...(options?.holdUntil === undefined
+  ...(options?.waitUntil === undefined
     ? {}
-    : { holdUntil: options.holdUntil }),
+    : { waitUntil: options.waitUntil }),
   ...(options?.raisedBy === undefined
     ? {}
     : { raisedBy: options.raisedBy }),
-});
-
-const proposal = (
-  id: string,
-  proposedBy: ActorRef,
-  options?: { readonly dependsOn?: ReadonlyArray<string> },
-): TaskProposal => ({
-  id,
-  state: "pending",
-  brief: {
-    ...message(id, `brief ${id}`),
-    referenceTaskIds: [`reference-${id}`],
-    metadata: { source: "legacy" },
-  },
-  proposedBy,
-  ...(options?.dependsOn === undefined
-    ? {}
-    : { dependsOn: [...options.dependsOn] }),
-  finishCriteria: {
-    description: `finish ${id}`,
-    git: { minCommits: 1 },
-  },
-  claims: [
-    {
-      id: `claim-${id}`,
-      text: `claim ${id}`,
-      severity: "hard",
-      station: "tasks-main",
-    },
-  ],
-  metadata: { title: id, details: `proposal ${id}` },
-  reason: `reason ${id}`,
 });
 
 const sink = (nodeId: string) => ({ canvasName: "factory", nodeId });
@@ -264,22 +228,6 @@ const createTask = async (
       basis,
       task: value,
       dependencyScope,
-      originAt: observedAt,
-      receivedAt: observedAt,
-    }),
-  );
-
-const createProposal = async (
-  nodeId: string,
-  value: TaskProposal,
-  dependencyScope?: TaskDependencyScopeCapability,
-) =>
-  runtime.runPromise(
-    repository.createProposal({
-      sink: sink(nodeId),
-      basis,
-      proposal: value,
-      ...(dependencyScope === undefined ? {} : { dependencyScope }),
       originAt: observedAt,
       receivedAt: observedAt,
     }),
@@ -425,48 +373,18 @@ describe("WorkRepository transaction hardening", () => {
         Object.freeze(Object.create(null)) as TaskDependencyScopeCapability,
       ),
     ).rejects.toThrow(/authentic process-local capability/);
-
-    const pending = proposal("zero-authority-proposal", actor("f"));
-    await createProposal(nodeId, pending);
-    const legacy = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope: undefined as never,
-        proposalId: pending.id,
-        home: installationId,
-      }),
-    );
-    expect(legacy).toMatchObject({
-      status: "invalid",
-      diagnostic: { code: "intent-mismatch" },
-    });
-    await expect(
-      runtime.runPromise(
-        repository.approveProposal({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope: undefined as never,
-          proposalId: pending.id,
-          task: materializePendingProposal({ proposal: pending }).task,
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    ).rejects.toThrow(/authentic process-local capability/);
-    expect(await taskAt(nodeId, pending.id)).toBeUndefined();
   });
 
   it("rechecks durable admission and hold before local claim or remote reservation", async () => {
     const nodeId = "tasks-claim-gates";
     const raiser = actor("1");
     const gated = task("claim-gated", {
-      admission: "operator-gated",
+      admission: "approval",
       raisedBy: raiser,
     });
     const held = task("claim-held", {
       admission: "auto",
-      holdUntil: "2999-01-01T00:00:00.000Z",
+      waitUntil: "2999-01-01T00:00:00.000Z",
       raisedBy: raiser,
     });
     await createTask(nodeId, gated);
@@ -512,7 +430,7 @@ describe("WorkRepository transaction hardening", () => {
           receivedAt: observedAt,
         }),
       ),
-    ).rejects.toThrow(/not assignable before/);
+    ).rejects.toThrow(/not claimable before/);
     await expect(
       runtime.runPromise(
         repository.reserveRemoteTaskClaim({
@@ -526,415 +444,11 @@ describe("WorkRepository transaction hardening", () => {
           receivedAt: observedAt,
         }),
       ),
-    ).rejects.toThrow(/not assignable before/);
+    ).rejects.toThrow(/not claimable before/);
 
     expect(await taskAt(nodeId, gated.id)).toEqual(gated);
     expect(await taskAt(nodeId, held.id)).toEqual(held);
     expect(await pendingCommandCount()).toBe(beforePending);
-  });
-
-  it("atomically creates the exact unadmitted Task once and preserves immutable claims", async () => {
-    const nodeId = "tasks-legacy-created";
-    const prerequisite = task("legacy-prerequisite");
-    await createTask(nodeId, prerequisite);
-    const source = proposal("legacy-created", actor("6"), {
-      dependsOn: [prerequisite.id],
-    });
-    const dependencyScope = scope(nodeId);
-    await createProposal(nodeId, source, dependencyScope);
-    const materialization = materializePendingProposal({ proposal: source });
-
-    const created = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope,
-        proposalId: materialization.task.id,
-        home: installationId,
-      }),
-    );
-    expect(created.status).toBe("created");
-    expect(await taskAt(nodeId, source.id)).toEqual(materialization.task);
-    expect(await taskCreateCount(nodeId, source.id)).toBe(1);
-
-    const replay = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope,
-        proposalId: materialization.task.id,
-        home: installationId,
-      }),
-    );
-    expect(replay).toEqual({
-      status: "already-materialized",
-      taskId: source.id,
-    });
-
-    await runtime.runPromise(
-      repository.describeTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope,
-        taskId: source.id,
-        message: message("legacy-created-described", "updated brief"),
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    const descendantReplay = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope,
-        proposalId: materialization.task.id,
-        home: installationId,
-      }),
-    );
-    expect(descendantReplay).toEqual({
-      status: "already-materialized",
-      taskId: source.id,
-    });
-    expect((await taskAt(nodeId, source.id))?.history[0]?.messageId).toBe(
-      "message-legacy-created-described",
-    );
-    expect(await taskCreateCount(nodeId, source.id)).toBe(1);
-
-    const approvedAfterBackfill = await runtime.runPromise(
-      repository.approveProposal({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope,
-        proposalId: source.id,
-        task: materialization.task,
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    expect(approvedAfterBackfill.value.proposal.state).toBe("approved");
-    expect(await taskCreateCount(nodeId, source.id)).toBe(1);
-  });
-
-  it("verifies an explicitly empty dependency list through projection normalization", async () => {
-    const nodeId = "tasks-empty-dependencies";
-    const source = proposal("empty-dependencies", actor("0"), {
-      dependsOn: [],
-    });
-    await createProposal(nodeId, source, scope(nodeId));
-    const persisted = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope: scope(nodeId),
-        proposalId: source.id,
-        home: installationId,
-      }),
-    );
-    expect(persisted.status).toBe("created");
-    const page = await runtime.runPromise(
-      repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
-    );
-    expect(
-      page.witnesses.find((witness) => witness.proposalId === source.id),
-    ).toMatchObject({ status: "verified" });
-  });
-
-  it("returns no-longer-pending when rejection wins after the runner precheck", async () => {
-    const nodeId = "tasks-legacy-rejected";
-    const source = proposal("legacy-rejected", actor("7"));
-    await createProposal(nodeId, source);
-    const materialization = materializePendingProposal({ proposal: source });
-    const createFactBefore = await runtime.runPromise(
-      state.read("test.proposal-create-before", (reader) =>
-        reader.get<{ readonly record_json: string }>(
-          `SELECT record_json
-           FROM work_proposal_events
-           WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-             AND operation = 'proposal.create' AND record_type = 'fact'`,
-          ["factory", nodeId, source.id],
-        )!.record_json,
-      ),
-    );
-
-    await runtime.runPromise(
-      repository.rejectProposal({
-        sink: sink(nodeId),
-        basis,
-        proposalId: source.id,
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-    let noLongerNotifications = 0;
-    const stop = repository.subscribeChanges((canvasName, changedNodeId) => {
-      if (canvasName === "factory" && changedNodeId === nodeId) {
-        noLongerNotifications += 1;
-      }
-    });
-    const result = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope: scope(nodeId),
-        proposalId: materialization.task.id,
-        home: installationId,
-      }),
-    );
-    stop();
-
-    expect(noLongerNotifications).toBe(0);
-    expect(result).toEqual({
-      status: "no-longer-pending",
-      proposalId: source.id,
-      proposalState: "rejected",
-    });
-    expect(await taskAt(nodeId, source.id)).toBeUndefined();
-    expect(await taskCreateCount(nodeId, source.id)).toBe(0);
-    const createFactAfter = await runtime.runPromise(
-      state.read("test.proposal-create-after", (reader) =>
-        reader.get<{ readonly record_json: string }>(
-          `SELECT record_json
-           FROM work_proposal_events
-           WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-             AND operation = 'proposal.create' AND record_type = 'fact'`,
-          ["factory", nodeId, source.id],
-        )!.record_json,
-      ),
-    );
-    expect(createFactAfter).toBe(createFactBefore);
-  });
-
-  it("reconstructs inside the transaction and rejects an unrelated same-id collision", async () => {
-    const invalidNodeId = "tasks-legacy-invalid";
-    const invalidSource = proposal("legacy-invalid", actor("8"));
-    await createProposal(invalidNodeId, invalidSource);
-    const exact = materializePendingProposal({ proposal: invalidSource });
-    const staleResult = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(invalidNodeId),
-        basis: staleBasis,
-        dependencyScope: scope(invalidNodeId),
-        proposalId: invalidSource.id,
-        home: installationId,
-      }),
-    );
-    expect(staleResult).toMatchObject({
-      status: "invalid",
-      proposalId: invalidSource.id,
-      diagnostic: { code: "intent-mismatch" },
-    });
-
-    const reconstructed = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(invalidNodeId),
-        basis,
-        dependencyScope: scope(invalidNodeId),
-        proposalId: invalidSource.id,
-        home: installationId,
-      }),
-    );
-    expect(reconstructed.status).toBe("created");
-    expect(await taskAt(invalidNodeId, invalidSource.id)).toEqual(exact.task);
-
-    const racedNodeId = "tasks-legacy-raced";
-    const racedSource = proposal("legacy-raced", actor("9"));
-    const racedMaterialization = materializePendingProposal({
-      proposal: racedSource,
-    });
-    // An unrelated create that wins the Task id before the proposal is not a
-    // backfill replay, even when its bytes happen to match reconstruction.
-    await createTask(racedNodeId, racedMaterialization.task);
-    await createProposal(racedNodeId, racedSource);
-    const raced = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(racedNodeId),
-        basis,
-        dependencyScope: scope(racedNodeId),
-        proposalId: racedSource.id,
-        home: installationId,
-      }),
-    );
-    expect(raced).toMatchObject({
-      status: "invalid",
-      diagnostic: { code: "task-create-witness-invalid" },
-    });
-    expect(await taskCreateCount(racedNodeId, racedSource.id)).toBe(1);
-
-    const page = await runtime.runPromise(
-      repository.legacyProposalMaterializationWitnessPage({ limit: 256 }),
-    );
-    expect(
-      page.witnesses.find((entry) =>
-        entry.nodeId === racedNodeId && entry.proposalId === racedSource.id
-      ),
-    ).toMatchObject({
-      status: "invalid",
-      diagnostic: { code: "task-create-witness-invalid" },
-    });
-    expect(
-      page.witnesses.some((entry) =>
-        entry.nodeId === racedNodeId &&
-        entry.proposalId === racedSource.id &&
-        entry.status === "verified"
-      ),
-    ).toBe(false);
-  });
-
-  it("parks Task ancestry beyond the exact inspector budget", async () => {
-    const nodeId = "tasks-ancestry-budget";
-    const source = proposal("ancestry-budget", actor("a"));
-    const dependencyScope = scope(nodeId);
-    await createProposal(nodeId, source, dependencyScope);
-    const materialization = materializePendingProposal({ proposal: source });
-    await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope,
-        proposalId: source.id,
-        home: installationId,
-      }),
-    );
-    const epochBeforeDescriptions =
-      repository.legacyProposalMaterializationEpoch();
-    for (let index = 0; index < 129; index += 1) {
-      await runtime.runPromise(
-        repository.describeTask({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope,
-          taskId: source.id,
-          message: {
-            ...message(source.id, `bounded ancestry ${index}`),
-            messageId: `message-ancestry-${index}`,
-          },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      );
-    }
-
-    expect(repository.legacyProposalMaterializationEpoch()).toBe(
-      epochBeforeDescriptions + 129,
-    );
-    const page = await runtime.runPromise(
-      repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
-    );
-    expect(
-      page.witnesses.find((witness) => witness.proposalId === source.id),
-    ).toMatchObject({
-      status: "invalid",
-      diagnostic: { code: "task-create-witness-invalid" },
-    });
-    expect(await taskCreateCount(nodeId, materialization.task.id)).toBe(1);
-  });
-
-  it("requires the immutable proposal witness and exact stable Task on local approval", async () => {
-    const nodeId = "tasks-approval-exact";
-    const prerequisite = task("approval-prerequisite");
-    await createTask(nodeId, prerequisite);
-    const source: TaskProposal = {
-      ...proposal("approval-exact", actor("b"), {
-        dependsOn: [prerequisite.id],
-      }),
-      brief: {
-        messageId: "message-approval-exact",
-        role: "user",
-        parts: [
-          { kind: "text", text: "preserve exact media" },
-          {
-            kind: "url",
-            url: "https://example.com/evidence.png",
-            mediaType: "image/png",
-          },
-          { kind: "data", data: { nested: ["exact"] } },
-        ],
-        taskId: "historical-proposal-task-ref",
-        contextId: "factory-context",
-        referenceTaskIds: [prerequisite.id],
-        metadata: { channel: "planning" },
-      },
-      metadata: {
-        title: "Exact approval",
-        details: "Every authoring field survives",
-        nested: { value: 1 },
-      },
-      reason: "operator review",
-    };
-    await createProposal(nodeId, source, scope(nodeId));
-    const exact = materializePendingProposal({ proposal: source }).task;
-    const variants: ReadonlyArray<Task> = [
-      { ...exact, id: `${exact.id}-different` },
-      {
-        ...exact,
-        history: [
-          {
-            ...exact.history[0]!,
-            parts: [{ kind: "text", text: "changed" }],
-          },
-        ],
-      },
-      { ...exact, metadata: { changed: true } },
-      { ...exact, reason: "changed" },
-      { ...exact, dependsOn: [] },
-      { ...exact, finishCriteria: { description: "changed" } },
-      { ...exact, claims: [] },
-      { ...exact, admission: "auto" },
-      { ...exact, raisedBy: actor("c") },
-      { ...exact, artifactIds: [] },
-      { ...exact, epoch: 0 },
-      { ...exact, journey: [] },
-      { ...exact, defects: [] },
-      { ...exact, holdUntil: "2999-01-01T00:00:00.000Z" },
-      { ...exact, boarding: [] },
-      { ...exact, response: "prestamped" },
-    ];
-    let notifications = 0;
-    const stop = repository.subscribeChanges((canvasName, changedNodeId) => {
-      if (canvasName === "factory" && changedNodeId === nodeId) {
-        notifications += 1;
-      }
-    });
-    try {
-      for (const drifted of variants) {
-        await expect(
-          runtime.runPromise(
-            repository.approveProposal({
-              sink: sink(nodeId),
-              basis,
-              dependencyScope: scope(nodeId),
-              proposalId: source.id,
-              task: drifted,
-              originAt: observedAt,
-              receivedAt: observedAt,
-            }),
-          ),
-        ).rejects.toThrow(/exact stable Task identity|current Task schema/);
-      }
-      expect(notifications).toBe(0);
-      expect(await taskAt(nodeId, source.id)).toBeUndefined();
-
-      const approved = await runtime.runPromise(
-        repository.approveProposal({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope: scope(nodeId),
-          proposalId: source.id,
-          task: exact,
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      );
-      expect(approved.value.task).toEqual(exact);
-      expect(approved.value.proposal).toEqual({
-        ...source,
-        state: "approved",
-        approvedTaskId: source.id,
-      });
-      expect(notifications).toBe(1);
-    } finally {
-      stop();
-    }
   });
 
   it("serializes Remote reservation against duplicate reserve and local claim", async () => {
@@ -988,7 +502,7 @@ describe("WorkRepository transaction hardening", () => {
     expect(await taskAt(nodeId, value.id)).toEqual(value);
   });
 
-  it("enforces inherited sink admission floors and canonical finite holds", async () => {
+  it("enforces inherited board admission floors and canonical finite waits", async () => {
     for (const nodeId of ["tasks-floor-gated", "tasks-floor-owned"] as const) {
       const value = task(`floor-${nodeId}`, { admission: "auto" });
       await createTask(nodeId, value);
@@ -1005,12 +519,12 @@ describe("WorkRepository transaction hardening", () => {
           }),
         ),
       ).rejects.toThrow(
-        nodeId === "tasks-floor-gated" ? /awaits operator approval/ : /operator-owned/,
+        nodeId === "tasks-floor-gated" ? /awaits operator approval/ : /set to Me/,
       );
     }
 
     const nodeId = "tasks-invalid-hold";
-    for (const [index, holdUntil] of [
+    for (const [index, waitUntil] of [
       "not-an-iso-time",
       "2026-08-26T18:00:00+00:00",
       "+999999-01-01T00:00:00.000Z",
@@ -1018,9 +532,9 @@ describe("WorkRepository transaction hardening", () => {
       await expect(
         createTask(
           nodeId,
-          task(`invalid-hold-${index}`, { admission: "auto", holdUntil }),
+          task(`invalid-hold-${index}`, { admission: "auto", waitUntil }),
         ),
-      ).rejects.toThrow(/noncanonical holdUntil/);
+      ).rejects.toThrow(/noncanonical waitUntil/);
     }
   });
 
@@ -1038,8 +552,8 @@ describe("WorkRepository transaction hardening", () => {
     ) {
       throw new Error("floor substitution fixture lost its Task contract");
     }
-    (loweredNode.ether.tasks.contract.inbound as {
-      admission: "auto" | "gated" | "operator-owned";
+    (loweredNode.ether.tasks.contract.incoming as {
+      admission: "auto" | "approval" | "operator";
     }).admission = "auto";
     const deceptiveDocuments = new Map(authorityMaterial.documents);
     const ordinaryGet = deceptiveDocuments.get.bind(deceptiveDocuments);
@@ -1064,203 +578,33 @@ describe("WorkRepository transaction hardening", () => {
           receivedAt: observedAt,
         }),
       ),
-    ).rejects.toThrow(/operator-owned/);
-  });
-
-  it("notifies only after a committed material change", async () => {
-    const nodeId = "tasks-notify";
-    const source = proposal("notify-noops", actor("3"));
-    await createProposal(nodeId, source);
-    const materialization = materializePendingProposal({ proposal: source });
-    let notifications = 0;
-    const stop = repository.subscribeChanges((canvasName, changedNodeId) => {
-      if (canvasName === "factory" && changedNodeId === nodeId) {
-        notifications += 1;
-      }
-    });
-    try {
-      const invalid = await runtime.runPromise(
-        repository.persistUnadmittedTask({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope: scope(nodeId),
-          proposalId: materialization.task.id,
-          home: remoteInstallationId,
-        }),
-      );
-      expect(invalid.status).toBe("invalid");
-      expect(notifications).toBe(0);
-
-      const created = await runtime.runPromise(
-        repository.persistUnadmittedTask({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope: scope(nodeId),
-          proposalId: materialization.task.id,
-        home: installationId,
-        }),
-      );
-      expect(created.status).toBe("created");
-      expect(notifications).toBe(1);
-
-      const replay = await runtime.runPromise(
-        repository.persistUnadmittedTask({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope: scope(nodeId),
-          proposalId: materialization.task.id,
-        home: installationId,
-        }),
-      );
-      expect(replay.status).toBe("already-materialized");
-      expect(notifications).toBe(1);
-    } finally {
-      stop();
-    }
-  });
-
-  it("rejects immutable stored/declared/recomputed hash mismatches", async () => {
-    const proposalNodeId = "tasks-hash-mismatch";
-    const source = proposal("proposal-hash-mismatch", actor("4"));
-    await createProposal(proposalNodeId, source);
-    await runtime.runPromise(
-      state.transaction("test.corrupt-proposal-hash", (writer) => {
-        writer.run("DROP TRIGGER work_proposal_events_immutable_update");
-        writer.run(
-          `UPDATE work_proposal_events
-           SET content_sha256 = ?
-           WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-             AND record_type = 'fact' AND operation = 'proposal.create'`,
-          ["f".repeat(64), "factory", proposalNodeId, source.id],
-        );
-        writer.run(
-          `CREATE TRIGGER work_proposal_events_immutable_update
-           BEFORE UPDATE ON work_proposal_events
-           BEGIN SELECT RAISE(ABORT, 'work records are immutable'); END`,
-        );
-      }),
-    );
-    const invalidProposal = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(proposalNodeId),
-        basis,
-        dependencyScope: scope(proposalNodeId),
-        proposalId: source.id,
-        home: installationId,
-      }),
-    );
-    expect(invalidProposal).toMatchObject({ status: "invalid" });
-
-    const taskNodeId = "tasks-task-hash-mismatch";
-    const taskSource = proposal("task-hash-mismatch", actor("5"));
-    await createProposal(taskNodeId, taskSource);
-    const taskMaterialization = materializePendingProposal({ proposal: taskSource });
-    await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(taskNodeId),
-        basis,
-        dependencyScope: scope(taskNodeId),
-        proposalId: taskMaterialization.task.id,
-        home: installationId,
-      }),
-    );
-    await runtime.runPromise(
-      state.transaction("test.corrupt-task-hash", (writer) => {
-        writer.run("DROP TRIGGER work_events_immutable_update");
-        writer.run(
-          `UPDATE work_events
-           SET content_sha256 = ?
-           WHERE item_canvas_name = ? AND item_node_id = ? AND item_id = ?
-             AND record_type = 'fact' AND operation = 'task.create'`,
-          ["e".repeat(64), "factory", taskNodeId, taskSource.id],
-        );
-        writer.run(
-          `CREATE TRIGGER work_events_immutable_update
-           BEFORE UPDATE ON work_events
-           BEGIN SELECT RAISE(ABORT, 'work records are immutable'); END`,
-        );
-      }),
-    );
-    const invalidTask = await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(taskNodeId),
-        basis,
-        dependencyScope: scope(taskNodeId),
-        proposalId: taskMaterialization.task.id,
-        home: installationId,
-      }),
-    );
-    expect(invalidTask).toMatchObject({ status: "invalid" });
-  });
-
-  it("isolates a malformed normalized fact variant and advances the witness page", async () => {
-    const nodeId = "tasks-missing-variant";
-    const corrupt = proposal("a-missing-variant", actor("8"));
-    const later = proposal("z-later-variant", actor("9"));
-    await createProposal(nodeId, corrupt);
-    await createProposal(nodeId, later);
-    await runtime.runPromise(
-      repository.persistUnadmittedTask({
-        sink: sink(nodeId),
-        basis,
-        dependencyScope: scope(nodeId),
-        proposalId: corrupt.id,
-        home: installationId,
-      }),
-    );
-    await runtime.runPromise(
-      state.transaction("test.malformed-task-fact-variant", (writer) => {
-        writer.run("DROP TRIGGER work_facts_immutable_update");
-        writer.run(
-          `UPDATE work_facts
-           SET result_json = '{}'
-           WHERE (event_home, entity_home, seq) IN (
-             SELECT event_home, entity_home, seq
-             FROM work_events
-             WHERE item_canvas_name = ?
-               AND item_node_id = ?
-               AND item_id = ?
-               AND record_type = 'fact'
-               AND operation = 'task.create'
-           )`,
-          ["factory", nodeId, corrupt.id],
-        );
-        writer.run(
-          `CREATE TRIGGER work_facts_immutable_update
-           BEFORE UPDATE ON work_facts
-           BEGIN SELECT RAISE(ABORT, 'work fact records are immutable'); END`,
-        );
-      }),
-    );
-
-    const page = await runtime.runPromise(
-      repository.legacyProposalMaterializationWitnessPage({ limit: 32 }),
-    );
-    expect(
-      page.witnesses.find((witness) => witness.proposalId === corrupt.id),
-    ).toMatchObject({
-      status: "invalid",
-      diagnostic: { code: "task-create-witness-invalid" },
-    });
-    expect(
-      page.witnesses.find((witness) => witness.proposalId === later.id),
-    ).toMatchObject({ status: "missing" });
+    ).rejects.toThrow(/set to Me/);
   });
 
   it("rejects empty and over-limit dependencies and over-limit topology scope", async () => {
     const nodeId = "tasks-bounds";
     await expect(
-      createProposal(nodeId, {
-        ...proposal("empty-dependency", actor("6")),
-        dependsOn: [""],
-      }, scope(nodeId)),
-    ).rejects.toThrow(/non-empty canonical Task ids/);
+      createTask(
+        nodeId,
+        task("empty-dependency", { dependsOn: [""] }),
+        scope(nodeId),
+      ),
+    ).rejects.toThrow(/non-empty task ids/);
 
     await expect(
-      createProposal(nodeId, {
-        ...proposal("too-many-dependencies", actor("7")),
-        dependsOn: Array.from({ length: 257 }, (_, index) => `dep-${index}`),
-      }, scope(nodeId)),
+      createTask(
+        nodeId,
+        task(
+          "too-many-dependencies",
+          {
+            dependsOn: Array.from(
+              { length: 257 },
+              (_, index) => `dep-${index}`,
+            ),
+          },
+        ),
+        scope(nodeId),
+      ),
     ).rejects.toThrow(/maximum is 256/);
 
     const oversizedTopology: CanvasDoc = {
@@ -1477,51 +821,5 @@ describe("WorkRepository transaction hardening", () => {
         authoringSink: { canvasName: "factory", nodeId: taskNode.id },
       }),
     ).toThrow(/semantic document mismatch/);
-  });
-
-  it("refuses legacy materialization when the local Work authority is Remote", async () => {
-    const nodeId = "tasks-legacy-remote-refusal";
-    const source = proposal("legacy-remote-refusal", actor("a"));
-    await createProposal(nodeId, source);
-    const materialization = materializePendingProposal({ proposal: source });
-
-    await runtime.runPromise(
-      state.transaction("test.configure-remote", (writer) => {
-        writer.run(
-          `UPDATE station_configuration
-           SET role = 'remote',
-               agent_host_id = 'remote-host',
-               command_center_installation_id = ?
-           WHERE singleton = 1`,
-          [remoteInstallationId],
-        );
-      }),
-    );
-    try {
-      const result = await runtime.runPromise(
-        repository.persistUnadmittedTask({
-          sink: sink(nodeId),
-          basis,
-          dependencyScope: scope(nodeId),
-          proposalId: materialization.task.id,
-        home: installationId,
-        }),
-      );
-      expect(result).toMatchObject({ status: "invalid" });
-      expect(await taskAt(nodeId, source.id)).toBeUndefined();
-      expect(await taskCreateCount(nodeId, source.id)).toBe(0);
-    } finally {
-      await runtime.runPromise(
-        state.transaction("test.restore-command-center", (writer) => {
-          writer.run(
-            `UPDATE station_configuration
-             SET role = 'command-center',
-                 agent_host_id = NULL,
-                 command_center_installation_id = NULL
-             WHERE singleton = 1`,
-          );
-        }),
-      );
-    }
   });
 });

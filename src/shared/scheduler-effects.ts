@@ -9,7 +9,7 @@
  * Watch predicates and fire actions are **compiled from the edge's verb**, not
  * read off the document: `announces` names the predicate the source publishes,
  * and `enqueues` / `wakes` / `flags` name the action the target accepts. The
- * kernel applies them on home-local fire; claim assignment stays the factory
+ * kernel applies them on home-local fire; task claiming stays in the factory
  * tick.
  */
 

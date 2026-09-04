@@ -80,19 +80,21 @@ describe("sinkGlance + attention", () => {
     expect(sinkGlance(items)).toEqual({ queued: 1, inFlight: 1, needsInput: 1, total: 4 });
   });
 
-  it("counts pending proposals and completed work for TaskScan", () => {
+  it("counts approval-gated and completed work for TaskScan", () => {
     const items = [
       taskItem("queued", "queue", "submitted"),
       taskItem("done", "done", "completed"),
       taskItem("failed", "failed", "failed"),
+      { ...taskItem("gated", "gate", "submitted"), admission: "approval" as const },
     ];
+    expect(taskScanCounts(items)).toEqual({ approval: 1, completed: 1 });
+    // A board floor of approval gates every submitted task without an overlay.
     expect(
-      taskScanCounts(items, [
-        { id: "p1", state: "pending" },
-        { id: "p2", state: "approved" },
-        { id: "p3", state: "rejected" },
-      ]),
-    ).toEqual({ proposals: 1, completed: 1 });
+      taskScanCounts(
+        [taskItem("floor", "f", "submitted")],
+        { incoming: { admission: "approval" as const } },
+      ),
+    ).toEqual({ approval: 1, completed: 0 });
   });
 
   it("task sink fires on input-required; ice when empty", () => {

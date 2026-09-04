@@ -181,9 +181,9 @@ describe("task-deps", () => {
     });
   });
 
-  it("a forward's completed source row stays satisfied for dependents regardless of document order", () => {
-    // Forward leaves two live rows sharing a task id: the closed source
-    // passage (completed) and the re-homed successor (submitted). Either
+  it("a sent-on task's completed row stays satisfied for dependents regardless of document order", () => {
+    // Send-on leaves two rows sharing a task id: the completed visit and the
+    // re-homed successor (submitted). Either
     // document order must resolve the dependency as satisfied.
     const completedSource = taskItem("t", "t", "completed");
     const submittedDestination = taskItem("t", "t", "submitted");

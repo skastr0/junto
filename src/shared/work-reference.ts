@@ -43,28 +43,29 @@ export const ActorRef = Schema.Struct({
 export type ActorRef = typeof ActorRef.Type;
 
 /**
- * Non-executable seat used when the Command Center operator authors a
- * planning proposal. Not an actor principal — display only on the board
- * (`Proposed by operator`). Never claim-capable.
+ * Stable non-executable identity for Command Center operator actions. It is
+ * not an actor principal and can never claim work.
  */
-export const OPERATOR_PLANNING_SEAT_ID = Schema.decodeUnknownSync(ActorSeatId)(
+export const OPERATOR_SEAT_ID = Schema.decodeUnknownSync(ActorSeatId)(
   `seat_${"c".repeat(64)}`,
 );
 
-export const operatorPlanningActorRef = (canvasName: string): ActorRef => ({
-  seatId: OPERATOR_PLANNING_SEAT_ID,
+export const operatorActorRef = (canvasName: string): ActorRef => ({
+  seatId: OPERATOR_SEAT_ID,
   canvasName,
   nodeId: "operator",
 });
 
-export const WorkItemKind = Schema.Literals(["task", "proposal",
-"request",
-"message",
-"artifact",
-"delivery",
-"topic",
-"post",
-"pad",]);
+export const WorkItemKind = Schema.Literals([
+  "task",
+  "request",
+  "message",
+  "artifact",
+  "delivery",
+  "topic",
+  "post",
+  "pad",
+]);
 export type WorkItemKind = typeof WorkItemKind.Type;
 
 const WorkItemIdentityFields = {

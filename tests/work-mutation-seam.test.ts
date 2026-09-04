@@ -30,17 +30,6 @@ import {
   workMutationScopeForTest,
   type WorkPlaneTableRole,
 } from "../src/main/vellum/work/mutation-seam";
-import {
-  WORK_BOARD_STATE_SCHEMA_SQL,
-  WORK_CANVAS_REVISIONS_SQL,
-  WORK_PAD_READ_CURSORS_SQL,
-  WORK_PAD_STATE_SCHEMA_SQL,
-  WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
-  WORK_PROPOSAL_STATE_SCHEMA_SQL,
-  WORK_STATE_SCHEMA_SQL,
-  WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
-  WORK_TASK_FINISH_STATE_SCHEMA_SQL,
-} from "../src/main/vellum/work/state-schema";
 
 const root = join(tmpdir(), `vellum-command-seam-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -90,19 +79,8 @@ const succeeds = (
 
 /** Every `work_*` table the durable schema creates. */
 const schemaWorkTables = (): ReadonlySet<string> => {
-  const sql = [
-    WORK_STATE_SCHEMA_SQL,
-    WORK_PROPOSAL_STATE_SCHEMA_SQL,
-    WORK_TASK_DEPENDENCIES_STATE_SCHEMA_SQL,
-    WORK_TASK_FINISH_STATE_SCHEMA_SQL,
-    WORK_PROPOSAL_PLANNING_STATE_SCHEMA_SQL,
-    WORK_BOARD_STATE_SCHEMA_SQL,
-    WORK_PAD_STATE_SCHEMA_SQL,
-    WORK_PAD_READ_CURSORS_SQL,
-    WORK_CANVAS_REVISIONS_SQL,
-  ].join("\n");
   const tables = new Set<string>();
-  for (const match of sql.matchAll(
+  for (const match of STATE_SCHEMA_SQL.matchAll(
     /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(work_[a-z_]+)/gi,
   )) {
     tables.add(match[1].toLowerCase());
@@ -437,7 +415,7 @@ describe("work mutation sink attribution", () => {
       ["${table}", ["work_tasks", "work_requests"]],
       [
         "${pendingTable}",
-        ["work_pending_commands", "work_pending_proposal_commands"],
+        ["work_pending_commands"],
       ],
       [
         "${table}",

@@ -32,9 +32,9 @@ import {
   PreambleArgs,
   RequestEscalateArgs,
   RulingsArgs,
-  TasksBoardCliArgs,
+  TasksCheckCliArgs,
   TasksClaimArgs,
-  TasksClaimsArgs,
+  TasksRulesArgs,
   TasksCreateCliArgs,
   TasksListArgs,
   TasksShowArgs,
@@ -208,7 +208,7 @@ export const tasksClaimSchema: CommandSchemaContract = {
   command_id: "tasks.claim",
   command: "tasks claim",
   schema_id: "tasks.claim.input/v1",
-  description: "Assign a task to this seat (submitted → working). Op id stays tasks.claim.",
+  description: "Claim a task for this seat (submitted → working).",
   schema: TasksClaimArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -219,7 +219,7 @@ export const tasksCreateSchema: CommandSchemaContract = {
   command: "tasks create",
   schema_id: "tasks.create.input/v3",
   description:
-    "Create one Task with a stable TaskId on a connected sink. dependsOn accepts existing TaskIds only and persists before approval. Omitted admission persists operator-gated (clamped to the sink floor); local Command Center approval promotes that same TaskId instead of minting a replacement. Station protocol 1 has no Task approval action, so effective operator-gated creation refuses a Remote home. Legacy proposal events remain immutable: reconciliation materializes pending rows as same-ID gated Tasks and never infers dependencies or auto-rewires documentary proposals. holdFor (\"12h\", \"7d\", or ms) bakes the origin arrival.",
+    "Create one Task with a stable TaskId on a connected Tasks node. dependsOn accepts existing TaskIds on this board. rules addresses task-specific rules to boards on the task path. Omitted admission requires Approval; waitFor (\"12h\", \"7d\", or ms) delays the first claim.",
   schema: TasksCreateCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -230,7 +230,7 @@ export const tasksUpdateSchema: CommandSchemaContract = {
   command: "tasks update",
   schema_id: "tasks.update.input/v4",
   description:
-    "Transition a task to a new task state. On completed, completionEvidence supplies artifacts + git commits for finish-criteria gates and responses + claimWaivers for the station's claims; next names the forward destination and holdFor (\"7d\", \"12h\", or ms) bakes the arrival. On rejected, defect sends the task back to a visited station: defect.target picks any stop the journey already made (receipts earned strictly before it stay live), omitted means the previous station.",
+    "Transition a task to a new state. On completed, completionEvidence supplies artifacts, git commits, claims for rules in force, and path waivers; next names the next board, handoffNote carries the handoff, and waitFor delays claiming there. On rejected, defect sends the task back to an earlier visited board; defect.target defaults to the previous board.",
   schema: TasksUpdateCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -241,28 +241,28 @@ export const tasksShowSchema: CommandSchemaContract = {
   command: "tasks show",
   schema_id: "tasks.show.input/v1",
   description:
-    "Show one task with its journey. Prior stations appear as what they published (emission note + cited refs), never their interiors.",
+    "Show one task with its visits. Prior boards expose handoff notes and cited refs, never their interiors.",
   schema: TasksShowArgs,
   input_modes: inputModes,
 };
 
-export const tasksClaimsSchema: CommandSchemaContract = {
-  command_id: "tasks.claims",
-  command: "tasks claims",
-  schema_id: "tasks.claims.input/v1",
+export const tasksRulesSchema: CommandSchemaContract = {
+  command_id: "tasks.rules",
+  command: "tasks rules",
+  schema_id: "tasks.rules.input/v1",
   description:
-    "Effective claims at a station (region stack, sink contract, station-addressed task claims) with provenance. Name a task to also get readiness: unanswered claims and per-destination ticket status.",
-  schema: TasksClaimsArgs,
+    "Rules in force at a board, with provenance. Name a task to also get readiness: unanswered rules and required checks for each next board.",
+  schema: TasksRulesArgs,
   input_modes: inputModes,
 };
 
-export const tasksBoardSchema: CommandSchemaContract = {
-  command_id: "tasks.board",
-  command: "tasks board",
-  schema_id: "tasks.board.input/v1",
+export const tasksCheckSchema: CommandSchemaContract = {
+  command_id: "tasks.check",
+  command: "tasks check",
+  schema_id: "tasks.check.input/v1",
   description:
-    "Run this move's boarding checks (station outbound + chosen destination inbound) in the seat's own environment and submit what happened; the work service stamps tickets from these results. Name next when the station forks.",
-  schema: TasksBoardCliArgs,
+    "Run this board's outgoing checks and the next board's incoming checks in the seat environment, then submit the results. Name next when the path forks.",
+  schema: TasksCheckCliArgs,
   input_modes: inputModes,
 };
 
@@ -564,8 +564,8 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksClaimSchema,
   tasksUpdateSchema,
   tasksShowSchema,
-  tasksClaimsSchema,
-  tasksBoardSchema,
+  tasksRulesSchema,
+  tasksCheckSchema,
   rulingsSchema,
   msgListSchema,
   msgSendSchema,
@@ -606,9 +606,9 @@ export const allExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "tasks.create",
     command: "tasks create",
-    name: "create an operator-gated Task",
+    name: "create a Task for Approval",
     description:
-      "Create one stable-ID Task for local Command Center operator approval. Omitting admission persists operator-gated.",
+      "Create one stable-ID Task that requires operator approval. Agent-created tasks default to Approval.",
     input: {
       target: "n7",
       brief: "Add keyboard navigation",
@@ -616,11 +616,12 @@ export const allExamples: ReadonlyArray<CommandExample> = [
         title: "Keyboard navigation",
         details: "Cover the task board first.",
       },
+      admission: "approval",
     },
     args: [
       "tasks",
       "create",
-      '{"target":"n7","brief":"Add keyboard navigation","metadata":{"title":"Keyboard navigation","details":"Cover the task board first."}}',
+      '{"target":"n7","brief":"Add keyboard navigation","metadata":{"title":"Keyboard navigation","details":"Cover the task board first."},"admission":"approval"}',
     ],
   },
   {
@@ -628,7 +629,7 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     command: "tasks create",
     name: "create with TaskId dependencies and finish criteria",
     description:
-      "dependsOn names existing TaskIds only. The dependency edges and this TaskId persist before approval; approval promotes the same Task.",
+      "dependsOn names existing TaskIds on this board. Dependencies, finish criteria, and this TaskId persist at creation.",
     input: {
       target: "n7",
       brief: "Ship media migration graph",
@@ -698,9 +699,9 @@ export const allExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "tasks.update",
     command: "tasks update",
-    name: "answer claims and forward",
+    name: "answer rules and send on",
     description:
-      "Complete at this station with a response per claim, then forward to the named destination.",
+      "Complete at this board with a claim for each rule, then send the task to the named next board.",
     input: {
       target: "n7",
       task: "t1",
@@ -708,25 +709,25 @@ export const allExamples: ReadonlyArray<CommandExample> = [
       note: "review passed",
       completionEvidence: {
         artifacts: [],
-        responses: [
-          { claimId: "c1", response: "ran the suite; all green", refs: ["abc123"] },
+        claims: [
+          { ruleId: "r1", text: "ran the suite; all green", refs: ["abc123"] },
         ],
-        claimWaivers: [{ claimId: "c2", reason: "no schema changed in this task" }],
       },
       next: "n8",
-      holdFor: "12h",
+      handoffNote: "tests pass and the keyboard path is documented",
+      waitFor: "12h",
     },
     args: [
       "tasks",
       "update",
-      '{"target":"n7","task":"t1","state":"completed","note":"review passed","completionEvidence":{"artifacts":[],"responses":[{"claimId":"c1","response":"ran the suite; all green","refs":["abc123"]}],"claimWaivers":[{"claimId":"c2","reason":"no schema changed in this task"}]},"next":"n8","holdFor":"12h"}',
+      '{"target":"n7","task":"t1","state":"completed","note":"review passed","completionEvidence":{"artifacts":[],"claims":[{"ruleId":"r1","text":"ran the suite; all green","refs":["abc123"]}]},"next":"n8","handoffNote":"tests pass and the keyboard path is documented","waitFor":"12h"}',
     ],
   },
   {
     command_id: "tasks.update",
     command: "tasks update",
     name: "send back with a defect",
-    description: "Return the task to the previous station with the reason on record.",
+    description: "Send the task back to the previous board with the reason on record.",
     input: {
       target: "n7",
       task: "t1",
@@ -747,38 +748,38 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     args: ["tasks", "show", '{"target":"n7","task":"t1"}'],
   },
   {
-    command_id: "tasks.claims",
-    command: "tasks claims",
-    name: "station law",
-    description: "The standing claims at this station, with provenance.",
+    command_id: "tasks.rules",
+    command: "tasks rules",
+    name: "rules in force",
+    description: "The rules in force at this board, with provenance.",
     input: { target: "n7" },
-    args: ["tasks", "claims", '{"target":"n7"}'],
+    args: ["tasks", "rules", '{"target":"n7"}'],
   },
   {
-    command_id: "tasks.claims",
-    command: "tasks claims",
+    command_id: "tasks.rules",
+    command: "tasks rules",
     name: "readiness for a task",
-    description: "What is still unanswered, and which boarding tickets are green.",
+    description: "Which rules are unanswered and which checks are complete.",
     input: { target: "n7", task: "t1" },
-    args: ["tasks", "claims", '{"target":"n7","task":"t1"}'],
+    args: ["tasks", "rules", '{"target":"n7","task":"t1"}'],
   },
   {
-    command_id: "tasks.board",
-    command: "tasks board",
-    name: "run boarding checks",
+    command_id: "tasks.check",
+    command: "tasks check",
+    name: "run checks",
     description:
-      "Resolve and run the applicable checklists locally, then submit results; tickets are stamped from what the checks returned.",
+      "Resolve and run the applicable checks locally, then submit their results.",
     input: { target: "n7", task: "t1" },
-    args: ["tasks", "board", '{"target":"n7","task":"t1"}'],
+    args: ["tasks", "check", '{"target":"n7","task":"t1"}'],
   },
   {
-    command_id: "tasks.board",
-    command: "tasks board",
-    name: "run boarding checks toward a destination",
+    command_id: "tasks.check",
+    command: "tasks check",
+    name: "run checks for a next board",
     description:
-      "Name the destination when the station forks; its inbound checklist joins the station's outbound checks.",
+      "Name the next board when the path forks; its incoming checks join this board's outgoing checks.",
     input: { target: "n7", task: "t1", next: "n8" },
-    args: ["tasks", "board", '{"target":"n7","task":"t1","next":"n8"}'],
+    args: ["tasks", "check", '{"target":"n7","task":"t1","next":"n8"}'],
   },
   {
     command_id: "rulings",
@@ -1188,26 +1189,26 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "tasks.show",
     command: "tasks show",
     category: "workflow",
-    description: "Show one task with its journey (onion-scoped for seats).",
+    description: "Show one task with its visits (onion-scoped for seats).",
     schemas: [tasksShowSchema],
     examples: allExamples.filter((e) => e.command_id === "tasks.show"),
   },
   {
-    command_id: "tasks.claims",
-    command: "tasks claims",
+    command_id: "tasks.rules",
+    command: "tasks rules",
     category: "workflow",
-    description: "Effective claims at a station, plus readiness for a named task.",
-    schemas: [tasksClaimsSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.claims"),
+    description: "Rules in force at a board, plus readiness for a named task.",
+    schemas: [tasksRulesSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.rules"),
   },
   {
-    command_id: "tasks.board",
-    command: "tasks board",
+    command_id: "tasks.check",
+    command: "tasks check",
     category: "workflow",
     description:
-      "Run this move's boarding checks in the seat's environment and submit the results; tickets are stamped from what came back.",
-    schemas: [tasksBoardSchema],
-    examples: allExamples.filter((e) => e.command_id === "tasks.board"),
+      "Run this move's outgoing and incoming checks in the seat environment and submit the results.",
+    schemas: [tasksCheckSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.check"),
   },
   {
     command_id: "rulings",

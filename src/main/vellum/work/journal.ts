@@ -105,41 +105,6 @@ export const appendWorkRecord = (
   record: WorkRecordValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
-  if (record.item.kind === "proposal") {
-    writer.run(
-      `
-        INSERT INTO work_proposal_events(
-          event_home,
-          entity_home,
-          seq,
-          record_type,
-          canvas_name,
-          node_id,
-          proposal_id,
-          operation,
-          content_sha256,
-          record_json,
-          origin_at,
-          received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        record.id.route.eventHome,
-        record.id.route.entityHome,
-        record.id.seq,
-        record.recordType,
-        record.item.sink.canvasName,
-        record.item.sink.nodeId,
-        record.item.itemId,
-        record.operation,
-        record.contentSha256,
-        canonicalJson(record),
-        record.originAt,
-        receivedAt,
-      ],
-    );
-    return;
-  }
   writer.run(
     `
       INSERT INTO work_events(
@@ -309,33 +274,6 @@ export const appendPendingCommand = (
   command: WorkCommandValue,
   createdAt: DisplayTimestampValue,
 ): void => {
-  if (command.item.kind === "proposal") {
-    writer.run(
-      `
-        INSERT INTO work_pending_proposal_commands(
-          event_home,
-          entity_home,
-          seq,
-          operation,
-          canvas_name,
-          node_id,
-          proposal_id,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        command.id.route.eventHome,
-        command.id.route.entityHome,
-        command.id.seq,
-        command.operation,
-        command.item.sink.canvasName,
-        command.item.sink.nodeId,
-        command.item.itemId,
-        createdAt,
-      ],
-    );
-    return;
-  }
   writer.run(
     `
       INSERT INTO work_pending_commands(
@@ -367,4 +305,3 @@ export const appendPendingCommand = (
     ],
   );
 };
-

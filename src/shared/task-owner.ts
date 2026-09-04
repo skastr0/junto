@@ -1,14 +1,14 @@
 /**
  * Derived task ownership — who a comment on a task should reach.
  *
- * Ownership is NEVER stored: it is computed from the live station row and the
- * station's admission. The row's `claimedBy` names the working seat; an
- * operator-owned station makes the operator the standing mind; terminal or
+ * Ownership is NEVER stored: it is computed from the live board row and the
+ * board's admission. The row's `claimedBy` names the working seat; a Me board
+ * (admission "operator") makes the operator the standing mind; terminal or
  * unclaimed work has no owner, so a comment appends without notifying anyone.
  */
 
-import type { Task, TasksSinkContract } from "./work-model";
-import { resolveSinkAdmission } from "./work-model";
+import type { Task, TasksContract } from "./work-model";
+import { resolveTaskAdmission } from "./work-model";
 import { isTerminalTaskState } from "./task";
 import type { ActorRef } from "./work-protocol";
 
@@ -18,21 +18,22 @@ export type TaskOwner =
   | { readonly kind: "none" };
 
 /**
- * Owner of the task's live station row.
+ * Owner of the task's live board row.
  *
  * - terminal states (completed, canceled, failed, rejected, archived): no
  *   owner — finished work notifies nobody, even when `claimedBy` remains on
- *   the row as the passage record;
- * - operator-owned station: the operator, always — no seat ever claims there;
+ *   the row as the completed visit record;
+ * - Me board (admission "operator"): the operator, always — no seat ever
+ *   claims there;
  * - a claimed live row: the claiming seat;
- * - anything else (unclaimed inbound, held, awaiting promotion): no owner.
+ * - anything else (unclaimed incoming, waiting, awaiting approval): no owner.
  */
 export const currentTaskOwner = (
   task: Task,
-  contract: TasksSinkContract | undefined,
+  contract: TasksContract | undefined,
 ): TaskOwner => {
   if (isTerminalTaskState(task.state)) return { kind: "none" };
-  if (resolveSinkAdmission(contract) === "operator-owned") {
+  if (resolveTaskAdmission(contract) === "operator") {
     return { kind: "operator" };
   }
   if (task.claimedBy !== undefined) {
@@ -50,7 +51,7 @@ export const currentTaskOwner = (
  */
 export const taskCommentRecipient = (
   task: Task,
-  contract: TasksSinkContract | undefined,
+  contract: TasksContract | undefined,
   sender: { readonly seatId: string },
   actorRefs: ReadonlyArray<ActorRef>,
   canvasName: string,

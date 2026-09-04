@@ -7,7 +7,6 @@ export const WORK_SEAT_RECENT_OP_MAX_LIMIT = 50;
 export const WORK_SEAT_RECENT_OP_MAX_LABEL_CHARS = 160;
 
 export const WorkSeatRecentOpOperation = Schema.Literals([
-  "proposal.create",
   "task.claim",
   "request.create",
   "message.append",
@@ -42,10 +41,6 @@ export const WorkSeatRecentOpSummary = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("task"),
     taskId: BoundedWorkId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("proposal"),
-    proposalId: BoundedWorkId,
   }),
   Schema.Struct({
     kind: Schema.Literal("delivery"),
@@ -84,7 +79,6 @@ export const WorkSeatRecentOp = Schema.Struct({
 export type WorkSeatRecentOp = typeof WorkSeatRecentOp.Type;
 
 export const WORK_SEAT_RECENT_OP_INCLUDED_OPERATIONS = [
-  "proposal.create",
   "task.claim",
   "request.create",
   "message.append",
@@ -95,8 +89,6 @@ export const WORK_SEAT_RECENT_OP_INCLUDED_OPERATIONS = [
 ] as const satisfies ReadonlyArray<WorkSeatRecentOpOperation>;
 
 export const WORK_SEAT_RECENT_OP_EXCLUDED_OPERATIONS = [
-  "proposal.approve",
-  "proposal.reject",
   "task.create",
   "task.describe",
   "task.transition",

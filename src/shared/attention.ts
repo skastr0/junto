@@ -1,8 +1,8 @@
 import { Schema } from "effect";
-import type { Task, TaskProposal, CanvasDoc, CanvasNode } from "./canvas";
-import type { TasksSinkContract } from "./work-model";
+import type { Task, CanvasDoc, CanvasNode } from "./canvas";
+import type { TasksContract } from "./work-model";
 import { claimedByOf, isTerminalTaskState } from "./task";
-import { taskAdmissionState } from "./claims";
+import { taskAdmissionState } from "./rules";
 import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
 import { resolveSpec, roleOf } from "./physics/kinds";
 import {
@@ -40,27 +40,27 @@ const roleOfNode = (node: CanvasNode) =>
 
 const isQueuedSubmitted = (
   item: Task,
-  contract: TasksSinkContract | undefined,
+  contract: TasksContract | undefined,
   nowMs: number,
 ): boolean => {
   if (item.state !== "submitted") return false;
   const admission = taskAdmissionState(item, contract, nowMs);
-  return admission === "claimable" || admission === "held";
+  return admission === "claimable" || admission === "waiting";
 };
 
 const isUnadmittedSubmitted = (
   item: Task,
-  contract: TasksSinkContract | undefined,
+  contract: TasksContract | undefined,
   nowMs: number,
 ): boolean => {
   if (item.state !== "submitted") return false;
-  return taskAdmissionState(item, contract, nowMs) === "operator-gated";
+  return taskAdmissionState(item, contract, nowMs) === "approval";
 };
 
 /** Sink-card glance counts (tasks / requests): queued / in flight / needs input. */
 export const sinkGlance = (
   items: ReadonlyArray<Task>,
-  contract?: TasksSinkContract,
+  contract?: TasksContract,
   nowMs: number = Date.now(),
 ): {
   readonly queued: number;
@@ -80,27 +80,21 @@ export const sinkGlance = (
 };
 
 /**
- * Compact TaskScan counters. Unadmitted submitted tasks (and leftover
- * pending proposals not yet backfilled) are planning inventory.
+ * Compact TaskScan counters. Tasks awaiting approval are approval inventory.
  */
 export const taskScanCounts = (
   items: ReadonlyArray<Task>,
-  proposals: ReadonlyArray<Pick<TaskProposal, "id" | "state">> = [],
-  contract?: TasksSinkContract,
+  contract?: TasksContract,
   nowMs: number = Date.now(),
 ): {
-  readonly proposals: number;
+  readonly approval: number;
   readonly completed: number;
 } => {
-  const itemIds = new Set(items.map((item) => item.id));
   const unadmitted = items.filter((item) =>
     isUnadmittedSubmitted(item, contract, nowMs),
   ).length;
-  const leftover = proposals.filter(
-    (proposal) => proposal.state === "pending" && !itemIds.has(proposal.id),
-  ).length;
   return {
-    proposals: unadmitted + leftover,
+    approval: unadmitted,
     completed: items.filter((item) => item.state === "completed").length,
   };
 };

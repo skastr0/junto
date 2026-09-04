@@ -2015,7 +2015,7 @@ describe("Station work authority survives Command Center downtime", () => {
         undefined,
         undefined,
         {
-          admissionOmitted: "operator-gated",
+          admissionOmitted: "approval",
           raisedBy: actor,
         },
       ),
@@ -2025,7 +2025,7 @@ describe("Station work authority survives Command Center downtime", () => {
       disposition: "queued",
       data: {
         state: "submitted",
-        admission: "operator-gated",
+        admission: "approval",
         raisedBy: actor,
       },
     });
@@ -2048,7 +2048,7 @@ describe("Station work authority survives Command Center downtime", () => {
         operation: "task.create",
         task: {
           id: taskId,
-          admission: "operator-gated",
+          admission: "approval",
           raisedBy: actor,
         },
       },
@@ -2246,7 +2246,7 @@ describe("Station work authority survives Command Center downtime", () => {
         undefined,
         undefined,
         {
-          admissionOmitted: "operator-gated",
+          admissionOmitted: "approval",
           raisedBy: actor,
         },
       ),
@@ -2812,4 +2812,3 @@ describe("Station work authority survives Command Center downtime", () => {
   });
 
 });
-

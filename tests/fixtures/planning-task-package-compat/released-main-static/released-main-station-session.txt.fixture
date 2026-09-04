@@ -1,1 +1,0 @@
-const STATION_SESSION_PROTOCOL = `vellum-command/station-session/v${STATION_PROTOCOL_BASELINE}`;

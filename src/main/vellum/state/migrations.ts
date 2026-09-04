@@ -57,6 +57,10 @@ import {
   canvasBodySha256Of as canvasBodySha256ForCutover,
   intentSha256Of as intentSha256ForCutover,
 } from "../canvas-intent-identity";
+import {
+  correctInvalidTasksCanvasDocumentSchema21,
+  correctInvalidTasksSchema21,
+} from "./tasks-schema21-correction";
 
 export type StateSchemaMigrationDatabase = Pick<
   DatabaseSync,
@@ -83,6 +87,14 @@ export type StateSchemaMigration = {
   readonly fromIdentity: VerifiedStateSchemaIdentity;
   /** Exact non-table schema objects this step is authorized to replace. */
   readonly replacesObjects?: ReadonlyArray<`trigger:${string}`>;
+  /**
+   * Durable tables the step's corrective Tasks converter (schema-21 repair)
+   * may UPDATE or INSERT while they still exist from before the step. Only
+   * valid on a consolidation step: every other write to a pre-existing table
+   * stays denied, so the corrective capability is scoped to exactly the
+   * tables the repair is allowed to touch, not to the whole step class.
+   */
+  readonly correctiveWriteTables?: ReadonlyArray<string>;
   /**
    * Durable tables this step may DROP and recreate with identical columns
    * (CHECK-domain expand). Rows must be copy-forwarded; final column set must
@@ -261,9 +273,14 @@ export const CURRENT_STATE_SCHEMA_VERSION = 21;
  * Exact witness of schema version 21 (relational canvas authority; blob
  * generation tables consolidated away).
  */
-export const STATE_SCHEMA_V21_IDENTITY = {
+export const INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY = {
   actualSchemaSha256:
     "3e45c771d981863bb41bfbd9cbcd2881144f0fcc118ce0f7824eb2c99886781f",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const STATE_SCHEMA_V21_IDENTITY = {
+  actualSchemaSha256:
+    "b85e21b3571af9462b26a88aaaea6c052ef54f155994db26611499422bc710f9",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
@@ -643,11 +660,39 @@ export const STATE_SCHEMA_MIGRATIONS =
       name: "canvas-relational-authority-cutover",
       safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
       fromIdentity: STATE_SCHEMA_V20_IDENTITY,
+      replacesObjects: [
+        "trigger:work_events_immutable_update",
+        "trigger:work_commands_immutable_update",
+        "trigger:work_facts_immutable_update",
+        "trigger:work_dispositions_immutable_update",
+      ],
       replacesTables: ["work_facts"],
+      // The corrective converter runs inside this step for installed v20
+      // databases (their rows carry the retired Tasks vocabulary). It updates
+      // JSON columns and journal hashes on tables that exist before the step
+      // and inserts materialized proposal rows into the normalized task
+      // tables; the authorizer admits exactly these tables and nothing else.
+      correctiveWriteTables: [
+        "work_commands",
+        "work_canvas_revisions",
+        "work_dispositions",
+        "work_event_sequences",
+        "work_events",
+        "work_facts",
+        "work_task_dependencies",
+        "work_task_finish",
+        "work_task_messages",
+        "work_task_transitions",
+        "work_tasks",
+      ],
       removesTables: [
         "canvas_generation_documents",
         "canvas_generations",
         "canvas_head",
+        "work_proposal_planning",
+        "work_pending_proposal_commands",
+        "work_task_proposals",
+        "work_proposal_events",
       ],
       migrate: (database) => {
         database.exec(CANVAS_AUTHORITY_SCHEMA_SQL);
@@ -674,6 +719,7 @@ export const STATE_SCHEMA_MIGRATIONS =
           DROP TABLE canvas_generations;
           DROP TABLE canvas_head;
         `);
+        correctInvalidTasksSchema21(database);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
@@ -878,7 +924,9 @@ const cutoverCanvasAuthorityFromBlobHead = (
         `canvas cutover: stored body hash mismatch for canvas "${name}"`,
       );
     }
-    const parsed: unknown = JSON.parse(storedBody);
+    const parsed = correctInvalidTasksCanvasDocumentSchema21(
+      JSON.parse(storedBody) as unknown,
+    );
     if (canvasContainsWorkProjection(parsed)) {
       throw new Error(
         `canvas cutover: canvas "${name}" contains runtime work projection data`,
@@ -1246,6 +1294,9 @@ const runMigrationStep = (
   const replacesObjects = new Set<string>(migration.replacesObjects ?? []);
   const replacesTables = new Set<string>(migration.replacesTables ?? []);
   const removesTables = new Set<string>(migration.removesTables ?? []);
+  const correctiveWriteTables = new Set<string>(
+    migration.correctiveWriteTables ?? [],
+  );
   const sideObjects = sideObjectsForReplacedTables(
     database,
     new Set([...replacesTables, ...removesTables]),
@@ -1323,13 +1374,15 @@ const runMigrationStep = (
         actionCode === constants.SQLITE_INSERT &&
         arg1 !== null &&
         before.tables.has(arg1) &&
-        !replacesTables.has(arg1)
+        !replacesTables.has(arg1) &&
+        !correctiveWriteTables.has(arg1)
       ) ||
       (
         actionCode === constants.SQLITE_UPDATE &&
         arg1 !== null &&
         arg2 !== null &&
-        before.tables.get(arg1)?.has(arg2) === true
+        before.tables.get(arg1)?.has(arg2) === true &&
+        !correctiveWriteTables.has(arg1)
       ) ||
       (
         actionCode === constants.SQLITE_PRAGMA &&
@@ -1423,6 +1476,8 @@ export const validateStateSchemaMigrationPlan = (
       (migration.safety !== STATE_SCHEMA_MIGRATION_SAFETY &&
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
       ((migration.removesTables?.length ?? 0) > 0) !==
+        (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
+      ((migration.correctiveWriteTables?.length ?? 0) > 0) !==
         (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY)
     ) {
       throw new Error(
@@ -1475,7 +1530,14 @@ export const stateSchemaAdvanceRequired = (
     }
     return false;
   }
-  if (version === plan.currentVersion && version !== 0) return false;
+  if (version === plan.currentVersion && version !== 0) {
+    const actual = actualStateSchemaSha256(database);
+    if (actual === INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256) {
+      requireIdentity("invalid Tasks state schema version 21", verifyRecordedStateSchemaIdentity(database), INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY);
+      return true;
+    }
+    return false;
+  }
 
   if (version === 0 && plan.baselineVersion === plan.currentVersion) {
     verifyRecordedCurrentSchemaReadOnly(database, plan.currentSchemaSql);
@@ -1529,10 +1591,12 @@ export const migrateStateSchema = (
     );
   }
   const fresh = isFreshStateSchema(database);
+  const correctiveInvalid21 = !fresh && previousVersion === plan.currentVersion &&
+    actualStateSchemaSha256(database) === INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256;
   // SQLite ignores PRAGMA foreign_keys inside a transaction. Table-rebuild
   // steps need enforcement off *before* BEGIN IMMEDIATE so DROP of a parent
   // with ON DELETE RESTRICT children can copy-forward.
-  const needsForeignKeysOff = chainNeedsTableReplace(
+  const needsForeignKeysOff = correctiveInvalid21 || chainNeedsTableReplace(
     previousVersion,
     fresh,
     plan,
@@ -1558,17 +1622,32 @@ export const migrateStateSchema = (
         database.exec(plan.currentSchemaSql);
         version = plan.currentVersion;
       } else {
-        let recorded =
-          version === plan.currentVersion ||
-            (
-              version === 0 &&
-              plan.baselineVersion === plan.currentVersion
-            )
-            ? verifyRecordedCurrentSchema(
-                database,
-                plan.currentSchemaSql,
+        let recorded: VerifiedStateSchemaIdentity;
+        if (correctiveInvalid21) {
+          // Exact-identity gate inside the transaction: the database is
+          // admitted as the rejected schema-21 shape, corrected atomically,
+          // and only then verified against the canonical current schema. The
+          // recorded witness is re-stamped by verifyAndStampStateSchema below.
+          requireIdentity(
+            "invalid Tasks state schema version 21",
+            verifyRecordedStateSchemaIdentity(database),
+            INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY,
+          );
+          correctInvalidTasksSchema21(database);
+          recorded = expectedStateSchemaIdentity(plan.currentSchemaSql);
+        } else {
+          recorded =
+            version === plan.currentVersion ||
+              (
+                version === 0 &&
+                plan.baselineVersion === plan.currentVersion
               )
-            : verifyRecordedStateSchemaIdentity(database);
+              ? verifyRecordedCurrentSchema(
+                  database,
+                  plan.currentSchemaSql,
+                )
+              : verifyRecordedStateSchemaIdentity(database);
+        }
         if (version === 0) {
           requireIdentity(
             "unversioned state schema baseline",

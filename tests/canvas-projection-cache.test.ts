@@ -46,8 +46,6 @@ const PROJECTED_TABLES = [
   ["work_task_finish", "canvas_name"],
   ["work_artifacts", "canvas_name"],
   ["work_delivery_receipts", "delivered_canvas_name"],
-  ["work_task_proposals", "canvas_name"],
-  ["work_proposal_planning", "canvas_name"],
   ["work_board_topics", "canvas_name"],
   ["work_board_posts", "canvas_name"],
   ["work_pad_meta", "canvas_name"],
@@ -317,11 +315,6 @@ describe("canvas projection memo — the revision witness", () => {
         work_delivery_receipts: {
           delivered_item_kind: "'message'",
           actor_seat_id: `'${seat}'`,
-        },
-        work_task_proposals: {
-          state: "'pending'",
-          brief_json: "'{}'",
-          proposer_seat_id: `'${seat}'`,
         },
         work_board_topics: { state: "'open'", author_kind: "'operator'" },
         work_board_posts: { author_kind: "'operator'" },

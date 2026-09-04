@@ -11,7 +11,7 @@ import {
   asNodeId,
   canvasDocToCapabilityView,
   offersOf,
-  pairIsAssignable,
+  pairIsClaimable,
   resolveSpec,
   roleOf,
 } from "./physics";
@@ -66,10 +66,10 @@ export type FactoryClaimSelection = {
  * Select one deterministic claim batch over the current projection.
  *
  * For each tasks sink, for each submitted unclaimed item, find a free actor
- * the sink may be *assigned* to. Two separate facts have to hold, and they are
+ * the factory may select. Two separate facts have to hold, and they are
  * not the same question:
  *
- * - **assignable** — the relationship puts the seat in the labor pool. Only
+ * - **claimable** — the relationship puts the seat in the labor pool. Only
  *   `works` compiles it. A seat that merely `contributes` holds `tasks.claim`
  *   and may take work of its own accord; the factory never hands it any.
  * - **admitted** — the seat may actually run `tasks.claim` on this sink now:
@@ -80,7 +80,7 @@ export type FactoryClaimSelection = {
  *
  * The selector reserves a seat in-memory only for the rest of this returned
  * batch. The caller remains responsible for exactly one durable claim attempt
- * per selection. Task routing ids are (sink, taskId); dependsOn edges may
+ * per selection. Task identities are (sink, taskId); dependsOn edges may
  * resolve to other task sinks in the same region, so claim-ready walks the
  * region-scoped index. Every result still carries both its SinkRef and
  * exact TaskRef.
@@ -141,7 +141,7 @@ export const selectFactoryClaims = (
     const freeActors = doc.nodes
       .filter(isActor)
       .filter(actorEligible)
-      .filter((actor) => pairIsAssignable(capabilityView, actor.id, node.id))
+      .filter((actor) => pairIsClaimable(capabilityView, actor.id, node.id))
       .filter((actor) =>
         Result.isSuccess(
           admitPure(
@@ -172,7 +172,7 @@ export const selectFactoryClaims = (
           !busy.has(candidate.seatId) &&
           claimEligible(task, candidate, node),
       );
-      if (!selected) break;
+      if (!selected) continue;
       const sink = { canvasName, nodeId: node.id } satisfies SinkRef;
       const taskRef = {
         kind: "task",
@@ -189,7 +189,7 @@ export const selectFactoryClaims = (
 
 /** Sink-local task ids: coverage is only identical within the same sink. */
 const claimKey = (selection: FactoryClaimSelection): string =>
-  `${selection.sink.nodeId}${selection.task.itemId}`;
+  `${selection.sink.nodeId}\0${selection.task.itemId}`;
 
 /**
  * Actor node ids whose process must be started for open work to move.
@@ -211,18 +211,26 @@ export const actorsNeedingWake = (
     /** True when the actor needs no start — already live, or not ours. */
     readonly isAwake: (actor: CanvasNode) => boolean;
     readonly seatPaused?: (nodeId: string) => boolean;
+    readonly claimEligible?: (
+      task: Task,
+      actor: ActorRef,
+      sink: CanvasNode,
+    ) => boolean;
   },
 ): ReadonlySet<string> => {
   const seatPaused = opts.seatPaused;
+  const claimEligible = opts.claimEligible;
   const covered = new Set(
     selectFactoryClaims(doc, canvasName, resolveActorRef, {
       ...(seatPaused ? { seatPaused } : {}),
+      ...(claimEligible ? { claimEligible } : {}),
       actorEligible: opts.isAwake,
     }).map(claimKey),
   );
   return new Set(
     selectFactoryClaims(doc, canvasName, resolveActorRef, {
       ...(seatPaused ? { seatPaused } : {}),
+      ...(claimEligible ? { claimEligible } : {}),
     })
       .filter((selection) => !covered.has(claimKey(selection)))
       .map((selection) => selection.actor.nodeId),

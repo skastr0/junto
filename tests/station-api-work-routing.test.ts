@@ -379,68 +379,6 @@ const messageFact = (): WorkFactValue =>
     },
   });
 
-const proposal = {
-  id: "proposal-1",
-  state: "pending" as const,
-  brief: {
-    messageId: "proposal-brief",
-    role: "user" as const,
-    parts: [{ kind: "text" as const, text: "Create operator-reviewed work" }],
-    taskId: "proposal-1",
-    contextId: "factory",
-  },
-  proposedBy: remoteActor,
-};
-
-const proposalCommand = (
-  sinkNodeId = "tasks",
-): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
-    id: {
-      route: { eventHome: remote, entityHome: cc },
-      seq: "1",
-    },
-    recordType: "command",
-    item: {
-      kind: "proposal",
-      itemId: proposal.id,
-      sink: { canvasName: "factory", nodeId: sinkNodeId },
-    },
-    operation: "proposal.create",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "proposal.create",
-      proposal,
-    },
-  });
-
-const proposalFact = (): WorkFactValue =>
-  Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "vellum/work/v2",
-    id: {
-      route: { eventHome: cc, entityHome: cc },
-      seq: "1",
-    },
-    recordType: "fact",
-    basis: {
-      kind: "command",
-      command: proposalCommand().id,
-      commandSha256: proposalCommand().contentSha256,
-    },
-    item: proposalCommand().item,
-    operation: "proposal.create",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "proposal.create",
-      proposal,
-    },
-  });
-
 const threadMessage = {
   ...message,
   messageId: "task-note-1",
@@ -1102,31 +1040,6 @@ describe("Station API v1 work routing", () => {
     expect(remoteHome.authorizeCommand(boardTopicCommand())).toMatchObject({
       _tag: "rejected",
       reason: "authority-mismatch",
-    });
-  });
-
-  it("admits proposal commands only for the Command Center-homed queue", () => {
-    const commandCenter = makeStationWorkAdmission(
-      topology("command-center"),
-    );
-    expect(
-      commandCenter.authorizeCommand(proposalCommand()),
-    ).toEqual({ _tag: "admitted" });
-    expect(
-      commandCenter.authorizeCommand(
-        proposalCommand("other-remote-tasks"),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-  });
-
-  it("admits the correlated Command Center proposal fact back to its Remote", () => {
-    const station = makeStationWorkAdmission(topology("remote"));
-
-    expect(station.authorizeFact(proposalFact())).toEqual({
-      _tag: "admitted",
     });
   });
 

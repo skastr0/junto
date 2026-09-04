@@ -198,11 +198,6 @@ const measureScale = async (options: {
             "SELECT COALESCE(sum(length(parts_json)),0) AS n FROM work_artifacts WHERE canvas_name = ?",
             [canvasName],
           )?.n ?? 0,
-        proposalBriefs:
-          reader.get<{ readonly n: number }>(
-            "SELECT COALESCE(sum(length(brief_json)),0) AS n FROM work_task_proposals WHERE canvas_name = ?",
-            [canvasName],
-          )?.n ?? 0,
         generationBodies:
           reader.get<{ readonly n: number }>(
             "SELECT COALESCE(sum(length(body)),0) AS n FROM canvas_generation_documents",

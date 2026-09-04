@@ -333,7 +333,7 @@ describe("dock-state", () => {
       text: "Say hi",
       ether: { entity: { kind: "task" } },
     } satisfies CanvasNode;
-    openTaskCreateSurface(node, { mode: "task" });
+    openTaskCreateSurface(node);
     const id = taskCreateSurfaceId(node.id);
     expect(dock$.registry.peek().surfaces).toEqual([
       { id, kind: "task-create", zone: "focus" },

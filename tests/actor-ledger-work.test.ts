@@ -4,13 +4,13 @@ import {
   artifactRowsForSeat,
   boardRowsForActor,
   claimedTaskRow,
-  proposalRowsForSeat,
+  raisedTaskRowsForSeat,
   requestRowsForSeat,
   seatIdForActorNode,
 } from "../src/renderer/lib/actor-ledger-work";
 import { ActorRef } from "../src/shared/work-protocol";
 import type { CanvasDoc, TextNode } from "../src/shared/canvas";
-import type { Message, Task, TaskProposal } from "../src/shared/work-model";
+import type { Message, Task } from "../src/shared/work-model";
 
 const actor = Schema.decodeUnknownSync(ActorRef)({
   seatId: `seat_${"a".repeat(64)}`,
@@ -122,101 +122,91 @@ describe("claimedTaskRow", () => {
   });
 });
 
-describe("proposalRowsForSeat", () => {
-  const proposal = (
+describe("raisedTaskRowsForSeat", () => {
+  const task = (
     id: string,
-    state: TaskProposal["state"],
+    state: Task["state"],
     by: typeof actor,
     text: string,
-    extra?: Partial<TaskProposal>,
-  ): TaskProposal =>
+    extra?: Partial<Task>,
+  ): Task =>
     ({
       id,
       state,
-      brief: brief(`m-${id}`, text),
-      proposedBy: by,
+      history: [brief(`m-${id}`, text)],
+      raisedBy: { kind: "seat", seatId: by.seatId, nodeId: by.nodeId },
       ...extra,
-    }) as TaskProposal;
+    }) as Task;
 
   const doc = docOf([
     sinkNode("tasks-a", {
       entity: { kind: "task" },
       tasks: {
-        items: [],
-        proposals: [
-          proposal("01A", "rejected", actor, "Oldest rejected", {
-            reason: "risky",
-          }),
-          proposal("01C", "pending", actor, "Newer pending"),
-          proposal("01D", "pending", otherActor, "Someone else's"),
+        items: [
+          task("01A", "canceled", actor, "Oldest canceled", { reason: "risky" }),
+          task("01C", "submitted", actor, "Newer waiting", { admission: "approval" }),
+          task("01D", "submitted", otherActor, "Someone else's"),
         ],
       },
     }),
     sinkNode("tasks-b", {
       entity: { kind: "task" },
       tasks: {
-        items: [],
-        proposals: [
-          proposal("01B", "approved", actor, "Approved one", {
-            approvedTaskId: "task-9",
-          }),
-          proposal("01E", "pending", actor, "Newest pending"),
+        items: [
+          task("01B", "working", actor, "Working one"),
+          task("01E", "submitted", actor, "Newest waiting", { admission: "approval" }),
         ],
       },
     }),
   ]);
 
-  it("filters by proposer seat and sorts pending first, newest first", () => {
-    const rows = proposalRowsForSeat(doc, actor.seatId);
-    expect(rows.map((row) => row.proposalId)).toEqual([
-      "01E",
-      "01C",
-      "01B",
-      "01A",
-    ]);
+  it("filters by raiser seat and sorts awaiting approval first, newest first", () => {
+    const rows = raisedTaskRowsForSeat(doc, actor.seatId);
+    expect(rows.map((row) => row.taskId)).toEqual(["01E", "01C", "01B", "01A"]);
     expect(rows[0]).toEqual({
-      proposalId: "01E",
+      taskId: "01E",
       sinkNodeId: "tasks-b",
-      state: "pending",
-      title: "Newest pending",
+      state: "submitted",
+      title: "Newest waiting",
+      awaitingApproval: true,
       dependsOnCount: 0,
       hasFinishCriteria: false,
     });
-    expect(rows[3]).toMatchObject({ state: "rejected", reason: "risky" });
+    expect(rows[3]).toMatchObject({ state: "canceled", reason: "risky" });
   });
 
-  it("falls back to Untitled proposal when the brief has no text", () => {
+  it("falls back to Untitled task when the brief has no text", () => {
     const bare = docOf([
       sinkNode("tasks", {
         entity: { kind: "task" },
         tasks: {
-          items: [],
-          proposals: [
+          items: [
             {
               id: "01F",
-              state: "pending",
-              brief: { messageId: "m-01F", role: "agent", parts: [] },
-              proposedBy: actor,
-            } as TaskProposal,
+              state: "submitted",
+              history: [{ messageId: "m-01F", role: "agent", parts: [] }],
+              raisedBy: { kind: "seat", seatId: actor.seatId, nodeId: actor.nodeId },
+            } as unknown as Task,
           ],
         },
       }),
     ]);
-    expect(proposalRowsForSeat(bare, actor.seatId)).toEqual([
+    expect(raisedTaskRowsForSeat(bare, actor.seatId)).toEqual([
       {
-        proposalId: "01F",
+        taskId: "01F",
         sinkNodeId: "tasks",
-        state: "pending",
-        title: "Untitled proposal",
+        state: "submitted",
+        title: "Untitled task",
+        awaitingApproval: false,
         dependsOnCount: 0,
         hasFinishCriteria: false,
       },
     ]);
   });
 
-  it("is empty for docs without proposal containers", () => {
-    expect(proposalRowsForSeat(emptyDoc, actor.seatId)).toEqual([]);
-    expect(proposalRowsForSeat(docOf([]), actor.seatId)).toEqual([]);
+  it("is empty for docs without tasks items", () => {
+    expect(raisedTaskRowsForSeat(emptyDoc, actor.seatId)).toEqual([]);
+    expect(raisedTaskRowsForSeat(docOf([]), actor.seatId)).toEqual([]);
   });
 });
 

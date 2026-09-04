@@ -167,28 +167,6 @@ describe("work projection shape", () => {
       }),
     );
 
-    await runtime.runPromise(
-      repository.createProposal({
-        sink: taskSink,
-        basis,
-        proposal: {
-          id: "proposal-1",
-          state: "pending",
-          brief: {
-            messageId: "m-proposal",
-            role: "agent",
-            parts: [{ kind: "text", text: "consider this" }],
-            contextId: "projection-shape",
-          },
-          proposedBy: actor,
-          finishCriteria: { description: "definition of done" },
-          reason: "worth doing",
-        },
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
-
     const requestSink = { canvasName: "factory", nodeId: "requests-1" };
     await runtime.runPromise(
       repository.createRequest({

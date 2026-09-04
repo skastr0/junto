@@ -5,35 +5,18 @@ import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  isArtifactArchived,
-  workArtifactArchive,
-  workArtifactDelete,
   workArtifactPublish,
   workMessageAppend,
   workRequestCreate,
   workRequestResolve,
   workTaskClaim,
-  workTaskApproveProposal,
-  workTaskRejectProposal,
   workTaskCreate,
-  workTaskDescribe,
   workTaskRespond,
-  workTaskPropose,
   workTaskTransition,
-  WorkError,
 } from "../src/shared/work";
-import type { Artifact, CanvasDoc, CanvasNode, Message } from "../src/shared/canvas";
+import { CHECK_OUTPUT_TAIL_MAX_BYTES } from "../src/shared/work-model";
+import type { Artifact, CanvasDoc, Message } from "../src/shared/canvas";
 import {
-  canTransitionTaskState,
-} from "../src/shared/task";
-import {
-  PIPELINE_ADMITTED_METADATA_KEY,
-  taskAdmissionState,
-} from "../src/shared/claims";
-import { TICKET_OUTPUT_TAIL_MAX_BYTES } from "../src/shared/work-model";
-import { materializePendingProposal } from "../src/shared/pending-proposal-backfill";
-import {
-  ActorRef,
   IntentFactBasis,
   type IntentFactBasis as IntentFactBasisValue,
 } from "../src/shared/work-protocol";
@@ -47,25 +30,6 @@ import {
   STATION_API_PROTOCOL,
   StationHostId,
 } from "../src/shared/station-api";
-
-const ids = (() => {
-  let n = 0;
-  return {
-    id: () => `id-${++n}`,
-    messageId: () => `msg-${++n}`,
-  };
-})();
-
-const actorRef = (
-  digit: string,
-  nodeId: string,
-  canvasName = "alpha"
-) =>
-  Schema.decodeUnknownSync(ActorRef)({
-    seatId: `seat_${digit.repeat(64)}`,
-    canvasName,
-    nodeId,
-  });
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const remoteHostId = Schema.decodeUnknownSync(HostId);
@@ -116,1188 +80,6 @@ const agentNode = (
   },
 });
 
-describe("work pure transforms", () => {
-  it("keeps actor proposals outside the executable task queue until approval", () => {
-    const worker = actorRef("1", "worker-1");
-    const initial: CanvasDoc = {
-      nodes: [emptyTaskNode()],
-      edges: [{ id: "edge", fromNode: "worker-1", toNode: "tasks" }],
-    };
-    const proposed = workTaskPropose(
-      initial,
-      "alpha",
-      "tasks",
-      "add keyboard navigation",
-      { title: "Keyboard navigation", details: "Keyboard navigation" },
-      ids,
-      worker,
-      "accessibility gap"
-    );
-
-    expect(proposed.proposal.state).toBe("pending");
-    expect(proposed.proposal.proposedBy).toEqual(worker);
-    expect(proposed.doc.nodes[0]?.ether?.tasks?.items).toEqual([]);
-    expect(proposed.doc.nodes[0]?.ether?.tasks?.proposals).toHaveLength(1);
-    expect(() =>
-      workTaskClaim(
-        proposed.doc,
-        "alpha",
-        "tasks",
-        proposed.proposal.id,
-        worker,
-        ids
-      )
-    ).toThrow(/not found/);
-
-    const approved = workTaskApproveProposal(
-      proposed.doc,
-      "alpha",
-      "tasks",
-      proposed.proposal.id,
-      ids
-    );
-    expect(approved.proposal.state).toBe("approved");
-    expect(approved.proposal.approvedTaskId).toBe(approved.task.id);
-    const claimed = workTaskClaim(
-      approved.doc,
-      "alpha",
-      "tasks",
-      approved.task.id,
-      worker,
-      ids
-    );
-    expect(claimed.task.state).toBe("working");
-  });
-
-  it("keeps legacy proposal approval byte-stable across retries and restarts without minting ids", () => {
-    const worker = actorRef("2", "worker-2");
-    const seed = workTaskCreate(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "prepare the release",
-      { details: "prepare the release" },
-      { id: () => "task-prerequisite", messageId: () => "message-prerequisite" },
-    );
-    const media = [{
-      kind: "raw" as const,
-      bytesBase64: Buffer.from("approval-media").toString("base64"),
-      mediaType: "image/png",
-    }];
-    const claim = {
-      id: "claim-stable",
-      text: "Preserve the proposal bytes",
-      severity: "hard" as const,
-      station: "tasks",
-    };
-    const proposed = workTaskPropose(
-      seed.doc,
-      "alpha",
-      "tasks",
-      "ship the stable proposal",
-      {
-        title: "Stable proposal",
-        details: "ship the stable proposal",
-        ordinary: { nested: true },
-      },
-      { id: () => "proposal-stable", messageId: () => "message-stable" },
-      worker,
-      "operator review",
-      media,
-      [seed.task.id],
-      { description: "All proof attached", git: { minCommits: 1 } },
-      [claim],
-    );
-    const forbiddenIds = {
-      id: (): string => {
-        throw new Error("approval must not mint a Task id");
-      },
-      messageId: (): string => {
-        throw new Error("approval must not mint a message id");
-      },
-    };
-
-    const first = workTaskApproveProposal(
-      proposed.doc,
-      "alpha",
-      "tasks",
-      proposed.proposal.id,
-      forbiddenIds,
-    );
-    const restarted = workTaskApproveProposal(
-      JSON.parse(JSON.stringify(proposed.doc)) as CanvasDoc,
-      "alpha",
-      "tasks",
-      proposed.proposal.id,
-      forbiddenIds,
-    );
-    const materialized = materializePendingProposal({
-      proposal: proposed.proposal,
-    }).task;
-
-    expect(first.task).toEqual({
-      ...materialized,
-      metadata: {
-        ...(materialized.metadata ?? {}),
-        [PIPELINE_ADMITTED_METADATA_KEY]: 0,
-      },
-    });
-    expect(first.task.id).toBe(proposed.proposal.id);
-    expect(first.proposal.approvedTaskId).toBe(proposed.proposal.id);
-    expect(first.task.history[0]).toEqual({
-      ...proposed.proposal.brief,
-      taskId: proposed.proposal.id,
-    });
-    expect(first.task.history[0]?.messageId).toBe("message-stable");
-    expect(first.task.history[0]?.contextId).toBe("alpha");
-    expect(first.task.history[0]?.parts).toEqual(proposed.proposal.brief.parts);
-    expect(first.task.raisedBy).toEqual(worker);
-    expect(first.task.admission).toBe("operator-gated");
-    expect(first.task.metadata?.[PIPELINE_ADMITTED_METADATA_KEY]).toBe(0);
-    expect(taskAdmissionState(first.task, undefined, 0)).toBe("claimable");
-    expect(JSON.stringify(restarted)).toBe(JSON.stringify(first));
-  });
-
-  it("refuses an unrelated Task that collides with a pending proposal id", () => {
-    const worker = actorRef("3", "worker-3");
-    const proposed = workTaskPropose(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "pending stable identity",
-      { details: "pending stable identity" },
-      { id: () => "shared-id", messageId: () => "proposal-message" },
-      worker,
-    );
-    const collided = workTaskCreate(
-      proposed.doc,
-      "alpha",
-      "tasks",
-      "unrelated executable work",
-      { details: "unrelated executable work" },
-      { id: () => proposed.proposal.id, messageId: () => "unrelated-message" },
-    );
-    const before = JSON.stringify(collided.doc);
-    const forbiddenIds = {
-      id: (): string => {
-        throw new Error("collision must not mint a Task id");
-      },
-      messageId: (): string => {
-        throw new Error("collision must not mint a message id");
-      },
-    };
-
-    expect(() =>
-      workTaskApproveProposal(
-        collided.doc,
-        "alpha",
-        "tasks",
-        proposed.proposal.id,
-        forbiddenIds,
-      )
-    ).toThrow(/unrelated same-ID Task/);
-    expect(JSON.stringify(collided.doc)).toBe(before);
-  });
-
-  it("rejects a pending proposal without minting a task", () => {
-    const worker = actorRef("1", "worker-1");
-    const initial: CanvasDoc = {
-      nodes: [emptyTaskNode()],
-      edges: [{ id: "edge", fromNode: "worker-1", toNode: "tasks" }],
-    };
-    const proposed = workTaskPropose(
-      initial,
-      "alpha",
-      "tasks",
-      "noise draft",
-      { title: "Noise", details: "discard me" },
-      ids,
-      worker,
-    );
-    const rejected = workTaskRejectProposal(
-      proposed.doc,
-      "tasks",
-      proposed.proposal.id,
-    );
-    expect(rejected.proposal.state).toBe("rejected");
-    expect(rejected.proposal.approvedTaskId).toBeUndefined();
-    expect(rejected.doc.nodes[0]?.ether?.tasks?.items).toEqual([]);
-    expect(
-      rejected.doc.nodes[0]?.ether?.tasks?.proposals?.find(
-        (proposal) => proposal.id === proposed.proposal.id,
-      )?.state,
-    ).toBe("rejected");
-    expect(() =>
-      workTaskApproveProposal(
-        rejected.doc,
-        "alpha",
-        "tasks",
-        proposed.proposal.id,
-        ids,
-      ),
-    ).toThrow(/not pending/);
-  });
-
-  it("carries media, dependsOn, and finishCriteria through propose → approve", () => {
-    const worker = actorRef("1", "worker-1");
-    const seed = workTaskCreate({ nodes: [emptyTaskNode()], edges: [] }, "alpha", "tasks", "prerequisite", { details: "prerequisite" }, ids );
-    const media = [
-      {
-        kind: "raw" as const,
-        bytesBase64: Buffer.from("png").toString("base64"),
-        mediaType: "image/png",
-      },
-    ];
-    const proposed = workTaskPropose(
-      seed.doc,
-      "alpha",
-      "tasks",
-      "ship with proof",
-      { title: "Ship with proof", details: "Ship with proof" },
-      ids,
-      worker,
-      undefined,
-      media,
-      [seed.task.id],
-      { description: "PR green", git: { minCommits: 1 } }
-    );
-    expect(proposed.proposal.dependsOn).toEqual([seed.task.id]);
-    expect(proposed.proposal.finishCriteria).toEqual({
-      description: "PR green",
-      git: { minCommits: 1 },
-    });
-    expect(proposed.proposal.brief.parts.some((part) => part.kind === "raw")).toBe(
-      true
-    );
-
-    const approved = workTaskApproveProposal(
-      proposed.doc,
-      "alpha",
-      "tasks",
-      proposed.proposal.id,
-      ids
-    );
-    expect(approved.task.dependsOn).toEqual([seed.task.id]);
-    expect(approved.task.finishCriteria).toEqual({
-      description: "PR green",
-      git: { minCommits: 1 },
-    });
-    expect(approved.task.history[0]?.parts.some((part) => part.kind === "raw")).toBe(
-      true
-    );
-  });
-
-  it("carries station-addressed claims at creation, direct and via propose → approve", () => {
-    const worker = actorRef("1", "worker-1");
-    const claim = {
-      id: "claim-1",
-      text: "Ship notes filed",
-      severity: "hard" as const,
-      station: "tasks",
-    };
-
-    const created = workTaskCreate(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "direct create",
-      { details: "direct create" },
-      ids,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      [claim],
-    );
-    expect(created.task.claims).toEqual([claim]);
-
-    const proposed = workTaskPropose(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "propose then approve",
-      { details: "propose then approve" },
-      ids,
-      worker,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      [claim],
-    );
-    expect(proposed.proposal.claims).toEqual([claim]);
-
-    const approved = workTaskApproveProposal(
-      proposed.doc,
-      "alpha",
-      "tasks",
-      proposed.proposal.id,
-      ids,
-    );
-    expect(approved.task.claims).toEqual([claim]);
-  });
-
-  it("rejects noncanonical dependency ids at create and proposal authoring boundaries", () => {
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const worker = actorRef("4", "worker-4");
-    const forbiddenIds = {
-      id: (): string => {
-        throw new Error("invalid dependencies must be rejected before id allocation");
-      },
-      messageId: (): string => {
-        throw new Error("invalid dependencies must be rejected before message allocation");
-      },
-    };
-
-    for (const dependsOn of [["   "], [" task-a "]] as const) {
-      expect(() =>
-        workTaskCreate(
-          doc,
-          "alpha",
-          "tasks",
-          "invalid dependency",
-          { details: "invalid dependency" },
-          forbiddenIds,
-          undefined,
-          undefined,
-          dependsOn,
-        )
-      ).toThrow(/non-empty|not canonical/);
-      expect(() =>
-        workTaskPropose(
-          doc,
-          "alpha",
-          "tasks",
-          "invalid proposal dependency",
-          { details: "invalid proposal dependency" },
-          forbiddenIds,
-          worker,
-          undefined,
-          undefined,
-          dependsOn,
-        )
-      ).toThrow(/non-empty|not canonical/);
-    }
-  });
-
-  it("rejects create and propose without a non-empty description", () => {
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    expect(() =>
-      workTaskCreate(doc, "alpha", "tasks", "title only", undefined, ids)
-    ).toThrow(/description must be non-empty/);
-    expect(() =>
-      workTaskCreate(doc, "alpha", "tasks", "title only", { details: "   " }, ids)
-    ).toThrow(/description must be non-empty/);
-    expect(() =>
-      workTaskPropose(
-        doc,
-        "alpha",
-        "tasks",
-        "title only",
-        { title: "Title only" },
-        ids,
-        actorRef("1", "worker-1")
-      )
-    ).toThrow(/description must be non-empty/);
-    const created = workTaskCreate(
-      doc,
-      "alpha",
-      "tasks",
-      "title only",
-      { details: "  full context  " },
-      ids
-    );
-    expect(created.task.metadata?.details).toBe("full context");
-  });
-
-  it("agent omit stamps operator-gated; explicit auto is claimable; loosen is refused", () => {
-    const worker = actorRef("1", "worker-1");
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const gated = workTaskCreate(
-      doc,
-      "alpha",
-      "tasks",
-      "gated create",
-      { details: "gated create" },
-      ids,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { admissionOmitted: "operator-gated", raisedBy: worker },
-    );
-    expect(gated.task.admission).toBe("operator-gated");
-    expect(gated.task.raisedBy).toEqual(worker);
-    expect(() =>
-      workTaskClaim(gated.doc, "alpha", "tasks", gated.task.id, worker, ids),
-    ).toThrow(/promotion|operator/i);
-
-    const auto = workTaskCreate(
-      doc,
-      "alpha",
-      "tasks",
-      "explicit auto",
-      { details: "explicit auto" },
-      ids,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { admission: "auto", admissionOmitted: "operator-gated" },
-    );
-    expect(auto.task.admission).toBe("auto");
-    const claimed = workTaskClaim(auto.doc, "alpha", "tasks", auto.task.id, worker, ids);
-    expect(claimed.task.state).toBe("working");
-
-    expect(() =>
-      workTaskCreate(
-        {
-          nodes: [{
-            ...emptyTaskNode(),
-            ether: {
-              entity: { kind: "task" },
-              tasks: { items: [], contract: { inbound: { admission: "operator-owned" } } },
-            },
-          }],
-          edges: [],
-        },
-        "alpha",
-        "tasks",
-        "loosen",
-        { details: "loosen" },
-        ids,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { admission: "auto", admissionOmitted: "operator-gated" },
-      ),
-    ).toThrow(/loosen/);
-  });
-
-  it("origin create stamps holdUntil from holdForMs", () => {
-    const created = workTaskCreate(
-      { nodes: [emptyTaskNode()], edges: [] },
-      "alpha",
-      "tasks",
-      "bake me",
-      { details: "bake me" },
-      ids,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { holdForMs: 60_000, nowMs: Date.parse("2026-08-25T12:00:00.000Z") },
-    );
-    expect(created.task.holdUntil).toBe("2026-08-25T12:01:00.000Z");
-  });
-
-  it("create → claim → transition, with contextId from canvas name", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", { details: "ship docs" }, ids);
-    doc = created.doc;
-    expect(created.task.state).toBe("submitted");
-    expect(created.task.history[0]?.parts[0]).toEqual({ kind: "text", text: "ship docs" });
-    expect(created.task.history[0]?.contextId).toBe("alpha");
-    expect((doc.nodes[0] as { text: string }).text).toBe("ship docs");
-
-    const worker = actorRef("1", "worker-1");
-    const claimed = workTaskClaim(doc, "alpha", "tasks", created.task.id, worker, ids);
-    doc = claimed.doc;
-    expect(claimed.task.state).toBe("working");
-    expect(claimed.task.claimedBy).toBe(worker.seatId);
-    expect(claimed.claimedBy).toEqual(worker);
-
-    const historyLength = claimed.task.history.length;
-    const alias = actorRef("1", "worker-alias", "beta");
-    const replayed = workTaskClaim(
-      doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      alias,
-      ids
-    );
-    doc = replayed.doc;
-    expect(replayed.task.history).toHaveLength(historyLength);
-    expect(replayed.task.claimedBy).toBe(worker.seatId);
-    expect(replayed.claimedBy).toEqual(alias);
-
-    expect(() =>
-      workTaskClaim(
-        doc,
-        "alpha",
-        "tasks",
-        created.task.id,
-        actorRef("2", "other-agent"),
-        ids
-      )
-    ).toThrow(WorkError);
-    try {
-      workTaskClaim(
-        doc,
-        "alpha",
-        "tasks",
-        created.task.id,
-        actorRef("2", "other-agent"),
-        ids
-      );
-    } catch (e) {
-      expect(e).toBeInstanceOf(WorkError);
-      expect((e as WorkError).code).toBe("claim_contention");
-    }
-
-    const done = workTaskTransition(
-      doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "completed",
-      "shipped",
-      ids
-    );
-    expect(done.task.state).toBe("completed");
-    expect(done.task.history.at(-1)?.role).toBe("agent");
-    expect(done.task.history.at(-1)?.parts[0]).toEqual({ kind: "text", text: "shipped" });
-  });
-
-  it("generic transition cannot turn unclaimed submitted work into attention", () => {
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "needs answer", { details: "needs answer" }, ids);
-    for (const state of ["input-required", "auth-required"] as const) {
-      expect(() =>
-        workTaskTransition(
-          created.doc,
-          "c",
-          "tasks",
-          created.task.id,
-          state,
-          undefined,
-          ids
-        )
-      ).toThrowError(
-        expect.objectContaining<Partial<WorkError>>({
-          code: "illegal_transition",
-        })
-      );
-    }
-  });
-
-  it("releases active work back to Queue and clears its claimant atomically", () => {
-    const created = workTaskCreate({ nodes: [emptyTaskNode()], edges: [] }, "alpha", "tasks", "release me", { details: "release me" }, ids );
-    const claimed = workTaskClaim(
-      created.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      actorRef("1", "worker-1"),
-      ids
-    );
-
-    const released = workTaskTransition(
-      claimed.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "submitted",
-      undefined,
-      ids
-    );
-
-    expect(released.task.state).toBe("submitted");
-    expect(released.task.claimedBy).toBeUndefined();
-    expect(released.task.history).toHaveLength(
-      claimed.task.history.length + 1
-    );
-    expect(released.task.history.at(-1)).toMatchObject({
-      role: "user",
-      parts: [{ kind: "text", text: "Released to Queue by operator." }],
-      metadata: {
-        "vellum.taskRelease.actorSeatId": claimed.task.claimedBy,
-      },
-    });
-  });
-
-  it("rejects completed work with a QA comment, requeues it, and counts the rejection", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "prove the release", { details: "prove the release" }, ids );
-    const claimed = workTaskClaim(
-      created.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      actorRef("1", "worker-1"),
-      ids
-    );
-    const completed = workTaskTransition(
-      claimed.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "completed",
-      "shipped",
-      ids
-    );
-
-    expect(() =>
-      workTaskTransition(
-        completed.doc,
-        "alpha",
-        "tasks",
-        created.task.id,
-        "submitted",
-        undefined,
-        ids
-      )
-    ).toThrow(/QA rejection comment is required/);
-
-    const rejected = workTaskTransition(
-      completed.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "submitted",
-      "The proof does not include the release receipt.",
-      ids
-    );
-    expect(rejected.task.state).toBe("submitted");
-    expect(rejected.task.claimedBy).toBeUndefined();
-    expect(rejected.task.metadata?.rejectedTimes).toBe(1);
-    expect(rejected.task.completionEvidence).toBeUndefined();
-    expect(rejected.task.history.at(-1)).toMatchObject({
-      role: "user",
-      parts: [{ kind: "text", text: "The proof does not include the release receipt." }],
-      metadata: {
-        "vellum.taskRelease.actorSeatId": claimed.task.claimedBy,
-      },
-    });
-
-    const reclaimed = workTaskClaim(
-      rejected.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      actorRef("2", "worker-2"),
-      ids
-    );
-    const completedAgain = workTaskTransition(
-      reclaimed.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "completed",
-      "updated proof",
-      ids
-    );
-    const rejectedAgain = workTaskTransition(
-      completedAgain.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "submitted",
-      "The updated proof still omits the receipt.",
-      ids
-    );
-    expect(rejectedAgain.task.metadata?.rejectedTimes).toBe(2);
-  });
-
-  it("respond atomically records one operator message and resolves attention", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "need direction", { details: "need direction" }, ids);
-    const claimed = workTaskClaim(
-      created.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      actorRef("1", "worker-1"),
-      ids
-    );
-    const waiting = workTaskTransition(
-      claimed.doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "input-required",
-      "need the deployment region",
-      ids
-    );
-    doc = waiting.doc;
-
-    const responded = workTaskRespond(
-      doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      "  Deploy to us-east-1.  ",
-      "working",
-      ids
-    );
-
-    expect(responded.task.state).toBe("working");
-    expect(responded.task.history.at(-1)).toMatchObject({
-      role: "user",
-      taskId: created.task.id,
-      parts: [{ kind: "text", text: "Deploy to us-east-1." }],
-    });
-    expect(() =>
-      workTaskRespond(
-        responded.doc,
-        "alpha",
-        "tasks",
-        created.task.id,
-        "another response",
-        "working",
-        ids
-      )
-    ).toThrowError(expect.objectContaining({ code: "illegal_transition" }));
-    expect(
-      (responded.doc.nodes[0]?.ether?.tasks?.items.find(
-        (task) => task.id === created.task.id
-      )?.history.length)
-    ).toBe(responded.task.history.length);
-  });
-
-  it("describe re-authors the brief in place, keeps later notes, updates mirror text", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "alpha", "tasks", "ship docs", { details: "ship docs" }, ids);
-    doc = created.doc;
-    const noted = workTaskClaim(
-      doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      actorRef("1", "worker-1"),
-      ids
-    );
-    doc = noted.doc;
-
-    const described = workTaskDescribe(doc, "alpha", "tasks", created.task.id, "ship the docs site", ids);
-    doc = described.doc;
-    expect(described.task.history[0]?.parts[0]).toEqual({ kind: "text", text: "ship the docs site" });
-    expect(described.task.history[0]?.role).toBe("user");
-    expect(described.task.history.at(-1)?.parts[0]).toEqual({
-      kind: "text",
-      text: `assigned to ${actorRef("1", "worker-1").seatId}`,
-    });
-    expect(described.task.state).toBe("working");
-    expect((doc.nodes[0] as { text: string }).text).toBe("ship the docs site");
-  });
-
-  it("describe rejects empty briefs, terminal states, and unknown ids", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "x", { details: "x" }, ids);
-    doc = created.doc;
-
-    expect(() => workTaskDescribe(doc, "c", "tasks", created.task.id, "   ", ids)).toThrow(WorkError);
-    expect(() => workTaskDescribe(doc, "c", "tasks", "nope", "y", ids)).toThrow(WorkError);
-
-    const done = workTaskTransition(doc, "c", "tasks", created.task.id, "completed", undefined, ids);
-    doc = done.doc;
-    try {
-      workTaskDescribe(doc, "c", "tasks", created.task.id, "rewrite history", ids);
-      expect.unreachable("terminal task must not be re-described");
-    } catch (e) {
-      expect(e).toBeInstanceOf(WorkError);
-      expect((e as WorkError).code).toBe("illegal_transition");
-    }
-  });
-
-  it("rejects illegal transitions and unknown ids", () => {
-    let doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "x", { details: "x" }, ids);
-    doc = created.doc;
-    expect(() =>
-      workTaskTransition(
-        doc,
-        "c",
-        "tasks",
-        created.task.id,
-        "working",
-        undefined,
-        ids
-      )
-    ).toThrow(/cannot transition/);
-    const completed = workTaskTransition(
-      doc,
-      "c",
-      "tasks",
-      created.task.id,
-      "completed",
-      undefined,
-      ids
-    );
-    doc = completed.doc;
-    expect(() =>
-      workTaskTransition(doc, "c", "tasks", created.task.id, "working", undefined, ids)
-    ).toThrow(/cannot transition/);
-    expect(() => workTaskCreate(doc, "c", "missing", "x", { details: "x" }, ids)).toThrow(
-      /not found/
-    );
-  });
-
-  it("finish criteria gate blocks complete without evidence; skip when off-home", () => {
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "gated", { details: "gated" }, ids, undefined, undefined, undefined, { git: { minCommits: 1 } } );
-    expect(created.task.finishCriteria?.git?.minCommits).toBe(1);
-    expect(() =>
-      workTaskTransition(
-        created.doc,
-        "c",
-        "tasks",
-        created.task.id,
-        "completed",
-        undefined,
-        ids
-      )
-    ).toThrow(/finish criteria unsatisfied/);
-    const skipped = workTaskTransition(
-      created.doc,
-      "c",
-      "tasks",
-      created.task.id,
-      "completed",
-      undefined,
-      ids,
-      undefined,
-      { evaluateFinishCriteria: false }
-    );
-    expect(skipped.task.state).toBe("completed");
-    const withEvidence = workTaskTransition(
-      created.doc,
-      "c",
-      "tasks",
-      created.task.id,
-      "completed",
-      undefined,
-      ids,
-      { artifacts: [], git: { commits: ["3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345"] } }
-    );
-    expect(withEvidence.task.completionEvidence?.git?.commits).toEqual(["3f8a2c9d1b4e5f60718293a4b5c6d7e8f9012345"]);
-  });
-
-  it("rejects the retired metadata claimant instead of tolerating a dual shape", () => {
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    expect(() =>
-      workTaskCreate(
-        doc,
-        "c",
-        "tasks",
-        "x",
-        { claimedBy: actorRef("1", "worker-1", "c").seatId },
-        ids
-      )
-    ).toThrow(/metadata\.claimedBy is retired/);
-  });
-
-  it("request raised by an actor is claimed by that actor at birth, with its reason", () => {
-    const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
-    const raised = workRequestCreate(
-      doc,
-      "c",
-      "req",
-      "need a key",
-      undefined,
-      ids,
-      actorRef("7", "actor-7", "c"),
-      "signing is gated on the operator's key"
-    );
-    expect(raised.task.state).toBe("input-required");
-    expect(raised.task.claimedBy).toBe(actorRef("7", "actor-7", "c").seatId);
-    expect(raised.task.reason).toBe("signing is gated on the operator's key");
-  });
-
-  it("rejects title-only request create (no reason and no metadata.details)", () => {
-    const doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
-    expect(() =>
-      workRequestCreate(
-        doc,
-        "c",
-        "req",
-        "title only is not enough",
-        { class: "review" },
-        ids,
-        actorRef("7", "actor-7", "c"),
-      ),
-    ).toThrow(/request body required/);
-    expect(() =>
-      workRequestCreate(
-        doc,
-        "c",
-        "req",
-        "title only is not enough",
-        undefined,
-        ids,
-        actorRef("7", "actor-7", "c"),
-      ),
-    ).toThrow(/request body required/);
-    expect(() =>
-      workRequestCreate(
-        doc,
-        "c",
-        "req",
-        "title only is not enough",
-        { details: "   " },
-        ids,
-        actorRef("7", "actor-7", "c"),
-        "   ",
-      ),
-    ).toThrow(/request body required/);
-  });
-
-  it("task create records its reason first-class", () => {
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(doc, "c", "tasks", "port the map", { details: "port the map" }, ids, "fleet epic");
-    expect(created.task.reason).toBe("fleet epic");
-    const bare = workTaskCreate(doc, "c", "tasks", "port the map", { details: "port the map" }, ids);
-    expect(bare.task.reason).toBeUndefined();
-  });
-
-  it("task create attaches first-class media raw parts on the brief", () => {
-    const pngBase64 =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-    const doc: CanvasDoc = { nodes: [emptyTaskNode()], edges: [] };
-    const created = workTaskCreate(
-      doc,
-      "c",
-      "tasks",
-      "fix the screenshot bug",
-      { title: "screenshot bug", details: "see attached" },
-      ids,
-      undefined,
-      [{ kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" }]
-    );
-    expect(created.task.history[0]?.parts).toEqual([
-      { kind: "text", text: "fix the screenshot bug" },
-      { kind: "raw", bytesBase64: pngBase64, mediaType: "image/png" },
-    ]);
-    expect(() =>
-      workTaskCreate(doc, "c", "tasks", "bad media", { details: "bad media" }, ids, undefined, [
-        { kind: "raw", bytesBase64: pngBase64, mediaType: "application/pdf" },
-      ])
-    ).toThrow(/mediaType not allowed/);
-    expect(() =>
-      workTaskCreate(doc, "c", "tasks", "empty media", { details: "empty media" }, ids, undefined, [
-        { kind: "raw", bytesBase64: "", mediaType: "image/png" },
-      ])
-    ).toThrow(/empty/);
-  });
-
-  it("request create + resolve appends user message and clears input-required", () => {
-    let doc: CanvasDoc = { nodes: [emptyRequestsNode()], edges: [] };
-    const created = workRequestCreate(
-      doc,
-      "c",
-      "req",
-      "need approval",
-      { class: "review", details: "ship checklist before release" },
-      ids,
-      actorRef("4", "actor-4", "c")
-    );
-    doc = created.doc;
-    expect(created.task.state).toBe("input-required");
-    expect(created.task.metadata?.class).toBe("review");
-    expect(created.task.claimedBy).toBe(actorRef("4", "actor-4", "c").seatId);
-    expect((doc.nodes[0] as { text: string }).text.startsWith("1 pending")).toBe(true);
-
-    const resolved = workRequestResolve(
-      doc,
-      "c",
-      "req",
-      created.task.id,
-      "approved",
-      "completed",
-      ids
-    );
-    expect(resolved.task.state).toBe("completed");
-    expect(resolved.task.history.at(-1)?.role).toBe("user");
-    // The answer is first-class on the item, not only buried in history.
-    expect(resolved.task.response).toBe("approved");
-    expect((resolved.doc.nodes[0] as { text: string }).text.startsWith("0 pending")).toBe(true);
-  });
-
-  it("message append to agent list and task history", () => {
-    let doc: CanvasDoc = {
-      nodes: [emptyTaskNode(), agentNode()],
-      edges: [],
-    };
-    const created = workTaskCreate(doc, "c", "tasks", "brief", { details: "brief" }, ids);
-    doc = created.doc;
-    const msg: Message = {
-      messageId: "manual-1",
-      role: "agent",
-      parts: [{ kind: "text", text: "status note" }],
-    };
-    const onTask = workMessageAppend(doc, "c", "tasks", created.task.id, msg);
-    doc = onTask.doc;
-    const task = doc.nodes
-      .find((n) => n.id === "tasks")
-      ?.ether?.tasks?.items.find((t) => t.id === created.task.id);
-    expect(task?.history.some((h) => h.messageId === "manual-1")).toBe(true);
-
-    const onAgent = workMessageAppend(doc, "c", "agent", null, {
-      messageId: "manual-2",
-      role: "user",
-      parts: [{ kind: "text", text: "ping" }],
-    });
-    const messages = onAgent.doc.nodes.find((n) => n.id === "agent")?.ether?.messages?.items;
-    expect(messages?.some((m) => m.messageId === "manual-2")).toBe(true);
-    expect(messages?.[0]?.contextId).toBe("c");
-  });
-
-  it("uses region label as contextId when node is inside a group", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "reg",
-          type: "group",
-          label: "forge-lane",
-          x: 0,
-          y: 0,
-          width: 400,
-          height: 300,
-        },
-        {
-          id: "tasks",
-          type: "text",
-          text: "tasks",
-          x: 40,
-          y: 40,
-          width: 120,
-          height: 80,
-          ether: { entity: { kind: "task" } },
-        },
-      ],
-      edges: [],
-    };
-    const created = workTaskCreate(doc, "canvas-name", "tasks", "inside", { details: "inside" }, ids);
-    expect(created.task.history[0]?.contextId).toBe("forge-lane");
-  });
-
-  it("links artifacts only to an exact claimed task in the same canvas", () => {
-    const artifactNode: CanvasDoc["nodes"][number] = {
-      id: "artifacts",
-      type: "text",
-      text: "artifacts",
-      x: 240,
-      y: 0,
-      width: 200,
-      height: 100,
-      ether: { entity: { kind: "artifacts" } },
-    };
-    let doc: CanvasDoc = {
-      nodes: [emptyTaskNode(), artifactNode],
-      edges: [],
-    };
-    const created = workTaskCreate(doc, "alpha", "tasks", "ship", { details: "ship" }, ids );
-    doc = created.doc;
-
-    const artifact = {
-      artifactId: "artifact-task-proof",
-      parts: [{ kind: "text" as const, text: "proof" }],
-      task: {
-        kind: "task" as const,
-        itemId: created.task.id,
-        sink: { canvasName: "alpha", nodeId: "tasks" },
-      },
-    };
-
-    expect(() =>
-      workArtifactPublish(doc, "alpha", "artifacts", artifact)
-    ).toThrow(/must be claimed/);
-
-    const claimed = workTaskClaim(
-      doc,
-      "alpha",
-      "tasks",
-      created.task.id,
-      actorRef("1", "worker-1"),
-      ids
-    );
-    doc = claimed.doc;
-    expect(
-      workArtifactPublish(doc, "alpha", "artifacts", artifact).artifact.task
-    ).toEqual(artifact.task);
-
-    expect(() =>
-      workArtifactPublish(doc, "alpha", "artifacts", {
-        ...artifact,
-        artifactId: "artifact-missing-task",
-        task: { ...artifact.task, itemId: "missing" },
-      })
-    ).toThrow(/not found/);
-
-    expect(() =>
-      workArtifactPublish(doc, "alpha", "artifacts", {
-        ...artifact,
-        artifactId: "artifact-cross-canvas",
-        task: {
-          ...artifact.task,
-          sink: { ...artifact.task.sink, canvasName: "other" },
-        },
-      })
-    ).toThrow(/artifact canvas/);
-  });
-
-  it("artifact archive soft-hides and delete removes from the sink", () => {
-    const artifactNode: CanvasNode = {
-      id: "artifacts",
-      type: "text",
-      text: "artifacts",
-      x: 0,
-      y: 0,
-      width: 200,
-      height: 100,
-      ether: { entity: { kind: "artifacts" } },
-    };
-    let doc: CanvasDoc = { nodes: [artifactNode], edges: [] };
-    const published = workArtifactPublish(doc, "alpha", "artifacts", {
-      artifactId: "a1",
-      name: "proof.md",
-      parts: [{ kind: "text", text: "body" }],
-    });
-    doc = published.doc;
-    expect(isArtifactArchived(published.artifact)).toBe(false);
-
-    const archived = workArtifactArchive(doc, "artifacts", "a1", true);
-    doc = archived.doc;
-    expect(isArtifactArchived(archived.artifact)).toBe(true);
-    expect(
-      doc.nodes[0]?.ether?.artifacts?.items.find((a) => a.artifactId === "a1")
-        ?.metadata?.archived,
-    ).toBe(true);
-
-    const restored = workArtifactArchive(doc, "artifacts", "a1", false);
-    doc = restored.doc;
-    expect(isArtifactArchived(restored.artifact)).toBe(false);
-    expect(restored.artifact.metadata?.archived).toBeUndefined();
-
-    const deleted = workArtifactDelete(doc, "artifacts", "a1");
-    expect(deleted.artifactId).toBe("a1");
-    expect(deleted.doc.nodes[0]?.ether?.artifacts?.items).toEqual([]);
-    expect(() => workArtifactDelete(deleted.doc, "artifacts", "a1")).toThrow(
-      /not found/,
-    );
-  });
-
-  it("state machine: completed work only exits through the QA Queue path", () => {
-    expect(canTransitionTaskState("completed", "working")).toBe(false);
-    expect(canTransitionTaskState("completed", "submitted")).toBe(true);
-    expect(canTransitionTaskState("submitted", "working")).toBe(false);
-    expect(canTransitionTaskState("input-required", "rejected")).toBe(true);
-    expect(canTransitionTaskState("input-required", "failed")).toBe(true);
-    // No producer may enter auth-required; residual rows may still heal out.
-    expect(canTransitionTaskState("working", "auth-required")).toBe(false);
-    expect(canTransitionTaskState("input-required", "auth-required")).toBe(false);
-    expect(canTransitionTaskState("auth-required", "completed")).toBe(true);
-    expect(canTransitionTaskState("auth-required", "input-required")).toBe(true);
-  });
-});
-
-// --- service serialization under concurrent claims -------------------------
 
 const mockCanvasesHome = join(tmpdir(), `vellum-command-work-${randomUUID()}`);
 
@@ -2044,7 +826,7 @@ describe("WorkService — concurrent ops", () => {
     ]);
 
     for (const result of results) {
-      expect(result).toMatchObject({ ok: false, code: "invalid" });
+      expect(result).toMatchObject({ ok: false, code: "wrong_home" });
       if (!result.ok) {
         expect(result.message).toContain(
           "must originate on the installation that owns actor"
@@ -2355,23 +1137,16 @@ describe("WorkService — concurrent ops", () => {
   });
 });
 
-describe("WorkService — pipeline", () => {
-  // Sink contracts (`ether.tasks.contract`) survive the authorial write path
-  // (stripRuntimeWorkProjection preserves contract and stationName) — proven
-  // by the boarding test below, which authors a checklist through
-  // canvases.write and reads its tickets back. These older service tests
-  // predate that and author law through REGION contracts; sink-contract
-  // enforcement is additionally covered at the pure layer
-  // (tests/work-pipeline.test.ts, tests/claims-stack.test.ts).
-  it("forwards a completed task along the flow edge and re-homes it submitted", async () => {
-    const name = "pipeline-forward";
+describe("WorkService — task path", () => {
+  it("sends a completed task on and re-homes it submitted", async () => {
+    const name = "path-send-on";
     await workRuntime.runPromise(
       canvases.write(name, {
         nodes: [
           {
-            id: "law-region",
+            id: "rule-region",
             type: "group",
-            label: "Law",
+            label: "Quality",
             x: -50,
             y: -50,
             width: 300,
@@ -2379,9 +1154,7 @@ describe("WorkService — pipeline", () => {
             ether: {
               region: {
                 contract: {
-                  claims: [
-                    { id: "c-hard", text: "prove the change", severity: "hard" },
-                  ],
+                  rules: [{ id: "completion-rule", text: "prove the change" }],
                 },
               },
             },
@@ -2418,13 +1191,13 @@ describe("WorkService — pipeline", () => {
       })
     );
     const created = await workRuntime.runPromise(
-      work.workTaskCreate(name, "s1", "walk the line", { details: "walk the line" })
+      work.workTaskCreate(name, "s1", "follow the path", { details: "follow the path" })
     );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const taskId = created.data.id;
 
-    // Claims gate: an unanswered hard claim blocks the completion.
+    // Rules gate: an unanswered rule blocks the completion.
     const blocked = await workRuntime.runPromise(
       work.workTaskTransition(name, "s1", taskId, "completed", undefined, {
         artifacts: [],
@@ -2432,10 +1205,10 @@ describe("WorkService — pipeline", () => {
     );
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) {
-      expect(blocked.message).toContain("claims unsatisfied");
+      expect(blocked.message).toContain("has no claim");
     }
 
-    const forwarded = await workRuntime.runPromise(
+    const sentOn = await workRuntime.runPromise(
       work.workTaskTransition(
         name,
         "s1",
@@ -2444,14 +1217,15 @@ describe("WorkService — pipeline", () => {
         "checked and packaged",
         {
           artifacts: [],
-          responses: [{ claimId: "c-hard", response: "verified by rerun" }],
+          claims: [{ ruleId: "completion-rule", text: "verified by rerun" }],
         }
       )
     );
-    expect(forwarded.ok).toBe(true);
-    if (!forwarded.ok) return;
-    expect(forwarded.data.state).toBe("completed");
-    expect(forwarded.data.journey?.at(-1)?.exit).toBe("forwarded");
+    expect(sentOn.ok).toBe(true);
+    if (!sentOn.ok) return;
+    expect(sentOn.data.state).toBe("completed");
+    expect(sentOn.data.visits?.at(-1)?.exit).toBe("sent-on");
+    expect(sentOn.data.visits?.at(-1)?.next).toBe("s2");
 
     const read = await workRuntime.runPromise(canvases.read(name));
     const s1Item = read.doc.nodes
@@ -2461,12 +1235,12 @@ describe("WorkService — pipeline", () => {
       .find((n) => n.id === "s2")
       ?.ether?.tasks?.items.find((t) => t.id === taskId);
     expect(s1Item?.state).toBe("completed");
-    expect(s1Item?.completionEvidence?.responses?.[0]?.claimId).toBe("c-hard");
+    expect(s1Item?.completionEvidence?.claims?.[0]?.ruleId).toBe("completion-rule");
     expect(s2Item?.state).toBe("submitted");
     expect(s2Item?.claimedBy).toBeUndefined();
-    expect(s2Item?.journey?.at(-1)?.nodeId).toBe("s2");
+    expect(s2Item?.visits?.at(-1)?.board).toBe("s2");
 
-    // Defect-back: rejecting at s2 with a defect re-opens the s1 row, epoch 1.
+    // Send back: rejecting at s2 with a defect re-opens the s1 row, epoch 1.
     const defected = await workRuntime.runPromise(
       work.workTaskTransition(
         name,
@@ -2493,11 +1267,11 @@ describe("WorkService — pipeline", () => {
     expect(returned?.epoch).toBe(1);
     expect(returned?.completionEvidence).toBeUndefined();
     expect(rejectedRow?.state).toBe("rejected");
-    expect(rejectedRow?.journey?.at(-1)?.exit).toBe("rejected-back");
+    expect(rejectedRow?.visits?.at(-1)?.exit).toBe("sent-back");
   });
 
-  it("holds a forwarded task from seat claims until its holdUntil passes", async () => {
-    const name = "pipeline-hold";
+  it("holds a sent-on task from seat claims until its waitUntil passes", async () => {
+    const name = "path-hold";
     await workRuntime.runPromise(
       canvases.write(name, {
         nodes: [
@@ -2539,11 +1313,11 @@ describe("WorkService — pipeline", () => {
     if (actor === undefined) throw new Error("missing actor ref");
 
     const created = await workRuntime.runPromise(
-      work.workTaskCreate(name, "h1", "bake me", { details: "bake me" })
+      work.workTaskCreate(name, "h1", "wait for me", { details: "wait for me" })
     );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    const forwarded = await workRuntime.runPromise(
+    const sentOn = await workRuntime.runPromise(
       work.workTaskTransition(
         name,
         "h1",
@@ -2551,38 +1325,40 @@ describe("WorkService — pipeline", () => {
         "completed",
         undefined,
         { artifacts: [] },
-        { holdForMs: 60 * 60_000 }
+        { waitForMs: 60 * 60_000 }
       )
     );
-    expect(forwarded.ok).toBe(true);
+    expect(sentOn.ok).toBe(true);
 
     const refused = await workRuntime.runPromise(
       work.workTaskClaim(name, "h2", created.data.id, actor)
     );
     expect(refused.ok).toBe(false);
     if (!refused.ok) {
-      expect(refused.message).toContain("not assignable before");
+      expect(refused.message).toContain("not claimable before");
     }
 
-    // Promotion applies only to operator-gated sinks.
+    // Approval applies only to approval-admission tasks.
     const misPromoted = await workRuntime.runPromise(
       work.workTaskPromote(name, "h2", created.data.id)
     );
     expect(misPromoted.ok).toBe(false);
     if (!misPromoted.ok) {
-      expect(misPromoted.message).toContain("operator-gated");
+      expect(misPromoted.message).toContain(
+        "approval applies to approval-admission tasks",
+      );
     }
   });
 
-  it("records operator context before promoting or rejecting an arrival", async () => {
-    const name = "arrival-decision-context";
+  it("records operator context before approving or rejecting a task", async () => {
+    const name = "approval-decision-context";
     await workRuntime.runPromise(
       canvases.write(name, {
         nodes: [
           {
             id: "gate",
             type: "text",
-            text: "Review",
+            text: "tasks",
             x: 0,
             y: 0,
             width: 200,
@@ -2591,7 +1367,7 @@ describe("WorkService — pipeline", () => {
               entity: { kind: "task" },
               tasks: {
                 items: [],
-                contract: { inbound: { admission: "operator-gated" } },
+                contract: { incoming: { admission: "approval" } },
               },
             },
           },
@@ -2605,7 +1381,7 @@ describe("WorkService — pipeline", () => {
     if (actor === undefined) throw new Error("missing claimant actor ref");
 
     const promotedSource = await workRuntime.runPromise(
-      work.workTaskCreate(name, "gate", "promote me", { details: "promote me" }),
+      work.workTaskCreate(name, "gate", "approve me", { details: "approve me" }),
     );
     if (!promotedSource.ok) throw new Error(promotedSource.message);
     const promoted = await workRuntime.runPromise(
@@ -2634,20 +1410,22 @@ describe("WorkService — pipeline", () => {
         ),
       ),
     ).toEqual([
-      "promote me",
+      "approve me",
       "Check the retry boundary first.",
     ]);
 
+    // Rejecting an unapproved task is the generic task reject transition.
     const rejectedSource = await workRuntime.runPromise(
       work.workTaskCreate(name, "gate", "reject me", { details: "reject me" }),
     );
     expect(rejectedSource.ok).toBe(true);
     if (!rejectedSource.ok) return;
     const rejected = await workRuntime.runPromise(
-      work.workTaskRejectArrival(
+      work.workTaskTransition(
         name,
         "gate",
         rejectedSource.data.id,
+        "rejected",
         "The acceptance case is missing.",
       ),
     );
@@ -2658,14 +1436,14 @@ describe("WorkService — pipeline", () => {
       history: [
         expect.any(Object),
         {
-          role: "user",
+          role: "agent",
           parts: [{ kind: "text", text: "The acceptance case is missing." }],
         },
       ],
     });
 
     const fastSource = await workRuntime.runPromise(
-      work.workTaskCreate(name, "gate", "fast promote", { details: "fast promote" }),
+      work.workTaskCreate(name, "gate", "fast approve", { details: "fast approve" }),
     );
     expect(fastSource.ok).toBe(true);
     if (!fastSource.ok) return;
@@ -2676,8 +1454,8 @@ describe("WorkService — pipeline", () => {
     if (fast.ok) expect(fast.data.history).toHaveLength(1);
   });
 
-  it("stamps boarding tickets from the sink contract, truncating oversized output", async () => {
-    const name = "pipeline-boarding";
+  it("records check results from the board contract, truncating oversized output", async () => {
+    const name = "path-checks";
     await workRuntime.runPromise(
       canvases.write(name, {
         nodes: [
@@ -2694,8 +1472,8 @@ describe("WorkService — pipeline", () => {
               tasks: {
                 items: [],
                 contract: {
-                  outbound: {
-                    checklist: [
+                  outgoing: {
+                    checks: [
                       {
                         id: "out-1",
                         label: "build the bundle",
@@ -2720,11 +1498,11 @@ describe("WorkService — pipeline", () => {
               tasks: {
                 items: [],
                 contract: {
-                  inbound: {
-                    checklist: [
+                  incoming: {
+                    checks: [
                       {
                         id: "in-1",
-                        label: "lint the arrival",
+                        label: "lint the change",
                         command: "bun run lint",
                       },
                     ],
@@ -2745,69 +1523,67 @@ describe("WorkService — pipeline", () => {
       })
     );
     const created = await workRuntime.runPromise(
-      work.workTaskCreate(name, "b1", "board me", { details: "board me" })
+      work.workTaskCreate(name, "b1", "check me", { details: "check me" })
     );
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const taskId = created.data.id;
 
-    // The seat submits an exit code and its output; label and command are the
-    // contract's words, and the tail is capped no matter how loud the run was.
+    // The seat submits an exit code and its output; command is the contract's
+    // word, and the tail is capped no matter how loud the run was.
     const oversized = `${"n".repeat(9_000)}the last green line`;
-    const boarded = await workRuntime.runPromise(
-      work.workTaskBoard(name, "b1", taskId, [
+    const checked = await workRuntime.runPromise(
+      work.workTaskCheck(name, "b1", taskId, [
         {
           checkId: "out-1",
-          side: "outbound",
+          side: "outgoing",
           exitCode: 0,
           outputTail: oversized,
         },
-        { checkId: "in-1", side: "inbound", exitCode: 0, outputTail: "lint ok" },
+        { checkId: "in-1", side: "incoming", exitCode: 0, outputTail: "lint ok" },
       ])
     );
-    expect(boarded.ok).toBe(true);
-    if (!boarded.ok) return;
+    expect(checked.ok).toBe(true);
+    if (!checked.ok) return;
 
     const read = await workRuntime.runPromise(canvases.read(name));
     const stored = read.doc.nodes
       .find((n) => n.id === "b1")
       ?.ether?.tasks?.items.find((t) => t.id === taskId);
-    const outbound = stored?.boarding?.find(
-      (ticket) => ticket.checkId === "out-1"
+    const outgoing = stored?.checkResults?.find(
+      (result) => result.checkId === "out-1"
     );
-    expect(outbound).toMatchObject({
-      side: "outbound",
-      label: "build the bundle",
+    expect(outgoing).toMatchObject({
+      side: "outgoing",
       command: "bun run build",
       exitCode: 0,
       epoch: 0,
     });
-    expect(outbound?.outputTail).toHaveLength(TICKET_OUTPUT_TAIL_MAX_BYTES);
-    expect(outbound?.outputTail.endsWith("the last green line")).toBe(true);
+    expect(outgoing?.outputTail).toHaveLength(CHECK_OUTPUT_TAIL_MAX_BYTES);
+    expect(outgoing?.outputTail.endsWith("the last green line")).toBe(true);
     expect(
-      stored?.boarding?.find((ticket) => ticket.checkId === "in-1")
+      stored?.checkResults?.find((result) => result.checkId === "in-1")
     ).toMatchObject({
-      side: "inbound",
-      label: "lint the arrival",
+      side: "incoming",
       command: "bun run lint",
       exitCode: 0,
       epoch: 0,
     });
 
-    // Green current-epoch tickets against the authored commands open the gate.
-    const forwarded = await workRuntime.runPromise(
+    // Green current-epoch results against the authored commands open the gate.
+    const sentOn = await workRuntime.runPromise(
       work.workTaskTransition(name, "b1", taskId, "completed", undefined, {
         artifacts: [],
       })
     );
-    expect(forwarded.ok).toBe(true);
-    if (forwarded.ok) {
-      expect(forwarded.data.journey?.at(-1)?.next).toBe("b2");
+    expect(sentOn.ok).toBe(true);
+    if (sentOn.ok) {
+      expect(sentOn.data.visits?.at(-1)?.next).toBe("b2");
     }
   });
 
-  it("layers nested regions, the sink, and a station-addressed claim, and sheds a superseded receipt", async () => {
-    const name = "pipeline-onion-depth";
+  it("layers nested regions, the board, and a board-addressed task rule, and sheds a superseded receipt", async () => {
+    const name = "path-layer-depth";
     await workRuntime.runPromise(
       canvases.write(name, {
         nodes: [
@@ -2822,9 +1598,7 @@ describe("WorkService — pipeline", () => {
             ether: {
               region: {
                 contract: {
-                  claims: [
-                    { id: "outer-claim", text: "the factory law", severity: "soft" },
-                  ],
+                  rules: [{ id: "outer-rule", text: "verify the factory boundary" }],
                 },
               },
             },
@@ -2840,9 +1614,7 @@ describe("WorkService — pipeline", () => {
             ether: {
               region: {
                 contract: {
-                  claims: [
-                    { id: "inner-claim", text: "the lane law", severity: "soft" },
-                  ],
+                  rules: [{ id: "inner-rule", text: "verify the review lane" }],
                 },
               },
             },
@@ -2860,9 +1632,7 @@ describe("WorkService — pipeline", () => {
               tasks: {
                 items: [],
                 contract: {
-                  claims: [
-                    { id: "sink-claim", text: "the station law", severity: "soft" },
-                  ],
+                  rules: [{ id: "board-rule", text: "verify the board result" }],
                 },
               },
             },
@@ -2900,10 +1670,9 @@ describe("WorkService — pipeline", () => {
         undefined,
         [
           {
-            id: "task-claim",
+            id: "task-rule",
             text: "answer this here",
-            severity: "hard",
-            station: "d1",
+            board: "d1",
           },
         ]
       )
@@ -2915,18 +1684,18 @@ describe("WorkService — pipeline", () => {
     const atD1 = await workRuntime.runPromise(
       work.workTaskShow(name, "d1", taskId, "seat")
     );
-    // Ambient law arrives outer to inner, then the sink's own, then the
-    // claim addressed to this station.
-    expect(atD1.claims.map((entry) => entry.claim.id)).toEqual([
-      "outer-claim",
-      "inner-claim",
-      "sink-claim",
-      "task-claim",
+    // Rules in force arrive outer to inner, then the board's own, then the
+    // task rule addressed to this board.
+    expect(atD1.rules.map((entry) => entry.rule.id)).toEqual([
+      "outer-rule",
+      "inner-rule",
+      "board-rule",
+      "task-rule",
     ]);
-    expect(atD1.claims.map((entry) => entry.provenance.kind)).toEqual([
+    expect(atD1.rules.map((entry) => entry.provenance.kind)).toEqual([
       "region",
       "region",
-      "sink",
+      "board",
       "task",
     ]);
     expect(atD1.ambient.regions.map((region) => region.label)).toEqual([
@@ -2934,27 +1703,27 @@ describe("WorkService — pipeline", () => {
       "Review Lane",
     ]);
 
-    const forwarded = await workRuntime.runPromise(
+    const sentOn = await workRuntime.runPromise(
       work.workTaskTransition(name, "d1", taskId, "completed", "lane pass done", {
         artifacts: [],
-        responses: [
-          { claimId: "outer-claim", response: "factory law held" },
-          { claimId: "inner-claim", response: "lane law held" },
-          { claimId: "sink-claim", response: "station law held" },
+        claims: [
+          { ruleId: "outer-rule", text: "factory boundary verified" },
+          { ruleId: "inner-rule", text: "review lane verified" },
+          { ruleId: "board-rule", text: "board result verified" },
           {
-            claimId: "task-claim",
-            response: "answered at d1",
+            ruleId: "task-rule",
+            text: "answered at d1",
             refs: ["docs/lane-receipt.md"],
           },
         ],
       })
     );
-    expect(forwarded.ok).toBe(true);
+    expect(sentOn.ok).toBe(true);
 
     const atD2 = await workRuntime.runPromise(
       work.workTaskShow(name, "d2", taskId, "seat")
     );
-    expect(atD2.journey.find((p) => p.nodeId === "d1")?.refs).toEqual([
+    expect(atD2.visits.find((v) => v.boardId === "d1")?.refs).toEqual([
       "docs/lane-receipt.md",
     ]);
 
@@ -2969,28 +1738,28 @@ describe("WorkService — pipeline", () => {
       work.workTaskShow(name, "d1", taskId, "seat")
     );
     // The defect shadows d1's receipt: the re-homed row carries no evidence,
-    // so the passages there stop citing refs the task no longer stands on.
-    const d1Passages = afterDefect.journey.filter((p) => p.nodeId === "d1");
-    expect(d1Passages).toHaveLength(2);
-    expect(d1Passages.map((p) => p.refs)).toEqual([[], []]);
+    // so the visits there stop citing refs the task no longer stands on.
+    const d1Visits = afterDefect.visits.filter((v) => v.boardId === "d1");
+    expect(d1Visits).toHaveLength(2);
+    expect(d1Visits.map((v) => v.refs)).toEqual([[], []]);
     expect(afterDefect.task.epoch).toBe(1);
-    // The claim addressed here is open again, and the layered stack is intact.
-    const claimsAfter = await workRuntime.runPromise(
-      work.workTaskClaims(name, "d1", taskId)
+    // The rule addressed here is open again, and the layered stack is intact.
+    const rulesAfter = await workRuntime.runPromise(
+      work.workTaskRules(name, "d1", taskId)
     );
-    expect(claimsAfter.stack.map((entry) => entry.claim.id)).toEqual([
-      "outer-claim",
-      "inner-claim",
-      "sink-claim",
-      "task-claim",
+    expect(rulesAfter.rules.map((entry) => entry.rule.id)).toEqual([
+      "outer-rule",
+      "inner-rule",
+      "board-rule",
+      "task-rule",
     ]);
     expect(
-      claimsAfter.readiness?.unanswered.map((entry) => entry.claimId)
-    ).toContain("task-claim");
+      rulesAfter.readiness?.unanswered.map((entry) => entry.ruleId)
+    ).toContain("task-rule");
   });
 
-  it("serves show/claims/rulings views with onion-scoped journeys", async () => {
-    const name = "pipeline-views";
+  it("serves show/rules/rulings views with onion-scoped visits", async () => {
+    const name = "path-views";
     await workRuntime.runPromise(
       canvases.write(name, {
         nodes: [
@@ -3005,9 +1774,7 @@ describe("WorkService — pipeline", () => {
             ether: {
               region: {
                 contract: {
-                  claims: [
-                    { id: "r-claim", text: "law of the land", severity: "soft" },
-                  ],
+                  rules: [{ id: "region-rule", text: "cite the rerun" }],
                   rulings: [
                     {
                       id: "ruling-1",
@@ -3056,50 +1823,58 @@ describe("WorkService — pipeline", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     const taskId = created.data.id;
-    const forwarded = await workRuntime.runPromise(
-      work.workTaskTransition(name, "v1", taskId, "completed", "the emission", {
-        artifacts: [],
-        responses: [
-          {
-            claimId: "r-claim",
-            response: "region law satisfied",
-            refs: ["docs/receipt.md"],
-          },
-        ],
-      })
+    const sentOn = await workRuntime.runPromise(
+      work.workTaskTransition(
+        name,
+        "v1",
+        taskId,
+        "completed",
+        "the handoff note",
+        {
+          artifacts: [],
+          claims: [
+            {
+              ruleId: "region-rule",
+              text: "region rule satisfied",
+              refs: ["docs/receipt.md"],
+            },
+          ],
+        },
+        { handoffNote: "the handoff note" }
+      )
     );
-    expect(forwarded.ok).toBe(true);
+    expect(sentOn.ok).toBe(true);
 
     const seatView = await workRuntime.runPromise(
       work.workTaskShow(name, "v2", taskId, "seat")
     );
-    const priorPassage = seatView.journey.find((p) => p.nodeId === "v1");
-    expect(seatView.station.name).toBe("Tasks v2");
-    expect(priorPassage?.station).toBe("Tasks v1");
-    expect(priorPassage?.nextStation).toBe("Tasks v2");
-    expect(priorPassage?.emissionNote).toBe("the emission");
-    expect(priorPassage?.refs).toEqual(["docs/receipt.md"]);
+    const priorVisit = seatView.visits.find((v) => v.boardId === "v1");
+    expect(seatView.board.name).toBe("Tasks v2");
+    expect(priorVisit?.board).toBe("Tasks v1");
+    expect(priorVisit?.nextBoard).toBe("Tasks v2");
+    expect(priorVisit?.handoffNote).toBe("the handoff note");
+    expect(priorVisit?.refs).toEqual(["docs/receipt.md"]);
     // Onion: seat view never carries prior interiors.
-    expect(priorPassage?.evidence).toBeUndefined();
-    // The seat's task thread is brief + arrival marker, not the v1 interior.
+    expect(priorVisit?.evidence).toBeUndefined();
+    // The seat's task thread is brief + sent-on note, not the prior interior.
     expect(seatView.task.history.some((m) =>
-      m.parts.some((p) => p.kind === "text" && p.text.includes("region law satisfied"))
+      m.parts.some((p) => p.kind === "text" && p.text.includes("region rule satisfied"))
     )).toBe(false);
 
     const operatorView = await workRuntime.runPromise(
       work.workTaskShow(name, "v2", taskId, "operator")
     );
     expect(
-      operatorView.journey.find((p) => p.nodeId === "v1")?.evidence?.responses?.[0]
-        ?.response
-    ).toBe("region law satisfied");
+      operatorView.visits.find((v) => v.boardId === "v1")?.evidence?.claims?.[0]
+        ?.text
+    ).toBe("region rule satisfied");
 
-    const claimsView = await workRuntime.runPromise(
-      work.workTaskClaims(name, "v2", taskId)
+    const rulesView = await workRuntime.runPromise(
+      work.workTaskRules(name, "v2", taskId)
     );
-    expect(claimsView.stack.map((entry) => entry.claim.id)).toEqual(["r-claim"]);
+    expect(rulesView.rules.map((entry) => entry.rule.id)).toEqual(["region-rule"]);
     expect(
-      claimsView.readiness?.unanswered.map((entry) => entry.claimId)
+      rulesView.readiness?.unanswered.map((entry) => entry.ruleId)
     ).toEqual([]);
 
     const rulings = await workRuntime.runPromise(

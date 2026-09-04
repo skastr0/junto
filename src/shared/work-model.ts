@@ -4,8 +4,8 @@ import { ActorRef, TaskRef } from "./work-reference";
 import { ContentPart } from "./content";
 
 // ContentRef is the portable binary-media contract. RawPart remains in the
-// Part union so installed history and the one-shot content migration can read
-// legacy rows; the product path stores ContentPart after externalization.
+// Part union so installed non-Tasks history and the content migration can read
+// pre-externalization rows; the product path stores ContentPart.
 export {
   ContentAvailability,
   ContentByteLength,
@@ -140,25 +140,20 @@ export const FinishCriteria = Schema.Struct({
 });
 export type FinishCriteria = typeof FinishCriteria.Type;
 
-// ---- Pipeline claims (additive layer; legacy finishCriteria untouched) ----
+// ---- Task rules, claims, checks, and visits ----
 
-/** Hard claims demand a response at close; soft claims may be waived instead. */
-export const ClaimSeverity = Schema.Literals(["hard", "soft"]);
-export type ClaimSeverity = typeof ClaimSeverity.Type;
-
-const claimDefFields = {
+const ruleFields = {
   /** ULID minted at authoring. */
   id: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   text: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  severity: ClaimSeverity,
 } as const;
 
 /**
- * A claim is a prompt checked by minds (seats or the operator). The work
- * service enforces presence/shape of responses only — never truth.
+ * An operator-authored statement the work must satisfy. The work service
+ * enforces that an agent makes a claim for every rule, never that it is true.
  */
-export const ClaimDef = Schema.Struct(claimDefFields);
-export type ClaimDef = typeof ClaimDef.Type;
+export const Rule = Schema.Struct(ruleFields);
+export type Rule = typeof Rule.Type;
 
 /** Operator-pinned precedent, appended when an escalation/request resolves. */
 export const Ruling = Schema.Struct({
@@ -171,92 +166,88 @@ export const Ruling = Schema.Struct({
 export type Ruling = typeof Ruling.Type;
 
 /**
- * Deterministic boarding check. The seat's CLI executes `command` in the
- * seat's own environment; exit 0 = green. v1 items are commands only.
+ * Deterministic check. The agent's CLI executes `command` in its own
+ * environment; exit 0 passes.
  */
-export const CheckDef = Schema.Struct({
+export const Check = Schema.Struct({
   /** ULID minted at authoring. */
   id: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   label: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   command: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
 });
-export type CheckDef = typeof CheckDef.Type;
+export type Check = typeof Check.Type;
 
-/** Station-addressed task claim — answered when the journey reaches `station`. */
-export const TaskClaim = Schema.Struct({
-  ...claimDefFields,
-  /** Sink node id where this claim must be answered (or fork-waived). */
-  station: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+/** A task-authored rule addressed to one board on its path. */
+export const TaskRule = Schema.Struct({
+  ...ruleFields,
+  /** Tasks node id where this rule must be answered or fork-waived. */
+  board: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
 });
-export type TaskClaim = typeof TaskClaim.Type;
+export type TaskRule = typeof TaskRule.Type;
 
-/** How arrivals become claimable at a sink. Omitted = "auto". */
-export const SinkAdmission = Schema.Literals(["auto", "operator-gated", "operator-owned"]);
-export type SinkAdmission = typeof SinkAdmission.Type;
+/** Who may start a submitted task. Omitted = "auto". */
+export const TaskAdmission = Schema.Literals(["auto", "approval", "operator"]);
+export type TaskAdmission = typeof TaskAdmission.Type;
 
-export const TasksInboundContract = Schema.Struct({
-  /** Triage posture for arrivals. */
-  instruction: Schema.optionalKey(Schema.String),
-  /** Prose self-description for upstream routing. */
+export const TasksIncoming = Schema.Struct({
+  /** How new tasks should be handled here. */
+  handling: Schema.optionalKey(Schema.String),
+  /** Prose self-description for earlier boards choosing a path. */
   description: Schema.optionalKey(Schema.String),
-  admission: Schema.optionalKey(SinkAdmission),
-  /** Station default bake time before an arrival becomes claimable. */
-  claimableAfterMs: Schema.optionalKey(
+  admission: Schema.optionalKey(TaskAdmission),
+  /** Board default delay before a task can be claimed. */
+  waitMs: Schema.optionalKey(
     Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   ),
-  /** Arrival-side deterministic boarding checks. */
-  checklist: Schema.optionalKey(Schema.Array(CheckDef)),
+  checks: Schema.optionalKey(Schema.Array(Check)),
 });
-export type TasksInboundContract = typeof TasksInboundContract.Type;
+export type TasksIncoming = typeof TasksIncoming.Type;
 
-export const TasksOutboundContract = Schema.Struct({
-  /** Prose instruction: what this layer publishes forward. */
-  emission: Schema.optionalKey(Schema.String),
+export const TasksOutgoing = Schema.Struct({
+  /** What the agent must write in the handoff note when sending work onward. */
+  handoff: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
-  /** Departure-side deterministic boarding checks. */
-  checklist: Schema.optionalKey(Schema.Array(CheckDef)),
+  checks: Schema.optionalKey(Schema.Array(Check)),
 });
-export type TasksOutboundContract = typeof TasksOutboundContract.Type;
+export type TasksOutgoing = typeof TasksOutgoing.Type;
 
 /**
- * Operator-authored sink contract (`ether.tasks.contract`). Seats have no
+ * Operator-authored board contract (`ether.tasks.contract`). Agents have no
  * authorial write path to it.
  */
-export const TasksSinkContract = Schema.Struct({
-  /** Stage purpose — ambient to seats claiming here. */
-  instruction: Schema.optionalKey(Schema.String),
-  /** Sink-local standing law. */
-  claims: Schema.optionalKey(Schema.Array(ClaimDef)),
-  inbound: Schema.optionalKey(TasksInboundContract),
-  outbound: Schema.optionalKey(TasksOutboundContract),
+export const TasksContract = Schema.Struct({
+  /** Prose agents read when they claim a task here. */
+  instructions: Schema.optionalKey(Schema.String),
+  rules: Schema.optionalKey(Schema.Array(Rule)),
+  incoming: Schema.optionalKey(TasksIncoming),
+  outgoing: Schema.optionalKey(TasksOutgoing),
 });
-export type TasksSinkContract = typeof TasksSinkContract.Type;
+export type TasksContract = typeof TasksContract.Type;
 
-/** Resolve admission with product default `auto` when the field is omitted. */
-export const resolveSinkAdmission = (
-  contract: TasksSinkContract | undefined,
-): SinkAdmission => contract?.inbound?.admission ?? "auto";
+/** Resolve admission with product default `auto` when omitted. */
+export const resolveTaskAdmission = (
+  contract: TasksContract | undefined,
+): TaskAdmission => contract?.incoming?.admission ?? "auto";
 
-/** Seat's answer to one effective claim, recorded at completion. */
-export const ClaimResponse = Schema.Struct({
-  claimId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  response: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+/** An agent's answer to one rule, recorded at completion. */
+export const Claim = Schema.Struct({
+  ruleId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  text: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   refs: Schema.optionalKey(Schema.Array(Schema.String)),
 });
-export type ClaimResponse = typeof ClaimResponse.Type;
+export type Claim = typeof Claim.Type;
 
-/** Waiver of a soft (or fork-unreachable station-addressed) claim. */
-export const ClaimWaiver = Schema.Struct({
-  claimId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  /** Non-empty by law. */
+/** A fork waiver for a task rule whose board is no longer reachable. */
+export const Waiver = Schema.Struct({
+  ruleId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   reason: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
 });
-export type ClaimWaiver = typeof ClaimWaiver.Type;
+export type Waiver = typeof Waiver.Type;
 
 /**
  * Agent-supplied proof at complete. Artifacts are explicit citations (no
  * auto-append on publish). Git is expandable (commits first; later repo, etc.).
- * Claim responses/waivers are additive — legacy fields stay untouched.
+ * Claims and waivers answer the rules in force for this completion.
  */
 export const CompletionEvidence = Schema.Struct({
   artifacts: Schema.Array(
@@ -268,105 +259,99 @@ export const CompletionEvidence = Schema.Struct({
   git: Schema.optionalKey(Schema.Struct({
     commits: Schema.Array(Schema.String),
   })),
-  responses: Schema.optionalKey(Schema.Array(ClaimResponse)),
-  claimWaivers: Schema.optionalKey(Schema.Array(ClaimWaiver)),
+  claims: Schema.optionalKey(Schema.Array(Claim)),
+  waivers: Schema.optionalKey(Schema.Array(Waiver)),
 });
 export type CompletionEvidence = typeof CompletionEvidence.Type;
 
-/** How a passage left its station. */
-export const PassageExit = Schema.Literals(["forwarded", "closed", "rejected-back"]);
-export type PassageExit = typeof PassageExit.Type;
+/** How a visit ended. */
+export const VisitExit = Schema.Literals(["sent-on", "completed", "sent-back"]);
+export type VisitExit = typeof VisitExit.Type;
 
-/** One stop in a task's journey across flow stations. Append-only. */
-export const Passage = Schema.Struct({
-  /** Sink node id of the station. */
-  nodeId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  /** ISO arrival timestamp. */
+/** One board a task has entered. Append-only. */
+export const Visit = Schema.Struct({
+  board: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   enteredAt: Schema.String,
   epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   claimedBy: Schema.optionalKey(ActorSeatId),
   exitedAt: Schema.optionalKey(Schema.String),
-  exit: Schema.optionalKey(PassageExit),
-  /** Destination sink node id chosen at forward. */
+  exit: Schema.optionalKey(VisitExit),
+  /** Destination Tasks node id chosen when sent on. */
   next: Schema.optionalKey(Schema.String),
-  /** What this passage published forward — onion-visible to later stations. */
-  emissionNote: Schema.optionalKey(Schema.String),
+  handoffNote: Schema.optionalKey(Schema.String),
 });
-export type Passage = typeof Passage.Type;
+export type Visit = typeof Visit.Type;
 
 /**
  * Append-only defect record: epoch `epoch` was opened by a defect aimed at
- * station `target`. Receipts earned before the defect at stations strictly
+ * board `target`. Claims made before the defect at boards strictly
  * upstream of `target` stay live for closure accounting; receipts at or
  * downstream of `target` are shadowed. Waivers never survive any defect.
  * Nothing ever mutates or removes an entry — liveness is derived, not stored.
  */
 export const TaskDefect = Schema.Struct({
   epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(1))),
-  /** Sink node id of the visited station the task was sent back to. */
+  /** Tasks node id of the visited board the task was sent back to. */
   target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   /** ISO timestamp of the defect. */
   at: Schema.String,
 });
 export type TaskDefect = typeof TaskDefect.Type;
 
-/** Boarding-check output tail cap (the board op handler truncates by bytes). */
-export const TICKET_OUTPUT_TAIL_MAX_BYTES = 8 * 1024;
+/** Check output tail cap (the check op handler truncates by bytes). */
+export const CHECK_OUTPUT_TAIL_MAX_BYTES = 8 * 1024;
 
-export const TicketSide = Schema.Literals(["outbound", "inbound"]);
-export type TicketSide = typeof TicketSide.Type;
+export const CheckSide = Schema.Literals(["outgoing", "incoming"]);
+export type CheckSide = typeof CheckSide.Type;
 
 /**
- * System-stamped boarding check result. Written only by the `tasks.board` op
- * handler from seat-submitted runs — never accepted from evidence input.
+ * System-stamped check result. Written only by the `tasks.check` op handler
+ * from agent-submitted runs, never accepted from completion evidence.
  */
-export const Ticket = Schema.Struct({
+export const CheckResult = Schema.Struct({
   checkId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-  side: TicketSide,
-  label: Schema.String,
+  side: CheckSide,
   command: Schema.String,
   exitCode: Schema.Number.pipe(Schema.check(Schema.isInt())),
-  outputTail: Schema.String.pipe(Schema.check(Schema.isMaxLength(TICKET_OUTPUT_TAIL_MAX_BYTES))),
+  outputTail: Schema.String.pipe(Schema.check(Schema.isMaxLength(CHECK_OUTPUT_TAIL_MAX_BYTES))),
   /** ISO timestamp. */
   at: Schema.String,
   epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
-export type Ticket = typeof Ticket.Type;
+export type CheckResult = typeof CheckResult.Type;
 
 /**
- * Pipeline arm of a task transition: forward choice, defect-back, hold stamp.
+ * Path arm of a task transition: next board, send-back defect, wait, and
+ * handoff note.
  * An op argument rather than document data, so it stays a plain type — the
  * main work service and the renderer bridge both spell it from here.
  */
-export type TaskPipelineArm = {
+export type TaskPathArm = {
   readonly next?: string;
   readonly defect?: {
     readonly summary: string;
     readonly refs?: ReadonlyArray<string>;
-    /** Visited station to send the task back to; omitted = the previous station. */
+    /** Visited board to send the task back to; omitted = the previous board. */
     readonly target?: string;
   };
-  readonly holdForMs?: number;
+  readonly waitForMs?: number;
+  readonly handoffNote?: string;
 };
 
 /**
- * Shared authoring fields on Task and TaskProposal.
- *
- * Brief/media live on Task.history[0].parts vs TaskProposal.brief.parts;
- * proposal-only extras are proposedBy / approvedTaskId / proposal state
- * (disjoint from executable task state/claim/evidence).
+ * Shared immutable task-authoring fields. Brief and media live on
+ * `Task.history[0].parts`.
  */
 export const TaskAuthoringFields = {
   /**
-   * Same-sink hard prerequisites (task ids). Empty / omitted = free to claim
-   * when submitted (or free once approved for proposals). Join is ALL; only
-   * `completed` satisfies. Soft relates are not modeled here.
+   * Same-board prerequisites (task ids). Empty / omitted = free to claim when
+   * submitted and admitted. Join is ALL; only `completed` satisfies.
    */
   dependsOn: Schema.optionalKey(Schema.Array(Schema.String)),
   /** Operator done-definition; immutable on generic task transition. */
   finishCriteria: Schema.optionalKey(FinishCriteria),
-  /** Station-addressed claims; set at creation, immutable on generic transitions (like finishCriteria). */
-  claims: Schema.optionalKey(Schema.Array(TaskClaim)),
+  /** Board-addressed rules; set at creation, immutable on generic transitions. */
+  rules: Schema.optionalKey(Schema.Array(TaskRule)),
   metadata: Schema.optionalKey(WorkMetadata),
   /** Why the raiser raised this (first-class, set at creation). */
   reason: Schema.optionalKey(Schema.String),
@@ -384,29 +369,29 @@ export const Task = Schema.Struct({
   artifactIds: Schema.optionalKey(Schema.Array(Schema.String)),
   dependsOn: TaskAuthoringFields.dependsOn,
   finishCriteria: TaskAuthoringFields.finishCriteria,
-  claims: TaskAuthoringFields.claims,
+  rules: TaskAuthoringFields.rules,
   /** Stamped only on successful → completed. */
   completionEvidence: Schema.optionalKey(CompletionEvidence),
   /** Defect generation counter. Staleness is derived from the defects log: a defect shadows receipts at and downstream of its target. Default 0. */
   epoch: Schema.optionalKey(
     Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   ),
-  /** Append-only station journey (pipeline passages). */
-  journey: Schema.optionalKey(Schema.Array(Passage)),
-  /** Append-only defect log — receipt liveness is derived from it, never stored. */
+  /** Append-only record of boards entered. */
+  visits: Schema.optionalKey(Schema.Array(Visit)),
+  /** Append-only defect log; claim liveness is derived, never stored. */
   defects: Schema.optionalKey(Schema.Array(TaskDefect)),
-  /** Not claimable before this ISO time — arrival bake from claimableAfterMs / holdFor stamp. */
-  holdUntil: Schema.optionalKey(Schema.String),
-  /** Current-epoch boarding tickets — system-stamped only, never evidence input. */
-  boarding: Schema.optionalKey(Schema.Array(Ticket)),
+  /** Not claimable before this ISO time. */
+  waitUntil: Schema.optionalKey(Schema.String),
+  /** Current-epoch check results, stamped only by the check operation. */
+  checkResults: Schema.optionalKey(Schema.Array(CheckResult)),
   metadata: TaskAuthoringFields.metadata,
   reason: TaskAuthoringFields.reason,
   /**
    * Requester admission overlay. Omitted = inherit the sink floor
-   * (`resolveSinkAdmission`, default auto). Agents persist an explicit stamp
-   * when they omit on the wire (operator-gated). Never loosens the sink floor.
+   * (`resolveTaskAdmission`, default auto). Agents persist an explicit
+   * `approval` stamp when omitted on the wire. Never loosens the board floor.
    */
-  admission: Schema.optionalKey(SinkAdmission),
+  admission: Schema.optionalKey(TaskAdmission),
   /** Who raised this task. Optional; historical rows omit it. */
   raisedBy: Schema.optionalKey(ActorRef),
   /** The operator's answer (first-class, stamped on resolve). */
@@ -449,33 +434,6 @@ export const Task = Schema.Struct({
 );
 export type Task = typeof Task.Type;
 
-export const TaskProposalState = Schema.Literals(["pending", "approved",
-"rejected",]);
-export type TaskProposalState = typeof TaskProposalState.Type;
-
-/**
- * A proposal is not executable work. Same authoring contract as a task
- * (brief/media, metadata, dependsOn, finishCriteria); only an operator
- * approval mints a submitted Task (`approvedTaskId`).
- */
-export const TaskProposal = Schema.Struct({
-  id: Schema.String,
-  state: TaskProposalState,
-  brief: Message,
-  proposedBy: ActorRef,
-  approvedTaskId: Schema.optionalKey(Schema.String),
-  dependsOn: TaskAuthoringFields.dependsOn,
-  finishCriteria: TaskAuthoringFields.finishCriteria,
-  claims: TaskAuthoringFields.claims,
-  metadata: TaskAuthoringFields.metadata,
-  reason: TaskAuthoringFields.reason,
-}).pipe(
-  Schema.check(Schema.makeFilter(({ state, approvedTaskId }) =>
-    (state === "approved") === (approvedTaskId !== undefined) ||
-    "approved proposals require approvedTaskId; other proposal states forbid it")),
-);
-export type TaskProposal = typeof TaskProposal.Type;
-
 export const Artifact = Schema.Struct({
   artifactId: Schema.String,
   name: Schema.optionalKey(Schema.String),
@@ -486,14 +444,13 @@ export const Artifact = Schema.Struct({
 export type Artifact = typeof Artifact.Type;
 
 /**
- * Tasks sink contents. `stationName` and `contract` are operator-authored
- * document truth; items/proposals stay runtime work projections.
+ * Tasks node contents. `name` and `contract` are operator-authored document
+ * truth; items are the runtime Work projection.
  */
 export const WorkTasks = Schema.Struct({
   items: Schema.Array(Task),
-  proposals: Schema.optionalKey(Schema.Array(TaskProposal)),
-  stationName: Schema.optionalKey(Schema.String),
-  contract: Schema.optionalKey(TasksSinkContract),
+  name: Schema.optionalKey(Schema.String),
+  contract: Schema.optionalKey(TasksContract),
 });
 export type WorkTasks = typeof WorkTasks.Type;
 

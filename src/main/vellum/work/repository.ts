@@ -21,18 +21,17 @@ import {
 } from "@shared/station-api";
 import {
   Artifact,
+  CheckResult,
   CompletionEvidence,
   FinishCriteria,
   Message,
   Task,
-  TaskProposal,
-  resolveSinkAdmission,
+  resolveTaskAdmission,
   type Artifact as ArtifactValue,
   type Message as MessageValue,
   type Task as TaskValue,
-  type TaskProposal as TaskProposalValue,
+  type TaskAdmission,
   type TaskState,
-  type SinkAdmission,
   type WorkSnapshot as WorkSnapshotValue,
   type BoardTopic as BoardTopicValue,
   type BoardPost as BoardPostValue,
@@ -130,12 +129,10 @@ import {
   normalizeCompletionEvidence,
 } from "@shared/finish-criteria";
 import {
-  carryClaimEvidence,
+  normalizeRuleEvidence,
+  TASK_APPROVED_METADATA_KEY,
   taskAdmissionState,
-} from "@shared/claims";
-import {
-  materializePendingProposal,
-} from "@shared/pending-proposal-backfill";
+} from "@shared/rules";
 import {
   StateEngine,
   type StateReader,
@@ -196,7 +193,7 @@ type TaskDependencyScopeCapabilityData = {
   /** Hash of the exact raw canvas body containing the authoring sink. */
   readonly canvasBodySha256: string;
   readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
-  readonly sinkAdmissionFloor: SinkAdmission;
+  readonly sinkAdmissionFloor: TaskAdmission;
   readonly sinkHostId: string;
   readonly actorGrants: ReadonlyArray<TaskActorGrant>;
 };
@@ -397,7 +394,7 @@ const isTaskSinkNode = (node: CanvasNode): boolean => {
 type CanonicalTaskTopologyIndex = {
   readonly canvasBodySha256: string;
   readonly allowedTaskSinkNodeIds: ReadonlyArray<string>;
-  readonly sinkAdmissionFloor: SinkAdmission;
+  readonly sinkAdmissionFloor: TaskAdmission;
   readonly sinkHostId: string;
   readonly actorGrants: ReadonlyArray<TaskActorGrant>;
 };
@@ -554,7 +551,9 @@ const canonicalTaskTopologyIndex = (input: {
   return Object.freeze({
     canvasBodySha256: canvasBodySha256Of(input.rawBody),
     allowedTaskSinkNodeIds,
-    sinkAdmissionFloor: resolveSinkAdmission(sinkNode.ether?.tasks?.contract),
+    sinkAdmissionFloor: resolveTaskAdmission(
+      sinkNode.ether?.tasks?.contract,
+    ),
     sinkHostId: resolveNodeHostId(sinkNode),
     actorGrants,
   });
@@ -927,96 +926,6 @@ export type CreateTaskInput = Omit<LocalWorkInput, "dependencyScope"> & {
   readonly task: TaskValue;
 };
 
-/**
- * One legacy pending-proposal conversion. Callers provide only the exact
- * proposal and topology authority. The repository reconstructs the Task from
- * immutable local history inside the write transaction.
- */
-export type PersistUnadmittedTaskInput = {
-  readonly sink: SinkRefValue;
-  readonly proposalId: string;
-  readonly home: InstallationId;
-  readonly basis: IntentFactBasisValue;
-  readonly dependencyScope: TaskDependencyScopeCapability;
-};
-
-declare const LegacyProposalMaterializationCursorTypeId: unique symbol;
-
-/** Opaque keyset continuation. It is valid only for its repository instance. */
-export type LegacyProposalMaterializationCursor = {
-  readonly [LegacyProposalMaterializationCursorTypeId]: true;
-};
-
-export type LegacyProposalMaterializationKey = {
-  readonly canvasName: string;
-  readonly nodeId: string;
-  readonly proposalId: string;
-};
-
-export type LegacyProposalMaterializationDiagnostic = {
-  readonly code:
-    | "proposal-missing"
-    | "proposal-home-mismatch"
-    | "proposal-create-witness-invalid"
-    | "proposal-projection-drift"
-    | "task-collision"
-    | "task-create-witness-invalid"
-    | "not-command-center"
-    | "intent-mismatch"
-    | "dependency-invalid";
-  readonly message: string;
-  readonly authorityReason?: WorkAuthorityError["reason"];
-};
-
-type LegacyProposalMaterializationWitnessBase =
-  LegacyProposalMaterializationKey & {
-    readonly proposalState: TaskProposalValue["state"];
-    readonly dependsOn?: ReadonlyArray<string>;
-  };
-
-/**
- * A same-id pair is reported as verified only after exact immutable-history
- * reconstruction. A raw Task collision is an invalid candidate, never a skip.
- */
-export type LegacyProposalMaterializationWitness =
-  | (LegacyProposalMaterializationWitnessBase & {
-      readonly status: "missing";
-    })
-  | (LegacyProposalMaterializationWitnessBase & {
-      readonly status: "verified";
-      readonly taskId: string;
-    })
-  | (LegacyProposalMaterializationKey & {
-      readonly status: "invalid";
-      readonly proposalState?: TaskProposalValue["state"];
-      readonly dependsOn?: ReadonlyArray<string>;
-      readonly diagnostic: LegacyProposalMaterializationDiagnostic;
-    });
-
-export type LegacyProposalMaterializationWitnessPage = {
-  readonly witnesses: ReadonlyArray<LegacyProposalMaterializationWitness>;
-  readonly next?: LegacyProposalMaterializationCursor;
-};
-
-export type ReadLegacyProposalMaterializationWitnessPageInput = {
-  readonly after?: LegacyProposalMaterializationCursor;
-  readonly limit: number;
-};
-
-export type CreateProposalInput = LocalWorkInput & {
-  readonly proposal: TaskProposalValue;
-};
-
-export type ApproveProposalInput = Omit<LocalWorkInput, "dependencyScope"> & {
-  readonly dependencyScope: TaskDependencyScopeCapability;
-  readonly proposalId: string;
-  readonly task: TaskValue;
-};
-
-export type RejectProposalInput = LocalWorkInput & {
-  readonly proposalId: string;
-};
-
 export type DescribeTaskInput = LocalWorkInput & {
   readonly taskId: string;
   readonly message: MessageValue;
@@ -1028,21 +937,20 @@ export type TransitionTaskInput = LocalWorkInput & {
   readonly message?: MessageValue;
   readonly completionEvidence?: TaskValue["completionEvidence"];
   /**
-   * Pipeline patch computed by the pure policy (journey exits, epoch bumps).
+   * Task-record patch computed by the pure policy (visit exits, epoch bumps).
    * Omitted fields keep the durable row's bag; null clears a field.
    */
-  readonly pipeline?: TaskPipelinePatch;
+  readonly taskPatch?: TaskRecordPatch;
 };
 
-export type TaskPipelinePatch = {
+export type TaskRecordPatch = {
   readonly epoch?: number;
-  readonly journey?: TaskValue["journey"];
+  readonly visits?: TaskValue["visits"];
   readonly defects?: TaskValue["defects"];
-  readonly holdUntil?: string | null;
-  readonly boarding?: TaskValue["boarding"] | null;
-  readonly claims?: TaskValue["claims"];
-  /** Operator promotion marker for the given epoch (metadata bag key). */
-  readonly admittedEpoch?: number | null;
+  readonly waitUntil?: string | null;
+  readonly checkResults?: TaskValue["checkResults"] | null;
+  /** Operator approval marker for the given epoch (metadata bag key). */
+  readonly approvedEpoch?: number | null;
   /**
    * Omitted: keep the durable row's admission / raisedBy (passthrough).
    * Set: write through. admission null clears (re-home). raisedBy is
@@ -1052,59 +960,59 @@ export type TaskPipelinePatch = {
   readonly raisedBy?: TaskValue["raisedBy"];
 };
 
-export type ForwardTaskInput = LocalWorkInput & {
+export type SendOnTaskInput = LocalWorkInput & {
   readonly taskId: string;
-  /** Emission note appended at the source before completion. */
+  /** Handoff note appended at the source before completion. */
   readonly message?: MessageValue;
   readonly completionEvidence?: TaskValue["completionEvidence"];
-  /** Closed journey including the source passage exit (policy-computed). */
-  readonly journey: NonNullable<TaskValue["journey"]>;
-  readonly destination: SinkRefValue;
-  /** Policy-built submitted successor at the destination (same task id). */
-  readonly destinationTask: TaskValue;
+  /** Closed visits including the source visit exit (policy-computed). */
+  readonly visits: NonNullable<TaskValue["visits"]>;
+  readonly next: SinkRefValue;
+  /** Policy-built submitted successor at the next board (same task id). */
+  readonly nextTask: TaskValue;
 };
 
-export type DefectBackTaskInput = LocalWorkInput & {
+export type SendBackTaskInput = LocalWorkInput & {
   readonly taskId: string;
-  /** Defect note appended at the rejecting station. */
+  /** Defect note appended at the rejecting board. */
   readonly message?: MessageValue;
-  /** Closed journey including the rejected-back exit (policy-computed). */
-  readonly journey: NonNullable<TaskValue["journey"]>;
+  /** Closed visits including the sent-back exit (policy-computed). */
+  readonly visits: NonNullable<TaskValue["visits"]>;
   /** Append-only defect log including this defect (policy-computed). */
   readonly defects?: NonNullable<TaskValue["defects"]>;
-  /** The visited station the defect re-opens (any prior stop, not only the last). */
-  readonly previous: SinkRefValue;
-  /** Policy-built submitted epoch-bumped task re-homed at `previous`. */
-  readonly returnedTask: TaskValue;
+  /** The visited board the defect re-opens (any prior visit, not only the last). */
+  readonly target: SinkRefValue;
+  /** Policy-built submitted epoch-bumped task re-homed at `target`. */
+  readonly sentBackTask: TaskValue;
 };
 
+/** Operator approval of a task waiting at an `approval`-admission board. */
 export type PromoteTaskInput = LocalWorkInput & {
   readonly taskId: string;
   /** Operator context appended to the task thread before the admission stamp. */
   readonly message?: MessageValue;
 };
 
-export type StampBoardingInput = LocalWorkInput & {
+/** Agent-submitted check runs stamped as current-epoch CheckResults. */
+export type RecordCheckResultsInput = LocalWorkInput & {
   readonly taskId: string;
-  /** Epoch the newly stamped tickets below carry. */
-  readonly epoch: number;
   /**
-   * Newly stamped tickets from this call only. Merged against the live row
-   * inside stampBoarding's own transaction — never a caller-held snapshot —
-   * so two concurrent boards (e.g. for two different destinations) can't
-   * silently drop one set of tickets.
+   * Newly recorded results from this call only. Merged against the live row
+   * inside recordCheckResults's own transaction — never a caller-held
+   * snapshot — so two concurrent check runs (e.g. for two different
+   * destinations) can't silently drop one set of results.
    */
-  readonly tickets: NonNullable<TaskValue["boarding"]>;
+  readonly results: NonNullable<TaskValue["checkResults"]>;
 };
 
-export type ForwardTaskValue = {
-  readonly source: TaskValue;
-  readonly destination: TaskValue;
+export type SendOnTaskValue = {
+  readonly completed: TaskValue;
+  readonly next: TaskValue;
 };
 
-export type DefectBackTaskValue = {
+export type SendBackTaskValue = {
   readonly rejected: TaskValue;
-  readonly returned: TaskValue;
+  readonly sentBack: TaskValue;
 };
 
 export type ClaimLocalTaskInput = Omit<LocalWorkInput, "dependencyScope"> & {
@@ -1171,46 +1079,10 @@ export type EnqueueRemoteCommandInput = WorkRepositoryInput & {
   readonly action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>;
 };
 
-export type EnqueueRemoteProposalApprovalInput = WorkRepositoryInput & {
-  readonly targetInstallationId: InstallationId;
-  readonly item: WorkItemRef & { readonly kind: "proposal" };
-  readonly action: Extract<
-    WorkActionValue,
-    { readonly operation: "proposal.approve" }
-  >;
-};
-
 export type LocalFactResult<A> = {
   readonly value: A;
   readonly record: WorkFactValue;
   readonly snapshot: WorkSnapshotValue;
-};
-
-export type PersistUnadmittedTaskResult =
-  | {
-      readonly status: "created";
-      readonly result: LocalFactResult<TaskValue>;
-    }
-  | {
-      readonly status: "already-materialized";
-      readonly taskId: string;
-    }
-  | {
-      readonly status: "no-longer-pending";
-      readonly proposalId: string;
-      readonly proposalState: TaskProposalValue["state"];
-    }
-  | {
-      readonly status: "invalid";
-      readonly proposalId?: string;
-      readonly diagnostic: LegacyProposalMaterializationDiagnostic;
-      /** Compatibility mirror for existing logs; diagnostic is authoritative. */
-      readonly message: string;
-    };
-
-export type ProposalApprovalValue = {
-  readonly proposal: TaskProposalValue;
-  readonly task: TaskValue;
 };
 
 export type RecordsAfterInput = {
@@ -1379,18 +1251,6 @@ type TaskRow = StateRow & {
   readonly created_at: string;
 };
 
-type ProposalRow = StateRow & {
-  readonly proposal_id: string;
-  readonly state: TaskProposalValue["state"];
-  readonly brief_json: string;
-  readonly proposer_seat_id: string;
-  readonly proposer_canvas_name: string;
-  readonly proposer_node_id: string;
-  readonly approved_task_id: string | null;
-  readonly metadata_json: string | null;
-  readonly reason: string | null;
-};
-
 type MessageRow = StateRow & {
   readonly message_id: string;
   readonly role: MessageValue["role"];
@@ -1419,14 +1279,6 @@ type IdentityRow = StateRow & {
   readonly fact_entity_home: string;
   readonly fact_seq: string;
   readonly state: TaskState;
-};
-
-type ProposalIdentityRow = StateRow & {
-  readonly entity_home: string;
-  readonly fact_event_home: string;
-  readonly fact_entity_home: string;
-  readonly fact_seq: string;
-  readonly state: TaskProposalValue["state"];
 };
 
 type CursorRow = StateRow & {
@@ -1995,49 +1847,51 @@ const assertTaskClaimReady = (
   }
 };
 
-const assertCanonicalHoldUntil = (task: Pick<TaskValue, "id" | "holdUntil">): void => {
-  if (task.holdUntil === undefined) return;
-  const milliseconds = Date.parse(task.holdUntil);
+const assertCanonicalWaitUntil = (
+  task: Pick<TaskValue, "id" | "waitUntil">,
+): void => {
+  if (task.waitUntil === undefined) return;
+  const milliseconds = Date.parse(task.waitUntil);
   if (
     !Number.isFinite(milliseconds) ||
-    new Date(milliseconds).toISOString() !== task.holdUntil
+    new Date(milliseconds).toISOString() !== task.waitUntil
   ) {
     throw authorityError(
       "invalid-transition",
-      `task ${JSON.stringify(task.id)} has a noncanonical holdUntil`,
+      `task ${JSON.stringify(task.id)} has a noncanonical waitUntil`,
     );
   }
 };
 
-/** Recheck admission and hold against the exact capability topology. */
+/** Recheck admission and wait against the exact capability topology. */
 const assertTaskAdmissionReady = (
   task: TaskValue,
   sink: SinkRefValue,
   capability: TaskDependencyScopeCapability,
 ): void => {
-  assertCanonicalHoldUntil(task);
+  assertCanonicalWaitUntil(task);
   const inspected = requireDependencyCapability(sink, capability);
   const contract = inspected.sinkAdmissionFloor === "auto"
     ? undefined
-    : { inbound: { admission: inspected.sinkAdmissionFloor } };
+    : { incoming: { admission: inspected.sinkAdmissionFloor } };
   const admission = taskAdmissionState(task, contract, Date.now());
   switch (admission) {
     case "claimable":
       return;
-    case "operator-owned":
+    case "operator":
       throw authorityError(
         "claim-contention",
-        `sink ${JSON.stringify(sink.nodeId)} is operator-owned; no actor may claim its Tasks`,
+        `board ${JSON.stringify(sink.nodeId)} is set to Me; no agent may claim its Tasks`,
       );
-    case "operator-gated":
+    case "approval":
       throw authorityError(
         "invalid-transition",
         `task ${JSON.stringify(task.id)} awaits operator approval at sink ${JSON.stringify(sink.nodeId)}`,
       );
-    case "held":
+    case "waiting":
       throw authorityError(
         "invalid-transition",
-        `task ${JSON.stringify(task.id)} is not assignable before ${task.holdUntil ?? "its durable hold expires"}`,
+        `task ${JSON.stringify(task.id)} is not claimable before ${task.waitUntil ?? "its durable wait expires"}`,
       );
   }
 };
@@ -2235,13 +2089,13 @@ export const projectWorkSnapshots = (
       delete ether.board;
       delete ether.pad;
       if (kind === "task") {
-        // Station identity and contract are operator-authored document truth,
+        // Board name and contract are operator-authored document truth,
         // not work rows — the projection overlay must carry both through.
-        const stationName = source.ether?.tasks?.stationName;
+        const name = source.ether?.tasks?.name;
         const contract = source.ether?.tasks?.contract;
         ether.tasks = {
           ...snapshot.tasks,
-          ...(stationName ? { stationName } : {}),
+          ...(name ? { name } : {}),
           ...(contract ? { contract } : {}),
         };
       }
@@ -2295,10 +2149,10 @@ const optionalJson = <A>(value: string | null): A | undefined =>
  * Durable JSON is written with `canonicalJson`, which sorts keys, so parsing a
  * column back yields sorted key order while a projected value's order is the
  * schema's declaration order. For the columns that store a whole schema object
- * — finish criteria, completion evidence, a proposal's brief — that difference
+ * — finish criteria, completion evidence, a task's brief — that difference
  * is visible in the projection, so these three restore the schema's order.
  *
- * They are per-task and per-proposal, never per-part and never per-message, so
+ * They are per-task, never per-part and never per-message, so
  * they do not grow with the message volume the retired read-path decode walked.
  */
 const finishCriteriaFromJson = (value: string): TaskValue["finishCriteria"] =>
@@ -2308,9 +2162,6 @@ const completionEvidenceFromJson = (
   value: string,
 ): TaskValue["completionEvidence"] =>
   Schema.decodeUnknownSync(CompletionEvidence, strictDecode)(parseJson(value));
-
-const briefFromJson = (value: string): MessageValue =>
-  Schema.decodeUnknownSync(Message, strictDecode)(parseJson(value));
 
 /**
  * Build one projected message from its durable row.
@@ -2734,125 +2585,125 @@ const writeTaskDependsOn = (
 };
 
 /**
- * Pipeline persistence — the representation choice (documented per spec §4).
+ * Task path persistence — the representation choice (documented per spec §4).
  *
  * Re-homing keeps the (canvas_name, node_id, task_id) key untouched: a
- * forward inserts a SUCCESSOR row sharing task_id at the destination node
- * while the source row stays behind as the passage record (state completed,
- * journey exit "forwarded"). A defect-back transitions the current row to
- * rejected and re-opens the previous station's existing row
+ * send-on inserts a SUCCESSOR row sharing task_id at the next board while the
+ * earlier row stays behind as the completed visit record (visit exit
+ * "sent-on"). Send-back transitions the current row to rejected and re-opens
+ * the previous board's existing row
  * (completed → submitted, epoch++). Both moves are expressed purely with the
  * existing immutable-log vocabulary ('task.transition' / 'task.create'), so
  * no schema migration, no row moves, no orphaned child rows (messages,
- * finish, dependencies all stay keyed to their station's row).
+ * finish, dependencies all stay keyed to their board's row).
  *
- * The pipeline task fields (claims / epoch / journey / holdUntil / boarding)
- * persist as one reserved bag under metadata_json["vellum.pipeline"]:
+ * Task-specific fields (rules / epoch / visits / waitUntil / checkResults
+ * / defects / admission / raisedBy) persist as one reserved bag under
+ * metadata_json["vellum.tasks"]:
  * shipped migrations are immutable and work_tasks gains no column, while
  * metadata_json is an existing open JSON column (CHECK: json_valid, no
  * $.claimedBy). writeTask folds the first-class Task fields into the bag on
  * write; taskFromRow lifts them back out, so the bag never leaks into the
  * exposed Task.metadata. Old rows have no bag and decode exactly as before
  * (decode-admits-history). Authoring paths reject the reserved keys so seats
- * cannot forge journeys, tickets, or promotions.
+ * cannot forge visits, check results, or approvals.
  *
- * The requirements this satisfies: stable task id across the whole journey
- * (same task_id at every station row); `tasks show` reconstructs the journey
- * from the live row's append-only journey field; ClaimConflict stays
- * per-passage (claimedBy is a per-row column); same-sink dependsOn is
- * satisfied by local passage completion (the source row completes on
- * forward); no orphan facts (nothing is deleted or renumbered).
+ * The requirements this satisfies: stable task id across the whole path
+ * (same task_id at every board row); `tasks show` reconstructs the visits
+ * from the live row's append-only visits field; ClaimConflict stays
+ * per-board (claimedBy is a per-row column); same-sink dependsOn is
+ * satisfied by local visit completion (the source row completes on
+ * send-on); no orphan facts (nothing is deleted or renumbered).
  */
-const PIPELINE_METADATA_BAG_KEY = "vellum.pipeline";
+const TASK_METADATA_BAG_KEY = "vellum.tasks";
 
-/** Operator promotion marker — also reserved (see @shared/claims). */
-const PIPELINE_ADMITTED_KEY = "vellum.pipeline.admittedEpoch";
+/** Operator approval marker — also reserved (see @shared/rules). */
+const TASK_APPROVAL_KEY = TASK_APPROVED_METADATA_KEY;
 
-/** Authoring input must never smuggle system-stamped pipeline state. */
-const assertNoReservedPipelineMetadata = (
+/** Authoring input must never smuggle system-stamped task state. */
+const assertNoReservedTaskMetadata = (
   metadata: TaskValue["metadata"] | undefined,
 ): void => {
   if (metadata === undefined) return;
   if (
-    Object.prototype.hasOwnProperty.call(metadata, PIPELINE_METADATA_BAG_KEY) ||
-    Object.prototype.hasOwnProperty.call(metadata, PIPELINE_ADMITTED_KEY)
+    Object.prototype.hasOwnProperty.call(metadata, TASK_METADATA_BAG_KEY) ||
+    Object.prototype.hasOwnProperty.call(metadata, TASK_APPROVAL_KEY)
   ) {
     throw authorityError(
       "invalid-transition",
-      "metadata keys under vellum.pipeline are reserved for the work service",
+      "metadata keys under vellum.tasks are reserved for the work service",
     );
   }
 };
 
-type PipelineBag = {
-  readonly claims?: TaskValue["claims"];
+type TaskMetadataBag = {
+  readonly rules?: TaskValue["rules"];
   readonly epoch?: TaskValue["epoch"];
-  readonly journey?: TaskValue["journey"];
+  readonly visits?: TaskValue["visits"];
   readonly defects?: TaskValue["defects"];
-  readonly holdUntil?: TaskValue["holdUntil"];
-  readonly boarding?: TaskValue["boarding"];
+  readonly waitUntil?: TaskValue["waitUntil"];
+  readonly checkResults?: TaskValue["checkResults"];
   readonly admission?: TaskValue["admission"];
   readonly raisedBy?: TaskValue["raisedBy"];
 };
 
-const foldPipelineMetadata = (
+const foldTaskMetadata = (
   task: TaskValue,
 ): TaskValue["metadata"] | undefined => {
-  const bag: PipelineBag = {
-    ...(task.claims !== undefined && task.claims.length > 0
-      ? { claims: task.claims }
+  const bag: TaskMetadataBag = {
+    ...(task.rules !== undefined && task.rules.length > 0
+      ? { rules: task.rules }
       : {}),
     ...(task.epoch !== undefined ? { epoch: task.epoch } : {}),
-    ...(task.journey !== undefined && task.journey.length > 0
-      ? { journey: task.journey }
+    ...(task.visits !== undefined && task.visits.length > 0
+      ? { visits: task.visits }
       : {}),
     ...(task.defects !== undefined && task.defects.length > 0
       ? { defects: task.defects }
       : {}),
-    ...(task.holdUntil !== undefined ? { holdUntil: task.holdUntil } : {}),
-    ...(task.boarding !== undefined && task.boarding.length > 0
-      ? { boarding: task.boarding }
+    ...(task.waitUntil !== undefined ? { waitUntil: task.waitUntil } : {}),
+    ...(task.checkResults !== undefined && task.checkResults.length > 0
+      ? { checkResults: task.checkResults }
       : {}),
     ...(task.admission !== undefined ? { admission: task.admission } : {}),
     ...(task.raisedBy !== undefined ? { raisedBy: task.raisedBy } : {}),
   };
   if (Object.keys(bag).length === 0) return task.metadata;
-  return { ...(task.metadata ?? {}), [PIPELINE_METADATA_BAG_KEY]: bag };
+  return { ...(task.metadata ?? {}), [TASK_METADATA_BAG_KEY]: bag };
 };
 
-const liftPipelineMetadata = (
+const liftTaskMetadata = (
   metadataJson: string | null,
 ): {
   readonly metadata?: TaskValue["metadata"];
-  readonly pipeline?: PipelineBag;
+  readonly taskFields?: TaskMetadataBag;
 } => {
   if (metadataJson === null) return {};
   const parsed = parseJson(metadataJson) as Record<string, unknown>;
-  if (!(PIPELINE_METADATA_BAG_KEY in parsed)) {
+  if (!(TASK_METADATA_BAG_KEY in parsed)) {
     return { metadata: parsed as TaskValue["metadata"] };
   }
-  const { [PIPELINE_METADATA_BAG_KEY]: bag, ...rest } = parsed;
+  const { [TASK_METADATA_BAG_KEY]: bag, ...rest } = parsed;
   return {
     ...(Object.keys(rest).length > 0
       ? { metadata: rest as TaskValue["metadata"] }
       : {}),
     // Constructed, not decoded — the bag was folded from fields the write
     // path strict-decoded on the same row (see messageFromRow doctrine).
-    pipeline: bag as PipelineBag,
+    taskFields: bag as TaskMetadataBag,
   };
 };
 
-/** Apply a policy-computed pipeline patch onto a durable task (see TransitionTaskInput). */
-const applyPipelinePatch = (
+/** Apply a policy-computed patch onto a durable task (see TransitionTaskInput). */
+const applyTaskRecordPatch = (
   task: TaskValue,
-  patch: TaskPipelinePatch | undefined,
+  patch: TaskRecordPatch | undefined,
 ): TaskValue => {
   if (patch === undefined) return task;
   let next: TaskValue = { ...task };
   if (patch.epoch !== undefined) next = { ...next, epoch: patch.epoch };
-  if (patch.journey !== undefined) next = { ...next, journey: patch.journey };
+  if (patch.visits !== undefined) next = { ...next, visits: patch.visits };
   if (patch.defects !== undefined) next = { ...next, defects: patch.defects };
-  if (patch.claims !== undefined) next = { ...next, claims: patch.claims };
   if (patch.raisedBy !== undefined) next = { ...next, raisedBy: patch.raisedBy };
   if (patch.admission !== undefined) {
     if (patch.admission === null) {
@@ -2862,28 +2713,28 @@ const applyPipelinePatch = (
       next = { ...next, admission: patch.admission };
     }
   }
-  if (patch.holdUntil !== undefined) {
-    if (patch.holdUntil === null) {
-      const { holdUntil: _hold, ...rest } = next;
+  if (patch.waitUntil !== undefined) {
+    if (patch.waitUntil === null) {
+      const { waitUntil: _wait, ...rest } = next;
       next = rest;
     } else {
-      next = { ...next, holdUntil: patch.holdUntil };
+      next = { ...next, waitUntil: patch.waitUntil };
     }
   }
-  if (patch.boarding !== undefined) {
-    if (patch.boarding === null) {
-      const { boarding: _boarding, ...rest } = next;
+  if (patch.checkResults !== undefined) {
+    if (patch.checkResults === null) {
+      const { checkResults: _checkResults, ...rest } = next;
       next = rest;
     } else {
-      next = { ...next, boarding: patch.boarding };
+      next = { ...next, checkResults: patch.checkResults };
     }
   }
-  if (patch.admittedEpoch !== undefined) {
+  if (patch.approvedEpoch !== undefined) {
     const metadata: Record<string, unknown> = { ...(next.metadata ?? {}) };
-    if (patch.admittedEpoch === null) {
-      delete metadata[PIPELINE_ADMITTED_KEY];
+    if (patch.approvedEpoch === null) {
+      delete metadata[TASK_APPROVAL_KEY];
     } else {
-      metadata[PIPELINE_ADMITTED_KEY] = patch.admittedEpoch;
+      metadata[TASK_APPROVAL_KEY] = patch.approvedEpoch;
     }
     if (Object.keys(metadata).length > 0) {
       next = { ...next, metadata: metadata as TaskValue["metadata"] };
@@ -2913,8 +2764,8 @@ const taskFromRow = (
   // resolveRequest all decode before commitLocalFact), and state / seat id /
   // JSON columns carry SQL CHECK domains. Field order is the `Task` schema
   // order the decode used to emit.
-  const lifted = liftPipelineMetadata(row.metadata_json);
-  const pipeline = lane === "task" ? lifted.pipeline : undefined;
+  const lifted = liftTaskMetadata(row.metadata_json);
+  const taskFields = lane === "task" ? lifted.taskFields : undefined;
   return {
     id: row.item_id,
     state: row.state as TaskValue["state"],
@@ -2935,23 +2786,23 @@ const taskFromRow = (
     ...(lane === "task" && finish?.finishCriteria !== undefined
       ? { finishCriteria: finish.finishCriteria }
       : {}),
-    ...(pipeline?.claims !== undefined ? { claims: pipeline.claims } : {}),
+    ...(taskFields?.rules !== undefined ? { rules: taskFields.rules } : {}),
     ...(lane === "task" && finish?.completionEvidence !== undefined
       ? { completionEvidence: finish.completionEvidence }
       : {}),
-    ...(pipeline?.epoch !== undefined ? { epoch: pipeline.epoch } : {}),
-    ...(pipeline?.journey !== undefined ? { journey: pipeline.journey } : {}),
-    ...(pipeline?.defects !== undefined ? { defects: pipeline.defects } : {}),
-    ...(pipeline?.holdUntil !== undefined
-      ? { holdUntil: pipeline.holdUntil }
+    ...(taskFields?.epoch !== undefined ? { epoch: taskFields.epoch } : {}),
+    ...(taskFields?.visits !== undefined ? { visits: taskFields.visits } : {}),
+    ...(taskFields?.defects !== undefined ? { defects: taskFields.defects } : {}),
+    ...(taskFields?.waitUntil !== undefined
+      ? { waitUntil: taskFields.waitUntil }
       : {}),
-    ...(pipeline?.boarding !== undefined
-      ? { boarding: pipeline.boarding }
+    ...(taskFields?.checkResults !== undefined
+      ? { checkResults: taskFields.checkResults }
       : {}),
     ...(lifted.metadata !== undefined ? { metadata: lifted.metadata } : {}),
     ...(row.reason === null ? {} : { reason: row.reason }),
-    ...(pipeline?.admission !== undefined ? { admission: pipeline.admission } : {}),
-    ...(pipeline?.raisedBy !== undefined ? { raisedBy: pipeline.raisedBy } : {}),
+    ...(taskFields?.admission !== undefined ? { admission: taskFields.admission } : {}),
+    ...(taskFields?.raisedBy !== undefined ? { raisedBy: taskFields.raisedBy } : {}),
     ...(row.response === null ? {} : { response: row.response }),
   };
 };
@@ -3008,157 +2859,6 @@ const loadLaneTasks = (
         threads.get(row.item_id) ?? [],
       ),
     );
-};
-
-type ProposalPlanningArms = {
-  readonly dependsOn?: ReadonlyArray<string>;
-  readonly finishCriteria?: TaskProposalValue["finishCriteria"];
-};
-
-const proposalFromRow = (
-  row: ProposalRow,
-  arms: ProposalPlanningArms | undefined,
-): TaskProposalValue => ({
-  // Constructed, not decoded — see messageFromRow. proposeTask /
-  // approveProposal / rejectProposal decode the `TaskProposal` before the
-  // row exists. Field order is the `TaskProposal` schema order.
-  id: row.proposal_id,
-  state: row.state as TaskProposalValue["state"],
-  brief: briefFromJson(row.brief_json),
-  proposedBy: {
-    seatId: row.proposer_seat_id as TaskProposalValue["proposedBy"]["seatId"],
-    canvasName: row.proposer_canvas_name,
-    nodeId: row.proposer_node_id,
-  },
-  ...(row.approved_task_id === null
-    ? {}
-    : { approvedTaskId: row.approved_task_id }),
-  ...(arms?.dependsOn !== undefined ? { dependsOn: arms.dependsOn } : {}),
-  ...(arms?.finishCriteria !== undefined
-    ? { finishCriteria: arms.finishCriteria }
-    : {}),
-  ...(row.metadata_json === null
-    ? {}
-    : {
-        metadata: parseJson(
-          row.metadata_json,
-        ) as TaskProposalValue["metadata"],
-      }),
-  ...(row.reason === null ? {} : { reason: row.reason }),
-});
-
-const loadProposals = (
-  reader: StateReader,
-  sink: SinkRefValue,
-): ReadonlyArray<TaskProposalValue> => {
-  const planning = loadProposalPlanningMap(reader, sink);
-  return reader
-    .all<ProposalRow>(
-      `
-        SELECT
-          proposal_id,
-          state,
-          brief_json,
-          proposer_seat_id,
-          proposer_canvas_name,
-          proposer_node_id,
-          approved_task_id,
-          metadata_json,
-          reason
-        FROM work_task_proposals
-        WHERE canvas_name = ? AND node_id = ?
-        ORDER BY created_at, proposal_id
-      `,
-      [sink.canvasName, sink.nodeId],
-    )
-    .map((row) => proposalFromRow(row, planning.get(row.proposal_id)));
-};
-
-const loadProposalPlanningMap = (
-  reader: StateReader,
-  sink: SinkRefValue,
-): Map<
-  string,
-  {
-    readonly dependsOn?: ReadonlyArray<string>;
-    readonly finishCriteria?: TaskProposalValue["finishCriteria"];
-  }
-> => {
-  const rows = reader.all<
-    StateRow & {
-      readonly proposal_id: string;
-      readonly depends_on_json: string | null;
-      readonly finish_criteria_json: string | null;
-    }
-  >(
-    `
-      SELECT proposal_id, depends_on_json, finish_criteria_json
-      FROM work_proposal_planning
-      WHERE canvas_name = ? AND node_id = ?
-    `,
-    [sink.canvasName, sink.nodeId],
-  );
-  const map = new Map<
-    string,
-    {
-      readonly dependsOn?: ReadonlyArray<string>;
-      readonly finishCriteria?: TaskProposalValue["finishCriteria"];
-    }
-  >();
-  for (const row of rows) {
-    map.set(row.proposal_id, {
-      ...(row.depends_on_json === null
-        ? {}
-        : {
-            dependsOn: parseJson(row.depends_on_json) as ReadonlyArray<string>,
-          }),
-      ...(row.finish_criteria_json === null
-        ? {}
-        : { finishCriteria: finishCriteriaFromJson(row.finish_criteria_json) }),
-    });
-  }
-  return map;
-};
-
-const writeProposalPlanning = (
-  writer: StateWriter,
-  sink: SinkRefValue,
-  proposal: TaskProposalValue,
-): void => {
-  const hasDepends =
-    proposal.dependsOn !== undefined && proposal.dependsOn.length > 0;
-  const hasFinish = proposal.finishCriteria !== undefined;
-  if (!hasDepends && !hasFinish) {
-    writer.run(
-      `
-        DELETE FROM work_proposal_planning
-        WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-      `,
-      [sink.canvasName, sink.nodeId, proposal.id],
-    );
-    return;
-  }
-  writer.run(
-    `
-      INSERT INTO work_proposal_planning(
-        canvas_name,
-        node_id,
-        proposal_id,
-        depends_on_json,
-        finish_criteria_json
-      ) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
-        depends_on_json = excluded.depends_on_json,
-        finish_criteria_json = excluded.finish_criteria_json
-    `,
-    [
-      sink.canvasName,
-      sink.nodeId,
-      proposal.id,
-      hasDepends ? canonicalJson(proposal.dependsOn) : null,
-      hasFinish ? canonicalJson(proposal.finishCriteria) : null,
-    ],
-  );
 };
 
 /**
@@ -3939,7 +3639,7 @@ const persistPad = (
  * path is a second full traversal of the same bytes that can only restate what
  * the loaders' types already say. Validation lives at ingress
  * (`Schema.decodeUnknownSync` in createTask / appendMessage / publishArtifact /
- * openTopic / appendPost / proposeTask, plus the SQLite CHECK domains on every
+ * openTopic / appendPost, plus the SQLite CHECK domains on every
  * column those writes land in), not on every read of the world.
  */
 const loadSnapshot = (
@@ -3956,7 +3656,6 @@ const loadSnapshot = (
       items: loadLaneTasks(reader, sink, "task").filter(
         (task) => task.state !== "archived",
       ),
-      proposals: loadProposals(reader, sink),
     },
     requests: { items: loadLaneTasks(reader, sink, "request") },
     messages: { items: loadInbox(reader, sink) },
@@ -3997,7 +3696,6 @@ export type CanvasWorkProjection = {
  */
 export const WORK_SINK_MEMBERSHIP_TABLES: ReadonlyArray<string> = [
   "work_tasks",
-  "work_task_proposals",
   "work_requests",
   "work_messages",
   "work_artifacts",
@@ -4022,7 +3720,7 @@ const SINK_MEMBERSHIP_PROBE_SQL = `
 /**
  * Is this node a sink of the canvas projection right now?
  *
- * Same definition as the sweep, one node at a time: seven PRIMARY KEY-prefix
+ * Same definition as the sweep, one node at a time: six PRIMARY KEY-prefix
  * EXISTS probes in one statement. The in-memory world uses it to decide
  * whether a node it just re-read still belongs in the projection, without
  * paying the whole-canvas sweep.
@@ -4079,8 +3777,6 @@ const boundedRecentOpLabel = (value: string | null): string | undefined => {
 
 const recentOpSummary = (row: RecentSeatOpRow): WorkSeatRecentOpValue["summary"] => {
   switch (row.operation) {
-    case "proposal.create":
-      return { kind: "proposal", proposalId: row.item_id };
     case "task.claim":
       return { kind: "task", taskId: row.item_id };
     case "request.create":
@@ -4131,6 +3827,12 @@ const recentOpSummary = (row: RecentSeatOpRow): WorkSeatRecentOpValue["summary"]
         postId: row.item_id,
         topicId: row.related_id,
       };
+    default:
+      // The corrective startup conversion removes invalid operations before
+      // this read path runs; a surviving row is corrupt and must not project.
+      throw new Error(
+        `recent seat operation ${JSON.stringify(row.operation)} is not projected`,
+      );
   }
 };
 
@@ -4184,47 +3886,11 @@ const recentOpsForSeat = (
             'board.topic.create',
             'board.post.append'
           )
-
-        UNION ALL
-
-        SELECT
-          fact_event.operation,
-          coalesce(command_event.origin_at, fact_event.origin_at) AS origin_at,
-          fact_event.origin_at AS applied_at,
-          fact_event.received_at AS observed_at,
-          fact_event.node_id AS target_node_id,
-          'proposal' AS item_kind,
-          fact_event.proposal_id AS item_id,
-          json_extract(fact_event.record_json, '$.body') AS result_json,
-          fact_event.event_home,
-          fact_event.entity_home,
-          fact_event.seq
-        FROM work_proposal_events AS fact_event
-        LEFT JOIN work_proposal_events AS command_event
-          ON json_extract(fact_event.record_json, '$.basis.kind') = 'command'
-          AND command_event.record_type = 'command'
-          AND command_event.event_home = json_extract(
-            fact_event.record_json,
-            '$.basis.command.route.eventHome'
-          )
-          AND command_event.entity_home = json_extract(
-            fact_event.record_json,
-            '$.basis.command.route.entityHome'
-          )
-          AND command_event.seq = json_extract(
-            fact_event.record_json,
-            '$.basis.command.seq'
-          )
-        WHERE fact_event.record_type = 'fact'
-          AND fact_event.operation = 'proposal.create'
-          AND fact_event.canvas_name = ?
       ),
       attributed AS (
         SELECT
           *,
           CASE operation
-            WHEN 'proposal.create' THEN
-              json_extract(result_json, '$.proposal.proposedBy.seatId')
             WHEN 'task.claim' THEN
               json_extract(result_json, '$.claimedBy.seatId')
             WHEN 'request.create' THEN
@@ -4302,7 +3968,6 @@ const recentOpsForSeat = (
       LIMIT ?
     `,
     [
-      input.canvasName,
       input.canvasName,
       input.actorSeatId,
       normalizeRecentOpsLimit(input.limit),
@@ -4398,114 +4063,6 @@ const selectTaskIdentity = (
     `,
     [sink.canvasName, sink.nodeId, itemId],
   );
-};
-
-const selectProposalIdentity = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  proposalId: string,
-): ProposalIdentityRow | undefined =>
-  reader.get<ProposalIdentityRow>(
-    `
-      SELECT
-        entity_home,
-        fact_event_home,
-        fact_entity_home,
-        fact_seq,
-        state
-      FROM work_task_proposals
-      WHERE canvas_name = ? AND node_id = ? AND proposal_id = ?
-    `,
-    [sink.canvasName, sink.nodeId, proposalId],
-  );
-
-const proposalProjectionWithinWitnessBudget = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  proposalId: string,
-): boolean => {
-  const row = reader.get<StateRow & { readonly bytes: number }>(
-    `
-      SELECT
-        length(CAST(proposal.brief_json AS BLOB)) +
-        COALESCE(length(CAST(proposal.metadata_json AS BLOB)), 0) +
-        COALESCE(length(CAST(planning.depends_on_json AS BLOB)), 0) +
-        COALESCE(length(CAST(planning.finish_criteria_json AS BLOB)), 0)
-          AS bytes
-      FROM work_task_proposals AS proposal
-      LEFT JOIN work_proposal_planning AS planning
-        ON planning.canvas_name = proposal.canvas_name
-        AND planning.node_id = proposal.node_id
-        AND planning.proposal_id = proposal.proposal_id
-      WHERE proposal.canvas_name = ?
-        AND proposal.node_id = ?
-        AND proposal.proposal_id = ?
-    `,
-    [sink.canvasName, sink.nodeId, proposalId],
-  );
-  return (
-    row === undefined || row.bytes <= LEGACY_WITNESS_MAX_ANCESTRY_BYTES
-  );
-};
-
-const loadProposal = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  proposalId: string,
-): {
-  readonly row: ProposalIdentityRow;
-  readonly proposal: TaskProposalValue;
-} | undefined => {
-  const row = selectProposalIdentity(reader, sink, proposalId);
-  if (row === undefined) return undefined;
-  const detail = reader.get<
-    ProposalRow & {
-      readonly depends_on_json: string | null;
-      readonly finish_criteria_json: string | null;
-    }
-  >(
-    `
-      SELECT
-        proposal.proposal_id,
-        proposal.state,
-        proposal.brief_json,
-        proposal.proposer_seat_id,
-        proposal.proposer_canvas_name,
-        proposal.proposer_node_id,
-        proposal.approved_task_id,
-        proposal.metadata_json,
-        proposal.reason,
-        planning.depends_on_json,
-        planning.finish_criteria_json
-      FROM work_task_proposals AS proposal
-      LEFT JOIN work_proposal_planning AS planning
-        ON planning.canvas_name = proposal.canvas_name
-        AND planning.node_id = proposal.node_id
-        AND planning.proposal_id = proposal.proposal_id
-      WHERE proposal.canvas_name = ?
-        AND proposal.node_id = ?
-        AND proposal.proposal_id = ?
-    `,
-    [sink.canvasName, sink.nodeId, proposalId],
-  );
-  if (detail === undefined) return undefined;
-  const arms: ProposalPlanningArms = {
-    ...(detail.depends_on_json === null
-      ? {}
-      : {
-          dependsOn: parseJson(
-            detail.depends_on_json,
-          ) as ReadonlyArray<string>,
-        }),
-    ...(detail.finish_criteria_json === null
-      ? {}
-      : {
-          finishCriteria: finishCriteriaFromJson(
-            detail.finish_criteria_json,
-          ),
-        }),
-  };
-  return { row, proposal: proposalFromRow(detail, arms) };
 };
 
 const loadTask = (
@@ -4748,13 +4305,7 @@ const durableRecordHash = (
   reader.get<{ readonly content_sha256: string }>(
     `
       SELECT content_sha256
-      FROM (
-        SELECT event_home, entity_home, seq, content_sha256
-        FROM work_events
-        UNION ALL
-        SELECT event_home, entity_home, seq, content_sha256
-        FROM work_proposal_events
-      )
+      FROM work_events
       WHERE event_home = ? AND entity_home = ? AND seq = ?
       LIMIT 1
     `,
@@ -4808,23 +4359,6 @@ const loadRecord = (
   reader: StateReader,
   identity: WorkRecordId,
 ): WorkRecordValue | undefined => {
-  const proposal = reader.get<StateRow & { readonly record_json: string }>(
-    `
-      SELECT record_json
-      FROM work_proposal_events
-      WHERE event_home = ? AND entity_home = ? AND seq = ?
-    `,
-    [
-      identity.route.eventHome,
-      identity.route.entityHome,
-      identity.seq,
-    ],
-  );
-  if (proposal !== undefined) {
-    return Schema.decodeUnknownSync(WorkRecord, strictDecode)(
-      parseJson(proposal.record_json),
-    );
-  }
   const common = eventRow(reader, identity);
   if (common === undefined) return undefined;
   const base = {
@@ -4962,60 +4496,6 @@ const loadRecord = (
   });
 };
 
-type StoredProposalEventRow = StateRow & {
-  readonly event_home: string;
-  readonly entity_home: string;
-  readonly seq: string;
-  readonly record_type: string;
-  readonly canvas_name: string;
-  readonly node_id: string;
-  readonly proposal_id: string;
-  readonly operation: string;
-  readonly content_sha256: string;
-  readonly record_json: string | null;
-  readonly record_bytes: number;
-  readonly origin_at: string;
-};
-
-type StoredTaskEventRow = StateRow & {
-  readonly event_home: string;
-  readonly entity_home: string;
-  readonly seq: string;
-  readonly record_type: string;
-  readonly item_kind: string;
-  readonly item_id: string;
-  readonly item_canvas_name: string;
-  readonly item_node_id: string;
-  readonly operation: string;
-  readonly content_sha256: string;
-  readonly origin_at: string;
-};
-
-type ExactProposalCreateFact = WorkFactValue & {
-  readonly body: Extract<
-    WorkFactValue["body"],
-    { readonly operation: "proposal.create" }
-  >;
-};
-
-type ExactTaskCreateFact = WorkFactValue & {
-  readonly body: Extract<
-    WorkFactValue["body"],
-    { readonly operation: "task.create" }
-  >;
-};
-
-const isKnownSchemaDecodeError = (error: unknown): boolean =>
-  error !== null &&
-  typeof error === "object" &&
-  (error as { readonly _tag?: unknown })._tag === "SchemaError";
-
-const isMissingNormalizedWorkVariantError = (error: unknown): boolean =>
-  error instanceof Error &&
-  /^(?:work command|work fact|work disposition) variant row is missing$/.test(
-    error.message,
-  );
-
 const semanticWorkRecord = (
   record: WorkRecordValue,
 ): WorkRecordSemantic => {
@@ -5026,955 +4506,6 @@ const semanticWorkRecord = (
   } = record;
   return semantic as WorkRecordSemantic;
 };
-
-const assertStoredRecordHash = (
-  record: WorkRecordValue,
-  storedContentSha256: string,
-  label: string,
-): void => {
-  const recomputed = workRecordContentSha256(semanticWorkRecord(record));
-  if (
-    storedContentSha256 !== record.contentSha256 ||
-    record.contentSha256 !== recomputed
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      `${label} stored, declared, and recomputed content hashes differ`,
-    );
-  }
-};
-
-const LEGACY_WITNESS_MAX_ANCESTRY_RECORDS = 128;
-const LEGACY_WITNESS_MAX_ANCESTRY_BYTES = 1_048_576;
-const LEGACY_WITNESS_MAX_PAGE_ROWS = 32;
-
-const loadStoredProposalRecord = (
-  row: StoredProposalEventRow,
-): WorkRecordValue => {
-  if (
-    row.record_bytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES ||
-    row.record_json === null
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable proposal event exceeds the exact-inspection byte budget",
-    );
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.record_json) as unknown;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw authorityError(
-        "causal-conflict",
-        "immutable proposal event is not valid JSON",
-      );
-    }
-    throw error;
-  }
-  const decoded = decodeWorkRecord(parsed);
-  if (Result.isFailure(decoded)) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable proposal event violates the admitted Work history schema",
-    );
-  }
-  const record = decoded.success;
-  if (
-    record.id.route.eventHome !== row.event_home ||
-    record.id.route.entityHome !== row.entity_home ||
-    record.id.seq !== row.seq ||
-    record.recordType !== row.record_type ||
-    record.item.kind !== "proposal" ||
-    record.item.itemId !== row.proposal_id ||
-    record.item.sink.canvasName !== row.canvas_name ||
-    record.item.sink.nodeId !== row.node_id ||
-    record.operation !== row.operation ||
-    record.originAt !== row.origin_at
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable proposal event JSON differs from its indexed envelope",
-    );
-  }
-  assertStoredRecordHash(record, row.content_sha256, "immutable proposal event");
-  return record;
-};
-
-const storedWorkRecordBytes = (
-  reader: StateReader,
-  identity: WorkRecordId,
-): number | undefined =>
-  reader.get<StateRow & { readonly bytes: number }>(
-    `
-      SELECT bytes
-      FROM (
-        SELECT length(CAST(record_json AS BLOB)) AS bytes
-        FROM work_proposal_events
-        WHERE event_home = ? AND entity_home = ? AND seq = ?
-
-        UNION ALL
-
-        SELECT
-          length(CAST(event.item_id AS BLOB)) +
-          length(CAST(event.item_canvas_name AS BLOB)) +
-          length(CAST(event.item_node_id AS BLOB)) +
-          length(CAST(event.operation AS BLOB)) +
-          length(CAST(event.origin_at AS BLOB)) +
-          CASE event.record_type
-            WHEN 'command' THEN
-              COALESCE(length(CAST(command.action_json AS BLOB)), 0)
-            WHEN 'fact' THEN
-              COALESCE(length(CAST(fact.result_json AS BLOB)), 0)
-            ELSE
-              COALESCE(length(CAST(disposition.rejection_message AS BLOB)), 0)
-          END AS bytes
-        FROM work_events AS event
-        LEFT JOIN work_commands AS command
-          ON command.event_home = event.event_home
-          AND command.entity_home = event.entity_home
-          AND command.seq = event.seq
-        LEFT JOIN work_facts AS fact
-          ON fact.event_home = event.event_home
-          AND fact.entity_home = event.entity_home
-          AND fact.seq = event.seq
-        LEFT JOIN work_dispositions AS disposition
-          ON disposition.event_home = event.event_home
-          AND disposition.entity_home = event.entity_home
-          AND disposition.seq = event.seq
-        WHERE event.event_home = ?
-          AND event.entity_home = ?
-          AND event.seq = ?
-      )
-      LIMIT 1
-    `,
-    [
-      identity.route.eventHome,
-      identity.route.entityHome,
-      identity.seq,
-      identity.route.eventHome,
-      identity.route.entityHome,
-      identity.seq,
-    ],
-  )?.bytes;
-
-const loadStoredTaskRecord = (
-  reader: StateReader,
-  row: StoredTaskEventRow,
-): WorkRecordValue => {
-  const identity = recordId(
-    row.event_home as InstallationId,
-    row.entity_home as InstallationId,
-    row.seq,
-  );
-  const storedBytes = storedWorkRecordBytes(reader, identity);
-  if (
-    storedBytes === undefined ||
-    storedBytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable Task event exceeds the exact-inspection byte budget",
-    );
-  }
-  let record: WorkRecordValue | undefined;
-  try {
-    record = loadRecord(
-      reader,
-      identity,
-    );
-  } catch (error) {
-    if (
-      error instanceof SyntaxError ||
-      isKnownSchemaDecodeError(error) ||
-      isMissingNormalizedWorkVariantError(error)
-    ) {
-      throw authorityError(
-        "causal-conflict",
-        "immutable Task event violates the admitted Work history schema",
-      );
-    }
-    throw error;
-  }
-  if (record === undefined) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable Task event has no normalized variant",
-    );
-  }
-  if (
-    Buffer.byteLength(canonicalJson(record), "utf8") >
-      LEGACY_WITNESS_MAX_ANCESTRY_BYTES
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable Task event exceeds the exact-inspection byte budget",
-    );
-  }
-  if (
-    record.id.route.eventHome !== row.event_home ||
-    record.id.route.entityHome !== row.entity_home ||
-    record.id.seq !== row.seq ||
-    record.recordType !== row.record_type ||
-    record.item.kind !== row.item_kind ||
-    record.item.itemId !== row.item_id ||
-    record.item.sink.canvasName !== row.item_canvas_name ||
-    record.item.sink.nodeId !== row.item_node_id ||
-    record.operation !== row.operation ||
-    record.originAt !== row.origin_at
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable Task event differs from its indexed envelope",
-    );
-  }
-  assertStoredRecordHash(record, row.content_sha256, "immutable Task event");
-  return record;
-};
-
-const sameWorkItemIdentity = (
-  record: WorkRecordValue,
-  kind: WorkItemRef["kind"],
-  sink: SinkRefValue,
-  itemId: string,
-): boolean =>
-  record.item.kind === kind &&
-  record.item.itemId === itemId &&
-  record.item.sink.canvasName === sink.canvasName &&
-  record.item.sink.nodeId === sink.nodeId;
-
-const normalizeProposalProjectionForWitness = <
-  A extends { readonly dependsOn?: ReadonlyArray<string> },
->(proposal: A): A | Omit<A, "dependsOn"> => {
-  if (proposal.dependsOn === undefined || proposal.dependsOn.length > 0) {
-    return proposal;
-  }
-  const { dependsOn: _emptyDependsOn, ...normalized } = proposal;
-  return normalized;
-};
-
-const normalizeTaskProjectionForWitness = (task: TaskValue): TaskValue => {
-  const normalizedHistory = task.history.map((entry) => ({
-    ...entry,
-    taskId: task.id,
-  }));
-  if (task.dependsOn === undefined || task.dependsOn.length > 0) {
-    return { ...task, history: normalizedHistory };
-  }
-  const { dependsOn: _emptyDependsOn, ...normalized } = task;
-  return { ...normalized, history: normalizedHistory };
-};
-
-const recordDescendsFrom = (
-  reader: StateReader,
-  currentIdentityValue: WorkRecordId,
-  root: WorkRecordId,
-  kind: "proposal" | "task",
-  sink: SinkRefValue,
-  itemId: string,
-  currentProjection: TaskProposalValue | TaskValue,
-): boolean => {
-  const visited = new Set<string>();
-  let inspectedBytes = 0;
-  let cursor: WorkRecordId | null = currentIdentityValue;
-  for (
-    let depth = 0;
-    cursor !== null && depth < LEGACY_WITNESS_MAX_ANCESTRY_RECORDS;
-    depth += 1
-  ) {
-    const key = `${cursor.route.eventHome}\u0000${cursor.route.entityHome}\u0000${cursor.seq}`;
-    if (visited.has(key)) return false;
-    visited.add(key);
-    const atRoot = sameId(cursor, root);
-    if (atRoot && depth > 0) return true;
-
-    const storedBytes = storedWorkRecordBytes(reader, cursor);
-    if (storedBytes === undefined) return false;
-    inspectedBytes += storedBytes;
-    if (inspectedBytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES) return false;
-
-    let record: WorkRecordValue | undefined;
-    try {
-      record = loadRecord(reader, cursor);
-    } catch (error) {
-      if (
-        error instanceof SyntaxError ||
-        isKnownSchemaDecodeError(error) ||
-        isMissingNormalizedWorkVariantError(error)
-      ) {
-        return false;
-      }
-      throw error;
-    }
-    const storedHash = durableRecordHash(reader, cursor);
-    if (
-      record === undefined ||
-      storedHash === undefined ||
-      storedHash !== record.contentSha256 ||
-      workRecordContentSha256(semanticWorkRecord(record)) !==
-        record.contentSha256 ||
-      record.recordType !== "fact" ||
-      !sameWorkItemIdentity(record, kind, sink, itemId)
-    ) {
-      return false;
-    }
-    if (depth === 0) {
-      if (kind === "proposal") {
-        if (!("proposal" in record.body)) return false;
-        const { claims: _recordedClaims, ...recordedProjection } =
-          record.body.proposal;
-        const { claims: _currentClaims, ...current } =
-          currentProjection as TaskProposalValue;
-        if (
-          canonicalJson(
-            normalizeProposalProjectionForWitness(recordedProjection),
-          ) !==
-          canonicalJson(normalizeProposalProjectionForWitness(current))
-        ) {
-          return false;
-        }
-      } else {
-        if (
-          !("task" in record.body) ||
-          canonicalJson(normalizeTaskProjectionForWitness(record.body.task)) !==
-            canonicalJson(
-              normalizeTaskProjectionForWitness(currentProjection as TaskValue),
-            )
-        ) {
-          return false;
-        }
-      }
-    }
-    if (atRoot) return true;
-    if (record.predecessor !== null) {
-      cursor = record.predecessor;
-      continue;
-    }
-    if (
-      kind === "task" &&
-      record.body.operation === "task.claim" &&
-      record.basis.kind === "command"
-    ) {
-      const storedCommandBytes = storedWorkRecordBytes(
-        reader,
-        record.basis.command,
-      );
-      if (storedCommandBytes === undefined) return false;
-      inspectedBytes += storedCommandBytes;
-      if (inspectedBytes > LEGACY_WITNESS_MAX_ANCESTRY_BYTES) return false;
-      let command: WorkRecordValue | undefined;
-      try {
-        command = loadRecord(reader, record.basis.command);
-      } catch (error) {
-        if (
-          error instanceof SyntaxError ||
-          isKnownSchemaDecodeError(error) ||
-          isMissingNormalizedWorkVariantError(error)
-        ) {
-          return false;
-        }
-        throw error;
-      }
-      if (
-        command === undefined ||
-        command.recordType !== "command" ||
-        durableRecordHash(reader, record.basis.command) !==
-          command.contentSha256 ||
-        command.contentSha256 !== record.basis.commandSha256 ||
-        workRecordContentSha256(semanticWorkRecord(command)) !==
-          command.contentSha256 ||
-        command.body.operation !== "task.claim" ||
-        !sameWorkItemIdentity(command, "task", sink, itemId) ||
-        canonicalJson(command.body.sourceTask) !==
-          canonicalJson({
-            ...record.body.task,
-            state: "submitted",
-            claimedBy: undefined,
-          })
-      ) {
-        return false;
-      }
-      cursor = command.body.sourcePredecessor;
-      continue;
-    }
-    return false;
-  }
-  return false;
-};
-
-const exactProposalCreateWitness = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  proposalId: string,
-  expectedHome: InstallationId,
-  current: NonNullable<ReturnType<typeof loadProposal>>,
-): ExactProposalCreateFact => {
-  const rows = reader.all<StoredProposalEventRow>(
-    `
-      SELECT
-        event_home,
-        entity_home,
-        seq,
-        record_type,
-        canvas_name,
-        node_id,
-        proposal_id,
-        operation,
-        content_sha256,
-        length(CAST(record_json AS BLOB)) AS record_bytes,
-        CASE
-          WHEN length(CAST(record_json AS BLOB)) <= ? THEN record_json
-          ELSE NULL
-        END AS record_json,
-        origin_at
-      FROM work_proposal_events
-      WHERE canvas_name = ?
-        AND node_id = ?
-        AND proposal_id = ?
-        AND record_type = 'fact'
-        AND operation = 'proposal.create'
-      ORDER BY event_home, entity_home, length(seq), seq
-      LIMIT 2
-    `,
-    [
-      LEGACY_WITNESS_MAX_ANCESTRY_BYTES,
-      sink.canvasName,
-      sink.nodeId,
-      proposalId,
-    ],
-  );
-  if (rows.length !== 1) {
-    throw authorityError(
-      "causal-conflict",
-      `proposal ${JSON.stringify(proposalId)} has no unique exact immutable create fact`,
-    );
-  }
-  const record = loadStoredProposalRecord(rows[0]!);
-  if (
-    record.id.route.eventHome !== expectedHome ||
-    record.id.route.entityHome !== expectedHome ||
-    record.recordType !== "fact" ||
-    record.body.operation !== "proposal.create" ||
-    record.predecessor !== null ||
-    record.body.proposal.id !== proposalId ||
-    record.body.proposal.state !== "pending"
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "immutable proposal create fact has invalid identity or provenance",
-    );
-  }
-  const fact = record as ExactProposalCreateFact;
-  if (
-    !recordDescendsFrom(
-      reader,
-      currentIdentity(current.row),
-      fact.id,
-      "proposal",
-      sink,
-      proposalId,
-      current.proposal,
-    )
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "current proposal row does not descend from its immutable create fact",
-    );
-  }
-  const {
-    claims: _loggedClaims,
-    state: _loggedState,
-    approvedTaskId: _loggedApprovedTaskId,
-    ...loggedProjection
-  } = fact.body.proposal;
-  const {
-    claims: _currentClaims,
-    state: _currentState,
-    approvedTaskId: _currentApprovedTaskId,
-    ...currentProjection
-  } = current.proposal;
-  if (
-    canonicalJson(normalizeProposalProjectionForWitness(loggedProjection)) !==
-    canonicalJson(normalizeProposalProjectionForWitness(currentProjection))
-  ) {
-    throw authorityError(
-      "causal-conflict",
-      "durable proposal authoring fields differ from its immutable create fact",
-    );
-  }
-  return fact;
-};
-
-const exactProposalTask = (
-  proposalCreate: ExactProposalCreateFact,
-): TaskValue => {
-  try {
-    return materializePendingProposal({
-      proposal: proposalCreate.body.proposal,
-    }).task;
-  } catch (error) {
-    if (isKnownSchemaDecodeError(error)) {
-      throw authorityError(
-        "invalid-transition",
-        "immutable proposal cannot produce its exact schema-valid stable Task",
-      );
-    }
-    throw error;
-  }
-};
-
-const assertExactProposalTask = (
-  proposalCreate: ExactProposalCreateFact,
-  task: TaskValue,
-): TaskValue => {
-  const expected = exactProposalTask(proposalCreate);
-  if (canonicalJson(task) !== canonicalJson(expected)) {
-    throw authorityError(
-      "invalid-transition",
-      `proposal ${JSON.stringify(proposalCreate.body.proposal.id)} approval must preserve the exact stable Task identity and every authoring field without runtime stamps`,
-    );
-  }
-  return expected;
-};
-
-const loadTaskCreateWitnessRows = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  taskId: string,
-): ReadonlyArray<StoredTaskEventRow> =>
-  reader.all<StoredTaskEventRow>(
-    `
-      SELECT
-        event.event_home,
-        event.entity_home,
-        event.seq,
-        event.record_type,
-        event.item_kind,
-        event.item_id,
-        event.item_canvas_name,
-        event.item_node_id,
-        event.operation,
-        event.content_sha256,
-        event.origin_at
-      FROM work_events AS event
-      WHERE event.item_kind = 'task'
-        AND event.item_id = ?
-        AND event.item_canvas_name = ?
-        AND event.item_node_id = ?
-        AND event.record_type = 'fact'
-        AND event.operation = 'task.create'
-      ORDER BY event.event_home, event.entity_home, length(event.seq), event.seq
-      LIMIT 2
-    `,
-    [taskId, sink.canvasName, sink.nodeId],
-  );
-
-const exactTaskCreateWitness = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  expectedTask: TaskValue,
-  localInstallationId: InstallationId,
-  proposalCreate: ExactProposalCreateFact,
-  current: NonNullable<ReturnType<typeof loadTask>>,
-  rows = loadTaskCreateWitnessRows(reader, sink, expectedTask.id),
-): ExactTaskCreateFact => {
-  if (rows.length !== 1) {
-    throw authorityError(
-      "identity-conflict",
-      `task ${JSON.stringify(expectedTask.id)} collision has no unique immutable create fact`,
-    );
-  }
-  const row = rows[0]!;
-  if (
-    row.event_home !== localInstallationId ||
-    row.entity_home !== localInstallationId
-  ) {
-    throw authorityError(
-      "identity-conflict",
-      "colliding Task create fact is not homed on the local Command Center route",
-    );
-  }
-  const record = loadStoredTaskRecord(reader, row);
-  if (
-    record.recordType !== "fact" ||
-    record.body.operation !== "task.create" ||
-    record.predecessor !== null ||
-    record.basis.kind !== "authorial-intent" ||
-    record.id.route.eventHome !== localInstallationId ||
-    record.id.route.entityHome !== localInstallationId ||
-    canonicalJson(record.body.task) !== canonicalJson(expectedTask) ||
-    BigInt(record.id.seq) <= BigInt(proposalCreate.id.seq)
-  ) {
-    throw authorityError(
-      "identity-conflict",
-      "colliding Task create fact does not match reconstructed identity, home, ordering, or proposal provenance",
-    );
-  }
-  const fact = record as ExactTaskCreateFact;
-  if (
-    current.row.entity_home !== localInstallationId ||
-    current.row.fact_entity_home !== localInstallationId ||
-    !recordDescendsFrom(
-      reader,
-      currentIdentity(current.row),
-      fact.id,
-      "task",
-      sink,
-      expectedTask.id,
-      current.task,
-    )
-  ) {
-    throw authorityError(
-      "identity-conflict",
-      "current Task row does not descend from the exact immutable create fact",
-    );
-  }
-  return fact;
-};
-
-type ExactLegacyMaterializationInspection =
-  | {
-      readonly status: "missing";
-      readonly proposalState: TaskProposalValue["state"];
-      readonly materialization: ReturnType<typeof materializePendingProposal>;
-      readonly proposalCreate: ExactProposalCreateFact;
-    }
-  | {
-      readonly status: "verified";
-      readonly proposalState: TaskProposalValue["state"];
-      readonly materialization: ReturnType<typeof materializePendingProposal>;
-      readonly proposalCreate: ExactProposalCreateFact;
-      readonly taskCreate: ExactTaskCreateFact;
-    }
-  | {
-      readonly status: "invalid";
-      readonly proposalState?: TaskProposalValue["state"];
-      readonly dependsOn?: ReadonlyArray<string>;
-      readonly diagnostic: LegacyProposalMaterializationDiagnostic;
-    };
-
-const inspectionDiagnostic = (
-  code: LegacyProposalMaterializationDiagnostic["code"],
-  fallback: string,
-  error?: unknown,
-): LegacyProposalMaterializationDiagnostic => ({
-  code,
-  message:
-    error instanceof Error && error.message.trim().length > 0
-      ? error.message
-      : fallback,
-  ...(error instanceof WorkAuthorityError
-    ? { authorityReason: error.reason }
-    : {}),
-});
-
-const knownInspectionError = (error: unknown): boolean =>
-  error instanceof WorkAuthorityError ||
-  error instanceof SyntaxError ||
-  isKnownSchemaDecodeError(error);
-
-/**
- * The only legacy proposal -> Task materialization inspector. Both the write
- * path and the read witness index call this exact function, so collision,
- * hash, provenance, and descent decisions cannot drift.
- */
-const inspectExactLegacyMaterialization = (
-  reader: StateReader,
-  input: {
-    readonly sink: SinkRefValue;
-    readonly proposalId: string;
-    readonly localInstallationId: InstallationId;
-  },
-): ExactLegacyMaterializationInspection => {
-  let current: NonNullable<ReturnType<typeof loadProposal>>;
-  try {
-    if (
-      !proposalProjectionWithinWitnessBudget(
-        reader,
-        input.sink,
-        input.proposalId,
-      )
-    ) {
-      throw authorityError(
-        "causal-conflict",
-        "durable proposal projection exceeds the exact-inspection byte budget",
-      );
-    }
-    const loaded = loadProposal(reader, input.sink, input.proposalId);
-    if (loaded === undefined) {
-      return {
-        status: "invalid",
-        diagnostic: inspectionDiagnostic(
-          "proposal-missing",
-          `proposal ${JSON.stringify(input.proposalId)} does not exist at the exact sink`,
-        ),
-      };
-    }
-    current = loaded;
-    Schema.decodeUnknownSync(TaskProposal, strictDecode)(current.proposal);
-  } catch (error) {
-    if (!knownInspectionError(error)) throw error;
-    return {
-      status: "invalid",
-      diagnostic: inspectionDiagnostic(
-        "proposal-create-witness-invalid",
-        "durable proposal violates the current proposal schema",
-        error,
-      ),
-    };
-  }
-
-  const proposalState = current.proposal.state;
-  const dependsOn = current.proposal.dependsOn;
-  if (
-    current.row.entity_home !== input.localInstallationId ||
-    current.row.fact_event_home !== input.localInstallationId ||
-    current.row.fact_entity_home !== input.localInstallationId
-  ) {
-    return {
-      status: "invalid",
-      proposalState,
-      ...(dependsOn === undefined ? {} : { dependsOn }),
-      diagnostic: inspectionDiagnostic(
-        "proposal-home-mismatch",
-        `proposal ${JSON.stringify(input.proposalId)} is not homed in the local Command Center fact lane`,
-      ),
-    };
-  }
-
-  let proposalCreate: ExactProposalCreateFact;
-  let materialization: ReturnType<typeof materializePendingProposal>;
-  try {
-    proposalCreate = exactProposalCreateWitness(
-      reader,
-      input.sink,
-      input.proposalId,
-      input.localInstallationId,
-      current,
-    );
-    materialization = materializePendingProposal({
-      proposal: proposalCreate.body.proposal,
-    });
-  } catch (error) {
-    if (!knownInspectionError(error)) throw error;
-    const projectionDrift =
-      error instanceof WorkAuthorityError &&
-      error.message.includes("authoring fields differ");
-    return {
-      status: "invalid",
-      proposalState,
-      ...(dependsOn === undefined ? {} : { dependsOn }),
-      diagnostic: inspectionDiagnostic(
-        projectionDrift
-          ? "proposal-projection-drift"
-          : "proposal-create-witness-invalid",
-        "durable proposal has no exact immutable create witness",
-        error,
-      ),
-    };
-  }
-
-  const exactDependsOn = materialization.task.dependsOn;
-  let taskRows: ReadonlyArray<StoredTaskEventRow>;
-  let existing: ReturnType<typeof loadTask>;
-  try {
-    taskRows = loadTaskCreateWitnessRows(
-      reader,
-      input.sink,
-      materialization.task.id,
-    );
-    existing = loadTask(
-      reader,
-      "task",
-      input.sink,
-      materialization.task.id,
-    );
-    if (existing !== undefined) {
-      Schema.decodeUnknownSync(Task, strictDecode)(existing.task);
-    }
-  } catch (error) {
-    if (!knownInspectionError(error)) throw error;
-    return {
-      status: "invalid",
-      proposalState,
-      ...(exactDependsOn === undefined ? {} : { dependsOn: exactDependsOn }),
-      diagnostic: inspectionDiagnostic(
-        "task-collision",
-        "colliding durable Task violates the current Task schema",
-        error,
-      ),
-    };
-  }
-
-  if (existing === undefined) {
-    if (taskRows.length !== 0) {
-      return {
-        status: "invalid",
-        proposalState,
-        ...(exactDependsOn === undefined ? {} : { dependsOn: exactDependsOn }),
-        diagnostic: inspectionDiagnostic(
-          "task-collision",
-          `task ${JSON.stringify(materialization.task.id)} has an orphan immutable create fact without a current Task`,
-        ),
-      };
-    }
-    return {
-      status: "missing",
-      proposalState,
-      materialization,
-      proposalCreate,
-    };
-  }
-
-  try {
-    const taskCreate = exactTaskCreateWitness(
-      reader,
-      input.sink,
-      materialization.task,
-      input.localInstallationId,
-      proposalCreate,
-      existing,
-      taskRows,
-    );
-    return {
-      status: "verified",
-      proposalState,
-      materialization,
-      proposalCreate,
-      taskCreate,
-    };
-  } catch (error) {
-    if (!knownInspectionError(error)) throw error;
-    return {
-      status: "invalid",
-      proposalState,
-      ...(exactDependsOn === undefined ? {} : { dependsOn: exactDependsOn }),
-      diagnostic: inspectionDiagnostic(
-        "task-create-witness-invalid",
-        "colliding Task has no exact immutable create witness",
-        error,
-      ),
-    };
-  }
-};
-
-const assertTaskCreateProposalGate = (
-  reader: StateReader,
-  sink: SinkRefValue,
-  task: TaskValue,
-): void => {
-  const proposal = loadProposal(reader, sink, task.id);
-  if (proposal === undefined) return;
-  if (
-    proposal.proposal.state !== "approved" ||
-    proposal.proposal.approvedTaskId !== task.id
-  ) {
-    throw authorityError(
-      "identity-conflict",
-      `task ${JSON.stringify(task.id)} cannot be created beside an unresolved or denied legacy proposal`,
-    );
-  }
-  const proposalCreate = exactProposalCreateWitness(
-    reader,
-    sink,
-    task.id,
-    proposal.row.entity_home as InstallationId,
-    proposal,
-  );
-  assertExactProposalTask(proposalCreate, task);
-};
-
-
-const assertNoRejectedLegacyApprovalPair = (
-  reader: StateReader,
-  command: WorkCommandValue,
-  task: TaskValue,
-): void => {
-  const sequenceValue = BigInt(command.id.seq);
-  if (sequenceValue <= 1n) return;
-  const previousSequence = String(sequenceValue - 1n);
-  const approvalRow = reader.get<StoredProposalEventRow>(
-    `
-      SELECT
-        event_home,
-        entity_home,
-        seq,
-        record_type,
-        canvas_name,
-        node_id,
-        proposal_id,
-        operation,
-        content_sha256,
-        record_json,
-        origin_at
-      FROM work_proposal_events
-      WHERE event_home = ?
-        AND entity_home = ?
-        AND seq = ?
-        AND record_type = 'command'
-        AND operation = 'proposal.approve'
-    `,
-    [
-      command.id.route.eventHome,
-      command.id.route.entityHome,
-      previousSequence,
-    ],
-  );
-  if (approvalRow === undefined) return;
-  const approval = loadStoredProposalRecord(approvalRow);
-  if (
-    approval.recordType !== "command" ||
-    approval.body.operation !== "proposal.approve" ||
-    approval.body.task.id !== task.id ||
-    canonicalJson(approval.body.task) !== canonicalJson(task) ||
-    approval.item.sink.canvasName !== command.item.sink.canvasName ||
-    approval.item.sink.nodeId !== command.item.sink.nodeId
-  ) {
-    return;
-  }
-  const dispositionRows = reader.all<StoredProposalEventRow>(
-    `
-      SELECT
-        event_home,
-        entity_home,
-        seq,
-        record_type,
-        canvas_name,
-        node_id,
-        proposal_id,
-        operation,
-        content_sha256,
-        record_json,
-        origin_at
-      FROM work_proposal_events
-      WHERE record_type = 'disposition'
-        AND operation = 'proposal.approve'
-        AND json_extract(record_json, '$.body.status') = 'rejected'
-        AND json_extract(record_json, '$.body.command.route.eventHome') = ?
-        AND json_extract(record_json, '$.body.command.route.entityHome') = ?
-        AND json_extract(record_json, '$.body.command.seq') = ?
-    `,
-    [
-      approval.id.route.eventHome,
-      approval.id.route.entityHome,
-      approval.id.seq,
-    ],
-  );
-  const denied = dispositionRows.some((row) => {
-    const disposition = loadStoredProposalRecord(row);
-    return disposition.recordType === "disposition" &&
-      disposition.body.status === "rejected" &&
-      sameId(disposition.body.command, approval.id) &&
-      disposition.body.commandSha256 === approval.contentSha256;
-  });
-  if (denied) {
-    throw authorityError(
-      "causal-conflict",
-      "task.create is the orphaning half of a denied retired proposal approval pair",
-    );
-  }
-};
-
 
 const writeTaskMessages = (
   writer: StateWriter,
@@ -6128,9 +4659,9 @@ const writeTask = (
       `,
       [sink.canvasName, sink.nodeId, task.id],
     )?.created_at ?? fact.originAt;
-  // Pipeline fields fold into the metadata bag on write; taskFromRow lifts
-  // them back into first-class Task fields (see PIPELINE_METADATA_BAG_KEY).
-  const metadata = foldPipelineMetadata(task);
+  // Task-specific fields fold into the metadata bag on write; taskFromRow
+  // lifts them back into first-class Task fields (see TASK_METADATA_BAG_KEY).
+  const metadata = foldTaskMetadata(task);
   const common = [
     sink.canvasName,
     sink.nodeId,
@@ -6500,98 +5031,12 @@ const writeDelivery = (
   );
 };
 
-const writeProposal = (
-  writer: StateWriter,
-  sink: SinkRefValue,
-  proposal: TaskProposalValue,
-  fact: WorkFactValue,
-  receivedAt: DisplayTimestampValue,
-): void => {
-  writer.run(
-    `
-      INSERT INTO work_task_proposals(
-        canvas_name,
-        node_id,
-        proposal_id,
-        entity_home,
-        fact_event_home,
-        fact_entity_home,
-        fact_seq,
-        state,
-        brief_json,
-        proposer_seat_id,
-        proposer_canvas_name,
-        proposer_node_id,
-        approved_task_id,
-        metadata_json,
-        reason,
-        created_at,
-        updated_at,
-        origin_at,
-        received_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(canvas_name, node_id, proposal_id) DO UPDATE SET
-        fact_event_home = excluded.fact_event_home,
-        fact_entity_home = excluded.fact_entity_home,
-        fact_seq = excluded.fact_seq,
-        state = excluded.state,
-        approved_task_id = excluded.approved_task_id,
-        updated_at = excluded.updated_at,
-        origin_at = excluded.origin_at,
-        received_at = excluded.received_at
-    `,
-    [
-      sink.canvasName,
-      sink.nodeId,
-      proposal.id,
-      fact.id.route.entityHome,
-      fact.id.route.eventHome,
-      fact.id.route.entityHome,
-      fact.id.seq,
-      proposal.state,
-      canonicalJson(proposal.brief),
-      proposal.proposedBy.seatId,
-      proposal.proposedBy.canvasName,
-      proposal.proposedBy.nodeId,
-      proposal.approvedTaskId ?? null,
-      proposal.metadata === undefined
-        ? null
-        : canonicalJson(proposal.metadata),
-      proposal.reason ?? null,
-      fact.originAt,
-      fact.originAt,
-      fact.originAt,
-      receivedAt,
-    ],
-  );
-  writeProposalPlanning(writer, sink, proposal);
-};
-
 const materializeFact = (
   writer: StateWriter,
   fact: WorkFactValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
   switch (fact.body.operation) {
-    case "proposal.create":
-      writeProposal(
-        writer,
-        fact.item.sink,
-        fact.body.proposal,
-        fact,
-        receivedAt,
-      );
-      return;
-    case "proposal.approve":
-    case "proposal.reject":
-      writeProposal(
-        writer,
-        fact.item.sink,
-        fact.body.proposal,
-        fact,
-        receivedAt,
-      );
-      return;
     case "task.create":
     case "task.describe":
     case "task.transition":
@@ -7041,7 +5486,7 @@ const commitLocalFact = <A>(
     case "task.describe":
     case "task.transition":
     case "task.claim":
-      assertCanonicalHoldUntil(input.body.task);
+      assertCanonicalWaitUntil(input.body.task);
       break;
     default:
       break;
@@ -7071,7 +5516,6 @@ const predecessorForAction = (
   action: Exclude<WorkActionValue, { readonly operation: "task.claim" }>,
 ): WorkRecordId | null => {
   switch (action.operation) {
-    case "proposal.create":
     case "task.create":
     case "request.create":
     case "message.append":
@@ -7081,21 +5525,6 @@ const predecessorForAction = (
     case "board.post.append":
     case "pad.patch":
       return null;
-    case "proposal.approve":
-    case "proposal.reject": {
-      const current = selectProposalIdentity(
-        writer,
-        commandItem.sink,
-        commandItem.itemId,
-      );
-      if (current === undefined) {
-        throw authorityError(
-          "missing-entity",
-          `proposal "${commandItem.itemId}" does not exist`,
-        );
-      }
-      return currentIdentity(current);
-    }
     case "task.describe":
     case "task.transition": {
       const current = selectTaskIdentity(
@@ -7158,132 +5587,8 @@ const resultForCommand = (
     );
   }
   switch (action.operation) {
-    case "proposal.create": {
-      if (
-        selectProposalIdentity(
-          writer,
-          command.item.sink,
-          command.item.itemId,
-        ) !== undefined
-      ) {
-        throw authorityError(
-          "identity-conflict",
-          `proposal "${command.item.itemId}" already exists`,
-        );
-      }
-      if ((action.proposal.dependsOn?.length ?? 0) > 0) {
-        assertDependenciesFromAuthorization(
-          writer,
-          command.item.sink,
-          action.proposal.id,
-          action.proposal.dependsOn,
-          taskDependencyScope,
-        );
-      }
-      return {
-        body: {
-          operation: "proposal.create",
-          proposal: action.proposal,
-        },
-      };
-    }
-    case "proposal.approve": {
-      const current = loadProposal(
-        writer,
-        command.item.sink,
-        action.proposalId,
-      );
-      assertCurrentPredecessor(
-        current?.row,
-        command.predecessor,
-        `proposal "${action.proposalId}"`,
-      );
-      if (
-        command.item.itemId !== action.proposalId ||
-        current!.proposal.state !== "pending"
-      ) {
-        throw authorityError(
-          "invalid-transition",
-          `proposal "${action.proposalId}" is not the exact pending command item`,
-        );
-      }
-      const proposalCreate = exactProposalCreateWitness(
-        writer,
-        command.item.sink,
-        action.proposalId,
-        current!.row.entity_home as InstallationId,
-        current!,
-      );
-      const expectedTask = assertExactProposalTask(
-        proposalCreate,
-        action.task,
-      );
-      assertCanonicalHoldUntil(expectedTask);
-      if (
-        selectTaskIdentity(
-          writer,
-          "task",
-          command.item.sink,
-          expectedTask.id,
-        ) !== undefined
-      ) {
-        throw authorityError(
-          "identity-conflict",
-          `stable Task ${JSON.stringify(expectedTask.id)} already exists`,
-        );
-      }
-      assertDependenciesFromAuthorization(
-        writer,
-        command.item.sink,
-        expectedTask.id,
-        expectedTask.dependsOn,
-        taskDependencyScope,
-      );
-      throw authorityError(
-        "invalid-transition",
-        "retired remote proposal approval cannot atomically materialize its stable Task under Station protocol 1",
-      );
-    }
-
-    case "proposal.reject": {
-      const current = loadProposal(
-        writer,
-        command.item.sink,
-        action.proposalId,
-      );
-      assertCurrentPredecessor(
-        current?.row,
-        command.predecessor,
-        `proposal "${action.proposalId}"`,
-      );
-      if (current!.proposal.state !== "pending") {
-        throw authorityError(
-          "invalid-transition",
-          `proposal "${action.proposalId}" is not pending`,
-        );
-      }
-      return {
-        body: {
-          operation: "proposal.reject",
-          proposal: {
-            ...current!.proposal,
-            state: "rejected",
-          },
-        },
-      };
-    }
     case "task.create": {
-      assertCanonicalHoldUntil(action.task);
-      assertTaskCreateProposalGate(
-        writer,
-        command.item.sink,
-        action.task,
-      );
-      assertNoRejectedLegacyApprovalPair(
-        writer,
-        command,
-        action.task,
-      );
+      assertCanonicalWaitUntil(action.task);
       if (action.task.id !== command.item.itemId) {
         throw authorityError(
           "identity-conflict",
@@ -7435,7 +5740,7 @@ const resultForCommand = (
       }
     }
     case "task.claim": {
-      assertCanonicalHoldUntil(action.sourceTask);
+      assertCanonicalWaitUntil(action.sourceTask);
       authorizedDependencyCapability(
         writer,
         command.item.sink,
@@ -7759,53 +6064,6 @@ const priorCommandOutcome = (
   reader: StateReader,
   command: WorkCommandValue,
 ): ReadonlyArray<WorkRecordValue> => {
-  if (command.item.kind === "proposal") {
-    const rows = reader
-      .all<StateRow & { readonly record_json: string }>(
-        `
-          SELECT record_json
-          FROM work_proposal_events
-          WHERE (
-            record_type = 'fact'
-            AND json_extract(
-              record_json,
-              '$.basis.command.route.eventHome'
-            ) = ?
-            AND json_extract(
-              record_json,
-              '$.basis.command.route.entityHome'
-            ) = ?
-            AND json_extract(record_json, '$.basis.command.seq') = ?
-          ) OR (
-            record_type = 'disposition'
-            AND json_extract(
-              record_json,
-              '$.body.command.route.eventHome'
-            ) = ?
-            AND json_extract(
-              record_json,
-              '$.body.command.route.entityHome'
-            ) = ?
-            AND json_extract(record_json, '$.body.command.seq') = ?
-          )
-          ORDER BY length(seq), seq
-        `,
-        [
-          command.id.route.eventHome,
-          command.id.route.entityHome,
-          command.id.seq,
-          command.id.route.eventHome,
-          command.id.route.entityHome,
-          command.id.seq,
-        ],
-      )
-      .map((entry) =>
-        Schema.decodeUnknownSync(WorkRecord, strictDecode)(
-          parseJson(entry.record_json),
-        )
-      );
-    return rows;
-  }
   const row = reader.get<
     StateRow & {
       readonly event_home: string;
@@ -7876,12 +6134,6 @@ const resolvePending = (
   disposition: WorkDispositionValue,
   receivedAt: DisplayTimestampValue,
 ): void => {
-  const command = loadRecord(writer, disposition.body.command);
-  const pendingTable =
-    command?.recordType === "command" &&
-    command.item.kind === "proposal"
-      ? "work_pending_proposal_commands"
-      : "work_pending_commands";
   const pending = writer.get<
     StateRow & {
       readonly resolution_status: string | null;
@@ -7896,7 +6148,7 @@ const resolvePending = (
         resolution_event_home,
         resolution_entity_home,
         resolution_seq
-      FROM ${pendingTable}
+      FROM work_pending_commands
       WHERE event_home = ? AND entity_home = ? AND seq = ?
     `,
     [
@@ -7927,7 +6179,7 @@ const resolvePending = (
   }
   writer.run(
     `
-      UPDATE ${pendingTable}
+      UPDATE work_pending_commands
       SET
         resolution_status = ?,
         resolution_event_home = ?,
@@ -8103,21 +6355,7 @@ const exactPendingCommandForFact = (
 ): WorkCommandValue | undefined => {
   if (fact.basis.kind !== "command") return undefined;
   const command = loadRecord(reader, fact.basis.command);
-  const storedCommandHash =
-    command?.item.kind === "proposal"
-      ? reader.get<StateRow & { readonly content_sha256: string }>(
-          `
-            SELECT content_sha256
-            FROM work_proposal_events
-            WHERE event_home = ? AND entity_home = ? AND seq = ?
-          `,
-          [
-            fact.basis.command.route.eventHome,
-            fact.basis.command.route.entityHome,
-            fact.basis.command.seq,
-          ],
-        )?.content_sha256
-      : command?.contentSha256;
+  const storedCommandHash = command?.contentSha256;
   if (
     command?.recordType !== "command" ||
     storedCommandHash !== command.contentSha256 ||
@@ -8136,11 +6374,7 @@ const exactPendingCommandForFact = (
   >(
     `
       SELECT resolution_event_home
-      FROM ${
-        command.item.kind === "proposal"
-          ? "work_pending_proposal_commands"
-          : "work_pending_commands"
-      }
+      FROM work_pending_commands
       WHERE event_home = ?
         AND entity_home = ?
         AND seq = ?
@@ -8157,46 +6391,22 @@ const exactPendingCommandForFact = (
   ) {
     return undefined;
   }
-  const priorFact =
-    command.item.kind === "proposal"
-      ? reader.get<StateRow>(
-          `
-            SELECT 1
-            FROM work_proposal_events
-            WHERE record_type = 'fact'
-              AND json_extract(
-                record_json,
-                '$.basis.command.route.eventHome'
-              ) = ?
-              AND json_extract(
-                record_json,
-                '$.basis.command.route.entityHome'
-              ) = ?
-              AND json_extract(record_json, '$.basis.command.seq') = ?
-            LIMIT 1
-          `,
-          [
-            command.id.route.eventHome,
-            command.id.route.entityHome,
-            command.id.seq,
-          ],
-        )
-      : reader.get<StateRow>(
-          `
-            SELECT 1
-            FROM work_facts
-            WHERE basis_kind = 'command'
-              AND basis_command_event_home = ?
-              AND basis_command_entity_home = ?
-              AND basis_command_seq = ?
-            LIMIT 1
-          `,
-          [
-            command.id.route.eventHome,
-            command.id.route.entityHome,
-            command.id.seq,
-          ],
-        );
+  const priorFact = reader.get<StateRow>(
+    `
+      SELECT 1
+      FROM work_facts
+      WHERE basis_kind = 'command'
+        AND basis_command_event_home = ?
+        AND basis_command_entity_home = ?
+        AND basis_command_seq = ?
+      LIMIT 1
+    `,
+    [
+      command.id.route.eventHome,
+      command.id.route.entityHome,
+      command.id.seq,
+    ],
+  );
   return priorFact === undefined ? command : undefined;
 };
 
@@ -8216,44 +6426,6 @@ const assertCorrelatedCommandFact = (
   }
   const action = command.body;
   switch (action.operation) {
-    case "proposal.create":
-      if (
-        fact.body.operation !== "proposal.create" ||
-        canonicalJson(fact.body.proposal) !==
-          canonicalJson(action.proposal)
-      ) {
-        throw authorityError(
-          "causal-conflict",
-          "proposal creation fact differs from the exact pending command",
-        );
-      }
-      return;
-    case "proposal.approve":
-      if (
-        fact.body.operation !== "proposal.approve" ||
-        fact.body.proposal.id !== action.proposalId ||
-        fact.body.proposal.state !== "approved" ||
-        fact.body.proposal.approvedTaskId !== action.task.id ||
-        canonicalJson(fact.body.task) !== canonicalJson(action.task)
-      ) {
-        throw authorityError(
-          "causal-conflict",
-          "proposal approval fact differs from the exact pending command",
-        );
-      }
-      return;
-    case "proposal.reject":
-      if (
-        fact.body.operation !== "proposal.reject" ||
-        fact.body.proposal.id !== action.proposalId ||
-        fact.body.proposal.state !== "rejected"
-      ) {
-        throw authorityError(
-          "causal-conflict",
-          "proposal rejection fact differs from the exact pending command",
-        );
-      }
-      return;
     case "task.create":
       if (
         fact.body.operation !== "task.create" ||
@@ -8565,119 +6737,8 @@ const validateIncomingFact = (
     );
   }
   switch (fact.body.operation) {
-    case "proposal.create": {
-      if (fact.body.proposal.state !== "pending") {
-        throw authorityError(
-          "invalid-transition",
-          "proposal.create fact must contain a pending proposal",
-        );
-      }
-      if (
-        selectProposalIdentity(
-          writer,
-          fact.item.sink,
-          fact.item.itemId,
-        ) !== undefined
-      ) {
-        throw authorityError(
-          "identity-conflict",
-          `proposal "${fact.item.itemId}" already exists`,
-        );
-      }
-      if ((fact.body.proposal.dependsOn?.length ?? 0) > 0) {
-        assertFactDependencies(
-          fact.body.proposal.id,
-          fact.body.proposal.dependsOn,
-        );
-      }
-      return;
-    }
-    case "proposal.approve": {
-      const current = loadProposal(
-        writer,
-        fact.item.sink,
-        fact.item.itemId,
-      );
-      assertCurrentPredecessor(
-        current?.row,
-        fact.predecessor,
-        `proposal "${fact.item.itemId}"`,
-      );
-      if (
-        current!.row.entity_home !== sender ||
-        current!.proposal.state !== "pending"
-      ) {
-        throw authorityError(
-          "invalid-transition",
-          "proposal approval fact does not target the exact pending home",
-        );
-      }
-      const proposalCreate = exactProposalCreateWitness(
-        writer,
-        fact.item.sink,
-        fact.item.itemId,
-        sender,
-        current!,
-      );
-      const expectedTask = assertExactProposalTask(
-        proposalCreate,
-        fact.body.task,
-      );
-      const expectedProposal: TaskProposalValue = {
-        ...proposalCreate.body.proposal,
-        state: "approved",
-        approvedTaskId: expectedTask.id,
-      };
-      if (
-        canonicalJson(fact.body.proposal) !==
-          canonicalJson(expectedProposal)
-      ) {
-        throw authorityError(
-          "invalid-transition",
-          "proposal approval fact changed immutable proposal authoring fields",
-        );
-      }
-      assertFactDependencies(expectedTask.id, expectedTask.dependsOn);
-      throw authorityError(
-        "invalid-transition",
-        "retired proposal approval fact cannot atomically materialize its stable Task under Station protocol 1",
-      );
-    }
-
-    case "proposal.reject": {
-      const current = loadProposal(
-        writer,
-        fact.item.sink,
-        fact.item.itemId,
-      );
-      assertCurrentPredecessor(
-        current?.row,
-        fact.predecessor,
-        `proposal "${fact.item.itemId}"`,
-      );
-      if (
-        current!.row.entity_home !== sender ||
-        current!.proposal.state !== "pending" ||
-        fact.body.proposal.state !== "rejected" ||
-        canonicalJson({
-          ...current!.proposal,
-          state: "rejected",
-        }) !== canonicalJson(fact.body.proposal)
-      ) {
-        throw authorityError(
-          "invalid-transition",
-          "proposal rejection fact must reject the exact pending proposal",
-        );
-      }
-      return;
-    }
     case "task.create": {
-      assertCanonicalHoldUntil(fact.body.task);
-      assertTaskCreateProposalGate(
-        writer,
-        fact.item.sink,
-        fact.body.task,
-      );
+      assertCanonicalWaitUntil(fact.body.task);
       if (
         fact.item.itemId !== fact.body.task.id ||
         fact.body.task.state !== "submitted" ||
@@ -8708,7 +6769,7 @@ const validateIncomingFact = (
       return;
     }
     case "task.claim": {
-      assertCanonicalHoldUntil(fact.body.task);
+      assertCanonicalWaitUntil(fact.body.task);
       authorizeFactDependencies(fact.body.task.dependsOn);
       const crossesHome = fact.body.previousHome !== sender;
       if (crossesHome) {
@@ -8802,7 +6863,7 @@ const validateIncomingFact = (
       return;
     }
     case "task.describe": {
-      assertCanonicalHoldUntil(fact.body.task);
+      assertCanonicalWaitUntil(fact.body.task);
       const current = loadTask(
         writer,
         "task",
@@ -8836,7 +6897,7 @@ const validateIncomingFact = (
       return;
     }
     case "task.transition": {
-      assertCanonicalHoldUntil(fact.body.task);
+      assertCanonicalWaitUntil(fact.body.task);
       const current = loadTask(
         writer,
         "task",
@@ -9369,21 +7430,11 @@ export interface WorkRepositoryShape {
       readonly limit?: number;
     }) => Effect.Effect<WorkSeatRecentOpsFeed, WorkRepositoryError>;
     readonly itemHome: (
-      lane: "task" | "proposal" | "request",
+      lane: "task" | "request",
       canvasName: string,
       nodeId: string,
       itemId: string,
     ) => Effect.Effect<InstallationId | undefined, WorkRepositoryError>;
-    /**
-     * Batched exact legacy witnesses across every proposal state. The opaque
-     * cursor advances past every visited row, including invalid collisions.
-     */
-    readonly legacyProposalMaterializationWitnessPage: (
-      input: ReadLegacyProposalMaterializationWitnessPageInput,
-    ) => Effect.Effect<
-      LegacyProposalMaterializationWitnessPage,
-      RepositoryFailure
-    >;
     readonly hasAcceptedDelivery: (
       sink: SinkRefValue,
       deliveryId: string,
@@ -9399,27 +7450,6 @@ export interface WorkRepositoryShape {
     readonly createTask: (
       input: CreateTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
-    readonly persistUnadmittedTask: (
-      input: PersistUnadmittedTaskInput,
-    ) => Effect.Effect<PersistUnadmittedTaskResult, RepositoryFailure>;
-    readonly createProposal: (
-      input: CreateProposalInput,
-    ) => Effect.Effect<
-      LocalFactResult<TaskProposalValue>,
-      RepositoryFailure
-    >;
-    readonly approveProposal: (
-      input: ApproveProposalInput,
-    ) => Effect.Effect<
-      LocalFactResult<ProposalApprovalValue>,
-      RepositoryFailure
-    >;
-    readonly rejectProposal: (
-      input: RejectProposalInput,
-    ) => Effect.Effect<
-      LocalFactResult<TaskProposalValue>,
-      RepositoryFailure
-    >;
     readonly describeTask: (
       input: DescribeTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
@@ -9429,24 +7459,28 @@ export interface WorkRepositoryShape {
     readonly claimLocalTask: (
       input: ClaimLocalTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
-    /** Pipeline forward: complete here + re-home submitted at the destination. */
-    readonly forwardTask: (
-      input: ForwardTaskInput,
-    ) => Effect.Effect<LocalFactResult<ForwardTaskValue>, RepositoryFailure>;
-    /** Pipeline defect-back: reject here + re-open the previous passage row. */
-    readonly defectBackTask: (
-      input: DefectBackTaskInput,
+    /** Send on: complete here + re-home submitted at the next board. */
+    readonly sendTaskOn: (
+      input: SendOnTaskInput,
+    ) => Effect.Effect<LocalFactResult<SendOnTaskValue>, RepositoryFailure>;
+    /** Send back: reject here + re-open the previous visit row. */
+    readonly sendTaskBack: (
+      input: SendBackTaskInput,
     ) => Effect.Effect<
-      LocalFactResult<DefectBackTaskValue>,
+      LocalFactResult<SendBackTaskValue>,
       RepositoryFailure
     >;
-    /** Operator promotion of an operator-gated arrival (epoch-scoped stamp). */
+    /**
+     * Approve a task waiting at an `approval` board: epoch-scoped operator
+     * stamp at metadata["vellum.tasks.approvedEpoch"] (same-state
+     * task.transition fact).
+     */
     readonly promoteTask: (
       input: PromoteTaskInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
-    /** Stamp boarding tickets from seat-submitted check runs (system-only). */
-    readonly stampBoarding: (
-      input: StampBoardingInput,
+    /** Record seat-submitted check runs as current-epoch CheckResults. */
+    readonly recordCheckResults: (
+      input: RecordCheckResultsInput,
     ) => Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure>;
     readonly createRequest: (
       input: CreateRequestInput,
@@ -9508,9 +7542,6 @@ export interface WorkRepositoryShape {
     readonly enqueueRemoteCommand: (
       input: EnqueueRemoteCommandInput,
     ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
-    readonly enqueueRemoteProposalApproval: (
-      input: EnqueueRemoteProposalApprovalInput,
-    ) => Effect.Effect<WorkCommandValue, RepositoryFailure>;
     readonly recordsAfter: (
       input: RecordsAfterInput,
     ) => Effect.Effect<ReadonlyArray<WorkRecordValue>, WorkRepositoryError>;
@@ -9521,12 +7552,6 @@ export interface WorkRepositoryShape {
     readonly acceptRecords: (
       input: AcceptRecordsInput,
     ) => Effect.Effect<AcceptRecordsResult, ReplicationFailure>;
-    /** Process-local epoch for exact legacy proposal/Task reconciliation. */
-    readonly legacyProposalMaterializationEpoch: () => number;
-    /** Only proposal create/approve/reject and task.create commits publish here. */
-    readonly subscribeLegacyProposalMaterializationChanges: (
-      listener: () => void,
-    ) => () => void;
     readonly subscribeChanges: (
       listener: (canvasName: string, nodeId: string) => void,
     ) => () => void;
@@ -9543,26 +7568,6 @@ export const WorkRepositoryLive = Layer.effect(
     const state = yield* StateEngine;
     const listeners = new Set<
       (canvasName: string, nodeId: string) => void
-    >();
-    const legacyMaterializationListeners = new Set<() => void>();
-    let legacyMaterializationEpoch = 0;
-    const notifyLegacyMaterializationChange = (): void => {
-      legacyMaterializationEpoch += 1;
-      for (const listener of legacyMaterializationListeners) {
-        try {
-          listener();
-        } catch (error) {
-          console.error(
-            "[work] legacy proposal materialization listener failed:",
-            error,
-          );
-        }
-      }
-    };
-    type LegacyWitnessCursorData = LegacyProposalMaterializationKey;
-    const legacyWitnessCursors = new WeakMap<
-      object,
-      LegacyWitnessCursorData
     >();
 
     const notify = (sink: SinkRefValue): void => {
@@ -9621,174 +7626,25 @@ export const WorkRepositoryLive = Layer.effect(
         );
 
     const itemHome = (
-      lane: "task" | "proposal" | "request",
+      lane: "task" | "request",
       canvasName: string,
       nodeId: string,
       itemId: string,
     ): Effect.Effect<InstallationId | undefined, WorkRepositoryError> =>
       state
         .read("work.itemHome", (reader) =>
-          (lane === "proposal"
-            ? selectProposalIdentity(
-                reader,
-                { canvasName, nodeId },
-                itemId,
-              )
-            : selectTaskIdentity(
-                reader,
-                lane,
-                { canvasName, nodeId },
-                itemId,
-              ))?.entity_home as InstallationId | undefined,
+          selectTaskIdentity(
+            reader,
+            lane,
+            { canvasName, nodeId },
+            itemId,
+          )?.entity_home as InstallationId | undefined,
         )
         .pipe(
           Effect.mapError((error) =>
             toRepositoryError("work.itemHome", error),
           ),
         );
-
-    const legacyProposalMaterializationWitnessPage = (
-      input: ReadLegacyProposalMaterializationWitnessPageInput,
-    ): Effect.Effect<
-      LegacyProposalMaterializationWitnessPage,
-      RepositoryFailure
-    > => {
-      const limit =
-        Number.isSafeInteger(input.limit) && input.limit > 0
-          ? Math.min(input.limit, LEGACY_WITNESS_MAX_PAGE_ROWS)
-          : LEGACY_WITNESS_MAX_PAGE_ROWS;
-      let after: LegacyWitnessCursorData | undefined;
-      if (input.after !== undefined) {
-        after = legacyWitnessCursors.get(input.after as object);
-        if (after === undefined) {
-          return Effect.fail(
-            authorityError(
-              "authority-mismatch",
-              "legacy proposal witness cursor is not valid for this repository process",
-            ),
-          );
-        }
-      }
-
-      return state.read(
-        "work.legacyProposalMaterializationWitnessPage",
-        (reader): LegacyProposalMaterializationWitnessPage => {
-          const authority = canonicalLocalWorkAuthority(reader);
-          if (authority.role !== "command-center") {
-            throw authorityError(
-              "authority-mismatch",
-              "legacy pending proposal witnesses are available only at Command Center",
-            );
-          }
-          const rows = reader.all<
-            StateRow & {
-              readonly canvas_name: string;
-              readonly node_id: string;
-              readonly proposal_id: string;
-              readonly state: TaskProposalValue["state"];
-            }
-          >(
-            after === undefined
-              ? `
-                  SELECT canvas_name, node_id, proposal_id, state
-                  FROM work_task_proposals
-                  ORDER BY canvas_name, node_id, proposal_id
-                  LIMIT ?
-                `
-              : `
-                  SELECT canvas_name, node_id, proposal_id, state
-                  FROM work_task_proposals
-                  WHERE canvas_name > ?
-                    OR (canvas_name = ? AND node_id > ?)
-                    OR (
-                      canvas_name = ?
-                      AND node_id = ?
-                      AND proposal_id > ?
-                    )
-                  ORDER BY canvas_name, node_id, proposal_id
-                  LIMIT ?
-                `,
-            after === undefined
-              ? [limit]
-              : [
-                  after.canvasName,
-                  after.canvasName,
-                  after.nodeId,
-                  after.canvasName,
-                  after.nodeId,
-                  after.proposalId,
-                  limit,
-                ],
-          );
-          const visited = rows;
-          const witnesses = visited.map(
-            (row): LegacyProposalMaterializationWitness => {
-              const key: LegacyProposalMaterializationKey = {
-                canvasName: row.canvas_name,
-                nodeId: row.node_id,
-                proposalId: row.proposal_id,
-              };
-              const inspection = inspectExactLegacyMaterialization(reader, {
-                sink: {
-                  canvasName: row.canvas_name,
-                  nodeId: row.node_id,
-                },
-                proposalId: row.proposal_id,
-                localInstallationId: authority.installationId,
-              });
-              if (inspection.status === "invalid") {
-                return {
-                  ...key,
-                  status: "invalid",
-                  proposalState:
-                    inspection.proposalState ?? row.state,
-                  ...(inspection.dependsOn === undefined
-                    ? {}
-                    : { dependsOn: inspection.dependsOn }),
-                  diagnostic: inspection.diagnostic,
-                };
-              }
-              const dependsOn = inspection.materialization.task.dependsOn;
-              if (inspection.status === "missing") {
-                return {
-                  ...key,
-                  status: "missing",
-                  proposalState: inspection.proposalState,
-                  ...(dependsOn === undefined ? {} : { dependsOn }),
-                };
-              }
-              return {
-                ...key,
-                status: "verified",
-                proposalState: inspection.proposalState,
-                ...(dependsOn === undefined ? {} : { dependsOn }),
-                taskId: inspection.materialization.task.id,
-              };
-            },
-          );
-
-          if (rows.length < limit || visited.length === 0) {
-            return { witnesses };
-          }
-          const last = visited[visited.length - 1]!;
-          const cursor = Object.freeze({}) as LegacyProposalMaterializationCursor;
-          legacyWitnessCursors.set(cursor as object, {
-            canvasName: last.canvas_name,
-            nodeId: last.node_id,
-            proposalId: last.proposal_id,
-          });
-          return { witnesses, next: cursor };
-        },
-      ).pipe(
-        Effect.mapError((error) =>
-          unwrapStateFailure(
-            "work.legacyProposalMaterializationWitnessPage",
-            error,
-            WorkAuthorityError as unknown as new (...args: never[]) => WorkAuthorityError,
-          )
-        ),
-      );
-    };
 
     const hasAcceptedDelivery = (
       sink: SinkRefValue,
@@ -9825,20 +7681,10 @@ export const WorkRepositoryLive = Layer.effect(
           ),
         );
 
-    type LegacyMaterializationImpact =
-      | boolean
-      | {
-          readonly taskRefs: ReadonlyArray<{
-            readonly sink: SinkRefValue;
-            readonly taskId: string;
-          }>;
-        };
-
     const transaction = <A>(
       operation: string,
       sink: SinkRefValue,
       body: (writer: StateWriter) => A,
-      legacyMaterializationImpact: LegacyMaterializationImpact = false,
     ): Effect.Effect<A, RepositoryFailure> =>
       state
         .transaction(operation, (writer) => {
@@ -9850,16 +7696,7 @@ export const WorkRepositoryLive = Layer.effect(
             StateRow & { readonly total_changes: number | bigint }
           >("SELECT total_changes() AS total_changes")!.total_changes;
           const changed = BigInt(after) > BigInt(before);
-          const legacyMaterializationChanged =
-            changed &&
-            (legacyMaterializationImpact === true ||
-              (legacyMaterializationImpact !== false &&
-                legacyMaterializationImpact.taskRefs.some(
-                  (ref) =>
-                    selectProposalIdentity(writer, ref.sink, ref.taskId) !==
-                    undefined,
-                )));
-          return { value, changed, legacyMaterializationChanged };
+          return { value, changed };
         })
         .pipe(
           Effect.mapError((error) =>
@@ -9869,13 +7706,10 @@ export const WorkRepositoryLive = Layer.effect(
               WorkAuthorityError as unknown as new (...args: never[]) => WorkAuthorityError,
             ),
           ),
-          Effect.tap(({ changed, legacyMaterializationChanged }) =>
+          Effect.tap(({ changed }) =>
             changed
               ? Effect.sync(() => {
                   notify(sink);
-                  if (legacyMaterializationChanged) {
-                    notifyLegacyMaterializationChange();
-                  }
                 })
               : Effect.void,
           ),
@@ -9904,14 +7738,13 @@ export const WorkRepositoryLive = Layer.effect(
             "task.create requires a submitted unclaimed task",
           );
         }
-        assertNoReservedPipelineMetadata(task.metadata);
-        assertCanonicalHoldUntil(task);
-        assertTaskCreateProposalGate(writer, input.sink, task);
-        if (task.boarding !== undefined) {
-          // Tickets are stamped only by the boarding verb, never authored.
+        assertNoReservedTaskMetadata(task.metadata);
+        assertCanonicalWaitUntil(task);
+        if (task.checkResults !== undefined) {
+          // Check results are stamped only by the check verb, never authored.
           throw authorityError(
             "invalid-transition",
-            "task.create must not carry boarding tickets",
+            "task.create must not carry check results",
           );
         }
         if (
@@ -9947,345 +7780,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      }, true);
-    };
-
-    const persistUnadmittedTask = (
-      input: PersistUnadmittedTaskInput,
-    ): Effect.Effect<PersistUnadmittedTaskResult, RepositoryFailure> => {
-      const originAt = timestamp(undefined);
-      const receivedAt = originAt;
-      return transaction(
-        "work.task.persist-unadmitted",
-        input.sink,
-        (writer): PersistUnadmittedTaskResult => {
-          const invalid = (
-            diagnostic: LegacyProposalMaterializationDiagnostic,
-          ): PersistUnadmittedTaskResult => ({
-            status: "invalid",
-            ...(input.proposalId.length === 0
-              ? {}
-              : { proposalId: input.proposalId }),
-            diagnostic,
-            message: diagnostic.message,
-          });
-
-          const authority = canonicalLocalWorkAuthority(writer);
-          if (authority.role !== "command-center") {
-            return invalid(
-              inspectionDiagnostic(
-                "not-command-center",
-                "legacy pending proposals may be materialized only at Command Center",
-              ),
-            );
-          }
-          if (input.home !== authority.installationId) {
-            return invalid(
-              inspectionDiagnostic(
-                "proposal-home-mismatch",
-                `legacy proposal ${JSON.stringify(input.proposalId)} is not homed on this Command Center`,
-              ),
-            );
-          }
-          try {
-            localDependencyCapability(
-              writer,
-              input.sink,
-              input.basis,
-              undefined,
-              input.dependencyScope,
-            );
-          } catch (error) {
-            if (error instanceof WorkAuthorityError) {
-              return invalid(
-                inspectionDiagnostic(
-                  "intent-mismatch",
-                  "legacy proposal intent basis is no longer current",
-                  error,
-                ),
-              );
-            }
-            throw error;
-          }
-          if (input.proposalId.length === 0) {
-            return invalid(
-              inspectionDiagnostic(
-                "proposal-missing",
-                "legacy materialization has no valid proposal id",
-              ),
-            );
-          }
-
-          const inspection = inspectExactLegacyMaterialization(writer, {
-            sink: input.sink,
-            proposalId: input.proposalId,
-            localInstallationId: authority.installationId,
-          });
-          if (inspection.status === "invalid") {
-            return invalid(inspection.diagnostic);
-          }
-          if (inspection.proposalState !== "pending") {
-            return {
-              status: "no-longer-pending",
-              proposalId: input.proposalId,
-              proposalState: inspection.proposalState,
-            };
-          }
-          if (inspection.status === "verified") {
-            return {
-              status: "already-materialized",
-              taskId: inspection.materialization.task.id,
-            };
-          }
-
-          const task = inspection.materialization.task;
-          try {
-            assertTaskDependenciesInLocalScope(
-              writer,
-              input.sink,
-              input.basis,
-              task.id,
-              task.dependsOn,
-              input.dependencyScope,
-            );
-          } catch (error) {
-            if (error instanceof WorkAuthorityError) {
-              return invalid(
-                inspectionDiagnostic(
-                  "dependency-invalid",
-                  "legacy proposal dependencies are not currently admissible",
-                  error,
-                ),
-              );
-            }
-            throw error;
-          }
-          const result = commitLocalFact(writer, {
-            localInstallationId: authority.installationId,
-            sink: input.sink,
-            basis: input.basis,
-            item: item("task", task.id, input.sink),
-            operation: "task.create",
-            predecessor: null,
-            body: { operation: "task.create", task },
-            value: task,
-            originAt,
-            receivedAt,
-          });
-          return { status: "created", result };
-        },
-        true,
-      );
-    };
-
-    const createProposal = (
-      input: CreateProposalInput,
-    ): Effect.Effect<
-      LocalFactResult<TaskProposalValue>,
-      RepositoryFailure
-    > => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      const proposal = Schema.decodeUnknownSync(
-        TaskProposal,
-        strictDecode,
-      )(input.proposal);
-      return transaction("work.proposal.create", input.sink, (writer) => {
-        const authority = canonicalLocalWorkAuthority(writer);
-        const localInstallationId = authority.installationId;
-        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
-        if (proposal.state !== "pending") {
-          throw authorityError(
-            "invalid-transition",
-            "proposal.create requires a pending proposal",
-          );
-        }
-        assertNoReservedPipelineMetadata(proposal.metadata);
-        if (
-          selectProposalIdentity(writer, input.sink, proposal.id) !==
-            undefined
-        ) {
-          throw authorityError(
-            "identity-conflict",
-            `proposal "${proposal.id}" already exists`,
-          );
-        }
-        if ((proposal.dependsOn?.length ?? 0) > 0) {
-          assertTaskDependenciesInLocalScope(
-            writer,
-            input.sink,
-            input.basis,
-            proposal.id,
-            proposal.dependsOn,
-            input.dependencyScope,
-          );
-        }
-        return commitLocalFact(writer, {
-          localInstallationId,
-          sink: input.sink,
-          basis: input.basis,
-          item: item("proposal", proposal.id, input.sink),
-          operation: "proposal.create",
-          predecessor: null,
-          body: { operation: "proposal.create", proposal },
-          value: proposal,
-          originAt,
-          receivedAt,
-        });
-      }, true);
-    };
-
-    const approveProposal = (
-      input: ApproveProposalInput,
-    ): Effect.Effect<
-      LocalFactResult<ProposalApprovalValue>,
-      RepositoryFailure
-    > => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      const task = Schema.decodeUnknownSync(Task, strictDecode)(input.task);
-      return transaction("work.proposal.approve", input.sink, (writer) => {
-        const authority = canonicalLocalWorkAuthority(writer);
-        if (authority.role !== "command-center") {
-          throw authorityError(
-            "authority-mismatch",
-            "only the Command Center operator may approve proposals",
-          );
-        }
-        assertCurrentIntentBasis(writer, authority, input.sink, input.basis);
-        const current = loadProposal(writer, input.sink, input.proposalId);
-        if (current === undefined) {
-          throw authorityError(
-            "missing-entity",
-            `proposal "${input.proposalId}" does not exist`,
-          );
-        }
-        if (
-          current.row.entity_home !== authority.installationId ||
-          current.proposal.state !== "pending"
-        ) {
-          throw authorityError(
-            "invalid-transition",
-            `proposal "${input.proposalId}" is not locally pending`,
-          );
-        }
-        const inspection = inspectExactLegacyMaterialization(writer, {
-          sink: input.sink,
-          proposalId: input.proposalId,
-          localInstallationId: authority.installationId,
-        });
-        if (inspection.status === "invalid") {
-          throw authorityError(
-            inspection.diagnostic.authorityReason ?? "causal-conflict",
-            inspection.diagnostic.message,
-          );
-        }
-        if (inspection.proposalState !== "pending") {
-          throw authorityError(
-            "invalid-transition",
-            `proposal ${JSON.stringify(input.proposalId)} is no longer pending`,
-          );
-        }
-        const proposalCreate = inspection.proposalCreate;
-        const expectedTask = assertExactProposalTask(proposalCreate, task);
-        const taskAlreadyMaterialized = inspection.status === "verified";
-        assertCanonicalHoldUntil(expectedTask);
-        assertTaskDependenciesInLocalScope(
-          writer,
-          input.sink,
-          input.basis,
-          expectedTask.id,
-          expectedTask.dependsOn,
-          input.dependencyScope,
-        );
-        const proposal: TaskProposalValue = {
-          ...proposalCreate.body.proposal,
-          state: "approved",
-          approvedTaskId: expectedTask.id,
-        };
-        const proposalFact = commitLocalFact(writer, {
-          localInstallationId: authority.installationId,
-          sink: input.sink,
-          basis: input.basis,
-          item: item("proposal", proposal.id, input.sink),
-          operation: "proposal.approve",
-          predecessor: currentIdentity(current.row),
-          body: { operation: "proposal.approve", proposal, task: expectedTask },
-          value: proposal,
-          originAt,
-          receivedAt,
-        });
-        if (!taskAlreadyMaterialized) {
-          commitLocalFact(writer, {
-            localInstallationId: authority.installationId,
-            sink: input.sink,
-            basis: input.basis,
-            item: item("task", expectedTask.id, input.sink),
-            operation: "task.create",
-            predecessor: null,
-            body: { operation: "task.create", task: expectedTask },
-            value: expectedTask,
-            originAt,
-            receivedAt,
-          });
-        }
-        return {
-          value: { proposal, task: expectedTask },
-          record: proposalFact.record,
-          snapshot: loadSnapshot(writer, input.sink),
-        };
-      }, true);
-    };
-
-    const rejectProposal = (
-      input: RejectProposalInput,
-    ): Effect.Effect<
-      LocalFactResult<TaskProposalValue>,
-      RepositoryFailure
-    > => {
-      const originAt = timestamp(input.originAt);
-      const receivedAt = timestamp(input.receivedAt);
-      return transaction("work.proposal.reject", input.sink, (writer) => {
-        const authority = canonicalLocalWorkAuthority(writer);
-        if (authority.role !== "command-center") {
-          throw authorityError(
-            "authority-mismatch",
-            "only the Command Center operator may reject proposals",
-          );
-        }
-        const current = loadProposal(writer, input.sink, input.proposalId);
-        if (current === undefined) {
-          throw authorityError(
-            "missing-entity",
-            `proposal "${input.proposalId}" does not exist`,
-          );
-        }
-        if (
-          current.row.entity_home !== authority.installationId ||
-          current.proposal.state !== "pending"
-        ) {
-          throw authorityError(
-            "invalid-transition",
-            `proposal "${input.proposalId}" is not locally pending`,
-          );
-        }
-        const proposal: TaskProposalValue = {
-          ...current.proposal,
-          state: "rejected",
-        };
-        return commitLocalFact(writer, {
-          localInstallationId: authority.installationId,
-          sink: input.sink,
-          basis: input.basis,
-          item: item("proposal", proposal.id, input.sink),
-          operation: "proposal.reject",
-          predecessor: currentIdentity(current.row),
-          body: { operation: "proposal.reject", proposal },
-          value: proposal,
-          originAt,
-          receivedAt,
-        });
-      }, true);
+      });
     };
 
     const describeTask = (
@@ -10346,7 +7841,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
+      });
     };
 
     const transitionTask = (
@@ -10399,7 +7894,7 @@ export const WorkRepositoryLive = Layer.effect(
         }
         const evidence =
           input.state === "completed"
-            ? carryClaimEvidence(
+            ? normalizeRuleEvidence(
                 normalizeCompletionEvidence(input.completionEvidence),
                 input.completionEvidence,
               )
@@ -10423,9 +7918,9 @@ export const WorkRepositoryLive = Layer.effect(
             );
           }
         }
-        const base = applyPipelinePatch(
+        const base = applyTaskRecordPatch(
           taskWithTransitionState(current.task, input.state),
-          input.pipeline,
+          input.taskPatch,
         );
         const withoutEvidence =
           input.state === "completed"
@@ -10456,7 +7951,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
+      });
     };
 
     const claimLocalTask = (
@@ -10541,38 +8036,38 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
+      });
     };
 
-    const forwardTask = (
-      input: ForwardTaskInput,
-    ): Effect.Effect<LocalFactResult<ForwardTaskValue>, RepositoryFailure> => {
+    const sendTaskOn = (
+      input: SendOnTaskInput,
+    ): Effect.Effect<LocalFactResult<SendOnTaskValue>, RepositoryFailure> => {
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
       const message =
         input.message === undefined
           ? undefined
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
-      const destinationTask = Schema.decodeUnknownSync(Task, strictDecode)(
-        input.destinationTask,
+      const nextTask = Schema.decodeUnknownSync(Task, strictDecode)(
+        input.nextTask,
       );
-      return transaction("work.task.forward", input.sink, (writer) => {
+      return transaction("work.task.send-on", input.sink, (writer) => {
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
-        if (input.destination.canvasName !== input.sink.canvasName) {
+        if (input.next.canvasName !== input.sink.canvasName) {
           throw authorityError(
             "invalid-transition",
-            "task forward stays on one canvas",
+            "sending a task on stays on one canvas",
           );
         }
         if (
-          destinationTask.id !== input.taskId ||
-          destinationTask.state !== "submitted" ||
-          destinationTask.claimedBy !== undefined
+          nextTask.id !== input.taskId ||
+          nextTask.state !== "submitted" ||
+          nextTask.claimedBy !== undefined
         ) {
           throw authorityError(
             "invalid-transition",
-            "forward must re-home the same task as submitted and unclaimed",
+            "send on must re-home the same task as submitted and unclaimed",
           );
         }
         const current = loadTask(writer, "task", input.sink, input.taskId);
@@ -10591,10 +8086,10 @@ export const WorkRepositoryLive = Layer.effect(
         if (!canTransitionTaskState(current.task.state, "completed")) {
           throw authorityError(
             "invalid-transition",
-            `cannot forward task "${input.taskId}" from ${current.task.state}`,
+            `cannot send task "${input.taskId}" on from ${current.task.state}`,
           );
         }
-        const evidence = carryClaimEvidence(
+        const evidence = normalizeRuleEvidence(
           normalizeCompletionEvidence(input.completionEvidence),
           input.completionEvidence,
         );
@@ -10614,13 +8109,13 @@ export const WorkRepositoryLive = Layer.effect(
             `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
           );
         }
-        const source = Schema.decodeUnknownSync(Task, strictDecode)({
+        const completed = Schema.decodeUnknownSync(Task, strictDecode)({
           ...taskWithTransitionState(current.task, "completed"),
           history:
             message === undefined
               ? current.task.history
               : [...current.task.history, message],
-          journey: input.journey,
+          visits: input.visits,
           ...(evidence !== undefined ? { completionEvidence: evidence } : {}),
         });
         const sourceFact = commitLocalFact(writer, {
@@ -10630,30 +8125,30 @@ export const WorkRepositoryLive = Layer.effect(
           item: item("task", input.taskId, input.sink),
           operation: "task.transition",
           predecessor: currentIdentity(current.row),
-          body: { operation: "task.transition", task: source },
-          value: source,
+          body: { operation: "task.transition", task: completed },
+          value: completed,
           originAt,
           receivedAt,
         });
-        // Successor row keyed (canvas, destination node, same task id): fresh
-        // create on a first visit, re-open (rejected → submitted) after a
-        // defect-back cycle. Both use existing immutable-log vocabulary.
+        // Successor row keyed (canvas, next board, same task id): fresh create
+        // on a first visit, re-open (rejected → submitted) after a send-back
+        // cycle. Both use existing immutable-log vocabulary.
         const existing = loadTask(
           writer,
           "task",
-          input.destination,
+          input.next,
           input.taskId,
         );
         if (existing === undefined) {
           commitLocalFact(writer, {
             localInstallationId,
-            sink: input.destination,
+            sink: input.next,
             basis: input.basis,
-            item: item("task", input.taskId, input.destination),
+            item: item("task", input.taskId, input.next),
             operation: "task.create",
             predecessor: null,
-            body: { operation: "task.create", task: destinationTask },
-            value: destinationTask,
+            body: { operation: "task.create", task: nextTask },
+            value: nextTask,
             originAt,
             receivedAt,
           });
@@ -10661,47 +8156,47 @@ export const WorkRepositoryLive = Layer.effect(
           if (existing.row.entity_home !== localInstallationId) {
             throw authorityError(
               "authority-mismatch",
-              "local installation does not own the destination row",
+              "local installation does not own the next board row",
             );
           }
           // "rejected" stays terminal in the generic matrix so no other
-          // caller can resurrect a rejected task in place; the pipeline's
-          // own defect-back re-open of a passage row is authorized here,
-          // locally, on a later forward back through the same station.
+          // caller can resurrect a rejected task in place; the task path's
+          // own send-back re-open of a completed visit row is authorized here,
+          // locally, when the task is later sent on through the same board.
           if (
             existing.task.state !== "rejected" &&
             !canTransitionTaskState(existing.task.state, "submitted")
           ) {
             throw authorityError(
               "invalid-transition",
-              `cannot re-open destination row from ${existing.task.state}`,
+              `cannot re-open next board row from ${existing.task.state}`,
             );
           }
           commitLocalFact(writer, {
             localInstallationId,
-            sink: input.destination,
+            sink: input.next,
             basis: input.basis,
-            item: item("task", input.taskId, input.destination),
+            item: item("task", input.taskId, input.next),
             operation: "task.transition",
             predecessor: currentIdentity(existing.row),
-            body: { operation: "task.transition", task: destinationTask },
-            value: destinationTask,
+            body: { operation: "task.transition", task: nextTask },
+            value: nextTask,
             originAt,
             receivedAt,
           });
         }
         return {
-          value: { source, destination: destinationTask },
+          value: { completed, next: nextTask },
           record: sourceFact.record,
           snapshot: loadSnapshot(writer, input.sink),
         };
-      }, true);
+      });
     };
 
-    const defectBackTask = (
-      input: DefectBackTaskInput,
+    const sendTaskBack = (
+      input: SendBackTaskInput,
     ): Effect.Effect<
-      LocalFactResult<DefectBackTaskValue>,
+      LocalFactResult<SendBackTaskValue>,
       RepositoryFailure
     > => {
       const originAt = timestamp(input.originAt);
@@ -10710,26 +8205,26 @@ export const WorkRepositoryLive = Layer.effect(
         input.message === undefined
           ? undefined
           : Schema.decodeUnknownSync(Message, strictDecode)(input.message);
-      const returnedTask = Schema.decodeUnknownSync(Task, strictDecode)(
-        input.returnedTask,
+      const sentBackTask = Schema.decodeUnknownSync(Task, strictDecode)(
+        input.sentBackTask,
       );
-      return transaction("work.task.defect-back", input.sink, (writer) => {
+      return transaction("work.task.send-back", input.sink, (writer) => {
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
-        if (input.previous.canvasName !== input.sink.canvasName) {
+        if (input.target.canvasName !== input.sink.canvasName) {
           throw authorityError(
             "invalid-transition",
-            "defect-back stays on one canvas",
+            "sending a task back stays on one canvas",
           );
         }
         if (
-          returnedTask.id !== input.taskId ||
-          returnedTask.state !== "submitted" ||
-          returnedTask.claimedBy !== undefined
+          sentBackTask.id !== input.taskId ||
+          sentBackTask.state !== "submitted" ||
+          sentBackTask.claimedBy !== undefined
         ) {
           throw authorityError(
             "invalid-transition",
-            "defect-back must re-home the same task as submitted and unclaimed",
+            "send back must re-home the same task as submitted and unclaimed",
           );
         }
         const current = loadTask(writer, "task", input.sink, input.taskId);
@@ -10748,31 +8243,31 @@ export const WorkRepositoryLive = Layer.effect(
         if (!canTransitionTaskState(current.task.state, "rejected")) {
           throw authorityError(
             "invalid-transition",
-            `cannot defect-back task "${input.taskId}" from ${current.task.state}`,
+            `cannot send task "${input.taskId}" back from ${current.task.state}`,
           );
         }
         const previousRow = loadTask(
           writer,
           "task",
-          input.previous,
+          input.target,
           input.taskId,
         );
         if (previousRow === undefined) {
           throw authorityError(
             "missing-entity",
-            `task "${input.taskId}" has no passage row at "${input.previous.nodeId}"`,
+            `task "${input.taskId}" has no visit row at "${input.target.nodeId}"`,
           );
         }
         if (previousRow.row.entity_home !== localInstallationId) {
           throw authorityError(
             "authority-mismatch",
-            "local installation does not own the previous passage row",
+            "local installation does not own the previous visit row",
           );
         }
         if (!canTransitionTaskState(previousRow.task.state, "submitted")) {
           throw authorityError(
             "invalid-transition",
-            `cannot re-open previous passage row from ${previousRow.task.state}`,
+            `cannot re-open previous visit row from ${previousRow.task.state}`,
           );
         }
         const rejected = Schema.decodeUnknownSync(Task, strictDecode)({
@@ -10785,7 +8280,7 @@ export const WorkRepositoryLive = Layer.effect(
             message === undefined
               ? current.task.history
               : [...current.task.history, message],
-          journey: input.journey,
+          visits: input.visits,
           ...(input.defects !== undefined ? { defects: input.defects } : {}),
         });
         const rejectedFact = commitLocalFact(writer, {
@@ -10802,25 +8297,22 @@ export const WorkRepositoryLive = Layer.effect(
         });
         commitLocalFact(writer, {
           localInstallationId,
-          sink: input.previous,
+          sink: input.target,
           basis: input.basis,
-          item: item("task", input.taskId, input.previous),
+          item: item("task", input.taskId, input.target),
           operation: "task.transition",
           predecessor: currentIdentity(previousRow.row),
-          body: { operation: "task.transition", task: returnedTask },
-          value: returnedTask,
+          body: { operation: "task.transition", task: sentBackTask },
+          value: sentBackTask,
           originAt,
           receivedAt,
         });
         return {
-          value: { rejected, returned: returnedTask },
+          value: { rejected, sentBack: sentBackTask },
           record: rejectedFact.record,
           snapshot: loadSnapshot(writer, input.sink),
         };
-      }, { taskRefs: [
-          { sink: input.sink, taskId: input.taskId },
-          { sink: input.previous, taskId: input.taskId },
-        ] });
+      });
     };
 
     const promoteTask = (
@@ -10833,7 +8325,7 @@ export const WorkRepositoryLive = Layer.effect(
         if (authority.role !== "command-center") {
           throw authorityError(
             "authority-mismatch",
-            "only the Command Center operator may approve arrivals",
+            "only the Command Center operator may approve waiting tasks",
           );
         }
         const current = loadTask(writer, "task", input.sink, input.taskId);
@@ -10855,7 +8347,7 @@ export const WorkRepositoryLive = Layer.effect(
             `cannot promote task "${input.taskId}" in state ${current.task.state}`,
           );
         }
-        // Promotion is a metadata stamp on the arrival, not a state change;
+        // Promotion is an approval stamp on the waiting task, not a state change;
         // it records as a same-state 'task.transition' fact (the closed
         // immutable-log vocabulary has no dedicated word for it).
         const taskWithMessage = input.message === undefined
@@ -10865,8 +8357,8 @@ export const WorkRepositoryLive = Layer.effect(
               history: [...current.task.history, input.message],
             };
         const task = Schema.decodeUnknownSync(Task, strictDecode)(
-          applyPipelinePatch(taskWithMessage, {
-            admittedEpoch: current.task.epoch ?? 0,
+          applyTaskRecordPatch(taskWithMessage, {
+            approvedEpoch: current.task.epoch ?? 0,
           }),
         );
         return commitLocalFact(writer, {
@@ -10881,15 +8373,18 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
+      });
     };
 
-    const stampBoarding = (
-      input: StampBoardingInput,
+    const recordCheckResults = (
+      input: RecordCheckResultsInput,
     ): Effect.Effect<LocalFactResult<TaskValue>, RepositoryFailure> => {
       const originAt = timestamp(input.originAt);
       const receivedAt = timestamp(input.receivedAt);
-      return transaction("work.task.board", input.sink, (writer) => {
+      const results = input.results.map((result) =>
+        Schema.decodeUnknownSync(CheckResult, strictDecode)(result),
+      );
+      return transaction("work.task.check", input.sink, (writer) => {
         const { installationId: localInstallationId } =
           canonicalLocalWorkAuthority(writer);
         const current = loadTask(writer, "task", input.sink, input.taskId);
@@ -10908,31 +8403,32 @@ export const WorkRepositoryLive = Layer.effect(
         if (isTerminalTaskState(current.task.state)) {
           throw authorityError(
             "invalid-transition",
-            `cannot stamp boarding tickets on terminal task "${input.taskId}"`,
+            `cannot record check results on terminal task "${input.taskId}"`,
           );
         }
         // Merge against the row just loaded in this transaction — never a
-        // pre-transaction snapshot — so two concurrent boards (e.g. for two
-        // different destinations) can't clobber each other's tickets:
-        // current-epoch tickets for other checks survive; stale epochs drop
-        // (defect-back staled them for closure accounting).
+        // pre-transaction snapshot — so two concurrent check runs (e.g. for
+        // two different Next boards) can't clobber each other's results:
+        // same-epoch results for other checks survive; stale epochs drop
+        // (send-back staled them for completion accounting).
+        const epoch = results[0]?.epoch;
         const merged = [
-          ...(current.task.boarding ?? []).filter(
-            (ticket) =>
-              ticket.epoch === input.epoch &&
-              !input.tickets.some(
+          ...(current.task.checkResults ?? []).filter(
+            (result) =>
+              result.epoch !== epoch ||
+              results.some(
                 (candidate) =>
-                  candidate.checkId === ticket.checkId &&
-                  candidate.side === ticket.side,
+                  candidate.checkId === result.checkId &&
+                  candidate.side === result.side,
               ),
           ),
-          ...input.tickets,
+          ...results,
         ];
-        // Same-state 'task.transition' fact, like promotion — tickets are a
-        // system stamp, not a state change.
+        // Same-state 'task.transition' fact, like approval — check results
+        // are a system stamp, not a state change.
         const task = Schema.decodeUnknownSync(Task, strictDecode)(
-          applyPipelinePatch(current.task, {
-            boarding: merged.length > 0 ? merged : null,
+          applyTaskRecordPatch(current.task, {
+            checkResults: merged.length > 0 ? merged : null,
           }),
         );
         return commitLocalFact(writer, {
@@ -10947,7 +8443,7 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
-      }, { taskRefs: [{ sink: input.sink, taskId: input.taskId }] });
+      });
     };
 
     const createRequest = (
@@ -11750,14 +9246,8 @@ export const WorkRepositoryLive = Layer.effect(
             WorkAction,
             strictDecode,
           )(input.action);
-          if (action.operation === "proposal.approve") {
-            throw authorityError(
-              "invalid-transition",
-              "remote proposal approval is retired because Station protocol 1 cannot conditionally materialize its stable Task",
-            );
-          }
           if (action.operation === "task.create") {
-            assertCanonicalHoldUntil(action.task);
+            assertCanonicalWaitUntil(action.task);
           }
           if (action.operation === "task.claim") {
             throw authorityError(
@@ -11795,38 +9285,6 @@ export const WorkRepositoryLive = Layer.effect(
       );
     };
 
-    const enqueueRemoteProposalApproval = (
-      input: EnqueueRemoteProposalApprovalInput,
-    ): Effect.Effect<WorkCommandValue, RepositoryFailure> =>
-      transaction(
-        "work.proposal.approve.enqueue",
-        input.sink,
-        (writer) => {
-          const { installationId: localInstallationId } =
-            canonicalLocalWorkAuthority(writer);
-          if (input.targetInstallationId === localInstallationId) {
-            throw authorityError(
-              "target-mismatch",
-              "remote proposal approval target must differ from local installation",
-            );
-          }
-          const action = Schema.decodeUnknownSync(
-            WorkAction,
-            strictDecode,
-          )(input.action);
-          if (action.operation !== "proposal.approve") {
-            throw authorityError(
-              "target-mismatch",
-              "proposal approval enqueue requires proposal.approve",
-            );
-          }
-          throw authorityError(
-            "invalid-transition",
-            "remote proposal approval is retired because Station protocol 1 cannot conditionally materialize its stable Task",
-          );
-        },
-      );
-
     const recordsAfter = (
       input: RecordsAfterInput,
     ): Effect.Effect<ReadonlyArray<WorkRecordValue>, WorkRepositoryError> =>
@@ -11844,12 +9302,7 @@ export const WorkRepositoryLive = Layer.effect(
             .all<StateRow & { readonly seq: string }>(
               `
                 SELECT seq
-                FROM (
-                  SELECT event_home, entity_home, seq FROM work_events
-                  UNION ALL
-                  SELECT event_home, entity_home, seq
-                  FROM work_proposal_events
-                )
+                FROM work_events
                 WHERE event_home = ?
                   AND entity_home = ?
                   AND (
@@ -11914,29 +9367,7 @@ export const WorkRepositoryLive = Layer.effect(
                 resolution_entity_home,
                 resolution_seq,
                 resolved_at
-              FROM (
-                SELECT
-                  event_home,
-                  entity_home,
-                  seq,
-                  resolution_status,
-                  resolution_event_home,
-                  resolution_entity_home,
-                  resolution_seq,
-                  resolved_at
-                FROM work_pending_commands
-                UNION ALL
-                SELECT
-                  event_home,
-                  entity_home,
-                  seq,
-                  resolution_status,
-                  resolution_event_home,
-                  resolution_entity_home,
-                  resolution_seq,
-                  resolved_at
-                FROM work_pending_proposal_commands
-              )
+              FROM work_pending_commands
               ORDER BY
                 event_home,
                 entity_home,
@@ -11983,26 +9414,6 @@ export const WorkRepositoryLive = Layer.effect(
         ),
       );
 
-    const isLegacyMaterializationOperation = (
-      operation: WorkRecordValue["operation"],
-    ): boolean =>
-      operation === "proposal.create" ||
-      operation === "proposal.approve" ||
-      operation === "proposal.reject" ||
-      operation === "task.create";
-
-    const affectsLegacyProposalMaterialization = (
-      writer: StateReader,
-      record: WorkRecordValue,
-    ): boolean =>
-      isLegacyMaterializationOperation(record.operation) ||
-      (record.item.kind === "task" &&
-        selectProposalIdentity(
-          writer,
-          record.item.sink,
-          record.item.itemId,
-        ) !== undefined);
-
     const acceptRecords = (
       input: AcceptRecordsInput,
     ): Effect.Effect<AcceptRecordsResult, ReplicationFailure> => {
@@ -12048,7 +9459,6 @@ export const WorkRepositoryLive = Layer.effect(
           const emitted: WorkRecordValue[] = [];
           const acknowledge: RouteCursorValue[] = [];
           const changed = new Set<string>();
-          let legacyMaterializationChanged = false;
 
           for (const records of routes.values()) {
             records.sort((left, right) =>
@@ -12163,16 +9573,6 @@ export const WorkRepositoryLive = Layer.effect(
                     changed.add(
                       `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
                     );
-                    if (
-                      outcome.some((emittedRecord) =>
-                        affectsLegacyProposalMaterialization(
-                          writer,
-                          emittedRecord,
-                        ),
-                      )
-                    ) {
-                      legacyMaterializationChanged = true;
-                    }
                   } catch (error) {
                     if (!(error instanceof WorkAuthorityError)) throw error;
                     const disposition = rejectCommand(
@@ -12210,9 +9610,6 @@ export const WorkRepositoryLive = Layer.effect(
                   changed.add(
                     `${record.item.sink.canvasName}\u0000${record.item.sink.nodeId}`,
                   );
-                  if (affectsLegacyProposalMaterialization(writer, record)) {
-                    legacyMaterializationChanged = true;
-                  }
                 }
               } else {
                 resolvePending(writer, record, observedAt);
@@ -12279,7 +9676,6 @@ export const WorkRepositoryLive = Layer.effect(
             acknowledge,
             emitted,
             changed: [...changed],
-            legacyMaterializationChanged,
           };
         })
         .pipe(
@@ -12306,14 +9702,10 @@ export const WorkRepositoryLive = Layer.effect(
                   nodeId: key.slice(separator + 1),
                 });
               }
-              if (result.legacyMaterializationChanged) {
-                notifyLegacyMaterializationChange();
-              }
             }),
           ),
           Effect.map(({
             changed: _changed,
-            legacyMaterializationChanged: _legacyMaterializationChanged,
             ...result
           }) => result),
         );
@@ -12324,21 +9716,16 @@ export const WorkRepositoryLive = Layer.effect(
       snapshotsForCanvas: readSnapshotsForCanvas,
       recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
-      legacyProposalMaterializationWitnessPage,
       hasAcceptedDelivery,
       acceptedDeliveryAt,
       createTask,
-      persistUnadmittedTask,
-      createProposal,
-      approveProposal,
-      rejectProposal,
       describeTask,
       transitionTask,
       claimLocalTask,
-      forwardTask,
-      defectBackTask,
+      sendTaskOn,
+      sendTaskBack,
       promoteTask,
-      stampBoarding,
+      recordCheckResults,
       createRequest,
       resolveRequest,
       appendMessage,
@@ -12354,17 +9741,9 @@ export const WorkRepositoryLive = Layer.effect(
       deleteArtifact,
       reserveRemoteTaskClaim,
       enqueueRemoteCommand,
-      enqueueRemoteProposalApproval,
       recordsAfter,
       pendingCommands,
       acceptRecords,
-      legacyProposalMaterializationEpoch: () => legacyMaterializationEpoch,
-      subscribeLegacyProposalMaterializationChanges: (listener) => {
-        legacyMaterializationListeners.add(listener);
-        return () => {
-          legacyMaterializationListeners.delete(listener);
-        };
-      },
       subscribeChanges: (listener) => {
         listeners.add(listener);
         return () => {

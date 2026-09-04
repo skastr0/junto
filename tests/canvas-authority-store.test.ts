@@ -380,7 +380,7 @@ describe("CanvasesService SQLite authority", () => {
     ).toBeUndefined();
   });
 
-  it("keeps the authored sink contract while stripping projected rows", async () => {
+  it("keeps the authored board contract while stripping projected rows", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
     const canvases = await runtime.runPromise(CanvasesService);
@@ -396,10 +396,8 @@ describe("CanvasesService SQLite authority", () => {
               ...node.ether?.tasks,
               items: node.ether?.tasks?.items ?? [],
               contract: {
-                instruction: "review before forwarding",
-                claims: [
-                  { id: "claim-1", text: "cite the source", severity: "hard" as const },
-                ],
+                instructions: "review before sending on",
+                rules: [{ id: "rule-1", text: "cite the source" }],
               },
             },
           },
@@ -411,8 +409,8 @@ describe("CanvasesService SQLite authority", () => {
     const tasks = authority.documents.get("work")?.nodes[0]?.ether?.tasks;
     expect(tasks?.items).toEqual([]);
     expect(tasks?.contract).toEqual({
-      instruction: "review before forwarding",
-      claims: [{ id: "claim-1", text: "cite the source", severity: "hard" }],
+      instructions: "review before sending on",
+      rules: [{ id: "rule-1", text: "cite the source" }],
     });
   });
 

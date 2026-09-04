@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type GroupNode, type TextNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, setSinkContract, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setBoardSettings, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { FlowCycleError } from "../src/shared/flow-graph";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
@@ -80,7 +80,7 @@ const runtimeWindow = {
 (globalThis as unknown as { window: typeof runtimeWindow }).window = runtimeWindow;
 
 /** Access wires require factory roles — geography (plain notes) cannot connect. */
-/** A task sink — the only station a flow hop may name. */
+/** A Tasks node — the only board a flow hop may name. */
 const taskSink = (id: string, x: number): TextNode => ({
   id,
   type: "text",
@@ -773,7 +773,7 @@ describe("renderer graph mutations", () => {
       },
     ];
 
-    it("plans access wires from each agent to the task sink", () => {
+    it("plans access wires from each agent to the Tasks node", () => {
       const plan = planConnectToTarget(["a", "b"], "c", batchNodes, []);
       expect(plan.toAdd.map((c) => ({ from: c.fromNode, to: c.toNode }))).toEqual([
         { from: "a", to: "c" },
@@ -956,7 +956,7 @@ describe("renderer graph mutations", () => {
     loadDoc({ ...doc, edges: [{ id: "edge-1", fromNode: "source", toNode: "target" }] });
     runtimeWindow.confirm = () => false;
 
-    // Delete the task sink (agent seats may use multi-step kill ceremony).
+    // Delete the Tasks node (agent seats may use multi-step kill ceremony).
     deleteNode("target");
     expect(state$.doc.peek().nodes).toHaveLength(2);
     expect(state$.doc.peek().edges).toHaveLength(1);
@@ -967,9 +967,9 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges).toHaveLength(0);
   });
 
-  it("names station and routing impact before deleting a referenced task station", () => {
+  it("names board and routing impact before deleting a referenced Tasks node", () => {
     state$.canvasName.set("mutation-test");
-    const liveTask = (id: string, station: string) => ({
+    const liveTask = (id: string, board: string) => ({
       id,
       state: "working" as const,
       history: [
@@ -980,9 +980,9 @@ describe("renderer graph mutations", () => {
           taskId: id,
         },
       ],
-      journey: [
+      visits: [
         {
-          nodeId: station,
+          board,
           enteredAt: "2026-08-25T12:00:00.000Z",
           epoch: 0,
         },
@@ -1028,9 +1028,9 @@ describe("renderer graph mutations", () => {
       [
         "Delete this node?",
         "“Tasks review” holds 1 live task.",
-        "1 live journey references “Tasks review” as a stop or send-back target.",
-        "“Tasks intake” has 1 live task that will lose “Tasks review” as a forward destination.",
-        "This removes “Tasks intake”’s last forward connection, leaving it with nowhere to forward. Connected edges (1) will also be removed.",
+        "1 live visit references “Tasks review” as a board or send-back target.",
+        "“Tasks intake” has 1 live task that will lose “Tasks review” as its Next board.",
+        "This removes “Tasks intake”’s last Next board, so tasks will complete here. Connected edges (1) will also be removed.",
       ].join("\n"),
     ]);
     expect(state$.doc.peek().nodes).toHaveLength(2);
@@ -1042,7 +1042,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges).toHaveLength(0);
   });
 
-  it("names live routing impact before deleting a task-flow relation", () => {
+  it("names live routing impact before deleting a task-path relation", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -1089,7 +1089,7 @@ describe("renderer graph mutations", () => {
     deleteEdges(["flow"]);
 
     expect(confirms).toEqual([
-      "Delete this relation? “Tasks intake” has 1 live task that will lose “Review” as a forward destination. This removes “Tasks intake”’s last forward connection, leaving it with nowhere to forward.",
+      "Delete this relation? “Tasks intake” has 1 live task that will lose “Tasks review” as its Next board. This removes “Tasks intake”’s last Next board, so tasks will complete here.",
     ]);
     expect(state$.doc.peek().edges).toHaveLength(1);
 
@@ -1638,7 +1638,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
   });
 
-  it("setRegionContract writes claims + rulings and strips an empty bag", () => {
+  it("setRegionContract writes rules + rulings and strips an empty bag", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{ id: "region", type: "group", label: "Law", x: 0, y: 0, width: 400, height: 300 }],
@@ -1646,16 +1646,16 @@ describe("renderer graph mutations", () => {
     });
 
     setRegionContract("region", {
-      claims: [{ id: "c1", text: "no secrets in commits", severity: "hard" }],
+      rules: [{ id: "c1", text: "no secrets in commits" }],
       rulings: [{ id: "r1", text: "ship on green CI only", pinnedAt: "2026-08-20T00:00:00.000Z" }],
     });
     const withContract = state$.doc.peek().nodes[0];
-    expect(withContract?.ether?.region?.contract?.claims).toEqual([
-      { id: "c1", text: "no secrets in commits", severity: "hard" },
+    expect(withContract?.ether?.region?.contract?.rules).toEqual([
+      { id: "c1", text: "no secrets in commits" },
     ]);
     expect(withContract?.ether?.region?.contract?.rulings?.[0]?.text).toBe("ship on green CI only");
 
-    setRegionContract("region", { claims: [], rulings: [] });
+    setRegionContract("region", { rules: [], rulings: [] });
     expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether?.region ?? {}, "contract")).toBe(false);
   });
 
@@ -1665,11 +1665,11 @@ describe("renderer graph mutations", () => {
       nodes: [{ id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 }],
       edges: [],
     });
-    setRegionContract("note", { claims: [{ id: "c1", text: "x", severity: "soft" }] });
+    setRegionContract("note", { rules: [{ id: "c1", text: "x" }] });
     expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
   });
 
-  it("setSinkContract writes and clears a task sink's contract, preserving items", () => {
+  it("setBoardSettings writes and clears a Tasks node's contract, preserving items", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{
@@ -1685,33 +1685,33 @@ describe("renderer graph mutations", () => {
       edges: [],
     });
 
-    setSinkContract("sink", {
-      instruction: "review before forwarding",
-      claims: [{ id: "c1", text: "tests pass", severity: "hard" }],
-      inbound: { admission: "operator-gated" },
+    setBoardSettings("sink", {
+      instructions: "review before sending on",
+      rules: [{ id: "c1", text: "tests pass" }],
+      incoming: { admission: "approval" },
     });
     const withContract = state$.doc.peek().nodes[0];
-    expect(withContract?.ether?.tasks?.contract?.instruction).toBe("review before forwarding");
-    expect(withContract?.ether?.tasks?.contract?.inbound?.admission).toBe("operator-gated");
+    expect(withContract?.ether?.tasks?.contract?.instructions).toBe("review before sending on");
+    expect(withContract?.ether?.tasks?.contract?.incoming?.admission).toBe("approval");
     expect(withContract?.ether?.tasks?.items).toEqual([]);
 
-    setSinkContract("sink", undefined);
+    setBoardSettings("sink", undefined);
     const cleared = state$.doc.peek().nodes[0];
     expect(Object.hasOwn(cleared?.ether?.tasks ?? {}, "contract")).toBe(false);
     expect(cleared?.ether?.tasks?.items).toEqual([]);
   });
 
-  it("setSinkContract ignores nodes that are not a task sink", () => {
+  it("setBoardSettings ignores nodes that are not a Tasks node", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{ id: "agent", type: "text", text: "a", x: 0, y: 0, width: 100, height: 80, ether: { entity: { kind: "agent" } } }],
       edges: [],
     });
-    setSinkContract("agent", { instruction: "should not land" });
+    setBoardSettings("agent", { instructions: "should not land" });
     expect(state$.doc.peek().nodes[0]?.ether?.tasks).toBeUndefined();
   });
 
-  it("pinRuling mints id + pinnedAt and appends without disturbing existing claims", () => {
+  it("pinRuling mints id + pinnedAt and appends without disturbing existing rules", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{
@@ -1722,7 +1722,7 @@ describe("renderer graph mutations", () => {
         y: 0,
         width: 400,
         height: 300,
-        ether: { region: { contract: { claims: [{ id: "c1", text: "x", severity: "soft" }] } } },
+        ether: { region: { contract: { rules: [{ id: "c1", text: "x" }] } } },
       }],
       edges: [],
     });
@@ -1735,8 +1735,8 @@ describe("renderer graph mutations", () => {
     expect(typeof rulings?.[0]?.id).toBe("string");
     expect(rulings?.[0]?.id.length).toBeGreaterThan(0);
     expect(typeof rulings?.[0]?.pinnedAt).toBe("string");
-    expect(state$.doc.peek().nodes[0]?.ether?.region?.contract?.claims).toEqual([
-      { id: "c1", text: "x", severity: "soft" },
+    expect(state$.doc.peek().nodes[0]?.ether?.region?.contract?.rules).toEqual([
+      { id: "c1", text: "x" },
     ]);
   });
 
@@ -1759,7 +1759,7 @@ describe("renderer graph mutations", () => {
 
 });
 
-describe("drawing a pipeline hop", () => {
+describe("drawing a task path hop", () => {
   const padSink = (id: string, x: number): CanvasDoc["nodes"][number] => ({
     id,
     type: "text",

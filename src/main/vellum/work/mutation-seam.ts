@@ -20,8 +20,8 @@
  *   {@link unjournaledWorkMutation} window.
  *
  * The journal append needs no marker call: writing a record row into
- * `work_events` / `work_facts` / `work_commands` / `work_dispositions` /
- * `work_proposal_events` IS the marker. That cannot be forged — those tables
+ * `work_events` / `work_facts` / `work_commands` / `work_dispositions` IS the
+ * marker. That cannot be forged — those tables
  * carry the strictest CHECK constraints and immutability triggers in the
  * schema (`work/state-schema.ts`), so "append a record" means minting a real,
  * hash-witnessed, route-identified record.
@@ -73,7 +73,6 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_facts", "journal"],
     ["work_commands", "journal"],
     ["work_dispositions", "journal"],
-    ["work_proposal_events", "journal"],
     // journal identity allocation
     ["work_event_sequences", "allocation"],
     // the materialized world
@@ -83,8 +82,6 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_task_transitions", "projection"],
     ["work_task_dependencies", "projection"],
     ["work_task_finish", "projection"],
-    ["work_task_proposals", "projection"],
-    ["work_proposal_planning", "projection"],
     ["work_messages", "projection"],
     ["work_artifacts", "projection"],
     ["work_delivery_receipts", "projection"],
@@ -98,7 +95,6 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_pad_pins", "projection"],
     ["work_pad_posts", "projection"],
     ["work_pending_commands", "projection"],
-    ["work_pending_proposal_commands", "projection"],
     // per-principal read positions
     ["work_pad_read_cursors", "cursor"],
     ["work_board_read_cursors", "cursor"],
@@ -483,13 +479,10 @@ export const CANVAS_REVISION_TABLES: ReadonlySet<string> = new Set([
   "work_pad_posts",
   "work_pad_read_cursors",
   "work_pad_shapes",
-  "work_proposal_events",
-  "work_proposal_planning",
   "work_requests",
   "work_task_dependencies",
   "work_task_finish",
   "work_task_messages",
-  "work_task_proposals",
   "work_tasks",
 ]);
 
@@ -506,7 +499,6 @@ const SINK_COLUMNS: ReadonlyMap<
   readonly [canvas: string, node: string]
 > = new Map([
   ["work_events", ["item_canvas_name", "item_node_id"] as const],
-  ["work_proposal_events", ["canvas_name", "node_id"] as const],
   [
     "work_delivery_receipts",
     ["delivered_canvas_name", "delivered_node_id"] as const,
