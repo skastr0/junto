@@ -14,15 +14,21 @@ install_system_packages() {
   done
 
   if [[ "${#missing[@]}" -eq 0 ]]; then
-    printf '[setup] E2E display dependencies already installed\n'
+    printf '[setup] Headless Linux E2E fallback already installed\n'
     return
   fi
 
-  printf '[setup] Installing E2E display dependencies: %s\n' "${missing[*]}"
+  printf '[setup] Installing headless Linux E2E fallback: %s\n' "${missing[*]}"
   sudo apt-get update
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
 }
 
+if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
+  printf '[setup] Amp Desktop supported; native X11/Wayland is preferred when active\n'
+fi
+# Keep Xvfb available for OrbStack, CI, and orb work before the interactive
+# Desktop session starts. Runtime detection in scripts/run-e2e.sh chooses the
+# live desktop first and falls back only when none is available.
 install_system_packages
 
 bun_version="$(sed -n 's/.*"packageManager": "bun@\([^"]*\)".*/\1/p' package.json)"

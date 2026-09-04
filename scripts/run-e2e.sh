@@ -5,6 +5,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd -P)"
 playwright="$repo_root/node_modules/.bin/playwright"
 
+# shellcheck source=scripts/linux-display.sh
+source "$script_dir/linux-display.sh"
+
 if [[ ! -x "$playwright" ]]; then
   printf 'vellum-command: error: Playwright is missing — run .agents/setup\n' >&2
   exit 1
@@ -13,13 +16,17 @@ fi
 cd "$repo_root"
 command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
-if [[ "$(uname -s)" == "Linux" && -z "${DISPLAY:-}" ]]; then
+if [[ "$(uname -s)" == "Linux" ]] && vellum_use_available_desktop; then
+  if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
+    printf 'vellum-command: Electron E2E is using the active Amp Desktop\n' >&2
+    export VELLUM_COMMAND_E2E_SHOW="${VELLUM_COMMAND_E2E_SHOW:-1}"
+  fi
+elif [[ "$(uname -s)" == "Linux" ]]; then
   if ! command -v xvfb-run >/dev/null 2>&1; then
-    printf 'vellum-command: error: Xvfb is required for Linux E2E — run .agents/setup\n' >&2
+    printf 'vellum-command: error: no desktop or Xvfb fallback is available — run .agents/setup\n' >&2
     exit 1
   fi
-  # The isolated framebuffer cannot steal an operator's focus, so let Electron
-  # paint a normal visible window instead of Chromium's throttled hidden path.
+  printf 'vellum-command: Electron E2E is using the headless Xvfb fallback\n' >&2
   export VELLUM_COMMAND_E2E_SHOW="${VELLUM_COMMAND_E2E_SHOW:-1}"
   exec xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
 fi

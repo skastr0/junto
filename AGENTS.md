@@ -290,7 +290,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 
 Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 
-**`verb` is the one authored fact on an edge** — what the relationship *is*. Everything else (ports, assignability, board wake, watch predicates, scheduler fire actions, pipeline flow, scheduler chaining) is **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`) — never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`task --works--> agent`, never the reverse).
+**`verb` is the one authored fact on an edge** — what the relationship *is*. Everything else (ports, claimability, board wake, watch predicates, scheduler fire actions, task-path flow, scheduler chaining) is **compiled** from the verb plus the two endpoint kinds (`src/shared/physics/verbs.ts`, `compileVerb`) — never stored on the edge, never mirrored back. `fromNode` is always the verb's semantic source end, whichever way the operator drew it (`task --works--> agent`, never the reverse).
 
 **The verb table** — at most two verbs per ordered kind pair; a pair absent from the table refuses connect:
 
@@ -304,8 +304,8 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 | agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |
 | agent → page | `navigates` | `browser.automate` |
 | agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the agent's own attention flag |
-| task → agent | `works` | task ports; `assignable: true` — the factory tick's claim selector reads this |
-| task → task | `feeds` | no ports; `flow: true`, DAG-guarded pipeline hop |
+| task → agent | `works` | task ports; `claimable: true` — the factory tick's claim selector reads this |
+| task → task | `feeds` | no ports; `flow: true`, DAG-guarded task-path hop |
 | {task,requests,artifacts,board,pad,page} → relay | `announces` | watch on that sink's own headline event |
 | {relay,clock} → agent | `wakes` \| `flags` | `inject_prompt` \| `set_flag` |
 | {relay,clock} → task | `enqueues` \| `flags` | `enqueue_task` \| `set_flag` |
@@ -361,8 +361,8 @@ absent from the verb table (sink–sink, geography).
 **Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant; it shares the `clock` scheduler row with `cron`/`timer` but has no palette entry.
 
 **Effects (v1):** `enqueue_task` - `set_flag` - `inject_prompt` — the compiled
-facets of `enqueues` / `flags` / `wakes`. Claim assignment stays the factory
-tick (`works`'s compiled `assignable` grant, not an effect). No `relayState`
+facets of `enqueues` / `flags` / `wakes`. Task claiming stays in the factory
+tick (`works`'s compiled `claimable` grant, not an effect). No `relayState`
 cascade — multi-hop stoppage is a **relay** node, `announces` in and an
 effect verb out, only.
 
@@ -423,7 +423,14 @@ The renderer has one visual language with two modes — `dark` (default) and `br
 - **Terminal look** — `src/renderer/lib/terminal-theme.ts` (`VELLUM_XTERM_THEME`, font family/size) is the one xterm theme for every terminal surface.
 - **Overlays** — one backdrop recipe everywhere: `rgba(0,0,0,0.72)` + `blur(2px)`. New single-subject overlays go through `FocusSurface`; panel headers go through `OverlayHeader`.
 
-The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake hermes/codexbar and screenshots them to `test-results/design-audit/` — run it after any visual change and read the frames.
+The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake hermes/codexbar and screenshots them to `test-results/design-audit/` — run it after any visual change and read the frames. Screenshots are disposable test output and must never be committed.
+
+On Linux, `bun run dev` and `scripts/run-e2e.sh` use an existing X11 or
+Wayland session. In Amp orbs they attach to the active orb Desktop even though
+the agent shell does not inherit its display variables. E2E falls back to
+Xvfb only when no desktop is active; retain that path for CI, OrbStack, and
+other headless Linux hosts. This does not change the packaged Node Remote:
+Remote remains deliberately displayless.
 
 ## Structure
 
@@ -504,12 +511,12 @@ Two kinds of migration exist and they never mix:
 Backfill laws (each one broke, or nearly broke, a real release):
 
 - **Immutable logs are immutable to migrations too.** `work_events`,
-  `work_facts`, `work_commands`, `work_dispositions`, `work_proposal_events`
-  are never UPDATEd or DELETEd — not even to "modernize" old payloads. History
-  is served as written; decode paths admit historical shapes
-  (decode-admits-history). Backfills rewrite material projections only. The
-  sole exception is the corrected version-21 Tasks consolidation ruled above;
-  after that cutover there is no historical Tasks decoder.
+  `work_facts`, `work_commands`, and `work_dispositions` are never UPDATEd or
+  DELETEd — not even to "modernize" old payloads. History is served as written;
+  decode paths admit historical shapes (decode-admits-history). Backfills
+  rewrite material projections only. The sole exception is the corrected
+  version-21 Tasks consolidation ruled above; after that cutover there is no
+  historical Tasks decoder.
 - **A backfill never gates boot.** Failure = log it, leave the marker pending,
   retry next boot. The app always opens; a half-done backfill is a deferred
   walk, not a startup error.

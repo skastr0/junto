@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
+  printf '[resume] Amp Desktop supported; GUI commands will attach when its session is active\n'
+fi
 printf '[resume] No runtime services or authentication need reconnecting\n'

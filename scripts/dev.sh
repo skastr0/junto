@@ -14,6 +14,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ISOLATED_HOME="${HOME}/.vellum-command-dev"
 
+# shellcheck source=scripts/linux-display.sh
+source "$ROOT/scripts/linux-display.sh"
+
+if [[ "$(uname -s)" == "Linux" ]] && ! vellum_use_available_desktop; then
+  printf '%s\n' \
+    'vellum-command: error: an interactive X11 or Wayland desktop is required' \
+    'Open the orb Desktop before running the Vellum Command development app.' >&2
+  exit 1
+fi
+
 mkdir -p "${ISOLATED_HOME}"
 
 printf 'vellum-command dev → VELLUM_COMMAND_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
