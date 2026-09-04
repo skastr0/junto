@@ -89,20 +89,31 @@ not durability or input watched by the app.
 Install/update stages and cutovers without a sealed clone preflight.
 Schema evolution runs on normal app open; failures surface in the normal
 startup recovery flow. There is no second database opener for update proofs,
-and the rename itself has no startup data-copy step.
+and the product rename itself has no startup data-copy step. The separately
+ruled Tasks vocabulary consolidation below is the sole startup data rewrite.
 
 **SQLite evolution law:** version 1 is the frozen durable baseline. The current
-source/runtime schema is version 22, selected by `CURRENT_STATE_SCHEMA_VERSION`
+source/runtime schema is version 21, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and reached through the immutable contiguous steps declared in `migrations.ts`.
 The public macOS 0.1.14 package remains historical evidence for schema version
 18; it does not define the current source/runtime head. The frozen `18 → 19`,
 `19 → 20`, and `20 → 21` migrations must never be edited, squashed, renumbered, or reused.
-The next schema change must append `22 → 23`.
+The next schema change must append `21 → 22`.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
 schema edit must increment the current version, append an atomic `N → N+1`
 migration, and prove old rows survive. Shipped migration history is immutable:
 never edit, delete, reorder, or renumber a released step.
+
+**Ruled one-shot Tasks consolidation exception.** Migration `21 → 22` is the
+operator-approved, startup-atomic retirement of the Tasks feature's railway
+vocabulary and proposal-first model. It rewrites every affected mutable row and
+immutable Work payload in place, recomputes every correlated content hash,
+materializes proposal state as canonical Tasks, and removes the retired
+proposal storage. No old Tasks key, codec, table, decoder, dual read/write, or
+fallback survives the successful transaction. This exception applies only to
+that exact migration and vocabulary cutover; the normal evolution and immutable
+history laws continue to govern every other migration.
 
 Routine migrations are **expand → preserve → deprecate**:
 
@@ -475,7 +486,8 @@ Two kinds of migration exist and they never mix:
 1. **Schema evolution** — expand-only DDL steps in
    `src/main/vellum/state/migrations.ts`: versioned (`user_version` N→N+1),
    identity-witnessed, one startup transaction, authorizer-guarded. A schema
-   step adds tables/columns/triggers; it never rewrites rows.
+   step adds tables/columns/triggers; it never rewrites rows. The sole exception
+   is the operator-ruled Tasks vocabulary consolidation in `21 → 22` above.
 2. **Data backfills** — marker-gated, idempotent walks that run after
    StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
    markers live in install-ops (`install-ops.db` / `InstallOpsService`), not
@@ -488,7 +500,9 @@ Backfill laws (each one broke, or nearly broke, a real release):
   `work_facts`, `work_commands`, `work_dispositions`, `work_proposal_events`
   are never UPDATEd or DELETEd — not even to "modernize" old payloads. History
   is served as written; decode paths admit historical shapes
-  (decode-admits-history). Backfills rewrite material projections only.
+  (decode-admits-history). Backfills rewrite material projections only. The
+  sole exception is the complete `21 → 22` Tasks consolidation ruled above;
+  after that cutover there is no historical Tasks decoder.
 - **A backfill never gates boot.** Failure = log it, leave the marker pending,
   retry next boot. The app always opens; a half-done backfill is a deferred
   walk, not a startup error.

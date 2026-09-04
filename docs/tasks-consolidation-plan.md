@@ -6,8 +6,9 @@ docs to that vocabulary in one direction with no compatibility layers.
 
 Doctrine applied: consolidation first. Old paths are presumed wrong until
 proven necessary. The only exception classes admitted are destructive state
-transitions (the SQLite migration) and unavoidable runtime skew (Station
-protocol peers, out of scope here because no wire codec changes).
+transitions (the SQLite migration). Remote Stations are unreleased, so the
+cutover replaces their protocol-1 Work codec in place and deliberately does
+not support a pre-cutover Remote binary.
 
 ## Canonical end state
 
@@ -39,8 +40,7 @@ approval", and the second creation mode.
 
 ## Durable storage
 
-Schema head in code is 21 (`src/main/vellum/state/migrations.ts`). AGENTS.md
-says 22; that is documentation drift and is corrected in batch 6. The next
+Schema head in code is 21 (`src/main/vellum/state/migrations.ts`). The next
 migration is `21 -> 22`.
 
 None of the affected fields are SQL columns. They are keys inside JSON
@@ -60,24 +60,27 @@ columns:
 4. `work_task_proposals`, `work_proposal_events`,
    `work_pending_proposal_commands`, `work_proposal_planning` hold proposals.
 
-### Migration shape, ruling required
+### Migration shape, ruled
 
-AGENTS.md forbids renaming an existing durable name and forbids readers of
-old shapes. For keys inside a single JSON document both cannot hold at once.
-Two lawful shapes:
+The operator ruled a complete in-place cutover on 2026-09-04. Migration
+`21 -> 22` runs in the normal startup migration transaction and:
 
-- **In place.** The `21 -> 22` step rewrites keys inside each JSON column with
-  SQLite JSON functions. Rows and columns survive. Checkpoint history keeps
-  the old bytes. The migration test proves every old row decodes under the
-  new schema. This is the recommended shape.
-- **Expand.** New column (`ether_json_v2`, `completion_evidence_v2_json`) or
-  new bag key (`vellum.tasks`) written beside the old, copied forward once,
-  read exclusively. Old bytes retained forever. Strict decoders must then
-  ignore the old key, which is itself a reader of the old name.
+- rewrites every affected authorial and material JSON value to the canonical
+  Tasks vocabulary;
+- rewrites affected Work commands, facts, proposal records, pending records,
+  and their correlated content hashes coherently;
+- converts pending proposals to submitted Tasks with admission `approval`,
+  preserves approved work as its existing Task, and represents rejected
+  proposal history as rejected Tasks;
+- removes proposal tables after their information has been consolidated;
+- advances canvas revision and portfolio intent identity for rewritten
+  authorial documents;
+- leaves no old key, column, table, codec, decoder, fallback, or dual writer.
 
-The operator signs off on one of these before batch 1 starts. Pending
-proposals present at migration time are copied forward as tasks with
-admission `approval`, so nothing is lost when the proposal path retires.
+The StateEngine's existing pre-migration backup and transaction rollback are
+the recovery boundary. A conversion failure aborts startup and surfaces the
+normal recovery flow; there is no deferred backfill or partially converted
+runtime.
 
 ## Batches
 

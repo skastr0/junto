@@ -1,10 +1,17 @@
 # Tasks domain: rules and claims
 
-Status: ruled by the operator on 2026-09-03. This document is the canonical
+Status: ruled by the operator on 2026-09-03, with the complete in-place
+migration ruled on 2026-09-04. This document is the canonical
 vocabulary for the Tasks node. Code identifiers, wire fields, CLI commands,
 operator copy, and agent-facing docs all use these words and no others.
 Where the code still uses older words, that is migration work tracked in
 [`tasks-consolidation-plan.md`](tasks-consolidation-plan.md).
+
+The ruled cutover is complete and startup-atomic: migration `21 → 22` rewrites all
+affected current state and Work history, recomputes correlated hashes,
+materializes proposal state as Tasks, and removes the old storage and code.
+After a successful migration the product carries no permanent compatibility
+reader, old key, old table, or retired Tasks vocabulary.
 
 ## Why this exists
 
