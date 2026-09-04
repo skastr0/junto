@@ -37,7 +37,7 @@ import {
 } from "./artifact-reference";
 import { ArtifactMarkdown } from "./ArtifactMarkdown";
 import { ContentMedia } from "./ContentMedia";
-import { PinRulingControl } from "../claims";
+import { PinRulingControl } from "../rules";
 import "./work-ledger.css";
 
 const canvasName = (): string => state$.canvasName.peek() || "";

@@ -3,8 +3,7 @@ import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
 import type { Part, WorkMetadata } from "@shared/canvas";
 import type { TaskCreateOptions, WorkOpResult } from "@shared/ipc";
-import { sinkContractOf } from "@shared/claims";
-import { resolveSinkAdmission } from "@shared/work-model";
+import { resolveTaskAdmission } from "@shared/work-model";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import {
   closeWorkbenchSurface,
@@ -69,7 +68,7 @@ export function TaskEnqueueSurface({
     const node = nodeId
       ? state$.doc.nodes.get().find((entry) => entry.id === nodeId)
       : undefined;
-    return resolveSinkAdmission(sinkContractOf(node));
+    return resolveTaskAdmission(node?.ether?.tasks?.contract);
   });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -86,8 +85,6 @@ export function TaskEnqueueSurface({
   }
 
   const pinned = zone === "pinned";
-  const mode = payload.mode;
-
   const create = async (
     title: string,
     details: string,
@@ -104,44 +101,24 @@ export function TaskEnqueueSurface({
         title: title.trim(),
         details: details.trim(),
       };
-      if (mode === "proposal") {
-        const result = await runWorkCanvasMutation(name, () =>
-          api.workTaskPropose(
-            name,
-            nodeId,
-            title.trim(),
-            metadata,
-            undefined,
-            media.length > 0 ? media : undefined,
-            dependsOn.length > 0 ? dependsOn : undefined,
-            finishCriteria,
-          ),
-        );
-        if (result === undefined) return;
-        if (!result.ok) {
-          setError(result.message);
-          return;
-        }
-      } else {
-        const result = await runWorkCanvasMutation(name, () =>
-          api.workTaskCreate(
-            name,
-            nodeId,
-            title.trim(),
-            metadata,
-            undefined,
-            media.length > 0 ? media : undefined,
-            dependsOn.length > 0 ? dependsOn : undefined,
-            finishCriteria,
-            undefined,
-            options,
-          ),
-        );
-        if (result === undefined) return;
-        if (!result.ok) {
-          setError(result.message);
-          return;
-        }
+      const result = await runWorkCanvasMutation(name, () =>
+        api.workTaskCreate(
+          name,
+          nodeId,
+          title.trim(),
+          metadata,
+          undefined,
+          media.length > 0 ? media : undefined,
+          dependsOn.length > 0 ? dependsOn : undefined,
+          finishCriteria,
+          undefined,
+          options,
+        ),
+      );
+      if (result === undefined) return;
+      if (!result.ok) {
+        setError(result.message);
+        return;
       }
       // Stay open — clear for the next enqueue.
       setResetToken((token) => token + 1);
@@ -196,7 +173,7 @@ export function TaskEnqueueSurface({
         </div>
       ) : null}
       <TaskCreateDialog
-        mode={mode}
+        mode="task"
         pending={pending}
         artifactsNodeId={artifactsNodeId}
         admissionFloor={admissionFloor}

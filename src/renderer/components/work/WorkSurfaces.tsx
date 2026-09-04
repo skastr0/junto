@@ -4,7 +4,6 @@ import { Bell, Check, Inbox, ListChecks, MessageSquareText, Package, Plus, Send,
 import type {
   CanvasNode,
   Part,
-  TaskProposal,
   TaskState,
 } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
@@ -15,7 +14,7 @@ import {
   taskBrief,
 } from "@shared/task";
 import { sinkGlance, taskScanCounts } from "@shared/attention";
-import { stationIdentity } from "@shared/station-identity";
+import { tasksNodeIdentity } from "@shared/tasks-node-identity";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -23,7 +22,7 @@ import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { applyWorkCanvasWrite, editText, renameTaskStation } from "../../lib/mutations";
+import { applyWorkCanvasWrite, editText, renameTasksNode } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { boardAuthorLabel } from "../../lib/board-author";
@@ -73,7 +72,7 @@ function SinkGlanceHead({
   const label = displayLabel ?? (firstLine || fallback);
   const commitRename = (nextFirst: string) => {
     if (node.ether?.entity?.kind === "task") {
-      renameTaskStation(node.id, nextFirst);
+      renameTasksNode(node.id, nextFirst);
       return;
     }
     const rest = rawText.split("\n").slice(1).join("\n");
@@ -86,7 +85,7 @@ function SinkGlanceHead({
         {renaming && onRenameDone ? (
           <FirstLineRenameInput
             initial={label}
-            ariaLabel="Rename sink"
+            ariaLabel={`Rename ${node.ether?.entity?.kind === "task" ? "Tasks board" : fallback}`}
             onCommit={commitRename}
             onDone={onRenameDone}
           />
@@ -174,29 +173,12 @@ export function TasksCard({
   readonly node: CanvasNode;
 } & SinkRenameProps) {
   const items = node.ether?.tasks?.items ?? [];
-  const proposals = node.ether?.tasks?.proposals ?? [];
-  const liveIds = new Set(items.map((item) => item.id));
-  const pendingProposals = proposals.filter(
-    (proposal) => proposal.state === "pending" && !liveIds.has(proposal.id),
-  );
   const contract = node.ether?.tasks?.contract;
   const { inFlight, needsInput } = sinkGlance(items, contract);
-  const { proposals: proposalCount, completed: completedCount } = taskScanCounts(
-    items,
-    proposals,
-    contract,
-  );
+  const { completed: completedCount } = taskScanCounts(items, contract);
   const hotItems = items.filter(
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
   );
-  const proposalBrief = (proposal: TaskProposal): string => {
-    for (const part of proposal.brief.parts) {
-      if (part.kind !== "text") continue;
-      const firstLine = part.text.split("\n")[0]?.trim();
-      if (firstLine) return firstLine;
-    }
-    return proposal.id;
-  };
   // Latest activity first on the glance list (and Closed / complete elsewhere).
   const glancePool = (
     hotItems.length > 0 ? hotItems : items.filter((t) => !isTerminalTaskState(t.state))
@@ -209,21 +191,13 @@ export function TasksCard({
     state: item.state,
     kind: "task" as const,
   }));
-  const visibleRows = [
-    ...visibleItems,
-    ...pendingProposals.map((proposal) => ({
-      id: proposal.id,
-      brief: proposalBrief(proposal),
-      state: "pending" as const,
-      kind: "proposal" as const,
-    })),
-  ].slice(0, 4);
+  const visibleRows = visibleItems.slice(0, 4);
   return (
     <div className="factory-glance factory-glance--tasks flex h-full w-full flex-col overflow-hidden" data-testid="tasks-card">
       <SinkGlanceHead
         node={node}
         fallback="tasks"
-        displayLabel={stationIdentity(node).name}
+        displayLabel={tasksNodeIdentity(node).name}
         decal={<ListChecks size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}
@@ -238,14 +212,6 @@ export function TasksCard({
               >
                 {inFlight} open
                 {needsInput > 0 ? ` - ${needsInput} need input` : ""}
-              </span>
-              <span
-                className="truncate"
-                style={{ color: proposalCount > 0 ? HUE.violet : DIM }}
-                data-testid="tasks-glance-proposals"
-                aria-label={`${proposalCount} awaiting approval`}
-              >
-                {proposalCount} awaiting approval
               </span>
               <span
                 className="truncate"
@@ -265,7 +231,7 @@ export function TasksCard({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                openTaskCreateSurface(node, { mode: "task" });
+                openTaskCreateSurface(node);
               }}
               onDoubleClick={(event) => {
                 event.preventDefault();
@@ -287,20 +253,18 @@ export function TasksCard({
               data-state={item.state}
               data-kind={item.kind}
               data-attention={
-                item.kind === "proposal"
-                  ? "idle"
-                  : item.state === "input-required" || item.state === "auth-required"
+                item.state === "input-required" || item.state === "auth-required"
                     ? "fire"
                     : "idle"
               }
             >
-              <span style={{ color: item.kind === "proposal" ? HUE.violet : stateHue(item.state) }}>
-                {item.kind === "proposal" ? "◆" : "●"}
+              <span style={{ color: stateHue(item.state) }}>
+                ●
               </span>{" "}
               {item.brief}
             </div>
           ))}
-        {items.length === 0 && pendingProposals.length === 0 ? (
+        {items.length === 0 ? (
           <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
             empty
           </div>

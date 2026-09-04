@@ -14,7 +14,7 @@ export function TaskToolbarActions({ node }: { readonly node: CanvasNode }) {
       onPointerDown={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        openTaskCreateSurface(node, { mode: "task" });
+        openTaskCreateSurface(node);
       }}
     >
       <ListPlus size={14} />

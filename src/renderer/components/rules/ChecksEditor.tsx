@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { ulid } from "ulid";
-import type { CheckDef } from "@shared/work-model";
+import type { Check } from "@shared/work-model";
 import { Button, IconButton, Input } from "../ui";
 
-// Boarding checks are the only deterministic checks in the pipeline, and the
-// seat runs them: `tasks board` executes each command in the seat's own
+// Checks are deterministic task gates, and the seat runs
+// them: the check op executes each command in the seat's own
 // environment and submits the exit code. Vellum Command never schedules or
 // runs them itself. Exit 0 is green.
 
@@ -14,8 +14,8 @@ function CheckRow({
   onChange,
   onRemove,
 }: {
-  readonly check: CheckDef;
-  readonly onChange: (next: CheckDef) => void;
+  readonly check: Check;
+  readonly onChange: (next: Check) => void;
   readonly onRemove: () => void;
 }) {
   const [label, setLabel] = useState(check.label);
@@ -76,7 +76,7 @@ function CheckDraftRow({
   onAdd,
   onCancel,
 }: {
-  readonly onAdd: (check: CheckDef) => void;
+  readonly onAdd: (check: Check) => void;
   readonly onCancel: () => void;
 }) {
   const [label, setLabel] = useState("");
@@ -126,18 +126,18 @@ function CheckDraftRow({
   );
 }
 
-export function CheckList({
+export function ChecksEditor({
   ownerKey,
-  checklist,
+  checks,
   label,
   hint,
   onChange,
 }: {
   readonly ownerKey: string;
-  readonly checklist: ReadonlyArray<CheckDef>;
+  readonly checks: ReadonlyArray<Check>;
   readonly label: string;
   readonly hint: string;
-  readonly onChange: (next: ReadonlyArray<CheckDef>) => void;
+  readonly onChange: (next: ReadonlyArray<Check>) => void;
 }) {
   const [adding, setAdding] = useState(false);
   useEffect(() => {
@@ -148,16 +148,16 @@ export function CheckList({
     <div className="mt-3">
       <div className="text-[9px] tracking-[0.14em] text-dim uppercase">{label}</div>
       <div className="inspector-detail mt-1">{hint}</div>
-      {checklist.length > 0 ? (
+      {checks.length > 0 ? (
         <div className="mt-2 grid gap-1.5">
-          {checklist.map((check, index) => (
+          {checks.map((check, index) => (
             <CheckRow
               key={check.id}
               check={check}
               onChange={(next) =>
-                onChange(checklist.map((item, i) => (i === index ? next : item)))
+                onChange(checks.map((item, i) => (i === index ? next : item)))
               }
-              onRemove={() => onChange(checklist.filter((_, i) => i !== index))}
+              onRemove={() => onChange(checks.filter((_, i) => i !== index))}
             />
           ))}
         </div>
@@ -166,7 +166,7 @@ export function CheckList({
         <div className="mt-1.5">
           <CheckDraftRow
             onAdd={(check) => {
-              onChange([...checklist, check]);
+              onChange([...checks, check]);
               setAdding(false);
             }}
             onCancel={() => setAdding(false)}
@@ -176,7 +176,7 @@ export function CheckList({
         <Button
           size="xs"
           className="mt-2"
-          aria-label="Add boarding check"
+          aria-label="Add check"
           onClick={() => setAdding(true)}
         >
           <Plus size={11} />

@@ -16,7 +16,7 @@ import { use$ } from "@legendapp/state/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import type { TaskProposalState, TaskState } from "@shared/work-model";
+import type { TaskState } from "@shared/work-model";
 import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
@@ -33,10 +33,9 @@ import {
   artifactRowsForSeat,
   boardRowsForActor,
   claimedTaskRow,
-  proposalRowsForSeat,
+  raisedTaskRowsForSeat,
   requestRowsForSeat,
   seatIdForActorNode,
-  type ProposalRow,
   type RequestRow,
 } from "../../lib/actor-ledger-work";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
@@ -56,12 +55,6 @@ const taskStateTone = (state: TaskState): ChipTone => {
   if (state === "input-required") return "amber";
   if (state === "completed") return "green";
   if (state === "submitted" || state === "archived") return "steel";
-  return "crimson";
-};
-
-const proposalStateTone = (state: TaskProposalState): ChipTone => {
-  if (state === "pending") return "amber";
-  if (state === "approved") return "green";
   return "crimson";
 };
 
@@ -214,26 +207,24 @@ function RequestRowItem({
   );
 }
 
-function ProposalRowItem({
+function RaisedTaskRowItem({
   row,
   pending,
   open,
   onToggle,
   onApprove,
-  onReject,
 }: {
-  readonly row: ProposalRow;
+  readonly row: import("../../lib/actor-ledger-work").RaisedTaskRow;
   readonly pending: boolean;
   readonly open: boolean;
   readonly onToggle: () => void;
   readonly onApprove: () => void;
-  readonly onReject: () => void;
 }) {
   return (
     <li
       className="actor-ledger__item"
-      data-testid="actor-ledger-proposal-row"
-      data-proposal-id={row.proposalId}
+      data-testid="actor-ledger-raised-task-row"
+      data-task-id={row.taskId}
     >
       <button
         type="button"
@@ -242,7 +233,9 @@ function ProposalRowItem({
         onClick={onToggle}
       >
         <span className="actor-ledger__item-head">
-          <Chip tone={proposalStateTone(row.state)}>{row.state}</Chip>
+          <Chip tone={row.awaitingApproval ? "amber" : taskStateTone(row.state)}>
+            {row.awaitingApproval ? "awaiting approval" : row.state}
+          </Chip>
           {row.hasFinishCriteria ? (
             <Chip tone="steel" title="Has finish criteria">
               criteria
@@ -270,12 +263,15 @@ function ProposalRowItem({
               Why: {row.reason}
             </div>
           ) : null}
-          {row.state === "pending" ? (
+          {row.awaitingApproval ? (
             <div className="actor-ledger__actions">
-              <Button size="xs" variant="danger" disabled={pending} onClick={onReject}>
-                Reject
-              </Button>
-              <Button size="xs" variant="primary" disabled={pending} onClick={onApprove}>
+              <Button
+                size="xs"
+                variant="primary"
+                disabled={pending}
+                onClick={onApprove}
+                title="Approve this task so agents can claim it"
+              >
                 Approve
               </Button>
             </div>
@@ -349,8 +345,8 @@ export function ActorLedgerPane({
     () => (live && seatId !== undefined ? requestRowsForSeat(doc, seatId) : []),
     [doc, seatId, live],
   );
-  const proposals = useMemo(
-    () => (live && seatId !== undefined ? proposalRowsForSeat(doc, seatId) : []),
+  const raisedTasks = useMemo(
+    () => (live && seatId !== undefined ? raisedTaskRowsForSeat(doc, seatId) : []),
     [doc, seatId, live],
   );
   const artifacts = useMemo(
@@ -378,7 +374,7 @@ export function ActorLedgerPane({
   const needsYou =
     (claim?.needsInput ? 1 : 0) +
     requests.filter((row) => row.needsInput).length +
-    proposals.filter((row) => row.state === "pending").length;
+    raisedTasks.filter((row) => row.awaitingApproval).length;
 
   // Recent-ops receipt feed: identity-backed CLI activity from the kernel
   // (coverage excludes unattributed ops - see work-recent-ops.ts). IPC read,
@@ -516,7 +512,7 @@ export function ActorLedgerPane({
             </div>
           ) : null}
           {claim ? (
-            <section className="actor-ledger__section" aria-label="Assigned task">
+            <section className="actor-ledger__section" aria-label="Claimed task">
               <header className="actor-ledger__section-head">
                 <span className="actor-ledger__section-title">task</span>
               </header>
@@ -569,42 +565,35 @@ export function ActorLedgerPane({
               </ul>
             </section>
           ) : null}
-          {proposals.length > 0 ? (
+          {raisedTasks.length > 0 ? (
             <section className="actor-ledger__section" aria-label="Awaiting approval">
               <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">awaiting approval</span>
+                <span className="actor-ledger__section-title">raised tasks</span>
                 <span className="actor-ledger__section-meta">
-                  {proposals.length}
+                  {raisedTasks.length}
                 </span>
               </header>
               <ul className="actor-ledger__list">
-                {proposals.map((row) => {
-                  const key = `proposal:${row.sinkNodeId}:${row.proposalId}`;
+                {raisedTasks.map((row) => {
+                  const key = `raised:${row.sinkNodeId}:${row.taskId}`;
                   return (
-                    <ProposalRowItem
+                    <RaisedTaskRowItem
                       key={key}
                       row={row}
                       pending={pendingKeys.has(key)}
                       open={openKey === key}
                       onToggle={() => toggleOpen(key)}
-                      onApprove={() =>
+                      onApprove={() => {
+                        if (!api?.workTaskPromote) return;
                         void runWork(key, () =>
-                          api!.workTaskApproveProposal(
+                          api!.workTaskPromote!(
                             canvas,
                             row.sinkNodeId,
-                            row.proposalId,
+                            row.taskId,
+                            undefined,
                           ),
-                        )
-                      }
-                      onReject={() =>
-                        void runWork(key, () =>
-                          api!.workTaskRejectProposal(
-                            canvas,
-                            row.sinkNodeId,
-                            row.proposalId,
-                          ),
-                        )
-                      }
+                        );
+                      }}
                     />
                   );
                 })}

@@ -60,34 +60,35 @@ import {
   validateTaskMediaParts,
 } from "@shared/task";
 import { ContentMedia } from "./ContentMedia";
-import { TaskJourney } from "./TaskJourney";
+import { TaskVisits } from "./TaskVisits";
 import { TaskThread } from "./TaskThread";
-import { ArrivalMark, OutboundGroupHeader } from "./TaskFlowMarks";
-import { TaskCreationMetroMap } from "../claims/creation";
-import { PinRulingControl, SinkContractEditor } from "../claims";
-import { formatBakeTime } from "../claims/sink-contract";
+import { ApprovalMark, OutgoingGroupHeader } from "./TaskPathMarks";
+import { TaskCreationPath } from "../rules/creation";
+import { PinRulingControl, BoardSettings } from "../rules";
+import { formatWait } from "../rules/board-settings";
 import { admissionLabel } from "../../lib/admission-labels";
 import {
-  TaskStationConsole,
-  type StationSubmission,
-} from "./TaskStationConsole";
-import { effectiveClaimsStack, taskAdmissionState } from "@shared/claims";
-import { defectTargetOptions } from "@shared/journey-integrity";
+  TaskOperatorPanel,
+  type RuleSubmission,
+} from "./TaskOperatorPanel";
+import { rulesInForce } from "@shared/rules";
+import { defectTargetOptions } from "@shared/visit-integrity";
+import { reachableBoards } from "@shared/flow-graph";
 import {
-  resolveSinkAdmission,
-  type SinkAdmission,
-  type TaskClaim,
+  resolveTaskAdmission,
+  type TaskAdmission,
+  type TaskRule,
 } from "@shared/work-model";
 import { currentTaskOwner } from "@shared/task-owner";
 import {
-  arrivalGlance,
-  groupOutboundPassages,
-  hasPendingHold,
-  pipelineLaneCopy,
-  pipelineShape,
-  type OutboundGroupKind,
-  type PipelineShape,
-} from "./task-flow-columns";
+  incomingGlance,
+  groupOutgoingVisits,
+  hasPendingWait,
+  taskPathLaneCopy,
+  taskPathShape,
+  type OutgoingGroupKind,
+  type TaskPathShape,
+} from "./task-path";
 import { dependencyScopeTasks } from "@shared/task-dep-scope";
 import {
   taskDepStatus,
@@ -103,10 +104,7 @@ import { Input, Textarea } from "../ui/Field";
 import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
-import {
-  stationIdentity,
-  stationName as displayStationName,
-} from "@shared/station-identity";
+import { tasksNodeIdentity, tasksNodeName } from "@shared/tasks-node-identity";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import {
   extractClipboardImage,
@@ -117,12 +115,12 @@ import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
   defaultTaskAdmission,
-  parseTaskHold,
+  parseTaskWait,
   taskAdmissionChoices,
 } from "./task-create-admission";
 import "./task-board.css";
 
-/** Prefer artifacts sinks edge-linked to the task node; else first on canvas. */
+/** Prefer Artifacts nodes edge-linked to the Tasks node; else first on canvas. */
 const resolveArtifactsNodeId = (
   taskNodeId: string,
   doc: CanvasDoc,
@@ -219,32 +217,13 @@ const mediaPartsFromDrafts = (
 
 type Ether = NonNullable<CanvasNode["ether"]>;
 type WorkTask = NonNullable<Ether["tasks"]>["items"][number];
-type WorkProposal = NonNullable<NonNullable<Ether["tasks"]>["proposals"]>[number];
-
-/**
- * Map a pending proposal onto the Task display shape so the board card + detail
- * panel can show the same authoring fields (brief/media, metadata, dependsOn,
- * finishCriteria, reason) without a second detail surface.
- */
-export const proposalAsDisplayTask = (proposal: WorkProposal): WorkTask => ({
-  id: proposal.id,
-  state: "submitted",
-  history: [proposal.brief],
-  ...(proposal.metadata ? { metadata: proposal.metadata } : {}),
-  ...(proposal.reason ? { reason: proposal.reason } : {}),
-  ...(proposal.dependsOn && proposal.dependsOn.length > 0
-    ? { dependsOn: proposal.dependsOn }
-    : {}),
-  ...(proposal.finishCriteria ? { finishCriteria: proposal.finishCriteria } : {}),
-});
 
 type LaneId =
-  | "proposal"
   | "queue"
-  | "inbound"
+  | "incoming"
   | "working"
   | "input"
-  | "outbound"
+  | "outgoing"
   | "closed";
 
 type TaskDragData = {
@@ -281,21 +260,13 @@ type LaneDefinition = {
 
 const LANES: ReadonlyArray<LaneDefinition> = [
   {
-    id: "proposal",
-    label: "Awaiting approval",
-    tone: "violet",
-    chipTone: "violet",
-    icon: UserRound,
-    hint: "Work waiting for your approval before workers can be assigned it",
-  },
-  {
     id: "queue",
     label: "Queue",
     state: "submitted",
     tone: "amber",
     chipTone: "amber",
     icon: CircleDot,
-    hint: "Ready to be assigned",
+    hint: "Ready to claim",
   },
   {
     id: "working",
@@ -304,7 +275,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "cyan",
     chipTone: "cyan",
     icon: LoaderCircle,
-    hint: "Assigned work in motion",
+    hint: "Claimed work in motion",
   },
   {
     id: "input",
@@ -321,28 +292,27 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "green",
     chipTone: "green",
     icon: CheckCircle2,
-    hint: "Completed and stopped work",
+    hint: "Completed and settled work",
   },
 ];
 
 /**
- * Pipeline columns. They stand in for the plain lanes when the sink sits on
- * flow edges: Inbound replaces Awaiting approval + Queue on the arrival side, Outbound
- * replaces Closed on the departure side. A sink with no flow edges never sees
- * them and renders exactly as before.
+ * Path columns. Incoming collects work entering this board; Outgoing collects
+ * work sent to the next board. A board with no path edges uses the standard
+ * board columns instead.
  */
-const INBOUND_LANE: LaneDefinition = {
-  id: "inbound",
-  label: "Inbound",
+const INCOMING_LANE: LaneDefinition = {
+  id: "incoming",
+  label: "Incoming",
   state: "submitted",
   tone: "amber",
   chipTone: "amber",
   icon: ArrowDownToLine,
-  hint: "Arrivals from upstream stations, waiting to be admitted",
+  hint: "Tasks from earlier boards, waiting here",
 };
 
-const OUTBOUND_LANE: LaneDefinition = {
-  id: "outbound",
+const OUTGOING_LANE: LaneDefinition = {
+  id: "outgoing",
   label: "Sent on",
   tone: "green",
   chipTone: "green",
@@ -352,23 +322,21 @@ const OUTBOUND_LANE: LaneDefinition = {
 
 const ALL_LANES: ReadonlyArray<LaneDefinition> = [
   ...LANES,
-  INBOUND_LANE,
-  OUTBOUND_LANE,
+  INCOMING_LANE,
+  OUTGOING_LANE,
 ];
 
 const laneById = (id: LaneId): LaneDefinition =>
   ALL_LANES.find((lane) => lane.id === id)!;
 
-/** The columns this sink shows, in board order. */
+/** The columns this board shows, in order. */
 export const visibleLanes = (
-  shape: PipelineShape,
+  shape: TaskPathShape,
 ): ReadonlyArray<LaneDefinition> => [
-  ...(shape.hasInbound
-    ? [INBOUND_LANE]
-    : [laneById("proposal"), laneById("queue")]),
+  shape.hasIncoming ? INCOMING_LANE : laneById("queue"),
   laneById("working"),
   laneById("input"),
-  shape.hasOutbound ? OUTBOUND_LANE : laneById("closed"),
+  shape.hasOutgoing ? OUTGOING_LANE : laneById("closed"),
 ];
 
 const TERMINAL_STATES = new Set<TaskState>([
@@ -390,20 +358,16 @@ export const isTaskClaimantRetired = (
 
 const laneForTask = (
   task: WorkTask,
-  shape: PipelineShape,
-  contract: import("@shared/work-model").TasksSinkContract | undefined,
-  nowMs: number,
+  shape: TaskPathShape,
+  _contract: import("@shared/work-model").TasksContract | undefined,
+  _nowMs: number,
 ): LaneId => {
-  if (TERMINAL_STATES.has(task.state)) return shape.hasOutbound ? "outbound" : "closed";
+  if (TERMINAL_STATES.has(task.state)) return shape.hasOutgoing ? "outgoing" : "closed";
   if (task.state === "working") return "working";
   // input-required and residual durable auth-required share one attention lane
   if (task.state === "input-required" || task.state === "auth-required") return "input";
   if (task.state === "submitted") {
-    const admission = taskAdmissionState(task, contract, nowMs);
-    if (shape.hasInbound) return "inbound";
-    if (admission === "operator-gated") {
-      return "proposal";
-    }
+    if (shape.hasIncoming) return "incoming";
   }
   return "queue";
 };
@@ -505,15 +469,15 @@ const runWorkCanvasMutation = <T,>(
 ): Promise<WorkOpResult<T> | undefined> =>
   runCanvasAuthoringOperation(async () => acceptWorkResult(canvas, await operation()));
 
-const destinationState = (laneId: LaneId): TaskState | undefined =>
+const targetState = (laneId: LaneId): TaskState | undefined =>
   ALL_LANES.find((lane) => lane.id === laneId)?.state;
 
-/** One destination bucket inside the Outbound column. */
+/** One visit group inside the Outgoing column. */
 type TaskLaneGroup = {
   readonly key: string;
-  readonly kind: OutboundGroupKind;
-  /** Station name for forwarded/returned buckets. */
-  readonly station?: string;
+  readonly kind: OutgoingGroupKind;
+  /** Board name for sent-on/sent-back groups. */
+  readonly board?: string;
   readonly tasks: ReadonlyArray<WorkTask>;
 };
 
@@ -534,11 +498,9 @@ function TaskLane({
   selectedTaskId,
   selectedTaskIds,
   activeActorSeatIds,
-  proposalById,
   ownerFor,
   onCreate,
   onApprove,
-  onRejectProposal,
   onSelect,
   onToggleSelect,
   onSelectAllInLane,
@@ -548,10 +510,10 @@ function TaskLane({
   onSaveEdit,
 }: {
   readonly lane: LaneDefinition;
-  /** The columns this sink shows — the move menu offers only these. */
+  /** The columns this board shows — the move menu offers only these. */
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly tasks: ReadonlyArray<WorkTask>;
-  /** Outbound only: the same tasks, bucketed by where each passage went. */
+  /** Outgoing only: the same tasks, bucketed by where each visit went. */
   readonly groups?: ReadonlyArray<TaskLaneGroup>;
   /** Read-only contract facts shown directly under the column title. */
   readonly headerDetail?: ReactNode;
@@ -559,7 +521,7 @@ function TaskLane({
   readonly headerAction?: ReactNode;
   /** Teaching copy for an empty column. */
   readonly emptyText?: string;
-  /** Inbound only: the admission mark for an arrival. */
+  /** Incoming only: the task's admission mark. */
   readonly markFor?: (task: WorkTask) => ReactNode;
   readonly allTasks: ReadonlyArray<WorkTask>;
   readonly searchActive: boolean;
@@ -569,11 +531,9 @@ function TaskLane({
   readonly selectedTaskId: string | null;
   readonly selectedTaskIds: ReadonlySet<string>;
   readonly activeActorSeatIds: ReadonlySet<string>;
-  readonly proposalById: ReadonlyMap<string, string>;
   readonly ownerFor: (task: WorkTask) => string | undefined;
   readonly onCreate: () => void;
   readonly onApprove: (task: WorkTask) => void;
-  readonly onRejectProposal?: (task: WorkTask) => void;
   readonly onSelect: (taskId: string) => void;
   readonly onToggleSelect: (taskId: string) => void;
   readonly onSelectAllInLane: () => void;
@@ -596,11 +556,10 @@ function TaskLane({
     selectState === "all"
       ? `Deselect all ${lane.label.toLowerCase()}`
       : `Select all ${tasks.length} in ${lane.label}`;
-  // Add Task keeps its column entry wherever arrivals land — Queue on a plain
-  // sink, Inbound on a pipeline sink.
-  const createsTasks =
-    lane.id === "queue" || lane.id === "proposal" || lane.id === "inbound";
-  // Cards carry a lane-wide sortable index; the Outbound groups render the
+  // Add Task keeps its column entry wherever tasks enter — Queue on a plain
+  // board, Incoming on a board with incoming flow.
+  const createsTasks = lane.id === "queue" || lane.id === "incoming";
+  // Cards carry a lane-wide sortable index; the Outgoing groups render the
   // same sequence, so the counter runs across buckets.
   let cardIndex = 0;
   const renderCard = (task: WorkTask) => {
@@ -620,13 +579,11 @@ function TaskLane({
         selected={selectedTaskId === task.id}
         checked={selectedTaskIds.has(task.id)}
         activeActorSeatIds={activeActorSeatIds}
-        proposalBy={proposalById.get(task.id)}
         ownerLabel={ownerFor(task)}
         onSelect={onSelect}
         onToggleSelect={onToggleSelect}
         onMove={onMove}
         onApprove={onApprove}
-        onRejectProposal={onRejectProposal}
         onEdit={onEdit}
         onCancelEdit={onCancelEdit}
         onSaveEdit={onSaveEdit}
@@ -683,12 +640,8 @@ function TaskLane({
             <IconButton
               size="sm"
               tone="accent"
-              aria-label={
-                lane.id === "proposal"
-                  ? "Add work for approval"
-                  : `Create task in ${lane.label}`
-              }
-              title={lane.id === "proposal" ? "Add work for approval" : "Create task"}
+              aria-label={`Create task in ${lane.label}`}
+              title="Create task"
               onClick={onCreate}
             >
               <Plus size={13} />
@@ -704,10 +657,10 @@ function TaskLane({
       <div className="task-board-lane__list" role="list">
         {groups
           ? groups.map((group) => (
-              <section key={group.key} className="task-flow-group">
-                <OutboundGroupHeader
+              <section key={group.key} className="task-path-group">
+                <OutgoingGroupHeader
                   kind={group.kind}
-                  station={group.station}
+                  board={group.board}
                   count={group.tasks.length}
                 />
                 {group.tasks.map((task) => renderCard(task))}
@@ -719,15 +672,11 @@ function TaskLane({
             <span>
               {searchActive
                 ? "No matching tasks"
-                : lane.id === "proposal"
-                  ? "Nothing awaiting approval"
-                  : emptyText ?? `No ${lane.label.toLowerCase()}`}
+                : emptyText ?? `No ${lane.label.toLowerCase()}`}
             </span>
-            {createsTasks && lane.id !== "inbound" && !searchActive ? (
+            {createsTasks && lane.id !== "incoming" && !searchActive ? (
               <button type="button" onClick={onCreate}>
-                {lane.id === "proposal"
-                  ? "Add work for approval"
-                  : "Create the first task"}
+                Create the first task
               </button>
             ) : null}
           </div>
@@ -740,33 +689,31 @@ function TaskLane({
 function TaskContractPanel({
   node,
   side,
-  station,
+  board,
   onClose,
 }: {
   readonly node: CanvasNode;
-  readonly side: "inbound" | "outbound";
-  readonly station: string;
+  readonly side: "incoming" | "outgoing";
+  readonly board: string;
   readonly onClose: () => void;
 }) {
-  const arrivals = side === "inbound";
   return (
     <aside
       className="task-board-contract-panel"
       role="complementary"
-      aria-label={`${arrivals ? "Arrivals" : "Departures"} contract for ${station}`}
+      aria-label={`${side === "incoming" ? "Incoming" : "Outgoing"} settings for ${board}`}
       data-testid={`task-board-contract-${side}`}
     >
       <OverlayHeader
-        eyebrow="Board settings"
         title="Board settings"
         status={
-          arrivals
+          side === "incoming"
             ? "How tasks enter this board and who can start them"
             : "What leaves this board with a task, and what runs before it goes."
         }
         actions={
           <IconButton
-            aria-label={`Close ${arrivals ? "arrivals" : "departures"} contract`}
+            aria-label={`Close ${side === "incoming" ? "incoming" : "outgoing"} settings`}
             title="Close contract"
             onClick={onClose}
           >
@@ -775,7 +722,7 @@ function TaskContractPanel({
         }
       />
       <div className="task-board-contract-panel__body">
-        <SinkContractEditor node={node} focusSide={side} />
+        <BoardSettings node={node} focusSide={side} />
       </div>
     </aside>
   );
@@ -786,55 +733,48 @@ function TaskActionsMenu({
   lane,
   lanes,
   pending,
-  isProposal,
   onEdit,
   onMove,
   onApprove,
-  onRejectProposal,
 }: {
   readonly task: WorkTask;
   readonly lane: LaneDefinition;
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
-  readonly isProposal: boolean;
   readonly onEdit: (task: WorkTask) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove: (task: WorkTask) => void;
-  readonly onRejectProposal?: (task: WorkTask) => void;
 }) {
   const menuId = `task-actions-${useId().replaceAll(":", "")}`;
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const brief = taskTitle(task);
   const availableMoves = lanes.filter(
-    (destination) =>
-      destination.state &&
-      destination.id !== lane.id &&
-      !(task.state === "completed" && destination.state === "submitted") &&
-      canTransitionTaskState(task.state, destination.state),
+    (target) =>
+      target.state &&
+      target.id !== lane.id &&
+      !(task.state === "completed" && target.state === "submitted") &&
+      canTransitionTaskState(task.state, target.state),
   );
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
-  // Approval candidates are display-mapped to submitted WorkTasks; they must not get
-  // task transition actions (Delete/Complete/…) — that calls workTaskTransition
-  // with a proposal id and yields "task … not found". Use the approval actions only.
-  const terminalActions = isProposal
-    ? ([] as ReadonlyArray<readonly [TaskState, string]>)
-    : (
-        [
-          ["completed", "Complete task"],
-          ["failed", "Mark as failed"],
-          ["rejected", "Reject task"],
-          ["canceled", "Cancel task"],
-          ["archived", "Delete from board"],
-        ] as const
-      ).filter(([state]) => {
-        if (!canTransitionTaskState(task.state, state)) return false;
-        // Hard finish criteria require completionEvidence (CLI/agent only for now).
-        if (state === "completed" && hardFinishGate) return false;
-        return true;
-      });
+  const approvalTask =
+    task.state === "submitted" && task.admission === "approval";
+  const terminalActions = (
+    [
+      ["completed", "Complete task"],
+      ["failed", "Mark as failed"],
+      ["rejected", "Reject task"],
+      ["canceled", "Cancel task"],
+      ["archived", "Delete from board"],
+    ] as const
+  ).filter(([state]) => {
+    if (!canTransitionTaskState(task.state, state)) return false;
+    // Hard finish criteria require completionEvidence (CLI/agent only for now).
+    if (state === "completed" && hardFinishGate) return false;
+    return true;
+  });
 
   const show = (trigger: HTMLButtonElement) => {
     const menu = menuRef.current;
@@ -877,54 +817,44 @@ function TaskActionsMenu({
         onClick={(event) => event.stopPropagation()}
         onToggle={(event) => setOpen(event.currentTarget.matches(":popover-open"))}
       >
-        {isProposal ? (
+        {approvalTask ? (
           <button
             type="button"
             role="menuitem"
             disabled={pending}
             onClick={() => commit(() => onApprove(task))}
           >
-            Approve to Queue
+            Approve
           </button>
         ) : null}
-        {isProposal && onRejectProposal ? (
-          <button
-            type="button"
-            role="menuitem"
-            disabled={pending}
-            onClick={() => commit(() => onRejectProposal(task))}
-          >
-            Reject pending work
-          </button>
-        ) : null}
-        {!isProposal ? (
+        {!approvalTask ? (
           <button type="button" role="menuitem" onClick={() => commit(() => onEdit(task))}>
             Edit title
           </button>
         ) : null}
-        {!isProposal
-          ? availableMoves.map((destination) => (
+        {!approvalTask
+          ? availableMoves.map((target) => (
               <button
-                key={destination.id}
+                key={target.id}
                 type="button"
                 role="menuitem"
                 disabled={pending}
                 onClick={() =>
                   commit(() => {
-                    if (destination.state) onMove(task, destination.state);
+                    if (target.state) onMove(task, target.state);
                   })
                 }
               >
-                {destination.id === "queue" || destination.id === "inbound"
-                  ? `Unassign to ${destination.label}`
-                  : `Move to ${destination.label}`}
+                {target.id === "queue" || target.id === "incoming"
+                  ? `Return to ${target.label}`
+                  : `Move to ${target.label}`}
               </button>
             ))
           : null}
-        {!isProposal && terminalActions.length > 0 ? (
+        {!approvalTask && terminalActions.length > 0 ? (
           <div className="task-board-card__menu-separator" aria-hidden />
         ) : null}
-        {!isProposal
+        {!approvalTask
           ? terminalActions.map(([state, label]) => (
               <button
                 key={state}
@@ -958,13 +888,11 @@ function TaskCard({
   selected,
   checked,
   activeActorSeatIds,
-  proposalBy,
   ownerLabel,
   onSelect,
   onToggleSelect,
   onMove,
   onApprove,
-  onRejectProposal,
   onEdit,
   onCancelEdit,
   onSaveEdit,
@@ -974,25 +902,25 @@ function TaskCard({
   readonly lane: LaneDefinition;
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly index: number;
-  /** Inbound admission mark, rendered beside the state chip. */
+  /** Incoming admission mark, rendered beside the state chip. */
   readonly mark?: ReactNode;
   readonly pending: boolean;
   readonly editing: boolean;
   readonly selected: boolean;
   readonly checked: boolean;
   readonly activeActorSeatIds: ReadonlySet<string>;
-  readonly proposalBy?: string;
   readonly ownerLabel?: string;
   readonly onSelect: (taskId: string) => void;
   readonly onToggleSelect: (taskId: string) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove: (task: WorkTask) => void;
-  readonly onRejectProposal?: (task: WorkTask) => void;
   readonly onEdit: (task: WorkTask) => void;
   readonly onCancelEdit: () => void;
   readonly onSaveEdit: (task: WorkTask, brief: string) => void;
 }) {
   const [draft, setDraft] = useState(() => taskBrief(task));
+  const approvalTask =
+    task.state === "submitted" && task.admission === "approval";
   const sortable = useSortable<TaskDragData>({
     id: task.id,
     index,
@@ -1000,7 +928,7 @@ function TaskCard({
     type: "task",
     accept: "task",
     data: { kind: "task", taskId: task.id, laneId: lane.id },
-    disabled: TERMINAL_STATES.has(task.state) || proposalBy !== undefined || pending,
+    disabled: TERMINAL_STATES.has(task.state) || approvalTask || pending,
     transition: {
       duration: 180,
       easing: "cubic-bezier(0.22, 1, 0.36, 1)",
@@ -1038,7 +966,7 @@ function TaskCard({
         .join(" ")}
       data-state={task.state}
       data-draggable={
-        TERMINAL_STATES.has(task.state) || proposalBy !== undefined || pending
+        TERMINAL_STATES.has(task.state) || approvalTask || pending
           ? "false"
           : "true"
       }
@@ -1051,7 +979,7 @@ function TaskCard({
       aria-label={`Open details for ${brief}${
         mediaCount > 0 ? `, ${mediaCount} media attachment${mediaCount === 1 ? "" : "s"}` : ""
       }${
-        claimantRetired ? ", stalled because its assigned seat is retired" : ""
+        claimantRetired ? ", stalled because its claimed seat is retired" : ""
       }`}
       aria-current={selected ? "true" : undefined}
       onClick={(event) => {
@@ -1088,8 +1016,9 @@ function TaskCard({
           />
         </label>
         <span
+          ref={sortable.handleRef}
           className="task-board-card__handle"
-          aria-hidden
+          aria-label={`Drag ${brief}`}
           title={
             task.state === "completed"
               ? "Completed tasks return through QA review"
@@ -1134,14 +1063,10 @@ function TaskCard({
                   tone={claimantRetired ? "crimson" : toneForState(task.state)}
                   pulse={!claimantRetired && task.state === "working"}
                 />
-                {proposalBy || ownerLabel ? (
+                {ownerLabel ? (
                   <span className="task-board-card__claimant" title={claim}>
                     <UserRound size={10} aria-hidden />
-                    {proposalBy
-                      ? proposalBy === "operator"
-                        ? "Raised by operator"
-                        : `Raised by ${proposalBy}`
-                      : ownerLabel}
+                    {ownerLabel}
                   </span>
                 ) : null}
                 {mediaCount > 0 ? (
@@ -1167,11 +1092,9 @@ function TaskCard({
             lane={lane}
             lanes={lanes}
             pending={pending}
-            isProposal={proposalBy !== undefined}
             onEdit={onEdit}
             onMove={onMove}
             onApprove={onApprove}
-            onRejectProposal={onRejectProposal}
           />
         ) : null}
       </div>
@@ -1179,12 +1102,8 @@ function TaskCard({
       {!editing ? (
         <footer className="task-board-card__footer">
           <div className="task-board-card__status-chips">
-            <Chip
-              tone={
-                proposalBy !== undefined ? "violet" : chipToneForState(task.state)
-              }
-            >
-              {proposalBy !== undefined ? "Awaiting approval" : stateLabel(task.state)}
+            <Chip tone={chipToneForState(task.state)}>
+              {stateLabel(task.state)}
             </Chip>
             {mark}
             {depChip ? (
@@ -1202,7 +1121,7 @@ function TaskCard({
             {claimantRetired ? (
               <Chip
                 tone="crimson"
-                title="Still assigned to an agent that is no longer on the canvas"
+                title="Still claimed by an agent that is no longer on the canvas"
               >
                 Stalled
               </Chip>
@@ -1226,7 +1145,7 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
           <div className="task-board-card__meta">
             <StatusDot tone={toneForState(task.state)} />
             <span className="task-board-card__claimant">
-              {claimedByOf(task) ?? "Unassigned"}
+              {claimedByOf(task) ?? "Unclaimed"}
             </span>
           </div>
         </div>
@@ -1235,7 +1154,7 @@ function DragCardPreview({ task }: { readonly task: WorkTask }) {
   );
 }
 
-type CreateDialogMode = "task" | "proposal";
+type CreateDialogMode = "task";
 
 /** Focus portal (board) or inline workbench pane (pinnable enqueue). */
 export type TaskCreateShell = "focus" | "inline";
@@ -1253,12 +1172,12 @@ export function TaskCreateDialog({
   headerActions,
   preamble,
 }: {
-  readonly mode: CreateDialogMode;
+  readonly mode: "task";
   readonly pending: boolean;
   /** Resolved from canvas; not operator-authored at create. */
   readonly artifactsNodeId: string | undefined;
-  /** Minimum admission policy imposed by the destination sink. */
-  readonly admissionFloor: SinkAdmission;
+  /** Minimum admission policy imposed by this board. */
+  readonly admissionFloor: TaskAdmission;
   readonly onClose: () => void;
   readonly onCreate: (
     title: string,
@@ -1280,10 +1199,9 @@ export function TaskCreateDialog({
    * close button so the shell does not double up identical dismiss controls.
    */
   readonly headerActions?: ReactNode;
-  /** Compact, collapsed route context shown after the work description. */
+  /** Compact, collapsed path context shown after the work description. */
   readonly preamble?: ReactNode;
 }) {
-  const isProposal = mode === "proposal";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
@@ -1298,11 +1216,11 @@ export function TaskCreateDialog({
   const [formError, setFormError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
-  const [admission, setAdmission] = useState<SinkAdmission>(() =>
+  const [admission, setAdmission] = useState<TaskAdmission>(() =>
     defaultTaskAdmission(admissionFloor),
   );
-  const [holdFor, setHoldFor] = useState("");
-  const [holdError, setHoldError] = useState("");
+  const [waitFor, setWaitFor] = useState("");
+  const [waitError, setWaitError] = useState("");
   const admissionChoices = taskAdmissionChoices(admissionFloor);
 
   useEffect(() => {
@@ -1321,8 +1239,8 @@ export function TaskCreateDialog({
     setDragOver(false);
     setDescriptionOpen(false);
     setAdmission(defaultTaskAdmission(admissionFloor));
-    setHoldFor("");
-    setHoldError("");
+    setWaitFor("");
+    setWaitError("");
   }, [admissionFloor, resetToken]);
 
   const appendMedia = (draft: TaskMediaDraft) => {
@@ -1392,12 +1310,12 @@ export function TaskCreateDialog({
               setFormError("Add an Artifacts card to the canvas before requiring artifacts.");
               return;
             }
-            const parsedHold = parseTaskHold(holdFor);
-            if (!parsedHold.ok) {
-              setHoldError(parsedHold.message);
+            const parsedWait = parseTaskWait(waitFor);
+            if (!parsedWait.ok) {
+              setWaitError(parsedWait.message);
               return;
             }
-            setHoldError("");
+            setWaitError("");
             const finishCriteria: import("@shared/work-model").FinishCriteria | undefined = (() => {
               const description = criteriaText.trim();
               const artifacts =
@@ -1424,14 +1342,12 @@ export function TaskCreateDialog({
               parts,
               dependsOn,
               finishCriteria,
-              isProposal
-                ? undefined
-                : {
-                    admission,
-                    ...(parsedHold.ms !== undefined
-                      ? { holdForMs: parsedHold.ms }
-                      : {}),
-                  },
+              {
+                admission,
+                ...(parsedWait.ms !== undefined
+                  ? { waitForMs: parsedWait.ms }
+                  : {}),
+              },
             );
           }}
           onPaste={(event) => {
@@ -1485,15 +1401,15 @@ export function TaskCreateDialog({
               </label>
 
               {preamble ? (
-                <details className="task-create-dialog__line">
+                <details className="task-create-dialog__path">
                   <summary>
                     <span>
                       <strong>Path</strong>
-                      <small>Boards this task can move to, and the claims in force there</small>
+                      <small>Boards this task can move to, and the rules in force there</small>
                     </span>
-                    <span className="task-create-dialog__line-action">Show path</span>
+                    <span className="task-create-dialog__path-action">Show path</span>
                   </summary>
-                  <div className="task-create-dialog__line-map">{preamble}</div>
+                  <div className="task-create-dialog__path-map">{preamble}</div>
                 </details>
               ) : null}
 
@@ -1512,8 +1428,7 @@ export function TaskCreateDialog({
             </div>
 
             <aside className="task-create-dialog__aside" aria-label="Details and hard gates">
-              {!isProposal ? (
-                <section className="task-create-dialog__admission" aria-labelledby="task-admission-label">
+              <section className="task-create-dialog__admission" aria-labelledby="task-admission-label">
                   <div className="task-create-dialog__admission-heading">
                     <div>
                       <strong id="task-admission-label">Who starts it</strong>
@@ -1538,25 +1453,24 @@ export function TaskCreateDialog({
                       </button>
                     ))}
                   </div>
-                  <label className="task-create-dialog__hold">
+                  <label className="task-create-dialog__wait">
                     <FieldCaption
                       label="Wait before starting"
-                      help="Delay claimability from creation. The station bake still applies when this is blank."
+                      help="Delay claimability from creation. The board's Wait before starting still applies when this is blank."
                     />
                     <Input
                       aria-label="Wait before starting duration"
-                      value={holdFor}
+                      value={waitFor}
                       onChange={(event) => {
-                        setHoldFor(event.target.value);
-                        if (holdError) setHoldError("");
+                        setWaitFor(event.target.value);
+                        if (waitError) setWaitError("");
                       }}
                       placeholder="90m, 12h, 7d"
-                      aria-invalid={holdError ? true : undefined}
+                      aria-invalid={waitError ? true : undefined}
                     />
-                    {holdError ? <small className="task-create-dialog__hold-error" role="alert">{holdError}</small> : null}
+                    {waitError ? <small className="task-create-dialog__wait-error" role="alert">{waitError}</small> : null}
                   </label>
                 </section>
-              ) : null}
 
               <label>
                 <FieldCaption
@@ -1732,14 +1646,10 @@ export function TaskCreateDialog({
             )}
             <Button type="submit" variant="primary" disabled={pending || !title.trim()}>
               {pending
-                ? isProposal
-                  ? "Adding…"
-                  : "Creating…"
-                : isProposal
-                  ? "Add for approval"
-                  : stayOpen
-                    ? "Add task"
-                    : "Create task"}
+                ? "Creating…"
+                : stayOpen
+                  ? "Add task"
+                  : "Create task"}
             </Button>
           </footer>
         </form>
@@ -1747,14 +1657,14 @@ export function TaskCreateDialog({
 
   const header = (
     <OverlayHeader
-      eyebrow={isProposal ? "approval queue" : stayOpen ? "quick enqueue" : undefined}
+      eyebrow={stayOpen ? "quick enqueue" : undefined}
       title={stayOpen ? "Add to the queue" : "New task"}
       actions={
         headerActions !== undefined ? (
           headerActions
         ) : (
           <IconButton
-            aria-label={isProposal ? "Close approval form" : "Close task creator"}
+            aria-label="Close task creator"
             title="Close"
             onClick={onClose}
             disabled={pending}
@@ -1813,7 +1723,7 @@ export function TaskCreateDialog({
         measure="document"
         height="fit"
         layer="work"
-        label={isProposal ? "Add work for approval" : "Create task"}
+        label="Create task"
         onClose={onClose}
         closeOnBackdrop={!pending && !descriptionOpen}
         closeOnEscape={!pending && !descriptionOpen}
@@ -1873,34 +1783,29 @@ function TaskDetailPanel({
   lanes,
   pending,
   claimantRetired,
-  isProposal,
-  proposedBy,
   ownerLabel,
   seatName,
   nodeName,
-  station,
+  operatorPanel,
   onClose,
   onSaveTitle,
   onRespond,
   onReject,
   onMove,
   onApprove,
-  onRejectProposal,
   onComment,
 }: {
   readonly task: WorkTask;
-  /** Sink node the open row lives at — the journey reads its interiors from here. */
+  /** Tasks node the open row lives at — visits read their interiors from here. */
   readonly nodeId: string;
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
   readonly claimantRetired: boolean;
-  readonly isProposal: boolean;
-  readonly proposedBy?: string;
   readonly ownerLabel?: string;
   readonly seatName: (seatId: string) => string | undefined;
   readonly nodeName: (nodeId: string) => string | undefined;
-  /** Operator station console for an operator-owned sink; absent elsewhere. */
-  readonly station?: ReactNode;
+  /** Operator panel for an operator-admission board; absent elsewhere. */
+  readonly operatorPanel?: ReactNode;
   readonly onClose: () => void;
   readonly onSaveTitle: (task: WorkTask, title: string) => void;
   readonly onRespond: (
@@ -1911,7 +1816,6 @@ function TaskDetailPanel({
   readonly onReject: (task: WorkTask, comment: string) => Promise<boolean>;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove?: (task: WorkTask) => void;
-  readonly onRejectProposal?: (task: WorkTask) => void;
   readonly onComment: (task: WorkTask, text: string) => Promise<boolean>;
 }) {
   const [title, setTitle] = useState(() => taskTitle(task));
@@ -1922,7 +1826,9 @@ function TaskDetailPanel({
   const legacyMedia = taskMediaParts(task);
   const contentMedia = taskContentParts(task);
   const attentionRequired =
-    !isProposal && (task.state === "input-required" || task.state === "auth-required");
+    task.state === "input-required" || task.state === "auth-required";
+  const approvalTask =
+    task.state === "submitted" && task.admission === "approval";
   const requestContext = latestText(task);
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
@@ -1933,7 +1839,7 @@ function TaskDetailPanel({
     task.metadata.rejectedTimes > 0
       ? task.metadata.rejectedTimes
       : undefined;
-  const transitionOptions = isProposal
+  const transitionOptions = approvalTask
     ? []
     : [
         ...lanes.flatMap((lane) =>
@@ -1959,56 +1865,39 @@ function TaskDetailPanel({
             : [],
         ),
       ];
-  const arrivalLaneLabel =
+  const queueLaneLabel =
     lanes.find((lane) => lane.state === "submitted")?.label ?? "Queue";
-  const proposedByLabel =
-    proposedBy === undefined
-      ? undefined
-      : proposedBy === "operator"
-        ? "Raised by operator"
-        : `Raised by ${proposedBy}`;
 
   return (
     <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
       <header className="task-detail-panel__header">
         <div>
           <div className="task-detail-panel__chips">
-            <Chip tone={isProposal ? "violet" : chipToneForState(task.state)}>
-              {isProposal ? "Awaiting approval" : stateLabel(task.state)}
+            <Chip tone={chipToneForState(task.state)}>
+              {stateLabel(task.state)}
             </Chip>
             {claimantRetired ? (
               <Chip
                 tone="crimson"
-                title="Still assigned to an agent that is no longer on the canvas"
+                title="Still claimed by an agent that is no longer on the canvas"
               >
                 Stalled
               </Chip>
             ) : null}
-            {isProposal && onApprove ? (
+            {approvalTask && onApprove ? (
               <Button
                 size="xs"
                 variant="primary"
                 disabled={pending}
-                title="Approve this work into the Queue for workers"
+                title="Approve this task so agents can claim it"
+                data-testid="task-detail-approve"
                 onClick={() => onApprove(task)}
               >
                 <CheckCircle2 size={12} />
-                Approve to Queue
+                Approve
               </Button>
             ) : null}
-            {isProposal && onRejectProposal ? (
-              <Button
-                size="xs"
-                variant="danger"
-                disabled={pending}
-                title="Reject and remove this pending work from the board"
-                onClick={() => onRejectProposal(task)}
-              >
-                <XCircle size={12} />
-                Reject pending work
-              </Button>
-            ) : null}
-            {!isProposal && canTransitionTaskState(task.state, "archived") ? (
+            {!approvalTask && canTransitionTaskState(task.state, "archived") ? (
               <Button
                 size="xs"
                 variant="danger"
@@ -2021,7 +1910,7 @@ function TaskDetailPanel({
                 Delete from board
               </Button>
             ) : null}
-            {!isProposal &&
+            {!approvalTask &&
             task.state !== "completed" &&
             claim &&
             canTransitionTaskState(task.state, "submitted") ? (
@@ -2029,11 +1918,11 @@ function TaskDetailPanel({
                 size="xs"
                 variant="subtle"
                 disabled={pending}
-                title={`Clear this assignment and return the task to ${arrivalLaneLabel}`}
+                title={`Clear this claim and return the task to ${queueLaneLabel}`}
                 onClick={() => onMove(task, "submitted")}
               >
                 <RotateCcw size={12} />
-                Unassign to {arrivalLaneLabel}
+                Return to {queueLaneLabel}
               </Button>
             ) : null}
           </div>
@@ -2045,11 +1934,11 @@ function TaskDetailPanel({
       </header>
 
       <div className="task-detail-panel__identity">
-        <span title={isProposal ? "Pending work ID" : "Task ID"}>#{task.id}</span>
-        {isProposal || ownerLabel ? (
-          <span className="task-detail-panel__claim" title={isProposal ? proposedBy : claim}>
+        <span title="Task ID">#{task.id}</span>
+        {ownerLabel ? (
+          <span className="task-detail-panel__claim" title={claim}>
             <UserRound size={12} aria-hidden />
-            {isProposal ? (proposedByLabel ?? "Awaiting approval") : ownerLabel}
+            {ownerLabel}
           </span>
         ) : null}
         {rejectedTimes !== undefined ? (
@@ -2060,7 +1949,7 @@ function TaskDetailPanel({
       </div>
 
       <div className="task-detail-panel__scroll">
-        {station}
+        {operatorPanel}
         {attentionRequired ? (
           <section
             className="task-detail-panel__attention is-input"
@@ -2135,27 +2024,23 @@ function TaskDetailPanel({
 
         <section className="task-detail-panel__section">
           <h3>Title</h3>
-          {isProposal ? (
-            <p className="task-detail-panel__description">{taskTitle(task)}</p>
-          ) : (
-            <form
-              className="task-detail-panel__title-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (title.trim() && title.trim() !== taskTitle(task)) onSaveTitle(task, title.trim());
-              }}
+          <form
+            className="task-detail-panel__title-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (title.trim() && title.trim() !== taskTitle(task)) onSaveTitle(task, title.trim());
+            }}
+          >
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Button
+              type="submit"
+              size="xs"
+              variant="subtle"
+              disabled={pending || !title.trim() || title.trim() === taskTitle(task)}
             >
-              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-              <Button
-                type="submit"
-                size="xs"
-                variant="subtle"
-                disabled={pending || !title.trim() || title.trim() === taskTitle(task)}
-              >
-                Save title
-              </Button>
-            </form>
-          )}
+              Save title
+            </Button>
+          </form>
         </section>
 
         <section className="task-detail-panel__section">
@@ -2174,7 +2059,7 @@ function TaskDetailPanel({
           </section>
         ) : null}
 
-        {isProposal ? null : <TaskJourney task={task} nodeId={nodeId} />}
+        <TaskVisits task={task} nodeId={nodeId} />
 
         {task.dependsOn && task.dependsOn.length > 0 ? (
           <section className="task-detail-panel__section">
@@ -2268,7 +2153,7 @@ function TaskDetailPanel({
           </section>
         ) : null}
 
-        {!isProposal && task.state === "completed" ? (
+        {task.state === "completed" ? (
           <section
             className="task-detail-panel__attention is-rejection"
             aria-labelledby={`task-rejection-${task.id}`}
@@ -2317,70 +2202,34 @@ function TaskDetailPanel({
           </section>
         ) : null}
 
-        {isProposal ? (
-          <section className="task-detail-panel__section task-detail-panel__status">
-            <div>
-              <h3>Planning</h3>
-              <p>
-                This work is waiting for your approval. Approve to place it in the
-                queue, reject to discard it, or leave it here until it is ready.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {onApprove ? (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={pending}
-                  onClick={() => onApprove(task)}
-                >
-                  <CheckCircle2 size={13} />
-                  Approve to Queue
-                </Button>
-              ) : null}
-              {onRejectProposal ? (
-                <Button
-                  size="sm"
-                  variant="danger"
-                  disabled={pending}
-                  onClick={() => onRejectProposal(task)}
-                >
-                  <XCircle size={13} />
-                  Reject pending work
-                </Button>
-              ) : null}
-            </div>
-          </section>
-        ) : (
-          <section className="task-detail-panel__section task-detail-panel__status">
-            <div>
-              <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
-              <p>
-                {task.state === "completed"
-                  ? "Completed work can go back to the queue through review, or be deleted."
-                  : attentionRequired
-                  ? "Use this only when the task should leave the response workflow without resuming."
-                  : "Move this task to another stage, or delete it."}
-              </p>
-            </div>
-            {task.state === "completed" &&
-            !canTransitionTaskState(task.state, "archived") ? null : (
-              <Dropdown
-                value=""
-                options={transitionOptions}
-                disabled={pending || transitionOptions.length === 0}
-                aria-label="Change task status"
-                placeholder={
-                  transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
-                }
-                onChange={(state) => onMove(task, state as TaskState)}
-                className="task-detail-panel__status-menu"
-                triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
-                align="start"
-              />
-            )}
-          </section>
-        )}
+        <section className="task-detail-panel__section task-detail-panel__status">
+          <div>
+            <h3>{attentionRequired ? "Other status changes" : "Status"}</h3>
+            <p>
+              {task.state === "completed"
+                ? "Completed work can go back to the queue through review, or be deleted."
+                : attentionRequired
+                ? "Use this only when the task should leave the response workflow without resuming."
+                : "Move this task to another status, or delete it."}
+            </p>
+          </div>
+          {task.state === "completed" &&
+          !canTransitionTaskState(task.state, "archived") ? null : (
+            <Dropdown
+              value=""
+              options={transitionOptions}
+              disabled={pending || transitionOptions.length === 0}
+              aria-label="Change task status"
+              placeholder={
+                transitionOptions.length > 0 ? "Choose a status…" : "No available transitions"
+              }
+              onChange={(state) => onMove(task, state as TaskState)}
+              className="task-detail-panel__status-menu"
+              triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
+              align="start"
+            />
+          )}
+        </section>
       </div>
     </aside>
   );
@@ -2397,45 +2246,18 @@ export function TaskBoard({
   readonly initialItemId?: string;
 }) {
   const items = node.ether?.tasks?.items ?? [];
-  const proposals = node.ether?.tasks?.proposals ?? [];
-  const sinkContract = node.ether?.tasks?.contract;
+  const boardSettings = node.ether?.tasks?.contract;
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const liveIds = useMemo(() => new Set(items.map((task) => task.id)), [items]);
-  const proposalTasks = useMemo(
-    () =>
-      proposals
-        .filter(
-          (proposal) =>
-            proposal.state === "pending" && !liveIds.has(proposal.id),
-        )
-        .map(proposalAsDisplayTask),
-    [liveIds, proposals],
-  );
-  const proposalById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const proposal of proposals) {
-      map.set(proposal.id, proposal.proposedBy.nodeId);
-    }
-    for (const task of items) {
-      if (
-        task.state === "submitted" &&
-        taskAdmissionState(task, sinkContract, nowMs) === "operator-gated"
-      ) {
-        map.set(task.id, task.raisedBy?.nodeId ?? "operator");
-      }
-    }
-    return map;
-  }, [items, nowMs, proposals, sinkContract]);
-  const glance = sinkGlance(items, sinkContract, nowMs);
+  const glance = sinkGlance(items, boardSettings, nowMs);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
-  const [contractSide, setContractSide] = useState<"inbound" | "outbound" | null>(null);
+  const [contractSide, setContractSide] = useState<"incoming" | "outgoing" | null>(null);
   const [creating, setCreating] = useState<CreateDialogMode | null>(null);
   const [creatingPending, setCreatingPending] = useState(false);
-  // Station pins from the creation metro map, cleared each time the composer
-  // opens or closes so a stale pin never survives across creation sessions.
-  const [creationPins, setCreationPins] = useState<ReadonlyArray<TaskClaim>>([]);
+  // Task rules from the creation path, cleared each time the composer opens
+  // or closes so a stale rule never survives across creation sessions.
+  const [creationRules, setCreationRules] = useState<ReadonlyArray<TaskRule>>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeLane, setActiveLane] = useState<LaneId | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
@@ -2443,10 +2265,7 @@ export function TaskBoard({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => {
     if (
       initialItemId &&
-      (items.some((task) => task.id === initialItemId) ||
-        proposals.some(
-          (proposal) => proposal.state === "pending" && proposal.id === initialItemId,
-        ))
+      items.some((task) => task.id === initialItemId)
     ) {
       return initialItemId;
     }
@@ -2467,50 +2286,50 @@ export function TaskBoard({
     [actorRefs],
   );
   const doc = use$(state$.doc);
-  // Columns follow the flow edges: incoming flow turns Awaiting approval + Queue into
-  // Inbound, outgoing flow turns Closed into Outbound (spec §7).
-  const shape = useMemo(() => pipelineShape(doc, node.id), [doc, node.id]);
-  // An operator-owned station never hands work to a seat: the operator answers
-  // the claims and routes the work from the detail panel.
-  const operatorOwned = resolveSinkAdmission(sinkContract) === "operator-owned";
-  const stationName = useMemo(() => {
+  // Columns follow the flow edges: incoming flow turns Queue into Incoming,
+  // outgoing flow turns Closed into Sent on.
+  const shape = useMemo(() => taskPathShape(doc, node.id), [doc, node.id]);
+  // An operator-admission board never hands work to a seat: the operator
+  // answers the rules and completes or sends on from the detail panel.
+  const operatorOwned = resolveTaskAdmission(boardSettings) === "operator";
+  const boardName = useMemo(() => {
     const names = new Map(
       doc.nodes.map((entry) => [
         entry.id,
-        displayStationName(entry),
+        tasksNodeName(entry),
       ]),
     );
     return (nodeId: string): string =>
-      names.get(nodeId) ?? displayStationName(undefined, nodeId);
+      names.get(nodeId) ?? tasksNodeName(undefined, nodeId);
   }, [doc]);
-  const currentStation = useMemo(
-    () => stationIdentity(doc.nodes.find((entry) => entry.id === node.id), node.id),
+  const currentBoard = useMemo(
+    () => tasksNodeIdentity(doc.nodes.find((entry) => entry.id === node.id), node.id),
     [doc, node.id],
   );
   const seatName = useMemo(() => {
     const names = new Map<string, string>(
-      actorRefs.map((actor) => [actor.seatId, stationName(actor.nodeId)]),
+      actorRefs.map((actor) => [actor.seatId, boardName(actor.nodeId)]),
     );
     return (seatId: string): string | undefined => names.get(seatId);
-  }, [actorRefs, stationName]);
+  }, [actorRefs, boardName]);
   const ownerFor = (task: WorkTask): string | undefined => {
-    const owner = currentTaskOwner(task, sinkContract);
+    const owner = currentTaskOwner(task, boardSettings);
     if (owner.kind === "operator") return "Operator";
     if (owner.kind === "seat") return seatName(owner.seatId) ?? owner.seatId;
     return undefined;
   };
   const laneCopy = useMemo(
-    () => pipelineLaneCopy(shape, stationName),
-    [shape, stationName],
+    () => taskPathLaneCopy(shape, boardName),
+    [shape, boardName],
   );
-  const inboundContractGlance = useMemo(() => {
-    const admission = resolveSinkAdmission(sinkContract);
-    const bake = formatBakeTime(sinkContract?.inbound?.claimableAfterMs);
+  const incomingContractGlance = useMemo(() => {
+    const admission = resolveTaskAdmission(boardSettings);
+    const wait = formatWait(boardSettings?.incoming?.waitMs);
     return {
       admission: `Starts: ${admissionLabel(admission)}`,
-      bake: `Wait: ${bake || "none"}`,
+      wait: `Wait: ${wait || "none"}`,
     };
-  }, [sinkContract]);
+  }, [boardSettings]);
 
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -2527,79 +2346,59 @@ export function TaskBoard({
 
   const tasksByLane = useMemo(() => {
     const grouped: Record<LaneId, WorkTask[]> = {
-      proposal: [],
       queue: [],
-      inbound: [],
+      incoming: [],
       working: [],
       input: [],
-      outbound: [],
+      outgoing: [],
       closed: [],
     };
-    grouped[shape.hasInbound ? "inbound" : "proposal"].push(
-      ...proposalTasks.filter((task) => {
-        const normalized = query.trim().toLowerCase();
-        return !normalized ||
-          taskTitle(task).toLowerCase().includes(normalized) ||
-          Boolean(taskDetails(task)?.toLowerCase().includes(normalized));
-      }),
-    );
     for (const task of visibleItems) {
-      grouped[laneForTask(task, shape, sinkContract, nowMs)].push(task);
+      grouped[laneForTask(task, shape, boardSettings, nowMs)].push(task);
     }
     // Latest activity first in every lane (Closed especially: complete by latest).
     for (const laneId of Object.keys(grouped) as LaneId[]) {
       grouped[laneId].sort(compareTasksByLatestActivityDesc);
     }
     return grouped;
-  }, [nowMs, proposalTasks, query, shape, sinkContract, visibleItems]);
+  }, [nowMs, query, shape, boardSettings, visibleItems]);
 
-  const outboundGroups = useMemo((): ReadonlyArray<TaskLaneGroup> | undefined => {
-    if (!shape.hasOutbound) return undefined;
-    return groupOutboundPassages(
-      tasksByLane.outbound,
+  const outgoingGroups = useMemo((): ReadonlyArray<TaskLaneGroup> | undefined => {
+    if (!shape.hasOutgoing) return undefined;
+    return groupOutgoingVisits(
+      tasksByLane.outgoing,
       node.id,
       shape.destinations,
     ).map((group) => ({
       key: group.key,
       kind: group.kind,
-      ...(group.stationId !== undefined
-        ? { station: stationName(group.stationId) }
+      ...(group.boardId !== undefined
+        ? { board: boardName(group.boardId) }
         : {}),
       tasks: group.tasks,
     }));
-  }, [node.id, shape, stationName, tasksByLane]);
+  }, [node.id, shape, boardName, tasksByLane]);
 
   const activeTask = activeTaskId ? items.find((task) => task.id === activeTaskId) : undefined;
-  // Approval candidates are display-mapped WorkTasks (not in items) — resolve
-  // both lists so clicking one opens the same detail panel as a normal task.
   const selectedTask = selectedTaskId
-    ? (items.find((task) => task.id === selectedTaskId) ??
-      proposalTasks.find((task) => task.id === selectedTaskId))
+    ? items.find((task) => task.id === selectedTaskId)
     : undefined;
-  const selectedIsProposal =
-    selectedTask !== undefined && proposalById.has(selectedTask.id);
   const selectedBulkItems = useMemo(() => {
     if (selectedTaskIds.size === 0) return [];
-    const out: Array<{
-      task: WorkTask;
-      isProposal: boolean;
-    }> = [];
+    const out: WorkTask[] = [];
     for (const id of selectedTaskIds) {
-      const task =
-        items.find((entry) => entry.id === id) ??
-        proposalTasks.find((entry) => entry.id === id);
+      const task = items.find((entry) => entry.id === id);
       if (!task) continue;
-      out.push({ task, isProposal: proposalById.has(task.id) });
+      out.push(task);
     }
     return out;
-  }, [items, proposalById, proposalTasks, selectedTaskIds]);
+  }, [items, selectedTaskIds]);
   const bulkActions = useMemo(
     () =>
       resolveTaskBoardBulkActions(
-        selectedBulkItems.map(({ task, isProposal }) => ({
+        selectedBulkItems.map((task) => ({
           id: task.id,
           state: task.state,
-          isProposal,
           hardFinishGate:
             task.finishCriteria?.artifacts !== undefined ||
             task.finishCriteria?.git !== undefined,
@@ -2613,17 +2412,17 @@ export function TaskBoard({
     [doc, node.id],
   );
 
-  // Arrival bake countdowns tick only while some arrival is still held.
-  const inboundTasks = tasksByLane.inbound;
+  // Wait countdowns tick only while some task is still waiting.
+  const incomingTasks = tasksByLane.incoming;
   useEffect(() => {
-    if (!shape.hasInbound || !hasPendingHold(inboundTasks, Date.now())) return;
+    if (!shape.hasIncoming || !hasPendingWait(incomingTasks, Date.now())) return;
     const timer = window.setInterval(() => {
       const next = Date.now();
       setNowMs(next);
-      if (!hasPendingHold(inboundTasks, next)) window.clearInterval(timer);
+      if (!hasPendingWait(incomingTasks, next)) window.clearInterval(timer);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [inboundTasks, shape.hasInbound]);
+  }, [incomingTasks, shape.hasIncoming]);
 
   const createTask = async (
     title: string,
@@ -2631,7 +2430,7 @@ export function TaskBoard({
     media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
     dependsOn: ReadonlyArray<string> = [],
     finishCriteria?: import("@shared/work-model").FinishCriteria,
-    claims: ReadonlyArray<TaskClaim> = [],
+    rules: ReadonlyArray<TaskRule> = [],
     options?: TaskCreateOptions,
   ) => {
     if (!api || !title.trim() || !details.trim()) return;
@@ -2652,7 +2451,7 @@ export function TaskBoard({
           media.length > 0 ? media : undefined,
           dependsOn.length > 0 ? dependsOn : undefined,
           finishCriteria,
-          claims.length > 0 ? claims : undefined,
+          rules.length > 0 ? rules : undefined,
           options,
         ),
       );
@@ -2662,55 +2461,10 @@ export function TaskBoard({
         return;
       }
       setAnnouncement(
-        `Created ${title.trim()} in ${laneById(laneForTask(result.data, shape, sinkContract, Date.now())).label}.`,
+        `Created ${title.trim()} in ${laneById(laneForTask(result.data, shape, boardSettings, Date.now())).label}.`,
       );
       setCreating(null);
-      setCreationPins([]);
-      setSelectedTaskId(result.data.id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setCreatingPending(false);
-    }
-  };
-
-  const createProposal = async (
-    title: string,
-    details: string,
-    media: ReadonlyArray<Extract<Part, { kind: "raw" }>>,
-    dependsOn: ReadonlyArray<string> = [],
-    finishCriteria?: import("@shared/work-model").FinishCriteria,
-    claims: ReadonlyArray<TaskClaim> = [],
-  ) => {
-    if (!api || !title.trim() || !details.trim()) return;
-    setError("");
-    setCreatingPending(true);
-    try {
-      const metadata: WorkMetadata = {
-        title: title.trim(),
-        details: details.trim(),
-      };
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskPropose(
-          name,
-          node.id,
-          title.trim(),
-          metadata,
-          undefined,
-          media.length > 0 ? media : undefined,
-          dependsOn.length > 0 ? dependsOn : undefined,
-          finishCriteria,
-          claims.length > 0 ? claims : undefined,
-        ),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setAnnouncement(`Proposed ${title.trim()} for planning.`);
-      setCreating(null);
-      setCreationPins([]);
+      setCreationRules([]);
       setSelectedTaskId(result.data.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -2751,7 +2505,11 @@ export function TaskBoard({
         return false;
       }
       if (task.state === "completed" && state === "submitted") {
-        setAnnouncement(`Rejected ${taskTitle(task)} and returned it to Queue.`);
+        setAnnouncement(
+          `Rejected ${taskTitle(task)} and returned it to ${
+            shape.hasIncoming ? INCOMING_LANE.label : laneById("queue").label
+          }.`,
+        );
       } else if (state === "archived") {
         setSelectedTaskId((current) => (current === task.id ? null : current));
         setSelectedTaskIds((current) => {
@@ -2783,50 +2541,15 @@ export function TaskBoard({
     let failCount = 0;
     let lastError = "";
     try {
-      for (const { task, isProposal } of selectedBulkItems) {
-        let ok = false;
-        if (action.kind === "approve_proposals") {
-          if (!isProposal) continue;
-          if (!api) {
-            failCount += 1;
-            continue;
-          }
-          setPendingTaskId(task.id);
-          try {
-            const result = await runWorkCanvasMutation(name, () =>
-              api.workTaskApproveProposal(name, node.id, task.id),
-            );
-            ok = result !== undefined && result.ok;
-            if (result && !result.ok) lastError = result.message;
-          } finally {
-            setPendingTaskId(null);
-          }
-        } else if (action.kind === "reject_proposals") {
-          if (!isProposal || !api?.workTaskRejectProposal) continue;
-          setPendingTaskId(task.id);
-          try {
-            const result = await runWorkCanvasMutation(name, () =>
-              api.workTaskRejectProposal!(name, node.id, task.id),
-            );
-            ok = result !== undefined && result.ok;
-            if (result && !result.ok) lastError = result.message;
-          } finally {
-            setPendingTaskId(null);
-          }
-        } else {
-          if (isProposal) continue;
-          ok = await transitionTask(task, action.state);
-        }
+      for (const task of selectedBulkItems) {
+        const ok = await transitionTask(task, action.state);
         if (ok) okCount += 1;
         else failCount += 1;
       }
       if (okCount > 0 && failCount === 0) {
         setAnnouncement(`${action.label} — ${okCount} done.`);
         clearTaskSelection();
-        if (
-          action.kind === "reject_proposals" ||
-          (action.kind === "transition" && action.state === "archived")
-        ) {
+        if (action.kind === "transition" && action.state === "archived") {
           setSelectedTaskId(null);
         }
       } else if (okCount > 0) {
@@ -2877,7 +2600,7 @@ export function TaskBoard({
         setAnnouncement(`Could not approve ${taskTitle(task)}. ${result.message}`);
         return;
       }
-      setAnnouncement(`Approved ${taskTitle(task)} into ${INBOUND_LANE.label}.`);
+      setAnnouncement(`Approved ${taskTitle(task)} so agents can claim it.`);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
@@ -2887,64 +2610,29 @@ export function TaskBoard({
     }
   };
 
-  const rejectArrival = async (task: WorkTask, note?: string) => {
-    if (!api?.workTaskRejectArrival) {
-      setError("Arrival rejection is not available until the current work service is ready.");
-      return;
-    }
-    setError("");
-    setPendingTaskId(task.id);
-    try {
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskRejectArrival(
-          name,
-          node.id,
-          task.id,
-          note?.trim() || undefined,
-        ),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        setAnnouncement(`Could not reject ${taskTitle(task)}. ${result.message}`);
-        return;
-      }
-      setAnnouncement(`Rejected arrival ${taskTitle(task)}.`);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      setError(message);
-      setAnnouncement(`Could not reject ${taskTitle(task)}. ${message}`);
-    } finally {
-      setPendingTaskId(null);
-    }
-  };
-
-  const arrivalMarkFor = (task: WorkTask): ReactNode => {
-    if (task.state !== "submitted" || proposalById.has(task.id)) return null;
-    const glance = arrivalGlance(task, sinkContract, nowMs);
+  const approvalMarkFor = (task: WorkTask): ReactNode => {
+    if (task.state !== "submitted") return null;
+    const glance = incomingGlance(task, boardSettings, nowMs);
     return (
-      <ArrivalMark
+      <ApprovalMark
         glance={glance}
-        gatedStation={resolveSinkAdmission(sinkContract) === "operator-gated"}
+        gatedBoard={resolveTaskAdmission(boardSettings) === "approval"}
         pending={pendingTaskId === task.id}
         onPromote={
           glance.promotable ? (note) => void promoteTask(task, note) : undefined
-        }
-        onReject={
-          glance.promotable ? (note) => void rejectArrival(task, note) : undefined
         }
       />
     );
   };
 
   /**
-   * Operator completion at a station: the claim answers ride in the completion
-   * evidence, `next` names the forward station (absent = terminal close). The
+   * Operator completion at a board: the rule answers ride in the completion
+   * evidence; `next` names the Next board (absent = completion here). The
    * work service checks the shape of the submission and re-homes the row.
    */
-  const completeAtStation = async (
+  const completeAtBoard = async (
     task: WorkTask,
-    submission: StationSubmission,
+    submission: RuleSubmission,
     next: string | undefined,
   ): Promise<boolean> => {
     if (!api) return false;
@@ -2960,39 +2648,46 @@ export function TaskBoard({
           submission.note,
           {
             artifacts: [],
-            ...(submission.responses.length > 0
-              ? { responses: submission.responses }
+            ...(submission.claims.length > 0
+              ? { claims: submission.claims }
               : {}),
             ...(submission.waivers.length > 0
-              ? { claimWaivers: submission.waivers }
+              ? { waivers: submission.waivers }
               : {}),
           },
-          next !== undefined ? { next } : undefined,
+          next !== undefined
+            ? {
+                next,
+                ...(submission.note !== undefined
+                  ? { handoffNote: submission.note }
+                  : {}),
+              }
+            : undefined,
         ),
       );
       if (result === undefined) return false;
       if (!result.ok) {
         setError(result.message);
-        setAnnouncement(`Could not route ${taskTitle(task)}. ${result.message}`);
+        setAnnouncement(`Could not complete ${taskTitle(task)}. ${result.message}`);
         return false;
       }
       setAnnouncement(
         next === undefined
-          ? `Closed ${taskTitle(task)}.`
-          : `Forwarded ${taskTitle(task)} to ${stationName(next)}.`,
+          ? `Completed ${taskTitle(task)}.`
+          : `Sent ${taskTitle(task)} on to ${boardName(next)}.`,
       );
       return true;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      setAnnouncement(`Could not route ${taskTitle(task)}. ${message}`);
+      setAnnouncement(`Could not complete ${taskTitle(task)}. ${message}`);
       return false;
     } finally {
       setPendingTaskId(null);
     }
   };
 
-  /** Defect back: the row returns to the station it came from, one epoch later. */
+  /** Send back: the row returns to an earlier board, one epoch later. */
   const sendBackDefect = async (
     task: WorkTask,
     summary: string,
@@ -3030,7 +2725,7 @@ export function TaskBoard({
       setAnnouncement(
         target === undefined
           ? `Sent ${taskTitle(task)} back as a defect.`
-          : `Sent ${taskTitle(task)} back to ${stationName(target)} as a defect.`,
+          : `Sent ${taskTitle(task)} back to ${boardName(target)} as a defect.`,
       );
       return true;
     } catch (cause) {
@@ -3043,13 +2738,13 @@ export function TaskBoard({
     }
   };
 
-  const approveProposal = async (task: WorkTask) => {
+  const approveTask = async (task: WorkTask) => {
     if (!api) return;
     setError("");
     setPendingTaskId(task.id);
     try {
       const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskApproveProposal(name, node.id, task.id),
+        api.workTaskPromote(name, node.id, task.id, undefined),
       );
       if (result === undefined) return;
       if (!result.ok) {
@@ -3057,36 +2752,11 @@ export function TaskBoard({
         setAnnouncement(`Could not approve ${taskTitle(task)}. ${result.message}`);
         return;
       }
-      setAnnouncement(`Approved ${taskTitle(task)} to Queue.`);
+      setAnnouncement(`Approved ${taskTitle(task)} so agents can claim it.`);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
       setAnnouncement(`Could not approve ${taskTitle(task)}. ${message}`);
-    } finally {
-      setPendingTaskId(null);
-    }
-  };
-
-  const rejectProposal = async (task: WorkTask) => {
-    if (!api?.workTaskRejectProposal) return;
-    setError("");
-    setPendingTaskId(task.id);
-    try {
-      const result = await runWorkCanvasMutation(name, () =>
-        api.workTaskRejectProposal(name, node.id, task.id),
-      );
-      if (result === undefined) return;
-      if (!result.ok) {
-        setError(result.message);
-        setAnnouncement(`Could not reject ${taskTitle(task)}. ${result.message}`);
-        return;
-      }
-      setSelectedTaskId(null);
-      setAnnouncement(`Removed ${taskTitle(task)} from awaiting approval.`);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      setError(message);
-      setAnnouncement(`Could not reject ${taskTitle(task)}. ${message}`);
     } finally {
       setPendingTaskId(null);
     }
@@ -3204,7 +2874,7 @@ export function TaskBoard({
     const task = items.find((item) => item.id === source.taskId);
     const targetLane = target.laneId;
     if (!task || source.laneId === targetLane) return;
-    const state = destinationState(targetLane);
+    const state = targetState(targetLane);
     if (!state) {
       setAnnouncement("Choose how this task should close.");
       return;
@@ -3213,12 +2883,12 @@ export function TaskBoard({
   };
 
   const boardLanes = visibleLanes(shape);
-  // The closing column is Closed on a plain sink, Outbound on a pipeline sink.
+  // The final column is Closed on a plain board, Sent on on a path board.
   const closingLaneLabel = (
-    shape.hasOutbound ? OUTBOUND_LANE.label : laneById("closed").label
+    shape.hasOutgoing ? OUTGOING_LANE.label : laneById("closed").label
   ).toLowerCase();
   const shownLanes = hideClosed
-    ? boardLanes.filter((lane) => lane.id !== "closed" && lane.id !== "outbound")
+    ? boardLanes.filter((lane) => lane.id !== "closed" && lane.id !== "outgoing")
     : boardLanes;
 
   return (
@@ -3226,7 +2896,7 @@ export function TaskBoard({
       measure="workspace"
       height="immersive"
       layer="work"
-      label="Task flow"
+      label="Task board"
       onClose={onClose}
       closeOnEscape
       closeOnBackdrop
@@ -3242,22 +2912,30 @@ export function TaskBoard({
       >
         <OverlayHeader
           eyebrow="Tasks"
-          title={currentStation.name}
+          title={currentBoard.name}
           status={
             <>
-              {glance.inFlight} open
-              {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
+              <span>
+                {glance.inFlight} open
+                {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
+              </span>
+              {boardSettings?.instructions ? (
+                <>
+                  {" — "}
+                  <span>{boardSettings.instructions}</span>
+                </>
+              ) : null}
             </>
           }
           actions={
             <>
               <IconButton
                 tone={contractSide ? "accent" : "default"}
-                aria-label="Edit station contract"
-                title="Edit station contract"
+                aria-label="Edit board settings"
+                title="Edit board settings"
                 onClick={() => {
                   setSelectedTaskId(null);
-                  setContractSide((current) => (current ? null : "inbound"));
+                  setContractSide((current) => (current ? null : "incoming"));
                 }}
               >
                 <Settings2 size={14} />
@@ -3282,14 +2960,6 @@ export function TaskBoard({
                 <Filter size={14} />
               </IconButton>
               <Button
-                variant="subtle"
-                size="sm"
-                onClick={() => setCreating("proposal")}
-              >
-                <Plus size={12} />
-                Add for approval
-              </Button>
-              <Button
                 variant="primary"
                 size="sm"
                 onClick={() => setCreating("task")}
@@ -3298,7 +2968,7 @@ export function TaskBoard({
                 <Plus size={12} />
                 Add task
               </Button>
-              <IconButton aria-label="Close task flow" title="Close" onClick={onClose}>
+              <IconButton aria-label="Close task board" title="Close" onClick={onClose}>
                 <X size={14} />
               </IconButton>
             </>
@@ -3330,54 +3000,41 @@ export function TaskBoard({
         ) : null}
 
         {/*
-          The creation metro map rides above the form: on a sink with flow
-          destinations it draws the line the work will travel and the law
-          standing at every stop. It returns null for a flowless sink, so Add
-          Task there stays the plain quick-create path it always was.
+          The creation path rides above the form: on a board with outgoing flow
+          it shows where the work can go and the rules in force along each path.
+          It returns null for a board without outgoing flow, so Add Task there
+          stays the plain quick-create path.
         */}
         {creating ? (
           <TaskCreateDialog
-            mode={creating}
+            mode="task"
             pending={creatingPending}
             artifactsNodeId={resolveArtifactsNodeId(node.id, doc)}
-            admissionFloor={resolveSinkAdmission(sinkContract)}
+            admissionFloor={resolveTaskAdmission(boardSettings)}
             preamble={
-              creating === "task" ? (
-                <TaskCreationMetroMap
-                  nodeId={node.id}
-                  pins={creationPins}
-                  onPinsChange={setCreationPins}
-                />
-              ) : undefined
+              <TaskCreationPath
+                nodeId={node.id}
+                rules={creationRules}
+                onRulesChange={setCreationRules}
+              />
             }
             onClose={() => {
               if (!creatingPending) {
                 setCreating(null);
-                setCreationPins([]);
+                setCreationRules([]);
               }
             }}
-            onCreate={(title, details, media, dependsOn, finishCriteria, options) => {
-              if (creating === "proposal") {
-                void createProposal(
-                  title,
-                  details,
-                  media,
-                  dependsOn,
-                  finishCriteria,
-                  creationPins,
-                );
-                return;
-              }
+            onCreate={(title, details, media, dependsOn, finishCriteria, options) =>
               void createTask(
                 title,
                 details,
                 media,
                 dependsOn,
                 finishCriteria,
-                creationPins,
+                creationRules,
                 options,
-              );
-            }}
+              )
+            }
           />
         ) : null}
 
@@ -3412,16 +3069,13 @@ export function TaskBoard({
                     key={key}
                     size="xs"
                     variant={
-                      action.kind === "reject_proposals" ||
-                      (action.kind === "transition" &&
-                        (action.state === "archived" ||
-                          action.state === "canceled" ||
-                          action.state === "failed" ||
-                          action.state === "rejected"))
+                      action.kind === "transition" &&
+                      (action.state === "archived" ||
+                        action.state === "canceled" ||
+                        action.state === "failed" ||
+                        action.state === "rejected")
                         ? "danger"
-                        : action.kind === "approve_proposals"
-                          ? "primary"
-                          : "subtle"
+                        : "subtle"
                     }
                     disabled={bulkPending}
                     data-testid={`task-board-bulk-${key}`}
@@ -3459,26 +3113,26 @@ export function TaskBoard({
                 lane={lane}
                 lanes={boardLanes}
                 tasks={tasksByLane[lane.id]}
-                groups={lane.id === "outbound" ? outboundGroups : undefined}
+                groups={lane.id === "outgoing" ? outgoingGroups : undefined}
                 headerDetail={
-                  lane.id === "inbound" ? (
+                  lane.id === "incoming" ? (
                     <>
-                      <span>{inboundContractGlance.admission}</span>
-                      <span>{inboundContractGlance.bake}</span>
+                      <span>{incomingContractGlance.admission}</span>
+                      <span>{incomingContractGlance.wait}</span>
                     </>
-                  ) : lane.id === "outbound" ? (
-                    <span>{laneCopy.outboundHint}</span>
+                  ) : lane.id === "outgoing" ? (
+                    <span>{laneCopy.outgoingHint}</span>
                   ) : undefined
                 }
                 headerAction={
-                  lane.id === "inbound" || lane.id === "outbound" ? (
+                  lane.id === "incoming" || lane.id === "outgoing" ? (
                     <IconButton
                       size="sm"
-                      aria-label={`Edit ${lane.id === "inbound" ? "arrivals" : "departures"} contract`}
-                      title={`Edit ${lane.id === "inbound" ? "arrivals" : "departures"} contract`}
+                      aria-label={`Edit ${lane.id === "incoming" ? "incoming" : "outgoing"} settings`}
+                      title={`Edit ${lane.id === "incoming" ? "incoming" : "outgoing"} settings`}
                       onClick={() => {
                         setSelectedTaskId(null);
-                        setContractSide(lane.id === "inbound" ? "inbound" : "outbound");
+                        setContractSide(lane.id === "incoming" ? "incoming" : "outgoing");
                       }}
                     >
                       <Settings2 size={13} />
@@ -3486,13 +3140,13 @@ export function TaskBoard({
                   ) : undefined
                 }
                 emptyText={
-                  lane.id === "inbound"
-                    ? laneCopy.inboundEmpty
-                    : lane.id === "outbound"
-                      ? laneCopy.outboundEmpty
+                  lane.id === "incoming"
+                    ? laneCopy.incomingEmpty
+                    : lane.id === "outgoing"
+                      ? laneCopy.outgoingEmpty
                       : undefined
                 }
-                markFor={lane.id === "inbound" ? arrivalMarkFor : undefined}
+                markFor={lane.id === "incoming" ? approvalMarkFor : undefined}
                 allTasks={scopeTasks}
                 searchActive={Boolean(query.trim())}
                 activeLane={activeLane}
@@ -3501,11 +3155,8 @@ export function TaskBoard({
                 selectedTaskId={selectedTaskId}
                 selectedTaskIds={selectedTaskIds}
                 activeActorSeatIds={activeActorSeatIds}
-                proposalById={proposalById}
                 ownerFor={ownerFor}
-                onCreate={() =>
-                  setCreating(lane.id === "proposal" ? "proposal" : "task")
-                }
+                onCreate={() => setCreating("task")}
                 onSelect={(taskId) => {
                   setContractSide(null);
                   focusTask(taskId, "replace");
@@ -3518,8 +3169,7 @@ export function TaskBoard({
                   );
                 }}
                 onMove={(task, state) => void transitionTask(task, state)}
-                onApprove={(task) => void approveProposal(task)}
-                onRejectProposal={(task) => void rejectProposal(task)}
+                onApprove={(task) => void approveTask(task)}
                 onEdit={(task) => setEditingTaskId(task.id)}
                 onCancelEdit={() => setEditingTaskId(null)}
                 onSaveEdit={(task, nextBrief) => void saveTaskTitle(task, nextBrief)}
@@ -3533,53 +3183,55 @@ export function TaskBoard({
               nodeId={node.id}
               lanes={boardLanes}
               pending={pendingTaskId === selectedTask.id}
-              claimantRetired={
-                selectedIsProposal
-                  ? false
-                  : isTaskClaimantRetired(
-                      selectedTask.state,
-                      claimedByOf(selectedTask),
-                      activeActorSeatIds,
-                    )
-              }
-              isProposal={selectedIsProposal}
-              proposedBy={proposalById.get(selectedTask.id)}
+              claimantRetired={isTaskClaimantRetired(
+                selectedTask.state,
+                claimedByOf(selectedTask),
+                activeActorSeatIds,
+              )}
               ownerLabel={ownerFor(selectedTask)}
               seatName={seatName}
-              nodeName={stationName}
-              station={
+              nodeName={boardName}
+              operatorPanel={
                 operatorOwned &&
-                !selectedIsProposal &&
                 !TERMINAL_STATES.has(selectedTask.state) ? (
-                  <TaskStationConsole
-                    claims={effectiveClaimsStack(doc, node.id, selectedTask)}
-                    destinations={shape.destinations.map((destination) => ({
-                      id: destination,
-                      label: stationName(destination),
+                  <TaskOperatorPanel
+                    rules={rulesInForce(doc, node.id, selectedTask)}
+                    nextBoards={shape.destinations.map((board) => ({
+                      id: board,
+                      label: boardName(board),
                     }))}
                     defectTargets={defectTargetOptions(
                       doc,
                       selectedTask,
                       node.id,
                     ).map((target) => ({
-                      id: target.station,
-                      label: stationName(target.station),
+                      id: target.board,
+                      label: boardName(target.board),
                       present: target.present,
                     }))}
-                    previousStation={
-                      selectedTask.journey?.at(-2)?.nodeId
-                    }
-                    canSendBack={(selectedTask.journey?.length ?? 0) > 1}
+                    previousBoard={selectedTask.visits?.at(-2)?.board}
+                    canSendBack={(selectedTask.visits?.length ?? 0) > 1}
                     pending={pendingTaskId === selectedTask.id}
+                    waivable={(ruleId, next) => {
+                      if (next === undefined) return false;
+                      const reachable = reachableBoards(doc, next);
+                      return rulesInForce(doc, node.id, selectedTask).some(
+                        (entry) =>
+                          entry.rule.id === ruleId &&
+                          entry.provenance.kind === "task" &&
+                          entry.provenance.board !== node.id &&
+                          !reachable.has(entry.provenance.board),
+                      );
+                    }}
                     onComplete={(submission, next) =>
-                      completeAtStation(selectedTask, submission, next)
+                      completeAtBoard(selectedTask, submission, next)
                     }
-                    onSendBack={(summary, refs, stationNote, target) =>
+                    onSendBack={(summary, refs, handoffNote, target) =>
                       sendBackDefect(
                         selectedTask,
                         summary,
                         refs,
-                        stationNote,
+                        handoffNote,
                         target,
                       )
                     }
@@ -3591,16 +3243,7 @@ export function TaskBoard({
               onRespond={respondToTask}
               onReject={rejectCompletedTask}
               onMove={(task, state) => void transitionTask(task, state)}
-              onApprove={
-                selectedIsProposal
-                  ? (task) => void approveProposal(task)
-                  : undefined
-              }
-              onRejectProposal={
-                selectedIsProposal
-                  ? (task) => void rejectProposal(task)
-                  : undefined
-              }
+              onApprove={(task) => void approveTask(task)}
               onComment={commentOnTask}
             />
           ) : null}
@@ -3608,7 +3251,7 @@ export function TaskBoard({
             <TaskContractPanel
               node={node}
               side={contractSide}
-              station={stationName(node.id)}
+              board={boardName(node.id)}
               onClose={() => setContractSide(null)}
             />
           ) : null}

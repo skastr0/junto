@@ -10,7 +10,7 @@ import type {
   EtherWatch,
   NodeSide,
   Ruling,
-  TasksSinkContract,
+  TasksContract,
   TextNode,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
@@ -24,7 +24,7 @@ import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
 import {
   flowEdgeRemovalWarnings,
-  stationDeletionWarnings,
+  tasksNodeDeletionWarnings,
 } from "./deletion-impact";
 import { licenseCustody } from "./license-custody";
 import {
@@ -672,7 +672,7 @@ const deleteNodesInternal = async (
   const nodeLabel = existingNodes.length === 1 ? "this node" : `${existingNodes.length} nodes`;
   const relationLabel = connectedEdges === 0 ? "" : ` Connected edges (${connectedEdges}) will also be removed.`;
   const impactWarnings = [
-    ...stationDeletionWarnings(doc, removed),
+    ...tasksNodeDeletionWarnings(doc, removed),
     ...flowEdgeRemovalWarnings(doc, removedEdges, removed),
   ];
   const impactCopy =
@@ -966,8 +966,8 @@ export const editText = (id: string, text: string): void => {
   });
 };
 
-/** Persist a task sink's native first-line rename as its projection-safe name. */
-export const renameTaskStation = (id: string, firstLine: string): void => {
+/** Persist a Tasks node rename as its projection-safe authored name. */
+export const renameTasksNode = (id: string, firstLine: string): void => {
   const next = firstLine.trim();
   if (!next) return;
   const doc = state$.doc.peek();
@@ -988,7 +988,7 @@ export const renameTaskStation = (id: string, firstLine: string): void => {
           tasks: {
             items: node.ether.tasks?.items ?? [],
             ...(node.ether.tasks ?? {}),
-            stationName: next,
+            name: next,
           },
         },
       };
@@ -1399,26 +1399,26 @@ export const setNodeTimer = (id: string, timer: EtherTimer | undefined): void =>
 
 // Checklist mutator deleted — work ops live in main (WorkService).
 
-// --- pipeline claims: authorial contract + flow mutations ------------------
+// --- task rules and path: authorial contract + flow mutations -------------
 // Work-row ops (promote, transition, board) go through Work IPC channels
 // (preload) — never through commitDoc. These four are the authorial side:
-// region/sink standing law and the task-flow DAG, all operator-only writes.
+// region/board rules and the task-path DAG, all operator-only writes.
 
 /** Collapse an empty claims/rulings bag to `undefined` so the doc stays sparse. */
 const stripEmptyRegionContract = (
   contract: EtherRegionContract | undefined,
 ): EtherRegionContract | undefined => {
   if (!contract) return undefined;
-  const claims = contract.claims && contract.claims.length > 0 ? contract.claims : undefined;
+  const rules = contract.rules && contract.rules.length > 0 ? contract.rules : undefined;
   const rulings = contract.rulings && contract.rulings.length > 0 ? contract.rulings : undefined;
-  if (!claims && !rulings) return undefined;
-  return { ...(claims ? { claims } : {}), ...(rulings ? { rulings } : {}) };
+  if (!rules && !rulings) return undefined;
+  return { ...(rules ? { rules } : {}), ...(rulings ? { rulings } : {}) };
 };
 
 /**
- * Operator-authored region standing law: claims (severity-tagged prompts
- * checked at task completion, stacked outer -> inner across the region
- * stack) and pinned rulings (escalation precedents). Group nodes only —
+ * Operator-authored region rules: statements the work must satisfy
+ * (stacked outer -> inner across the region stack) and pinned rulings
+ * (escalation precedents). Group nodes only —
  * seats have no authorial write path to this contract.
  */
 /**
@@ -1462,16 +1462,16 @@ export const setRegionContract = (
 };
 
 /**
- * Operator-authored sink standing law (instruction, sink-local claims,
- * inbound/outbound admission + checklist config). Task-sink nodes only
+ * Operator-authored board settings (instructions, board rules,
+ * incoming/outgoing admission + check config). Tasks nodes only
  * (`ether.entity.kind === "task"`); the contract lives beside the runtime
- * `items`/`proposals` projection in `ether.tasks` and this mutation never
+ * `items` projection in `ether.tasks` and this mutation never
  * touches that projection — an authorial write carrying non-empty work rows
  * is rejected at the write boundary (canvases.ts containsWorkProjection).
  */
-export const setSinkContract = (
+export const setBoardSettings = (
   id: string,
-  contract: TasksSinkContract | undefined,
+  contract: TasksContract | undefined,
 ): void => {
   const doc = state$.doc.peek();
   const cleaned = contract && Object.keys(contract).length > 0 ? contract : undefined;
@@ -1526,5 +1526,3 @@ export const pinRuling = (
     }),
   });
 };
-
-

@@ -64,13 +64,13 @@
   border-top: 1px solid color-mix(in oklab, var(--color-stroke) 72%, transparent);
 }
 
-.task-thread__rail {
+.task-thread__timeline {
   position: relative;
   display: flex;
   justify-content: center;
 }
 
-.task-thread__rail::before {
+.task-thread__timeline::before {
   position: absolute;
   top: -10px;
   bottom: -10px;
@@ -80,15 +80,15 @@
   content: "";
 }
 
-.task-thread__message:first-child .task-thread__rail::before {
+.task-thread__message:first-child .task-thread__timeline::before {
   top: 8px;
 }
 
-.task-thread__message:last-child .task-thread__rail::before {
+.task-thread__message:last-child .task-thread__timeline::before {
   bottom: calc(100% - 9px);
 }
 
-.task-thread__rail > span {
+.task-thread__timeline > span {
   position: relative;
   z-index: 1;
   width: 7px;
@@ -99,12 +99,12 @@
   background: var(--color-raise);
 }
 
-.task-thread__message[data-kind="brief"] .task-thread__rail > span {
+.task-thread__message[data-kind="brief"] .task-thread__timeline > span {
   border-color: var(--color-amber);
   background: var(--color-amber);
 }
 
-.task-thread__message[data-kind="defect"] .task-thread__rail > span {
+.task-thread__message[data-kind="defect"] .task-thread__timeline > span {
   border-color: var(--color-crimson);
   background: var(--color-crimson);
 }

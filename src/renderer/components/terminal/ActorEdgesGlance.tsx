@@ -48,7 +48,7 @@ const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
   <span
     className="actor-edges-glance__dir"
     aria-hidden
-    title={direction === "out" ? "Outbound" : "Inbound"}
+    title={direction === "out" ? "Outgoing" : "Incoming"}
   >
     {direction === "out" ? "→" : "←"}
   </span>

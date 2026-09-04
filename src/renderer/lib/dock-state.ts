@@ -51,8 +51,7 @@ export interface DockChatPayload {
 export interface DockTaskCreatePayload {
   readonly nodeId: string;
   readonly title: string;
-  /** task = enqueue to queue; proposal = planning lane. */
-  readonly mode: "task" | "proposal";
+  readonly mode: "task";
 }
 
 export interface DockNotePayload {
@@ -196,19 +195,17 @@ export const openTaskCreateSurface = (
   node: CanvasNode,
   options?: {
     readonly zone?: WorkZone;
-    readonly mode?: "task" | "proposal";
   },
 ): void => {
   if (node.ether?.entity?.kind !== "task") return;
   const id = taskCreateSurfaceId(node.id);
   const title =
     (node.type === "text" ? node.text : "").split("\n")[0]?.trim() || "Tasks";
-  const mode = options?.mode ?? "task";
   const zone = options?.zone ?? "focus";
   dock$.taskCreateById[id].set({
     nodeId: node.id,
     title,
-    mode,
+    mode: "task",
   });
   applyTransition(
     openSurface(dock$.registry.peek(), { id, kind: "task-create" }, zone),

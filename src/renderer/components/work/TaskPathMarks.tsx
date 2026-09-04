@@ -10,57 +10,53 @@ import { Button } from "../ui/Button";
 import { Chip } from "../ui/Chip";
 import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
-import type { ArrivalGlance, OutboundGroupKind } from "./task-flow-columns";
-import "./task-flow.css";
+import type { IncomingGlance, OutgoingGroupKind } from "./task-path";
+import "./task-path.css";
 
 /**
- * Inbound admission mark. Silent for a claimable arrival — the card already
- * carries its state chip, so only a gate worth acting on speaks up.
+ * Admission mark for submitted tasks. Silent for an Immediate task — the card
+ * already carries its state chip, so only a gate worth acting on speaks up.
  */
-export function ArrivalMark({
+export function ApprovalMark({
   glance,
-  gatedStation,
+  gatedBoard,
   pending,
   onPromote,
-  onReject,
 }: {
-  readonly glance: ArrivalGlance;
-  /** Admission is a live question at this station, so admitted rows say so. */
-  readonly gatedStation: boolean;
+  readonly glance: IncomingGlance;
+  /** Admission is a live question at this board, so approved rows say so. */
+  readonly gatedBoard: boolean;
   readonly pending: boolean;
   readonly onPromote?: (note?: string) => void;
-  readonly onReject?: (note?: string) => void;
 }) {
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   if (glance.admission === "claimable") {
-    if (!gatedStation) return null;
+    if (!gatedBoard) return null;
     return (
-      <span className="task-flow-mark" title="Approved, workers can be assigned it">
+      <span className="task-path-mark" title="Approved, agents can claim it">
         <Chip tone="green">Approved</Chip>
       </span>
     );
   }
-  if (glance.admission === "held") {
+  if (glance.admission === "waiting" && glance.countdown !== undefined) {
     return (
-      <span className="task-flow-mark" title="Baking before workers can be assigned it">
-        <Chip tone="steel">
-          {glance.countdown ? `Held ${glance.countdown}` : "Held"}
-        </Chip>
+      <span className="task-path-mark" title="Waiting before any agent can claim it">
+        <Chip tone="steel">Wait {glance.countdown}</Chip>
       </span>
     );
   }
-  if (glance.admission === "operator-owned") {
+  if (glance.admission === "operator") {
     return (
-      <span className="task-flow-mark" title="This station is yours, no worker is assigned here">
-        <Chip tone="cyan">Operator owned</Chip>
+      <span className="task-path-mark" title="This board is yours, no agent works here">
+        <Chip tone="cyan">Me</Chip>
       </span>
     );
   }
   return (
     <div
-      className="task-flow-mark relative"
-      title="Waiting for you to approve it into the queue"
+      className="task-path-mark relative"
+      title="Waiting for your approval before agents can claim it"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -70,31 +66,19 @@ export function ArrivalMark({
           size="xs"
           variant="chrome"
           disabled={pending}
-          title="Approve this arrival so workers can be assigned it"
-          data-testid="task-flow-promote"
+          title="Approve this task so agents can claim it"
+          data-testid="task-path-approve"
           onClick={() => onPromote()}
         >
           Approve
         </Button>
       ) : null}
-      {onReject ? (
-        <Button
-          size="xs"
-          variant="danger"
-          disabled={pending}
-          title="Reject this arrival"
-          data-testid="task-flow-reject"
-          onClick={() => onReject()}
-        >
-          Reject
-        </Button>
-      ) : null}
-      {onPromote && onReject ? (
+      {onPromote ? (
         <IconButton
           size="sm"
           tone={noteOpen ? "accent" : "default"}
           disabled={pending}
-          aria-label={noteOpen ? "Close arrival note" : "Add context to this decision"}
+          aria-label={noteOpen ? "Close approval note" : "Add context to this decision"}
           title={noteOpen ? "Close note" : "Add context before deciding"}
           aria-expanded={noteOpen}
           onClick={() => setNoteOpen((current) => !current)}
@@ -102,8 +86,8 @@ export function ArrivalMark({
           {noteOpen ? <X size={12} /> : <MessageSquarePlus size={12} />}
         </IconButton>
       ) : null}
-      {noteOpen && onPromote && onReject ? (
-        <ArrivalNoteComposer
+      {noteOpen && onPromote ? (
+        <ApprovalNoteComposer
           note={note}
           pending={pending}
           onNoteChange={setNote}
@@ -116,59 +100,49 @@ export function ArrivalMark({
             setNote("");
             setNoteOpen(false);
           }}
-          onReject={() => {
-            onReject(note.trim());
-            setNote("");
-            setNoteOpen(false);
-          }}
         />
       ) : null}
     </div>
   );
 }
 
-export function ArrivalNoteComposer({
+export function ApprovalNoteComposer({
   note,
   pending,
   onNoteChange,
   onCancel,
   onPromote,
-  onReject,
 }: {
   readonly note: string;
   readonly pending: boolean;
   readonly onNoteChange: (note: string) => void;
   readonly onCancel: () => void;
   readonly onPromote: () => void;
-  readonly onReject: () => void;
 }) {
   const ready = Boolean(note.trim()) && !pending;
   return (
     <div
       className="absolute right-0 bottom-[calc(100%+6px)] z-20 w-72 rounded-md border border-stroke bg-raise p-2 shadow-xl"
       role="dialog"
-      aria-label="Arrival decision context"
+      aria-label="Approval decision context"
       onKeyDown={(event) => {
         if (event.key === "Escape") onCancel();
       }}
     >
       <label className="mb-1 block text-[9px] uppercase tracking-[0.12em] text-faint">
-        Context for this arrival
+        Context for this decision
       </label>
       <Input
         autoFocus
         value={note}
         disabled={pending}
-        placeholder="What should the assignee focus on?"
-        aria-label="Arrival decision note"
+        placeholder="What should the next worker focus on?"
+        aria-label="Approval decision note"
         onChange={(event) => onNoteChange(event.target.value)}
       />
       <div className="mt-2 flex items-center justify-end gap-1">
         <Button size="xs" variant="subtle" disabled={pending} onClick={onCancel}>
           Cancel
-        </Button>
-        <Button size="xs" variant="danger" disabled={!ready} onClick={onReject}>
-          Reject with note
         </Button>
         <Button size="xs" variant="primary" disabled={!ready} onClick={onPromote}>
           Approve with note
@@ -179,34 +153,34 @@ export function ArrivalNoteComposer({
 }
 
 const GROUP_ICON = {
-  forwarded: ArrowUpRight,
-  returned: RotateCcw,
-  closed: CircleSlash,
+  "sent-on": ArrowUpRight,
+  "sent-back": RotateCcw,
+  completed: CircleSlash,
 } as const;
 
-/** Outbound group heading — where this batch of passages went. */
-export function OutboundGroupHeader({
+/** Outgoing group heading — where this batch of visits went. */
+export function OutgoingGroupHeader({
   kind,
-  station,
+  board,
   count,
 }: {
-  readonly kind: OutboundGroupKind;
-  /** Destination station name; absent for work that closed here. */
-  readonly station?: string;
+  readonly kind: OutgoingGroupKind;
+  /** Next or previous board name; absent for work completed here. */
+  readonly board?: string;
   readonly count: number;
 }) {
   const Icon = GROUP_ICON[kind];
   const label =
-    kind === "forwarded"
-      ? `To ${station ?? "next station"}`
-      : kind === "returned"
-        ? `Returned to ${station ?? "previous station"}`
-        : "Closed here";
+    kind === "sent-on"
+      ? `Sent on to ${board ?? "next board"}`
+      : kind === "sent-back"
+        ? `Sent back to ${board ?? "previous board"}`
+        : "Completed here";
   return (
-    <header className="task-flow-group__header" data-kind={kind}>
+    <header className="task-path-group__header" data-kind={kind}>
       <Icon size={11} aria-hidden />
-      <span className="task-flow-group__label">{label}</span>
-      <span className="task-flow-group__count">{count}</span>
+      <span className="task-path-group__label">{label}</span>
+      <span className="task-path-group__count">{count}</span>
     </header>
   );
 }

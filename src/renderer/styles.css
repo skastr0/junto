@@ -297,7 +297,7 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   width: min(1080px, 88vw);
   height: min(78vh, 900px);
 }
-/* Quick enqueue: same 80vh as the kanban create modal and the task flow board. */
+/* Quick enqueue: same 80vh as the kanban create modal and the task board. */
 .focus-surface__panel.work-focus-shell__panel--task-create {
   align-self: center;
   width: min(1080px, calc(100vw - 48px));

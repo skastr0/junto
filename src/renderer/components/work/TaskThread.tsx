@@ -12,7 +12,7 @@ export type TaskThreadKind =
   | "brief"
   | "update"
   | "defect"
-  | "arrival"
+  | "incoming"
   | "comment";
 
 export type TaskThreadEntry = {
@@ -42,14 +42,14 @@ export const taskThreadKind = (
   if (
     explicit === "update" ||
     explicit === "defect" ||
-    explicit === "arrival" ||
+    explicit === "incoming" ||
     explicit === "comment"
   ) {
     return explicit;
   }
   const text = textOf(message);
   if (/^defect(?:\s+from)?\b/iu.test(text)) return "defect";
-  if (/^forwarded\s+from\b/iu.test(text)) return "arrival";
+  if (/^sent on\s+from\b/iu.test(text)) return "incoming";
   if (message.metadata?.taskComment === true || message.metadata?.factoryMail === true) {
     return "comment";
   }
@@ -57,10 +57,10 @@ export const taskThreadKind = (
 };
 
 const claimedSeatFrom = (text: string): string | undefined =>
-  /^(?:assigned to|claimed by) (seat_[a-f0-9]{64})\b/iu.exec(text)?.[1];
+  /^claimed by (seat_[a-f0-9]{64})\b/iu.exec(text)?.[1];
 
 const sourceNodeFrom = (text: string): string | undefined =>
-  /^(?:forwarded|defect) from "([^"]+)"/iu.exec(text)?.[1];
+  /^(?:sent on|defect) from "([^"]+)"/iu.exec(text)?.[1];
 
 /**
  * Chronological thread projection. Attribution stays derived from message
@@ -109,7 +109,7 @@ export const buildTaskThread = (
 const kindTone = (kind: TaskThreadKind): ChipTone => {
   if (kind === "brief") return "amber";
   if (kind === "defect") return "crimson";
-  if (kind === "arrival") return "violet";
+  if (kind === "incoming") return "violet";
   if (kind === "comment") return "cyan";
   return "steel";
 };
@@ -216,7 +216,7 @@ export function TaskThread({
             className="task-thread__message"
             data-kind={entry.kind}
           >
-            <div className="task-thread__rail" aria-hidden>
+            <div className="task-thread__timeline" aria-hidden>
               <span />
             </div>
             <article>

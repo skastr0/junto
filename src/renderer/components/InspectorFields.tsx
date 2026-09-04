@@ -45,7 +45,7 @@ import { resolveNodeHostId } from "@shared/station";
 import { DIM, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeTitle, searchText } from "../lib/presentation";
 import { Chip, Select, type ChipTone } from "./ui";
-import { RegionContractEditor } from "./claims";
+import { RegionRules } from "./rules";
 import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 
 // ---------------------------------------------------------------------------
@@ -564,8 +564,8 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
 
 /**
  * Region briefing — context agents receive on onboard — plus the region's
- * standing law (claims + pinned rulings) beneath it. Briefing is prose a seat
- * reads; claims are prompts a closing task must answer. Both are the same
+ * rules and pinned rulings beneath it. Briefing is prose a seat
+ * reads; rules are statements a closing task must answer. Both are the same
  * operator-authored region contract, so they are authored in one place.
  * Single copy line; large editor; CLI refs use first-class amber mono.
  */
@@ -604,7 +604,7 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
           }
         }}
       />
-      <RegionContractEditor node={node} />
+      <RegionRules node={node} />
     </div>
   );
 }

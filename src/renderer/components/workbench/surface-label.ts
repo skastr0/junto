@@ -24,7 +24,7 @@ export function surfaceLabel(
   if (surface.kind === "task-create") {
     const payload = dock$.taskCreateById[surface.id].peek();
     if (!payload) return "enqueue";
-    return payload.mode === "proposal" ? `propose - ${payload.title}` : `enqueue - ${payload.title}`;
+    return `enqueue - ${payload.title}`;
   }
   if (surface.kind === "note") {
     return dock$.noteById[surface.id].peek()?.title ?? "Note";

@@ -19,7 +19,7 @@ import { commitDoc, parseSide } from "./mutations";
  * An edge states one verb and nothing else. The pair of endpoint kinds decides
  * which verbs are legal; where two are, the operator picks by dropping on one
  * of the card's landing zones, and every other connect path takes the pair's
- * default. Ports, watch predicates, fire actions, and the pipeline hop are
+ * default. Ports, watch predicates, fire actions, and the task path hop are
  * compiled from the verb (`physics/verbs.ts`), never stored beside it.
  */
 
@@ -126,18 +126,18 @@ export const verbFromHandles = (
 };
 
 /**
- * Translate a raw FlowCycleError (station ids) into a titled, readable line.
+ * Translate a raw FlowCycleError (board ids) into a titled, readable line.
  * One wording for one rejection: the connect-time refusal below and the batch
  * connect both speak it.
  */
 export const friendlyCycleMessage = (error: FlowCycleError, doc: CanvasDoc): string => {
   const titleOf = (id: string): string => {
     const node = doc.nodes.find((candidate) => candidate.id === id);
-    return node ? nodeTitle(node) : "that station";
+    return node ? nodeTitle(node) : "that board";
   };
   const names = error.cycle.map(titleOf);
   const loop = names.length > 0 ? `${names.join(" → ")} → ${names[0]}` : "a loop";
-  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different destination.`;
+  return `That direction would send tasks in a loop — ${loop}. Pick the other direction or a different Next board.`;
 };
 
 export const deleteEdges = (ids: ReadonlyArray<string>): void => {
@@ -254,7 +254,7 @@ export const addEdge = (params: {
   };
   const nextDoc: CanvasDoc = { ...doc, edges: [...doc.edges, edge] };
   // DAG guard at connect: a hop that would close a loop refuses the wire
-  // outright rather than landing a pipeline that can never drain.
+  // outright rather than landing a task path that can never drain.
   if (verb === "feeds") {
     const cycle = validateFlowDag(nextDoc);
     if (cycle) {

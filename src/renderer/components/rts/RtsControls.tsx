@@ -23,8 +23,8 @@ import {
   Trash2,
 } from "lucide-react";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "@shared/canvas";
-import type { SinkAdmission, TasksSinkContract } from "@shared/work-model";
-import { resolveSinkAdmission } from "@shared/work-model";
+import type { TaskAdmission, TasksContract, TasksIncoming } from "@shared/work-model";
+import { resolveTaskAdmission } from "@shared/work-model";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
@@ -35,7 +35,7 @@ import {
 import { type PauseScope } from "@shared/pause";
 import { verbsForPair, type Verb } from "@shared/physics";
 import { isTaskSinkNode } from "@shared/flow-graph";
-import { stationIdentity } from "@shared/station-identity";
+import { tasksNodeIdentity } from "@shared/tasks-node-identity";
 import {
   ADMISSION_ORDER,
   admissionLabel,
@@ -69,8 +69,8 @@ import {
   TimerEditor,
   WatcherEditor,
 } from "../InspectorFields";
-import { formatBakeTime, normalizeSinkContract } from "../claims";
-import { commitDoc, setSinkContract } from "../../lib/mutations";
+import { formatWait, normalizeBoardSettings } from "../rules";
+import { commitDoc, setBoardSettings } from "../../lib/mutations";
 import { Button } from "../ui";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
@@ -226,12 +226,12 @@ type EdgeVerbView = {
  * A task sink's live items overwrite its node text, so the plain title of one
  * is whichever task happens to sit at the top of it — the sentence would say
  * an agent manages "Ship the verb cut" while the card it points at says
- * "Backlog". `stationIdentity` is the one station-name projection every other
- * surface already reads; the edge readout owes the same word.
+ * "Backlog". `tasksNodeIdentity` is the one board-name projection every other
+ * Tasks surface already reads; the edge readout owes the same word.
  */
 const endLabel = (node: CanvasNode | undefined, fallbackId: string): string => {
   if (!node) return fallbackId;
-  return isTaskSinkNode(node) ? stationIdentity(node).name : nodeTitle(node);
+  return isTaskSinkNode(node) ? tasksNodeIdentity(node).name : nodeTitle(node);
 };
 
 const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
@@ -379,22 +379,22 @@ function PageKindKeys({ node }: { readonly node: CanvasNode }) {
 }
 
 function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
-  const [pop, setPop] = useState<"home" | "admission" | "bake" | null>(null);
+  const [pop, setPop] = useState<"home" | "admission" | "wait" | null>(null);
   const fleetUi =
     FLEET_UI_ENABLED &&
     isCommandCenterAuthoring(use$(state$.settings.station.role));
   const contract = node.ether?.tasks?.contract;
-  const admission = resolveSinkAdmission(contract);
-  const bakeMs = contract?.inbound?.claimableAfterMs;
+  const admission = resolveTaskAdmission(contract);
+  const waitMs = contract?.incoming?.waitMs;
 
-  const writeInbound = (
-    patch: Partial<NonNullable<TasksSinkContract["inbound"]>>,
+  const writeIncoming = (
+    patch: Partial<TasksIncoming>,
   ) => {
-    setSinkContract(
+    setBoardSettings(
       node.id,
-      normalizeSinkContract({
+      normalizeBoardSettings({
         ...contract,
-        inbound: { ...contract?.inbound, ...patch },
+        incoming: { ...contract?.incoming, ...patch },
       }),
     );
   };
@@ -437,10 +437,10 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
       </KindKey>
       <KindKey
         label="Wait before starting"
-        title={`Wait: ${formatBakeTime(bakeMs) || "none"}`}
-        active={pop === "bake" || bakeMs !== undefined}
-        style={pop === "bake" || bakeMs !== undefined ? { color: HUE.amber } : undefined}
-        onClick={() => setPop((current) => (current === "bake" ? null : "bake"))}
+        title={`Wait: ${formatWait(waitMs) || "none"}`}
+        active={pop === "wait" || waitMs !== undefined}
+        style={pop === "wait" || waitMs !== undefined ? { color: HUE.amber } : undefined}
+        onClick={() => setPop((current) => (current === "wait" ? null : "wait"))}
       >
         <Timer size={ICON} />
       </KindKey>
@@ -466,7 +466,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
                 variant={admission === value ? "primary" : "chrome"}
                 aria-pressed={admission === value}
                 onClick={() => {
-                  writeInbound({ admission: value as SinkAdmission });
+                  writeIncoming({ admission: value as TaskAdmission });
                   setPop(null);
                 }}
               >
@@ -477,8 +477,8 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
           <span className="rts-kind-pop__hint">Who can start new tasks on this board.</span>
         </div>
       ) : null}
-      {pop === "bake" ? (
-        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Bake quick set">
+      {pop === "wait" ? (
+        <div className="rts-kind-pop rts-kind-pop--quick" aria-label="Wait quick set">
           <span className="rts-kind-pop__title">Wait before starting</span>
           <div className="rts-kind-pop__choices">
             {([
@@ -491,10 +491,10 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
               <Button
                 key={label}
                 size="xs"
-                variant={bakeMs === value ? "primary" : "chrome"}
-                aria-pressed={bakeMs === value}
+                variant={waitMs === value ? "primary" : "chrome"}
+                aria-pressed={waitMs === value}
                 onClick={() => {
-                  writeInbound({ claimableAfterMs: value });
+                  writeIncoming({ waitMs: value });
                   setPop(null);
                 }}
               >
@@ -503,7 +503,7 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
             ))}
           </div>
           <span className="rts-kind-pop__hint">
-            Current: {formatBakeTime(bakeMs) || "none"}. Tasks wait this long before any agent can
+            Current: {formatWait(waitMs) || "none"}. Tasks wait this long before any agent can
             start them. Set a custom time in Board settings.
           </span>
         </div>

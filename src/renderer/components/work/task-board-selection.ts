@@ -11,31 +11,21 @@ export type TaskBoardSelectMode = "replace" | "toggle" | "add";
 export type TaskBoardBulkItem = {
   readonly id: string;
   readonly state: TaskState;
-  readonly isProposal: boolean;
   /** True when complete requires finishCriteria evidence (CLI/agent only). */
   readonly hardFinishGate: boolean;
 };
 
-export type TaskBoardBulkAction =
-  | {
-      readonly kind: "approve_proposals";
-      readonly label: string;
-    }
-  | {
-      readonly kind: "reject_proposals";
-      readonly label: string;
-    }
-  | {
-      readonly kind: "transition";
-      readonly state: TaskState;
-      readonly label: string;
-    };
+export type TaskBoardBulkAction = {
+  readonly kind: "transition";
+  readonly state: TaskState;
+  readonly label: string;
+};
 
 const TRANSITION_BULK: ReadonlyArray<{
   readonly state: TaskState;
   readonly label: string;
 }> = [
-  { state: "submitted", label: "Unassign to Queue" },
+  { state: "submitted", label: "Return to Queue" },
   { state: "working", label: "Move to Working" },
   { state: "completed", label: "Complete" },
   { state: "failed", label: "Mark failed" },
@@ -93,37 +83,11 @@ export const columnSelectionState = (
   return "partial";
 };
 
-/**
- * Intersection of bulk actions that apply to every selected item.
- * Mixed proposal + task selections get no actions (operator must narrow).
- */
+/** Intersection of bulk actions that apply to every selected item. */
 export const resolveTaskBoardBulkActions = (
   items: ReadonlyArray<TaskBoardBulkItem>,
 ): ReadonlyArray<TaskBoardBulkAction> => {
   if (items.length === 0) return [];
-
-  const allProposals = items.every((item) => item.isProposal);
-  const anyProposal = items.some((item) => item.isProposal);
-  if (anyProposal && !allProposals) return [];
-
-  if (allProposals) {
-    return [
-      {
-        kind: "approve_proposals",
-        label:
-          items.length === 1
-            ? "Approve to Queue"
-            : `Approve ${items.length} to Queue`,
-      },
-      {
-        kind: "reject_proposals",
-        label:
-          items.length === 1
-            ? "Reject pending work"
-            : `Reject ${items.length} pending items`,
-      },
-    ];
-  }
 
   const actions: TaskBoardBulkAction[] = [];
   for (const option of TRANSITION_BULK) {
@@ -143,7 +107,7 @@ export const resolveTaskBoardBulkActions = (
           : option.state === "canceled"
             ? `Cancel ${items.length}`
             : option.state === "submitted"
-              ? `Unassign ${items.length} to Queue`
+              ? `Return ${items.length} to Queue`
               : `${option.label} (${items.length})`;
     actions.push({
       kind: "transition",

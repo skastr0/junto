@@ -1,46 +1,46 @@
-import type { SinkAdmission } from "@shared/work-model";
+import type { TaskAdmission } from "@shared/work-model";
 
 /** One label table for every admission surface. Short word + what it does. */
 export type AdmissionLabels = {
-  readonly value: SinkAdmission;
+  readonly value: TaskAdmission;
   readonly label: string;
   readonly outcome: string;
 };
 
-export const ADMISSION_LABELS: Readonly<Record<SinkAdmission, AdmissionLabels>> = {
+export const ADMISSION_LABELS: Readonly<Record<TaskAdmission, AdmissionLabels>> = {
   auto: {
     value: "auto",
     label: "Immediate",
     outcome: "Agents can start it right away",
   },
-  "operator-gated": {
-    value: "operator-gated",
+  approval: {
+    value: "approval",
     label: "Approval",
     outcome: "Waits for my approval",
   },
-  "operator-owned": {
-    value: "operator-owned",
+  operator: {
+    value: "operator",
     label: "Me",
     outcome: "I work it myself",
   },
 };
 
-export const ADMISSION_ORDER: ReadonlyArray<SinkAdmission> = [
+export const ADMISSION_ORDER: ReadonlyArray<TaskAdmission> = [
   "auto",
-  "operator-gated",
-  "operator-owned",
+  "approval",
+  "operator",
 ];
 
-export const admissionLabels = (admission: SinkAdmission): AdmissionLabels =>
+export const admissionLabels = (admission: TaskAdmission): AdmissionLabels =>
   ADMISSION_LABELS[admission];
 
-export const admissionLabel = (admission: SinkAdmission): string =>
+export const admissionLabel = (admission: TaskAdmission): string =>
   ADMISSION_LABELS[admission].label;
 
-export const admissionOutcome = (admission: SinkAdmission): string =>
+export const admissionOutcome = (admission: TaskAdmission): string =>
   ADMISSION_LABELS[admission].outcome;
 
-export const admissionChoiceLabel = (admission: SinkAdmission): string => {
+export const admissionChoiceLabel = (admission: TaskAdmission): string => {
   const labels = ADMISSION_LABELS[admission];
   return `${labels.label} — ${labels.outcome}`;
 };

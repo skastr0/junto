@@ -4,18 +4,16 @@ import type {
   Message,
   Part,
   Task,
-  TaskProposalState,
   TaskState,
 } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
-import { taskAdmissionState } from "@shared/claims";
 import { taskBrief } from "@shared/task";
 import { isArtifactArchived } from "@shared/work";
 import { claimedTaskForActorNode } from "./claimed-task";
 
 /**
  * Pure projections of an actor's work-kernel standing for ledger-style UI:
- * the task it currently holds, the proposals it raised, and the requests
+ * the task it currently holds, the tasks it raised, and the requests
  * (escalations) it raised. Everything derives from the canvas doc — no IPC.
  * Total and defensive: missing ether containers yield empty results.
  */
@@ -28,13 +26,15 @@ export type ClaimedTaskRow = {
   readonly needsInput: boolean;
 };
 
-export type ProposalRow = {
-  readonly proposalId: string;
+export type RaisedTaskRow = {
+  readonly taskId: string;
   readonly sinkNodeId: string;
-  readonly state: TaskProposalState;
+  readonly state: TaskState;
   readonly title: string;
+  /** Needs operator approval before agents can claim it. */
+  readonly awaitingApproval: boolean;
   readonly reason?: string;
-  /** Full brief text — the decision contract shown before approve/reject. */
+  /** Full brief text — the decision contract shown before deciding. */
   readonly details?: string;
   readonly dependsOnCount: number;
   readonly hasFinishCriteria: boolean;
@@ -76,17 +76,6 @@ export type ArtifactRow = {
   /** First text part, clipped by the caller for display. */
   readonly textPreview: string | undefined;
   readonly archived: boolean;
-};
-
-/** First non-empty text line across a message's parts. */
-const firstTextLine = (message: Message | undefined): string | undefined => {
-  for (const part of message?.parts ?? []) {
-    if (part.kind === "text") {
-      const line = part.text.split("\n")[0]?.trim();
-      if (line) return line;
-    }
-  }
-  return undefined;
 };
 
 /** All text across a message's parts (the full decision contract). */
@@ -143,54 +132,35 @@ export const claimedTaskRow = (
   };
 };
 
-/** Pending first, then newest first (ULID ids sort by birth order). */
-const compareProposalRows = (a: ProposalRow, b: ProposalRow): number => {
-  const pendingRank = (row: ProposalRow): number =>
-    row.state === "pending" ? 0 : 1;
-  const byPending = pendingRank(a) - pendingRank(b);
-  if (byPending !== 0) return byPending;
-  return b.proposalId.localeCompare(a.proposalId);
+/** Awaiting approval first, then newest first (ULID ids sort by birth order). */
+const compareRaisedTaskRows = (a: RaisedTaskRow, b: RaisedTaskRow): number => {
+  const rank = (row: RaisedTaskRow): number =>
+    row.awaitingApproval ? 0 : 1;
+  const byApproval = rank(a) - rank(b);
+  if (byApproval !== 0) return byApproval;
+  return b.taskId.localeCompare(a.taskId);
 };
 
-/** Proposals this seat raised, across every tasks sink in the doc. */
-export const proposalRowsForSeat = (
+/** Tasks this seat raised, across every tasks sink in the doc. */
+export const raisedTaskRowsForSeat = (
   doc: CanvasDoc,
   seatId: ActorSeatId,
-): ReadonlyArray<ProposalRow> => {
-  const rows: ProposalRow[] = [];
+): ReadonlyArray<RaisedTaskRow> => {
+  const rows: RaisedTaskRow[] = [];
   for (const node of doc.nodes) {
-    for (const proposal of node.ether?.tasks?.proposals ?? []) {
-      if (proposal.proposedBy?.seatId !== seatId) continue;
-      const title = firstTextLine(proposal.brief) ?? "Untitled proposal";
-      const details = detailsBeyondTitle(fullText(proposal.brief), title);
-      rows.push({
-        proposalId: proposal.id,
-        sinkNodeId: node.id,
-        state: proposal.state,
-        title,
-        ...(proposal.reason !== undefined ? { reason: proposal.reason } : {}),
-        ...(details !== undefined ? { details } : {}),
-        dependsOnCount: proposal.dependsOn?.length ?? 0,
-        hasFinishCriteria: proposal.finishCriteria !== undefined,
-      });
-    }
-    const contract = node.ether?.tasks?.contract;
-    const seen = new Set(rows.map((row) => `${row.sinkNodeId}:${row.proposalId}`));
     for (const task of node.ether?.tasks?.items ?? []) {
       if (task.raisedBy?.seatId !== seatId) continue;
-      if (task.state !== "submitted") continue;
-      const admission = taskAdmissionState(task, contract, Date.now());
-      if (admission !== "operator-gated") continue;
-      const key = `${node.id}:${task.id}`;
-      if (seen.has(key)) continue;
-      const title = taskBrief(task) || "Untitled proposal";
+      const title = taskTitle(task, "Untitled task");
       const details =
-        typeof task.metadata?.details === "string" ? task.metadata.details : undefined;
+        metadataText(task, "details") ??
+        detailsBeyondTitle(fullText(task.history[0]), title);
       rows.push({
-        proposalId: task.id,
+        taskId: task.id,
         sinkNodeId: node.id,
-        state: "pending",
+        state: task.state,
         title,
+        awaitingApproval:
+          task.state === "submitted" && task.admission === "approval",
         ...(task.reason !== undefined ? { reason: task.reason } : {}),
         ...(details !== undefined ? { details } : {}),
         dependsOnCount: task.dependsOn?.length ?? 0,
@@ -198,7 +168,7 @@ export const proposalRowsForSeat = (
       });
     }
   }
-  return rows.sort(compareProposalRows);
+  return rows.sort(compareRaisedTaskRows);
 };
 
 /** Needs-input first, then newest first (ULID ids sort by birth order). */

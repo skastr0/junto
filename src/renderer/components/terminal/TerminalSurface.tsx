@@ -1962,7 +1962,7 @@ export function TerminalSurface({
           role="status"
         >
           <span className="shrink-0 uppercase tracking-[0.12em] text-cyan">
-            Assigned task
+            Claimed task
           </span>
           <strong className="min-w-0 flex-1 truncate text-ink">
             {taskBrief(claimedTask.task)}

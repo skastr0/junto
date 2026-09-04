@@ -9,7 +9,7 @@ import { Button, Select } from "../ui";
 
 // Pin-as-ruling (spec section 6): the answer the operator just gave becomes
 // standing precedent on the region holding this sink. Innermost region is the
-// default — the closest law to the work. With no containing region there is
+// default — the closest rule context to the work. With no containing region there is
 // nowhere for a ruling to stand, so the affordance stays silent.
 
 export function PinRulingControl({

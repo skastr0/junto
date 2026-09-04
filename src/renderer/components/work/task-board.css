@@ -1,4 +1,4 @@
-/* Task flow modal holds 80% of the viewport height, centered — not full-bleed.
+/* Task board modal holds 80% of the viewport height, centered — not full-bleed.
    Two-class selector so it beats .focus-surface__panel--workspace (height: 100%)
    regardless of stylesheet order. max-height 100% still caps small windows. */
 .focus-surface__panel.task-board-surface {
@@ -324,15 +324,6 @@
   background: var(--color-raise);
 }
 
-.task-board-card[data-draggable="true"] {
-  cursor: grab;
-  touch-action: none;
-}
-
-.task-board-card[data-draggable="true"]:active {
-  cursor: grabbing;
-}
-
 .task-board-card:focus-visible,
 .task-board-card--selected {
   border-color: var(--color-cyan);
@@ -417,7 +408,15 @@
   padding: 0;
   background: transparent;
   color: var(--color-faint);
-  pointer-events: none;
+}
+
+.task-board-card[data-draggable="true"] .task-board-card__handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.task-board-card[data-draggable="true"] .task-board-card__handle:active {
+  cursor: grabbing;
 }
 
 .task-board-card__handle::before,
@@ -669,7 +668,7 @@
   background: var(--color-ground);
 }
 
-/* 80vh matches the task flow board and the quick enqueue shell — every task
+/* 80vh matches the task board and the quick enqueue shell — every task
    surface holds the same height. [data-height] lifts specificity above the
    generic --document[data-height="fit"] auto-height rule, which otherwise wins
    on cascade order. */
@@ -792,14 +791,14 @@
   resize: vertical;
 }
 
-.task-create-dialog__line {
+.task-create-dialog__path {
   min-width: 0;
   border: 1px solid var(--color-stroke);
   border-radius: 8px;
   background: var(--color-raise-2);
 }
 
-.task-create-dialog__line > summary {
+.task-create-dialog__path > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -811,29 +810,29 @@
   list-style: none;
 }
 
-.task-create-dialog__line > summary::-webkit-details-marker {
+.task-create-dialog__path > summary::-webkit-details-marker {
   display: none;
 }
 
-.task-create-dialog__line > summary > span:first-child {
+.task-create-dialog__path > summary > span:first-child {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.task-create-dialog__line > summary strong {
+.task-create-dialog__path > summary strong {
   font-size: 11px;
   font-weight: 650;
 }
 
-.task-create-dialog__line > summary small,
+.task-create-dialog__path > summary small,
 .task-create-dialog__admission-heading span {
   color: var(--color-dim);
   font-size: 9px;
   line-height: 1.4;
 }
 
-.task-create-dialog__line-action {
+.task-create-dialog__path-action {
   flex: none;
   color: var(--color-cyan);
   font-size: 9px;
@@ -841,19 +840,19 @@
   text-transform: uppercase;
 }
 
-.task-create-dialog__line[open] .task-create-dialog__line-action::before {
+.task-create-dialog__path[open] .task-create-dialog__path-action::before {
   content: "Hide path";
 }
 
-.task-create-dialog__line[open] .task-create-dialog__line-action {
+.task-create-dialog__path[open] .task-create-dialog__path-action {
   font-size: 0;
 }
 
-.task-create-dialog__line[open] .task-create-dialog__line-action::before {
+.task-create-dialog__path[open] .task-create-dialog__path-action::before {
   font-size: 9px;
 }
 
-.task-create-dialog__line-map {
+.task-create-dialog__path-map {
   min-width: 0;
   overflow-x: auto;
   border-top: 1px solid var(--color-stroke);
@@ -937,11 +936,11 @@
   color: var(--color-crimson);
 }
 
-.task-create-dialog__hold {
+.task-create-dialog__wait {
   gap: 5px !important;
 }
 
-.task-create-dialog__hold-error {
+.task-create-dialog__wait-error {
   color: var(--color-crimson);
   font-size: 9px;
   line-height: 1.35;

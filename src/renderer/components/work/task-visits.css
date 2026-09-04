@@ -1,6 +1,6 @@
-/* Task detail onion — passage timeline inside the task detail panel. */
+/* Task detail onion — visit timeline inside the task detail panel. */
 
-.task-journey__summary {
+.task-visits__summary {
   margin-left: 2px;
   color: var(--color-faint);
   font-size: 9px;
@@ -8,7 +8,7 @@
   letter-spacing: 0.04em;
 }
 
-.task-journey__list {
+.task-visits__list {
   display: grid;
   gap: 6px;
   margin: 0;
@@ -16,7 +16,7 @@
   list-style: none;
 }
 
-.task-journey__epoch {
+.task-visits__epoch {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -27,14 +27,14 @@
   text-transform: uppercase;
 }
 
-.task-journey__epoch::after {
+.task-visits__epoch::after {
   content: "";
   flex: 1 1 auto;
   height: 1px;
   background: color-mix(in oklch, var(--color-crimson) 40%, transparent);
 }
 
-.task-journey__layer {
+.task-visits__layer {
   display: grid;
   gap: 5px;
   padding: 8px 9px 9px;
@@ -45,17 +45,17 @@
   min-width: 0;
 }
 
-.task-journey__layer.is-live {
+.task-visits__layer.is-live {
   border-left-color: var(--color-amber);
   background: var(--color-raise-2);
 }
 
-.task-journey__layer.needs-redo {
+.task-visits__layer.needs-redo {
   border-left-style: dashed;
   background: color-mix(in oklch, var(--color-raise) 82%, var(--color-inset));
 }
 
-.task-journey__head {
+.task-visits__head {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -68,7 +68,7 @@
   cursor: pointer;
 }
 
-.task-journey__head > strong {
+.task-visits__head > strong {
   overflow: hidden;
   font-size: 10px;
   font-weight: 600;
@@ -76,7 +76,7 @@
   white-space: nowrap;
 }
 
-.task-journey__ordinal {
+.task-visits__ordinal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -90,7 +90,7 @@
   font-size: 8px;
 }
 
-.task-journey__meta {
+.task-visits__meta {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -102,24 +102,15 @@
   white-space: nowrap;
 }
 
-.task-journey__tally.is-green {
+.task-visits__tally.is-green {
   color: var(--color-green);
 }
 
-.task-journey__tally.is-red {
+.task-visits__tally.is-red {
   color: var(--color-crimson);
 }
 
-.task-journey__emission {
-  margin: 0 0 0 22px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  color: var(--color-dim);
-  font-size: 9px;
-  line-height: 1.55;
-}
-
-.task-journey__refs {
+.task-visits__refs {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -128,11 +119,11 @@
   list-style: none;
 }
 
-.task-journey__refs--head {
+.task-visits__refs--head {
   margin-left: 22px;
 }
 
-.task-journey__refs li {
+.task-visits__refs li {
   padding: 1px 5px;
   border: 1px solid var(--color-stroke);
   border-radius: 3px;
@@ -142,7 +133,7 @@
   font-size: 8px;
 }
 
-.task-journey__interior {
+.task-visits__interior {
   display: grid;
   gap: 10px;
   margin: 4px 0 0 22px;
@@ -150,13 +141,13 @@
   border-top: 1px solid var(--color-stroke);
 }
 
-.task-journey__block {
+.task-visits__block {
   display: grid;
   gap: 5px;
   min-width: 0;
 }
 
-.task-journey__block > h4 {
+.task-visits__block > h4 {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -168,9 +159,9 @@
   text-transform: uppercase;
 }
 
-.task-journey__receipts,
-.task-journey__open,
-.task-journey__tickets {
+.task-visits__receipts,
+.task-visits__open,
+.task-visits__checks {
   display: grid;
   gap: 7px;
   margin: 0;
@@ -178,33 +169,33 @@
   list-style: none;
 }
 
-.task-journey__receipts > li {
+.task-visits__receipts > li {
   display: grid;
   gap: 3px;
   min-width: 0;
 }
 
-.task-journey__receipt-head {
+.task-visits__receipt-head {
   display: flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
 }
 
-.task-journey__receipt-head > strong {
+.task-visits__receipt-head > strong {
   overflow-wrap: anywhere;
   color: var(--color-ink-2);
   font-size: 9px;
   font-weight: 600;
 }
 
-.task-journey__provenance {
+.task-visits__provenance {
   color: var(--color-faint);
   font-size: 8px;
   letter-spacing: 0.05em;
 }
 
-.task-journey__receipts p {
+.task-visits__receipts p {
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -213,7 +204,7 @@
   line-height: 1.55;
 }
 
-.task-journey__open > li {
+.task-visits__open > li {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -222,7 +213,7 @@
   font-size: 9px;
 }
 
-.task-journey__tickets > li {
+.task-visits__checks > li {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -230,12 +221,12 @@
   font-size: 9px;
 }
 
-.task-journey__ticket-label {
+.task-visits__check-label {
   flex: none;
   color: var(--color-ink-2);
 }
 
-.task-journey__tickets code {
+.task-visits__checks code {
   overflow: hidden;
   color: var(--color-faint);
   font-size: 8px;
@@ -243,21 +234,21 @@
   white-space: nowrap;
 }
 
-.task-journey__ticket-exit {
+.task-visits__check-exit {
   margin-left: auto;
   flex: none;
   font-size: 8px;
 }
 
-.task-journey__tickets > li.is-green .task-journey__ticket-exit {
+.task-visits__checks > li.is-green .task-visits__check-exit {
   color: var(--color-green);
 }
 
-.task-journey__tickets > li.is-red .task-journey__ticket-exit {
+.task-visits__checks > li.is-red .task-visits__check-exit {
   color: var(--color-crimson);
 }
 
-.task-journey__defect {
+.task-visits__defect {
   display: flex;
   gap: 7px;
   padding: 7px 8px;
@@ -267,13 +258,13 @@
   color: var(--color-crimson);
 }
 
-.task-journey__defect strong {
+.task-visits__defect strong {
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.task-journey__defect p {
+.task-visits__defect p {
   margin: 3px 0 5px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -282,7 +273,7 @@
   line-height: 1.55;
 }
 
-.task-journey__empty {
+.task-visits__empty {
   margin: 0;
   color: var(--color-faint);
   font-size: 8px;

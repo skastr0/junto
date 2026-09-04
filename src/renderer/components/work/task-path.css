@@ -1,28 +1,28 @@
-/* Pipeline surfaces inside the task flow modal: the Inbound admission marks,
-   the Outbound destination groups, and the operator station console. Same
-   language as task-board.css — hairline strokes, raise fills, tiny caps. */
+/* Task path surfaces inside the task board: the Incoming admission marks,
+   the Outgoing visit groups, and the operator panel. Same language as
+   task-board.css — hairline strokes, raise fills, tiny caps. */
 
-.task-flow-mark {
+.task-path-mark {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.task-board-lane[data-lane="inbound"] .task-board-lane__title-wrap {
+.task-board-lane[data-lane="incoming"] .task-board-lane__title-wrap {
   color: var(--color-amber);
 }
 
-.task-board-lane[data-lane="outbound"] .task-board-lane__title-wrap {
+.task-board-lane[data-lane="outgoing"] .task-board-lane__title-wrap {
   color: var(--color-green);
 }
 
-.task-flow-group {
+.task-path-group {
   display: flex;
   flex-direction: column;
   gap: 9px;
 }
 
-.task-flow-group__header {
+.task-path-group__header {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -37,30 +37,30 @@
   text-transform: uppercase;
 }
 
-.task-flow-group__header[data-kind="returned"] {
+.task-path-group__header[data-kind="sent-back"] {
   color: var(--color-crimson);
 }
 
-.task-flow-group__header[data-kind="closed"] {
+.task-path-group__header[data-kind="completed"] {
   color: var(--color-faint);
 }
 
-.task-flow-group__label {
+.task-path-group__label {
   overflow: hidden;
   min-width: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.task-flow-group__count {
+.task-path-group__count {
   margin-left: auto;
   color: var(--color-faint);
   font-variant-numeric: tabular-nums;
 }
 
-/* --- operator station console (task detail) ------------------------------ */
+/* --- operator panel (task detail) ------------------------------ */
 
-.task-station-console {
+.task-operator-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -69,21 +69,21 @@
   background: color-mix(in oklab, var(--color-second) 5%, var(--color-raise-2));
 }
 
-.task-station-console__heading {
+.task-operator-panel__heading {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--color-cyan);
 }
 
-.task-station-console__heading h3 {
+.task-operator-panel__heading h3 {
   margin: 0;
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 600;
 }
 
-.task-station-console__heading p {
+.task-operator-panel__heading p {
   margin: 0;
   color: var(--color-faint);
   font-size: 9px;
@@ -91,7 +91,7 @@
   text-transform: uppercase;
 }
 
-.task-station-console__claims {
+.task-operator-panel__rules {
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -100,7 +100,7 @@
   list-style: none;
 }
 
-.task-station-claim {
+.task-operator-rule {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -110,17 +110,17 @@
   background: var(--color-raise);
 }
 
-.task-station-claim[data-answered="true"] {
+.task-operator-rule[data-answered="true"] {
   border-color: color-mix(in oklab, var(--color-green) 34%, var(--color-stroke));
 }
 
-.task-station-claim__top {
+.task-operator-rule__top {
   display: flex;
   align-items: flex-start;
   gap: 7px;
 }
 
-.task-station-claim__text {
+.task-operator-rule__text {
   margin: 0;
   flex: 1 1 auto;
   color: var(--color-ink);
@@ -128,28 +128,28 @@
   line-height: 1.4;
 }
 
-.task-station-claim__provenance {
+.task-operator-rule__provenance {
   margin: 0;
   color: var(--color-faint);
   font-size: 9px;
   letter-spacing: 0.06em;
 }
 
-.task-station-claim__field {
+.task-operator-rule__field {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.task-station-claim__field > span,
-.task-station-console__field > span {
+.task-operator-rule__field > span,
+.task-operator-panel__field > span {
   color: var(--color-dim);
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
-.task-station-claim__waive {
+.task-operator-rule__waive {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -158,34 +158,34 @@
   cursor: pointer;
 }
 
-.task-station-claim__waive input {
+.task-operator-rule__waive input {
   width: 12px;
   height: 12px;
   margin: 0;
   accent-color: var(--color-cyan);
 }
 
-.task-station-console__field {
+.task-operator-panel__field {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.task-station-console__defect {
+.task-operator-panel__defect {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding-top: 2px;
 }
 
-.task-station-console__defect-targets {
+.task-operator-panel__defect-targets {
   overflow: hidden;
   border: 1px solid var(--color-stroke);
   border-radius: 7px;
   background: var(--color-raise);
 }
 
-.task-station-console__defect-targets summary {
+.task-operator-panel__defect-targets summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -196,11 +196,11 @@
   list-style: none;
 }
 
-.task-station-console__defect-targets summary::-webkit-details-marker {
+.task-operator-panel__defect-targets summary::-webkit-details-marker {
   display: none;
 }
 
-.task-station-console__defect-targets summary::after {
+.task-operator-panel__defect-targets summary::after {
   width: 6px;
   height: 6px;
   margin-left: auto;
@@ -211,16 +211,16 @@
   transition: transform 140ms ease;
 }
 
-.task-station-console__defect-targets[open] summary::after {
+.task-operator-panel__defect-targets[open] summary::after {
   transform: rotate(225deg) translate(-1px, -1px);
 }
 
-.task-station-console__defect-targets summary strong {
+.task-operator-panel__defect-targets summary strong {
   color: var(--color-ink);
   font-weight: 600;
 }
 
-.task-station-console__defect-targets fieldset {
+.task-operator-panel__defect-targets fieldset {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -230,7 +230,7 @@
   border-top: 1px solid var(--color-stroke);
 }
 
-.task-station-console__defect-targets legend {
+.task-operator-panel__defect-targets legend {
   padding: 0 2px 6px;
   color: var(--color-faint);
   font-size: 9px;
@@ -238,7 +238,7 @@
   text-transform: uppercase;
 }
 
-.task-station-console__defect-target {
+.task-operator-panel__defect-target {
   display: grid;
   grid-template-columns: 18px 14px minmax(0, 1fr);
   align-items: center;
@@ -250,46 +250,46 @@
   cursor: pointer;
 }
 
-.task-station-console__defect-target:hover {
+.task-operator-panel__defect-target:hover {
   background: color-mix(in oklab, var(--color-amber) 7%, transparent);
 }
 
-.task-station-console__defect-target[data-present="false"] {
+.task-operator-panel__defect-target[data-present="false"] {
   color: var(--color-faint);
   cursor: not-allowed;
 }
 
-.task-station-console__defect-target[data-present="false"]:hover {
+.task-operator-panel__defect-target[data-present="false"]:hover {
   background: transparent;
 }
 
-.task-station-console__defect-target input {
+.task-operator-panel__defect-target input {
   width: 13px;
   height: 13px;
   margin: 0;
   accent-color: var(--color-amber);
 }
 
-.task-station-console__defect-target > span:last-child {
+.task-operator-panel__defect-target > span:last-child {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
 }
 
-.task-station-console__defect-target strong {
+.task-operator-panel__defect-target strong {
   overflow: hidden;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.task-station-console__defect-target small {
+.task-operator-panel__defect-target small {
   color: var(--color-crimson);
   font-size: 9px;
 }
 
-.task-station-console__defect-stop {
+.task-operator-panel__defect-order {
   display: grid;
   width: 18px;
   height: 18px;
@@ -301,7 +301,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.task-station-console__defect-consequence {
+.task-operator-panel__defect-consequence {
   margin: 0;
   padding: 0 2px;
   color: var(--color-dim);
@@ -309,18 +309,18 @@
   line-height: 1.45;
 }
 
-.task-station-console__actions {
+.task-operator-panel__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 7px;
 }
 
-.task-station-console__destination {
+.task-operator-panel__next {
   min-width: 148px;
 }
 
-.task-station-console__empty {
+.task-operator-panel__empty {
   margin: 0;
   color: var(--color-faint);
   font-size: 10px;
