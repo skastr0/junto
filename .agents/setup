@@ -65,4 +65,24 @@ install_dependencies() {
 install_dependencies .
 install_dependencies infra/cloudflare
 
+# Install clients only: setup is snapshotted before per-orb authentication.
+printf '[setup] Preparing Tailscale and Quasar clients\n'
+sudo install -d /etc/systemd/system/tailscaled.service.d
+sudo tee /etc/systemd/system/tailscaled.service.d/amp-orb.conf >/dev/null <<'EOF'
+[Service]
+Environment=TS_ASSUME_NETWORK_UP_FOR_TEST=true
+EOF
+if ! command -v tailscale >/dev/null 2>&1; then
+  curl -fsSL https://tailscale.com/install.sh | sh
+fi
+sudo systemctl daemon-reload
+# Do not restart an active daemon when setup runs again on a warm orb.
+sudo systemctl enable --now tailscaled
+
+quasar_version=0.5.3
+if [[ ! -x "$HOME/.local/bin/quasar" ]] ||
+   [[ "$(node -p "require(process.env.HOME + '/.local/lib/node_modules/@skastr0/quasar-cli/package.json').version" 2>/dev/null || true)" != "$quasar_version" ]]; then
+  npm install --global --prefix "$HOME/.local" "@skastr0/quasar-cli@$quasar_version"
+fi
+
 printf '[setup] Complete\n'
