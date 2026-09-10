@@ -2102,7 +2102,6 @@ const handleProject = (
     const installed = yield* repository.installProjection(request);
     const decoded = decodeStationPortfolioBody(request.projection.body);
     canvases.announceInstalledProjection([...decoded.documents.keys()]);
-    // Successful CC projection renews the Remote product lease (3-day TTL).
     return installed;
   }).pipe(Effect.withSpan("station-api.project"));
 

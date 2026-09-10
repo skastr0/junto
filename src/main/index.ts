@@ -1805,9 +1805,8 @@ const logUnfinishedDrain = (
  * line and let the process exit, because blocking ends in SIGKILL instead.
  */
 const flushCanvasOnQuit = async (): Promise<void> => {
-  // Activation-only and revoked renderers never own a live authoring surface.
-  // Waiting for a canvas flush there would strand quit on an IPC channel that
-  // was intentionally never opened (or has already been revoked).
+  // Failed or incomplete startup never owns a live authoring surface.
+  // Waiting for its canvas flush would strand quit on unopened product IPC.
   if (!productRuntimeStarted) return;
   mainAuthoringGate.beginFinalFlush();
   logUnfinishedDrain("pre-flush", await mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS));
