@@ -59,7 +59,7 @@ separately; its authentication and provider costs are managed by that harness.
 To compile and package locally:
 
 ```sh
-bun run build              # compile the desktop application
+bun run build              # package locally, skipping source checks
 bun run app:build:mac      # local macOS package, run on macOS
 bun run app:build:linux    # local Linux desktop package, run on Linux
 ```
@@ -67,6 +67,9 @@ bun run app:build:linux    # local Linux desktop package, run on Linux
 Local packages are development builds. Official signing and publication are
 separate maintainer operations described in
 [the macOS release runbook](docs/mac-release-runbook.md).
+macOS source packages start without a signing identity. Automatic updates and
+Remote package admission require the expected official signing identity compiled
+into an official build; a source package without that policy refuses admission.
 
 ## Use the workspace
 
