@@ -1533,15 +1533,25 @@ describe("LocalSessionHost", () => {
   });
 
   it("refuses to occupy an already occupied geography seat", async () => {
-    const identities = makeProcessIdentityMap();
+    // A fake PTY needs a deterministic start-key witness. Binding the test
+    // runner's real pid would make this occupancy test depend on OS ps timing.
+    const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);
+    const pid = trackSyntheticPid(43_510);
     const fake = makeFakeTerminalProcessAuthority(() => ({
-      pid: process.pid,
-      exitOnSignal: false,
+      pid,
+      exitOnSignal: "SIGTERM",
     }));
     const host = hostWith(fake, { killGraceMs: 2 });
 
     const first = host.create({ bindingId: "replace", canvasName: "main", nodeId: "term" });
+    expect(first.status).toBe("running");
+    expect(identities.resolve(pid)).toEqual({
+      bindingId: "replace",
+      canvasName: "main",
+      nodeId: "term",
+    });
+    const occupiedIdentity = identities.snapshot();
     const again = host.create({
       bindingId: "replace",
       canvasName: "main",
@@ -1551,7 +1561,7 @@ describe("LocalSessionHost", () => {
     expect(host.runningCount()).toBe(1);
     expect(fake.controllers).toHaveLength(1);
     expect(fake.controllers[0]?.signals).toEqual([]);
-    expect(identities.resolve(process.pid)).toMatchObject({ bindingId: "replace" });
+    expect(identities.snapshot()).toEqual(occupiedIdentity);
   });
 
   it("closes create admission synchronously and coalesces concurrent shutdown callers", async () => {
