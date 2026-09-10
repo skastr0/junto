@@ -178,35 +178,6 @@ opens, migrates, downgrades, or partially decodes advanced state.
 
 ---
 
-# ⛔ BIG BOLD INVARIANT — STOCK DEPENDENCIES ONLY
-
-**ALL THIRD-PARTY DEPENDENCIES MUST BE STOCK / BASELINE / PRODUCTION VERSIONS.**
-
-- **NO** Vellum Command feature may be developed on top of patched, nightly, fork, pin-to-PR, or unofficial branches of a dependency.
-- **Always** consume the stable production release that normal users install (npm/registry tag, published CLI version, released binary — not a local checkout with private patches).
-- If a capability exists only on a patched/nightly/unofficial line, **do not build the feature**. Cap the product at what stable production exposes. Wait for upstream stable, or drop the capability.
-
-**Example — Hermes:** Vellum Command’s Hermes integration must target **stable production Hermes only**. Do not design, implement, or ship browser/terminal/agent features against a custom fork, patched daemon, or nightly protocol surface. If stable Hermes cannot do X, Vellum Command cannot do X via Hermes until stable does.
-
-**Narrow operator exception — Effect v4 rolling cohort.** The operator has
-chosen the maintainer-blessed rolling Effect v4 release line as the production
-dependency policy for Vellum Command-owned first-party packages (`effect`,
-`@effect/platform-bun`, `@effect/platform-node`, plus `@effect/node-shared`
-where direct and `@effect/sql-d1` where owned). "Latest v4" means the latest
-official rolling release available on the registry, including
-maintainer-blessed beta or RC versions; do not wait for a final tag.
-Snapshots, nightlies, forks, patches, pin-to-PR, and private branches remain
-refused, as does any Effect version privately owned by a third-party package
-(opencode, prism, and the like). The current frozen cohort is
-`effect@4.0.0-rc.112` (plus the lockstep `@effect/platform-bun` and
-`@effect/platform-node`), pinned to one exact coherent version across the root
-and `infra/cloudflare` package roots. No other dependency inherits this
-exception.
-
-This is non-negotiable for agents and humans. Violating it creates unshippable private-stack debt.
-
----
-
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum Command tools.
