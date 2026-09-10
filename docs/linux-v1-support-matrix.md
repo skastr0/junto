@@ -1,44 +1,54 @@
-# Linux v1 support matrix
+# Linux support matrix
 
-**Status:** target Linux Station Beta support envelope; Linux is not yet
-Beta-qualified
+**Status:** desktop alpha is the official Linux release target. Fleet Remote
+is experimental, feature-gated and not Beta-qualified. A build or CI pass is
+not an assertion that a signed release has passed installed-update checks or
+been published.
 
-“Target” names the contract the implementation and evidence must satisfy. It
-does not mean the current privileged `.deb` artifact is supported. The
-canonical rootless install/update lane is not yet shipped, so every Linux v1
-support claim remains unqualified.
+## Desktop alpha
 
-The release label is **Beta**. Beta admission requires a fully tested core
-userland path; optional capabilities may degrade independently, while
-security-sensitive features fail closed.
+| Surface | Contract | Qualification boundary |
+| --- | --- | --- |
+| Distribution / CPU | Ubuntu 24.04 LTS, x86-64 | Official alpha target |
+| C library | glibc 2.39 on Ubuntu 24.04 | Other distributions are not implied |
+| Package | Rootless `vellum-runtime-<version>-linux-x64.tar.gz` | Exact archive must pass audit and signature admission |
+| Install layout | `~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/` | Immutable owner-local generations |
+| Launch | `~/.local/bin/vellum-command-desktop` and user desktop entry | Same ordinary user; no system service |
+| Desktop display | X11 or Wayland/XWayland session | Native session evidence is distinct from Xvfb CI smoke |
+| Sandbox | Chromium sandbox with reviewed host-specific preparation if needed | No root launch, global policy weakening or sandbox bypass |
+| Updates | Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart | Managed official installations only |
+| Source builds / loose archives | Build and launch locally | Do not gain managed update eligibility by extraction |
+| Corresponding source | `/linux/x64/sources/<version>/sources.json` | Bound to the exact released archive |
+| State | One app-owned `~/.vellum-command/state/vellum-command.db` | Install/update never copies, replaces or separately opens it |
+| Maturity | Alpha | Does not imply Fleet Beta or production qualification |
 
-| Surface | V1 target | Current status |
-|---|---|---|
-| Distribution | Ubuntu 24.04 LTS | Target; rootless candidate unqualified |
-| CPU / Debian architecture name | x86-64 / `amd64` only | Target; release payload unqualified |
-| C library | glibc 2.39 or newer on Ubuntu 24.04 | Target |
-| Install/update | One exact signed owner-local payload; same ordinary-user transaction for first install and update | Candidate implementation landed; full gates and fresh-host proof pending |
-| Custom image | Not required; stock supported host plus explicit optional preparation | Not yet qualified |
-| Host preflight | Read-only, per-capability, no mutation or privilege input | Implemented candidate; not yet qualified |
-| Host preparation | Optional, explicit administrator action outside Vellum Command | Contract defined |
-| Core Remote runtime | Packaged Node process; no Electron, Chromium, `DISPLAY`, Xvfb, xauth, or mcookie dependency | Candidate implemented; native signed qualification pending |
-| Command Center display | X11 or Wayland/XWayland desktop session | Target |
-| Remote supervision | Station-user service manager; no root-owned launcher | Candidate implemented; lifecycle qualification pending |
-| Remote boot readiness | Current invocation + owner-local control + SQLite readiness | Candidate implemented; fresh-host receipt pending |
-| Login persistence | Optional administrator-approved user lingering | Target; never app-managed |
-| AppArmor/user namespaces | Future browser-sidecar facts only; not core Remote prerequisites | Browser unavailable in first Beta |
-| Browser secret storage | Future browser-sidecar fact only; not a core Remote prerequisite | Browser unavailable in first Beta |
-| Missing OS packages | Exact release-declared optional host actions | Target; never installed by Vellum Command |
-| Station API | five verbs only; OpenSSH transport | Implemented surfaces require rootless end-to-end requalification |
-| Browser automation | Optional future Linux Remote sidecar; host-local when introduced | Intentionally unavailable in first Beta; does not affect core health |
-| Work control | `vellum-command-work/v1`, owner-local Unix socket with process-bind | Implemented surfaces require exact rootless payload proof |
-| Linux arm64 / aarch64 | Outside v1 | Unsupported |
-| musl / Alpine | Outside v1 | Unsupported |
-| AppImage, RPM, Snap, Flatpak | Not v1 release units | Unsupported |
-| Container-only host | Does not substitute for host-kernel qualification | Unsupported as production proof |
-| Privileged `.deb`, `/opt`, release bridge/installer, root journal, administrator credential flow | Noncanonical migration residue | Must be removed; never fallback support |
+Use the [desktop guide](linux-command-center-alpha.md) for verified first
+install, source builds and sandbox preparation, and the
+[operator runbook](linux-operator-runbook.md) for updates and recovery.
 
-Per-capability statuses and consequences are defined in
-[Linux host preparation](linux-host-preparation.md#how-are-host-findings-reported).
-Qualification is governed by
-[Linux package qualification](linux-package-qualification.md).
+## Gated Fleet Remote Beta target
+
+| Surface | Target | Current boundary |
+| --- | --- | --- |
+| Core Remote runtime | Packaged Node, without Electron, Chromium, display server, Xvfb, xauth or mcookie | Candidate implementation; separate native signed qualification required |
+| Supervision | Station-user service manager | No root-owned launcher; lifecycle proof required |
+| Readiness | Current invocation, owner-local controls and SQLite readiness | Stale receipts or SSH success are insufficient |
+| Login persistence | Optional externally configured user lingering | Never enabled by Vellum Command |
+| Host preflight | Read-only per-capability findings | Unknown security facts fail closed |
+| Host preparation | Optional reviewed actions outside the app | Capability-specific degradation where safe |
+| Browser automation | Unavailable in the first Remote Beta | Display/sandbox/secret-storage gaps do not block core Node health |
+| Station API | Five bounded verbs over OpenSSH | Real two-installation qualification required |
+| Work control | Owner-local Unix socket with process-bound identity | Exact rootless payload proof required |
+| Maturity | Unreleased, experimental and feature-gated | Desktop alpha evidence grants no Fleet qualification |
+
+Fleet contracts are in [host preparation](linux-host-preparation.md),
+[package qualification](linux-package-qualification.md) and the
+[production contract](linux-production-contract.md).
+
+## Outside the qualified envelope
+
+Linux ARM64, musl/Alpine and other distributions are not v1 targets. AppImage,
+RPM, Snap, Flatpak and privileged `.deb` installers are not release units.
+Container-only results do not establish host-kernel qualification. No `/opt`
+installer, administrator-credential flow, privileged bridge, root journal,
+setuid helper or package-manager fallback is supported.

@@ -1,22 +1,24 @@
 # Linux production contract
 
-**Status:** normative Beta-to-production graduation contract; Linux is not yet
-qualified under this contract
+**Status:** desktop alpha is an official release target with its own
+qualification. Fleet Remote remains an unreleased, feature-gated Beta target;
+this document also defines its later production graduation gates.
 
-**Scope:** Ubuntu 24.04 LTS x86_64 only. ARM64 and other distributions are out
-of v1.
+**Scope:** Ubuntu 24.04 LTS x86-64 with glibc 2.39. ARM64 and other
+distributions are outside v1.
 
-Vellum Command Linux production means one signed rootless Station payload, installed
-and updated by the Station user, with optional host-administrator preparation
-kept outside the product transaction.
+Linux desktop alpha uses the existing signed rootless archive, managed
+owner-local generations and automatic signed updates with explicit Restart.
+It can be published after desktop qualification, without claiming Fleet Beta
+or production readiness. The [desktop guide](linux-command-center-alpha.md),
+[release-key policy](linux-release-key-policy.md) and
+[CI lane](linux-ci-release-lane.md) define those exact gates.
 
-Host preparation and remediation are optional, external, and documented.
-
-The canonical userland Linux Station first ships as **Beta**. Its core userland
-path must be fully tested before Beta admission. Optional capabilities degrade
-independently when safe; security-sensitive features fail closed. Production
-requires the same lane plus every graduation gate in this document, never a
-second installer.
+Fleet Remote Beta separately requires a fully tested core userland path,
+Station-user supervision and real two-installation qualification. Optional
+capabilities degrade independently where safe; security-sensitive features
+fail closed. Production requires all graduation gates below. Host preparation
+and remediation remain optional external actions, never product privilege.
 
 This contract derives from
 [security-doctrine.md](security-doctrine.md),
@@ -24,23 +26,27 @@ This contract derives from
 [state-architecture.md](state-architecture.md), and
 [fleet-station-architecture.md](fleet-station-architecture.md).
 
-## Current implementation status
+## Release and installation boundaries
 
-The canonical rootless install/update lane is in progress and is the only
-permitted target path. Signed artifact, user-service, displayless Node Remote,
-deployment, and removal pieces have landed as candidate implementation, and
-active privileged executables/password UI have been removed. The `.deb`/`/opt`
-contract and any remaining privileged types, tests, scripts, receipts, or
-instructions are migration residue. No current Linux artifact is supported,
-qualified, signed for publication, or publishable.
+The canonical payload is `vellum-runtime-<version>-linux-x64.tar.gz`.
+Desktop descriptors and the alpha feed live under `/linux/x64/`, separately
+from the gated Fleet release contract. An archive build alone does not prove
+signing, first install, installed update or native-host qualification.
 
-There is no supported privileged fallback. Consolidation is complete only when
-the rootless lane owns first install, update, forward repair, and removal and
-the privileged product lane is deleted.
+Desktop first install and updates share signed admission and generation
+activation. First install refuses an existing managed launcher; subsequent
+updates belong to the running app's flush/quiescence path. Generations live
+at `~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/`, selected by
+`~/.local/bin/vellum-command-desktop` with a user desktop entry. Product state
+is outside these immutable application generations.
+
+The retired `.deb`/`/opt` lane is not a fallback. Its historical CI workflow
+now refuses release authority. No administrator-password flow, privileged
+bridge, root journal or parallel system installer is permitted.
 
 ## Production scope
 
-One signed Linux release payload supports:
+Production graduation must qualify the canonical rootless payload for:
 
 - Linux Command Center with desktop parity;
 - Linux Remote running as the packaged Node runtime under the Station user's
@@ -75,11 +81,11 @@ The canonical transaction runs entirely as the intended Station user:
    admitted against independently trusted release metadata.
 3. The incumbent is quiesced and proved to have released the canonical
    database.
-4. Install cutover stages then activates the candidate; schema migration runs on normal app open (no sealed preflight). Historical path opened the
-   fixed canonical database read-only only long enough to mint a verified
-   retained backup, migrates and decodes a disposable clone, starts no runtime
-   plane, and accepts no database redirect.
-5. A passing receipt permits one-way activation of the owner-local candidate.
+4. Package admission verifies the exact signed bytes and mutation bounds;
+   install/update does not open product state or run a sealed clone preflight.
+5. After successful admission and incumbent quiescence, activate the
+   owner-local candidate once. Schema migration runs on normal app startup
+   through its sole `StateEngine` connection.
 6. The candidate starts through the user service or desktop path and publishes
    current-generation readiness.
 7. Failure before activation leaves installed bytes and live state unchanged.
@@ -91,9 +97,9 @@ the ordinary Station user's OpenSSH route. It transfers only the admitted
 payload and fixed userland protocol. Vellum Command never asks SSH, the app, or a helper
 to obtain administrator authority.
 
-The release must define its exact owner-local installation layout, activation
-record, mutation bounds, and cleanup behavior before qualification. The release
-artifact becomes the authoritative implementation reference for those details.
+The desktop layout is defined above. Fleet must separately qualify its
+owner-local layout, invocation/activation contract, mutation bounds and cleanup
+behavior. A desktop receipt does not establish unattended Remote readiness.
 
 ## Host preparation and graceful degradation
 
@@ -101,8 +107,11 @@ Preflight and Doctor are read-only. Their exact status and remediation contract
 is [Linux host preparation](linux-host-preparation.md).
 
 User lingering and missing core operating-system packages are separate facts
-and separate optional host actions. AppArmor, user namespaces, display
-tooling, and secret storage are relevant only to a future browser sidecar.
+and separate optional host actions. Desktop alpha needs its actual display
+and Chromium sandbox boundary, including the separately reviewed AppArmor
+preparation where required. For the packaged Node Remote, display, AppArmor,
+user namespaces and browser secret storage apply only to a future browser
+sidecar and are not core readiness prerequisites.
 Vellum Command may show reviewed commands but never executes them or collects their
 credentials.
 
@@ -152,7 +161,7 @@ Release blockers include:
 Verified `VACUUM INTO` backups remain portability and forensic evidence.
 Linux v1 has no operator restore or downgrade path.
 
-## Boot readiness and Doctor
+## Fleet Remote boot readiness and Doctor
 
 Boot readiness is structural and belongs to one current user-service
 generation:
@@ -188,7 +197,7 @@ Stations are unreleased, so current policy remains protocol 1 with `1/1/1`.
 No overlap means `update required`; it does not authorize a privileged fallback
 or partial down-conversion.
 
-## Production exit gates
+## Fleet Beta and production exit gates
 
 Linux Station Beta is eligible to graduate to production only when one exact
 signed payload and source
@@ -221,5 +230,5 @@ revision prove:
 
 CI construction and single-installation smoke are necessary evidence, not
 production proof. A real two-installation qualification receipt must bind the
-exact source revision and signed rootless payload. Until the canonical lane is
-implemented and that receipt exists, Linux remains unqualified.
+exact source revision and signed rootless payload. Until those Fleet-specific gates and that receipt pass, Fleet Remote remains
+unqualified. This does not block a separately qualified desktop alpha release.

@@ -1,9 +1,75 @@
-# Linux Command Center Alpha sandbox preparation
+# Linux desktop alpha: install, build and sandbox preparation
 
-**Status:** Linux desktop is alpha and builds as an Electron application.
-Fleet management and the headless Remote package nested under Fleet remain
-experimental and feature-gated. Desktop build success does not qualify Remote
-or promote either surface to beta or production.
+**Status:** Linux desktop alpha targets Ubuntu 24.04 LTS x86-64 with glibc 2.39.
+Official releases use the existing rootless archive and signed update feed.
+Publication requires exact candidate qualification; this guide does not assert
+that a qualified build is already serving. Fleet management and its headless
+Remote package remain experimental, unreleased and feature-gated. Desktop
+qualification does not promote Fleet to Beta or either surface to production.
+
+## Install an official desktop alpha
+
+Use the [official download page](https://vellumcommand.com/download) to obtain
+one release's archive, signed `release.json`, corresponding-source
+`sources.json`, and the independently published archive SHA-256. If the page
+says the installer is being prepared, use the source-build instructions below;
+do not substitute an old or unsigned package.
+
+Download the three files into a new private directory. Close any previously
+extracted Vellum Command desktop before installing or launching the managed
+copy. Verify the archive against the download page **before extracting it or
+executing its bundled CLI**. In that download directory, replace both values:
+
+```sh
+set -eu
+ALPHA_VERSION="REPLACE_WITH_PUBLISHED_VERSION"
+ALPHA_ARCHIVE_SHA256="REPLACE_WITH_PUBLISHED_ARCHIVE_SHA256"
+ALPHA_ARCHIVE="vellum-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
+
+printf '%s  %s\n' "$ALPHA_ARCHIVE_SHA256" "$ALPHA_ARCHIVE" | sha256sum --check -
+tar -xzf "$ALPHA_ARCHIVE"
+"./vellum-runtime-$ALPHA_VERSION-linux-x64/resources/bin/vellum-command" desktop-install \
+  --release "$PWD/release.json" \
+  --archive "$PWD/$ALPHA_ARCHIVE" \
+  --sources "$PWD/sources.json"
+```
+
+Stop on a checksum mismatch. The first-install command then verifies the
+signed descriptor and exact archive/source inputs, stages an immutable
+owner-local generation and creates the stable launcher and user desktop entry.
+It refuses an existing managed installation. It does not launch the app, open
+product state, update a running release or acquire administrator authority.
+There is no downloaded shell pipeline or separate bootstrap executable. From
+a reviewed source checkout, `bun scripts/install-linux-desktop.ts` accepts the
+same three flags and invokes the same first-install API.
+
+The managed generation is:
+
+```text
+~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/vellum-command
+```
+
+After any required external sandbox preparation below, launch as the same
+ordinary user:
+
+```sh
+"$HOME/.local/bin/vellum-command-desktop"
+```
+
+Official managed installations check for and download signed alpha updates
+automatically. Choose **Restart** to activate a ready update; the app flushes
+and stops its current runtime before activation. First-install commands are
+not an update mechanism. Loose extracted copies and source builds do not gain
+managed-update eligibility merely by being on disk. Desktop release descriptors
+have no expiry; current key trust still applies. A stale feed can withhold newer
+versions, but the updater admits only a strictly newer version with its exact
+signed bytes.
+
+The signed descriptor lives at `/linux/x64/<version>/release.json`; the feed is
+`/linux/x64/alpha.json`, and the matching source index is
+`/linux/x64/sources/<version>/sources.json` under the existing release Worker.
+See the [operator runbook](linux-operator-runbook.md) for refusal and recovery
+behavior.
 
 ## Build from source
 
@@ -19,14 +85,19 @@ bun run app:build:linux --fast
 The build emits a relocatable desktop directory and `.tar.gz` archive under
 `release/`. It includes the standalone CLI, project license, and required
 third-party notices. It needs no billing or release credentials and uploads
-nothing. A local archive is not an official signed release. Official Linux
-publication retains the detached manifest/checksum verification described in
-[the release key policy](linux-release-key-policy.md).
+nothing. A local archive is not an official signed release. Official desktop
+publication uses the signed descriptor and source binding in
+[the release key policy](linux-release-key-policy.md). Fleet manifest/checksum
+verification is a separate gated release contract.
 
-Launch the extracted `vellum-command` executable in your desktop session. The
-Ubuntu 24.04 AppArmor preparation below applies when that host restricts
-unprivileged user namespaces. This reviewed policy is external host preparation,
-not a packaged payload; desktop alpha does not bypass Chromium's sandbox.
+Launch the extracted `vellum-command` executable in your desktop session.
+Source builds remain unmanaged and do not consume the official updater.
+A restrictive Ubuntu sandbox policy can refuse an executable outside its
+reviewed attachment path. The exact AppArmor profile below applies to the
+managed alpha generation layout; it does not authorize arbitrary source-build
+paths. Do not weaken the host or add sandbox bypass flags to make a local
+build launch. External development-host preparation must be reviewed for the
+actual executable path.
 
 **Audience:** Alpha operators, host administrators, and qualification
 reviewers
@@ -36,7 +107,7 @@ reviewers
 The Alpha executable remains an ordinary-user, rootless installation at:
 
 ```text
-~/.local/opt/vellum-command-alpha/ALPHA_VERSION/vellum-command
+~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/vellum-command
 ```
 
 Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor. The
@@ -78,13 +149,14 @@ synthesize a broader profile. The expected loaded profile is
 
 ## Xorg launch and test
 
-Run from a terminal inside the native Xorg session. Replace `ALPHA_VERSION`
-with the installed version directory. Keeping `WAYLAND_DISPLAY` out of this
-launch and selecting X11 makes the exercised display path explicit.
+Run from a terminal inside the native Xorg session. Replace `ALPHA_GENERATION`
+with the exact installed version-and-archive-digest directory. Keeping
+`WAYLAND_DISPLAY` out of this launch and selecting X11 makes the exercised
+display path explicit.
 
 ```sh
-ALPHA_VERSION="REPLACE_WITH_REVIEWED_VERSION"
-ALPHA_EXECUTABLE="$HOME/.local/opt/vellum-command-alpha/$ALPHA_VERSION/vellum-command"
+ALPHA_GENERATION="REPLACE_WITH_VERSION-ARCHIVE_SHA256"
+ALPHA_EXECUTABLE="$HOME/.local/opt/vellum-command-alpha/$ALPHA_GENERATION/vellum-command"
 
 test "${XDG_SESSION_TYPE:-}" = "x11"
 test -n "${DISPLAY:-}"
@@ -107,8 +179,8 @@ Run from a terminal inside the native Wayland session. Selecting Wayland is
 required for this test; an XWayland launch is not native Wayland evidence.
 
 ```sh
-ALPHA_VERSION="REPLACE_WITH_REVIEWED_VERSION"
-ALPHA_EXECUTABLE="$HOME/.local/opt/vellum-command-alpha/$ALPHA_VERSION/vellum-command"
+ALPHA_GENERATION="REPLACE_WITH_VERSION-ARCHIVE_SHA256"
+ALPHA_EXECUTABLE="$HOME/.local/opt/vellum-command-alpha/$ALPHA_GENERATION/vellum-command"
 
 test "${XDG_SESSION_TYPE:-}" = "wayland"
 test -n "${WAYLAND_DISPLAY:-}"
