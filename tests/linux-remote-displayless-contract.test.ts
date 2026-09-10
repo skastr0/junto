@@ -82,6 +82,38 @@ const inspectTree = async (
 };
 
 describe("Linux remote displayless packaging helpers", () => {
+  it("bundles Electron's optional original-fs branch as native Node filesystem", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-fs-"));
+    try {
+      await mkdir(path.join(root, "src/main"), { recursive: true });
+      await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "remote-fs-fixture", version: "0.2.1" }));
+      await writeFile(path.join(root, "probe.txt"), "native filesystem works");
+      await writeFile(path.join(root, "src/main/vellum-remote.ts"), `
+        const fs = 'electron' in process.versions ? require('original-fs') : require('fs');
+        export const contents = fs.readFileSync('./probe.txt', 'utf8');
+        export const fleet = __VELLUM_COMMAND_FLEET_UI_ENABLED__;
+      `);
+      const builder = new URL("../scripts/build-linux-remote-runtime.ts", import.meta.url).pathname;
+      const build = spawnSync("bun", ["-e", `const {buildRemoteEntryBundle}=await import(${JSON.stringify(builder)}); await buildRemoteEntryBundle({repoRoot:${JSON.stringify(root)}});`], {
+        cwd: root,
+        env: { ...process.env, VELLUM_COMMAND_FEATURE_PROFILE: "ship" },
+        encoding: "utf8",
+        timeout: 20_000,
+      });
+      expect(build.status, build.stderr).toBe(0);
+      const execute = spawnSync(process.execPath, ["-e", `const bundled=require('./${REMOTE_ENTRY_SOURCE_RELATIVE}'); if(bundled.fleet!==false)throw Error('feature profile changed'); process.stdout.write(bundled.contents);`], {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      expect(execute.status, execute.stderr).toBe(0);
+      expect(execute.stdout).toBe("native filesystem works");
+      expect(await readFile(path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE), "utf8")).not.toMatch(/(?:__require|require)\s*\(\s*["']original-fs["']/u);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("pins stock Node 26.5.1 and names the official linux-x64 archive", () => {
     expect(DEFAULT_NODE_REMOTE_VERSION).toBe("26.5.1");
     expect(DEFAULT_NODE_REMOTE_MODULE_ABI).toBe("147");

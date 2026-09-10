@@ -37,7 +37,7 @@ import { pipeline } from "node:stream/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
-  featureBunDefineArgs,
+  featureViteDefines,
   resolveBuildFeatures,
 } from "./build-features";
 
@@ -265,35 +265,39 @@ export const buildRemoteEntryBundle = async (input: {
   ) {
     throw new Error("remote packaging requires package.json version");
   }
-  const featureDefines = featureBunDefineArgs(
+  const featureDefines = featureViteDefines(
     resolveBuildFeatures(process.env),
   );
   await mkdir(path.dirname(outfile), { recursive: true, mode: 0o755 });
   await rm(stage, { force: true });
   try {
-    // bun build is transpile/bundle only. The packaged stock Node binary owns
+    // Bun.build is transpile/bundle only. The packaged stock Node binary owns
     // the product Remote ABI, and this is the one canonical Remote recipe.
-    run(
-      "bun",
-      [
-        "build",
-        source,
-        "--outfile",
-        stage,
-        "--target",
-        "node",
-        "--format",
-        "cjs",
-        "--external",
-        "node-pty",
-        "--external",
-        "electron",
-        `--define=__VELLUM_COMMAND_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
-        `--define=__VELLUM_COMMAND_APP_VERSION__=${JSON.stringify(packageJson.version)}`,
+    const bundled = await Bun.build({
+      entrypoints: [source],
+      outdir: path.dirname(stage),
+      naming: path.basename(stage),
+      target: "node",
+      format: "cjs",
+      external: ["node-pty", "electron"],
+      define: {
+        __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: JSON.stringify(""),
+        __VELLUM_COMMAND_APP_VERSION__: JSON.stringify(packageJson.version),
         ...featureDefines,
-      ],
-      { cwd: repoRoot },
-    );
+      },
+      plugins: [{
+        name: "remote-native-filesystem",
+        setup(builder) {
+          // @electron/asar also supports Electron's original-fs builtin. The
+          // displayless stock Node Remote always uses its native filesystem.
+          builder.onResolve({ filter: /^original-fs$/u }, () => ({ path: "native-fs", namespace: "remote-native-fs" }));
+          builder.onLoad({ filter: /.*/u, namespace: "remote-native-fs" }, () => ({ contents: 'module.exports = require("node:fs");', loader: "js" }));
+        },
+      }],
+    });
+    if (!bundled.success) {
+      throw new Error(`remote entry bundle failed: ${bundled.logs.map(String).join("\n")}`);
+    }
     if (!(await isNonSymlinkFile(stage))) {
       throw new Error(
         `remote entry bundle was not written: ${REMOTE_ENTRY_SOURCE_RELATIVE}`,
