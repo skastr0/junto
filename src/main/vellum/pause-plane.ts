@@ -1,6 +1,5 @@
 import { Context, Effect, Result, Layer, Ref, Schema, Semaphore } from "effect";
 import { PAUSED_CANVAS, type CanvasPauseState, type PauseScope } from "@shared/pause";
-import { licenseFactoryHold } from "./license/factory-hold";
 import { FactoryPauseRepository } from "./pause/repository";
 
 // Factory pause plane — the safety switch that decides whether the factory
@@ -99,19 +98,8 @@ export const PausePlaneLive = Layer.effect(
     // Sync hot read for kernel cycle + work control dispatch. Effect.runSync
     // over a Ref read is the house-legal sync boundary (KernelService
     // .getSnapshot precedent) — never blocks, never suspends.
-    // License maintenance forces a non-playing projection without clobbering
-    // the durable everPlayed latch — reactivation does not auto-play.
-    const stateFor = (canvas: string): CanvasPauseState => {
-      const stored =
-        Effect.runSync(Ref.get(memory)).canvases.get(canvas) ?? PAUSED_CANVAS;
-      if (!licenseFactoryHold.forcesPaused()) return stored;
-      return {
-        playing: false,
-        everPlayed: stored.everPlayed,
-        pausedNodes: stored.pausedNodes,
-        pausedRegions: stored.pausedRegions,
-      };
-    };
+    const stateFor = (canvas: string): CanvasPauseState =>
+      Effect.runSync(Ref.get(memory)).canvases.get(canvas) ?? PAUSED_CANVAS;
 
     // SQLite-first: one typed domain mutation commits before memory changes,
     // so a failed write changes nothing anywhere.
@@ -147,26 +135,8 @@ export const PausePlaneLive = Layer.effect(
         }),
       );
 
-    const setPlaying = (canvas: string, playing: boolean) => {
-      if (playing && licenseFactoryHold.isMaintenance()) {
-        return Effect.fail(
-          new PauseStateError({
-            message:
-              "factory is in license maintenance — resume after access is restored",
-          }),
-        );
-      }
-      // Sticky latch after a prior maintenance episode: allow explicit play
-      // under full access, then clear so agents are not auto-resumed.
-      if (playing && licenseFactoryHold.requiresOperatorPlay()) {
-        return persist(canvas, repository.setPlaying(canvas, playing)).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => licenseFactoryHold.clearAfterOperatorPlay()),
-          ),
-        );
-      }
-      return persist(canvas, repository.setPlaying(canvas, playing));
-    };
+    const setPlaying = (canvas: string, playing: boolean) =>
+      persist(canvas, repository.setPlaying(canvas, playing));
 
     const setScopePaused = (canvas: string, scope: PauseScope, paused: boolean) =>
       scope.kind === "canvas"

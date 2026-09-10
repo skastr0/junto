@@ -552,7 +552,7 @@ describe("station status doctor", () => {
     });
   });
 
-  it("projects bounded recovery facts for stale, mismatched, and leased Remotes", () => {
+  it("projects bounded recovery facts for stale and mismatched Remotes", () => {
     const check = assessStationDoctor({
       ...localDoctorInput(),
       registeredRemoteEndpoints: { studio: "studio-box" },
@@ -567,12 +567,6 @@ describe("station status doctor", () => {
             updatedAt: "2026-07-23T11:40:00.000Z",
             nextRetryAt: "2026-07-23T12:01:00.000Z",
           },
-          lease: {
-            state: "expired",
-            source: "last-acknowledged",
-            lastCheckInAt: "2026-07-19T12:00:00.000Z",
-            expiresAt: "2026-07-22T12:00:00.000Z",
-          },
           readiness: { terminal: false, browser: true },
         }),
       ],
@@ -581,7 +575,6 @@ describe("station status doctor", () => {
     expect(check.status).toBe("error");
     expect(check.detail).toContain("installation identity mismatch");
     expect(check.detail).toContain("route backoff");
-    expect(check.detail).toContain("lease expired");
     expect(check.metadata).toMatchObject({
       "remote.studio.expectedInstallationId": "station-enrolled",
       "remote.studio.observedInstallationId": "station-studio",
@@ -590,7 +583,6 @@ describe("station status doctor", () => {
       "remote.studio.routeAttempt": "3",
       "remote.studio.terminalReady": "false",
       "remote.studio.browserReady": "true",
-      "remote.studio.leaseState": "expired",
       "remote.studio.recoveryKind": "identity-conflict",
     });
     expect(check.metadata?.["remote.studio.recoveryNextStep"]).toMatch(

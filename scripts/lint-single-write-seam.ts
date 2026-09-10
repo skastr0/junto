@@ -32,7 +32,7 @@
  *      codec    — the module DEFINES the decoder for a boundary and exports it;
  *                 the boundary belongs to the caller
  *      operator — operator-authored input (CLI argv/stdin, settings patch,
- *                 authored canvas payloads, a host or license key they typed)
+ *                 authored canvas payloads, a host or provider key they typed)
  *      constant — validates a literal baked into the bundle, once at module load
  *      row      — INTERIOR: a persisted row decoded back into a domain value
  *      mint     — INTERIOR: branding a value this process just computed

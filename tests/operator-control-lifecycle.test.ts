@@ -53,15 +53,7 @@ describe("operator control main lifecycle", () => {
     );
   });
 
-  it("cuts operator admission on hard denial and ordinary shutdown", () => {
-    const hardStart = source.indexOf(
-      "const suspendProductRuntimeForLicenseRevocation",
-    );
-    const hardEnd = source.indexOf("const enterLicenseMaintenance", hardStart);
-    const hardDenial = source.slice(hardStart, hardEnd);
-    expect(hardDenial).toContain("operatorFleetReady = false");
-    expect(hardDenial).toContain("operatorControl?.beginShutdown()");
-
+  it("cuts operator admission on shutdown", () => {
     const shutdownStart = source.indexOf("const beginShutdownAdmission");
     const shutdownEnd = source.indexOf(
       "const logUnfinishedDrain",

@@ -9,10 +9,10 @@ import type { DemoEdl } from "@shared/demo";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isDemoMode } from "./mode";
 import { writeDemoEdl } from "./service";
-import { licensedRendererIpc } from "../license/admission";
+import { trustedRendererIpc } from "../trusted-main-webcontents";
 
 export const registerDemoIpcHandlers = (): void => {
-  const privilegedIpc = licensedRendererIpc(ipcMain);
+  const privilegedIpc = trustedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.demoState, () => ({
     active: isDemoMode(),
     autoroll: isDemoMode() && process.env.VELLUM_COMMAND_DEMO_AUTOROLL === "1",

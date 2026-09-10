@@ -1,5 +1,4 @@
 import {
-  afterEach,
   beforeEach,
   describe,
   expect,
@@ -56,13 +55,6 @@ beforeEach(() => {
   runtime.runPromise.mockResolvedValue("executed");
 });
 
-afterEach(async () => {
-  const { productLicenseAdmission } = await import(
-    "../src/main/vellum/license/admission"
-  );
-  productLicenseAdmission.revoke();
-});
-
 describe("renderer canvas authoring IPC", () => {
   it("resolves only one exact projected actor reference", async () => {
     const { resolveProjectedIpcActorRef } = await import(
@@ -92,9 +84,6 @@ describe("renderer canvas authoring IPC", () => {
 
   it("lands the renderer flush through the same handlers while the gate is closing", async () => {
     const { registerVellumIpc } = await import("../src/main/vellum/ipc");
-    const { productLicenseAdmission } = await import(
-      "../src/main/vellum/license/admission"
-    );
     const {
       MainAuthoringRefused,
       mainAuthoringGate,
@@ -111,9 +100,6 @@ describe("renderer canvas authoring IPC", () => {
       initialUrl: "vellum-app://renderer/index.html",
       allows: (url) => url === "vellum-app://renderer/index.html",
     });
-    // This test exercises authoring admission after the independent product
-    // startup boundary has already admitted the trusted renderer.
-    productLicenseAdmission.admit("development");
     registerVellumIpc();
 
     const write = handlerFor(IPC_CHANNELS.writeCanvas);

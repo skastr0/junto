@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ProductLicenseAuthoringRefused,
-  productLicenseAdmission,
-} from "../src/main/vellum/license/admission";
-import {
   MainAuthoringRefused,
   classifyMainAuthoringWorkOperation,
   createMainAuthoringGate,
@@ -61,28 +57,6 @@ describe("main authoring gate", () => {
       label: "ipc.work.task-create",
     });
     expect(invoked).toBe(false);
-  });
-
-  it("admits the renderer flush under license maintenance", async () => {
-    productLicenseAdmission.admit("development", "maintenance");
-    try {
-      const gate = createMainAuthoringGate();
-
-      // Maintenance keeps the canvas readable and refuses authorial mutations.
-      await expect(gate.run("ipc.canvas.write", async () => "edit")).rejects.toBeInstanceOf(
-        ProductLicenseAuthoringRefused,
-      );
-
-      // The quit flush is exempt: refusing it would answer the renderer
-      // ok:false and block quit forever on an expired entitlement.
-      gate.beginFinalFlush();
-      await expect(gate.run("ipc.canvas.write", async () => "draft")).resolves.toBe("draft");
-      await expect(gate.run("ipc.canvas.create", async () => "recovery")).resolves.toBe(
-        "recovery",
-      );
-    } finally {
-      productLicenseAdmission.revoke();
-    }
   });
 
   it("refuses every authorial label once closed", async () => {

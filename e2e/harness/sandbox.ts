@@ -53,12 +53,6 @@ import {
   IntentFactBasis,
   type ActorRef,
 } from "../../src/shared/work-protocol";
-import type { ActivatedLicense } from "../../src/main/vellum/license/domain";
-import {
-  LicenseRepository,
-  LicenseRepositoryLive,
-} from "../../src/main/vellum/license/repository";
-
 export interface Sandbox {
   readonly root: string;
   readonly userDataDir: string;
@@ -111,25 +105,39 @@ export const destroySandbox = async (sandbox: Sandbox): Promise<void> => {
   await rm(sandbox.root, { recursive: true, force: true }).catch(() => undefined);
 };
 
-/** Seed the production license row through the repository Electron uses. */
-export const writeFixtureLicense = async (
+/**
+ * Historical rows are inert installed-state evidence. Seed invalid/expired
+ * commercial data without restoring a runtime decoder or repository for it.
+ * This engine is confined to the disposable sandbox and closes before launch.
+ */
+export const writeFixtureRetiredCommercialState = async (
   sandbox: Sandbox,
-  license: ActivatedLicense,
 ): Promise<void> => {
-  const runtime = ManagedRuntime.make(
-    Layer.provideMerge(
-      LicenseRepositoryLive,
-      makeStateEngineLive(
-        join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
-      ),
-    ),
-  );
+  const runtime = ManagedRuntime.make(makeStateEngineLive(
+    join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+  ));
   try {
-    await runtime.runPromise(
-      Effect.flatMap(LicenseRepository, (repository) =>
-        repository.write(license),
-      ),
-    );
+    await runtime.runPromise(Effect.flatMap(StateEngine, (engine) =>
+      engine.transaction("test.retired-commercial-state", (writer) => {
+        const expired = JSON.stringify({
+          provider: "retired-provider",
+          licenseKey: "synthetic-expired-test-key",
+          lastValidatedAt: "2000-01-01T00:00:00.000Z",
+          validationResult: "invalid",
+        });
+        for (const [table, version] of [
+          ["license_activation", 1],
+          ["license_entitlement", 2],
+        ] as const) {
+          writer.run(
+            `INSERT INTO ${table}
+              (singleton, record_version, activated_license_json, updated_at)
+             VALUES (1, ?, ?, ?)`,
+            [version, expired, "2000-01-01T00:00:00.000Z"],
+          );
+        }
+      }),
+    ));
   } finally {
     await runtime.dispose();
   }

@@ -11,7 +11,6 @@ import {
 import { observeLinuxHostCapabilityDoctor } from "@shared/linux-host-capability-doctor";
 import type { LinuxHostCapabilityObservation } from "@shared/linux-host-capabilities";
 import {
-  type StationLeaseObservation,
   type StationRemoteObservation,
   type StationRouteObservation,
   redactStationDiagnostic,
@@ -40,7 +39,6 @@ import {
   type StationFleetPeerUnavailable,
   type StationFleetPropagationResult,
 } from "../station/fleet-propagation";
-import { REMOTE_LEASE_TTL_MS, evaluateRemoteLease } from "../license/remote-lease";
 import type { HostsRegistry } from "./registry";
 import { composeObservedFleetCompatibilitySnapshot } from "./fleet-compatibility";
 
@@ -66,26 +64,6 @@ type RemoteHostProbeResult = {
   readonly status: "ok" | "warning" | "error";
   readonly detail: string;
   readonly observation: StationRemoteObservation;
-};
-
-const liveLeaseObservation = (lastCheckInAt: string): StationLeaseObservation => {
-  const checkInMs = Date.parse(lastCheckInAt);
-  if (!Number.isFinite(checkInMs)) {
-    return { state: "unknown", source: "live", lastCheckInAt };
-  }
-  const decision = evaluateRemoteLease(
-    checkInMs,
-    { now: Date.now },
-    REMOTE_LEASE_TTL_MS,
-  );
-  return {
-    state: decision.ok ? "active" : "expired",
-    source: "live",
-    lastCheckInAt,
-    ...(decision.expiresAtMs === null
-      ? {}
-      : { expiresAt: new Date(decision.expiresAtMs).toISOString() }),
-  };
 };
 
 const routeObservation = (
@@ -355,7 +333,6 @@ const probeSshHost = (
     ];
     const protocol = result.status.protocol;
     const observedAt = new Date().toISOString();
-    const lease = liveLeaseObservation(observedAt);
     const route = routeObservation(result.status);
     let worst: "ok" | "warning" | "error" = "ok";
     const problems: string[] = [];
@@ -438,7 +415,6 @@ const probeSshHost = (
           identityConflict:
             configuration?.role !== "remote" || configuration.hostId !== host.id,
           protocol,
-          lease,
           unreachable: false,
           stationAvailable: true,
           readinessFailed: ready.length > 0,
@@ -459,7 +435,6 @@ const probeSshHost = (
         expectedInstallationId: result.stationInstallationId,
         ...(protocol === undefined ? {} : { protocol }),
         route,
-        lease,
         readiness: {
           database: station.readiness.database,
           workControl: station.readiness.workControl,

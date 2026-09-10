@@ -931,7 +931,7 @@ export const makeOperatorCoordinator = (
     if (!options.fleetReady()) {
       throw new OperatorCoordinatorError(
         "runtime_down",
-        "fleet operations are unavailable until licensed product startup completes",
+        "fleet operations are unavailable until product startup completes",
       );
     }
 

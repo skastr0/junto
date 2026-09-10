@@ -65,16 +65,6 @@ import { OpenSshStationPeerExchangeLive } from "./vellum/station/openssh-peer-ex
 import { StationLivePeerRegistryLive } from "./vellum/station/session-registry";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
-import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
-import { makeDodoLicenseClient } from "./vellum/license/dodo-client";
-import {
-  LicenseRepository,
-  LicenseRepositoryLive,
-} from "./vellum/license/repository";
-import {
-  LicenseService,
-  makeLicenseService,
-} from "./vellum/license/service";
 import {
   resolveCandidateRuntimeRootFromRemoteBinary,
   resolveReleaseDirectoryFromRemoteBinary,
@@ -87,7 +77,7 @@ import { resolve } from "node:path";
 
 /**
  * True when this process is a release-tree candidate or forced via env.
- * Used for license build config and product packaging checks.
+ * Used for product packaging checks.
  * Staging extracts under ~/.vellum-command/runtime/staging/… count as packaged
  * candidates during remote install cutover.
  */
@@ -151,37 +141,9 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationStatusLive,
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
-    LicenseRepositoryLive,
     makeContentServiceLive(),
   ),
   Layer.mergeAll(StateEngineLive, InstallOpsLive),
-);
-
-// License never opens a second StateEngine — same memoized repository graph.
-const LicenseServiceFromStateLive = Layer.effect(
-  LicenseService,
-  Effect.gen(function* () {
-    const repository = yield* LicenseRepository;
-    const station = yield* StationRepository;
-    const installationId = yield* station.installationId;
-    const config = compiledLicenseBuildConfig(isRemotePackaged());
-    const client =
-      config.configured && config.channel === "production"
-        ? makeDodoLicenseClient()
-        : undefined;
-
-    return makeLicenseService({
-      config,
-      installationId,
-      repository,
-      ...(client === undefined ? {} : { client }),
-    });
-  }),
-);
-
-const LicenseWithStateLive = Layer.provideMerge(
-  LicenseServiceFromStateLive,
-  StateRepositoriesLive,
 );
 
 const CanvasesWithStateLive = Layer.provideMerge(
@@ -263,7 +225,6 @@ const BaseLayer = Layer.mergeAll(
   SnapshotsWithProductsLive,
   HostsWithSshLive,
   StationFleetServicesLive,
-  LicenseWithStateLive,
 );
 
 const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);

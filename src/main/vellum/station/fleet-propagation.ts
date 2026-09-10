@@ -503,7 +503,7 @@ export const StationFleetPropagationLive = Layer.effect(
     const workers = new Map<HostIdValue, WorkerControl>();
     const pendingInvalidationHosts = new Set<HostIdValue>();
     let pendingInvalidateAll = false;
-    // Synchronous process-lifetime cut used by license revocation and normal
+    // Synchronous process-lifetime cut used by ordinary
     // shutdown. Effect Ref remains the observable lifecycle; this boolean
     // prevents continuations already suspended at an async boundary from
     // opening or writing another Station session before worker interruption

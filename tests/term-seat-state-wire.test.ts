@@ -96,16 +96,11 @@ describe("term seat-state placement wiring", () => {
   it("TermPlane starts the spawn-host evaluator and stops only on plane shutdown", () => {
     const plane = readFileSync("src/main/vellum/term/plane.ts", "utf8");
     const startAt = plane.indexOf("start = async");
-    const suspendAt = plane.indexOf("suspendForLicenseRevocation");
     const shutdownAt = plane.indexOf("beginShutdown(reason");
     expect(startAt).toBeGreaterThan(-1);
-    expect(suspendAt).toBeGreaterThan(startAt);
-    expect(shutdownAt).toBeGreaterThan(suspendAt);
-    expect(plane.slice(startAt, suspendAt)).toContain("seatStateRuntime.start()");
-    expect(plane.slice(startAt, suspendAt)).not.toContain("seatStateRuntime.stop()");
-    expect(plane.slice(suspendAt, shutdownAt)).not.toContain(
-      "seatStateRuntime.stop()",
-    );
+    expect(shutdownAt).toBeGreaterThan(startAt);
+    expect(plane.slice(startAt, shutdownAt)).toContain("seatStateRuntime.start()");
+    expect(plane.slice(startAt, shutdownAt)).not.toContain("seatStateRuntime.stop()");
     expect(plane.slice(shutdownAt)).toContain("seatStateRuntime.stop()");
   });
 

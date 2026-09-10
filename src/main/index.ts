@@ -9,7 +9,6 @@ import {
   protocol,
   session,
   shell,
-  systemPreferences,
   type IpcMainEvent,
 } from "electron";
 import { Context, Effect } from "effect";
@@ -132,7 +131,6 @@ import {
   QUIT_CONFIRM_ACCEPT_INDEX,
 } from "./vellum/quit-live-work";
 import { mainAuthoringGate } from "./vellum/main-authoring-gate";
-import { remoteLeaseState } from "./vellum/license/remote-lease-state";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
@@ -152,12 +150,6 @@ import { SettingsService } from "./vellum/settings/service";
 import { StateEngine } from "./vellum/state/service";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
 import { installUpdateHostHooks } from "./vellum/update";
-import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
-import {
-  makeLicenseCoordinator,
-  type LicenseCoordinator,
-} from "./vellum/license/coordinator";
-import { LicenseService } from "./vellum/license/service";
 import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
 import { makeOperatorCoordinator } from "./vellum/hosts/operator-coordinator";
 import {
@@ -367,12 +359,8 @@ let stationFleetPropagationService:
   | StationFleetPropagationShape
   | undefined;
 let stationFleetPropagationShutdown: Promise<void> | undefined;
-let licenseCoordinator: LicenseCoordinator | undefined;
-let unregisterLicenseIpc: (() => void) | undefined;
-let licenseClockChangeSubscription: number | undefined;
 let rendererWindowAdmissionReady = false;
 let productRuntimeStarted = false;
-let productRuntimeSuspended = false;
 let operatorFleetReady = false;
 let shutdownAdmissionClosed = false;
 let shutdownReason = "app_quit";
@@ -434,63 +422,6 @@ const beginStationFleetPropagationShutdown = (): void => {
   stationFleetPropagationShutdown ??= AppRuntime.runPromise(
     service.stop,
   );
-};
-
-/**
- * Hard denial only (never activated / unusable product). Closes product
- * ingress but deliberately leaves local PTYs alive — quit remains signal
- * authority. Prefer enterLicenseMaintenance for lapsed prior grants.
- */
-const suspendProductRuntimeForLicenseRevocation = (): void => {
-  if (productRuntimeSuspended) return;
-  productRuntimeSuspended = true;
-  operatorFleetReady = false;
-  operatorControl?.beginShutdown();
-  nodeRefOwnerReady = false;
-  pendingNodeRefUri = undefined;
-  activeNodeRefDelivery = undefined;
-  disconnectNodeRefIngress();
-  disconnectNodeRefIngress = () => undefined;
-
-  kernelService?.suspend();
-  beginStationFleetPropagationShutdown();
-  termPlane.suspendForLicenseRevocation();
-  workControl?.beginShutdown();
-  canvasControl?.beginShutdown();
-  stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
-  stationControl?.beginShutdown();
-  hostOperationsShutdown.beginShutdown();
-
-  unsubscribeCanvasEdgeGrants?.();
-  unsubscribeCanvasEdgeGrants = undefined;
-  browserShutdown ??= browserComposition?.drainOnQuit(
-    "license_revoked",
-  );
-};
-
-/**
- * Custody entry after a previously valid grant lapses.
- *
- * Factory hold (coordinator) forces the play control into maintenance and
- * seatPaused=true; productLicenseAdmission mode=maintenance refuses authorial
- * mutations and holds renewal-producing fleet synchronize (status/project) so
- * a lapsed CC cannot keep Remote check-in leases alive. Owned PTYs/agents are
- * not killed — they stay blocked by pause. Kernel/term monotonic suspend is
- * reserved for hard denial only so full access can return seamlessly without
- * a restart (fleet hold clears when mode returns to full).
- */
-const enterLicenseMaintenance = (): void => {
-  // productLicenseAdmission.setMode("maintenance") already ran in the
-  // coordinator before this hook. StationPropagation.synchronize refuses
-  // while fleetPropagationHeldByLicense() is true — no permanent fleet
-  // beginShutdown (that would block seamless full-access return).
-};
-
-/**
- * Full access restored. Does not auto-unblock seats or auto-play the factory.
- */
-const returnFromLicenseMaintenance = (): void => {
-  // Operator re-plays / unblocks explicitly after entitlement returns.
 };
 
 /**
@@ -866,7 +797,7 @@ const createWindow = () => {
       ...(e2eIsolateFocus ? { backgroundThrottling: false } : {}),
     },
   });
-  if (BROWSER_ENABLED && productRuntimeStarted && !productRuntimeSuspended) {
+  if (BROWSER_ENABLED && productRuntimeStarted) {
     void browserCompositionHost.bindVisibleWindow(mainWindow).catch(() => {
       if (!mainWindow.isDestroyed()) mainWindow.destroy();
       exitAfterDetach(1, "browser-composition-host-bind-failure");
@@ -883,7 +814,6 @@ const createWindow = () => {
   mainWindow.on("close", (event) => {
     if (
       !productRuntimeStarted ||
-      productRuntimeSuspended ||
       closeWindowsWithoutCanvasFlush ||
       closeAfterCanvasFlush ||
       signalQuiescedWindows.has(mainWindow)
@@ -1048,7 +978,7 @@ const createWindow = () => {
     disconnectNodeRefIngress = disconnect;
   });
   mainWindow.on("closed", () => {
-    if (productRuntimeStarted && !productRuntimeSuspended) {
+    if (productRuntimeStarted) {
       void browserCompositionHost.releaseVisibleWindow(mainWindow).catch(() => {
         exitAfterDetach(1, "browser-composition-host-release-failure");
       });
@@ -1404,7 +1334,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         const coordinator = makeOperatorCoordinator({
           fleetReady: () =>
             operatorFleetReady &&
-            !productRuntimeSuspended &&
             !shutdownAdmissionClosed,
           readiness: () => ({
             database: true,
@@ -1434,7 +1363,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     // Packaged --vellum-headless on an Unenrolled install is enrollment
     // ingress: enroll door only (status, pair, configure). Never the
-    // operational Remote. No report pump. No license product. An already
+    // operational Remote. No report pump or product planes. An already
     // enrolled install skips this entirely and takes its own mode's door.
     if (stationDoor === "enroll") {
       try {
@@ -1463,85 +1392,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    const licenseConfig = compiledLicenseBuildConfig(app.isPackaged);
-    const licenseService = await AppRuntime.runPromise(LicenseService);
-    // Remote: seed lease from durable Station contact before admission so a
-    // restart within the 3-day window does not force maintenance.
-    if (stationConfiguration?.configuration.role === "remote") {
-      try {
-        const stations = await AppRuntime.runPromise(StationRepository);
-        const facts = await AppRuntime.runPromise(stations.statusFacts);
-        const candidates: number[] = [];
-        if (facts.pairing?.pairedAt) {
-          const ms = Date.parse(facts.pairing.pairedAt);
-          if (Number.isFinite(ms)) candidates.push(ms);
-        }
-        const headReceived = facts.projection?.receivedAt;
-        if (typeof headReceived === "string") {
-          const ms = Date.parse(headReceived);
-          if (Number.isFinite(ms)) candidates.push(ms);
-        }
-        if (candidates.length > 0) {
-          remoteLeaseState.hydrate(Math.max(...candidates));
-        }
-      } catch {
-        // Missing pairing/projection is a never-checked-in Remote.
-      }
-    }
-    const coordinator = makeLicenseCoordinator({
-      config: licenseConfig,
-      mode:
-        stationConfiguration?.configuration.role === "remote"
-          ? "remote-support"
-          : "licensed-command-center",
-      service: licenseService,
-      run: (effect, options) => AppRuntime.runPromise(effect, options),
-      openExternal: (url) => shell.openExternal(url),
-      application: {
-        relaunch: () => app.relaunch(),
-        quit: () => app.quit(),
-      },
-      onEnterMaintenance: enterLicenseMaintenance,
-      onReturnToFull: returnFromLicenseMaintenance,
-      onAccessRevoked: suspendProductRuntimeForLicenseRevocation,
-      remoteLastCheckInAtMs: () => remoteLeaseState.read(),
-      // The license gate renders before product admission; theme is the one
-      // preference it may read and write, straight through SettingsService.
-      gateTheme: {
-        get: () =>
-          AppRuntime.runPromise(
-            Effect.flatMap(SettingsService, (settings) => settings.get),
-          ).then((settings) => settings.appearance.theme),
-        set: (theme) =>
-          AppRuntime.runPromise(
-            Effect.flatMap(SettingsService, (settings) =>
-              settings.patch({ appearance: { theme } }),
-            ),
-          ),
-      },
-    });
-    licenseCoordinator = coordinator;
-    unregisterLicenseIpc = coordinator.registerIpc(ipcMain);
-    const licenseDecision =
-      await coordinator.decideStartupAdmission();
-
-    if (!licenseDecision.admitted) {
-      if (headless) {
-        console.error(
-          `[license] headless ${stationModeCopy} startup denied (${licenseDecision.status.reason})`,
-        );
-        exitAfterDetach(1, "license-startup-denied");
-        return;
-      }
-      rendererWindowAdmissionReady = true;
-      createWindow();
-      return;
-    }
-
-    // Retain the exact scoped supervisor before any product IPC can start it.
-    // License revocation must be able to cut its synchronous admission and
-    // drive its worker/session shutdown even when renderer IPC startup is
-    // still between asynchronous boundaries.
+    // Retain the scoped supervisor before product IPC can start it, so quit
+    // closes admission and drains its exact workers across async startup.
     stationFleetPropagationService = await AppRuntime.runPromise(
       StationFleetPropagation,
     );
@@ -1695,34 +1547,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       console.error("[term] control socket failed to start:", error);
     }
     powerMonitor.on("resume", () => {
-      void (async () => {
-        await coordinator.wakeMonitoring();
-        if (productRuntimeSuspended) return;
-        try {
-          browserComposition?.registry.reapAfterResume();
-        } catch {
-          console.error("[browser-automation] resume reap failed");
-        }
-      })().catch(() => {
-        console.error("[license] resume recheck failed");
-      });
+      if (shutdownAdmissionClosed) return;
+      try {
+        browserComposition?.registry.reapAfterResume();
+      } catch {
+        console.error("[browser-automation] resume reap failed");
+      }
     });
-    powerMonitor.on("unlock-screen", () => {
-      void coordinator.wakeMonitoring().catch(() => {
-        console.error("[license] unlock recheck failed");
-      });
-    });
-    if (process.platform === "darwin") {
-      licenseClockChangeSubscription ??=
-        systemPreferences.subscribeLocalNotification(
-          "NSSystemClockDidChangeNotification",
-          () => {
-            void coordinator.wakeMonitoring().catch(() => {
-              console.error("[license] clock-change recheck failed");
-            });
-          },
-        );
-    }
 
     // Browser authority stays private until cold profile recovery completes.
     // The activation callback is the only place browser IPC, agent IPC, or
@@ -1880,11 +1711,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
 
     productRuntimeStarted = true;
     operatorFleetReady = true;
-    await coordinator.startMonitoring();
-    if (!productRuntimeSuspended) {
-      nodeRefOwnerReady = true;
-      activatePendingNodeRef();
-    }
+    nodeRefOwnerReady = true;
+    activatePendingNodeRef();
     rendererWindowAdmissionReady = true;
     if (!headless) createWindow();
   })
@@ -1929,13 +1757,6 @@ const beginShutdownAdmission = (reason: string): void => {
   // Close kernel scheduling at the same synchronous, one-way admission cut.
   // No product teardown may strand work claimed by a later kernel cycle.
   kernelService?.suspend();
-  licenseCoordinator?.stopMonitoring();
-  if (licenseClockChangeSubscription !== undefined) {
-    systemPreferences.unsubscribeLocalNotification(
-      licenseClockChangeSubscription,
-    );
-    licenseClockChangeSubscription = undefined;
-  }
   nodeRefOwnerReady = false;
   pendingNodeRefUri = undefined;
   activeNodeRefDelivery = undefined;
@@ -1987,7 +1808,7 @@ const flushCanvasOnQuit = async (): Promise<void> => {
   // Activation-only and revoked renderers never own a live authoring surface.
   // Waiting for a canvas flush there would strand quit on an IPC channel that
   // was intentionally never opened (or has already been revoked).
-  if (!productRuntimeStarted || productRuntimeSuspended) return;
+  if (!productRuntimeStarted) return;
   mainAuthoringGate.beginFinalFlush();
   logUnfinishedDrain("pre-flush", await mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS));
   const mainWindow = trustedMainWindow;
@@ -2015,9 +1836,6 @@ const detachRuntimeOnQuit = (reason: string): void => {
     throw new Error("runtime detach blocked before signal durability commit");
   }
   runtimeDetachedForQuit = true;
-  licenseCoordinator?.stopMonitoring();
-  unregisterLicenseIpc?.();
-  unregisterLicenseIpc = undefined;
   // Canvas control cannot reopen. Cut it only after the renderer/document
   // durability boundary is irreversible, never during a recoverable precommit.
   canvasControl?.beginShutdown();

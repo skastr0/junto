@@ -106,21 +106,7 @@ import {
 import {
   StationLivePeerRegistryLive,
 } from "./vellum/station/session-registry";
-import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
-import {
-  DODO_LICENSE_BASE_URL,
-  makeDodoLicenseClient,
-  type DodoLicenseFetch,
-} from "./vellum/license/dodo-client";
-import {
-  LicenseRepository,
-  LicenseRepositoryLive,
-} from "./vellum/license/repository";
 import { CanvasEntityRepositoryLive } from "./vellum/entities/repository";
-import {
-  LicenseService,
-  makeLicenseService,
-} from "./vellum/license/service";
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
@@ -149,67 +135,10 @@ const StateRepositoriesLive = Layer.provideMerge(
     StationRepositoryLive,
     StationFleetTargetRepositoryLive,
     BoxOwnershipRepositoryLive,
-    LicenseRepositoryLive,
     CanvasEntityRepositoryLive,
     makeContentServiceLive(),
   ),
   Layer.mergeAll(StateEngineLive, InstallOpsLive),
-);
-
-const e2eLicenseFixtureEnabled =
-  typeof __VELLUM_COMMAND_E2E_LICENSE_FIXTURE__ === "boolean" &&
-  __VELLUM_COMMAND_E2E_LICENSE_FIXTURE__;
-
-const e2eValidLicenseFetch: DodoLicenseFetch = async (input, init) => {
-  const url =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.href
-        : input.url;
-  if (
-    url !== `${DODO_LICENSE_BASE_URL}/licenses/validate` ||
-    init?.method !== "POST"
-  ) {
-    throw new Error(`unexpected E2E license request: ${init?.method ?? "GET"} ${url}`);
-  }
-  return new Response(JSON.stringify({ valid: true }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-};
-
-const LicenseServiceFromStateLive = Layer.effect(
-  LicenseService,
-  Effect.gen(function* () {
-    const repository = yield* LicenseRepository;
-    const station = yield* StationRepository;
-    const installationId = yield* station.installationId;
-    const config = compiledLicenseBuildConfig(app.isPackaged);
-    const client =
-      config.configured && config.channel === "production"
-        ? makeDodoLicenseClient(
-            e2eLicenseFixtureEnabled
-              ? { fetch: e2eValidLicenseFetch }
-              : {},
-          )
-        : undefined;
-
-    return makeLicenseService({
-      config,
-      installationId,
-      repository,
-      ...(client === undefined ? {} : { client }),
-    });
-  }),
-);
-
-// License state and installation identity come from the same memoized
-// repository graph as every other product plane. In particular, licensing
-// never constructs or opens a second StateEngine connection.
-const LicenseWithStateLive = Layer.provideMerge(
-  LicenseServiceFromStateLive,
-  StateRepositoriesLive,
 );
 
 // Canvases projects durable work rows on reads while keeping its authority
@@ -352,7 +281,6 @@ const BaseLayer = Layer.mergeAll(
   HostsWithSshLive,
   StationFleetServicesLive,
   BoxActivityPolicyWithFleetLive,
-  LicenseWithStateLive,
   UpdateServiceLive,
 );
 

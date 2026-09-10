@@ -113,7 +113,6 @@ export class TermPlane {
   private productAutomationSuspension:
     | TermProductAutomationSuspension
     | undefined;
-  private licenseRevoked = false;
   private shuttingDown = false;
   private shutdownReason = "app_quit";
   private localShutdownFlight: Promise<LocalHostShutdownResult> | undefined;
@@ -135,7 +134,7 @@ export class TermPlane {
 
   /**
    * Bind the exact process-local managed-drive/message-delivery authority.
-   * A late bind after revocation or shutdown is suspended immediately, so
+   * A late bind after shutdown is suspended immediately, so
    * asynchronous IPC boot cannot reopen the terminal write path.
    */
   bindProductAutomationSuspension(
@@ -148,7 +147,7 @@ export class TermPlane {
       );
     }
     this.productAutomationSuspension = suspension;
-    if (this.licenseRevoked || this.shuttingDown) {
+    if (this.shuttingDown) {
       suspension.suspend();
     }
   }
@@ -182,9 +181,6 @@ export class TermPlane {
   /** Start local control socket (idempotent). */
   start = async (options?: TermPlaneStartOptions): Promise<void> => {
     if (this.shuttingDown) throw new Error("terminal plane is stopping");
-    if (this.licenseRevoked) {
-      throw new Error("terminal plane admission closed after license revocation");
-    }
     // Evaluator lives on the spawn host. Command Center IPC also starts it;
     // Remote has no renderer IPC, so the plane is the one start that both run.
     seatStateRuntime.start();
@@ -211,7 +207,7 @@ export class TermPlane {
           home: options?.controlHome,
         });
         this.control = control;
-        if (this.shuttingDown || this.licenseRevoked) control.beginShutdown();
+        if (this.shuttingDown) control.beginShutdown();
         console.info(`[term] control socket ${control.socketPath}`);
       } catch (error) {
         if (error instanceof TermControlStartupError) {
@@ -233,21 +229,6 @@ export class TermPlane {
       if (this.starting === current) this.starting = undefined;
     }
   };
-
-  /**
-   * Monotonic product-admission cut for license revocation.
-   *
-   * Existing local PTYs remain operator-owned and running. Only the terminal
-   * router and control socket stop admitting future product work. Normal app
-   * quit remains responsible for signaling and draining those owned PTYs.
-   */
-  suspendForLicenseRevocation(): void {
-    if (this.licenseRevoked) return;
-    this.licenseRevoked = true;
-    this.suspendProductAutomation();
-    this.router.beginShutdown();
-    this.control?.beginShutdown();
-  }
 
   /**
    * Monotonic admission cut for local sessions, remote dials, and UDS frames.

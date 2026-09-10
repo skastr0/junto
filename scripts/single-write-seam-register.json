@@ -37,11 +37,6 @@
       "retire": "Make seeding a control-socket command served by the running main process, so the state engine stays the only opener."
     },
     {
-      "path": "scripts/license-state.ts",
-      "reason": "Developer tool: backs up / clears / restores the license_entitlement row for gate testing. Opens the live product database through bun:sqlite, a DIFFERENT driver from the product's node:sqlite, while the app may be running.",
-      "retire": "Serve entitlement clear and restore over the control socket, so no tool opens the product database directly."
-    },
-    {
       "path": "scripts/electron-sqlite-smoke.mjs",
       "reason": "Electron smoke probe: proves node:sqlite is present and WAL-capable inside the packaged Electron runtime. Opens only a throwaway database under mkdtemp, never product state.",
       "retire": "Prove the packaged runtime from an e2e assertion inside the app, so no probe has to import the driver itself."
@@ -315,15 +310,6 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum/license/repository.ts",
-      "kind": "debt",
-      "tables": [
-        "license_entitlement"
-      ],
-      "reason": "License seam: the local entitlement row.",
-      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
-    },
-    {
       "path": "src/main/vellum/usage/usage-cache.ts",
       "kind": "debt",
       "tables": [
@@ -340,16 +326,6 @@
       ],
       "reason": "Install-ops seam. Writes install-ops.db, not the state database; see the matching databaseOpenerExceptions entry.",
       "retire": "Retire together with the install-ops database opener exception."
-    },
-    {
-      "path": "scripts/license-state.ts",
-      "kind": "debt",
-      "tables": [
-        "license_activation",
-        "license_entitlement"
-      ],
-      "reason": "Developer tool that clears and restores the license rows the product owns. Listed so the overlap with license/repository.ts is visible rather than silent.",
-      "retire": "Serve entitlement clear and restore over the control socket."
     },
     {
       "path": "scripts/electron-sqlite-smoke.mjs",
@@ -421,15 +397,6 @@
       ],
       "reason": "The box seam writes the host row a box is bound to and deletes it when the box is released.",
       "retire": "Have box ownership call the hosts seam instead of writing host_registry directly."
-    },
-    {
-      "table": "license_entitlement",
-      "owner": "src/main/vellum/license/repository.ts",
-      "alsoWrittenBy": [
-        "scripts/license-state.ts"
-      ],
-      "reason": "The developer license tool clears and restores the row the product owns.",
-      "retire": "Serve entitlement clear and restore over the control socket."
     },
     {
       "table": "station_fleet_targets",
@@ -741,42 +708,6 @@
       ],
       "reason": "Brands a host id off an already-decoded delivery surface and an IntentFactBasis from local state.",
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
-    },
-    {
-      "path": "src/main/vellum/license/config.ts",
-      "kinds": [
-        "constant"
-      ],
-      "reason": "Validates the provider ids baked into the main bundle at build time; the module refuses runtime input by contract."
-    },
-    {
-      "path": "src/main/vellum/license/dodo-client.ts",
-      "kinds": [
-        "wire"
-      ],
-      "reason": "Decodes the license provider's HTTP responses."
-    },
-    {
-      "path": "src/main/vellum/license/domain.ts",
-      "kinds": [
-        "codec"
-      ],
-      "reason": "Defines the license activation and validation input decoders."
-    },
-    {
-      "path": "src/main/vellum/license/repository.ts",
-      "kinds": [
-        "row"
-      ],
-      "reason": "Rebuilds the entitlement from the license row this process wrote.",
-      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
-    },
-    {
-      "path": "src/main/vellum/license/service.ts",
-      "kinds": [
-        "operator"
-      ],
-      "reason": "Decodes the license key, activation name and installation id the operator supplies."
     },
     {
       "path": "src/main/vellum/observability/ipc.ts",

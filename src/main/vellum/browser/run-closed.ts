@@ -3,7 +3,7 @@
  *
  * BrowserSessionService / page-target / station-authority unit paths inject
  * service method Effects that carry no product Context requirement. Routing
- * those through AppRuntime forces ManagedRuntime to build License/State/etc.
+ * those through AppRuntime forces ManagedRuntime to build product state and services
  * and crashes Node vitest where Electron `app` is undefined.
  *
  * Production paths that need product services (SettingsService,

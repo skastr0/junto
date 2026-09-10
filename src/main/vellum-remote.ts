@@ -52,13 +52,6 @@ import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { termPlane } from "./vellum/term/plane";
 import { startTransportJournal } from "./vellum/observability";
 import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
-import { compiledLicenseBuildConfig } from "./vellum/license/compiled-config";
-import {
-  makeLicenseCoordinator,
-  type LicenseCoordinator,
-} from "./vellum/license/coordinator";
-import { LicenseService } from "./vellum/license/service";
-import { remoteLeaseState } from "./vellum/license/remote-lease-state";
 
 const argvHas = (flag: string): boolean => process.argv.includes(flag);
 
@@ -116,7 +109,6 @@ type Handles = {
   workControl?: WorkControlServer;
   stationControl?: StationControlServer;
   stationRemoteReportPump?: StationRemoteReportPump;
-  licenseCoordinator?: LicenseCoordinator;
   hermes?: {
     readonly shutdown: { readonly drainOnQuit: () => Promise<unknown> };
   };
@@ -125,10 +117,6 @@ type Handles = {
     readonly suspend: () => void;
   };
   shuttingDown: boolean;
-};
-
-const openExternalNoop = async (_url: string): Promise<void> => {
-  // Remote-support never opens a customer portal.
 };
 
 const runProductBoot = async (): Promise<void> => {
@@ -148,7 +136,6 @@ const runProductBoot = async (): Promise<void> => {
   const beginShutdown = (reason: string): void => {
     if (handles.shuttingDown) return;
     handles.shuttingDown = true;
-    handles.licenseCoordinator?.stopMonitoring();
     handles.kernel?.suspend();
     handles.workControl?.beginShutdown();
     void handles.stationRemoteReportPump?.close();
@@ -248,7 +235,7 @@ const runProductBoot = async (): Promise<void> => {
   }
 
   // Packaged Unenrolled ingress: enroll door only, then hold. No report
-  // pump. No license product. Never also bind the peer door.
+  // pump or product planes. Never also bind the peer door.
   if (stationDoor === "enroll") {
     try {
       handles.stationControl = await startStationControlServer({
@@ -273,59 +260,6 @@ const runProductBoot = async (): Promise<void> => {
       await drainAndExit(1, "station-bootstrap-startup-failure");
       return;
     }
-  }
-
-  if (stationConfiguration?.configuration.role === "remote") {
-    try {
-      const facts = await RemoteRuntime.runPromise(stations.statusFacts);
-      const candidates: number[] = [];
-      if (facts.pairing?.pairedAt) {
-        const ms = Date.parse(facts.pairing.pairedAt);
-        if (Number.isFinite(ms)) candidates.push(ms);
-      }
-      const headReceived = facts.projection?.receivedAt;
-      if (typeof headReceived === "string") {
-        const ms = Date.parse(headReceived);
-        if (Number.isFinite(ms)) candidates.push(ms);
-      }
-      if (candidates.length > 0) {
-        remoteLeaseState.hydrate(Math.max(...candidates));
-      }
-    } catch {
-      // Missing pairing/projection is a never-checked-in Remote.
-    }
-  }
-
-  const licenseConfig = compiledLicenseBuildConfig(packaged);
-  const licenseService = await RemoteRuntime.runPromise(LicenseService);
-  const coordinator = makeLicenseCoordinator({
-    config: licenseConfig,
-    mode:
-      stationConfiguration?.configuration.role === "remote"
-        ? "remote-support"
-        : "licensed-command-center",
-    service: licenseService,
-    run: (effect, options) => RemoteRuntime.runPromise(effect, options),
-    openExternal: openExternalNoop,
-    application: {
-      relaunch: () => {
-        process.exit(0);
-      },
-      quit: () => {
-        process.exit(0);
-      },
-    },
-    remoteLastCheckInAtMs: () => remoteLeaseState.read(),
-  });
-  handles.licenseCoordinator = coordinator;
-  // No renderer IPC on Node remote — skip registerIpc.
-  const licenseDecision = await coordinator.decideStartupAdmission();
-  if (!licenseDecision.admitted) {
-    console.error(
-      `[license] remote startup denied (${licenseDecision.status.reason})`,
-    );
-    await drainAndExit(1, "license-startup-denied");
-    return;
   }
 
   try {
@@ -389,12 +323,6 @@ const runProductBoot = async (): Promise<void> => {
     await termPlane.start({ controlHome });
   } catch (error) {
     console.error("[term] control socket failed to start:", error);
-  }
-
-  try {
-    await coordinator.startMonitoring();
-  } catch {
-    console.error("[license] monitoring failed to start");
   }
 
   try {

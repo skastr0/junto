@@ -37,7 +37,7 @@ describe("browser hard product gate", () => {
         "if (BROWSER_ENABLED) try {\n      if (headless) await browserCompositionHost.ensureHeadlessHost();",
       );
       expect(main).toContain(
-        "if (BROWSER_ENABLED && productRuntimeStarted && !productRuntimeSuspended)",
+        "if (BROWSER_ENABLED && productRuntimeStarted)",
       );
       expect(cli).toContain('dispatch.kind === "browser"');
       expect(canvas).toContain("addPage: () => {\n    if (!BROWSER_ENABLED) return;");

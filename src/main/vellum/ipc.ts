@@ -90,7 +90,7 @@ import {
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
-import { licensedRendererIpc } from "./license/admission";
+import { trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
 import { makeUserMessage } from "@shared/task";
 import { ulid } from "ulid";
@@ -286,7 +286,7 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
 });
 
 export const registerVellumIpc = (): void => {
-  const privilegedIpc = licensedRendererIpc(ipcMain);
+  const privilegedIpc = trustedRendererIpc(ipcMain);
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
     ensureHostAvailable: ensureBoxHostAvailable,
@@ -1728,7 +1728,7 @@ export const registerVellumIpc = (): void => {
 export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void => {
   if (!BROWSER_ENABLED) return;
   registerBrowserIpc(
-    licensedRendererIpc(ipcMain),
+    trustedRendererIpc(ipcMain),
     sessions,
     () => BrowserWindow.getAllWindows()
       .map((window) => window.webContents)

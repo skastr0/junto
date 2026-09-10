@@ -28,14 +28,13 @@ import { _electron as electron, type ElectronApplication } from "playwright-core
 import type { CanvasDoc } from "../../src/shared/canvas";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
-import type { ActivatedLicense } from "../../src/main/vellum/license/domain";
 import {
   createSandbox,
   destroySandbox,
   removeFixtureCanvases,
   writeFixtureCanvas,
   writeFixtureHosts,
-  writeFixtureLicense,
+  writeFixtureRetiredCommercialState,
   writeFixtureUsageState,
   type Sandbox,
 } from "./sandbox";
@@ -81,8 +80,8 @@ export interface LaunchOptions {
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
   readonly seedHosts?: ReadonlyArray<RemoteHost>;
-  /** Saved production activation seeded before Electron reads startup access. */
-  readonly seedLicense?: ActivatedLicense;
+  /** Preserve stale historical commercial rows while proving ordinary startup. */
+  readonly seedRetiredCommercialState?: boolean;
   /**
    * Usage-plane last-good state seeded into the sandbox's `usage_state` row
    * before boot — the same durable seam UsageCache paints at startup.
@@ -425,8 +424,8 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
   let application: HarnessApplicationState = { kind: "not-launched" };
 
   try {
-    if (options.seedLicense !== undefined) {
-      await writeFixtureLicense(sandbox, options.seedLicense);
+    if (options.seedRetiredCommercialState === true) {
+      await writeFixtureRetiredCommercialState(sandbox);
     }
     for (const [name, doc] of Object.entries(options.seedCanvases ?? {})) {
       await writeFixtureCanvas(sandbox, name, doc);

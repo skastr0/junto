@@ -57,7 +57,6 @@ export const StationRecoveryKind = Schema.Literals([
   "retryable",
   "update-required",
   "identity-conflict",
-  "lease-expired",
   "runtime-down",
 ]);
 export type StationRecoveryKind = typeof StationRecoveryKind.Type;
@@ -65,15 +64,6 @@ export type StationRecoveryKind = typeof StationRecoveryKind.Type;
 export type StationRecoveryGuidance = {
   readonly kind: StationRecoveryKind;
   readonly nextStep: string;
-};
-
-export type StationLeaseObservation = {
-  /** Lease state is explicit; absent evidence is never rendered as expired. */
-  readonly state: "active" | "expired" | "never" | "unknown";
-  /** Last successful Command Center contact, or the last acknowledged value. */
-  readonly lastCheckInAt?: string;
-  readonly expiresAt?: string;
-  readonly source: "live" | "last-acknowledged";
 };
 
 export type StationRouteObservation = {
@@ -219,7 +209,6 @@ export type StationRemoteObservation = {
   readonly reachabilityError?: string;
   readonly protocol?: StationProtocolObservation;
   readonly route?: StationRouteObservation;
-  readonly lease?: StationLeaseObservation;
   readonly readiness?: StationReadinessObservation;
   /** Exact projected intent counts for this target, computed on Command Center. */
   readonly topology?: StationTopologyObservation;
@@ -409,7 +398,6 @@ const cursorText = (cursors: ReadonlyArray<RouteCursorValue> | undefined): strin
 const recoveryForRemote = (input: {
   readonly identityConflict: boolean;
   readonly protocol?: StationProtocolObservation;
-  readonly lease?: StationLeaseObservation;
   readonly unreachable: boolean;
   readonly stationAvailable: boolean;
   readonly readinessFailed: boolean;
@@ -425,12 +413,6 @@ const recoveryForRemote = (input: {
     return {
       kind: "update-required",
       nextStep: "Upgrade Command Center and Remote to a compatible Station protocol, then test the link.",
-    };
-  }
-  if (input.lease?.state === "expired" || input.lease?.state === "never") {
-    return {
-      kind: "lease-expired",
-      nextStep: "Reconnect the Remote to its paired Command Center; never copy a license key or activation identifier.",
     };
   }
   if (input.unreachable) {
@@ -625,7 +607,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     const station = observation?.station;
     const protocol = observation?.protocol;
     const route = observation?.route;
-    const lease = observation?.lease;
     const synchronization = observation?.synchronization;
     const topology = observation?.topology;
     const observedAt = observation?.observedAt ?? station?.observedAt;
@@ -749,10 +730,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
       problems.push(`route ${route.phase}`);
       if (route.phase === "update-required") fleetBlind = true;
     }
-    if (lease?.state === "expired" || lease?.state === "never") {
-      problems.push(`lease ${lease.state}`);
-      hardError = true;
-    }
     if (synchronization !== undefined && !synchronization.converged) {
       problems.push("last work report did not converge");
     }
@@ -767,7 +744,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
     const recovery = observation?.recovery ?? recoveryForRemote({
       identityConflict,
       protocol,
-      lease,
       unreachable: observation?.reachability === "unreachable",
       stationAvailable: station !== undefined,
       readinessFailed,
@@ -811,7 +787,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
         `synchronization ${synchronization === undefined ? "unknown" : synchronization.converged ? "converged" : "incomplete"} rounds ${synchronization?.reportRounds ?? "unknown"} rejected ${synchronization?.inboundRejected ?? "unknown"} - ` +
         `topology canvases=${topology?.canvasCount ?? "unknown"} nodes=${topology?.nodeCount ?? "unknown"} target-actors=${topology?.targetActorCount ?? "unknown"} target-sinks=${topology?.targetSinkCount ?? "unknown"} target-schedulers=${topology?.targetSchedulerCount ?? "unknown"} cross-to-cc=${topology?.remoteActorToCommandCenterSinkEdgeCount ?? "unknown"} cross-from-cc=${topology?.commandCenterActorToRemoteSinkEdgeCount ?? "unknown"} station-peer=${topology?.stationPeerEdgeCount ?? "unknown"} dangling=${topology?.danglingEdgeCount ?? "unknown"} - ` +
         `readiness database=${knownBoolean(station?.readiness.database)} work=${knownBoolean(station?.readiness.workControl)} simulation=${knownBoolean(station?.readiness.simulation)} terminal=${knownBoolean(observation?.readiness?.terminal)} browser=${knownBoolean(observation?.readiness?.browser)} - ` +
-        `lease ${lease?.state ?? "unknown"} last-check-in ${lease?.lastCheckInAt ?? "unknown"} expires ${lease?.expiresAt ?? "unknown"} - ` +
         `recovery ${recovery?.kind ?? "none"}${recovery === undefined ? "" : `: ${recovery.nextStep}`} - ` +
         `observation ${observedAt ?? "unknown"}`,
       metadata: {
@@ -952,10 +927,6 @@ export const assessStationDoctor = (input: StationDoctorInput): ServiceCheck => 
           knownBoolean(station?.readiness.session),
         [`${prefix}terminalReady`]: knownBoolean(observation?.readiness?.terminal),
         [`${prefix}browserReady`]: knownBoolean(observation?.readiness?.browser),
-        [`${prefix}leaseState`]: lease?.state ?? "unknown",
-        [`${prefix}leaseSource`]: lease?.source ?? "unknown",
-        [`${prefix}lastCheckInAt`]: lease?.lastCheckInAt ?? "unknown",
-        [`${prefix}leaseExpiresAt`]: lease?.expiresAt ?? "unknown",
         [`${prefix}recoveryKind`]: recovery?.kind ?? "none",
         [`${prefix}recoveryNextStep`]: recovery?.nextStep ?? "none",
         [`${prefix}errorCount`]: String(problems.length),

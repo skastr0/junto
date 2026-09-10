@@ -265,7 +265,7 @@ export class ManagedTerminalDrive {
   }
 
   /**
-   * Monotonic license-revocation cut.
+   * Monotonic shutdown cut for product automation.
    *
    * Existing PTY processes and their host generations remain alive. This
    * drive only drops its Vellum Command-owned write authority: queued text resolves

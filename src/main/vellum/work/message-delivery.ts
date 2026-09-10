@@ -422,7 +422,7 @@ export class MessageDeliveryService {
   /**
    * Monotonically stop product-driven delivery for this process.
    *
-   * Pending messages remain durable and unstamped for a later licensed
+   * Pending messages remain durable and unstamped for a later app
    * process. Already accepted transport writes may finish their delivery
    * stamp, but no attach/idle/resume scan may reach a PTY after this cut.
    */

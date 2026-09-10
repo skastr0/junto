@@ -650,7 +650,7 @@ const makeKernelService = (
   // Suspension is monotonic. The generation closes async check/use gaps: every
   // operation captures the current value at admission and checks it again at
   // later mutation boundaries. There is intentionally no resume path — a
-  // newly licensed process starts a fresh KernelService.
+  // new process starts a fresh KernelService.
   let suspended = false;
   let lifecycleGeneration = 0;
   const activeGeneration = (): number => lifecycleGeneration;

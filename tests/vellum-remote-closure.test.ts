@@ -109,10 +109,10 @@ describe("vellum-command-remote closure", () => {
 });
 
 describe("remote-runtime seed", () => {
-  it("includes the License layers without UpdateService", () => {
+  it("includes product state without a billing client or desktop updater", () => {
     const seed = readFileSync(join(root, "src/main/remote-runtime.ts"), "utf8");
-    expect(seed).toContain("LicenseRepositoryLive");
-    expect(seed).toContain("LicenseService");
+    expect(seed).not.toContain("LicenseRepositoryLive");
+    expect(seed).not.toContain("LicenseService");
     expect(seed).toContain("StateEngineLive");
     expect(seed).not.toContain("UpdateService");
     expect(seed).not.toContain("makeUpdateServiceLayer");
