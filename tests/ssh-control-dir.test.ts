@@ -14,7 +14,7 @@ import { createSshProgramCompiler } from "../src/main/vellum/ssh/program";
 describe("SSH mux control directory", () => {
   it("keeps the expanded ControlPath plus OpenSSH temp suffix under the Unix limit", () => {
     const dir = sshMuxControlDir(
-      "/Users/developer/.vellum-command-dev",
+      "/Users/developer-with-a-long-home-name/.vellum-command-dev",
       501,
     );
     expect(dir).toMatch(/^\/tmp\/vc-501-[0-9a-f]{8}$/u);
@@ -35,7 +35,7 @@ describe("SSH mux control directory", () => {
 
   it("rejects the previous cm-v1 home-nested ControlPath that overflowed macOS", () => {
     const previous = join(
-      "/Users/developer",
+      "/Users/developer-with-a-long-home-name",
       ".vellum-command",
       "ssh",
     );
@@ -44,7 +44,7 @@ describe("SSH mux control directory", () => {
       Buffer.byteLength(overflowed, "utf8") + OPENSSH_CONTROL_PATH_TEMP_SUFFIX,
     ).toBeGreaterThan(UNIX_DOMAIN_SOCKET_PATH_LIMIT);
     const longHome = join(
-      "/Users/developer",
+      "/Users/developer-with-a-long-home-name",
       ".vellum-command-dev",
       ".vellum-command",
       "ssh",
@@ -58,7 +58,7 @@ describe("SSH mux control directory", () => {
         controlDir: longHome,
         envExecutable: "/usr/bin/env",
         sshExecutable: "/usr/bin/ssh",
-        environment: { HOME: "/Users/developer", PATH: "/usr/bin:/bin" },
+        environment: { HOME: "/Users/developer-with-a-long-home-name", PATH: "/usr/bin:/bin" },
       }),
     ).toThrow(/Unix domain socket path limit/u);
   });

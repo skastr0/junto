@@ -4,14 +4,14 @@ import { TailscalePeerCache } from "../src/main/vellum/hosts/tailscale-peers";
 const statusJson = JSON.stringify({
   Self: {
     HostName: "laptop",
-    DNSName: "laptop.tail.ts.net.",
-    TailscaleIPs: ["100.1.1.1"],
+    DNSName: "laptop.example.ts.net.",
+    TailscaleIPs: ["100.64.0.10"],
     Online: true,
   },
   Peer: {
     k1: {
       HostName: "Developer desktop",
-      DNSName: "remote-a.tail.ts.net.",
+      DNSName: "remote-a.example.ts.net.",
       TailscaleIPs: ["100.64.0.20"],
       Online: true,
     },
@@ -37,7 +37,7 @@ describe("TailscalePeerCache", () => {
 
     // findHostById may not know remote-a in tests — still matches on hostId alone
     const host = cache.resolveHost("remote-a");
-    expect(host).toBe("remote-a.tail.ts.net");
+    expect(host).toBe("remote-a.example.ts.net");
   });
 
   it("serves cache within TTL without re-running CLI", async () => {
@@ -52,7 +52,7 @@ describe("TailscalePeerCache", () => {
     await cache.refresh();
     expect(runStatus).toHaveBeenCalledTimes(1);
     now = 5_000;
-    expect(cache.resolveHost("remote-a")).toBe("remote-a.tail.ts.net");
+    expect(cache.resolveHost("remote-a")).toBe("remote-a.example.ts.net");
     expect(runStatus).toHaveBeenCalledTimes(1);
   });
 

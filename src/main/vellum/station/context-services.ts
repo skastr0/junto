@@ -13,7 +13,7 @@
  * class X extends Context.Service<X, Shape>()(StationContextTagIds.x) {}
  * ```
  *
- * See `/Users/developer/Playground/effect/migration/services.md`.
+ * See `docs/END_STATE-effect-foundation.md` for the migration inventory.
  *
  * | Identifier | Definition | Live layer |
  * |---|---|---|

@@ -7,11 +7,11 @@ import {
   resolveTailscaleHostForQuery,
 } from "../src/shared/tailscale-peers";
 
-/** Shape mirrors live `tailscale status --json` (field names capitalised). */
+/** Synthetic peers with the `tailscale status --json` shape and address ranges. */
 const fixtureStatus = {
   Self: {
     HostName: "Developer laptop",
-    DNSName: "dev-laptop.example.ts.net.",
+    DNSName: "laptop.example.ts.net.",
     TailscaleIPs: ["100.64.0.10", "fd7a:115c:a1e0::10"],
     Online: true,
   },
@@ -23,15 +23,15 @@ const fixtureStatus = {
       Online: true,
     },
     nodekey2: {
-      HostName: "dev-phone",
-      DNSName: "dev-phone.example.ts.net.",
+      HostName: "phone",
+      DNSName: "phone.example.ts.net.",
       TailscaleIPs: ["100.64.0.30"],
       Online: true,
     },
     nodekey3: {
       HostName: "old-box",
       DNSName: "stale-box.example.ts.net.",
-      TailscaleIPs: ["100.1.2.3"],
+      TailscaleIPs: ["100.64.0.40"],
       Online: false,
     },
   },
@@ -100,7 +100,7 @@ describe("tailscale-peers match", () => {
       Peer: {
         k: {
           DNSName: "ghost.tail.ts.net.",
-          TailscaleIPs: ["100.1.2.3"],
+          TailscaleIPs: ["100.64.0.40"],
           Online: true,
         },
       },
