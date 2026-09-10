@@ -180,8 +180,26 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
     const executableIndexSource = indexSource
       .replace(/\/\*[\s\S]*?\*\//gu, "")
       .replace(/\/\/[^\n]*/gu, "");
-    // Direct exits: exitAfterDetach helper (and relaunchWithoutInstall path).
-    expect(executableIndexSource.match(/app\.exit\(/gu)).toHaveLength(2);
+    const updateHooksStart = executableIndexSource.indexOf("installUpdateHostHooks({");
+    const updateHooksEnd = executableIndexSource.indexOf("\n    });", updateHooksStart);
+    const updateHooks = executableIndexSource.slice(updateHooksStart, updateHooksEnd);
+    expect(updateHooks).toMatch(
+      /quiesceForInstall: async \(\) => \{\s*await flushCanvasOnQuit\(\);\s*detachRuntimeOnQuit\("update-install"\);\s*await disposeRuntimeFailClosed\("update-install"\);\s*runtimeDisposed = true;\s*skipQuitConfirm = true;/u,
+    );
+    const installedHandoff = updateHooks.slice(updateHooks.indexOf("relaunchInstalled:"));
+    expect(installedHandoff).toMatch(
+      /relaunchInstalled: \(executablePath\) => \{\s*skipQuitConfirm = true;\s*runtimeDisposed = true;\s*app\.relaunch\(\{ execPath: executablePath, args: \[\] \}\);\s*app\.exit\(0\);/u,
+    );
+    const linuxUpdateSource = readFileSync(
+      join(import.meta.dirname, "..", "src/main/vellum/update/linux.ts"),
+      "utf8",
+    );
+    expect(linuxUpdateSource).toMatch(
+      /installAfterQuiesce:[\s\S]*await revalidate\(\);[\s\S]*await activateLinuxDesktopRelease\(staged,[\s\S]*expectedIncumbentExecutablePath: process\.execPath[\s\S]*host\.relaunchInstalled\(staged\.executablePath\);/u,
+    );
+    // Exhaustive direct exits: detached normal exit, pre-activation recovery,
+    // and the admitted installed generation handoff checked above.
+    expect(executableIndexSource.match(/app\.exit\(/gu)).toHaveLength(3);
     expect(indexSource).toMatch(/exitAfterDetach[\s\S]*app\.exit\(exitCode\)/u);
   });
 });
