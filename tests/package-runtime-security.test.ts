@@ -385,6 +385,7 @@ describe("electron-builder role-specific signing", () => {
       expect(`${jitPlist}\n${emptyPlist}\n${signer}`).not.toContain(forbidden);
     }
     expect(buildScript).toContain('bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC"');
+    expect(buildScript).toContain("--config.mac.notarize=false");
     expect(buildScript).toContain('if [[ "$VERIFY" -eq 1 ]]');
     expect(buildScript).toContain(
       'bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"',

@@ -77,7 +77,7 @@ if [[ "$SIGN" -eq 1 ]]; then
 fi
 # Ordinary builds never discover or consume credentials from a local keychain.
 CSC_IDENTITY_AUTO_DISCOVERY=false bunx --no-install electron-builder --mac --publish never \
-  "${SIGN_ARGS[@]}" --config.directories.output="$ATTEMPT_DIR"
+  --config.mac.notarize=false "${SIGN_ARGS[@]}" --config.directories.output="$ATTEMPT_DIR"
 DRAFT_APP="$ATTEMPT_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
 DRAFT_ZIP="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
 DRAFT_DMG="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.dmg"
