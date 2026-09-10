@@ -26,8 +26,6 @@ const doctorReport = (
     name: "box",
     version: "0.1.13",
     userDataPath: "/tmp",
-    stationPluginPath: "/tmp",
-    prismRoot: "/tmp",
     ...patch.station,
   },
   services: patch.services ?? [

@@ -33,7 +33,7 @@ import {
 import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
 import { HostsService } from "../src/main/vellum/hosts/service";
 import { HostRuntime } from "../src/main/vellum/hosts/host-runtime";
-import { PrismService } from "../src/main/services/prism";
+import { AppInfoService } from "../src/main/services/app-info";
 import { SettingsService } from "../src/main/vellum/settings/service";
 import { StationStatusService } from "../src/main/vellum/station-status-store";
 import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
@@ -83,7 +83,7 @@ describe("operator deployment coordinator", () => {
             return undefined;
           }),
       }),
-      Layer.succeed(PrismService, stub(PrismService)),
+      Layer.succeed(AppInfoService, stub(AppInfoService)),
       Layer.succeed(StationRepository, stub(StationRepository)),
       Layer.succeed(
         StationFleetTargetRepository,
@@ -134,14 +134,12 @@ describe("operator deployment coordinator", () => {
         ...stub(BoxFleetService),
         ensureHostAvailable: () => Effect.succeed(undefined),
       }),
-      Layer.succeed(PrismService, {
-        ...stub(PrismService),
+      Layer.succeed(AppInfoService, {
+        ...stub(AppInfoService),
         stationInfo: Effect.succeed({
           name: "Vellum Command",
           version: "0.0.0",
           userDataPath: "/tmp",
-          stationPluginPath: "/tmp",
-          prismRoot: "/tmp",
         }),
       }),
       Layer.succeed(StationRepository, {
@@ -217,14 +215,12 @@ describe("operator deployment coordinator", () => {
         ...stub(BoxFleetService),
         ensureHostAvailable: () => Effect.succeed(undefined),
       }),
-      Layer.succeed(PrismService, {
-        ...stub(PrismService),
+      Layer.succeed(AppInfoService, {
+        ...stub(AppInfoService),
         stationInfo: Effect.succeed({
           name: "Vellum Command",
           version: "0.0.0",
           userDataPath: "/tmp",
-          stationPluginPath: "/tmp",
-          prismRoot: "/tmp",
         }),
       }),
       Layer.succeed(StationRepository, {
@@ -425,14 +421,12 @@ describe("operator deployment coordinator", () => {
         ...stub(StationStatusService),
         recordDeployment: () => Effect.void,
       }),
-      Layer.succeed(PrismService, {
-        ...stub(PrismService),
+      Layer.succeed(AppInfoService, {
+        ...stub(AppInfoService),
         stationInfo: Effect.succeed({
           name: "Vellum Command",
           version: "0.0.0",
           userDataPath: "/tmp",
-          stationPluginPath: "/tmp",
-          prismRoot: "/tmp",
         }),
       }),
       Layer.succeed(StationRepository, {

@@ -72,7 +72,6 @@ export const IPC_CHANNELS = {
   selectFolder: "chassis:select-folder",
   readDirectory: "chassis:read-directory",
   probeCodex: "chassis:probe-codex",
-  prismDryRun: "chassis:prism-dry-run",
   listCanvases: "vellum-command:list-canvases",
   readCanvas: "vellum-command:read-canvas",
   writeCanvas: "vellum-command:write-canvas",
@@ -262,7 +261,6 @@ export interface ChassisApi {
   readonly selectFolder: () => Promise<FolderSnapshot | null>;
   readonly readDirectory: (path: string) => Promise<ReadonlyArray<DirectoryEntry>>;
   readonly probeCodex: () => Promise<ServiceCheck>;
-  readonly prismDryRun: () => Promise<ServiceCheck>;
 }
 
 export interface CanvasSummary {

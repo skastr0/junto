@@ -103,7 +103,6 @@ const chassisApi: ChassisApi = {
   selectFolder: () => invoke(IPC_CHANNELS.selectFolder, IPC_TIMEOUT_MS),
   readDirectory: (path) => invoke(IPC_CHANNELS.readDirectory, IPC_TIMEOUT_MS, path),
   probeCodex: () => invoke(IPC_CHANNELS.probeCodex, IPC_TIMEOUT_MS),
-  prismDryRun: () => invoke(IPC_CHANNELS.prismDryRun, IPC_TIMEOUT_MS),
 };
 
 const subscribe = <T>(channel: string, listener: (payload: T) => void) => {

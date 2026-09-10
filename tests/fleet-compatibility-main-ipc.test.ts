@@ -82,8 +82,6 @@ describe("Main Fleet compatibility IPC projection", () => {
         name: "Vellum Command",
         version: "0.1.14",
         userDataPath: "/tmp/vellum-command",
-        stationPluginPath: "/tmp/plugin",
-        prismRoot: "/tmp/prism",
       },
       services: [],
       recommendations: [],

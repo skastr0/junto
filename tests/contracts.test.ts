@@ -9,11 +9,9 @@ describe("shared contracts", () => {
     const report = decode({
       checkedAt: "2026-05-09T00:00:00.000Z",
       station: {
-        name: "chassis",
+        name: "Vellum Command",
         version: "0.1.0",
-        userDataPath: "/tmp/chassis",
-        stationPluginPath: "/tmp/chassis/station",
-        prismRoot: "/Users/developer/Projects/prism",
+        userDataPath: "/tmp/vellum-command",
       },
       services: [
         {

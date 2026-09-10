@@ -36,7 +36,7 @@ import {
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
-import { PrismLive, PrismService } from "./services/prism";
+import { AppInfoLive, AppInfoService } from "./services/app-info";
 import { CanvasesLive, CanvasesService } from "./vellum/canvases";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plane";
 import { HermesTransportLive } from "./vellum/hermes/transport";
@@ -275,7 +275,7 @@ const UpdateServiceLive = Layer.unwrap(
 
 const BaseLayer = Layer.mergeAll(
   FolderLive,
-  PrismLive,
+  AppInfoLive,
   CodexLive,
   SnapshotsWithProductsLive,
   HostsWithSshLive,
@@ -353,10 +353,10 @@ export const assessCurrentStationReadiness = (
   options: CurrentStationReadinessOptions = {},
 ) =>
   Effect.gen(function* () {
-    const prism = yield* PrismService;
+    const appInfo = yield* AppInfoService;
     const repository = yield* StationRepository;
     const kernel = yield* KernelService;
-    const stationInfo = yield* prism.stationInfo;
+    const stationInfo = yield* appInfo.stationInfo;
     const station = options.station ??
       (yield* Effect.all({
         facts: repository.statusFacts,
@@ -397,7 +397,7 @@ export const buildDoctorReport = Effect.gen(function* () {
   }).pipe(Effect.ignore);
 
   const folder = yield* FolderService;
-  const prism = yield* PrismService;
+  const appInfo = yield* AppInfoService;
   const codex = yield* CodexService;
   const canvases = yield* CanvasesService;
   const snapshots = yield* SnapshotsService;
@@ -409,7 +409,7 @@ export const buildDoctorReport = Effect.gen(function* () {
   const stationRepository = yield* StationRepository;
   const stationStatus = yield* StationStatusService;
 
-  const station = yield* prism.stationInfo;
+  const station = yield* appInfo.stationInfo;
   // One bounded SSH pass feeds both the host service row and the station fleet
   // projection. Doctor must not double-probe a host and accidentally present
   // observations from two different moments as one report.
@@ -511,7 +511,6 @@ export const buildDoctorReport = Effect.gen(function* () {
   const serviceResults = yield* Effect.all(
     [
       folder.doctor,
-      prism.doctor,
       codex.doctor,
       canvases.doctor,
       snapshots.doctor,

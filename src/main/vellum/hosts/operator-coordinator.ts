@@ -20,7 +20,7 @@ import type {
 import { deployRecordFromResult } from "@shared/station-status";
 import type { InstallationId } from "@shared/station-api";
 import { AppRuntime } from "../../runtime";
-import { PrismService } from "../../services/prism";
+import { AppInfoService } from "../../services/app-info";
 import { BoxFleetService } from "../box";
 import { SettingsService } from "../settings/service";
 import { StationStatusService } from "../station-status-store";
@@ -77,13 +77,13 @@ const resolveCommandCenterConfigureOptions = (
 ): Effect.Effect<
   ConfigureRemoteOptions,
   RemoteHostsError,
-  PrismService | StationRepository
+  AppInfoService | StationRepository
 > =>
   Effect.gen(function* () {
-    const prism = yield* PrismService;
+    const appInfo = yield* AppInfoService;
     const stations = yield* StationRepository;
     const commandCenterInstallationId = yield* stations.installationId;
-    const stationInfo = yield* prism.stationInfo;
+    const stationInfo = yield* appInfo.stationInfo;
     return {
       commandCenterInstallationId,
       appVersion: stationInfo.version,
@@ -249,7 +249,7 @@ export const configureRemoteEffect = (
   never,
   | SettingsService
   | HostsService
-  | PrismService
+  | AppInfoService
   | StationRepository
   | StationFleetTargetRepository
   | StationStatusService
@@ -407,7 +407,7 @@ export const deployRemoteEffect = (
   | HostsService
   | StationStatusService
   | BoxFleetService
-  | PrismService
+  | AppInfoService
   | StationRepository
   | StationFleetTargetRepository
   | HostRuntime

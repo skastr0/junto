@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { CodexService } from "./services/codex";
 import { FolderService } from "./services/folder";
-import { PrismService } from "./services/prism";
 import { AppRuntime, buildDoctorReport } from "./runtime";
 import type { BrowserSessionService } from "./vellum/browser/sessions";
 import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum/ipc";
@@ -53,15 +52,6 @@ export const registerIpcHandlers = (): void => {
       Effect.gen(function* () {
         const codex = yield* CodexService;
         return yield* codex.probeAppServer;
-      }),
-    ),
-  );
-
-  privilegedIpc.handle(IPC_CHANNELS.prismDryRun, () =>
-    AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const prism = yield* PrismService;
-        return yield* prism.dryRunCodexCompile;
       }),
     ),
   );

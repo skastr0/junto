@@ -17,8 +17,6 @@ export const StationInfo = Schema.Struct({
   name: Schema.String,
   version: Schema.String,
   userDataPath: Schema.String,
-  stationPluginPath: Schema.String,
-  prismRoot: Schema.String,
 });
 export type StationInfo = typeof StationInfo.Type;
 
