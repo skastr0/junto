@@ -18,13 +18,21 @@ actively developed by a solo maintainer. Reports and proposals go through
 | Surface | Status |
 | --- | --- |
 | macOS desktop | Primary platform, macOS 13 or later, Apple silicon. Official builds are signed and notarized. |
-| Linux desktop | Alpha. Build and run on a Linux desktop with X11 or Wayland. |
+| Linux desktop | Alpha, initially Ubuntu 24.04 x86-64 with glibc 2.39 and an X11 or Wayland desktop. Official archives use signed release metadata. |
 | Fleet management and Remote stations | Experimental, disabled in the default build. |
 | Windows | No supported build or release lane. |
 
 The [official download page](https://vellumcommand.com/download) lists available
-builds. Official automatic updates use the Cloudflare Worker/R2 feed. The source
-repository is not an npm package, and GitHub Releases are not the update feed.
+builds, checksums, signed Linux metadata, and corresponding source downloads.
+Official automatic updates use the Cloudflare Worker/R2 feeds. Updates download
+in the background and offer an explicit restart when ready. The source repository
+is not an npm package, and GitHub Releases are not the update feed.
+
+For Linux, follow [the desktop alpha installation guide](docs/linux-command-center-alpha.md).
+The managed installation stays inside your account and maintains a launcher across
+updates. Its installer and updater do not ask for administrator credentials;
+any required host preparation is documented separately. An extracted source build
+can run without becoming a managed installation.
 
 The default `ship` feature profile is defined in
 [feature-catalog.ts](src/shared/feature-catalog.ts). Browser pages are enabled;
@@ -66,10 +74,14 @@ bun run app:build:linux    # local Linux desktop package, run on Linux
 
 Local packages are development builds. Official signing and publication are
 separate maintainer operations described in
-[the macOS release runbook](docs/mac-release-runbook.md).
+[the macOS release runbook](docs/mac-release-runbook.md) and
+[the Linux release policy](docs/linux-release-key-policy.md).
 macOS source packages start without a signing identity. Automatic updates and
 Remote package admission require the expected official signing identity compiled
 into an official build; a source package without that policy refuses admission.
+Linux automatic installation requires a managed desktop installation and a
+release admitted by the independently pinned signing key. Unmanaged source
+packages keep the ordinary manual source-build workflow.
 
 ## Use the workspace
 
@@ -125,8 +137,9 @@ bun run test:e2e           # experimental-profile GUI regression suite
 ```
 
 E2E uses an existing desktop session on Linux and can fall back to Xvfb in headless
-environments. It uses test fixtures instead of real agent accounts. Keep generated
-screenshots, application state, secrets, and scan reports out of commits.
+environments. It seeds application fixtures; discovery and provider views may
+still observe the host environment. Keep generated screenshots, application state,
+secrets, and scan reports out of commits, and isolate inputs for public media.
 
 ## Security and license
 

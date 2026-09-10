@@ -10,6 +10,8 @@
 - Replace generated sound clips with original, reproducible waveform cues.
 - Remove private checkout dependencies and use synthetic development fixtures.
 - Separate local source packages from official signing and publication.
+- Add signed Linux desktop alpha releases, managed rootless installation, and
+  automatic update downloads with an explicit restart to install.
 
 macOS remains the primary platform. Linux desktop is alpha. Fleet and Remote
 remain experimental and disabled in the default build. This entry describes
