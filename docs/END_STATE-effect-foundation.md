@@ -23,7 +23,7 @@ Product interior is pure Effect + Layers/Services. No bare `Effect.runPromise` i
 |---|---|
 | Product today | `effect@3.21.x` |
 | Target | Effect **V4** (beta OK on branch; pin lockstep `@effect/*`) |
-| **Reference codebase (V4 source of truth)** | `/Users/developer/Playground/effect` |
+| **Reference codebase (V4 source of truth)** | `<effect-source-checkout>` |
 | Migration docs | `Playground/effect/MIGRATION.md`, `Playground/effect/migration/*` |
 | Do **not** use | outdated repo/global “effect skill” (V3-oriented) |
 
@@ -123,7 +123,7 @@ Claim-ready only after implement is **completed**. Reviewers are different seats
 ### Review checklist (every R*)
 
 1. Load **consolidation-engineering** + **pristine-components** (not V3 effect skill).
-2. V4 truth: `/Users/developer/Playground/effect` migration docs.
+2. V4 truth: `<effect-source-checkout>` migration docs.
 3. Diff only the pack’s path ownership vs `main` / base.
 4. Reject dual paths, compatibility shims, bare `Effect.runPromise` in product paths (unless allowlisted by S0).
 5. Confirm finishCriteria of implement pack was commit-based (no artifact theater).
@@ -180,5 +180,5 @@ Prefer tasks tagged `briefVersion: 3` (full description). Reject or repair empty
 
 | Root | Role |
 |---|---|
-| `/Users/developer/Projects/vellum` | Product under change |
-| `/Users/developer/Playground/effect` | Effect V4 reference + migration guides |
+| `<repository>` | Product under change |
+| `<effect-source-checkout>` | Effect V4 reference + migration guides |

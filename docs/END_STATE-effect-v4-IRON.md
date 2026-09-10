@@ -1,9 +1,9 @@
 # END_STATE — Effect V4 IRON (no theater)
 
-**Campaign objective (one line):**  
+**Campaign objective (one line):**\
 Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, `Context.Service` only, product domain Effects only through **AppRuntime / RemoteRuntime**, kernel factory loop is an **Effect** (not an async Promise control plane), bare `Effect.runPromise` gone except **permanent** post-dispose host adapters.
 
-**Reference:** `/Users/developer/Playground/effect` (`MIGRATION.md`, `migration/*`).  
+**Reference:** `<effect-source-checkout>` (`MIGRATION.md`, `migration/*`).\
 **Skills:** consolidation-engineering, pristine-components. **No V3 effect skill.**
 
 ---
@@ -25,11 +25,11 @@ Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, 
 
 ## Forbidden (instant FAIL)
 
-- Comment-only / “on V4 pin…” / import-map without live import change  
-- `Runtime.runPromise` or bare `Effect.runPromise` **inside** `src/main/vellum/kernel/**`  
-- Completing without **pasting full probe stdout** in the **git commit body**  
-- Docs-only finish  
-- Shrinking scope silently (“mostly pure”)  
+- Comment-only / “on V4 pin…” / import-map without live import change\
+- `Runtime.runPromise` or bare `Effect.runPromise` **inside** `src/main/vellum/kernel/**`\
+- Completing without **pasting full probe stdout** in the **git commit body**\
+- Docs-only finish\
+- Shrinking scope silently (“mostly pure”)\
 - Dual control planes left alive (async cycle **and** Effect program)
 
 ---
