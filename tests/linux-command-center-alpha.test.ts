@@ -65,7 +65,9 @@ describe("Linux Command Center Alpha AppArmor boundary", () => {
       linuxExtraResources: packageJson.build?.linux?.extraResources,
     });
 
-    expect(text).toContain("Ubuntu 24.04 LTS Alpha preparation");
+    expect(text).toContain("Linux desktop is alpha and builds as an Electron application");
+    expect(text).toContain("Fleet management and the headless Remote package nested under Fleet remain experimental and feature-gated");
+    expect(text).toContain("Ubuntu 24.04 AppArmor preparation");
     expect(text).toContain("not a packaged payload");
     expect(text).toContain(
       "intentionally excluded from the Vellum Command package, signed rootless payload, installer, updater, and runtime resources",
