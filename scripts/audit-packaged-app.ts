@@ -981,7 +981,12 @@ export const auditPackagedApp = async (
 };
 
 export const validateProjectNotices = (asarPath: string): void => {
-  for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+  for (const name of [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "third_party/bun-1.3.13/README.md",
+    "third_party/bun-1.3.13/bun/LICENSE.md",
+  ]) {
     const contents = extractFile(asarPath, name);
     if (contents.length === 0) throw new Error(`packaged app is missing ${name}`);
   }

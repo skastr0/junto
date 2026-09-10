@@ -333,7 +333,7 @@ describe("electron-builder fitness", () => {
       },
     });
     expect(packageJson.build.mac.identity).toBeUndefined();
-    expect(packageJson.build.files).toEqual(expect.arrayContaining(["LICENSE", "THIRD_PARTY_NOTICES.md"]));
+    expect(packageJson.build.files).toEqual(expect.arrayContaining(["LICENSE", "THIRD_PARTY_NOTICES.md", "third_party/bun-1.3.13/**"]));
     expect(
       packageJson.build.files.filter((entry) =>
         entry.includes("node_modules/@parcel/watcher"),
