@@ -17,6 +17,8 @@ import {
   DEFAULT_NODE_REMOTE_MODULE_ABI,
   DEFAULT_NODE_REMOTE_VERSION,
   LINUX_NODE_PTY_RUNTIME_FILES,
+  LINUX_REMOTE_NOTICE_FILES,
+  REMOTE_NODE_LICENSE_RELATIVE,
   PINNED_NODE_LINUX_X64_ARCHIVE_SHA256,
 } from "./build-linux-remote-runtime";
 
@@ -28,15 +30,18 @@ export const LINUX_RUNTIME_REQUIRED_FILES = [
   "resources/bin/vellum-command",
   "resources/bin/vellum-command-remote",
   "resources/bin/node",
+  REMOTE_NODE_LICENSE_RELATIVE,
   "resources/bin/unix-peer-pid.py",
   "resources/app-remote/vellum-command-remote.js",
   "resources/app-remote/package.json",
   "resources/app-remote/package-runtime-provenance.json",
+  ...LINUX_REMOTE_NOTICE_FILES.map((file) => `resources/app-remote/${file}`),
   "resources/systemd/vellum-command-remote-launch",
   "resources/systemd/vellum-command-remote.service.template",
 ] as const;
 
 export const LINUX_REMOTE_APP_EXACT_FILES = [
+  ...LINUX_REMOTE_NOTICE_FILES.map((file) => `resources/app-remote/${file}`),
   "resources/app-remote/vellum-command-remote.js",
   "resources/app-remote/package.json",
   "resources/app-remote/package-runtime-provenance.json",
@@ -47,6 +52,7 @@ export const LINUX_REMOTE_APP_EXACT_FILES = [
 
 export const LINUX_REMOTE_CLOSURE_EXACT_FILES = [
   "resources/bin/node",
+  REMOTE_NODE_LICENSE_RELATIVE,
   "resources/bin/vellum-command-remote",
   ...LINUX_REMOTE_APP_EXACT_FILES,
   "resources/systemd/vellum-command-remote-launch",

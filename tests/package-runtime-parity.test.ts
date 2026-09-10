@@ -142,6 +142,7 @@ const writeExactRemoteClosure = async (
     "resources/bin/vellum-command",
     "resources/bin/unix-peer-pid.py",
     "resources/bin/node",
+    "resources/bin/node.LICENSE",
     "resources/bin/vellum-command-remote",
     "resources/systemd/vellum-command-remote-launch",
   ];
@@ -161,6 +162,8 @@ const writeExactRemoteClosure = async (
   await mkdir(path.join(runtimeRoot, "resources/app-remote"), {
     recursive: true,
   });
+  await writeFile(path.join(runtimeRoot, "resources/app-remote/LICENSE"), "project license\n");
+  await writeFile(path.join(runtimeRoot, "resources/app-remote/THIRD_PARTY_NOTICES.md"), "dependency notices\n");
   await writeFile(
     path.join(runtimeRoot, "resources/app-remote/vellum-command-remote.js"),
     remote,
@@ -734,7 +737,7 @@ describe("packaged runtime exact parity and closure", () => {
         receipt.compiledRuntimes.linuxRemote?.payloadSha256,
       );
       expect(receipt.linuxRuntimeClosure?.remoteEntries.map((entry) => entry.path)).toEqual(
-        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort(),
+        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/node.LICENSE", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort(),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -857,6 +860,8 @@ describe("packaged runtime exact parity and closure", () => {
         path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE),
         "fresh remote entry\n",
       );
+      await writeFile(path.join(root, "LICENSE"), "project license\n");
+      await writeFile(path.join(root, "THIRD_PARTY_NOTICES.md"), "dependency notices\n");
       await mkdir(path.join(runtime, "resources/app-remote"), { recursive: true });
       await writeFile(
         path.join(runtime, "resources/app-remote/stale-extra.js"),
@@ -874,6 +879,8 @@ describe("packaged runtime exact parity and closure", () => {
           .map((entry) => entry.path)
           .filter((entry) => entry.startsWith("resources/app-remote/")),
       ).toEqual([
+        "resources/app-remote/LICENSE",
+        "resources/app-remote/THIRD_PARTY_NOTICES.md",
         "resources/app-remote/package.json",
         "resources/app-remote/vellum-command-remote.js",
       ]);

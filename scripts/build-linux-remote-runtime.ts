@@ -11,7 +11,14 @@
  * --entry-only JS bundle are OS-portable.
  */
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  createWriteStream,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import {
   chmod,
   copyFile,
@@ -33,7 +40,6 @@ import {
   featureBunDefineArgs,
   resolveBuildFeatures,
 } from "./build-features";
-import { PRODUCTION_LICENSE_BUILD_PROFILE } from "./license-build-profile";
 
 /** Pinned Node for the product Remote. Override with NODE_REMOTE_VERSION. */
 export const DEFAULT_NODE_REMOTE_VERSION = "26.5.1";
@@ -65,12 +71,17 @@ export const pinnedNodeLinuxX64ArchiveSha256 = (
 };
 
 export const REMOTE_NODE_RELATIVE = "resources/bin/node";
+export const REMOTE_NODE_LICENSE_RELATIVE = "resources/bin/node.LICENSE";
 export const REMOTE_WRAPPER_RELATIVE = "resources/bin/vellum-command-remote";
 export const REMOTE_APP_DIR_RELATIVE = "resources/app-remote";
 export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/vellum-command-remote.js";
 export const REMOTE_NODE_PTY_RELATIVE =
   "resources/app-remote/node_modules/node-pty";
 export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
+export const LINUX_REMOTE_NOTICE_FILES = [
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+] as const;
 
 /**
  * Exact stock node-pty files needed by the displayless Linux runtime, plus its
@@ -245,14 +256,6 @@ export const buildRemoteEntryBundle = async (input: {
       ),
     );
   }
-  if (
-    process.env.VELLUM_COMMAND_LICENSE_CHANNEL !== undefined &&
-    process.env.VELLUM_COMMAND_LICENSE_CHANNEL !== "production"
-  ) {
-    throw new Error(
-      "remote packaging requires VELLUM_COMMAND_LICENSE_CHANNEL=production",
-    );
-  }
   const packageJson = JSON.parse(
     await readFile(path.join(repoRoot, "package.json"), "utf8"),
   ) as { readonly version?: unknown };
@@ -285,9 +288,6 @@ export const buildRemoteEntryBundle = async (input: {
         "node-pty",
         "--external",
         "electron",
-        `--define=__VELLUM_COMMAND_LICENSE_CHANNEL__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.channel)}`,
-        `--define=__VELLUM_COMMAND_DODO_BUSINESS_ID__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.businessId)}`,
-        `--define=__VELLUM_COMMAND_DODO_PRODUCT_IDS__=${JSON.stringify(PRODUCTION_LICENSE_BUILD_PROFILE.productIds)}`,
         `--define=__VELLUM_COMMAND_MAC_UPDATE_FEED_URL__=${JSON.stringify("")}`,
         `--define=__VELLUM_COMMAND_APP_VERSION__=${JSON.stringify(packageJson.version)}`,
         ...featureDefines,
@@ -370,20 +370,19 @@ export const buildRemoteEntryBundle = async (input: {
 export const extractNodeBinaryFromArchive = ({
   archive,
   destinationNode,
+  destinationLicense,
   version,
 }: {
   readonly archive: string;
   readonly destinationNode: string;
+  readonly destinationLicense: string;
   readonly version: string;
 }): void => {
   const member = `node-v${requireNodeRemoteVersion(version)}-linux-x64/bin/node`;
+  const licenseMember = `node-v${requireNodeRemoteVersion(version)}-linux-x64/LICENSE`;
   const stagingParent = path.dirname(destinationNode);
-  const extractRoot = path.join(
-    stagingParent,
-    `.node-extract-${requireNodeRemoteVersion(version)}`,
-  );
-  run("/usr/bin/rm", ["-rf", extractRoot]);
-  run("/usr/bin/mkdir", ["-p", extractRoot]);
+  mkdirSync(stagingParent, { recursive: true });
+  const extractRoot = mkdtempSync(path.join(stagingParent, ".node-extract-"));
   try {
     run("/usr/bin/tar", [
       "--extract",
@@ -393,13 +392,15 @@ export const extractNodeBinaryFromArchive = ({
       "--directory",
       extractRoot,
       member,
+      licenseMember,
     ]);
     const extracted = path.join(extractRoot, member);
-    run("/usr/bin/mkdir", ["-p", stagingParent]);
-    run("/usr/bin/cp", ["-f", extracted, destinationNode]);
-    run("/usr/bin/chmod", ["0755", destinationNode]);
+    copyFileSync(extracted, destinationNode);
+    chmodSync(destinationNode, 0o755);
+    copyFileSync(path.join(extractRoot, licenseMember), destinationLicense);
+    chmodSync(destinationLicense, 0o644);
   } finally {
-    run("/usr/bin/rm", ["-rf", extractRoot]);
+    rmSync(extractRoot, { recursive: true, force: true });
   }
 };
 
@@ -457,7 +458,12 @@ export const stageOfficialNodeBinary = async (input: {
   }
   const nodePath = path.join(input.runtimeRoot, REMOTE_NODE_RELATIVE);
   await mkdir(path.dirname(nodePath), { recursive: true, mode: 0o755 });
-  extractNodeBinaryFromArchive({ archive, destinationNode: nodePath, version });
+  extractNodeBinaryFromArchive({
+    archive,
+    destinationNode: nodePath,
+    destinationLicense: path.join(input.runtimeRoot, REMOTE_NODE_LICENSE_RELATIVE),
+    version,
+  });
   return { nodePath, version, archiveSha256 };
 };
 
@@ -623,6 +629,15 @@ export const stageRemoteEntry = async (input: {
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
   await copyFile(source, destination);
   await chmod(destination, 0o644);
+  for (const notice of LINUX_REMOTE_NOTICE_FILES) {
+    const noticeSource = path.join(input.repoRoot, notice);
+    if (!(await isNonSymlinkFile(noticeSource))) {
+      throw new Error(`Remote distribution notice missing or not regular: ${notice}`);
+    }
+    const noticeDestination = path.join(path.dirname(destination), notice);
+    await copyFile(noticeSource, noticeDestination);
+    await chmod(noticeDestination, 0o644);
+  }
   // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
   await writeFile(
     path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
@@ -688,7 +703,11 @@ const assertExactStagedRemoteApp = async (input: {
   readonly requireNative: boolean;
 }): Promise<void> => {
   const actual = await walkRemoteAppFiles(input.appRoot);
-  const expected = ["package.json", "vellum-command-remote.js"];
+  const expected = [
+    "package.json",
+    "vellum-command-remote.js",
+    ...LINUX_REMOTE_NOTICE_FILES,
+  ];
   if (input.requireProvenance) {
     expected.push("package-runtime-provenance.json");
   }
@@ -892,6 +911,10 @@ export const installLinuxRemoteRuntime = async (input: {
         stagedNodePath,
         path.join(runtimeRoot, REMOTE_NODE_RELATIVE),
       );
+      await replaceOwnedRegularFile(
+        path.join(stageRoot, REMOTE_NODE_LICENSE_RELATIVE),
+        path.join(runtimeRoot, REMOTE_NODE_LICENSE_RELATIVE),
+      );
     }
 
     return {
@@ -918,6 +941,7 @@ export const installLinuxRemoteRuntime = async (input: {
 /** Required relative paths the archive audit must see for displayless remote. */
 export const LINUX_REMOTE_RUNTIME_REQUIRED_FILES = [
   REMOTE_NODE_RELATIVE,
+  REMOTE_NODE_LICENSE_RELATIVE,
   REMOTE_WRAPPER_RELATIVE,
   REMOTE_ENTRY_RELATIVE,
 ] as const;
