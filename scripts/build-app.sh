@@ -128,25 +128,11 @@ elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck
 fi
 
-build_compiled_cli() {
-  local output="$1" source="$2" stage="${1}.new.$$"
-  local feature_define_args=()
-  while IFS= read -r feature_define_arg; do
-    [[ -n "$feature_define_arg" ]] && feature_define_args+=("$feature_define_arg")
-  done < <("$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --bun-define-args)
-  mkdir -p "$(dirname "$output")"
-  bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig \
-    --no-compile-autoload-tsconfig --no-compile-autoload-package-json \
-    "${feature_define_args[@]}" --outfile "$stage" "$source"
-  chmod 0755 "$stage"
-  mv "$stage" "$output"
-}
-
 printf 'vellum-command: building fresh package runtimes …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
   prepare --target "$TARGET" >/dev/null
 printf 'vellum-command: standalone CLI → dist/vellum-command …\n'
-build_compiled_cli "$REPO_ROOT/dist/vellum-command" src/cli/main.ts
+"$BUN_EXECUTABLE" "$SCRIPT_DIR/build-standalone-cli.ts" vellum-command
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
   printf 'vellum-command: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
   exit 0
