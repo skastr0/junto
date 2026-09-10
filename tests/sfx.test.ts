@@ -86,7 +86,7 @@ describe("sfx catalog", () => {
   it("exposes alert ids with resolvable urls", () => {
     expect(ALERT_SFX_IDS).toEqual(["blocked", "attention", "cycle"]);
     for (const id of ALERT_SFX_IDS) {
-      expect(sfxUrl(id)).toMatch(/\.mp3/);
+      expect(sfxUrl(id)).toMatch(/\.wav/);
       expect(sfxIdToClipKey(id)).toBeTruthy();
     }
     expect(sfxIdToClipKey("attention")).toBe("permission");

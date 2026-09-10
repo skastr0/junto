@@ -21,11 +21,11 @@ const MIME_TYPES = new Map<string, string>([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".map", "application/json; charset=utf-8"],
-  // Renderer sfx clips (Audio elements).
-  [".mp3", "audio/mpeg"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
   [".ttf", "font/ttf"],
+  // Static UI cues decoded through Web Audio.
+  [".wav", "audio/wav"],
   [".webp", "image/webp"],
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],

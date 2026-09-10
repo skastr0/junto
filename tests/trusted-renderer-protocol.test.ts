@@ -28,7 +28,7 @@ describe("trusted renderer protocol", () => {
     await writeFile(join(root, "assets/app.js"), "globalThis.loaded = true;");
     await writeFile(join(root, "assets/app.css"), "body { color: black; }");
     // Binary sfx fixture: contents only need a stable length/byte identity.
-    await writeFile(join(root, "assets/clip.mp3"), Buffer.from("mp3-fixture"));
+    await writeFile(join(root, "assets/clip.wav"), Buffer.from("wav-fixture"));
   });
 
   afterEach(async () => {
@@ -84,11 +84,11 @@ describe("trusted renderer protocol", () => {
     expect(head.headers.get("content-length")).toBe(expectedLength);
     expect(await head.text()).toBe("");
 
-    const mp3 = await handler(new Request("vellum-command-app://renderer/assets/clip.mp3"));
-    expect(mp3.status).toBe(200);
-    expect(mp3.headers.get("content-type")).toBe("audio/mpeg");
-    expect(new Uint8Array(await mp3.arrayBuffer())).toEqual(
-      new Uint8Array(Buffer.from("mp3-fixture")),
+    const wav = await handler(new Request("vellum-command-app://renderer/assets/clip.wav"));
+    expect(wav.status).toBe(200);
+    expect(wav.headers.get("content-type")).toBe("audio/wav");
+    expect(new Uint8Array(await wav.arrayBuffer())).toEqual(
+      new Uint8Array(Buffer.from("wav-fixture")),
     );
   });
 

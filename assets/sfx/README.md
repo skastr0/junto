@@ -1,52 +1,45 @@
-# RTS UI SFX pack
+# Vellum Command UI sounds
 
-Short static UI sounds for Vellum Command's RTS attention machine. **Offline pack only**
-— never generate at runtime.
+Three original, offline UI cues. The synthesis source and generated WAV files
+are project-owned material distributed under the root Apache-2.0 license.
+They contain no recordings, external samples, or model-generated audio.
 
-## Catalog
+| Alert | Asset | Duration | Character |
+| --- | --- | --- | --- |
+| `blocked` | `src/renderer/assets/sfx/blocked.wav` | 240 ms | Low, dry pulse |
+| `attention` | `src/renderer/assets/sfx/attention.wav` | 300 ms | Two rising tones |
+| `cycle` | `src/renderer/assets/sfx/cycle.wav` | 60 ms | Quiet navigation tick |
 
-| id | file | rising-edge use |
-| --- | --- | --- |
-| `blocked` | `library/blocked.mp3` | region/edge enters blocked |
-| `permission` | `library/permission.mp3` | ACP permission pending |
-| `orphan` | `library/orphan.mp3` | kernel orphaned arm |
-| `cycle` | `library/cycle.mp3` | Space / `` ` `` alert advance (quiet) |
-
-Bundled copy for the renderer: `src/renderer/assets/sfx/*.mp3` (keep in sync).
-
-## Source
-
-Generated once via fal `fal-ai/elevenlabs/sound-effects/v2` (ElevenLabs SFX).
-**Suno is not available on fal/flare** — do not wait on it.
-
-Shared voice: dry deep-field UI, mono-feel, ~0.5s, no music, no voice, no long tails.
-
-Prompts live in [`prompts.json`](./prompts.json). Regen:
+The single asset copy lives in the renderer. Rebuild from the repository root:
 
 ```sh
-# requires FAL_KEY
-jq -c '.[]' assets/sfx/prompts.json | while read -r row; do
-  id=$(echo "$row" | jq -r .id)
-  text=$(echo "$row" | jq -r .text)
-  resp=$(curl -sS -X POST 'https://fal.run/fal-ai/elevenlabs/sound-effects/v2' \
-    -H "Authorization: Key $FAL_KEY" \
-    -H 'Content-Type: application/json' \
-    -d "$(jq -n --arg t "$text" '{text:$t, duration_seconds:0.5, prompt_influence:0.65, output_format:"mp3_44100_128"}')")
-  url=$(echo "$resp" | jq -r '.audio.url // empty')
-  curl -sS -L "$url" -o "assets/sfx/library/${id}.mp3"
-  cp "assets/sfx/library/${id}.mp3" "src/renderer/assets/sfx/${id}.mp3"
-done
+bun scripts/build-ui-sfx.ts
+bun scripts/build-ui-sfx.ts --check
 ```
 
-Promote only after listening at system volume — reject outliers, re-roll that id.
+[`build-ui-sfx.ts`](../../scripts/build-ui-sfx.ts) uses integer triangle
+oscillators with a short attack and a fading envelope. Output is deterministic
+24 kHz mono 16-bit PCM WAV, without metadata or an external encoder. No account,
+network connection, API key, or runtime synthesis is required. The focused
+`tests/ui-sfx-assets.test.ts` checks byte reproducibility, format, duration,
+headroom, and silent boundaries.
 
-## Runtime
+[`sfx.ts`](../../src/renderer/lib/sfx.ts) continues to play through Web Audio
+(`AudioBufferSourceNode`). The audio feature flag, master mute/volume, per-clip
+enable/volume, decode cache, and attention producers retain their behavior.
+The `attention` alert uses the durable `permission` settings key. The retired
+`orphan` settings key has no sound producer or bundled asset.
 
-`src/renderer/lib/sfx.ts` — `playAlert(id)` reads **settings.audio**
-(master mute/volume + per-clip enable/volume). Defaults: cycle at 18%, others
-~50–55%. Configure under **Settings → Audio**.
+## Provenance change
 
-Playback is **Web Audio** (`AudioBufferSourceNode`), never `HTMLAudioElement` /
-`<audio>`. Chromium’s HTML media path registers with macOS MediaPlayer / Now
-Playing and can raise the “access Apple Music / media library” TCC dialog —
-UI chimes must not.
+The former pack was generated through fal's ElevenLabs Sound Effects API.
+Unrestricted redistribution rights for those raw sound files could not be
+established: [ElevenLabs' policy, section 9(c)](https://elevenlabs.io/use-policy)
+restricts standalone sound-output distribution, and
+[fal's terms, section 14](https://fal.ai/legal/terms-of-service) allow additional
+third-party terms. The [fal API terms](https://fal.ai/legal/api-services) do not
+establish an exception for open-source asset relicensing.
+
+The replacement cues were composed directly in the synthesis script, without
+using the former audio as input. Historical MP3 copies must be excluded from the
+publication history under the open-source transition plan.

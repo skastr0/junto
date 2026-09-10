@@ -1,7 +1,7 @@
 /**
  * RTS UI SFX — static pack player.
  *
- * Offline assets only (no fal at runtime). Mute/volume live in settings.audio
+ * Offline assets only. Mute/volume live in settings.audio
  * (master + per-clip). Fail-open when settings are mid-boot.
  *
  * Playback uses Web Audio (AudioBufferSourceNode), not HTMLAudioElement.
@@ -10,9 +10,9 @@
  * chimes must never do that.
  */
 
-import blockedUrl from "../assets/sfx/blocked.mp3?url";
-import cycleUrl from "../assets/sfx/cycle.mp3?url";
-import permissionUrl from "../assets/sfx/permission.mp3?url";
+import blockedUrl from "../assets/sfx/blocked.wav?url";
+import cycleUrl from "../assets/sfx/cycle.wav?url";
+import attentionUrl from "../assets/sfx/attention.wav?url";
 import type { AudioSettings, SfxClipsSettings } from "@shared/settings";
 import { defaultAudio } from "@shared/settings";
 import { state$ } from "./state";
@@ -44,9 +44,7 @@ export const SFX_LABELS: Readonly<Record<AlertSfxId, string>> = {
 
 const URLS: Readonly<Record<AlertSfxId, string>> = {
   blocked: blockedUrl,
-  // Keep the existing bytes and durable `permission` clip preference while
-  // presenting this sound as the generic node-attention cue.
-  attention: permissionUrl,
+  attention: attentionUrl,
   cycle: cycleUrl,
 };
 
