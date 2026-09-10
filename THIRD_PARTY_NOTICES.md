@@ -32,9 +32,7 @@ project.
 
 The brand artwork was directed for this project and generated using image services;
 its source brief and generation routes are recorded in
-[assets/brand/IDENTITY.md](assets/brand/IDENTITY.md). The optional Factory Familiars
-portraits have a checked-in generation specification and
-[provenance notes](assets/agent-avatars/README.md). Generated artwork does not imply
+[assets/brand/IDENTITY.md](assets/brand/IDENTITY.md). Generated artwork does not imply
 an exclusive right to similar outputs or ownership of the generating models.
 
 The UI sound cues are original, deterministic waveforms generated from

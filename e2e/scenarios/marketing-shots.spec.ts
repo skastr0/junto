@@ -45,8 +45,8 @@ interface FleetPane {
 }
 
 // Hosts split local / remote-a so the multi-host story is visible on cards.
-// Agent names are the house avatar-crew names (assets/agent-avatars/library),
-// NOT harness brands — marketing frames carry no third-party marks.
+// Agent names are synthetic workshop names; marketing frames carry no
+// third-party harness marks.
 const fleet: readonly FleetPane[] = [
   { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum - typecheck", x: 0, y: 0 },
   { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "brisk", label: "ssh kernel", x: 300, y: 0 },
