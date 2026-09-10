@@ -449,7 +449,7 @@ derive_install_transaction_paths 4242`,
     expect(paths).toContain('begin_one_way_app_cutover()');
     expect(paths).toContain("Print :CFBundleExecutable");
     expect(paths).toContain(
-      '/usr/bin/codesign --verify --deep --strict --verbose=2 -R "$APP_SIGNING_REQUIREMENT" "$APP_DST"',
+      '/usr/bin/codesign --verify --deep --strict --verbose=2 -R "$signing_requirement" "$APP_DST"',
     );
     const stageMove = position(install, "publish_staged_app_candidate");
     expect(install.lastIndexOf("assert_install_transaction_capabilities", stageMove)).toBeGreaterThan(0);

@@ -3,9 +3,6 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import {
-  resolveLicenseBuildProfile,
-} from "./scripts/license-build-profile";
-import {
   featureViteDefines,
   resolveBuildFeatures,
 } from "./scripts/build-features";
@@ -15,40 +12,6 @@ const alias = {
   "@preload": resolve("src/preload"),
   "@renderer": resolve("src/renderer"),
   "@shared": resolve("src/shared"),
-};
-
-const licenseChannel = process.env.VELLUM_COMMAND_LICENSE_CHANNEL ?? "development";
-if (!["development", "production"].includes(licenseChannel)) {
-  throw new Error("VELLUM_COMMAND_LICENSE_CHANNEL must be development or production");
-}
-const licenseProfile =
-  licenseChannel === "development"
-    ? undefined
-    : resolveLicenseBuildProfile({
-        channel: licenseChannel,
-        businessId: process.env.VELLUM_COMMAND_DODO_BUSINESS_ID,
-        productIds: process.env.VELLUM_COMMAND_DODO_PRODUCT_IDS,
-      });
-const e2eLicenseFixture = process.env.VELLUM_COMMAND_E2E_LICENSE_FIXTURE;
-if (e2eLicenseFixture !== undefined && e2eLicenseFixture !== "valid") {
-  throw new Error("VELLUM_COMMAND_E2E_LICENSE_FIXTURE must be valid when set");
-}
-
-const licenseDefines = {
-  __VELLUM_COMMAND_LICENSE_CHANNEL__: JSON.stringify(licenseChannel),
-  __VELLUM_COMMAND_DODO_BUSINESS_ID__: JSON.stringify(
-    licenseProfile?.businessId ?? (process.env.VELLUM_COMMAND_DODO_BUSINESS_ID ?? ""),
-  ),
-  __VELLUM_COMMAND_DODO_PRODUCT_IDS__: JSON.stringify(
-    licenseProfile?.productIds ??
-      (process.env.VELLUM_COMMAND_DODO_PRODUCT_IDS ?? "")
-        .split(",")
-        .map((productId) => productId.trim())
-        .filter((productId) => productId.length > 0),
-  ),
-  __VELLUM_COMMAND_E2E_LICENSE_FIXTURE__: JSON.stringify(
-    e2eLicenseFixture === "valid",
-  ),
 };
 
 // Build-time update feed only — never honored as a runtime env override.
@@ -61,8 +24,9 @@ const updateDefines = {
 const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
 const productDefines = {
-  ...licenseDefines,
   ...updateDefines,
+  __VELLUM_COMMAND_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.VELLUM_COMMAND_MAC_SIGNING_IDENTITY ?? ""),
+  __VELLUM_COMMAND_MAC_TEAM_ID__: JSON.stringify(process.env.VELLUM_COMMAND_MAC_TEAM_ID ?? ""),
   ...featureViteDefines(resolvedBuildFeatures),
 };
 

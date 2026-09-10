@@ -14,7 +14,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Result } from "effect";
-import { controlSocketPath, controlTokenPath } from "../src/shared/browser-control";
+import { workControlDir, workControlSocketPath, workControlTokenPath } from "../src/shared/work-control";
+import { controlSocketPath } from "../src/shared/browser-control";
 import {
   stationControlDir,
   stationControlSocketPath,
@@ -482,7 +483,7 @@ const delay = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const waitUntil = async (
-  stage: "process roles" | "shutdown cleanup",
+  stage: "process roles" | "normal application controls" | "shutdown cleanup",
   timeoutMs: number,
   check: () => boolean | Promise<boolean>,
 ): Promise<void> => {
@@ -730,9 +731,9 @@ const ensureDirectory = async (directory: string): Promise<void> => {
 
 export interface PackagedRuntimeSmokeReceipt {
   readonly ok: true;
-  readonly admission: "license-required";
+  readonly admission: "free-startup";
   readonly bundledClis: "present";
-  readonly protectedControls: "absent";
+  readonly protectedControls: "owner-local";
   readonly processRoles: ReadonlyArray<string>;
   readonly tcpListeners: 0;
   readonly debugAuthority: false;
@@ -856,24 +857,23 @@ export const smokePackagedRuntime = async (
       return REQUIRED_PROCESS_ROLES.every((role) => roles.includes(role));
     });
 
-    await delay(250);
-    const protectedControlPaths = [
-      controlTokenPath(controlHome),
-      controlSocketPath(controlHome),
-      stationControlSocketPath(stationControlDir(controlHome)),
-    ];
-    const exposedProtectedControls = (
-      await Promise.all(protectedControlPaths.map(pathExists))
-    ).some(Boolean);
-    if (exposedProtectedControls) {
-      throw new Error(
-        "fresh unlicensed Vellum Command exposed protected product controls",
-      );
+    const workHome = workControlDir(controlHome);
+    const workSocket = workControlSocketPath(workHome);
+    const workToken = workControlTokenPath(workHome);
+    await waitUntil("normal application controls", STARTUP_TIMEOUT_MS, async () => {
+      if (lifecycle.terminal() !== undefined) throw new Error("Vellum Command closed before normal application startup");
+      return await pathExists(workSocket) && await pathExists(workToken);
+    });
+    const [socketMetadata, tokenMetadata] = await Promise.all([lstat(workSocket), lstat(workToken)]);
+    if (!socketMetadata.isSocket() || socketMetadata.uid !== currentUid() ||
+        !tokenMetadata.isFile() || tokenMetadata.uid !== currentUid() ||
+        (tokenMetadata.mode & 0o077) !== 0) {
+      throw new Error("normal application controls are not protected by owner-local filesystem permissions");
     }
     const terminalAfterAdmission = lifecycle.terminal();
     if (terminalAfterAdmission !== undefined) {
       throw new Error(
-        `packaged Vellum Command closed at the license boundary (code=${String(terminalAfterAdmission.code)}, signal=${String(terminalAfterAdmission.signal)}, error=${terminalAfterAdmission.error?.message ?? "none"}, phase=${output.startupMarker()})`,
+        `packaged Vellum Command closed after normal application startup (code=${String(terminalAfterAdmission.code)}, signal=${String(terminalAfterAdmission.signal)}, error=${terminalAfterAdmission.error?.message ?? "none"}, phase=${output.startupMarker()})`,
       );
     }
     if (hasDebugAuthority(runtimeRows)) {
@@ -919,6 +919,7 @@ export const smokePackagedRuntime = async (
       await waitUntil("shutdown cleanup", SHUTDOWN_TIMEOUT_MS, async () => {
         shutdownSocketGone = (
           await Promise.all([
+            workControlSocketPath(workControlDir(controlHome)),
             controlSocketPath(controlHome),
             stationControlSocketPath(stationControlDir(controlHome)),
           ].map((socketPath) =>
@@ -960,9 +961,9 @@ export const smokePackagedRuntime = async (
 
     success = {
       ok: true,
-      admission: "license-required",
+      admission: "free-startup",
       bundledClis: "present",
-      protectedControls: "absent",
+      protectedControls: "owner-local",
       processRoles: processRoles(rootPid, runtimeRows),
       tcpListeners: 0,
       debugAuthority: false,

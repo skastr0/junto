@@ -1,8 +1,31 @@
 # Linux Command Center Alpha sandbox preparation
 
-**Status:** Ubuntu 24.04 LTS Alpha preparation for native Command Center
-qualification. This reviewed AppArmor policy is not a packaged payload and is
-not a supported Linux release.
+**Status:** Linux desktop is alpha and builds as an Electron application.
+Fleet management and the headless Remote package nested under Fleet remain
+experimental and feature-gated. Desktop build success does not qualify Remote
+or promote either surface to beta or production.
+
+## Build from source
+
+Build on Linux x86-64 with Bun, Node 24.10 or newer, and normal native build
+tools (Python 3, a C/C++ toolchain, make, and the platform Electron libraries):
+
+```sh
+bun install --frozen-lockfile
+bun run app:build:linux --fast
+```
+
+The build emits a relocatable desktop directory and `.tar.gz` archive under
+`release/`. It includes the standalone CLI, project license, and required
+third-party notices. It needs no billing or release credentials and uploads
+nothing. A local archive is not an official signed release. Official Linux
+publication retains the detached manifest/checksum verification described in
+[the release key policy](linux-release-key-policy.md).
+
+Launch the extracted `vellum-command` executable in your desktop session. The
+Ubuntu 24.04 AppArmor preparation below applies when that host restricts
+unprivileged user namespaces. This reviewed policy is external host preparation,
+not a packaged payload; desktop alpha does not bypass Chromium's sandbox.
 
 **Audience:** Alpha operators, host administrators, and qualification
 reviewers

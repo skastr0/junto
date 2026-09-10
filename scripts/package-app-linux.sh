@@ -68,7 +68,7 @@ if [[ -x "node_modules/electron/dist/electron" ]]; then
   ELECTRON_DIST_ARGS+=(--config.electronDist=node_modules/electron/dist)
 fi
 
-bunx --no-install electron-builder --linux dir --x64 \
+bunx --no-install electron-builder --linux dir --x64 --publish never \
   --config.npmRebuild=false \
   --config.directories.output="$ATTEMPT_DIR" \
   "${ELECTRON_DIST_ARGS[@]}" \

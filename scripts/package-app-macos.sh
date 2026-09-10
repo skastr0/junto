@@ -10,8 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/app-paths.sh"
 VERIFY=0
 NOTARIZE=0
+SIGN=0
 while [[ $# -gt 0 ]]; do
-  case "$1" in --verify) VERIFY=1 ;; --notarize) NOTARIZE=1 ;; *) err "unknown flag: $1"; exit 1 ;; esac
+  case "$1" in --verify) VERIFY=1 ;; --notarize) NOTARIZE=1; SIGN=1 ;; --sign) SIGN=1 ;; *) err "unknown flag: $1"; exit 1 ;; esac
   shift
 done
 cd "$REPO_ROOT"
@@ -69,8 +70,14 @@ rm -f -- "$NODE_SHIM_DIR/node"
 rmdir -- "$NODE_SHIM_DIR"
 NODE_SHIM_DIR=""
 
-bunx electron-builder --mac \
-  --config.directories.output="$ATTEMPT_DIR"
+SIGN_ARGS=(--config.mac.forceCodeSigning=false --config.mac.identity=null)
+if [[ "$SIGN" -eq 1 ]]; then
+  SIGN_IDENTITY="$("$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --builder-identity)"
+  SIGN_ARGS=(--config.mac.forceCodeSigning=true "--config.mac.identity=$SIGN_IDENTITY")
+fi
+# Ordinary builds never discover or consume credentials from a local keychain.
+CSC_IDENTITY_AUTO_DISCOVERY=false bunx --no-install electron-builder --mac --publish never \
+  "${SIGN_ARGS[@]}" --config.directories.output="$ATTEMPT_DIR"
 DRAFT_APP="$ATTEMPT_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
 DRAFT_ZIP="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
 DRAFT_DMG="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.dmg"
@@ -86,7 +93,11 @@ done
 APP_SRC="$DRAFT_APP"
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
   verify-package --target mac --app "$APP_SRC" >/dev/null
-bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC" >/dev/null
+if [[ "$SIGN" -eq 1 ]]; then
+  bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC" >/dev/null
+else
+  bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_SRC" --source >/dev/null
+fi
 if [[ "$VERIFY" -eq 1 ]]; then
   bun "$SCRIPT_DIR/packaged-runtime-smoke.ts" "$APP_SRC"
 fi

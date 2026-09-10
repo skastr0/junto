@@ -39,7 +39,11 @@ const runtimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => 
     ts.forEachChild(node, visit);
   };
   visit(file);
-  expect(calls).toHaveLength(1);
+  expect(calls).toHaveLength(2);
+  for (const call of calls) {
+    const argument = call.arguments[0];
+    expect(argument !== undefined && ts.isObjectLiteralExpression(argument)).toBe(true);
+  }
   const argument = calls[0]?.arguments[0];
   expect(argument !== undefined && ts.isObjectLiteralExpression(argument)).toBe(
     true,

@@ -252,7 +252,7 @@ app_cdhash() {
 }
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
-  build_flags=()
+  build_flags=(--sign)
   [[ "$FAST" -eq 1 ]] && build_flags+=(--fast)
   [[ "$VERIFY" -eq 1 ]] && build_flags+=(--verify)
   bash "$SCRIPT_DIR/build-app.sh" "${build_flags[@]+"${build_flags[@]}"}"

@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getRawHeader } from "@electron/asar";
+import { extractFile, getRawHeader } from "@electron/asar";
 import {
   FuseState,
   FuseV1Options,
@@ -19,6 +19,7 @@ import {
   getCurrentFuseWire,
   type FuseConfig,
 } from "@electron/fuses";
+import { resolveMacSigningConfig, type MacSigningConfig } from "./mac-signing-config.mjs";
 import rawPolicy from "./package-security-policy.json";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
 import { auditRetiredStateRuntimeBundle } from "./audit-retired-state-signatures";
@@ -45,9 +46,6 @@ export interface PackageSecurityPolicy {
   readonly bundleIdentifier: string;
   readonly productName: string;
   readonly minimumSystemVersion: string;
-  readonly teamIdentifier: string;
-  readonly builderIdentity: string;
-  readonly signingIdentity: string;
   readonly fuses: Readonly<Record<FuseName, boolean>>;
 }
 
@@ -170,9 +168,6 @@ export const validatePackageSecurityPolicy = (
     "bundleIdentifier",
     "productName",
     "minimumSystemVersion",
-    "teamIdentifier",
-    "builderIdentity",
-    "signingIdentity",
   ] as const) {
     if (typeof value[field] !== "string" || value[field].length === 0) {
       throw new Error(`package security policy ${field} must be non-empty`);
@@ -380,24 +375,25 @@ export const parseCodesignMetadata = (output: string): CodesignMetadata => {
 
 export const validateCodesignMetadata = (
   metadata: CodesignMetadata,
+  signing: MacSigningConfig = resolveMacSigningConfig(),
   policy: PackageSecurityPolicy = PACKAGE_SECURITY_POLICY,
 ): void => {
-  validateMachOCodesignMetadata(metadata, policy.bundleIdentifier, policy);
+  validateMachOCodesignMetadata(metadata, policy.bundleIdentifier, signing);
 };
 
 export const validateMachOCodesignMetadata = (
   metadata: CodesignMetadata,
   expectedIdentifier: string,
-  policy: PackageSecurityPolicy = PACKAGE_SECURITY_POLICY,
+  signing: MacSigningConfig = resolveMacSigningConfig(),
 ): void => {
   if (metadata.identifier !== expectedIdentifier) {
     throw new Error(
       `signed identifier mismatch: got ${metadata.identifier} want ${expectedIdentifier}`,
     );
   }
-  if (metadata.teamIdentifier !== policy.teamIdentifier) {
+  if (metadata.teamIdentifier !== signing.teamIdentifier) {
     throw new Error(
-      `signed team identifier mismatch: got ${metadata.teamIdentifier} want ${policy.teamIdentifier}`,
+      `signed team identifier mismatch: got ${metadata.teamIdentifier} want ${signing.teamIdentifier}`,
     );
   }
   if (
@@ -415,7 +411,7 @@ export const validateMachOCodesignMetadata = (
     );
   }
   const expectedAuthorities = [
-    policy.signingIdentity,
+    signing.signingIdentity,
     "Developer ID Certification Authority",
     "Apple Root CA",
   ];
@@ -850,6 +846,7 @@ const readSignedEntitlements = (filePath: string): unknown => {
 const auditMachOObjects = async (
   appPath: string,
   declaredMinimumSystemVersion: string,
+  signing: MacSigningConfig,
   policy: MacOSRuntimePolicy = MACOS_RUNTIME_POLICY,
 ): Promise<PackageAuditReceipt["machO"]> => {
   const actualPaths = await enumerateMachOPaths(appPath);
@@ -877,7 +874,7 @@ const auditMachOObjects = async (
     const metadata = parseCodesignMetadata(
       runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", filePath]),
     );
-    validateMachOCodesignMetadata(metadata, expected.identifier);
+    validateMachOCodesignMetadata(metadata, expected.identifier, signing);
     validateEntitlementProfile(
       readSignedEntitlements(filePath),
       expected.profile,
@@ -905,6 +902,7 @@ export const auditPackagedApp = async (
   requestedPath: string,
 ): Promise<PackageAuditReceipt> => {
   const policy = PACKAGE_SECURITY_POLICY;
+  const signing = resolveMacSigningConfig();
   const appPath = path.resolve(requestedPath);
   if (path.basename(appPath) !== `${policy.productName}.app`) {
     throw new Error(
@@ -931,6 +929,7 @@ export const auditPackagedApp = async (
   await requireRegularFile(appAsarPath);
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(appAsarPath);
+  validateProjectNotices(appAsarPath);
   await assertMacHasNoRemoteResources(appPath);
   await auditRetiredStateRuntimeBundle({
     asarPath: appAsarPath,
@@ -947,7 +946,7 @@ export const auditPackagedApp = async (
   const codesign = parseCodesignMetadata(
     runFixedCommand("/usr/bin/codesign", ["-d", "--verbose=4", appPath]),
   );
-  validateCodesignMetadata(codesign, policy);
+  validateCodesignMetadata(codesign, signing, policy);
 
   const plistOutput = runFixedCommand("/usr/bin/plutil", [
     "-convert",
@@ -969,7 +968,7 @@ export const auditPackagedApp = async (
   );
 
   const fuses = validateFuseWire(await getCurrentFuseWire(appPath), policy);
-  const machO = await auditMachOObjects(appPath, policy.minimumSystemVersion);
+  const machO = await auditMachOObjects(appPath, policy.minimumSystemVersion, signing);
   return {
     appPath,
     bundleIdentifier: codesign.identifier,
@@ -981,18 +980,57 @@ export const auditPackagedApp = async (
   };
 };
 
+export const validateProjectNotices = (asarPath: string): void => {
+  for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+    const contents = extractFile(asarPath, name);
+    if (contents.length === 0) throw new Error(`packaged app is missing ${name}`);
+  }
+};
+
+/** Structural source-build audit. It makes no Developer ID or notarization claim. */
+export const auditSourcePackagedApp = async (requestedPath: string) => {
+  const appPath = await realpath(requestedPath);
+  const policy = PACKAGE_SECURITY_POLICY;
+  if (path.basename(appPath) !== `${policy.productName}.app`) {
+    throw new Error("source package must be Vellum Command.app");
+  }
+  const asarPath = path.join(appPath, "Contents", "Resources", "app.asar");
+  const workCliPath = path.join(appPath, "Contents", "Resources", "bin", "vellum-command");
+  await requireExecutable(workCliPath);
+  await validateRawAsarArchive(asarPath);
+  validateProjectNotices(asarPath);
+  await assertMacHasNoRemoteResources(appPath);
+  await auditRetiredStateRuntimeBundle({ asarPath, workCliPath });
+  const plist = JSON.parse(runFixedCommand("/usr/bin/plutil", [
+    "-convert", "json", "-o", "-", path.join(appPath, "Contents", "Info.plist"),
+  ]));
+  validateInfoPlist(plist, hashAsarHeaderString(getRawHeader(asarPath).headerString));
+  const fuses = validateFuseWire(await getCurrentFuseWire(appPath));
+  const objects = await enumerateMachOPaths(appPath);
+  validateMachOInventory(objects);
+  for (const relative of objects) {
+    validateMachOMinimumSystemVersions(
+      readMachOMinimumSystemVersions(path.join(appPath, relative)),
+      policy.minimumSystemVersion,
+      relative,
+    );
+  }
+  return { appPath, signing: "source-build" as const, fuses, machOCount: objects.length };
+};
+
 const modulePath = fileURLToPath(import.meta.url);
 const invokedPath =
   process.argv[1] === undefined ? "" : path.resolve(process.argv[1]);
 if (invokedPath === modulePath) {
   const requestedPath = process.argv[2];
-  if (requestedPath === undefined || process.argv.length !== 3) {
+  const sourceBuild = process.argv[3] === "--source";
+  if (requestedPath === undefined || (process.argv.length !== 3 && !(process.argv.length === 4 && sourceBuild))) {
     console.error(
-      "usage: bun scripts/audit-packaged-app.ts /path/to/Vellum Command.app",
+      "usage: bun scripts/audit-packaged-app.ts /path/to/Vellum Command.app [--source]",
     );
     process.exitCode = 2;
   } else {
-    auditPackagedApp(requestedPath)
+    (sourceBuild ? auditSourcePackagedApp(requestedPath) : auditPackagedApp(requestedPath))
       .then((receipt) => {
         process.stdout.write(`${JSON.stringify({ ok: true, ...receipt })}\n`);
       })

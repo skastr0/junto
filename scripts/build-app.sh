@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Compile Vellum Command and package for one explicit native target.
 #
-#   scripts/build-app.sh --target mac|linux [--fast] [--verify] [--notarize]
+#   scripts/build-app.sh --target mac|linux [--fast] [--verify] [--sign] [--notarize]
 #   scripts/build-app.sh --compile-only
-#   scripts/build-app.sh --license-preflight-only
+#   scripts/build-app.sh --preflight-only
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,8 @@ FAST=0
 VERIFY=0
 COMPILE_ONLY=0
 NOTARIZE=0
-LICENSE_PREFLIGHT_ONLY=0
+SIGN=0
+PREFLIGHT_ONLY=0
 
 usage() {
   sed -n '2,6p' "$0" | sed 's/^# \?//'
@@ -35,9 +36,10 @@ while [[ $# -gt 0 ]]; do
     --linux) TARGET="linux"; shift ;;
     --fast) FAST=1; shift ;;
     --verify) VERIFY=1; shift ;;
-    --notarize) NOTARIZE=1; shift ;;
+    --notarize) NOTARIZE=1; SIGN=1; shift ;;
+    --sign) SIGN=1; shift ;;
     --compile-only) COMPILE_ONLY=1; shift ;;
-    --license-preflight-only) LICENSE_PREFLIGHT_ONLY=1; shift ;;
+    --preflight-only) PREFLIGHT_ONLY=1; shift ;;
     -h|--help) usage 0 ;;
     *) printf 'vellum-command: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
@@ -59,40 +61,18 @@ if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
   printf 'vellum-command: error: notarization is only available for the mac target\n' >&2
   exit 1
 fi
-if [[ -n "${VELLUM_COMMAND_E2E_LICENSE_FIXTURE+x}" ]]; then
-  printf 'vellum-command: error: packaged builds refuse VELLUM_COMMAND_E2E_LICENSE_FIXTURE\n' >&2
+if [[ "$SIGN" -eq 1 && "$TARGET" != "mac" ]]; then
+  printf 'vellum-command: error: --sign selects macOS signing; Linux release manifests use linux-release-tool.ts\n' >&2
   exit 1
 fi
-
 BUN_EXECUTABLE="$(type -P bun || true)"
 if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
-  printf 'vellum-command: error: Bun is required to resolve the license build profile\n' >&2
+  printf 'vellum-command: error: Bun is required to compile Vellum Command\n' >&2
   exit 1
 fi
-if [[ -n "${VELLUM_COMMAND_LICENSE_CHANNEL:-}" && "$VELLUM_COMMAND_LICENSE_CHANNEL" != "production" ]]; then
-  printf 'vellum-command: error: packaged builds require VELLUM_COMMAND_LICENSE_CHANNEL=production\n' >&2
-  exit 1
+if [[ "$SIGN" -eq 1 ]]; then
+  "$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --check
 fi
-export VELLUM_COMMAND_LICENSE_CHANNEL="production"
-LICENSE_PROFILE_FIELDS="$(
-  "$BUN_EXECUTABLE" "$SCRIPT_DIR/license-build-profile.ts" --fields
-)"
-IFS=$'\t' read -r \
-  VELLUM_COMMAND_LICENSE_CHANNEL \
-  VELLUM_COMMAND_DODO_BUSINESS_ID \
-  VELLUM_COMMAND_DODO_PRODUCT_IDS \
-  <<< "$LICENSE_PROFILE_FIELDS"
-if [[
-  -z "$VELLUM_COMMAND_LICENSE_CHANNEL" ||
-  -z "$VELLUM_COMMAND_DODO_BUSINESS_ID" ||
-  -z "$VELLUM_COMMAND_DODO_PRODUCT_IDS"
- ]]; then
-  printf 'vellum-command: error: license build profile resolver returned incomplete fields\n' >&2
-  exit 1
-fi
-export VELLUM_COMMAND_LICENSE_CHANNEL
-export VELLUM_COMMAND_DODO_BUSINESS_ID
-export VELLUM_COMMAND_DODO_PRODUCT_IDS
 export VELLUM_COMMAND_FEATURE_PROFILE="${VELLUM_COMMAND_FEATURE_PROFILE:-ship}"
 FEATURE_DEVIATION="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --ship-deviation
@@ -106,13 +86,8 @@ fi
 FEATURE_RECEIPT="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --receipt
 )"
-printf \
-  'vellum-command: license build profile %s → Dodo Live (%s / %s)\n' \
-  "$VELLUM_COMMAND_LICENSE_CHANNEL" \
-  "$VELLUM_COMMAND_DODO_BUSINESS_ID" \
-  "$VELLUM_COMMAND_DODO_PRODUCT_IDS"
 printf 'vellum-command: feature build receipt %s\n' "$FEATURE_RECEIPT"
-if [[ "$LICENSE_PREFLIGHT_ONLY" -eq 1 ]]; then
+if [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
@@ -139,14 +114,8 @@ if [[ "$VERIFY" -eq 1 ]]; then
   # is a customer-visible contract and must not be bypassable by packaging.
   bun run lint:product-name
   bun run typecheck
-  # Tests that rebuild out/ (kernel headless probe) must not inherit the
-  # packaged production license defines — those require activation in an
-  # isolated HOME and deny headless Command Center startup. Packaging below
-  # still builds with VELLUM_COMMAND_LICENSE_* set for the real ship bundle.
-  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_IDS \
-    bun run test
-  env -u VELLUM_COMMAND_LICENSE_CHANNEL -u VELLUM_COMMAND_DODO_BUSINESS_ID -u VELLUM_COMMAND_DODO_PRODUCT_IDS \
-    bun run test:features:ship
+  bun run test
+  bun run test:features:ship
 elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck
 fi
@@ -178,6 +147,7 @@ fi
 args=()
 [[ "$VERIFY" -eq 1 ]] && args+=(--verify)
 [[ "$NOTARIZE" -eq 1 ]] && args+=(--notarize)
+[[ "$SIGN" -eq 1 ]] && args+=(--sign)
 case "$TARGET" in
   mac) exec bash "$SCRIPT_DIR/package-app-macos.sh" "${args[@]+"${args[@]}"}" ;;
   linux) exec bash "$SCRIPT_DIR/package-app-linux.sh" "${args[@]+"${args[@]}"}" ;;

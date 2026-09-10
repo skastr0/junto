@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { signAsync } from "@electron/osx-sign";
+import { resolveMacSigningConfig } from "./mac-signing-config.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -28,8 +29,7 @@ const validatePolicies = (runtimePolicy, packagePolicy) => {
     !isRecord(runtimePolicy.profiles) ||
     !Array.isArray(runtimePolicy.machO) ||
     !isRecord(packagePolicy) ||
-    typeof packagePolicy.productName !== "string" ||
-    typeof packagePolicy.signingIdentity !== "string"
+    typeof packagePolicy.productName !== "string"
   ) {
     throw new Error("invalid Vellum Command macOS signing policy");
   }
@@ -123,7 +123,7 @@ export default async function signVellumApp(options) {
   await signWithRetries({
     ...options,
     app: appPath,
-    identity: packagePolicy.signingIdentity,
+    identity: resolveMacSigningConfig().signingIdentity,
     identityValidation: true,
     preAutoEntitlements: false,
     preEmbedProvisioningProfile: false,

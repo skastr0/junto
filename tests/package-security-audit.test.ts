@@ -17,6 +17,12 @@ import {
   validatePackageSecurityPolicy,
 } from "../scripts/audit-packaged-app";
 
+const signing = {
+  teamIdentifier: "EXAMP12345",
+  signingIdentity: "Developer ID Application: Example Maintainer (EXAMP12345)",
+  builderIdentity: "Example Maintainer (EXAMP12345)",
+};
+
 const developerIdCodesign = `
 Executable=/tmp/Vellum Command.app/Contents/MacOS/Vellum Command
 Identifier=skastr0.vellumcommand
@@ -82,7 +88,7 @@ describe("packaged app security policy", () => {
 describe("codesign metadata audit", () => {
   it("accepts the exact Developer ID team and hardened runtime", () => {
     expect(() =>
-      validateCodesignMetadata(parseCodesignMetadata(developerIdCodesign)),
+      validateCodesignMetadata(parseCodesignMetadata(developerIdCodesign), signing),
     ).not.toThrow();
   });
 
@@ -120,7 +126,7 @@ describe("codesign metadata audit", () => {
       ),
     ],
   ])("rejects %s signing metadata", (_caseName, output) => {
-    expect(() => validateCodesignMetadata(parseCodesignMetadata(output))).toThrow();
+    expect(() => validateCodesignMetadata(parseCodesignMetadata(output), signing)).toThrow();
   });
 
   it("rejects ambiguous duplicate security-critical fields", () => {
@@ -301,7 +307,7 @@ describe("electron-builder fitness", () => {
     );
   });
 
-  it("fails closed on the exact identity and canonical package audit", async () => {
+  it("keeps public packaging independent of a maintainer identity", async () => {
     const packageJson = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as {
@@ -320,13 +326,14 @@ describe("electron-builder fitness", () => {
     expect(packageJson.build).toMatchObject({
       afterPack: "./scripts/electron-builder-after-pack.mjs",
       mac: {
-        forceCodeSigning: true,
-        identity: PACKAGE_SECURITY_POLICY.builderIdentity,
+        forceCodeSigning: false,
         minimumSystemVersion: PACKAGE_SECURITY_POLICY.minimumSystemVersion,
         hardenedRuntime: true,
         strictVerify: true,
       },
     });
+    expect(packageJson.build.mac.identity).toBeUndefined();
+    expect(packageJson.build.files).toEqual(expect.arrayContaining(["LICENSE", "THIRD_PARTY_NOTICES.md"]));
     expect(
       packageJson.build.files.filter((entry) =>
         entry.includes("node_modules/@parcel/watcher"),

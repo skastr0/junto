@@ -22,11 +22,31 @@ const cleanFeatureEnvironment = (): NodeJS.ProcessEnv => {
 const runBuildPreflight = (environment = cleanFeatureEnvironment()) =>
   spawnSync(
     "/bin/bash",
-    [path.join(repoRoot, "scripts", "build-app.sh"), "--license-preflight-only"],
+    [path.join(repoRoot, "scripts", "build-app.sh"), "--preflight-only"],
     { cwd: repoRoot, encoding: "utf8", env: environment },
   );
 
 describe("packaged feature build contract", () => {
+  it("admits ordinary source builds without release credentials", () => {
+    const environment = cleanFeatureEnvironment();
+    delete environment.VELLUM_COMMAND_MAC_TEAM_ID;
+    delete environment.VELLUM_COMMAND_MAC_SIGNING_IDENTITY;
+    const result = runBuildPreflight(environment);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('"profile":"ship"');
+  });
+
+  it.skipIf(process.platform !== "darwin")("requires explicit signing authority before any official build", () => {
+    const environment = cleanFeatureEnvironment();
+    delete environment.VELLUM_COMMAND_MAC_TEAM_ID;
+    delete environment.VELLUM_COMMAND_MAC_SIGNING_IDENTITY;
+    const result = spawnSync("/bin/bash", [
+      path.join(repoRoot, "scripts", "build-app.sh"), "--preflight-only", "--sign",
+    ], { cwd: repoRoot, encoding: "utf8", env: environment });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("VELLUM_COMMAND_MAC_TEAM_ID");
+  });
+
   it("defaults the standalone CLI compiler to explicit ship defines", () => {
     const build = standaloneControlBuild("vellum-command");
     expect(build.profile).toBe("ship");

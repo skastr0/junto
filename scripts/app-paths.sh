@@ -21,7 +21,14 @@ read_config_value() {
 LABEL="skastr0.vellumcommand"
 PRODUCT_NAME="Vellum Command"
 APP_BUNDLE_ID="skastr0.vellumcommand"
-APP_SIGNING_REQUIREMENT='=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"'
+# The release installer requires an explicit expected team, never an artifact-derived one.
+app_signing_requirement() {
+  if [[ ! "${VELLUM_COMMAND_MAC_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]]; then
+    printf 'vellum-command: error: VELLUM_COMMAND_MAC_TEAM_ID is required for signed installation\n' >&2
+    return 1
+  fi
+  printf '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "%s"' "$VELLUM_COMMAND_MAC_TEAM_ID"
+}
 
 # Repo root = parent of scripts/
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -689,7 +696,9 @@ assert_owned_current_app() {
     err "current app executable identity does not match Vellum Command"
     return 1
   fi
-  if ! /usr/bin/codesign --verify --deep --strict --verbose=2 -R "$APP_SIGNING_REQUIREMENT" "$APP_DST" >/dev/null 2>&1; then
+  local signing_requirement
+  signing_requirement="$(app_signing_requirement)" || return 1
+  if ! /usr/bin/codesign --verify --deep --strict --verbose=2 -R "$signing_requirement" "$APP_DST" >/dev/null 2>&1; then
     err "current app does not satisfy the accepted Vellum Command signing requirement"
     return 1
   fi
