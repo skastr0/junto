@@ -127,7 +127,7 @@ export type RetiredStateAsarAuditReceipt = {
   readonly archiveEntries: number;
   readonly scannedEntries: number;
   readonly scannedBytes: number;
-  readonly scannedRoots: readonly ["out", "station"];
+  readonly scannedRoots: readonly ["out"];
 };
 
 export type RetiredStateBufferAuditOptions = {
@@ -161,7 +161,7 @@ export type LinuxRetiredStateRuntimeBundleAuditReceipt =
     readonly bridge: RetiredStateBufferAuditReceipt;
   };
 
-const FIRST_PARTY_ROOTS = ["out", "station"] as const;
+const FIRST_PARTY_ROOTS = ["out"] as const;
 type FirstPartyRoot = (typeof FIRST_PARTY_ROOTS)[number];
 
 const TEXT_EXTENSIONS = new Set([
@@ -321,7 +321,13 @@ const normalizeAsarEntry = (
 ): { readonly root: FirstPartyRoot; readonly path: string } | undefined => {
   const path = entry.replace(/^\/+/u, "");
   const root = path.split("/", 1)[0];
-  if (root !== "out" && root !== "station") return undefined;
+  if (root === "station") {
+    throw new RetiredStateSignatureAuditError(
+      "invalid-entry",
+      "ASAR contains the retired station/ template payload",
+    );
+  }
+  if (root !== "out") return undefined;
   if (
     entry.includes("\\") ||
     path.includes("\0") ||
@@ -437,7 +443,7 @@ export const auditRetiredStateAsar = (
     archiveEntries: entries.length,
     scannedEntries: candidates.length,
     scannedBytes,
-    scannedRoots: ["out", "station"],
+    scannedRoots: FIRST_PARTY_ROOTS,
   };
 };
 

@@ -147,11 +147,11 @@ describe("retired product-state signature boundary", () => {
 });
 
 describe("first-party ASAR retired-state audit", () => {
-  it("scans out and station text while ignoring third-party signatures", async () => {
+  it("scans compiled app text while ignoring third-party signatures", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
       "out/renderer/index.html": "<main>vellum-command.db</main>",
-      "station/plugin.json": '{"name":"vellum"}',
+      "out/runtime.json": '{"name":"vellum"}',
       "node_modules/legacy/index.js": "settings.json",
       "package.json": '{"legacy":"hosts.json"}',
       "out/renderer/model.glb": Buffer.from("current.json"),
@@ -161,7 +161,7 @@ describe("first-party ASAR retired-state audit", () => {
     expect(receipt).toMatchObject({
       archivePath: archive,
       scannedEntries: 3,
-      scannedRoots: ["out", "station"],
+      scannedRoots: ["out"],
     });
     expect(receipt.archiveEntries).toBeGreaterThan(receipt.scannedEntries);
     expect(receipt.scannedBytes).toBeGreaterThan(0);
@@ -170,7 +170,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("rejects a retired signature extracted from a first-party entry", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "const authority = 'canvas-authority-v1'",
-      "station/plugin.json": '{"name":"vellum"}',
+      "out/runtime.json": '{"name":"vellum"}',
     });
     expect(() => auditRetiredStateAsar(archive)).toThrowError(
       expect.objectContaining({
@@ -180,16 +180,25 @@ describe("first-party ASAR retired-state audit", () => {
     );
   });
 
-  it("requires both first-party roots to have a scannable runtime", async () => {
+  it("requires the compiled app root to have a scannable runtime", async () => {
     const archive = await makeAsar({
-      "out/main/index.js": "state_schema_identity",
-      "station/model.glb": Buffer.from("binary"),
+      "out/model.glb": Buffer.from("binary"),
     });
     expect(() => auditRetiredStateAsar(archive)).toThrowError(
       expect.objectContaining({
         code: "root-bound",
-        message: expect.stringContaining("station/"),
+        message: expect.stringContaining("out/"),
       }),
+    );
+  });
+
+  it("rejects the retired private station template even beside valid app code", async () => {
+    const archive = await makeAsar({
+      "out/main/index.js": "state_schema_identity",
+      "station/plugin.json": '{"name":"retired-template"}',
+    });
+    expect(() => auditRetiredStateAsar(archive)).toThrowError(
+      expect.objectContaining({ code: "invalid-entry", message: expect.stringContaining("retired station/") }),
     );
   });
 
@@ -197,7 +206,7 @@ describe("first-party ASAR retired-state audit", () => {
     const archive = await makeAsar({
       "out/main/index.js": "123456",
       "out/preload/index.cjs": "abcdef",
-      "station/plugin.json": "123456",
+      "out/runtime.json": "123456",
       "node_modules/effect/index.js": "third-party",
     });
     const cases = [
@@ -221,7 +230,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("rejects non-positive and unsafe bounds", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
-      "station/plugin.json": '{"name":"vellum"}',
+      "out/runtime.json": '{"name":"vellum"}',
     });
     for (const maxAsarEntries of [
       0,
@@ -245,7 +254,7 @@ describe("complete packaged runtime retired-state audit", () => {
       const archive = await makeAsar({
         "out/main/index.js":
           target === "asar" ? "incoming.frame" : "state_schema_identity",
-        "station/plugin.json": '{"name":"vellum"}',
+        "out/runtime.json": '{"name":"vellum"}',
       });
       const work = join(root, "vellum");
       await writeFile(
@@ -271,7 +280,7 @@ describe("complete Linux packaged runtime retired-state audit", () => {
       const root = await makeTempRoot();
       const archive = await makeAsar({
         "out/main/index.js": target === "asar" ? "incoming.frame" : "safe",
-        "station/plugin.json": '{"name":"vellum"}',
+        "out/runtime.json": '{"name":"vellum"}',
       });
       const paths = Object.fromEntries(await Promise.all(
         ["work", "installer", "bridge"].map(async (name) => {
