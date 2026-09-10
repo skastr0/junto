@@ -60,6 +60,10 @@ Unmanaged source builds and loose extracted copies do not update themselves
 through the managed release lane. Do not rerun the first-install command to
 replace an active installation or switch the launcher to an older generation.
 
+Old and staged managed generations are retained, so disk use can grow across
+alpha releases. There is no automatic generation pruning or documented
+cleanup command. State repair remains forward-only.
+
 ## State custody
 
 The sole product database is

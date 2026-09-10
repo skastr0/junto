@@ -65,6 +65,9 @@ have no expiry; current key trust still applies. A stale feed can withhold newer
 versions, but the updater admits only a strictly newer version with its exact
 signed bytes.
 
+Alpha installations retain old and staged managed generations. Disk usage can
+grow across releases; automatic generation pruning is not implemented.
+
 The signed descriptor lives at `/linux/x64/<version>/release.json`; the feed is
 `/linux/x64/alpha.json`, and the matching source index is
 `/linux/x64/sources/<version>/sources.json` under the existing release Worker.
