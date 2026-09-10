@@ -7,7 +7,8 @@ or promote either surface to beta or production.
 
 ## Build from source
 
-Build on Linux x86-64 with Bun, Node 24.10 or newer, and normal native build
+Build on Linux x86-64 with the exact Bun version in `packageManager` (currently
+1.3.13), Node 24.10 or newer, and normal native build
 tools (Python 3, a C/C++ toolchain, make, and the platform Electron libraries):
 
 ```sh

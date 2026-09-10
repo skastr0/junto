@@ -92,6 +92,14 @@ if [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
 fi
 
 cd "$REPO_ROOT"
+# Compiled CLIs embed Bun itself. Keep its runtime and redistributed notices
+# aligned with the reviewed compiler version, even on a newer developer shell.
+PINNED_BUN_VERSION="$("$BUN_EXECUTABLE" -e 'const manager = require("./package.json").packageManager; if (!/^bun@[0-9]+\.[0-9]+\.[0-9]+$/.test(manager)) throw new Error("packageManager must pin Bun"); process.stdout.write(manager.slice(4))')"
+COMPILER_BUN_VERSION="$("$BUN_EXECUTABLE" --version)"
+if [[ "$COMPILER_BUN_VERSION" != "$PINNED_BUN_VERSION" ]]; then
+  printf 'vellum-command: error: packaging embeds Bun; use the pinned Bun %s (found %s) so runtime notices match\n' "$PINNED_BUN_VERSION" "$COMPILER_BUN_VERSION" >&2
+  exit 1
+fi
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
