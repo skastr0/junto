@@ -98,7 +98,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     );
     expect(source).not.toContain("remoteQualificationUnitName");
     expect(source).not.toContain("launchRemoteQualificationRuntime");
-    // Command Center may still use Xvfb for trusted-renderer activation.
+    // Command Center may still use Xvfb for desktop startup.
     expect(source).toContain("xvfb-run");
     expect(source).toContain("--vellum-command-operator-control");
   });

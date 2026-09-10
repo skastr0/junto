@@ -80,7 +80,7 @@ const repoRoot = path.resolve(
 const OBSERVATION_SCHEMA =
   "vellum/linux-orbstack-observation/v2" as const;
 const RUN_STATE_SCHEMA =
-  "vellum/linux-orbstack-run-state/v3" as const;
+  "vellum/linux-orbstack-run-state/v4" as const;
 const EVIDENCE_FILE = STATION_QUALIFICATION_EVIDENCE_FILE;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const MAX_EVIDENCE_LINE_BYTES = 32 * 1024;
@@ -183,8 +183,8 @@ export interface QualificationRunState {
   readonly runId: string;
   readonly kind: QualificationKind;
   readonly commandCenterMode:
-    | "new-activation-checkpoint"
-    | "retained-licensed";
+    | "new-installation"
+    | "retained-installation";
   readonly golden: RunMachine;
   readonly machines: {
     readonly commandCenter?: RunMachine;
@@ -1218,8 +1218,8 @@ const startPackagedRuntime = async (
   );
 };
 
-const activationUnitName = (runId: string): string =>
-  `vellum-qualification-activation-${requireRunId(runId)}.service`;
+const commandCenterUnitName = (runId: string): string =>
+  `vellum-qualification-command-center-${requireRunId(runId)}.service`;
 
 /** Sole product Remote supervisor unit (generation-pinned Node, not Electron). */
 const REMOTE_USERLAND_UNIT = "vellum-command-remote.service" as const;
@@ -1289,18 +1289,18 @@ const startExistingQualificationUnit = (
     ["--user", "--no-block", "start", unit],
   );
 
-const launchCommandCenterActivation = async (
+const launchCommandCenter = async (
   executor: CommandExecutor,
   orbctlPath: string,
   machine: RunMachine,
   runId: string,
 ): Promise<string> => {
-  const unit = activationUnitName(runId);
+  const unit = commandCenterUnitName(runId);
   await runGuest(
     executor,
     orbctlPath,
     machine,
-    "stop headless Command Center before trusted-renderer activation",
+    "stop headless Command Center before desktop startup",
     "/usr/bin/systemctl",
     ["--user", "stop", "vellum-command-remote.service"],
   );
@@ -1308,7 +1308,7 @@ const launchCommandCenterActivation = async (
     executor,
     orbctlPath,
     machine,
-    "launch trusted-renderer Command Center activation checkpoint",
+    "launch Command Center desktop",
     "/usr/bin/systemd-run",
     [
       "--user",
@@ -1807,8 +1807,8 @@ const prepare = async (
     );
   }
   const commandCenterMode = retainedNameSupplied
-    ? "retained-licensed" as const
-    : "new-activation-checkpoint" as const;
+    ? "retained-installation" as const
+    : "new-installation" as const;
   const sourceCommit = requireSourceCommit(options.sourceCommit);
   const artifactWithPaths =
     kind === "qualification-candidate"
@@ -1892,7 +1892,7 @@ const prepare = async (
   const names = qualificationMachineNames(runId);
   try {
     let commandCenter: RunMachine;
-    if (commandCenterMode === "retained-licensed") {
+    if (commandCenterMode === "retained-installation") {
       const retainedName = requiredString(
         options.commandCenterName,
         "retained Command Center name",
@@ -1954,7 +1954,7 @@ const prepare = async (
       schema: OBSERVATION_SCHEMA,
       at: dependencies.now().toISOString(),
       runId,
-      event: commandCenterMode === "retained-licensed"
+      event: commandCenterMode === "retained-installation"
         ? "command-center-retained"
         : "command-center-cloned",
       status: "passed",
@@ -2056,7 +2056,7 @@ const prepare = async (
       throw new Error("prepared OrbStack clones are not the recorded running VMs");
     }
     await verifyPackageAbsent(dependencies.executor, orbctlPath, remote);
-    if (commandCenterMode === "new-activation-checkpoint") {
+    if (commandCenterMode === "new-installation") {
       await verifyPackageAbsent(
         dependencies.executor,
         orbctlPath,
@@ -2076,7 +2076,7 @@ const prepare = async (
       kind,
     );
     const packageIdentity =
-      commandCenterMode === "new-activation-checkpoint"
+      commandCenterMode === "new-installation"
         ? await installPackage(
             dependencies.executor,
             orbctlPath,
@@ -2090,7 +2090,7 @@ const prepare = async (
             commandCenter,
             artifact,
           );
-    const activationUnit = await launchCommandCenterActivation(
+    const commandCenterUnit = await launchCommandCenter(
       dependencies.executor,
       orbctlPath,
       commandCenter,
@@ -2106,19 +2106,12 @@ const prepare = async (
         package: packageIdentity,
         remotePackageState: "absent",
         bundleCustody: "fixed-verified-cache",
-        activationCheckpoint:
-          commandCenterMode === "retained-licensed"
-            ? {
-                status: "retained-licensed-installation",
-                unit: activationUnit,
-                proofRequired: "fleet-list",
-              }
-            : {
-                status: "activation-required",
-                unit: activationUnit,
-                surface: "trusted-renderer",
-                secretCustody: "never-cli-args-env-files-or-evidence",
-              },
+        startup: {
+          status: "started",
+          unit: commandCenterUnit,
+          surface: "trusted-renderer",
+          proofRequired: "fleet-list",
+        },
       },
     });
 
@@ -2134,9 +2127,7 @@ const prepare = async (
         remote: { id: remote.id, name: remote.name },
         commandCenterFacts,
         remoteFacts,
-        next: commandCenterMode === "new-activation-checkpoint"
-          ? "activate the normal-renderer Command Center privately, leave it running, then run"
-          : "run",
+        next: "run",
       },
       state,
     });
@@ -2365,12 +2356,12 @@ const managedRun = async (
       ["fleet", "list"],
     ).catch((error) => {
       throw new Error(
-        "Command Center is not license-ready; activate the installed app through its trusted renderer, leave that process running, then rerun without recreating either VM",
+        "Command Center fleet readiness failed; inspect the running desktop and its feature configuration, then rerun without recreating either VM",
         { cause: error },
       );
     });
     if (!Array.isArray(initialFleetReadiness.hosts)) {
-      throw new Error("licensed Command Center returned malformed fleet state");
+      throw new Error("Command Center returned malformed fleet state");
     }
     requireReadyStationStatus(
       initialLocalStatus,
@@ -2397,9 +2388,8 @@ const managedRun = async (
             ? "signed-qualification-candidate"
             : "signed-final-release-cache",
         remotePackageState: "absent",
-        licensedProductStartup: {
-          activationRenderer: "fleet-list-succeeded",
-          qualificationRuntime: "fleet-list-succeeded",
+        productStartup: {
+          commandCenter: "fleet-list-succeeded",
         },
       },
       state,
@@ -2591,7 +2581,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
-      activationUnitName(runId),
+      commandCenterUnitName(runId),
     );
     const remoteQualificationUnit = await ensureRemoteUserlandService(
       dependencies.executor,
@@ -2678,7 +2668,7 @@ const managedRun = async (
       dependencies.executor,
       orbctlPath,
       commandCenter,
-      activationUnitName(runId),
+      commandCenterUnitName(runId),
     );
     const commandCenterRestarted = await retryOperatorCommand(
       dependencies.executor,
@@ -2828,7 +2818,7 @@ const managedRun = async (
         dependencies.executor,
         orbctlPath,
         commandCenter,
-        activationUnitName(runId),
+        commandCenterUnitName(runId),
       );
     await startPackagedRuntime(
       dependencies.executor,
@@ -3835,7 +3825,7 @@ const cleanup = async (
           id: commandCenter.id,
           name: commandCenter.name,
           state: "stopped",
-          reason: "preserve licensed installation and activation slot",
+          reason: "preserve the installation for repeat qualification",
         },
         goldenPreserved: { id: state.golden.id, name: state.golden.name },
       },

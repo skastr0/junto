@@ -1,25 +1,28 @@
-# OrbStack Linux Station Beta two-station qualification
+# OrbStack experimental Linux Station two-station qualification
 
-**Status:** runner migration required; current privileged `.deb` run cannot
-qualify Linux
+**Status:** experimental Fleet/Remote lab runner; stock-host qualification
+remains required before a release receipt can pass.
 
 OrbStack may host disposable Ubuntu 24.04 x86-64 machines for
 two-installation evidence. It is a test-lab convenience, not a product
 prerequisite and not a substitute for stock-host qualification.
 
-The qualifying product is explicitly **Beta**. The runner must exercise the
-fully tested core userland path, independent optional-capability degradation,
+This runner covers experimental Fleet/Remote, not Linux desktop alpha
+qualification. Fleet and Remote remain behind their existing feature flags.
+The runner must exercise the fully tested core userland path,
+independent optional-capability degradation,
 and fail-closed security-sensitive features.
 
-The current runner assumes a prepared golden VM, installs a `.deb`, and uses
-passwordless `sudo` for managed deployment. Those assumptions belong to the
-retired privileged lane. A current run may retain bounded Station, Work, PTY,
-and Chromium observations, but it must not write a passing Linux release
-receipt.
+The current runner clones a prepared golden VM and installs a signed rootless
+userland archive. It starts Command Center through its normal desktop and
+checks Station and Fleet readiness without commercial activation. It may reuse
+an explicitly identified, stopped Command Center installation for repeat runs.
+A golden-image run may retain bounded Station, Work, PTY, and Chromium
+observations, but it must not write a passing Linux release receipt.
 
 ## Canonical runner contract
 
-The replacement runner:
+The complete qualification contract requires that the runner:
 
 - creates two disposable stock Ubuntu 24.04 x86-64 installations
   (`orbctl create -a amd64 ubuntu:24.04` when not cloning a pinned golden;
@@ -65,7 +68,7 @@ inside the golden image.
 
 ## Rootless product flow
 
-The future fixed runner exercises:
+The fixed product flow exercises:
 
 ```text
 verify exact signed rootless payload
@@ -87,15 +90,14 @@ update Remote through the same rootless transaction
 observe runtime and security state
 ```
 
-Exact CLI commands must not be documented until the rootless product surface
-exists and has been proved. The current `.deb` runner commands are migration
-tools, not operator instructions.
+The runner is lab tooling, not an operator installation guide. A successful
+golden-image run does not establish the required stock-host proof.
 
 ## Runtime observation
 
 Observation on both installations must prove:
 
-- exact signed payload and activation identity;
+- exact signed payload and Station installation identity;
 - supervised packaged Node Remote startup with `DISPLAY`, `WAYLAND_DISPLAY`,
   and `XAUTHORITY` absent and no Xvfb, xauth, or mcookie dependency;
 - no Electron, Chromium, renderer, or browser-composition dependency in the
@@ -103,7 +105,7 @@ Observation on both installations must prove:
 - ordinary-user ownership of release, service, and runtime material;
 - role-correct Station readiness;
 - canonical SQLite readiness;
-- Linux Remote browser automation reported `unavailable` for the first Beta
+- Linux Remote browser automation reported `unavailable` for the experimental build
   without affecting core health;
 - native PTY behavior;
 - owner-only control material;
