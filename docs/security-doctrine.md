@@ -386,23 +386,16 @@ Staging a package and changing installed state are separate phases:
    `vellum-command.db`.
 2. The installer fully quiesces the incumbent and proves that it released the
    canonical database.
-3. The exact staged packaged product executable enters its sealed
-   normal app-open migration. For installed state the sole opener is the product runtime on the canonical
-   database read-only, creates and verifies a retained `VACUUM INTO` backup,
-   copies that backup to one disposable candidate database, and closes the
-   canonical source. A first install instead starts from a disposable empty
-   candidate and has no backup to retain.
-4. The candidate migrates the clone with its exact current code, verifies
-   schema identity and foreign keys, and decodes Canvas, Work, Station,
-   kernel-state, scheduler, and active-intent state through current
-   repositories. It emits one strict readiness receipt and deletes only the
-   disposable candidate tree.
-5. A failure before activation leaves installed bytes and live state
+3. The installer revalidates the exact admitted package and its bounded
+   activation destination. Neither an installer nor a helper opens the product
+   database or starts a disposable-clone migration.
+4. A failure before activation leaves installed bytes and live state
    unchanged. The installer may resume the previously healthy incumbent.
-6. A successful receipt permits the installer to cross its existing one-way
-   activation fence. The candidate then opens and, when required, migrates the
-   live database through the same forward-only chain.
-7. Once the live schema version advances or candidate-authored durable work
+5. Activation selects the verified candidate. Its normal main process then
+   opens and, when required, migrates the live database through the immutable
+   forward-only chain. Schema identity, foreign keys, and current repositories
+   are checked through normal startup; failures use startup recovery.
+6. Once the live schema version advances or candidate-authored durable work
    commits, recovery is forward-only. An older binary is never launched
    against the advanced database. Refusal is deterministic: before opening the
    database for write, `schema-version-probe` reads `PRAGMA user_version`
@@ -410,10 +403,12 @@ Staging a package and changing installed state are separate phases:
    shows the operator a plain "Update required" path (quit, or install the
    newer feed build). No open, migration, downgrade, or partial decode occurs.
 
-Candidate preflight proves data admission and migration before the one-way
-cutover. It deliberately does not start or simulate physical actors, browser
-pages, terminals, SSH sessions, providers, or fleet processes. Those surfaces
-belong to post-activation package readiness.
+Package admission proves the downloaded bytes and activation target. It does not
+claim a pre-activation migration or simulate actors, browser pages, terminals,
+SSH sessions, providers, or fleet processes. Those surfaces belong to normal
+startup and post-activation package readiness. If activation has occurred and
+startup progress cannot be established, recovery must not guess that an older
+binary is safe to launch.
 
 Verified backups under `state/backups/` may be inventoried and exported to an
 explicit new operator destination as portability and forensic evidence.
@@ -734,9 +729,9 @@ If no compatible Station protocol exists:
 No-common is a coordination lockdown, not a host-process kill. The Remote
 continues already-homed work under its last complete projection, but accepts
 no new projection, task claim, task approval, command, or acknowledgement
-until it updates. The signed candidate preflight must verify the retained
-backup and disposable-clone migration before the incumbent is replaced; a
-failed preflight leaves the incumbent and its 24/7 local work intact.
+until it updates. The signed package must be admitted before the incumbent is
+quiesced. Failed staging leaves the incumbent and its local work intact;
+schema migration belongs to the candidate's normal startup after activation.
 
 Every connection begins with the compatibility preface. There is no
 pre-negotiation alternate-version entry path or reconnect fallback: an
@@ -884,12 +879,12 @@ Root or administrator authority is a real boundary.
 - Installation and update inputs are verified before the ordinary-user
   product transaction mutates installed bytes.
 - Partial installs and updates are recoverable and honestly reported.
-- Staging and audit do not touch installed state. After exclusive incumbent
-  quiescence, the sealed packaged candidate may perform the exact read-only
-  canonical-open and disposable-clone preflight described above.
-- A failed candidate preflight or a fully rolled-back live migration does not
-  advance the recovery fence: the unchanged database may resume under its
-  prior binary.
+- Staging and audit do not touch installed state or open product databases.
+  After exclusive incumbent quiescence, activation selects the admitted package;
+  only the normal candidate runtime may open and migrate its product database.
+- A failure before activation leaves the unchanged database and prior binary
+  available. After activation, an uncertain startup result is not permission
+  to relaunch an older binary.
 - Once a candidate commits a schema-version advance or candidate-authored
   durable work, recovery is forward-only: Vellum Command retains or repairs that
   candidate and never launches an older bundle against advanced state.
@@ -928,10 +923,13 @@ Linux has one canonical Station installation and update lane:
 - a custom machine image is never the ordinary prerequisite. Hosted machines
   may arrive prepared, but they follow the same product contract.
 
-The userland Linux Station ships with the explicit maturity label **Beta**.
-Beta admission requires the core userland path to be fully tested. Optional
-capabilities may degrade independently when safe; security-sensitive features
-remain fail-closed.
+Linux desktop releases carry the explicit maturity label **Alpha**. Their
+ordinary-user install and automatic-update transaction must be qualified on
+the declared desktop target. Fleet and Remote remain unreleased and gated;
+their future Station **Beta** admission additionally requires the core Remote
+and two-installation path to be fully tested. Desktop publication does not
+qualify that surface. Optional capabilities may degrade independently when
+safe; security-sensitive features remain fail-closed in both scopes.
 
 Vellum Command must not install a `sudoers` rule, setuid helper, file capability,
 polkit rule, privileged daemon, root-owned update journal, or ambient package
@@ -1066,9 +1064,8 @@ A release is blocked while any product path preserves:
   start, unclaim, steal, or implicit work re-home;
 - wall-clock ordering or a cursor that drops part of
   `(event_home, entity_home)`;
-- direct database access from a renderer, headless CLI, helper, fleet caller,
-  concurrent second process, or any proof process outside the one sealed,
-  quiesced packaged-candidate preflight described above;
+- direct product database access from a renderer, headless CLI, helper, fleet
+  caller, concurrent second process, installer, or state-preflight process;
 - dual reads, dual writes, legacy imports, or compatibility adapters outside
   the explicit installed-SQLite and Station-wire boundaries;
 - permissive Station decoding, guessed downgrade, or an older wire codec kept
