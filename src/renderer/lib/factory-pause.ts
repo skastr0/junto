@@ -7,14 +7,12 @@ import type { CanvasPauseState } from "@shared/pause";
  *
  * The pause law (@shared/pause) is preserved exactly: the factory is BORN
  * PAUSED and the first play is an explicit operator decision (confirm
- * overlay), never a default. Busy and license-maintenance guards apply to
- * every entry point.
+ * overlay), never a default. Busy transitions are serialized.
  */
 export const factoryPause$ = observable({
   state: null as CanvasPauseState | null,
   busy: false,
   error: "",
-  licenseMaintenance: false,
   confirmOpen: false,
 });
 
@@ -36,24 +34,12 @@ export const refreshFactoryPause = async (canvasName: string): Promise<void> => 
   }
 };
 
-/** License gate subscription. Returns the unsubscribe fn (TopBar owns the
- * lifetime once per app session). */
-export const refreshFactoryLicense = (): (() => void) | undefined => {
-  const syncLicense = (status: { access: string; canPlayFactory?: boolean }) => {
-    factoryPause$.licenseMaintenance.set(
-      status.access === "maintenance" || status.canPlayFactory === false,
-    );
-  };
-  void window.vellumCommand?.licenseStatus?.().then(syncLicense).catch(() => undefined);
-  return window.vellumCommand?.onLicenseChanged?.(syncLicense);
-};
-
-/** Apply a pause transition. Busy + license guards; shared error/state. */
+/** Apply a pause transition with shared busy, error, and result state. */
 export const applyFactoryPause = async (
   canvasName: string,
   paused: boolean,
 ): Promise<void> => {
-  if (!canvasName || factoryPause$.busy.peek() || factoryPause$.licenseMaintenance.peek()) return;
+  if (!canvasName || factoryPause$.busy.peek()) return;
   factoryPause$.busy.set(true);
   try {
     const result = await window.vellumCommand?.factoryPauseSet(
@@ -83,7 +69,7 @@ export const applyFactoryPause = async (
  * (command bar entry point without a mounted TopBar control).
  */
 export const toggleFactoryPause = (canvasName: string): void => {
-  if (!canvasName || factoryPause$.licenseMaintenance.peek()) return;
+  if (!canvasName) return;
   const run = (state: CanvasPauseState): void => {
     if (state.playing) {
       void applyFactoryPause(canvasName, true);

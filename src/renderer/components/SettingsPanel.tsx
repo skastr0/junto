@@ -41,12 +41,11 @@ import {
 } from "../lib/sfx";
 import { HUE, INK, themeFor } from "../lib/theme";
 import { getVellumCommandApi } from "../lib/vellum-api";
-import { LicenseSection } from "./license";
 import { Button, Eyebrow, Select } from "./ui";
 import "./settings-panel.css";
 
-/** Settings sections: prefs sections + non-prefs panels (hosts/license/updates). */
-type PanelSection = SettingsSectionKey | "license" | "updates";
+/** Settings sections: preferences and the app update panel. */
+type PanelSection = SettingsSectionKey | "updates";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
@@ -59,7 +58,6 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   ...(AUDIO_ENABLED
     ? [{ key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" } as const]
     : []),
-  { key: "license", label: "License", blurb: "access, billing, and this installation" },
   ...(BROWSER_ENABLED
     ? [{ key: "browser", label: "Browser", blurb: "surface and warm-session limits" } as const]
     : []),
@@ -1109,12 +1107,6 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <ProvidersSettingsSection />;
     case "advanced":
       return <AdvancedSection />;
-    case "license": {
-      const api = getVellumCommandApi();
-      return api
-        ? <LicenseSection api={api} />
-        : <p className="settings-error">License service is unavailable.</p>;
-    }
     case "kernel":
     case "canvas":
       return null;
@@ -1173,7 +1165,7 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            {activeSection !== "license" && activeSection !== "updates" ? (
+            {activeSection !== "updates" ? (
               <button
                 type="button"
                 className="settings-panel__ghost"

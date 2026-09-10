@@ -102,14 +102,13 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   const canvasName = state$.canvasName.peek();
   const authoring = isCommandCenterAuthoring(state$.settings.station.role.peek());
   const pauseState = factoryPause$.state.peek();
-  const licenseMaintenance = factoryPause$.licenseMaintenance.peek();
-  const playing = Boolean(pauseState?.playing) && !licenseMaintenance;
+  const playing = Boolean(pauseState?.playing);
   const edgeFilter = state$.edgeFilter.peek();
   const activeFlag = state$.flagFilter.peek();
   const selectedNodeId = state$.selectedNodeId.peek();
   const actions: CommandBarAction[] = [];
 
-  if (authoring && pauseState && !licenseMaintenance) {
+  if (authoring && pauseState) {
     actions.push({
       id: "factory-pause",
       label: playing ? "Pause factory" : "Play factory",
@@ -134,7 +133,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   actions.push({
     id: "open-settings",
     label: "Open settings",
-    detail: "Station, license, and theme settings",
+    detail: "Station, terminal, and theme settings",
     icon: Settings2,
     run: () => openSettings(),
   });

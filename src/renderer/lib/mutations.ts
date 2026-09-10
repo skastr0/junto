@@ -26,7 +26,6 @@ import {
   flowEdgeRemovalWarnings,
   tasksNodeDeletionWarnings,
 } from "./deletion-impact";
-import { licenseCustody } from "./license-custody";
 import {
   removeEdgesFromSelection,
   removeNodesFromSelection,
@@ -469,12 +468,6 @@ export const replaceActiveActorRefs = (
 // pass false for pure position writes RF already reflects (drag stop).
 export const commitDoc = (next: CanvasDoc, structural = true, recordHistory = structural): void => {
   if (state$.settings.station.role.peek() === "remote") {
-    return;
-  }
-  if (licenseCustody.isReadOnly()) {
-    state$.error.set(
-      "license maintenance — canvas is read-only until access is restored",
-    );
     return;
   }
   if (!canvasMutationAdmissionOpen) return;

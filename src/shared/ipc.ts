@@ -47,7 +47,6 @@ import type { HostDirectorySnapshot } from "./host-directory";
 import type { GitLogResult, GitShowResult, GitStatusResult } from "./git";
 import type { ActorRef } from "./work-protocol";
 import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
-import type { LicenseApi } from "./license";
 import type {
   StateBackupId,
   StateRecoveryExportResult,
@@ -186,19 +185,6 @@ export const IPC_CHANNELS = {
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "vellum-command:renderer-surface-challenge",
   rendererSurfaceReady: "vellum-command:renderer-surface-ready",
-  // Installation-local product admission. Recovery channels stay reachable
-  // while every product channel is denied.
-  licenseStatus: "vellum-command:license-status",
-  licenseActivate: "vellum-command:license-activate",
-  licenseRefresh: "vellum-command:license-refresh",
-  licenseDeactivate: "vellum-command:license-deactivate",
-  licenseOpenCustomerPortal: "vellum-command:license-open-customer-portal",
-  licenseRestart: "vellum-command:license-restart",
-  licenseChanged: "vellum-command:license-changed",
-  // Gate-local appearance: the one preference readable/writable before
-  // admission so the license surface itself honors the saved theme.
-  licenseGateThemeGet: "vellum-command:license-gate-theme-get",
-  licenseGateThemeSet: "vellum-command:license-gate-theme-set",
   // Command Center auto-update (Mac; readiness-gated install)
   updateGetState: "vellum-command:update-get-state",
   updateCheck: "vellum-command:update-check",
@@ -580,7 +566,7 @@ export interface VellumCommandHermesIntegrationApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
-export interface VellumCommandApi extends LicenseApi, UpdateApi {
+export interface VellumCommandApi extends UpdateApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */

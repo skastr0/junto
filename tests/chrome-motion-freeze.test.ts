@@ -12,7 +12,6 @@ const readCss = (rel: string): string =>
 
 const rts = readCss("../src/renderer/components/rts/RtsBottomBar.css");
 const hud = readCss("../src/renderer/components/UsageHud.css");
-const license = readCss("../src/renderer/components/license/license.css");
 const media = readCss("../src/renderer/components/work/content-media.css");
 const chat = readCss("../src/renderer/components/chat/chat.css");
 
@@ -28,12 +27,6 @@ describe("chrome infinite CSS freeze", () => {
     expect(hud).not.toMatch(/infinite/);
     expect(hud).not.toMatch(/@keyframes\s+usage-hud-shimmer\b/);
     expect(hud).not.toMatch(/animation\s*:/);
-
-    expect(license).not.toMatch(/infinite/);
-    expect(license).not.toMatch(/@keyframes\s+license-mark-breathe\b/);
-    expect(license).not.toMatch(
-      /\.license-gate--amber\s+\.license-gate__mark\s*\{[^}]*animation\s*:/s,
-    );
   });
 
   it("loading spinners still spin, and pause under data-surface-motion", () => {
@@ -53,7 +46,7 @@ describe("chrome infinite CSS freeze", () => {
   });
 
   it("does not add will-change", () => {
-    for (const css of [rts, hud, license, media, chat]) {
+    for (const css of [rts, hud, media, chat]) {
       expect(css).not.toMatch(/will-change\s*:/);
     }
   });

@@ -3,14 +3,13 @@ import { createRoot as createStandardRoot } from "react-dom/client";
 import "@xyflow/react/dist/style.css";
 import { App } from "./App";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
-import { LicenseGate } from "./components/license";
 import { canvasPerformance } from "./lib/performance/canvas-performance";
 import { PERF_ENABLED } from "./lib/performance/perf-flag";
 import {
   startCanvasPerformanceHarness,
   type ReactProfilerBuild,
 } from "./lib/performance/perf-harness";
-import { seedGateThemePreference, startThemeMode } from "./lib/theme-mode";
+import { startThemeMode } from "./lib/theme-mode";
 import "./styles.css";
 
 // Dev-only render highlighter (https://github.com/aidenybai/react-scan).
@@ -33,27 +32,19 @@ if (!root) {
 // geometry and copy; it never grants an OS capability.
 document.documentElement.dataset.vellumPlatform = window.vellumCommand?.platform ?? "unknown";
 
-function LicensedRoot() {
+function AppRoot() {
   const api = window.vellumCommand;
 
   useEffect(() => {
-    // Both the activation-only surface and the admitted product shell satisfy
-    // main's renderer-readiness challenge.
+    // A mounted product shell satisfies main's renderer-readiness challenge.
     api?.rendererSurfaceReady();
-    // The gate mounts before product admission (settings IPC still closed),
-    // so its saved theme arrives through the license recovery plane. Both
-    // starters are idempotent; App re-runs them post-admission.
     startThemeMode();
-    void api
-      ?.licenseGateThemeGet()
-      .then(seedGateThemePreference)
-      .catch(() => undefined);
   }, [api]);
 
   if (!api) {
     return (
-      <main className="license-gate">
-        <section className="license-gate__fallback" role="alert">
+      <main className="mx-auto my-8 max-w-md rounded-[5px] border border-stroke bg-raise px-6 py-5 text-center text-ink">
+        <section role="alert">
           Electron preload bridge is not available.
         </section>
       </main>
@@ -61,11 +52,9 @@ function LicensedRoot() {
   }
 
   return (
-    <LicenseGate api={api}>
-      <RendererErrorBoundary title="This window hit a render error">
-        <App />
-      </RendererErrorBoundary>
-    </LicenseGate>
+    <RendererErrorBoundary title="This window hit a render error">
+      <App />
+    </RendererErrorBoundary>
   );
 }
 
@@ -97,7 +86,7 @@ const mount = (createRoot: CreateRoot, reactBuild: ReactProfilerBuild): void => 
   startCanvasPerformanceHarness({ reactBuild });
   const tree = (
     <StrictMode>
-      <LicensedRoot />
+      <AppRoot />
     </StrictMode>
   );
   createRoot(root).render(

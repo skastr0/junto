@@ -6,7 +6,6 @@ import {
   cancelFactoryFirstPlay,
   confirmFactoryFirstPlay,
   factoryPause$,
-  refreshFactoryLicense,
   refreshFactoryPause,
   toggleFactoryPause,
 } from "../lib/factory-pause";
@@ -170,47 +169,32 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
   const confirmOpen = use$(factoryPause$.confirmOpen);
   const error = use$(factoryPause$.error);
   const busy = use$(factoryPause$.busy);
-  const licenseMaintenance = use$(factoryPause$.licenseMaintenance);
 
   useEffect(() => {
     void refreshFactoryPause(canvasName);
   }, [canvasName]);
 
-  useEffect(() => refreshFactoryLicense(), []);
-
   if (!canvasName || !pauseState) return null;
 
   const onClick = () => toggleFactoryPause(canvasName);
 
-  const playing = pauseState.playing && !licenseMaintenance;
-  const pauseLabel = licenseMaintenance
-    ? "maintenance"
-    : playing
-      ? "playing"
-      : "paused";
+  const playing = pauseState.playing;
+  const pauseLabel = playing ? "playing" : "paused";
   return (
     <>
       <button
         type="button"
         data-testid="factory-pause"
         data-pause-state={pauseLabel}
-        aria-label={
-          licenseMaintenance
-            ? "Factory in license maintenance"
+        aria-label={playing ? "Pause factory" : "Play factory"}
+        title={
+          error
+            ? `pause switch: ${error}`
             : playing
               ? "Pause factory"
               : "Play factory"
         }
-        title={
-          error
-            ? `pause switch: ${error}`
-            : licenseMaintenance
-              ? "license maintenance — factory work blocked until access is restored"
-              : playing
-                ? "Pause factory"
-                : "Play factory"
-        }
-        disabled={busy || licenseMaintenance}
+        disabled={busy}
         onClick={onClick}
         style={{
           display: "inline-flex",
@@ -223,31 +207,23 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
           fontSize: 9,
           letterSpacing: ".14em",
           textTransform: "uppercase",
-          cursor: busy || licenseMaintenance ? "not-allowed" : "pointer",
+          cursor: busy ? "not-allowed" : "pointer",
           border: "1px solid",
-          ...(licenseMaintenance
+          ...(playing
             ? {
-                color: HUE.crimson,
-                borderColor: withAlpha(HUE.crimson, 0.45),
-                background: withAlpha(HUE.crimson, 0.1),
+                color: GREEN,
+                borderColor: withAlpha(GREEN, 0.28),
+                background: "var(--color-overlay-1)",
               }
-            : playing
-              ? {
-                  color: GREEN,
-                  borderColor: withAlpha(GREEN, 0.28),
-                  background: "var(--color-overlay-1)",
-                }
-              : {
-                  color: HUE.amber,
-                  borderColor: withAlpha(HUE.amber, 0.55),
-                  background: withAlpha(HUE.amber, 0.12),
-                  boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
-                }),
+            : {
+                color: HUE.amber,
+                borderColor: withAlpha(HUE.amber, 0.55),
+                background: withAlpha(HUE.amber, 0.12),
+                boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
+              }),
         }}
       >
-        {licenseMaintenance ? (
-          <Pause size={11} fill="currentColor" />
-        ) : playing ? (
+        {playing ? (
           <Play size={11} fill="currentColor" />
         ) : (
           <Pause size={11} fill="currentColor" />

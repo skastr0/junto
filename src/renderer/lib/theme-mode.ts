@@ -1,5 +1,4 @@
 import { observable } from "@legendapp/state";
-import type { SettingsTheme } from "@shared/settings";
 import { resolveThemeMode, type ThemeMode } from "@shared/theme";
 import { state$ } from "./state";
 
@@ -8,24 +7,15 @@ import { state$ } from "./state";
  * to a concrete mode; the resolved value rides `html[data-theme]` for CSS
  * (dark is the default projection, so the attribute is only set for bright)
  * and is published on `themeMode$` for runtime consumers that paint outside
- * CSS: xterm themes, Three.js fleet, canvas-2D magnifier.
- *
- * The license gate mounts before product admission, where the settings IPC
- * plane is still closed. For that surface the saved preference arrives
- * through the license recovery plane (`seedGateThemePreference`) and stays
- * authoritative until the settings bridge hydrates post-admission.
+ * CSS: xterm themes and the canvas-2D magnifier. The settings bridge supplies
+ * the saved preference through the same settings projection used by the app.
  */
 export const themeMode$ = observable<ThemeMode>("dark");
 
 const MEDIA = "(prefers-color-scheme: light)";
 
-/** The gate-plane theme preference. "system" (auto) until seeded or clicked. */
-export const gateThemePref$ = observable<SettingsTheme>("system");
-let settingsHydrated = false;
-
 const resolve = (): ThemeMode => {
-  const stored = state$.settings.peek()?.appearance?.theme;
-  const pref = settingsHydrated ? stored : (gateThemePref$.peek() ?? stored);
+  const pref = state$.settings.appearance.theme.peek();
   // Same rule main uses (shared/theme resolveThemeMode) so the two can never
   // drift. Main is the source of truth for spawned harnesses; this resolves
   // the identical inputs for what the renderer paints.
@@ -52,16 +42,4 @@ export const startThemeMode = (): void => {
   apply();
   state$.settings.appearance.theme.onChange(() => apply());
   window.matchMedia(MEDIA).addEventListener("change", () => apply());
-};
-
-/** Pre-admission theme read (license recovery plane). Repaints when live. */
-export const seedGateThemePreference = (pref: SettingsTheme): void => {
-  gateThemePref$.set(pref);
-  if (started) apply();
-};
-
-/** The durable settings document loaded; it owns theme truth from here on. */
-export const noteSettingsHydrated = (): void => {
-  settingsHydrated = true;
-  if (started) apply();
 };
