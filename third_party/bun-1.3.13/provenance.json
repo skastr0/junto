@@ -1,0 +1,258 @@
+{
+  "bunVersion": "1.3.13",
+  "bunRevision": "bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",
+  "files": [
+    {
+      "component": "bun",
+      "file": "bun/LICENSE.md",
+      "source": "https://raw.githubusercontent.com/oven-sh/bun/bf2e2cecf27e800962b1e7f03d66278f9d5d2e79/LICENSE.md",
+      "sourceRepository": "https://github.com/oven-sh/bun",
+      "revision": "bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",
+      "sourcePath": "LICENSE.md",
+      "sha256": "b0e163c004bffb092b08f657a1f6e65b6af64cf62765230717a0ed48a3e562de",
+      "bytes": 4682
+    },
+    {
+      "component": "webkit",
+      "file": "webkit/COPYING.LIB",
+      "source": "https://raw.githubusercontent.com/oven-sh/WebKit/4d5e75ebd84a14edbc7ae264245dcd77fe597c10/Source/JavaScriptCore/COPYING.LIB",
+      "sourceRepository": "https://github.com/oven-sh/WebKit",
+      "revision": "4d5e75ebd84a14edbc7ae264245dcd77fe597c10",
+      "sourcePath": "Source/JavaScriptCore/COPYING.LIB",
+      "sha256": "5094ecb9c9dcd0eadc34f3c11511d9b5535063032bc150164ecd1a5d5a445547",
+      "bytes": 25584
+    },
+    {
+      "component": "webcore",
+      "file": "webcore/LICENSE-LGPL-2",
+      "source": "https://raw.githubusercontent.com/oven-sh/WebKit/4d5e75ebd84a14edbc7ae264245dcd77fe597c10/Source/WebCore/LICENSE-LGPL-2",
+      "sourceRepository": "https://github.com/oven-sh/WebKit",
+      "revision": "4d5e75ebd84a14edbc7ae264245dcd77fe597c10",
+      "sourcePath": "Source/WebCore/LICENSE-LGPL-2",
+      "sha256": "7555fa34bc131a75ca56d65c40cc1ea8f9515d23e353d4c15d58573a042f7805",
+      "bytes": 25378
+    },
+    {
+      "component": "tinycc",
+      "file": "tinycc/COPYING",
+      "source": "https://raw.githubusercontent.com/oven-sh/tinycc/12882eee073cfe5c7621bcfadf679e1372d4537b/COPYING",
+      "sourceRepository": "https://github.com/oven-sh/tinycc",
+      "revision": "12882eee073cfe5c7621bcfadf679e1372d4537b",
+      "sourcePath": "COPYING",
+      "sha256": "512d2d21b6b3384ba64781abb0208a1b87740bc31e2df48e2b206ddb7e4d5779",
+      "bytes": 26428
+    },
+    {
+      "component": "boringssl",
+      "file": "boringssl/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/boringssl/0c5fce43b7ed5eb6001487ee48ac65766f5ddcd1/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/boringssl",
+      "revision": "0c5fce43b7ed5eb6001487ee48ac65766f5ddcd1",
+      "sourcePath": "LICENSE",
+      "sha256": "827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f",
+      "bytes": 13115
+    },
+    {
+      "component": "brotli",
+      "file": "brotli/LICENSE",
+      "source": "https://raw.githubusercontent.com/google/brotli/v1.1.0/LICENSE",
+      "sourceRepository": "https://github.com/google/brotli",
+      "revision": "v1.1.0",
+      "sourcePath": "LICENSE",
+      "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94",
+      "bytes": 1084
+    },
+    {
+      "component": "c-ares",
+      "file": "c-ares/LICENSE.md",
+      "source": "https://raw.githubusercontent.com/c-ares/c-ares/3ac47ee46edd8ea40370222f91613fc16c434853/LICENSE.md",
+      "sourceRepository": "https://github.com/c-ares/c-ares",
+      "revision": "3ac47ee46edd8ea40370222f91613fc16c434853",
+      "sourcePath": "LICENSE.md",
+      "sha256": "460f5e768fda3752ca2169a95df062578a10fb126bfd65f3b9b1a1bed2f84807",
+      "bytes": 1211
+    },
+    {
+      "component": "hdrhistogram",
+      "file": "hdrhistogram/LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/HdrHistogram/HdrHistogram_c/be60a9987ee48d0abf0d7b6a175bad8d6c1585d1/LICENSE.txt",
+      "sourceRepository": "https://github.com/HdrHistogram/HdrHistogram_c",
+      "revision": "be60a9987ee48d0abf0d7b6a175bad8d6c1585d1",
+      "sourcePath": "LICENSE.txt",
+      "sha256": "93a583ec58cd981232ec6fab797ff6f17f350c97b83ae0700b2d9350c91028af",
+      "bytes": 2208
+    },
+    {
+      "component": "highway",
+      "file": "highway/LICENSE",
+      "source": "https://raw.githubusercontent.com/google/highway/ac0d5d297b13ab1b89f48484fc7911082d76a93f/LICENSE",
+      "sourceRepository": "https://github.com/google/highway",
+      "revision": "ac0d5d297b13ab1b89f48484fc7911082d76a93f",
+      "sourcePath": "LICENSE",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "bytes": 11356
+    },
+    {
+      "component": "libarchive",
+      "file": "libarchive/COPYING",
+      "source": "https://raw.githubusercontent.com/libarchive/libarchive/ded82291ab41d5e355831b96b0e1ff49e24d8939/COPYING",
+      "sourceRepository": "https://github.com/libarchive/libarchive",
+      "revision": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+      "sourcePath": "COPYING",
+      "sha256": "30e556b3959e3985d66efefec5eaac51d4995053caa1d3cffe6eb916f146f229",
+      "bytes": 3089
+    },
+    {
+      "component": "libdeflate",
+      "file": "libdeflate/COPYING",
+      "source": "https://raw.githubusercontent.com/ebiggers/libdeflate/c8c56a20f8f621e6a966b716b31f1dedab6a41e3/COPYING",
+      "sourceRepository": "https://github.com/ebiggers/libdeflate",
+      "revision": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+      "sourcePath": "COPYING",
+      "sha256": "4ad69099cb4374836fd27583d9991e2838cd86b6e4666ab26b2d32582c91e73a",
+      "bytes": 1078
+    },
+    {
+      "component": "libuv",
+      "file": "libuv/LICENSE",
+      "source": "https://raw.githubusercontent.com/libuv/libuv/f3ce527ea940d926c40878ba5de219640c362811/LICENSE",
+      "sourceRepository": "https://github.com/libuv/libuv",
+      "revision": "f3ce527ea940d926c40878ba5de219640c362811",
+      "sourcePath": "LICENSE",
+      "sha256": "16de0c32b265cb7d46a6d3bd614f259dd4d693a5e26b3407b04aae8d73041f0c",
+      "bytes": 1079
+    },
+    {
+      "component": "lol-html",
+      "file": "lol-html/LICENSE",
+      "source": "https://raw.githubusercontent.com/cloudflare/lol-html/77127cd2b8545998756e8d64e36ee2313c4bb312/LICENSE",
+      "sourceRepository": "https://github.com/cloudflare/lol-html",
+      "revision": "77127cd2b8545998756e8d64e36ee2313c4bb312",
+      "sourcePath": "LICENSE",
+      "sha256": "e4ddaa9d7391bb9536fcb8c59b570a8b85a0bf6da54df5b3b26f098f6f99c9cc",
+      "bytes": 1487
+    },
+    {
+      "component": "ls-hpack",
+      "file": "ls-hpack/LICENSE",
+      "source": "https://raw.githubusercontent.com/litespeedtech/ls-hpack/8905c024b6d052f083a3d11d0a169b3c2735c8a1/LICENSE",
+      "sourceRepository": "https://github.com/litespeedtech/ls-hpack",
+      "revision": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+      "sourcePath": "LICENSE",
+      "sha256": "0490f9666828ad1b6b5503102e7ebbe491451b7174511f3b6255caa967caf955",
+      "bytes": 1090
+    },
+    {
+      "component": "mimalloc",
+      "file": "mimalloc/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/mimalloc/57029fb1f193e633462e76af745599e1dbfd4b58/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/mimalloc",
+      "revision": "57029fb1f193e633462e76af745599e1dbfd4b58",
+      "sourcePath": "LICENSE",
+      "sha256": "82ade5d7d9b029044b5fbbc326207fc47c2d44ee4dd71e8a559c36d728217de9",
+      "bytes": 1096
+    },
+    {
+      "component": "zlib-ng",
+      "file": "zlib-ng/LICENSE.md",
+      "source": "https://raw.githubusercontent.com/zlib-ng/zlib-ng/12731092979c6d07f42da27da673a9f6c7b13586/LICENSE.md",
+      "sourceRepository": "https://github.com/zlib-ng/zlib-ng",
+      "revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+      "sourcePath": "LICENSE.md",
+      "sha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee",
+      "bytes": 867
+    },
+    {
+      "component": "zstd",
+      "file": "zstd/LICENSE",
+      "source": "https://raw.githubusercontent.com/facebook/zstd/f8745da6ff1ad1e7bab384bd1f9d742439278e99/LICENSE",
+      "sourceRepository": "https://github.com/facebook/zstd",
+      "revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "sourcePath": "LICENSE",
+      "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8",
+      "bytes": 1549
+    },
+    {
+      "component": "usockets",
+      "file": "usockets/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/bun/bf2e2cecf27e800962b1e7f03d66278f9d5d2e79/packages/bun-usockets/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/bun",
+      "revision": "bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",
+      "sourcePath": "packages/bun-usockets/LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    {
+      "component": "uwebsockets",
+      "file": "uwebsockets/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/bun/bf2e2cecf27e800962b1e7f03d66278f9d5d2e79/packages/bun-uws/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/bun",
+      "revision": "bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",
+      "sourcePath": "packages/bun-uws/LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    {
+      "component": "zig-clap",
+      "file": "zig-clap/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/bun/bf2e2cecf27e800962b1e7f03d66278f9d5d2e79/src/deps/zig-clap/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/bun",
+      "revision": "bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",
+      "sourcePath": "src/deps/zig-clap/LICENSE",
+      "sha256": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd",
+      "bytes": 1210
+    },
+    {
+      "component": "uucode",
+      "file": "uucode/LICENSE.md",
+      "source": "https://raw.githubusercontent.com/oven-sh/bun/bf2e2cecf27e800962b1e7f03d66278f9d5d2e79/src/deps/uucode/LICENSE.md",
+      "sourceRepository": "https://github.com/oven-sh/bun",
+      "revision": "bf2e2cecf27e800962b1e7f03d66278f9d5d2e79",
+      "sourcePath": "src/deps/uucode/LICENSE.md",
+      "sha256": "75b52b07e8f6ed6b1700ca6e4bcff93a59258624d4fd1ab7eae4c071c860b69b",
+      "bytes": 1298
+    },
+    {
+      "component": "picohttpparser",
+      "file": "picohttpparser/LICENSE",
+      "source": "https://raw.githubusercontent.com/h2o/picohttpparser/066d2b1e9ab820703db0837a7255d92d30f0c9f5/picohttpparser.h",
+      "sourceRepository": "https://github.com/h2o/picohttpparser",
+      "revision": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+      "sourcePath": "picohttpparser.h",
+      "extraction": "Leading copyright and full MIT license comment, unchanged; no implementation copied.",
+      "sourceSha256": "0113b9f8c6237f7163d99b320a2390983b27c6d56e32700682b73302e183b347",
+      "sha256": "38a1881166cfd8b7e727bb1ad96996f7e96ce726ae4cea1dddf5d531503341d0",
+      "bytes": 1291
+    },
+    {
+      "component": "simdutf",
+      "file": "simdutf/LICENSE-simdutf.txt",
+      "source": "https://raw.githubusercontent.com/oven-sh/WebKit/4d5e75ebd84a14edbc7ae264245dcd77fe597c10/Source/WTF/wtf/simdutf/LICENSE-simdutf.txt",
+      "sourceRepository": "https://github.com/oven-sh/WebKit",
+      "revision": "4d5e75ebd84a14edbc7ae264245dcd77fe597c10",
+      "sourcePath": "Source/WTF/wtf/simdutf/LICENSE-simdutf.txt",
+      "sha256": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f",
+      "bytes": 1059
+    },
+    {
+      "component": "webkit-dtoa",
+      "file": "webkit-dtoa/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/WebKit/4d5e75ebd84a14edbc7ae264245dcd77fe597c10/Source/WTF/wtf/dtoa/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/WebKit",
+      "revision": "4d5e75ebd84a14edbc7ae264245dcd77fe597c10",
+      "sourcePath": "Source/WTF/wtf/dtoa/LICENSE",
+      "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca",
+      "bytes": 1527
+    },
+    {
+      "component": "webkit-fast-float",
+      "file": "webkit-fast-float/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/WebKit/4d5e75ebd84a14edbc7ae264245dcd77fe597c10/Source/WTF/wtf/fast_float/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/WebKit",
+      "revision": "4d5e75ebd84a14edbc7ae264245dcd77fe597c10",
+      "sourcePath": "Source/WTF/wtf/fast_float/LICENSE",
+      "sha256": "097a889aa954d04e088b790b10a4014d6189561d0a6013935a73ce3d4ddaaf06",
+      "bytes": 10767
+    }
+  ]
+}
