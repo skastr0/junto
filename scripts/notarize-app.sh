@@ -332,6 +332,11 @@ fi
 assert_release_app_capability "$APP_PATH" || exit 1
 assert_release_zip_capability "$ZIP_SRC" || exit 1
 bun "$SCRIPT_DIR/audit-packaged-app.ts" "$APP_PATH"
+# Source downloads must exist locally before any submission to Apple. This also
+# binds the clean source snapshot to the verified packaged runtime. Stapling
+# changes ZIP bytes, so the publisher requires a refreshed binding afterwards.
+bun "$SCRIPT_DIR/prepare-release-sources.ts" --repo "$REPO_ROOT" \
+  --runtime-sources "$RELEASE_ROOT/sources" --release-dir "$RELEASE_ROOT" --app "$APP_PATH"
 APP_ID="$(path_id "$APP_PATH")"
 ZIP_ID="$(path_id "$ZIP_SRC")"
 RECEIPT_PATH="$RELEASE_ROOT/notarization-receipt.json"
