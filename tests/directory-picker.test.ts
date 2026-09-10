@@ -138,7 +138,7 @@ describe("directoryFromDraft", () => {
 describe("path helpers", () => {
   it("joins without doubling the filesystem root separator", () => {
     expect(joinHostPath("/", "Users")).toBe("/Users");
-    expect(joinHostPath("/Users", "gc")).toBe("/Users/developer");
+    expect(joinHostPath("/Users", "developer")).toBe("/Users/developer");
   });
 
   it("keeps the filesystem root when trimming", () => {
