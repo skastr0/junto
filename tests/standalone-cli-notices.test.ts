@@ -92,7 +92,7 @@ describe("standalone CLI dependency notices", () => {
       "Second dependency version license\nCopyright Fixture Two\nDifferent complete redistribution terms.\n";
     const leafLicense = "Leaf license\nEvery term on this line must survive.\n";
     const leafNotice = "Leaf NOTICE\nKeep this attribution with the license.\n";
-    const tar = installPackage(root, "@fixture/bundled-tar", "7.0.0", {
+    const tar = installPackage(root, "tar", "7.5.15", {
       dependencies: {
         "@fixture/leaf": "^1.0.0",
         "@fixture/repeated": "^1.0.0",
@@ -117,9 +117,9 @@ describe("standalone CLI dependency notices", () => {
       path.relative(root, input),
     ]);
     expect(result.dependencies).toEqual([
-      "@fixture/bundled-tar",
       "@fixture/leaf",
       "@fixture/repeated",
+      "tar",
     ]);
     expect(result.notices).toHaveLength(4);
     const repeated = result.notices.filter((notice) =>
@@ -149,7 +149,7 @@ describe("standalone CLI dependency notices", () => {
 
   it("includes installed optional dependencies and permits absent optional dependencies", () => {
     const root = fixture();
-    const tar = installPackage(root, "@fixture/optional-owner", "1.0.0", {
+    const tar = installPackage(root, "tar", "7.5.15", {
       dependencies: { "@fixture/absent-optional": "1.0.0" },
       optionalDependencies: {
         "@fixture/absent-optional": "1.0.0",
@@ -161,15 +161,52 @@ describe("standalone CLI dependency notices", () => {
       path.join(tar, "dist/index.js"),
     ]);
     expect(result.dependencies).toEqual([
-      "@fixture/optional-owner",
       "@fixture/present-optional",
+      "tar",
     ]);
     expect(result.notices).toHaveLength(2);
   });
 
+  it("collects only visible package notices outside the known bundle while preserving visible nested versions", () => {
+    const root = fixture();
+    const owner = installPackage(root, "@fixture/visible", "1.0.0", {
+      dependencies: { "@fixture/unused-required": "1.0.0" },
+      optionalDependencies: { "@fixture/unused-native": "1.0.0" },
+      devDependencies: { "@fixture/unused-dev": "1.0.0" },
+    });
+    for (
+      const name of [
+        "@fixture/unused-required",
+        "@fixture/unused-native",
+        "@fixture/unused-dev",
+      ]
+    ) {
+      installPackage(root, name, "1.0.0", { license: null });
+    }
+    const first = installPackage(root, "@fixture/repeated", "1.0.0");
+    const second = installPackage(owner, "@fixture/repeated", "2.0.0");
+    const result = collectStandaloneCliNotices(
+      root,
+      [owner, first, second].map((directory) =>
+        path.join(directory, "dist/index.js")
+      ),
+    );
+    expect(result.dependencies).toEqual([
+      "@fixture/repeated",
+      "@fixture/visible",
+    ]);
+    expect(result.notices).toHaveLength(3);
+    expect(
+      result.notices.filter((notice) => notice.includes("@fixture/repeated@")),
+    ).toHaveLength(2);
+    expect(result.notices.join("\n")).toContain("@fixture/repeated@1.0.0");
+    expect(result.notices.join("\n")).toContain("@fixture/repeated@2.0.0");
+    expect(result.notices.join("\n")).not.toContain("@fixture/unused-");
+  });
+
   it("fails when a transitive production dependency is missing", () => {
     const root = fixture();
-    const tar = installPackage(root, "@fixture/incomplete-owner", "1.0.0", {
+    const tar = installPackage(root, "tar", "7.5.15", {
       dependencies: { "@fixture/leaf": "1.0.0" },
     });
     installPackage(root, "@fixture/leaf", "1.0.0", {
@@ -184,7 +221,7 @@ describe("standalone CLI dependency notices", () => {
     "fails when an installed %s entry has no full license text",
     (field) => {
       const root = fixture();
-      const tar = installPackage(root, "@fixture/unlicensed-owner", "1.0.0", {
+      const tar = installPackage(root, "tar", "7.5.15", {
         [field]: { "@fixture/no-license": "1.0.0" },
       });
       installPackage(root, "@fixture/no-license", "1.0.0", { license: null });
