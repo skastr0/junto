@@ -29,6 +29,7 @@ import {
   assertPackagedCliCorresponds,
   prepareSourceDownload,
   verifySourceDownload,
+  assertLinuxArchiveContainsRuntime,
 } from "../scripts/prepare-release-sources";
 const roots: string[] = [];
 const temporary = () => {
@@ -96,6 +97,20 @@ const fixture = async () => {
 };
 
 describe("corresponding-source release inventory", () => {
+  it("binds a Linux archive to the exact packaged app and relink CLI", async () => {
+    const root = temporary();
+    const name = "vellum-runtime-0.2.1-linux-x64";
+    const runtimeRoot = path.join(root, name);
+    mkdirSync(path.join(runtimeRoot, "resources/bin"), { recursive: true });
+    writeFileSync(path.join(runtimeRoot, "resources/app.asar"), "verified app");
+    writeFileSync(path.join(runtimeRoot, "resources/bin/vellum-command"), "verified CLI");
+    const archivePath = path.join(root, `${name}.tar.gz`);
+    execFileSync("/usr/bin/tar", [...(process.platform === "linux" ? ["--owner=1000", "--group=1000"] : ["--uid", "1000", "--gid", "1000"]), "-czf", archivePath, "-C", root, name]);
+    await expect(assertLinuxArchiveContainsRuntime({ archivePath, runtimeRoot, version: "0.2.1" })).resolves.toBeUndefined();
+    writeFileSync(path.join(runtimeRoot, "resources/bin/vellum-command"), "changed CLI");
+    await expect(assertLinuxArchiveContainsRuntime({ archivePath, runtimeRoot, version: "0.2.1" })).rejects.toThrow(/verified runtime file/);
+    await expect(assertLinuxArchiveContainsRuntime({ archivePath, runtimeRoot, version: "0.2.2" })).rejects.toThrow(/canonical archive name/);
+  });
   it("admits complete hash-bound material and places its index last", async () => {
     const input = await fixture();
     const result = await verifyReleaseSources({ ...input, version: "0.2.1" });

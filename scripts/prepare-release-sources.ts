@@ -25,6 +25,11 @@ import {
   RUNTIME_SOURCE_MATERIALS,
   RUNTIME_ELECTRON_VERSION,
 } from "./prepare-runtime-sources";
+import {
+  linuxRuntimeArtifactName,
+  linuxRuntimeArchiveName,
+  validateLinuxRuntimeArchive,
+} from "./finalize-linux-package";
 
 export const RELEASE_SOURCE_INDEX = "sources.json";
 export const RELEASE_SOURCE_SCHEMA = "vellum-command/release-sources/v1";
@@ -325,7 +330,7 @@ export const verifyReleaseSources = async (input: {
     actualBinaries.length !== index.binaries.length
   )
     throw new Error(
-      "source index lacks exact release binary bindings; prepare again with --app after notarization",
+      "source index lacks exact release binary bindings; prepare again with the final packaged artifact",
     );
   for (const actual of actualBinaries) {
     const expected = index.binaries.find((file) => file.file === actual.file);
@@ -444,6 +449,36 @@ const assertZipContainsAppFile = async (
   });
 };
 
+/** Stream the archive's application/CLI bytes independently of its directory. */
+export const assertLinuxArchiveContainsRuntime = async (input: {
+  readonly archivePath: string;
+  readonly runtimeRoot: string;
+  readonly version: string;
+}): Promise<void> => {
+  const artifactName = linuxRuntimeArtifactName({ version: input.version, arch: "x64" });
+  if (path.basename(input.archivePath) !== linuxRuntimeArchiveName({ version: input.version, arch: "x64" }))
+    throw new Error("Linux source binding requires the canonical archive name");
+  validateLinuxRuntimeArchive({ archive: input.archivePath, artifactName });
+  for (const relative of ["resources/app.asar", "resources/bin/vellum-command"]) {
+    const expected = await fingerprintSourceFile(path.join(input.runtimeRoot, path.dirname(relative)), path.basename(relative));
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("/usr/bin/tar", ["-xOzf", input.archivePath, `${artifactName}/${relative}`], { stdio: ["ignore", "pipe", "pipe"] });
+      const hash = createHash("sha256");
+      let bytes = 0;
+      let errorText = "";
+      child.stdout.on("data", (chunk: Buffer) => { bytes += chunk.length; hash.update(chunk); });
+      child.stderr.on("data", (chunk: Buffer) => { errorText = (errorText + chunk.toString()).slice(0, 2048); });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code !== 0) return reject(new Error(`cannot verify Linux archive source binding: ${errorText}`));
+        if (bytes !== expected.bytes || hash.digest("hex") !== expected.sha256)
+          return reject(new Error(`Linux archive does not contain the verified runtime file: ${relative}`));
+        resolve();
+      });
+    });
+  }
+};
+
 const installExact = async (
   source: string,
   directory: string,
@@ -469,7 +504,12 @@ export const prepareReleaseSources = async (input: {
   readonly runtimeSources: string;
   readonly releaseDirectory: string;
   readonly appBundle?: string;
+  readonly linuxRuntime?: string;
+  readonly linuxArchive?: string;
 }): Promise<ReleaseSources> => {
+  if ((input.linuxRuntime === undefined) !== (input.linuxArchive === undefined) ||
+      (input.appBundle !== undefined && input.linuxRuntime !== undefined))
+    throw new Error("choose --app or both --linux-runtime and --linux-archive");
   const root = path.resolve(input.repoRoot);
   const { commit } = await assertExactCommittedCheckout(root);
   const pkg = JSON.parse(
@@ -624,6 +664,13 @@ export const prepareReleaseSources = async (input: {
         `Vellum-Command-${version}-arm64-mac.dmg`,
       ].map((file) => fingerprintSourceFile(input.releaseDirectory, file)),
     );
+  } else if (input.linuxRuntime !== undefined && input.linuxArchive !== undefined) {
+    const parity = await verifyPackagedRuntimeParity({ repoRoot: root, target: "linux", runtimeRoot: input.linuxRuntime });
+    if (parity.sourceCommit !== commit || parity.appVersion !== version)
+      throw new Error("packaged Linux runtime and source archive disagree");
+    await assertPackagedCliCorresponds(path.join(cliDirectory, "vellum-command"), path.join(input.linuxRuntime, "resources/bin/vellum-command"));
+    await assertLinuxArchiveContainsRuntime({ archivePath: input.linuxArchive, runtimeRoot: input.linuxRuntime, version });
+    binaries = [await fingerprintSourceFile(path.dirname(input.linuxArchive), path.basename(input.linuxArchive))];
   }
   const sourceFiles = await Promise.all(
     [
@@ -663,7 +710,7 @@ if (import.meta.main) {
     const value = args[i + 1];
     if (
       arg === undefined ||
-      !["--repo", "--runtime-sources", "--release-dir", "--app"].includes(
+      !["--repo", "--runtime-sources", "--release-dir", "--app", "--linux-runtime", "--linux-archive"].includes(
         arg,
       ) ||
       value === undefined ||
@@ -671,7 +718,7 @@ if (import.meta.main) {
       options.has(arg)
     )
       throw new Error(
-        "usage: bun scripts/prepare-release-sources.ts --runtime-sources PATH [--repo PATH] [--release-dir PATH] [--app PATH]",
+        "usage: bun scripts/prepare-release-sources.ts --runtime-sources PATH [--repo PATH] [--release-dir PATH] [--app PATH | --linux-runtime PATH --linux-archive PATH]",
       );
     options.set(arg, value);
   }
@@ -687,6 +734,8 @@ if (import.meta.main) {
     releaseDirectory:
       options.get("--release-dir") ?? path.join(root, "release"),
     ...(options.has("--app") ? { appBundle: options.get("--app")! } : {}),
+    ...(options.has("--linux-runtime") ? { linuxRuntime: options.get("--linux-runtime")! } : {}),
+    ...(options.has("--linux-archive") ? { linuxArchive: options.get("--linux-archive")! } : {}),
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
