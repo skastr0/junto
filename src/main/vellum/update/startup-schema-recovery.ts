@@ -8,18 +8,13 @@
  * the DB for write, and offers one-shot install-from-feed + quitAndInstall.
  */
 
-import { createRequire } from "node:module";
-import { dialog, shell, type App } from "electron";
-import type { AppUpdater } from "electron-updater";
-import { macArm64UpdateFeed } from "./compiled-config";
+import { app, dialog, shell, type App } from "electron";
+import { Effect } from "effect";
+import { linuxX64UpdateFeed, macArm64UpdateFeed } from "./compiled-config";
+import { makePlatformUpdateProvider } from "./platform";
+import type { StagedUpdate, UpdateHostHooks, UpdateProvider } from "./provider";
+import { releaseStaging } from "./staging";
 import type { SchemaCompatibility } from "../state/schema-version-probe";
-
-const require = createRequire(import.meta.url);
-
-const loadAutoUpdater = (): AppUpdater => {
-  const mod = require("electron-updater") as { autoUpdater: AppUpdater };
-  return mod.autoUpdater;
-};
 
 export type SchemaRecoveryOutcome =
   | { readonly action: "continue" }
@@ -39,9 +34,9 @@ export type SchemaRecoveryDialog = {
 };
 
 export type SchemaRecoveryUpdater = {
-  readonly configureFeed: (url: string) => void;
   readonly checkForUpdates: () => Promise<{ readonly version?: string } | null>;
-  readonly quitAndInstall: () => void;
+  readonly quitAndInstall: () => void | Promise<void>;
+  readonly dispose?: () => void;
 };
 
 const defaultDialog = (): SchemaRecoveryDialog => ({
@@ -60,21 +55,40 @@ const defaultDialog = (): SchemaRecoveryDialog => ({
   },
 });
 
-const defaultUpdater = (): SchemaRecoveryUpdater => {
-  const updater = loadAutoUpdater();
+/**
+ * The recovery process has no AppRuntime or database connection to quiesce.
+ * It uses the normal provider's signed staging and activation transaction.
+ */
+export const makeSchemaRecoveryUpdater = (
+  provider: UpdateProvider,
+  host: UpdateHostHooks,
+  timeoutMs = 10 * 60_000,
+): SchemaRecoveryUpdater => {
+  let staged: StagedUpdate | undefined;
+  let started = false;
+  let disposed = false;
+  let cancelPending: (() => void) | undefined;
+
+  const releaseProof = (candidate: StagedUpdate | undefined): void => {
+    Effect.runSync(releaseStaging(candidate?.stagingRoot));
+  };
+
   return {
-    configureFeed: (url) => {
-      updater.autoDownload = true;
-      // Recovery is an explicit operator choice to leave this broken binary.
-      updater.autoInstallOnAppQuit = true;
-      updater.allowDowngrade = false;
-      updater.logger = null;
-      updater.setFeedURL({ provider: "generic", url });
-    },
-    checkForUpdates: () =>
-      new Promise((resolve, reject) => {
+    checkForUpdates: () => {
+      if (started || disposed) {
+        return Promise.reject(new Error("schema recovery update check is one-shot"));
+      }
+      started = true;
+      return new Promise((resolve, reject) => {
         let settled = false;
-        const finish = (value: { readonly version?: string } | null) => {
+        let staging = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const cleanup = () => {
+          if (timer !== undefined) clearTimeout(timer);
+          cancelPending = undefined;
+          provider.stop();
+        };
+        const finish = (value: { readonly version: string } | null) => {
           if (settled) return;
           settled = true;
           cleanup();
@@ -86,43 +100,77 @@ const defaultUpdater = (): SchemaRecoveryUpdater => {
           cleanup();
           reject(error instanceof Error ? error : new Error(String(error)));
         };
-        const onAvailable = (info: { readonly version: string }) => {
-          // Keep waiting for download; surface version for the dialog path.
-          availableVersion = info.version;
-        };
-        const onDownloaded = (event: { readonly version: string }) => {
-          finish({ version: event.version });
-        };
-        const onNotAvailable = () => {
-          finish(null);
-        };
-        const onError = (error: Error) => {
+        cancelPending = () => fail(new Error("schema recovery update was cancelled"));
+        timer = setTimeout(
+          () => fail(new Error("update check timed out while recovering from schema mismatch")),
+          timeoutMs,
+        );
+        try {
+          provider.start((event) => {
+            if (settled) return;
+            if (event._tag === "error") {
+              fail(new Error(event.message));
+            } else if (event._tag === "not-available") {
+              finish(null);
+            } else if (event._tag === "downloaded" && !staging) {
+              staging = true;
+              const stage = provider.stageDownloaded;
+              if (stage === undefined) {
+                fail(new Error("this platform cannot verify a downloaded update"));
+                return;
+              }
+              void stage(event.downloadedFile, event.release).then((candidate) => {
+                if (settled || disposed) {
+                  releaseProof(candidate);
+                  return;
+                }
+                staged = candidate;
+                finish({ version: event.release.version });
+              }, fail);
+            }
+          });
+          void provider.check().catch(fail);
+        } catch (error) {
           fail(error);
-        };
-        let availableVersion: string | undefined;
-        const cleanup = () => {
-          updater.off("update-available", onAvailable);
-          updater.off("update-downloaded", onDownloaded);
-          updater.off("update-not-available", onNotAvailable);
-          updater.off("error", onError);
-        };
-        updater.on("update-available", onAvailable);
-        updater.on("update-downloaded", onDownloaded);
-        updater.on("update-not-available", onNotAvailable);
-        updater.on("error", onError);
-        void updater.checkForUpdates().catch(fail);
-        // Safety: do not hang forever if the feed never answers.
-        setTimeout(() => {
-          if (!settled) {
-            fail(new Error("update check timed out while recovering from schema mismatch"));
-          }
-        }, 10 * 60_000);
-      }),
-    quitAndInstall: () => {
-      updater.quitAndInstall(false, true);
+        }
+      });
+    },
+    quitAndInstall: async () => {
+      if (disposed || staged === undefined) {
+        throw new Error("no verified update is ready for schema recovery");
+      }
+      await staged.revalidate?.();
+      if (staged.installAfterQuiesce !== undefined) {
+        await staged.installAfterQuiesce(host);
+      } else {
+        releaseProof(staged);
+        provider.quitAndInstall();
+      }
+    },
+    dispose: () => {
+      disposed = true;
+      cancelPending?.();
+      provider.stop();
+      releaseProof(staged);
+      staged = undefined;
     },
   };
 };
+
+const recoveryHost = (
+  owner: Pick<App, "relaunch" | "exit">,
+): UpdateHostHooks => ({
+  // The schema probe ran read-only before any product runtime was started.
+  quiesceForInstall: async () => {},
+  relaunchWithoutInstall: () => {
+    owner.relaunch();
+    owner.exit(0);
+  },
+  relaunchInstalled: (executablePath) => {
+    owner.relaunch({ execPath: executablePath, args: [] });
+    owner.exit(0);
+  },
+});
 
 const compareSemver = (left: string, right: string): number => {
   const parts = (value: string): readonly number[] => {
@@ -179,11 +227,13 @@ export const runStartupSchemaRecovery = async (input: {
   readonly appVersion: string;
   readonly isPackaged: boolean;
   readonly headless: boolean;
+  readonly platform?: NodeJS.Platform;
+  /** Download-page seam for tests; installed providers use only compiled feeds. */
   readonly feedUrl?: string;
+  readonly host?: UpdateHostHooks;
   readonly dialog?: SchemaRecoveryDialog;
   readonly updater?: SchemaRecoveryUpdater;
   readonly openExternal?: (url: string) => Promise<void>;
-  /** Injected for tests — production uses electron app.getVersion via caller. */
 }): Promise<SchemaRecoveryOutcome> => {
   const {
     compatibility,
@@ -193,6 +243,7 @@ export const runStartupSchemaRecovery = async (input: {
   } = input;
 
   const diagnostic = diagnosticDetail(compatibility, appVersion);
+  const platform = input.platform ?? process.platform;
 
   if (headless) {
     console.error(`[startup] schema too new for this app (${diagnostic})`);
@@ -201,8 +252,8 @@ export const runStartupSchemaRecovery = async (input: {
 
   const ui = input.dialog ?? defaultDialog();
 
-  // Unpackaged builds cannot install from the update feed; same copy, Quit only.
-  if (!isPackaged) {
+  // Development and unsupported platforms cannot install an official update.
+  if (!isPackaged || (platform !== "darwin" && platform !== "linux")) {
     console.error(`[startup] schema too new for this app (${diagnostic})`);
     await ui.showMessageBox({
       type: "error",
@@ -213,7 +264,12 @@ export const runStartupSchemaRecovery = async (input: {
       message: SCHEMA_TOO_NEW_MESSAGE,
       detail: SCHEMA_TOO_NEW_DETAIL,
     });
-    return { action: "quit", reason: "schema-newer-than-supported-dev" };
+    return {
+      action: "quit",
+      reason: isPackaged
+        ? "schema-newer-than-supported-platform"
+        : "schema-newer-than-supported-dev",
+    };
   }
 
   const choice = await ui.showMessageBox({
@@ -230,12 +286,14 @@ export const runStartupSchemaRecovery = async (input: {
     return { action: "quit", reason: "operator-quit" };
   }
 
-  const feed = input.feedUrl ?? macArm64UpdateFeed().url;
+  const feed = input.feedUrl ?? (platform === "linux"
+    ? linuxX64UpdateFeed().url
+    : macArm64UpdateFeed().url);
 
   if (choice.response === 1) {
     const open = input.openExternal ?? ((url: string) => shell.openExternal(url));
     try {
-      await open(feed.replace(/\/mac\/arm64\/?$/u, "/"));
+      await open(feed.replace(/\/(?:mac\/arm64|linux\/x64)\/?$/u, "/"));
     } catch {
       await open(feed);
     }
@@ -243,9 +301,12 @@ export const runStartupSchemaRecovery = async (input: {
   }
 
   // Update now — download from feed and restart into the newer app.
-  const updater = input.updater ?? defaultUpdater();
+  let updater = input.updater;
   try {
-    updater.configureFeed(feed);
+    updater ??= makeSchemaRecoveryUpdater(
+      makePlatformUpdateProvider({ platform, isPackaged, currentVersion: appVersion }),
+      input.host ?? recoveryHost(app),
+    );
     const downloaded = await updater.checkForUpdates();
     if (!feedVersionUnbricks(appVersion, downloaded?.version)) {
       console.error(
@@ -265,7 +326,7 @@ export const runStartupSchemaRecovery = async (input: {
       });
       return { action: "quit", reason: "feed-has-no-newer-version" };
     }
-    updater.quitAndInstall();
+    await updater.quitAndInstall();
     return {
       action: "installing",
       targetVersion: downloaded?.version,
@@ -284,12 +345,14 @@ export const runStartupSchemaRecovery = async (input: {
         "Check your network connection and try again, or download the latest Vellum Command from the website.",
     });
     return { action: "quit", reason: `update-failed:${message}` };
+  } finally {
+    updater?.dispose?.();
   }
 };
 
 /** Convenience for main: probe + recover when needed. */
 export const ensureSchemaCompatibleOrRecover = async (input: {
-  readonly app: Pick<App, "getVersion" | "isPackaged">;
+  readonly app: Pick<App, "getVersion" | "isPackaged" | "relaunch" | "exit">;
   readonly headless: boolean;
   readonly compatibility: SchemaCompatibility;
   readonly dialog?: SchemaRecoveryDialog;
@@ -301,6 +364,7 @@ export const ensureSchemaCompatibleOrRecover = async (input: {
     appVersion: input.app.getVersion(),
     isPackaged: input.app.isPackaged,
     headless: input.headless,
+    host: recoveryHost(input.app),
     ...(input.dialog === undefined ? {} : { dialog: input.dialog }),
     ...(input.updater === undefined ? {} : { updater: input.updater }),
   });
