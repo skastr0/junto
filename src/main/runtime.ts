@@ -111,6 +111,7 @@ import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
   macArm64UpdateFeed,
+  linuxX64UpdateFeed,
   makePlatformUpdateProvider,
   makeUpdateServiceLayer,
 } from "./vellum/update";
@@ -252,6 +253,7 @@ const UpdateServiceLive = Layer.unwrap(
     const provider = makePlatformUpdateProvider({
       platform: process.platform,
       isPackaged: app.isPackaged,
+      currentVersion: app.getVersion() || productMetadata.version,
     });
     installUpdateProviderHandle(provider);
     const packaged = app.isPackaged;
@@ -267,7 +269,9 @@ const UpdateServiceLive = Layer.unwrap(
         providerKind: provider.kind,
         ...(packaged && provider.kind === "mac"
           ? { feedUrl: macArm64UpdateFeed().url }
-          : {}),
+          : packaged && provider.kind === "linux"
+            ? { feedUrl: linuxX64UpdateFeed().url }
+            : {}),
       },
     });
   }),

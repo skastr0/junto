@@ -41,6 +41,11 @@ export const deferredUpdateHostHooks = (): UpdateHostHooks => ({
   relaunchWithoutInstall: () => {
     requireUpdateHostHooks().relaunchWithoutInstall();
   },
+  relaunchInstalled: (executablePath) => {
+    const relaunch = requireUpdateHostHooks().relaunchInstalled;
+    if (relaunch === undefined) throw new Error("installed release relaunch is unavailable");
+    relaunch(executablePath);
+  },
 });
 
 export const captureInstallAuthority = (

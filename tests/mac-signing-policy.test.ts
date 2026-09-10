@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compiledMacSigningPolicy,
@@ -9,6 +8,9 @@ import {
   validateLocalBundleProvenance,
 } from "../src/main/vellum/hosts/deploy-darwin";
 import { admitStagedMacApp } from "../src/main/vellum/update/admit-mac-app";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const team = "EXAMP12345";
 const authority = `Developer ID Application: Example Maintainer (${team})`;
@@ -54,8 +56,30 @@ describe("compiled macOS release trust", () => {
       expectedPackageState: "absent",
     })).toThrow(/release trust is not configured/);
     const runCommand = vi.fn();
-    await expect(Effect.runPromise(admitStagedMacApp("/missing/Vellum Command.app", { runCommand })))
+    await expect(admitStagedMacApp("/missing/Vellum Command.app", { runCommand }))
       .rejects.toThrow(/release trust is not configured/);
     expect(runCommand).not.toHaveBeenCalled();
+  });
+
+  it("binds the signed bundle version to the advertised release", async () => {
+    vi.stubGlobal("__VELLUM_COMMAND_MAC_TEAM_ID__", team);
+    vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", authority);
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-mac-admit-"));
+    try {
+      const appPath = join(root, "Vellum Command.app");
+      const executable = join(appPath, "Contents", "MacOS", "Vellum Command");
+      await mkdir(join(appPath, "Contents", "MacOS"), { recursive: true });
+      await writeFile(executable, "synthetic signed executable");
+      await chmod(executable, 0o700);
+      await writeFile(join(appPath, "Contents", "Info.plist"), "synthetic signed plist");
+      const runCommand = vi.fn(async (_command: string, args: readonly string[]) => ({
+        code: 0, stderr: "", stdout: args.includes("CFBundleIdentifier") ? "skastr0.vellumcommand" :
+          args.includes("CFBundleExecutable") ? "Vellum Command" : args.includes("CFBundleShortVersionString") ? "0.2.0" : "",
+      }));
+      await expect(admitStagedMacApp(appPath, { runCommand, expectedVersion: "0.2.1" })).rejects.toThrow(/version does not match/);
+      await expect(admitStagedMacApp(appPath, { runCommand, expectedVersion: "0.2.0" })).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -27,7 +27,7 @@ describe("update domain", () => {
     const minted = mintAuthorizedCandidate({
       version: "0.2.0",
       downloadedFile: "/tmp/update.zip",
-      zipSha256: "b".repeat(64),
+      archiveSha256: "b".repeat(64),
     });
     expect(isMintedCandidate(minted)).toBe(true);
     expect(
@@ -43,7 +43,7 @@ describe("update domain", () => {
     const withoutStage = mintAuthorizedCandidate({
       version: "0.2.0",
       downloadedFile: "/tmp/update.zip",
-      zipSha256: "c".repeat(64),
+      archiveSha256: "c".repeat(64),
     });
     expect(canOperatorInstall(withoutStage)).toBe(false);
     expect(canAuthorizeInstall(withoutStage)).toBe(false);
@@ -51,7 +51,7 @@ describe("update domain", () => {
     const withStage = mintAuthorizedCandidate({
       version: "0.2.0",
       downloadedFile: "/tmp/update.zip",
-      zipSha256: "c".repeat(64),
+      archiveSha256: "c".repeat(64),
       stagedAppPath: "/tmp/Vellum Command.app/Contents/MacOS/Vellum Command",
     });
     expect(canOperatorInstall(withStage)).toBe(true);
@@ -83,5 +83,16 @@ describe("update domain", () => {
         targetVersion: "0.2.0",
       }),
     ).toBe(false);
+  });
+
+  it("refuses symlink and directory archive inputs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-archive-admit-"));
+    roots.push(root);
+    const file = join(root, "archive.zip");
+    const link = join(root, "redirect.zip");
+    await writeFile(file, "real bytes");
+    await symlink(file, link);
+    await expect(Effect.runPromise(hashFileSha256(link))).rejects.toThrow();
+    await expect(Effect.runPromise(hashFileSha256(root))).rejects.toThrow(/regular file/);
   });
 });

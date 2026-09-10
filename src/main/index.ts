@@ -1421,6 +1421,14 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.relaunch();
         app.exit(0);
       },
+      relaunchInstalled: (executablePath) => {
+        // SQLite and owned product processes are already closed. Electron waits
+        // for this process to exit before starting this exact admitted release.
+        skipQuitConfirm = true;
+        runtimeDisposed = true;
+        app.relaunch({ execPath: executablePath, args: [] });
+        app.exit(0);
+      },
     });
     registerIpcHandlers();
     registerDemoIpcHandlers();

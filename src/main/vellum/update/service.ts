@@ -15,8 +15,8 @@ import {
   type AuthorizedUpdateCandidate,
 } from "./domain";
 import { UpdateError, updateError } from "./errors";
-import type { UpdateHostHooks, UpdateProvider } from "./provider";
-import { expandMacUpdateZip, releaseStaging } from "./staging";
+import type { StagedUpdate, UpdateHostHooks, UpdateProvider } from "./provider";
+import { releaseStaging } from "./staging";
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
@@ -57,14 +57,14 @@ export class UpdateService extends Context.Service<UpdateService,
 export type InstallPlan = {
   readonly version: string;
   readonly downloadedFile: string;
-  readonly zipSha256: string;
+  readonly archiveSha256: string;
   readonly executablePath: string;
   readonly stagingRoot: string | undefined;
   readonly available: AvailableRelease | undefined;
   readonly currentVersion: string;
 };
 
-const installPlans = new WeakSet<object>();
+const installPlans = new WeakMap<object, AuthorizedUpdateCandidate>();
 
 export const isMintedInstallPlan = (
   plan: InstallPlan | undefined,
@@ -76,7 +76,7 @@ export type UpdateServiceOptions = {
   readonly host: UpdateHostHooks;
   /** Operator-visible install identity; mirrored onto every projected status. */
   readonly install?: UpdateInstallProvenance;
-  readonly expandZip?: typeof expandMacUpdateZip;
+  readonly stageDownloaded?: (downloadedFile: string, release: AvailableRelease) => Effect.Effect<StagedUpdate, UpdateError>;
 };
 
 type LiveState = {
@@ -141,11 +141,11 @@ export const finalizeInstallAfterQuiesce = (input: {
         ),
       );
     }
-    if (input.candidate.zipSha256 !== input.plan.zipSha256) {
+    if (installPlans.get(input.plan) !== input.candidate || input.candidate.archiveSha256 !== input.plan.archiveSha256) {
       return yield* Effect.fail(
         updateError(
           "candidate-mismatch",
-          "install plan zip digest does not match minted candidate",
+          "install plan does not match its exact minted candidate",
         ),
       );
     }
@@ -158,17 +158,26 @@ export const finalizeInstallAfterQuiesce = (input: {
         ),
       );
     }
+    // Consume once before the external cutover; a retry needs fresh admission.
+    installPlans.delete(input.plan);
 
     yield* releaseStaging(input.plan.stagingRoot);
-    yield* Effect.try({
-      try: () => {
-        input.provider.quitAndInstall();
+    yield* Effect.tryPromise({
+      try: async () => {
+        if (input.candidate.installation?.installAfterQuiesce !== undefined) {
+          await input.candidate.installation.installAfterQuiesce(input.host);
+        } else {
+          input.provider.quitAndInstall();
+        }
       },
       catch: (cause) => {
-        input.host.relaunchWithoutInstall();
+        const activated = input.candidate.installation?.hasActivated?.() === true;
+        if (!activated) input.host.relaunchWithoutInstall();
         return updateError(
           "install-refused",
-          cause instanceof Error
+          activated
+            ? "The new release was activated but could not restart. Quit and launch Vellum Command from its installed desktop launcher; the previous release cannot be restored."
+            : cause instanceof Error
             ? `quitAndInstall failed: ${cause.message}`
             : "quitAndInstall failed",
           cause,
@@ -209,7 +218,18 @@ export const makeUpdateService = (
     };
     const ref = yield* SubscriptionRef.make(initial);
     const listeners = new Set<(status: UpdateStatus) => void>();
-    const expandZip = options.expandZip ?? expandMacUpdateZip;
+    const stageDownloaded = options.stageDownloaded ?? ((downloadedFile: string, release: AvailableRelease) =>
+      Effect.tryPromise({
+        try: async () => {
+          if (options.provider.stageDownloaded === undefined) {
+            throw new Error("update provider has no staged artifact admission");
+          }
+          return options.provider.stageDownloaded(downloadedFile, release);
+        },
+        catch: (cause) => cause instanceof UpdateError ? cause : updateError(
+          "readiness-failed", cause instanceof Error ? cause.message : "update admission failed", cause,
+        ),
+      }));
     const runtime = yield* Effect.context<never>();
 
     // Serial provider-event queue — prevent concurrent runPromiseWith races.
@@ -323,18 +343,15 @@ export const makeUpdateService = (
               return;
             }
             case "downloaded": {
-              const zipSha256 = yield* hashFileSha256(event.downloadedFile);
-              let executablePath: string | undefined;
-              let stagingRoot: string | undefined;
-              if (options.provider.kind === "mac") {
-                const staged = yield* expandZip(event.downloadedFile);
-                executablePath = staged.executablePath;
-                stagingRoot = staged.stagingRoot;
-              }
+              const archiveSha256 = yield* hashFileSha256(event.downloadedFile);
+              const staged = yield* stageDownloaded(event.downloadedFile, event.release);
+              const executablePath = staged.executablePath;
+              const stagingRoot = staged.stagingRoot;
               const candidate = mintAuthorizedCandidate({
                 version: event.release.version,
                 downloadedFile: event.downloadedFile,
-                zipSha256,
+                archiveSha256,
+                installation: staged,
                 ...(executablePath === undefined
                   ? {}
                   : { stagedAppPath: executablePath }),
@@ -359,13 +376,9 @@ export const makeUpdateService = (
               return;
             }
             case "error": {
-              const code =
-                options.provider.kind === "linux" ||
-                options.provider.kind === "unsupported"
-                  ? ("platform-unsupported" as const)
-                  : event.message.includes("packaged")
+              const code = event.code ?? (event.message.includes("packaged")
                     ? ("not-packaged" as const)
-                    : ("check-failed" as const);
+                    : ("check-failed" as const));
               yield* setStatus((state) => ({
                 ...state,
                 status: statusOf(
@@ -487,8 +500,8 @@ export const makeUpdateService = (
           ),
         );
       }
-      const zipSha256 = yield* hashFileSha256(candidate.downloadedFile);
-      if (zipSha256 !== candidate.zipSha256) {
+      const archiveSha256 = yield* hashFileSha256(candidate.downloadedFile);
+      if (archiveSha256 !== candidate.archiveSha256) {
         const staleStaging = current.stagingRoot;
         yield* releaseStaging(staleStaging);
         yield* setStatus((state) => ({
@@ -502,7 +515,7 @@ export const makeUpdateService = (
               error: {
                 code: "candidate-mismatch",
                 message:
-                  "downloaded update ZIP changed after readiness mint",
+                  "downloaded update archive changed after readiness mint",
               },
             },
             undefined,
@@ -511,9 +524,22 @@ export const makeUpdateService = (
         return yield* Effect.fail(
           updateError(
             "candidate-mismatch",
-            "downloaded update ZIP changed after readiness mint",
+            "downloaded update archive changed after readiness mint",
           ),
         );
+      }
+
+      if (candidate.installation?.revalidate !== undefined) {
+        yield* Effect.tryPromise({
+          try: candidate.installation.revalidate,
+          catch: (cause) => updateError("candidate-mismatch",
+            cause instanceof Error ? cause.message : "staged update changed after admission", cause),
+        }).pipe(Effect.tapError((error) => setStatus((state) => ({
+          ...state,
+          candidate: undefined,
+          status: statusOf({ phase: "error", currentVersion: options.currentVersion,
+            error: { code: error.updateCode, message: error.message } }, undefined),
+        }))));
       }
 
       yield* setStatus((state) => ({
@@ -532,16 +558,16 @@ export const makeUpdateService = (
         ),
       }));
 
-      const plan: InstallPlan = {
+      const plan: InstallPlan = Object.freeze({
         version: candidate.version,
         downloadedFile: candidate.downloadedFile,
-        zipSha256,
+        archiveSha256,
         executablePath,
         stagingRoot: current.stagingRoot,
         available: current.status.available,
         currentVersion: options.currentVersion,
-      };
-      installPlans.add(plan);
+      });
+      installPlans.set(plan, candidate);
       return { plan, candidate };
     });
 
@@ -573,6 +599,7 @@ export const makeUpdateService = (
             yield* setStatus((state) => ({
               ...state,
               installInFlight: false,
+              candidate: state.candidate?.installation?.hasActivated?.() === true ? undefined : state.candidate,
               status: statusOf(
                 {
                   phase: "error",
@@ -585,7 +612,7 @@ export const makeUpdateService = (
                     message: error.message,
                   },
                 },
-                state.candidate,
+                state.candidate?.installation?.hasActivated?.() === true ? undefined : state.candidate,
               ),
             }));
             return yield* Effect.fail(error);
@@ -620,7 +647,8 @@ export const makeUpdateServiceLayer = (
     UpdateService,
     Effect.gen(function* () {
       const service = yield* makeUpdateService(options);
-      // Quiet scheduled checks — only packaged Mac produces real events.
+      yield* Effect.addFinalizer(() => Effect.sync(() => options.provider.stop()));
+      // Quiet scheduled checks for packaged desktop releases.
       yield* Effect.forkScoped(
         Effect.gen(function* () {
           yield* Effect.sleep("30 seconds");

@@ -147,7 +147,7 @@ describe("UpdateService", () => {
           quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
-        expandZip: () =>
+        stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
             appPath: join(root, "Vellum Command.app"),
@@ -185,7 +185,7 @@ describe("UpdateService", () => {
           quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
-        expandZip: () =>
+        stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
             appPath: join(root, "Vellum Command.app"),
@@ -229,7 +229,7 @@ describe("UpdateService", () => {
           quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
-        expandZip: () =>
+        stageDownloaded: () =>
           Effect.tryPromise({
             try: async () => {
               inFlight += 1;
@@ -278,7 +278,7 @@ describe("UpdateService", () => {
     const zipPath = join(root, "update.zip");
     const body = Buffer.from("zip-body");
     await writeFile(zipPath, body);
-    const zipSha256 = createHash("sha256").update(body).digest("hex");
+    const archiveSha256 = createHash("sha256").update(body).digest("hex");
 
     let captured: {
       plan: InstallPlan;
@@ -294,7 +294,7 @@ describe("UpdateService", () => {
           quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: () => undefined,
         },
-        expandZip: () =>
+        stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
             appPath: join(root, "Vellum Command.app"),
@@ -315,7 +315,7 @@ describe("UpdateService", () => {
 
     const prepared = await Effect.runPromise(svc.prepareInstall);
     captured = prepared;
-    expect(captured.plan.zipSha256).toBe(zipSha256);
+    expect(captured.plan.archiveSha256).toBe(archiveSha256);
 
     const status = await Effect.runPromise(
       finalizeInstallAfterQuiesce({
@@ -353,7 +353,7 @@ describe("UpdateService", () => {
           quiesceForInstall: async () => undefined,
           relaunchWithoutInstall: relaunch,
         },
-        expandZip: () =>
+        stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
             appPath: join(root, "Vellum Command.app"),
@@ -415,5 +415,64 @@ describe("UpdateService", () => {
     } finally {
       await runtime.dispose();
     }
+  });
+});
+
+describe("platform-neutral staged installation", () => {
+  const readyLinux = async (installation: import("../src/main/vellum/update/provider").StagedUpdate, host: import("../src/main/vellum/update/provider").UpdateHostHooks) => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-command-linux-coordinator-"));
+    roots.push(root);
+    const archivePath = join(root, "release.tar.gz");
+    await writeFile(archivePath, "authenticated Linux archive");
+    const harness = makeFakeProvider();
+    const stageDownloaded = vi.fn(async () => installation);
+    const provider: UpdateProvider = { ...harness.provider, kind: "linux", stageDownloaded };
+    const service = await Effect.runPromise(makeUpdateService({ currentVersion: "0.2.0", provider, host }));
+    harness.emit({ _tag: "downloaded", release: { version: "0.2.1" }, downloadedFile: archivePath });
+    await waitFor(async () => (await Effect.runPromise(service.getState)).phase === "ready");
+    return { service, provider, harness, stageDownloaded };
+  };
+
+  it("uses Linux admission and revalidation before quiescence, then awaits installation", async () => {
+    const calls: string[] = [];
+    const host = { quiesceForInstall: async () => { calls.push("quiesce"); }, relaunchWithoutInstall: vi.fn() };
+    const installation = { executablePath: "/owned/new/vellum-command", revalidate: async () => { calls.push("revalidate"); },
+      installAfterQuiesce: async () => { calls.push("install"); } };
+    const { service, harness, stageDownloaded } = await readyLinux(installation, host);
+    const state = await Effect.runPromise(service.restartAndInstall);
+    expect(state.phase).toBe("installing");
+    expect(calls).toEqual(["revalidate", "quiesce", "install"]);
+    expect(stageDownloaded).toHaveBeenCalledWith(expect.stringContaining("release.tar.gz"), { version: "0.2.1" });
+    expect(harness.quitAndInstall).not.toHaveBeenCalled();
+    expect(host.relaunchWithoutInstall).not.toHaveBeenCalled();
+  });
+
+  it("refuses a changed staged generation before releasing the runtime", async () => {
+    const host = { quiesceForInstall: vi.fn(async () => undefined), relaunchWithoutInstall: vi.fn() };
+    const installAfterQuiesce = vi.fn();
+    const { service } = await readyLinux({ executablePath: "/owned/new/vellum-command", installAfterQuiesce,
+      revalidate: async () => { throw new Error("generation contents changed"); } }, host);
+    await expect(Effect.runPromise(service.restartAndInstall)).rejects.toThrow(/generation contents changed/);
+    expect(host.quiesceForInstall).not.toHaveBeenCalled();
+    expect(installAfterQuiesce).not.toHaveBeenCalled();
+    expect((await Effect.runPromise(service.getState)).canInstall).toBe(false);
+  });
+
+  it.each([false, true])("only allows old-app recovery before activation, activated=%s", async (activated) => {
+    const host = { quiesceForInstall: vi.fn(async () => undefined), relaunchWithoutInstall: vi.fn() };
+    const { service } = await readyLinux({ executablePath: "/owned/new/vellum-command", hasActivated: () => activated,
+      installAfterQuiesce: async () => { throw new Error("handoff failed"); } }, host);
+    await expect(Effect.runPromise(service.restartAndInstall)).rejects.toThrow(activated ? /previous release cannot be restored/ : /handoff failed/);
+    expect(host.quiesceForInstall).toHaveBeenCalledOnce();
+    expect(host.relaunchWithoutInstall).toHaveBeenCalledTimes(activated ? 0 : 1);
+  });
+
+  it("preserves typed Linux download failures instead of calling every failure unsupported", async () => {
+    const harness = makeFakeProvider();
+    const service = await Effect.runPromise(makeUpdateService({ currentVersion: "0.2.0", provider: { ...harness.provider, kind: "linux" },
+      host: { quiesceForInstall: async () => undefined, relaunchWithoutInstall: () => undefined } }));
+    harness.emit({ _tag: "error", code: "download-failed", message: "archive digest mismatch" });
+    await waitFor(async () => (await Effect.runPromise(service.getState)).phase === "error");
+    expect((await Effect.runPromise(service.getState)).error?.code).toBe("download-failed");
   });
 });

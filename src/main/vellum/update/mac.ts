@@ -12,6 +12,9 @@ import { createRequire } from "node:module";
 import type { AppUpdater } from "electron-updater";
 import type { AvailableRelease } from "@shared/update";
 import { macArm64UpdateFeed } from "./compiled-config";
+import { readUpdateArchiveDigest } from "./domain";
+import { updateError } from "./errors";
+import { expandMacUpdateZip } from "./staging";
 import type {
   UpdateProvider,
   UpdateProviderListener,
@@ -124,6 +127,7 @@ export const makeMacUpdateProvider = (options: {
       updater.on("error", (error) => {
         emit({
           _tag: "error",
+          code: "check-failed",
           message: error instanceof Error ? error.message : String(error),
         });
       });
@@ -137,11 +141,24 @@ export const makeMacUpdateProvider = (options: {
       if (!options.isPackaged) {
         emit({
           _tag: "error",
+          code: "not-packaged",
           message: "updates are only available in packaged builds",
         });
         return;
       }
       await autoUpdater().checkForUpdates();
+    },
+    stageDownloaded: async (downloadedFile, release) => {
+      const archiveSha256 = await readUpdateArchiveDigest(downloadedFile);
+      const staged = await expandMacUpdateZip(downloadedFile, { expectedVersion: release.version });
+      return Object.freeze({
+        ...staged,
+        revalidate: async () => {
+          if (await readUpdateArchiveDigest(downloadedFile) !== archiveSha256) {
+            throw updateError("candidate-mismatch", "downloaded update archive changed after admission");
+          }
+        },
+      });
     },
     quitAndInstall: () => {
       // Explicit operator install only — never force-restart on ordinary quit.

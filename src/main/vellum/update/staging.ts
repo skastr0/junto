@@ -13,7 +13,7 @@ import {
   admitStagedMacApp,
   type AdmitStagedMacAppOptions,
 } from "./admit-mac-app";
-import { updateError, type UpdateError } from "./errors";
+import { updateError } from "./errors";
 
 const STAGING_MODE = 0o700;
 
@@ -105,66 +105,41 @@ const runDittoExtract = (
 /**
  * Expand the exact downloaded ZIP to a disposable proof-only staging directory,
  * then admit the staged `.app` (Developer ID + product identity) before the
- * path is minted for preflight. Never installs to /Applications —
+ * path is admitted for installation. Never installs to /Applications —
  * electron-updater owns the real swap.
  */
-export const expandMacUpdateZip = (
+export const expandMacUpdateZip = async (
   zipPath: string,
   options: ExpandMacUpdateZipOptions = {},
-): Effect.Effect<StagedCandidateBundle, UpdateError> =>
-  Effect.gen(function* () {
-    const staged = yield* Effect.tryPromise({
-      try: async () => {
-        const resolvedZip = resolve(zipPath);
-        const zipInfo = lstatSync(resolvedZip);
-        if (!zipInfo.isFile() || zipInfo.isSymbolicLink()) {
-          throw new Error("update ZIP is not a regular file");
-        }
-        const stagingRoot = mkdtempSync(
-          join(tmpdir(), "vellum-command-update-proof-"),
-        );
-        chmodSync(stagingRoot, STAGING_MODE);
-        try {
-          await runDittoExtract(resolvedZip, stagingRoot);
-          assertRealDirectory(stagingRoot);
-          const appPath = findAppBundle(stagingRoot);
-          const executablePath = resolveMacExecutable(appPath);
-          return { stagingRoot, appPath, executablePath };
-        } catch (error) {
-          try {
-            rmSync(stagingRoot, { recursive: true, force: true });
-          } catch {
-            // best-effort cleanup
-          }
-          throw error;
-        }
-      },
-      catch: (cause) =>
-        updateError(
-          "readiness-failed",
-          cause instanceof Error
-            ? `failed to expand update ZIP: ${cause.message}`
-            : "failed to expand update ZIP",
-          cause,
-        ),
-    });
+): Promise<StagedCandidateBundle> => {
+  let stagingRoot: string | undefined;
+  try {
+    const resolvedZip = resolve(zipPath);
+    const zipInfo = lstatSync(resolvedZip);
+    if (!zipInfo.isFile() || zipInfo.isSymbolicLink()) {
+      throw new Error("update ZIP is not a regular file");
+    }
+    stagingRoot = mkdtempSync(join(tmpdir(), "vellum-command-update-proof-"));
+    chmodSync(stagingRoot, STAGING_MODE);
+    await runDittoExtract(resolvedZip, stagingRoot);
+    assertRealDirectory(stagingRoot);
+    const appPath = findAppBundle(stagingRoot);
+    const executablePath = resolveMacExecutable(appPath);
+    await admitStagedMacApp(appPath, options);
+    return { stagingRoot, appPath, executablePath };
+  } catch (cause) {
+    discardStaging(stagingRoot);
+    throw updateError("readiness-failed",
+      cause instanceof Error ? `failed to admit update ZIP: ${cause.message}` : "failed to admit update ZIP", cause);
+  }
+};
 
-    // Admit before any consumer mints stagedAppPath / spawns preflight.
-    yield* admitStagedMacApp(staged.appPath, options).pipe(
-      Effect.tapError(() => releaseStaging(staged.stagingRoot)),
-    );
-
-    return staged;
-  }).pipe(Effect.withSpan("update.expand-mac-zip"));
+const discardStaging = (stagingRoot: string | undefined): void => {
+  if (stagingRoot === undefined) return;
+  try { rmSync(stagingRoot, { recursive: true, force: true }); }
+  catch { /* Disposable proof cleanup cannot block installation. */ }
+};
 
 export const releaseStaging = (
   stagingRoot: string | undefined,
-): Effect.Effect<void> =>
-  Effect.sync(() => {
-    if (stagingRoot === undefined) return;
-    try {
-      rmSync(stagingRoot, { recursive: true, force: true });
-    } catch {
-      // proof staging is disposable; never block install on cleanup
-    }
-  });
+): Effect.Effect<void> => Effect.sync(() => discardStaging(stagingRoot));

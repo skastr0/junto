@@ -1,4 +1,4 @@
-export { MAC_ARM64_UPDATE_FEED_URL, macArm64UpdateFeed } from "./compiled-config";
+export { MAC_ARM64_UPDATE_FEED_URL, macArm64UpdateFeed, linuxX64UpdateFeed } from "./compiled-config";
 export {
   admitsRemoteAutoRollout,
   canAuthorizeInstall,

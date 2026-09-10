@@ -1,8 +1,7 @@
 /**
- * Build-time feed selection for Mac Command Center self-update.
+ * Fixed feed selection for Command Center self-update.
  *
  * Packaged apps never accept a runtime arbitrary feed URL override.
- * --channel is Dodo licensing and must not be reused here.
  *
  * Production custom domain (after DNS):
  *   https://releases.vellumcommand.com/mac/arm64
@@ -55,4 +54,10 @@ const compiledFeedUrl = (): string | undefined => {
 export const macArm64UpdateFeed = (): UpdateFeedConfig => ({
   provider: "generic",
   url: compiledFeedUrl() ?? MAC_ARM64_UPDATE_FEED_URL,
+});
+
+/** Linux desktop alpha has its own signed descriptor, distinct from Fleet. */
+export const linuxX64UpdateFeed = (): UpdateFeedConfig => ({
+  provider: "generic",
+  url: MAC_ARM64_UPDATE_FEED_URL_WORKER.replace(/\/mac\/arm64$/u, "/linux/x64"),
 });

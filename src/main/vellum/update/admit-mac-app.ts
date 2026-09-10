@@ -2,9 +2,8 @@ import { constants as fsConstants, lstatSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { Effect } from "effect";
 import { compiledMacSigningPolicy } from "../mac-signing-policy";
-import { updateError, type UpdateError } from "./errors";
+import { updateError } from "./errors";
 
 /** Product identity — must match production packaging and deploy-darwin. */
 const PRODUCT_NAME = "Vellum Command";
@@ -29,6 +28,7 @@ export type AdmitStagedMacAppOptions = {
    * Production uses `/usr/bin/codesign` and `/usr/bin/plutil`.
    */
   readonly runCommand?: AdmitMacAppCommand;
+  readonly expectedVersion?: string;
 };
 
 const defaultRunCommand: AdmitMacAppCommand = (command, args) =>
@@ -92,12 +92,11 @@ const runOrThrow = async (
  *
  * Non-darwin callers should not reach this path; inject `runCommand` in tests.
  */
-export const admitStagedMacApp = (
+export const admitStagedMacApp = async (
   appPath: string,
   options: AdmitStagedMacAppOptions = {},
-): Effect.Effect<void, UpdateError> =>
-  Effect.tryPromise({
-    try: async () => {
+): Promise<void> => {
+    try {
       const policy = compiledMacSigningPolicy();
       const runCommand = options.runCommand ?? defaultRunCommand;
       const canonicalPath = resolve(appPath);
@@ -169,13 +168,21 @@ export const admitStagedMacApp = (
           `staged app CFBundleExecutable must be ${PRODUCT_NAME}`,
         );
       }
-    },
-    catch: (cause) =>
-      updateError(
+      if (options.expectedVersion !== undefined) {
+        const bundleVersion = await runOrThrow(runCommand, "/usr/bin/plutil", [
+          "-extract", "CFBundleShortVersionString", "raw", "-o", "-", infoPlistPath,
+        ]);
+        if (bundleVersion !== options.expectedVersion) {
+          throw new Error("staged app version does not match the advertised release");
+        }
+      }
+    } catch (cause) {
+      throw updateError(
         "readiness-failed",
         cause instanceof Error
           ? `staged app admission failed: ${cause.message}`
           : "staged app admission failed",
         cause,
-      ),
-  }).pipe(Effect.withSpan("update.admit-mac-app"));
+      );
+    }
+  };
