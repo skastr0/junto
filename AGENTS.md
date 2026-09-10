@@ -178,6 +178,11 @@ opens, migrates, downgrades, or partially decodes advanced state.
 
 ---
 
+## Dependencies
+
+Bleeding-edge and unstable dependency versions are permitted. Retain Legend
+State v3; its prerelease status is not a reason to downgrade it.
+
 ## The agent surface (headless — no GUI needed)
 
 **Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum Command tools.
