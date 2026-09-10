@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { standaloneControlBuild } from "../scripts/build-standalone-cli";
 
 describe("app build userland artifact contract", () => {
   it("compiles only the single packaged CLI required by the app", async () => {
@@ -7,16 +8,12 @@ describe("app build userland artifact contract", () => {
       new URL("../scripts/build-app.sh", import.meta.url),
       "utf8",
     );
-    const compiledControls = [...build.matchAll(
-      /build_compiled_cli "\$REPO_ROOT\/dist\/([^"]+)" ([^\s]+)/gu,
-    )].map((match) => ({
-      artifact: match[1],
-      source: match[2],
-    }));
-
-    expect(compiledControls).toEqual([
-      { artifact: "vellum-command", source: "src/cli/main.ts" },
-    ]);
+    const compiledControls = [...build.matchAll(/"\$SCRIPT_DIR\/build-standalone-cli\.ts" ([^\s]+)/gu)].map((match) => match[1]);
+    expect(compiledControls).toEqual(["vellum-command"]);
+    expect(standaloneControlBuild("vellum-command")).toMatchObject({
+      output: "dist/vellum-command", source: "src/cli/main.ts",
+    });
+    expect(build).not.toContain("bun build --compile");
     expect(build).not.toContain("vellum-command-browser");
     expect(build).not.toContain("vellum-command-station");
     expect(build).not.toContain("vellum-command-content");

@@ -302,6 +302,7 @@ describe("browser CLI packaging contract", () => {
       };
     };
     const buildScript = await readFile(join(repoRoot, "scripts/build-app.sh"), "utf8");
+    const cliBuildScript = await readFile(join(repoRoot, "scripts/build-standalone-cli.ts"), "utf8");
     const installScript = await readFile(join(repoRoot, "scripts/install-app.sh"), "utf8");
     const browserCli = await readFile(join(repoRoot, "scripts/browser-cli.ts"), "utf8");
 
@@ -310,9 +311,11 @@ describe("browser CLI packaging contract", () => {
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
-    expect(buildScript).toContain("--no-compile-autoload-dotenv");
-    expect(buildScript).toContain("--no-compile-autoload-bunfig");
-    expect(buildScript.indexOf('build_compiled_cli "$REPO_ROOT/dist/vellum-command"')).toBeLessThan(
+    expect(cliBuildScript).toContain("--no-compile-autoload-dotenv");
+    expect(cliBuildScript).toContain("--no-compile-autoload-bunfig");
+    const cliBuildPosition = buildScript.indexOf('"$SCRIPT_DIR/build-standalone-cli.ts" vellum-command');
+    expect(cliBuildPosition).toBeGreaterThanOrEqual(0);
+    expect(cliBuildPosition).toBeLessThan(
       buildScript.indexOf('if [[ "$COMPILE_ONLY" -eq 1 ]]'),
     );
     expect(buildScript).not.toContain("vellum-command-browser");
