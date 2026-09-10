@@ -76,6 +76,8 @@ const SYSTEM_PATH_FLOOR = `${NODE_BIN_DIR}:/usr/bin:/bin:/usr/sbin:/sbin`;
 
 export interface LaunchOptions {
   readonly demo?: boolean;
+  /** Disable external Node TCP/HTTP and Chromium HTTP before product startup. */
+  readonly offline?: boolean;
   /** Canvas name -> document, seeded into the sandbox's SQLite database. */
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
@@ -484,8 +486,17 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     const app = await electron.launch({
       executablePath: ELECTRON_BINARY,
       args: [
+        ...(options.offline === true
+          ? ["-r", join(REPO_ROOT, "e2e/harness/offline-network.cjs")]
+          : []),
         MAIN_ENTRY,
         `--user-data-dir=${sandbox.userDataDir}`,
+        ...(options.offline === true
+          ? [
+              `--proxy-server=${new URL(server.url).origin}`,
+              "--proxy-bypass-list=127.0.0.1;localhost;[::1]",
+            ]
+          : []),
         ...PLATFORM_ELECTRON_ARGS,
         ...(options.electronArgs ?? []),
       ],

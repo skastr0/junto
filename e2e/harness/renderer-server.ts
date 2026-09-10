@@ -39,6 +39,12 @@ export const startRendererServer = async (rendererDir: string): Promise<Renderer
   const root = normalize(rendererDir);
 
   const server: Server = createServer((req, res) => {
+    // Offline-startup tests point Chromium's HTTP proxy here. Proxy-form
+    // requests never reach the filesystem or an external destination.
+    if (/^https?:\/\//iu.test(req.url ?? "")) {
+      res.writeHead(503, { connection: "close" }).end("E2E external network is offline");
+      return;
+    }
     void (async () => {
       try {
         const parsed = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -75,6 +81,11 @@ export const startRendererServer = async (rendererDir: string): Promise<Renderer
         res.writeHead(404).end("not found");
       }
     })();
+  });
+
+  // HTTPS and WSS proxy tunnels are refused without opening any destination.
+  server.on("connect", (_request, socket) => {
+    socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
