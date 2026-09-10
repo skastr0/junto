@@ -30,6 +30,11 @@ const LICENSE_PRIORITY = [
 ];
 const LICENSE_NAME = /^(?:licen[sc]e|copying)(?:[._-].+)?$/i;
 const NOTICE_NAME = /^(?:notice|copyright)(?:[._-].+)?$/i;
+// This exact stock release embeds its five production dependencies in
+// dist/{esm,commonjs}/index.min.js, hiding those inputs from Bun's metafile.
+// Other packages are licensed from actual bundle inputs, not hypothetical
+// declared dependencies that may be unused or platform-specific.
+const PREBUNDLED_RUNTIME_PACKAGES = new Map([["tar", "7.5.15"]]);
 
 const readManifest = (manifestPath: string): Record<string, unknown> => {
   const value: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -179,9 +184,14 @@ export const collectStandaloneCliNotices = (
   inputFiles: ReadonlyArray<string>,
 ): StandaloneCliNotices => {
   const packages = new Map<string, InstalledPackage>();
-  const visit = (dependency: InstalledPackage): void => {
-    if (packages.has(dependency.directory)) return;
+  const expanded = new Set<string>();
+  const visit = (
+    dependency: InstalledPackage,
+    includeDependencies: boolean,
+  ): void => {
     packages.set(dependency.directory, dependency);
+    if (!includeDependencies || expanded.has(dependency.directory)) return;
+    expanded.add(dependency.directory);
     const required = dependency.manifest.dependencies ?? {};
     const optional = dependency.manifest.optionalDependencies ?? {};
     for (
@@ -196,7 +206,7 @@ export const collectStandaloneCliNotices = (
           `bundled CLI dependency is missing a required dependency: ${dependency.manifest.name} -> ${name}`,
         );
       }
-      visit(resolved);
+      visit(resolved, true);
     }
   };
   for (const input of inputFiles) {
@@ -206,7 +216,18 @@ export const collectStandaloneCliNotices = (
     if (dependency === undefined) {
       throw new Error(`cannot identify bundled CLI dependency: ${input}`);
     }
-    visit(dependency);
+    const prebundledVersion = PREBUNDLED_RUNTIME_PACKAGES.get(
+      dependency.manifest.name,
+    );
+    if (
+      prebundledVersion !== undefined &&
+      dependency.manifest.version !== prebundledVersion
+    ) {
+      throw new Error(
+        `CLI prebundled dependency notice policy requires review: ${dependency.manifest.name}@${dependency.manifest.version}`,
+      );
+    }
+    visit(dependency, prebundledVersion !== undefined);
   }
   const dependencies = [
     ...new Set(
