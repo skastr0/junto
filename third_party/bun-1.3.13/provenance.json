@@ -253,6 +253,60 @@
       "sourcePath": "Source/WTF/wtf/fast_float/LICENSE",
       "sha256": "097a889aa954d04e088b790b10a4014d6189561d0a6013935a73ce3d4ddaaf06",
       "bytes": 10767
+    },
+    {
+      "component": "icu",
+      "file": "icu/LICENSE",
+      "source": "https://github.com/unicode-org/icu/releases/download/release-75-1/icu4c-75_1-src.tgz",
+      "sourceRepository": "https://github.com/unicode-org/icu",
+      "revision": "7750081bda4b3bc1768ae03849ec70f67ea10625",
+      "sourcePath": "icu/LICENSE",
+      "sha256": "3ae033da0bfd60f4609c5c99fe50c0c840685889d3b705d3f527fd7b52032f5c",
+      "bytes": 25223,
+      "extraction": "Exact file body from the upstream source archive."
+    },
+    {
+      "component": "icu",
+      "file": "icu/license.html",
+      "source": "https://github.com/unicode-org/icu/releases/download/release-75-1/icu4c-75_1-src.tgz",
+      "sourceRepository": "https://github.com/unicode-org/icu",
+      "revision": "7750081bda4b3bc1768ae03849ec70f67ea10625",
+      "sourcePath": "icu/license.html",
+      "sha256": "c62d7697c03979f5056d28b338fafc7a1152820f7b379adf4a9d88cd37160f96",
+      "bytes": 622,
+      "extraction": "Exact file body from the upstream source archive."
+    },
+    {
+      "component": "zig",
+      "file": "zig/LICENSE",
+      "source": "https://raw.githubusercontent.com/oven-sh/zig/365343af4fc5a1a632e6b54aadd0b87be30edd81/LICENSE",
+      "sourceRepository": "https://github.com/oven-sh/zig",
+      "revision": "365343af4fc5a1a632e6b54aadd0b87be30edd81",
+      "sourcePath": "LICENSE",
+      "sha256": "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177",
+      "bytes": 1080
+    },
+    {
+      "component": "electron-ffmpeg",
+      "file": "ffmpeg/COPYING.LGPLv2.1",
+      "source": "https://chromium.googlesource.com/chromium/third_party/ffmpeg/+archive/ad41607c61898cf7150e0fb20fe4bbabd44922a3.tar.gz",
+      "sourceRepository": "chromium/third_party/ffmpeg",
+      "revision": "ad41607c61898cf7150e0fb20fe4bbabd44922a3",
+      "sourcePath": "COPYING.LGPLv2.1",
+      "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+      "bytes": 26517,
+      "extraction": "Exact file body from the upstream source archive."
+    },
+    {
+      "component": "chromium-third_party-opus",
+      "file": "ffmpeg/OPUS-COPYING",
+      "source": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/third_party/opus.tar.gz",
+      "sourceRepository": "chromium/chromium",
+      "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
+      "sourcePath": "src/COPYING",
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+      "bytes": 1945,
+      "extraction": "Exact file body from the upstream source archive."
     }
   ]
 }

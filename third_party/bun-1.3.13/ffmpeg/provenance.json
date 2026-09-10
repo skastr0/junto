@@ -1,0 +1,69 @@
+{
+  "electronVersion": "43.2.0",
+  "electronRevision": "9b58e96340a34cccaccc08e410e76838b50b0cb2",
+  "chromiumVersion": "150.0.7871.129",
+  "chromiumRevision": "e69b30bba288603e514cffb4c79c359cac68e923",
+  "ffmpegRevision": "ad41607c61898cf7150e0fb20fe4bbabd44922a3",
+  "archives": [
+    {
+      "id": "chromium-build",
+      "repository": "chromium/chromium",
+      "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
+      "file": "chromium-build-e69b30bba288603e514cffb4c79c359cac68e923.tar.gz",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/build.tar.gz",
+      "bytes": 1851410,
+      "sha256": "4ca85a0a8c7504831b3ed6f86829ddf0b6ec4d3b7ddc50cf0c6fc23b93ae4fe8",
+      "preparation": "download"
+    },
+    {
+      "id": "chromium-media-ffmpeg",
+      "repository": "chromium/chromium",
+      "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
+      "file": "chromium-media-ffmpeg-e69b30bba288603e514cffb4c79c359cac68e923.tar.gz",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/media/ffmpeg.tar.gz",
+      "bytes": 104307,
+      "sha256": "86cdd3175171ee0f1a30dcbd06dec60f148406d0b6c93942ed1a9a0f7e9651da",
+      "preparation": "download"
+    },
+    {
+      "id": "chromium-nasm",
+      "repository": "chromium/deps/nasm",
+      "revision": "525a09a813be0f75b646ee93fc2a31c27b87d722",
+      "file": "chromium-nasm-525a09a813be0f75b646ee93fc2a31c27b87d722.tar.gz",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/deps/nasm/+archive/525a09a813be0f75b646ee93fc2a31c27b87d722.tar.gz",
+      "bytes": 2433505,
+      "sha256": "f486ad394c6618a85bb734ddefd580bc79915bdd3b53eb02c4db3c9123cc2880",
+      "preparation": "download"
+    },
+    {
+      "id": "chromium-third_party-opus",
+      "repository": "chromium/chromium",
+      "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
+      "file": "chromium-third_party-opus-e69b30bba288603e514cffb4c79c359cac68e923.tar.gz",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/third_party/opus.tar.gz",
+      "bytes": 4258724,
+      "sha256": "1a28ceb7ef28044e31198889c0a9f6b408ef64c2ad99902ea2c149fcf017c964",
+      "preparation": "download"
+    },
+    {
+      "id": "electron",
+      "repository": "electron/electron",
+      "revision": "9b58e96340a34cccaccc08e410e76838b50b0cb2",
+      "file": "electron-9b58e96340a34cccaccc08e410e76838b50b0cb2.tar.gz",
+      "sourceUrl": "https://codeload.github.com/electron/electron/tar.gz/9b58e96340a34cccaccc08e410e76838b50b0cb2",
+      "bytes": 18974848,
+      "sha256": "53d98acefc30ca42b7b7cbad8c6360252903b7a7e2888d4e31d427fff2a3d00f",
+      "preparation": "download"
+    },
+    {
+      "id": "electron-ffmpeg",
+      "repository": "chromium/third_party/ffmpeg",
+      "revision": "ad41607c61898cf7150e0fb20fe4bbabd44922a3",
+      "file": "electron-ffmpeg-ad41607c61898cf7150e0fb20fe4bbabd44922a3.tar.gz",
+      "sourceUrl": "https://chromium.googlesource.com/chromium/third_party/ffmpeg/+archive/ad41607c61898cf7150e0fb20fe4bbabd44922a3.tar.gz",
+      "bytes": 18441976,
+      "sha256": "e1f21512aabba38c98bf5be7ca7eba8ad2acf99c0ac63b68b584f7c654bb5a3a",
+      "preparation": "download"
+    }
+  ]
+}

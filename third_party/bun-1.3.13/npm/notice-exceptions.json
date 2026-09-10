@@ -1,0 +1,17 @@
+[
+  {
+    "id": "npm-peechy-0.4.34",
+    "license": "MIT",
+    "reason": "Package archive has no license/copying/notice/copyright/authors file or README license heading. Registry gitHead is unavailable in the stated upstream repository.",
+    "registryUrl": "https://registry.npmjs.org/peechy/0.4.34",
+    "registryGitHead": "069e5cfcbf1dff9a738be759671ef0d15c2c9da4",
+    "publishedAt": "2023-08-25T08:41:58.151Z",
+    "upstreamCandidate": {
+      "file": "peechy-upstream-LICENSE.md",
+      "sourceUrl": "https://raw.githubusercontent.com/Jarred-Sumner/peechy/8c7e52ac7b0255ede18f907442acdda8476a7cbd/LICENSE.md",
+      "repositoryRevision": "8c7e52ac7b0255ede18f907442acdda8476a7cbd",
+      "sha256": "a6f766e4ab93cbd6dbc17e58a3d33b09d09be18d2f67f3133005b038dbc5915e",
+      "association": "Official peechy repository license from last package.json-changing commit before npm0.4.34 publication. It is not a verified npm0.4.34 gitHead license: registry gitHead069e5cfcbf1dff9a738be759671ef0d15c2c9da4 returns GitHub commit422 and contents404."
+    }
+  }
+]
