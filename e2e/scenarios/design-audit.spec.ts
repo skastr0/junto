@@ -44,7 +44,7 @@ const shot = async (page: Page, name: string) => {
 const noteNode: CanvasNode = {
   id: "note1",
   type: "text",
-  text: "# Field notes\n\nThe **digest** stays deterministic.\n\n– relates edges are quiet\n– blockers paint crimson\n\n> the file is the agent API\n\n`bun run digest`",
+  text: "# Field notes\n\nThe **digest** stays deterministic.\n\n– relates edges are quiet\n– blockers paint crimson\n\n> agents read compiled projections\n\n`bun run digest`",
   x: 0,
   y: 0,
   width: 280,
@@ -446,9 +446,8 @@ test("capture every surface for design review", async () => {
     await closeup("release checklist", "03-node-blocker");
     await closeup("audit native term", "05-node-terminal-card");
 
-    // The dock intentionally obscures the lower part of the canvas. React
-    // Flow consequently unmounts the task row when only visible elements are
-    // rendered, so pan the field before querying this lower-row card.
+    // The dock obscures the lower part of the canvas. Use the field's middle-
+    // button pan gesture to bring the task row above it before capturing.
     const pane = page.locator(".react-flow__pane");
     const paneBox = await pane.boundingBox();
     if (!paneBox)
@@ -456,14 +455,15 @@ test("capture every surface for design review", async () => {
     const panX = paneBox.x + paneBox.width * 0.5;
     const panStartY = paneBox.y + paneBox.height * 0.7;
     await page.mouse.move(panX, panStartY);
-    await page.mouse.down();
+    await page.mouse.down({ button: "middle" });
     await page.mouse.move(panX, paneBox.y + paneBox.height * 0.25, {
       steps: 8,
     });
-    await page.mouse.up();
+    await page.mouse.up({ button: "middle" });
 
     const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks1"]');
     await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
+    await tasksNodeCard.getByTestId("tasks-card").click({ trial: true });
     await tasksNodeCard.screenshot({ path: join(SHOTS, "06-node-tasks.png") });
 
     // Task board: attention + terminal variants. Double-click is the work-surface
@@ -493,7 +493,7 @@ test("capture every surface for design review", async () => {
       .getByRole("button", { name: "Close task creator" })
       .click();
     await expect(taskCreator).toBeHidden();
-    await taskBoard.locator('button[title="Close"]').click();
+    await taskBoard.getByRole("button", { name: "Close task board", exact: true }).click();
     await expect(taskBoard).toBeHidden();
 
     // Requests and artifacts reuse the same master-detail grammar.
@@ -509,7 +509,7 @@ test("capture every surface for design review", async () => {
         .first(),
     ).toBeVisible();
     await shot(page, "06e-input-requests");
-    await requestInbox.locator('button[title="Close"]').click();
+    await requestInbox.getByRole("button", { name: "Close input requests", exact: true }).click();
     await expect(requestInbox).toBeHidden();
 
     const artifactsNodeCard = page.locator('.react-flow__node[data-id="art1"]');
@@ -524,18 +524,19 @@ test("capture every surface for design review", async () => {
         .first(),
     ).toBeVisible();
     await shot(page, "06f-artifact-library");
-    await artifactLibrary.locator('button[title="Close"]').click();
+    await artifactLibrary.getByRole("button", { name: "Close artifacts", exact: true }).click();
     await expect(artifactLibrary).toBeHidden();
 
     // Return to the overview before continuing with the upper-canvas cards.
     if (await fit.isVisible().catch(() => false)) await fit.click();
     await page.waitForTimeout(600);
 
-    // Edge label closeup.
-    const edgeLabel = page.locator(".vellum-edge-label").first();
-    if (await edgeLabel.isVisible().catch(() => false)) {
-      await edgeLabel.screenshot({ path: join(SHOTS, "07-edge-label.png") });
-    }
+    // Edge midpoint targets are intentionally invisible and covered by the
+    // wire's pointer path. Use their keyboard affordance, then capture the
+    // current Relation controls in the RTS bar.
+    await page.getByRole("button", { name: /^Select edge -/ }).first().press("Enter");
+    await expect(page.getByRole("toolbar", { name: "Relation actions" })).toBeVisible();
+    await shot(page, "07-edge-inspector");
 
     // Select a note → toolbar + inspector.
     await page
