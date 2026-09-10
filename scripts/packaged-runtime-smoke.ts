@@ -761,6 +761,8 @@ export const smokePackagedRuntime = async (
   const realRoots = [
     path.join(realHome, ".vellum-command", "browser"),
     path.join(realHome, ".vellum-command", "canvases"),
+    path.join(realHome, ".vellum-command", "state"),
+    path.join(realHome, ".vellum-command", "content"),
   ];
   const beforeSnapshots = await Promise.all(realRoots.map(snapshotTree));
   let realRootEvents = 0;
@@ -866,6 +868,7 @@ export const smokePackagedRuntime = async (
     });
     const [socketMetadata, tokenMetadata] = await Promise.all([lstat(workSocket), lstat(workToken)]);
     if (!socketMetadata.isSocket() || socketMetadata.uid !== currentUid() ||
+        (socketMetadata.mode & 0o077) !== 0 ||
         !tokenMetadata.isFile() || tokenMetadata.uid !== currentUid() ||
         (tokenMetadata.mode & 0o077) !== 0) {
       throw new Error("normal application controls are not protected by owner-local filesystem permissions");
