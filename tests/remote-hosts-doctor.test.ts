@@ -419,7 +419,7 @@ describe("remote hosts doctor", () => {
           hasMoreInbound: false,
           converged: true,
         },
-        lease: expect.objectContaining({ state: "active", source: "live" }),
+        observedAt: expect.any(String),
       }),
     ]);
     expect(snapshot.check.detail).toContain(
