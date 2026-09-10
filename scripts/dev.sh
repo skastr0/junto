@@ -35,4 +35,4 @@ cd "${ROOT}"
 bash scripts/dev-seed-from-prod.sh
 
 export PATH="${ROOT}/node_modules/.bin:${PATH}"
-exec electron-vite dev
+exec electron-vite dev "$@"
