@@ -15,13 +15,9 @@ import type { FleetProbeState } from "../../lib/fleet-state";
 import {
   edgePhase,
   discoveryLayout,
-  ditherPixelSize,
-  FLEET_DITHER_LEVELS,
   orbitLayout,
-  type FleetDitherLevel,
   type FleetEdgeStatus,
 } from "../../lib/fleet-layout";
-import { activateOnPointerUp } from "../../lib/pointer-activation";
 import {
   fleetNodeTypes,
   type CommandCenterFlowNode,
@@ -29,7 +25,6 @@ import {
   type GhostStationFlowNode,
   type StationFlowNode,
 } from "./FleetNodes";
-import { FleetRendererProvider } from "./FleetRenderer";
 
 export const COMMAND_CENTER_ID = "command-center";
 
@@ -160,8 +155,6 @@ function FleetMapInner({
   ccHostId,
   selectedId,
   onSelect,
-  ditherLevel,
-  onDitherLevelChange,
 }: {
   readonly hosts: ReadonlyArray<RemoteHost>;
   readonly peers: ReadonlyArray<DiscoveredPeer>;
@@ -169,8 +162,6 @@ function FleetMapInner({
   readonly ccHostId: string;
   readonly selectedId: string | null;
   readonly onSelect: (id: string | null) => void;
-  readonly ditherLevel: FleetDitherLevel;
-  readonly onDitherLevelChange: (level: FleetDitherLevel) => void;
 }) {
   const { fitView } = useReactFlow();
   const stations = useMemo(() => hosts.filter((host) => host.kind === "remote"), [hosts]);
@@ -193,7 +184,6 @@ function FleetMapInner({
   const nodes = useMemo<ReadonlyArray<FleetFlowNode>>(() => {
     const stationIds = stations.map((host) => host.id);
     const positions = orbitLayout(stationIds);
-    const resolvedDitherPixelSize = ditherPixelSize(ditherLevel);
     const stationRight = stationIds.reduce(
       (max, id) => Math.max(max, positions[id]?.x ?? 0),
       0,
@@ -211,7 +201,6 @@ function FleetMapInner({
       position: { x: 0, y: 0 },
       data: {
         hostId: ccHostId,
-        ditherPixelSize: resolvedDitherPixelSize,
         onSelect: () => onSelect(COMMAND_CENTER_ID),
       },
       ariaLabel: `Command Center${ccHostId ? `, host ${ccHostId}` : ""}`,
@@ -226,7 +215,6 @@ function FleetMapInner({
       data: {
         host,
         probe: probes[host.id],
-        ditherPixelSize: resolvedDitherPixelSize,
         onSelect: () => onSelect(host.id),
       },
       ariaLabel: `${host.label}, enrolled machine, ${
@@ -242,7 +230,6 @@ function FleetMapInner({
       position: ghostPositions[ghostNodeId(peer)] ?? { x: 0, y: 0 },
       data: {
         peer,
-        ditherPixelSize: resolvedDitherPixelSize,
         onSelect: () => onSelect(ghostNodeId(peer)),
       },
       ariaLabel: `${peer.name}, ${peer.os ?? "unknown device"}, discovered but not enrolled`,
@@ -269,7 +256,7 @@ function FleetMapInner({
           }
         : undefined;
     return [cc, ...(discoveryBand ? [discoveryBand] : []), ...orbits, ...ghosts];
-  }, [stations, peers, probes, ccHostId, selectedId, ditherLevel, onSelect]);
+  }, [stations, peers, probes, ccHostId, selectedId, onSelect]);
 
   const edges = useMemo<ReadonlyArray<FleetLinkEdgeType>>(() => {
     const links: Array<FleetLinkEdgeType> = stations.map((host, routeIndex) => {
@@ -308,7 +295,6 @@ function FleetMapInner({
         }
       }}
     >
-    <FleetRendererProvider>
       <ReactFlow
         nodes={nodes as Array<FleetFlowNode>}
         edges={edges as Array<Edge>}
@@ -337,25 +323,6 @@ function FleetMapInner({
             {stations.length} enrolled - {peers.length} discovered
           </span>
         </div>
-        <div
-          className="fleet-map__dither"
-          role="group"
-          aria-label="Dither detail"
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <span>dither</span>
-          {FLEET_DITHER_LEVELS.map((level) => (
-            <button
-              key={level.id}
-              type="button"
-              className={level.id === ditherLevel ? "is-active" : undefined}
-              aria-pressed={level.id === ditherLevel}
-              {...activateOnPointerUp(() => onDitherLevelChange(level.id))}
-            >
-              {level.label}
-            </button>
-          ))}
-        </div>
         <div className="fleet-map__legend" aria-label="Fleet route states">
           <span><i className="fleet-pip--reachable" />reachable</span>
           <span><i className="fleet-pip--probing" />checking</span>
@@ -364,7 +331,6 @@ function FleetMapInner({
         </div>
         <div className="fleet-map__hint">Drag to pan, scroll to zoom, select a machine to inspect</div>
       </ReactFlow>
-    </FleetRendererProvider>
     </div>
   );
 }

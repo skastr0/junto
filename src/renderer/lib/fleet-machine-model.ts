@@ -77,7 +77,7 @@ const detectedAppleModel = (host: RemoteHost): FleetMachineModelId | undefined =
  *
  * New model ids are explicit operator choices. Apple-class host names are
  * recognized before legacy icon aliases so an existing `server` glyph does not
- * prevent a `mac-mini` host from receiving its new special-edition silhouette.
+ * prevent a `mac-mini` host from receiving its matching icon.
  */
 export const resolveFleetMachineModel = (host: RemoteHost): FleetMachineModelId => {
   const configured = host.appearance?.glyph;
@@ -95,7 +95,7 @@ export const fleetMachineLabel = (id: FleetMachineModelId): string =>
 export const fleetMachineColor = (id: FleetMachineModelId): string =>
   FLEET_MACHINE_CATALOG.find((entry) => entry.id === id)?.color ?? HUE.amber;
 
-/** Unclaimed peers stay visually distinct while still receiving a real model. */
+/** Unclaimed peers receive an icon matched to their reported operating system. */
 export const resolvePeerMachineModel = (
   peer: Pick<DiscoveredPeer, "name" | "os">,
 ): FleetMachineModelId => {

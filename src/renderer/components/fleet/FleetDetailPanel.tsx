@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { Command, WandSparkles, X } from "lucide-react";
+import { WandSparkles, X } from "lucide-react";
 import type {
   DiscoveredPeer,
   HostsDeployRemoteResult,
@@ -38,7 +38,6 @@ import {
 import { setFleetAppearance } from "../../lib/fleet-appearance";
 import { probeHost, refreshFleet, type FleetProbeState } from "../../lib/fleet-state";
 import { FLEET_COLORS, hostColor } from "../../lib/fleet-layout";
-import { FLEET_MACHINE_AVATARS } from "../../lib/fleet-machine-assets";
 import {
   FLEET_MACHINE_CATALOG,
   fleetMachineColor,
@@ -55,6 +54,7 @@ import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
 import { FleetCompatibilitySection } from "./FleetCompatibilitySection";
+import { fleetMachineIcon } from "./FleetNodes";
 
 export type FleetSelection =
   | { readonly kind: "cc" }
@@ -145,7 +145,6 @@ function StationDiagnostics({
 }) {
   const station = observation?.station;
   const route = observation?.route;
-  const lease = observation?.lease;
   const protocol = observation?.protocol;
   const recovery = observation?.recovery;
   return (
@@ -205,12 +204,6 @@ function StationDiagnostics({
         <span>readiness</span>
         <span>
           database {diagnosticText(station?.readiness.database)}, work {diagnosticText(station?.readiness.workControl)}, simulation {diagnosticText(station?.readiness.simulation)}, session {diagnosticText(station?.readiness.session)}, terminal {diagnosticText(observation?.readiness?.terminal)}, browser {diagnosticText(observation?.readiness?.browser)}
-        </span>
-        <span>last check-in</span>
-        <span>{diagnosticText(lease?.lastCheckInAt)}</span>
-        <span>lease</span>
-        <span>
-          {diagnosticText(lease?.state)} / expires {diagnosticText(lease?.expiresAt)} / {diagnosticText(lease?.source)}
         </span>
         <span>recovery</span>
         <span>{diagnosticText(recovery?.kind)}</span>
@@ -754,17 +747,17 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           })}
         </div>
         <div className="fleet-detail__model-heading">
-          <span>{automatic ? "Automatic silhouette" : "Custom silhouette"}</span>
+          <span>{automatic ? "Automatic icon" : "Custom icon"}</span>
           <strong>{fleetMachineLabel(resolvedModel)}</strong>
         </div>
-        <div className="fleet-detail__models" role="group" aria-label="Machine silhouette">
+        <div className="fleet-detail__models" role="group" aria-label="Machine icon">
           <button
             type="button"
             className={`fleet-model-choice fleet-model-choice--auto${
               automatic ? " fleet-model-choice--active" : ""
             }`}
             style={automatic ? { color, borderColor: withAlpha(color, 0.6) } : undefined}
-            aria-label="Automatically choose machine silhouette"
+            aria-label="Automatically choose machine icon"
             aria-pressed={automatic}
             title="Automatic"
             {...activateOnPointerUp(() =>
@@ -776,6 +769,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
           </button>
           {FLEET_MACHINE_CATALOG.map(({ id, label, color: modelColor }) => {
             const active = !automatic && host.appearance?.glyph === id;
+            const MachineIcon = fleetMachineIcon(id);
             return (
               <button
                 key={id}
@@ -791,7 +785,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
                       : {}),
                   } as CSSProperties
                 }
-                aria-label={`Use ${label} silhouette`}
+                aria-label={`Use ${label} icon`}
                 aria-pressed={active}
                 title={label}
                 {...activateOnPointerUp(() =>
@@ -805,7 +799,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
                   className="fleet-model-choice__preview"
                   aria-hidden="true"
                 >
-                  <img src={FLEET_MACHINE_AVATARS[id]} alt="" />
+                  <MachineIcon size={24} strokeWidth={1.6} />
                 </span>
                 <span className="fleet-model-choice__label">{label}</span>
               </button>
@@ -925,7 +919,7 @@ export function FleetDetailPanel({
     selection.kind === "ghost"
       ? resolvePeerMachineModel(selection.peer)
       : undefined;
-  const markModel = stationModel ?? peerModel;
+  const IdentityIcon = fleetMachineIcon(stationModel ?? peerModel ?? "command-core");
   const title =
     selection.kind === "cc"
       ? "Command Center"
@@ -952,32 +946,14 @@ export function FleetDetailPanel({
     <aside className="fleet-detail" aria-label="Fleet node detail">
       <div className="fleet-detail__head">
         <div
-          className={`fleet-detail__identity-mark${
-            markModel || selection.kind === "cc" ? " fleet-detail__identity-mark--model" : ""
-          }`}
+          className="fleet-detail__identity-mark"
           style={{
             color,
             borderColor: withAlpha(color, 0.42),
             background: withAlpha(color, 0.07),
           }}
         >
-          {markModel ? (
-            <img
-              className="fleet-detail__identity-avatar"
-              src={FLEET_MACHINE_AVATARS[markModel]}
-              alt=""
-              draggable={false}
-            />
-          ) : selection.kind === "cc" ? (
-            <img
-              className="fleet-detail__identity-avatar"
-              src={FLEET_MACHINE_AVATARS["command-core"]}
-              alt=""
-              draggable={false}
-            />
-          ) : (
-            <Command size={18} strokeWidth={1.55} />
-          )}
+          <IdentityIcon size={18} strokeWidth={1.55} aria-hidden="true" />
         </div>
         <div className="fleet-detail__identity">
           <span>{kind}</span>

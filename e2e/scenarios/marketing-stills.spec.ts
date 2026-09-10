@@ -700,7 +700,7 @@ test("still 04 — six machine fleet manager", async () => {
     await page.getByRole("button", { name: "Open fleet manager" }).click();
     const panel = page.locator(".fleet-panel");
     await expect(panel).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6, {
+    await expect(page.locator(".fleet-machine__icon")).toHaveCount(6, {
       timeout: 20_000,
     });
     await page.waitForTimeout(1500);

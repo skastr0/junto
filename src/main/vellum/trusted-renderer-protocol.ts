@@ -14,8 +14,6 @@ export { TRUSTED_RENDERER_HOST, TRUSTED_RENDERER_SCHEME, TRUSTED_RENDERER_URL };
 const MIME_TYPES = new Map<string, string>([
   [".css", "text/css; charset=utf-8"],
   [".gif", "image/gif"],
-  // Fleet machine signatures (DitheredFleetObject / GLTFLoader).
-  [".glb", "model/gltf-binary"],
   [".html", "text/html; charset=utf-8"],
   [".ico", "image/x-icon"],
   [".jpeg", "image/jpeg"],

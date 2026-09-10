@@ -822,38 +822,28 @@ test("capture the fleet manager overlay", async () => {
     await expect(page.locator(".fleet-station")).toHaveCount(4, {
       timeout: 15_000,
     });
-    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6, {
+    await expect(page.locator(".fleet-machine__icon")).toHaveCount(6, {
       timeout: 15_000,
     });
-    // Dither fidelity is a live shader choice: pointer-up updates every object
-    // without tearing down or reloading the model library.
-    await page.getByRole("button", { name: "coarse" }).click();
-    await expect(page.getByRole("button", { name: "coarse" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6);
-    await page.getByRole("button", { name: "fine" }).click();
-    await expect(page.locator(".fleet-machine-object--ready")).toHaveCount(6);
     // Probes fire on open; in the sandbox they may still be in flight at
     // capture time — the frame asserts the fleet, not the probe outcome.
     await page.waitForTimeout(1500);
     await shot(page, "26-fleet-overlay");
     await page.locator(".fleet-station").first().click();
     await expect(page.locator(".fleet-station--selected")).toHaveCount(1);
-    await expect(page.getByText("Automatic silhouette")).toBeVisible();
+    await expect(page.getByText("Automatic icon")).toBeVisible();
     const resolvedModel = page.locator(".fleet-detail__model-heading strong");
     await expect(resolvedModel).toHaveText("Mac mini");
     const macStudioChoice = page.getByRole("button", {
-      name: "Use Mac Studio silhouette",
+      name: "Use Mac Studio icon",
     });
     await macStudioChoice.click();
-    await expect(page.getByText("Custom silhouette")).toBeVisible();
+    await expect(page.getByText("Custom icon")).toBeVisible();
     await expect(resolvedModel).toHaveText("Mac Studio");
     await page
-      .getByRole("button", { name: "Automatically choose machine silhouette" })
+      .getByRole("button", { name: "Automatically choose machine icon" })
       .click();
-    await expect(page.getByText("Automatic silhouette")).toBeVisible();
+    await expect(page.getByText("Automatic icon")).toBeVisible();
     await expect(resolvedModel).toHaveText("Mac mini");
     await shot(page, "26b-fleet-station-focus");
     // When the sandbox sees an unclaimed peer, its detail panel shows what

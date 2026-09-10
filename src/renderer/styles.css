@@ -3496,8 +3496,7 @@ button.actor-ledger__item-row:focus-visible {
 
 .fleet-map__context,
 .fleet-map__legend,
-.fleet-map__hint,
-.fleet-map__dither {
+.fleet-map__hint {
   position: absolute;
   z-index: 4;
   pointer-events: none;
@@ -3546,48 +3545,6 @@ button.actor-ledger__item-row:focus-visible {
   font-size: 8px;
   letter-spacing: 0.05em;
 }
-.fleet-map__dither {
-  top: 14px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--color-stroke) 78%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
-  pointer-events: auto;
-}
-.fleet-map__dither > span {
-  padding: 0 6px 0 4px;
-  color: var(--color-faint);
-  font-size: 7px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.fleet-map__dither button {
-  min-height: 22px;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--color-dim);
-  cursor: pointer;
-  padding: 0 7px;
-  font: 8px/1 var(--font-mono);
-}
-.fleet-map__dither button:hover {
-  color: var(--color-ink);
-  background: var(--color-overlay-2);
-}
-.fleet-map__dither button.is-active {
-  background: color-mix(in oklab, var(--color-main) 12%, transparent);
-  color: var(--color-amber);
-}
-.fleet-map__dither button:focus-visible {
-  outline: 1px solid var(--color-cyan);
-  outline-offset: 1px;
-}
-
 .fleet-box-panel {
   width: min(760px, calc(100vw - 48px));
   max-height: min(760px, calc(100vh - 64px));
@@ -3873,50 +3830,13 @@ button.actor-ledger__item-row:focus-visible {
 .fleet-machine__viewport {
   --fleet-machine-color: var(--color-amber);
   position: relative;
+  display: grid;
+  place-items: center;
   width: 168px;
   height: 142px;
 }
-.fleet-machine-object {
-  position: absolute;
-  inset: -8px -10px;
-  transition:
-    filter 220ms ease-out,
-    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 180ms ease-out;
-}
-.fleet-machine-object canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-.fleet-machine-object__poster {
-  position: absolute;
-  inset: 12% 14% 18%;
-  z-index: 0;
-  object-fit: contain;
-  pointer-events: none;
-  opacity: 0.88;
-  filter: saturate(0.7) brightness(0.95);
-}
-.fleet-machine-object--ready .fleet-machine-object__poster {
-  display: none;
-}
-.fleet-machine-object--ready canvas {
-  position: relative;
-  z-index: 1;
-}
-.fleet-machine-object--loading {
-  opacity: 0.72;
-}
-.fleet-machine-object--poster.fleet-machine-object--loading {
-  opacity: 0.92;
-}
-.fleet-machine-object--idle {
-  opacity: 0.88;
-}
-.fleet-machine-object--ready {
-  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--fleet-machine-color) 22%, transparent));
+.fleet-machine__icon {
+  color: var(--fleet-machine-color);
 }
 .fleet-chunk-fallback {
   position: fixed;
@@ -3931,76 +3851,6 @@ button.actor-ledger__item-row:focus-visible {
   font-size: 11px;
   letter-spacing: 0.08em;
   pointer-events: none;
-}
-.fleet-detail__identity-avatar {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  pointer-events: none;
-}
-.fleet-station:hover .fleet-machine-object--ready,
-.fleet-ghost:hover .fleet-machine-object--ready,
-.fleet-cc:hover .fleet-machine-object--ready {
-  filter:
-    brightness(1.12)
-    drop-shadow(0 0 8px color-mix(in srgb, var(--fleet-machine-color) 38%, transparent));
-  transform: scale(1.025);
-}
-.fleet-machine-object--focused {
-  filter:
-    brightness(1.18)
-    drop-shadow(0 0 10px color-mix(in srgb, var(--fleet-machine-color) 48%, transparent));
-  transform: scale(1.055);
-}
-.fleet-machine-object__state {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--color-faint);
-}
-.fleet-machine-object__state--error {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.06em;
-}
-.fleet-machine__reticle {
-  position: absolute;
-  inset: 12px 8px 4px;
-  opacity: 0.24;
-  pointer-events: none;
-  transition:
-    inset 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 180ms ease-out;
-}
-.fleet-machine__reticle::before,
-.fleet-machine__reticle::after {
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  content: "";
-  border-color: var(--fleet-machine-color);
-  border-style: solid;
-}
-.fleet-machine__reticle::before {
-  top: 0;
-  left: 0;
-  border-width: 1px 0 0 1px;
-}
-.fleet-machine__reticle::after {
-  right: 0;
-  bottom: 0;
-  border-width: 0 1px 1px 0;
-}
-.fleet-station:hover .fleet-machine__reticle,
-.fleet-station--selected .fleet-machine__reticle,
-.fleet-ghost:hover .fleet-machine__reticle,
-.fleet-ghost--selected .fleet-machine__reticle,
-.fleet-cc:hover .fleet-machine__reticle,
-.fleet-cc--selected .fleet-machine__reticle {
-  inset: 7px 3px -1px;
-  opacity: 0.8;
 }
 .fleet-machine__viewport > .fleet-pip {
   right: 16px;
@@ -4089,9 +3939,7 @@ button.actor-ledger__item-row:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fleet-machine,
-  .fleet-machine-object,
-  .fleet-machine__reticle {
+  .fleet-machine {
     transition-duration: 0.01ms;
   }
 }
@@ -4215,18 +4063,6 @@ button.actor-ledger__item-row:focus-visible {
   height: 38px;
   border: 1px solid;
   border-radius: 8px;
-}
-.fleet-detail__identity-mark--model {
-  position: relative;
-  width: 54px;
-  height: 54px;
-  overflow: hidden;
-}
-.fleet-detail__identity-mark--model .fleet-machine-object {
-  inset: -9px;
-}
-.fleet-detail__identity-mark--model .fleet-machine-object__state {
-  transform: scale(0.72);
 }
 .fleet-detail__identity {
   min-width: 0;
@@ -4395,26 +4231,11 @@ button.actor-ledger__item-row:focus-visible {
     transform 90ms ease-out;
 }
 .fleet-model-choice__preview {
-  position: relative;
-  display: block;
+  display: grid;
+  place-items: center;
   width: 58px;
   height: 34px;
-  overflow: hidden;
-  pointer-events: none;
-}
-.fleet-model-choice__preview > img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  filter: grayscale(1) contrast(1.16);
-  object-fit: cover;
-}
-.fleet-model-choice__preview::after {
-  position: absolute;
-  inset: 0;
-  background: var(--fleet-model-color, var(--color-amber));
-  content: "";
-  mix-blend-mode: color;
+  color: var(--fleet-model-color, var(--color-amber));
   pointer-events: none;
 }
 .fleet-model-choice__label {

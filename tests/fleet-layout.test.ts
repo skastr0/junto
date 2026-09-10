@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   discoveryLayout,
-  ditherPixelSize,
   edgePhase,
   FLEET_COLORS,
   hostColor,
@@ -84,13 +83,6 @@ describe("discoveryLayout", () => {
     expect(discoveryLayout(["bravo", "alpha"], 700)).toEqual(
       discoveryLayout(["alpha", "bravo"], 700),
     );
-  });
-});
-
-describe("ditherPixelSize", () => {
-  it("moves from fine to coarse in increasing cell sizes", () => {
-    expect(ditherPixelSize("fine")).toBeLessThan(ditherPixelSize("balanced"));
-    expect(ditherPixelSize("balanced")).toBeLessThan(ditherPixelSize("coarse"));
   });
 });
 

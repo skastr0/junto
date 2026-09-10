@@ -142,7 +142,7 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
     await waitForCanvas(page);
     const panel = await openFleet(page);
     await expect(panel.locator(".fleet-station")).toHaveCount(2, { timeout: 15_000 });
-    await expect(panel.locator(".fleet-machine-object--ready")).toHaveCount(3, { timeout: 20_000 });
+    await expect(panel.locator(".fleet-machine__icon")).toHaveCount(3, { timeout: 20_000 });
 
     const macStation = panel.locator(".fleet-station", { hasText: "mac-mini" });
     await macStation.click();

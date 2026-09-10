@@ -25,18 +25,12 @@ import type { RemoteHost } from "@shared/remote-hosts";
 import type { FleetProbeState } from "../../lib/fleet-state";
 import { hostColor } from "../../lib/fleet-layout";
 import {
-  FLEET_MACHINE_ASSETS,
-  FLEET_MACHINE_AVATARS,
-} from "../../lib/fleet-machine-assets";
-import {
   fleetMachineColor,
-  fleetMachineLabel,
   resolveFleetMachineModel,
   resolvePeerMachineModel,
   type FleetMachineModelId,
 } from "../../lib/fleet-machine-model";
 import { HUE } from "../../lib/theme";
-import { DitheredFleetObject } from "./DitheredFleetObject";
 
 export const FLEET_MACHINE_ICONS: Readonly<Record<FleetMachineModelId, LucideIcon>> = {
   "command-core": Command,
@@ -77,7 +71,6 @@ export function DiscoveryBandNode({ data }: NodeProps<DiscoveryBandFlowNode>) {
 
 export type CommandCenterNodeData = {
   readonly hostId: string;
-  readonly ditherPixelSize: number;
   readonly onSelect: () => void;
 };
 export type CommandCenterFlowNode = Node<CommandCenterNodeData, "commandCenter">;
@@ -96,16 +89,7 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
           className="fleet-machine__viewport"
           style={{ "--fleet-machine-color": HUE.amber } as React.CSSProperties}
         >
-          <DitheredFleetObject
-            color={HUE.amber}
-            ditherPixelSize={data.ditherPixelSize}
-            focused={selected}
-            label="Command Core"
-            motionSeed={`command:${data.hostId}`}
-            poster={FLEET_MACHINE_AVATARS["command-core"]}
-            src={FLEET_MACHINE_ASSETS["command-core"]}
-          />
-          <span className="fleet-machine__reticle" aria-hidden="true" />
+          <Command className="fleet-machine__icon" size={56} strokeWidth={1.4} aria-hidden="true" />
         </div>
         <div className="fleet-node__copy fleet-machine__copy">
           <div className="fleet-cc__label font-display">Command Center</div>
@@ -124,7 +108,6 @@ export function CommandCenterNode({ data, selected }: NodeProps<CommandCenterFlo
 export type StationNodeData = {
   readonly host: RemoteHost;
   readonly probe?: FleetProbeState;
-  readonly ditherPixelSize: number;
   readonly onSelect: () => void;
 };
 export type StationFlowNode = Node<StationNodeData, "station">;
@@ -202,7 +185,7 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
   const { host, probe } = data;
   const model = resolveFleetMachineModel(host);
   const color = hostColor(host, fleetMachineColor(model));
-  const modelLabel = fleetMachineLabel(model);
+  const MachineIcon = fleetMachineIcon(model);
   return (
     <div
       className={`fleet-station fleet-station--${probe?.status ?? "unknown"}${
@@ -218,16 +201,7 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
           className="fleet-machine__viewport"
           style={{ "--fleet-machine-color": color } as React.CSSProperties}
         >
-          <DitheredFleetObject
-            color={color}
-            ditherPixelSize={data.ditherPixelSize}
-            focused={selected}
-            label={modelLabel}
-            motionSeed={host.id}
-            poster={FLEET_MACHINE_AVATARS[model]}
-            src={FLEET_MACHINE_ASSETS[model]}
-          />
-          <span className="fleet-machine__reticle" aria-hidden="true" />
+          <MachineIcon className="fleet-machine__icon" size={56} strokeWidth={1.4} aria-hidden="true" />
           <span className={probePipClass(probe)} title={probePipTitle(probe)} />
         </div>
         <div className="fleet-node__copy fleet-machine__copy">
@@ -254,7 +228,6 @@ export function StationNode({ data, selected }: NodeProps<StationFlowNode>) {
 
 export type GhostStationNodeData = {
   readonly peer: DiscoveredPeer;
-  readonly ditherPixelSize: number;
   readonly onSelect: () => void;
 };
 export type GhostStationFlowNode = Node<GhostStationNodeData, "ghost">;
@@ -274,6 +247,7 @@ export const peerOsIcon = (os?: string): LucideIcon =>
 export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowNode>) {
   const { peer } = data;
   const model = resolvePeerMachineModel(peer);
+  const MachineIcon = fleetMachineIcon(model);
   const color = HUE.steel;
   return (
     <div
@@ -288,17 +262,7 @@ export function GhostStationNode({ data, selected }: NodeProps<GhostStationFlowN
           className="fleet-machine__viewport"
           style={{ "--fleet-machine-color": color } as React.CSSProperties}
         >
-          <DitheredFleetObject
-            amberMix={0}
-            color={color}
-            ditherPixelSize={data.ditherPixelSize}
-            focused={selected}
-            label={fleetMachineLabel(model)}
-            motionSeed={`peer:${peer.name}`}
-            poster={FLEET_MACHINE_AVATARS[model]}
-            src={FLEET_MACHINE_ASSETS[model]}
-          />
-          <span className="fleet-machine__reticle" aria-hidden="true" />
+          <MachineIcon className="fleet-machine__icon" size={56} strokeWidth={1.4} aria-hidden="true" />
           <span
             className={peer.online ? "fleet-pip fleet-pip--reachable" : "fleet-pip fleet-pip--unknown"}
             title={peer.online ? "Online" : "Offline"}

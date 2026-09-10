@@ -4,10 +4,8 @@ import { CloudCog, Plus, RefreshCw } from "lucide-react";
 import type { DiscoveredPeer } from "@shared/ipc";
 import type { HostsDeployCapabilities } from "@shared/deploy-capabilities";
 import { useRunningDeployJobs } from "../../lib/deploy-job-state";
-import { type FleetDitherLevel } from "../../lib/fleet-layout";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
-import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FocusSurface } from "../FocusSurface";
@@ -30,7 +28,6 @@ function FleetOverlayInner() {
   const [boxPanelOpen, setBoxPanelOpen] = useState(false);
   const [boxFleetEnabled, setBoxFleetEnabled] = useState(false);
   const [ccHostId, setCcHostId] = useState("");
-  const ditherLevel = use$(state$.settings.fleet.ditherLevel);
   const runningDeploys = useRunningDeployJobs();
   const stations = hosts.filter((host) => host.kind === "remote");
   const reachable = stations.filter(
@@ -111,10 +108,6 @@ function FleetOverlayInner() {
   const claimPeer = useCallback((peer: DiscoveredPeer) => {
     // MagicDNS name is the preferred endpoint — stable across tailnet IPs.
     setForm({ label: peer.name, endpoint: peer.name });
-  }, []);
-
-  const updateDitherLevel = useCallback((level: FleetDitherLevel) => {
-    void patchSettings({ fleet: { ditherLevel: level } });
   }, []);
 
   return (
@@ -199,8 +192,6 @@ function FleetOverlayInner() {
             ccHostId={ccHostId}
             selectedId={selectedId}
             onSelect={handleSelect}
-            ditherLevel={ditherLevel}
-            onDitherLevelChange={updateDitherLevel}
           />
         </div>
         {selection ? (
@@ -226,8 +217,8 @@ function FleetOverlayInner() {
 
 /**
  * Fleet manager overlay. Parent mounts this only while `state$.fleetOpen`
- * is true (lazy chunk) so three.js / GLBs never load on cold start and every
- * WebGL machine unmounts on close. Defense-in-depth gate remains here.
+ * is true, keeping experimental Fleet code out of the cold-start path.
+ * Defense-in-depth gate remains here.
  */
 export function FleetOverlay() {
   const open = use$(state$.fleetOpen);

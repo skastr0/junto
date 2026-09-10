@@ -19,7 +19,7 @@ export interface FleetProbeState {
   readonly compatibility?: FleetPeerCompatibilitySnapshot;
 }
 
-/** Warm the lazy fleet chunk (three.js) before the operator clicks. */
+/** Warm the lazy Fleet chunk before the operator clicks. */
 let fleetChunkPrefetch: Promise<unknown> | null = null;
 const fleetUiOpen = (): boolean =>
   FLEET_UI_ENABLED &&

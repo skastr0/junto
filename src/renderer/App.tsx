@@ -49,7 +49,7 @@ import {
   HERMES_INTEGRATION_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
-// Fleet pulls three.js + GLBs. The define identifier must wrap import() in
+// Fleet is experimental. The define identifier must wrap import() in
 // this module so ship builds can drop the chunk; imported FLEET_UI_ENABLED
 // is not visible to Rollup DCE.
 const FleetOverlay = __VELLUM_COMMAND_FLEET_UI_ENABLED__
