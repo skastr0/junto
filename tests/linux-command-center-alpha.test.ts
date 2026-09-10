@@ -65,10 +65,19 @@ describe("Linux Command Center Alpha AppArmor boundary", () => {
       linuxExtraResources: packageJson.build?.linux?.extraResources,
     });
 
-    expect(text).toContain("Linux desktop is alpha and builds as an Electron application");
-    expect(text).toContain("Fleet management and the headless Remote package nested under Fleet remain experimental and feature-gated");
-    expect(text).toContain("Ubuntu 24.04 AppArmor preparation");
-    expect(text).toContain("not a packaged payload");
+    expect(text).toContain(
+      "Linux desktop alpha targets Ubuntu 24.04 LTS x86-64 with glibc 2.39",
+    );
+    expect(text).toContain(
+      "Fleet management and its headless Remote package remain experimental, unreleased and feature-gated",
+    );
+    expect(text).toContain(
+      "Desktop qualification does not promote Fleet to Beta or either surface to production",
+    );
+    expect(text).toContain(
+      "Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor",
+    );
+    expect(text).toContain("This file is external host preparation only");
     expect(text).toContain(
       "intentionally excluded from the Vellum Command package, signed rootless payload, installer, updater, and runtime resources",
     );

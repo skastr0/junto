@@ -23,34 +23,53 @@ const readProductDocs = async (): Promise<string> => {
 
 const collapsed = (input: string): string => input.replace(/\s+/gu, " ");
 
-describe("Linux v1 operator documentation", () => {
-  it("covers the complete install and recovery lifecycle", async () => {
+describe("Linux desktop alpha and gated Fleet operator documentation", () => {
+  it("covers managed desktop install, update and forward-only recovery", async () => {
     const runbook = await readDoc("linux-operator-runbook.md");
     const text = collapsed(runbook);
     for (const heading of [
-      "## Before install or update",
-      "## State custody boundary",
-      "## Fresh install and role selection",
-      "## Remote station and user service",
-      "## Readiness and Doctor",
-      "## Logs and bounded diagnostics",
-      "## Upgrade",
-      "## Removal",
-      "## Browser profile lifecycle",
-      "## Disaster recovery",
-      "## Prohibited shortcuts",
+      "## Before first install",
+      "## Automatic desktop updates",
+      "## State custody",
+      "## Troubleshooting",
+      "## Removal and repair",
+      "## Separate Fleet Remote contract",
     ]) {
       expect(runbook).toContain(heading);
     }
 
-    // Rootless ordinary-user lane — not privileged package mutation.
+    // First-install admission and app-owned updates retain ordinary-user authority.
     expect(text).toContain(
-      "install and update lane runs entirely as the intended ordinary user",
+      "Run everything as the intended ordinary user",
     );
-    expect(text).toContain("owner-local storage");
-    expect(text).toContain("canonical rootless lane");
     expect(text).toContain(
-      "must not fall back to `.deb`, `apt`, `dpkg`, `/opt`, a release bridge, a root journal, or administrator input",
+      "Verify that SHA-256 before extracting or executing the bundled CLI",
+    );
+    expect(text).toContain(
+      "`desktop-install --release ... --archive ... --sources ...`",
+    );
+    expect(text).toContain(
+      "refuses an existing managed launcher and never launches the app or opens its database",
+    );
+    expect(text).toContain(
+      "`~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/`",
+    );
+    expect(text).toContain("`~/.local/bin/vellum-command-desktop`");
+    expect(text).toContain(
+      "The app never invokes a package manager, loads AppArmor policy, enables lingering, collects administrator credentials or retries through a privileged fallback",
+    );
+    expect(text).toContain(
+      "Managed official installations automatically check and download the signed alpha feed at `/linux/x64/alpha.json`",
+    );
+    expect(text).toContain("Choose **Restart** in the app");
+    expect(text).toContain(
+      "the existing app flushes pending product work and shuts down its owned runtime and database connection",
+    );
+    expect(text).toContain(
+      "schema migration runs during normal app startup through its sole `StateEngine` connection",
+    );
+    expect(text).toContain(
+      "Unmanaged source builds and loose extracted copies do not update themselves through the managed release lane",
     );
     expect(runbook).not.toContain("## Before any package mutation");
     expect(runbook).not.toContain("## Remote station and Xvfb");
@@ -62,38 +81,38 @@ describe("Linux v1 operator documentation", () => {
     expect(runbook).not.toContain("/usr/libexec/vellum-release-bridge");
     expect(runbook).not.toContain("/usr/libexec/vellum-release-installer");
 
-    // Displayless Node Remote is core; Xvfb is not required.
+    // Desktop evidence cannot qualify the gated, displayless Remote.
     expect(text).toContain(
-      "The core Remote executable is a packaged Node process",
+      "Desktop alpha does not enable or qualify Fleet Remote",
     );
     expect(text).toContain(
-      "does not require `DISPLAY`, Wayland, X authority, `Xvfb`, `xauth`, or `mcookie`",
+      "Remote runs the packaged Node runtime under the Station user's service manager, with no Electron, Chromium, display server, Xvfb, xauth or mcookie prerequisite",
     );
     expect(text).toContain(
-      "Do not install a display stack to make the core Remote start",
-    );
-
-    // Browser unavailable for first Beta; Doctor core readiness independent.
-    expect(text).toContain(
-      "Browser automation is intentionally unavailable on Linux Remote for the first Beta",
+      "Desktop launch and update receipts do not substitute for those proofs",
     );
     expect(text).toContain(
-      "Browser remains `unavailable` on Linux Remote for the first Beta, while core readiness is independent from browser-side display and security findings",
+      "Browser automation remains unavailable in the first Remote Beta",
     );
     expect(text).toContain(
-      "Linux Remote browser profiles are not part of the first Beta because browser automation is unavailable",
+      "Core Node health is independent of a future browser sidecar's display, sandbox and secret-storage requirements",
     );
 
     // State custody + forward-only repair.
     expect(runbook).toContain("`~/.vellum-command/state/vellum-command.db`");
-    expect(text).toContain("repair is forward-only with a newer signed payload");
+    expect(text).toContain("There is no sealed clone preflight or second database opener");
     expect(text).toContain(
-      "An older binary is never activated against advanced state",
+      "Install/update never copies, replaces, archives or redirects the product database, WAL or shared-memory file",
     );
     expect(text).toContain(
-      "add a `sudoers` rule, setuid helper, file capability, polkit rule",
+      "Once state advances, repair uses a newer signed release; there is no downgrade or filesystem rollback",
     );
-    expect(text).toContain("add `--no-sandbox`");
+    expect(text).toContain(
+      "Do not rerun the first-install command to replace an active installation or switch the launcher to an older generation",
+    );
+    expect(text).toContain(
+      "Never add `--no-sandbox`, disable AppArmor, weaken global user namespaces, run the app as root or install a setuid helper",
+    );
   });
 
   it("documents displayless beta contracts across production, host, and matrix", async () => {
@@ -104,18 +123,25 @@ describe("Linux v1 operator documentation", () => {
       await readDoc("linux-package-qualification.md"),
     );
 
-    // Rootless userland / signed owner-local payload (vellum-runtime archive lane).
-    expect(production).toContain("one signed rootless Station payload");
+    // Desktop and Fleet share rootless authority but have separate qualification.
+    expect(production).toContain(
+      "The canonical payload is `vellum-runtime-<version>-linux-x64.tar.gz`",
+    );
+    expect(production).toContain(
+      "Desktop descriptors and the alpha feed live under `/linux/x64/`, separately from the gated Fleet release contract",
+    );
+    expect(production).toContain(
+      "This does not block a separately qualified desktop alpha release",
+    );
     expect(qualification).toContain("rootless userland payload");
     expect(qualification).toContain(
       "exact signed rootless payload",
     );
     expect(matrix).toContain(
-      "One exact signed owner-local payload; same ordinary-user transaction for first install and update",
+      "Immutable owner-local generations",
     );
 
     // Displayless Node Remote; Xvfb not a core prerequisite.
-    expect(production).toContain("displayless Node Remote");
     expect(production).toContain(
       "packaged Node runtime under the Station user's service manager, with no Electron, Chromium, or display-server dependency",
     );
@@ -128,9 +154,7 @@ describe("Linux v1 operator documentation", () => {
     expect(host).toContain(
       "Do not install `Xvfb`, `xauth`, or `mcookie` to make the current core Remote work",
     );
-    expect(matrix).toContain(
-      "Packaged Node process; no Electron, Chromium, `DISPLAY`, Xvfb, xauth, or mcookie dependency",
-    );
+    expect(matrix).toContain("Packaged Node, without Electron, Chromium, display server, Xvfb, xauth or mcookie");
 
     // Browser unavailable for first Beta; Doctor core readiness independent of display.
     expect(production).toContain(
@@ -149,7 +173,7 @@ describe("Linux v1 operator documentation", () => {
       "let display, AppArmor, user-namespace, or secret-storage findings override healthy core Node Remote status",
     );
     expect(matrix).toContain(
-      "Intentionally unavailable in first Beta; does not affect core health",
+      "Unavailable in the first Remote Beta | Display/sandbox/secret-storage gaps do not block core Node health",
     );
     expect(qualification).toContain(
       "core Doctor status can be `ready` without display tooling",
@@ -159,9 +183,11 @@ describe("Linux v1 operator documentation", () => {
     );
 
     // No sudo / deb / /opt product path.
-    expect(production).toContain("There is no supported privileged fallback");
     expect(production).toContain(
-      "The `.deb`/`/opt` contract and any remaining privileged types, tests, scripts, receipts, or instructions are migration residue",
+      "The retired `.deb`/`/opt` lane is not a fallback",
+    );
+    expect(production).toContain(
+      "No administrator-password flow, privileged bridge, root journal or parallel system installer is permitted",
     );
     expect(host).toContain(
       "Vellum Command never invokes `sudo`, accepts an administrator password",
@@ -173,7 +199,7 @@ describe("Linux v1 operator documentation", () => {
       "describe the current privileged `.deb` lane as beta, production, fallback, offline, enterprise, or recovery support",
     );
     expect(matrix).toContain(
-      "Privileged `.deb`, `/opt`, release bridge/installer, root journal, administrator credential flow",
+      "No `/opt` installer, administrator-credential flow, privileged bridge, root journal, setuid helper or package-manager fallback is supported",
     );
     expect(qualification).toContain(
       "fresh install with no `sudo`, `su`, `pkexec`, system package manager",
@@ -228,14 +254,15 @@ describe("Linux v1 operator documentation", () => {
       /(?:create|make|take).{0,160}(?:backup|archive).{0,160}\b`?~\/\.vellum\b/iu,
     );
     expect(docs).not.toContain("vellum-backups");
-    expect(prose).toMatch(
-      /Settings\s+→\s+Advanced lists verified retained backups and can export one/iu,
+    const runbook = collapsed(await readDoc("linux-operator-runbook.md"));
+    expect(runbook).toContain(
+      "Settings → Advanced can list verified retained backups and export one to an explicit new destination",
     );
-    expect(prose).toMatch(
-      /There is no restore, import, replacement, or downgrade surface/iu,
+    expect(runbook).toContain(
+      "no restore, import, database replacement or downgrade surface",
     );
-    expect(prose).toMatch(
-      /Never restore, downgrade, or replace product state as part of repair/u,
+    expect(runbook).toContain(
+      "Do not reconstruct, replace or delete state files",
     );
   });
 
@@ -243,29 +270,32 @@ describe("Linux v1 operator documentation", () => {
     const matrix = await readDoc("linux-v1-support-matrix.md");
     for (const supported of [
       "Ubuntu 24.04 LTS",
-      "x86-64 / `amd64` only",
+      "x86-64",
       "glibc 2.39",
-      "Packaged Node process",
+      "Packaged Node",
       "Wayland/XWayland",
-      "five verbs only",
-      "host-local",
-      "`vellum-command-work/v1`",
-      "Intentionally unavailable in first Beta",
+      "Five bounded verbs over OpenSSH",
+      "Owner-local Unix socket with process-bound identity",
+      "Unavailable in the first Remote Beta",
+      "Real two-installation qualification required",
+      "Desktop alpha evidence grants no Fleet qualification",
+      "Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart",
+      "Managed official installations only",
     ]) {
       expect(matrix).toContain(supported);
     }
-    expect(matrix).toContain("no Electron, Chromium, `DISPLAY`, Xvfb");
+    expect(matrix).toContain("without Electron, Chromium, display server, Xvfb");
     expect(matrix).not.toContain("Station-browser protocol");
     // Xvfb is not a supported core Remote display requirement.
     expect(matrix).not.toMatch(/X11\/Xvfb/u);
     for (const unsupported of [
-      "Linux arm64 / aarch64",
-      "musl / Alpine",
+      "Linux ARM64",
+      "musl/Alpine",
       "AppImage",
       "RPM",
       "Snap",
       "Flatpak",
-      "Container-only host",
+      "Container-only results do not establish host-kernel qualification",
     ]) {
       expect(matrix).toContain(unsupported);
     }
@@ -306,31 +336,53 @@ describe("Linux v1 operator documentation", () => {
     );
   });
 
-  it("documents custody, rotation, revocation, and the remaining human ceremony", async () => {
+  it("separates desktop publication authority from CI and Fleet qualification", async () => {
     const policy = await readDoc("linux-release-key-policy.md");
+    const lane = await readDoc("linux-ci-release-lane.md");
     const text = collapsed(policy);
-    expect(text).toContain("CI has read-only repository permission");
+    const laneText = collapsed(lane);
+    expect(text).toContain("read-only repository permission");
     expect(text).toContain("receives no release private key");
-    expect(policy).toContain("## Custody and recovery");
-    expect(policy).toContain("## Rotation");
-    expect(policy).toContain("## Revocation");
+    expect(policy).toContain("## Human authority and custody");
+    expect(policy).toContain("## Rotation and revocation");
     expect(policy).toContain("Revocation is irreversible");
-    expect(policy).toContain("## First Linux publication gate");
-    expect(text).toContain("explicit GO or NO-GO");
-    expect(policy).toContain("CI-evidence-manifest");
-    expect(policy).toContain("cross-platform promotion");
+    expect(policy).toContain("## Desktop alpha publication gates");
+    expect(policy).toContain("## Fleet Beta publication gates");
+    expect(text).toContain("independent approval recorded against the descriptor digest before upload");
+    expect(text).toContain("supply private-key bytes only through the signing tool's standard input");
+    expect(text).toContain("Record custody as unverified until the custodian supplies the required evidence");
+    expect(text).toContain("Remaining `UNKNOWN` licenses block release preparation and cannot be waived by GO");
+    expect(text).toContain("Immutable desktop descriptors do not expire and require no periodic re-signing or version bump");
+    expect(text).toContain("Managed updates must be strictly newer than the installed version");
+    expect(text).toContain("current trust/revocation checks still apply");
     expect(text).toContain(
-      "No script in this repository performs the GO or upload steps",
+      "Fleet's two-installation gates do not apply to desktop-only publication",
     );
+    expect(text).toContain("Desktop publication must not remove or satisfy these gates by implication");
+    expect(text).toContain("A desktop descriptor grants no Fleet release qualification or Remote deployment authority");
     expect(policy).toContain("release-manifest.json");
     expect(policy).toContain("SHA256SUMS");
-    expect(policy).toContain("linux-release-tool.ts");
-    expect(text).toContain("canonical rootless payload");
-    expect(text).toContain(
-      "confirms the privileged `.deb`, `/opt`, release bridge/installer, root journal, and administrator-credential product paths are absent",
+    for (const releasePath of [
+      "/linux/x64/alpha.json",
+      "/linux/x64/<version>/release.json",
+      "/linux/x64/vellum-runtime-<version>-linux-x64.tar.gz",
+      "/linux/x64/sources/<version>/sources.json",
+    ]) {
+      expect(policy).toContain(releasePath);
+      expect(lane).toContain(releasePath);
+    }
+    expect(laneText).toContain("That CI artifact is unsigned and is not a public release");
+    expect(laneText).toContain("CI does not hold the release private key, sign production metadata, record GO or upload a release");
+    expect(laneText).toContain("Record GO against the exact descriptor digest only when these gates pass");
+    expect(laneText).toContain("The publisher's default is a local dry run");
+    expect(laneText).toContain("Adding `--publish` performs the separately authorized external publication");
+    expect(shellBlocks(lane)).toContain("scripts/publish-linux-desktop-release.ts");
+    expect(shellBlocks(lane)).not.toContain("--publish");
+    expect(laneText).toContain(
+      "No `.deb`, `/opt`, administrator prompt, privileged helper or root journal is a fallback for either lane",
     );
     expect(policy).not.toContain("ubuntu-24.04-x64-release");
-    // No checked-in privileged signing recipe until rootless inputs exist.
+    // Private custody paths must never become checked-in signing recipes.
     expect(policy).not.toContain(
       "< /offline/custody/vellum-linux-ed25519.pem",
     );
