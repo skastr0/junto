@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { compiledMacSigningPolicy } from "../mac-signing-policy";
 import {
   constants as fsConstants,
   createReadStream,
@@ -52,11 +53,6 @@ import {
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const LABEL = "skastr0.vellumcommand";
-const TEAM_IDENTIFIER = "EXAMP12345";
-const SIGNING_AUTHORITY =
-  "Developer ID Application: Example Maintainer (EXAMP12345)";
-const DEVELOPER_ID_REQUIREMENT =
-  '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
 const REMOTE_CLI_EXECUTABLE =
@@ -88,8 +84,8 @@ export type LocalBundleProvenanceReceipt = {
   readonly bundleIdentifier: typeof LABEL;
   readonly bundleExecutable: typeof PRODUCT_NAME;
   readonly version: string;
-  readonly teamIdentifier: typeof TEAM_IDENTIFIER;
-  readonly signingAuthority: typeof SIGNING_AUTHORITY;
+  readonly teamIdentifier: string;
+  readonly signingAuthority: string;
   readonly cdHash: string;
 };
 
@@ -322,6 +318,7 @@ export const validateLocalBundleProvenance = (input: {
   readonly bundleVersion: string;
   readonly codesignMetadata: string;
 }): LocalBundleProvenanceReceipt => {
+  const policy = compiledMacSigningPolicy();
   if (basename(input.appPath) !== APP_BUNDLE_NAME) {
     throw new Error(`local bundle must be named ${APP_BUNDLE_NAME}`);
   }
@@ -346,7 +343,7 @@ export const validateLocalBundleProvenance = (input: {
   }
   if (
     singleCodesignValue(input.codesignMetadata, "TeamIdentifier") !==
-    TEAM_IDENTIFIER
+    policy.teamIdentifier
   ) {
     throw new Error("code signature team does not match Vellum Command");
   }
@@ -364,7 +361,7 @@ export const validateLocalBundleProvenance = (input: {
     .split(/\r?\n/u)
     .filter((line) => line.startsWith("Authority="))
     .map((line) => line.slice("Authority=".length).trim());
-  if (authorities[0] !== SIGNING_AUTHORITY) {
+  if (authorities[0] !== policy.signingAuthority) {
     throw new Error("code signature authority does not match Vellum Command policy");
   }
   const signatureSize = singleCodesignValue(
@@ -383,8 +380,8 @@ export const validateLocalBundleProvenance = (input: {
     bundleIdentifier: LABEL,
     bundleExecutable: PRODUCT_NAME,
     version: bundleVersion,
-    teamIdentifier: TEAM_IDENTIFIER,
-    signingAuthority: SIGNING_AUTHORITY,
+    teamIdentifier: policy.teamIdentifier,
+    signingAuthority: policy.signingAuthority,
     cdHash: cdHash.toLowerCase(),
   });
 };
@@ -409,6 +406,7 @@ const runBundleAdmissionCommand = async (
 export const admitLocalAppBundle = async (
   requestedPath: string,
 ): Promise<LocalBundleProvenanceReceipt> => {
+  const policy = compiledMacSigningPolicy();
   const requestedAbsolute = resolve(requestedPath);
   const canonicalPath = await realpath(requestedAbsolute);
   if (canonicalPath !== requestedAbsolute) {
@@ -468,7 +466,7 @@ export const admitLocalAppBundle = async (
     "--strict",
     "--verbose=2",
     "-R",
-    DEVELOPER_ID_REQUIREMENT,
+    policy.developerIdRequirement,
     canonicalPath,
   ]);
   const [codesign, bundleIdentifier, bundleExecutable, bundleVersion] = await Promise.all([
@@ -831,6 +829,7 @@ const buildRemoteDeployScriptWithRuntime = (
   runtime: RemoteDeployScriptRuntime,
   transfer: DarwinRemoteArtifactTransfer,
 ): string => {
+  const policy = compiledMacSigningPolicy();
   if (!isSafeRemoteHomePath(remoteHome)) {
     throw new Error("remote home must be a canonical absolute path");
   }
@@ -879,7 +878,7 @@ const buildRemoteDeployScriptWithRuntime = (
   const socketReadyLimit = String(waitLimits.socketReady);
 
   // First install only: --vellum-headless so an unconfigured package never
-  // hits the Command Center license gate. Update stays Remote — redeploy
+  // opens the Command Center canvas. Update stays Remote — redeploy
   // is not unenroll. expectedPackageState is that compile decision, not
   // raw disk presence (enrolled missing .app stays present).
   const firstInstall = transfer.expectedPackageState === "absent";
@@ -962,7 +961,7 @@ ARCHIVE=${shellLiteral(`${incomingPath}.release.zip`)}
     : `ARTIFACT_KIND=app-tar
 `
 }
-DEVELOPER_ID_REQUIREMENT=${shellLiteral(DEVELOPER_ID_REQUIREMENT)}
+DEVELOPER_ID_REQUIREMENT=${shellLiteral(policy.developerIdRequirement)}
 UID_VALUE="$("$ID" -u)"
 DOMAIN="gui/$UID_VALUE"
 JOB="$DOMAIN/${LABEL}"
@@ -1616,8 +1615,8 @@ REMOTE_SIGNED_AUTHORITY="$(first_signing_authority "$REMOTE_CODESIGN_METADATA")"
 }
 [ "$REMOTE_SIGNED_EXE" = "$IN_EXE" ] || { echo "REMOTE_SIGNATURE_EXECUTABLE_MISMATCH" >&2; exit 3; }
 [ "$REMOTE_SIGNED_ID" = "${LABEL}" ] || { echo "REMOTE_SIGNATURE_IDENTIFIER_MISMATCH" >&2; exit 3; }
-[ "$REMOTE_SIGNED_TEAM" = "${TEAM_IDENTIFIER}" ] || { echo "REMOTE_SIGNATURE_TEAM_MISMATCH" >&2; exit 3; }
-[ "$REMOTE_SIGNED_AUTHORITY" = "${SIGNING_AUTHORITY}" ] || { echo "REMOTE_SIGNATURE_AUTHORITY_MISMATCH" >&2; exit 3; }
+[ "$REMOTE_SIGNED_TEAM" = ${shellLiteral(policy.teamIdentifier)} ] || { echo "REMOTE_SIGNATURE_TEAM_MISMATCH" >&2; exit 3; }
+[ "$REMOTE_SIGNED_AUTHORITY" = ${shellLiteral(policy.signingAuthority)} ] || { echo "REMOTE_SIGNATURE_AUTHORITY_MISMATCH" >&2; exit 3; }
 [ "$(/usr/bin/printf '%s' "$REMOTE_SIGNED_CDHASH" | /usr/bin/tr '[:upper:]' '[:lower:]')" = "$EXPECTED_CDHASH" ] || {
   echo "REMOTE_SIGNATURE_GENERATION_MISMATCH" >&2
   exit 3
@@ -1918,8 +1917,8 @@ PUBLISHED_SIGNED_CDHASH="$(single_metadata_value "$PUBLISHED_CODESIGN_METADATA" 
 PUBLISHED_SIGNED_AUTHORITY="$(first_signing_authority "$PUBLISHED_CODESIGN_METADATA")" || exit 5
 [ "$PUBLISHED_SIGNED_EXE" = "$EXE" ] &&
   [ "$PUBLISHED_SIGNED_ID" = "${LABEL}" ] &&
-  [ "$PUBLISHED_SIGNED_TEAM" = "${TEAM_IDENTIFIER}" ] &&
-  [ "$PUBLISHED_SIGNED_AUTHORITY" = "${SIGNING_AUTHORITY}" ] &&
+  [ "$PUBLISHED_SIGNED_TEAM" = ${shellLiteral(policy.teamIdentifier)} ] &&
+  [ "$PUBLISHED_SIGNED_AUTHORITY" = ${shellLiteral(policy.signingAuthority)} ] &&
   [ "$(/usr/bin/printf '%s' "$PUBLISHED_SIGNED_CDHASH" | /usr/bin/tr '[:upper:]' '[:lower:]')" = "$EXPECTED_CDHASH" ] || {
     echo "PUBLISHED_SIGNATURE_IDENTITY_MISMATCH $APP" >&2
     exit 5

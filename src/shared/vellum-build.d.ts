@@ -17,3 +17,5 @@ declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefine
 declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: string | undefined;
 declare const __VELLUM_COMMAND_APP_VERSION__: string | undefined;
+declare const __VELLUM_COMMAND_MAC_SIGNING_IDENTITY__: string | undefined;
+declare const __VELLUM_COMMAND_MAC_TEAM_ID__: string | undefined;

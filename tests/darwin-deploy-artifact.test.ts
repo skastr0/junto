@@ -2,12 +2,18 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   buildRemoteDeployScript,
   compileExpectedPackageState,
   validateReleaseZipArtifactInput,
 } from "../src/main/vellum/hosts/deploy-darwin";
+
+vi.hoisted(() => {
+  vi.stubGlobal("__VELLUM_COMMAND_MAC_TEAM_ID__", "EXAMP12345");
+  vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", "Developer ID Application: Example Maintainer (EXAMP12345)");
+});
+afterAll(() => vi.unstubAllGlobals());
 
 const TEST_CDHASH = "0123456789abcdef0123456789abcdef01234567";
 const SHA = "a".repeat(64);

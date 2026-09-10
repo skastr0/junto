@@ -3,20 +3,13 @@ import { access } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import { compiledMacSigningPolicy } from "../mac-signing-policy";
 import { updateError, type UpdateError } from "./errors";
 
 /** Product identity — must match production packaging and deploy-darwin. */
 const PRODUCT_NAME = "Vellum Command";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const BUNDLE_IDENTIFIER = "skastr0.vellumcommand";
-const TEAM_IDENTIFIER = "EXAMP12345";
-/**
- * Same Developer ID requirement as `deploy-darwin.ts` DEVELOPER_ID_REQUIREMENT.
- * Anchor + identifier + intermediate Apple WWDR + leaf Developer ID + team OU.
- */
-const DEVELOPER_ID_REQUIREMENT =
-  '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "EXAMP12345"';
-
 const ADMIT_TIMEOUT_MS = 30_000;
 
 export type AdmitMacAppCommandResult = {
@@ -95,7 +88,7 @@ const runOrThrow = async (
  * Admit a staged Mac `.app` before install mint.
  *
  * Checks: exact bundle name, executable identity, CFBundleIdentifier,
- * Developer ID codesign requirement (team EXAMP12345).
+ * the build-owned Developer ID codesign requirement.
  *
  * Non-darwin callers should not reach this path; inject `runCommand` in tests.
  */
@@ -105,6 +98,7 @@ export const admitStagedMacApp = (
 ): Effect.Effect<void, UpdateError> =>
   Effect.tryPromise({
     try: async () => {
+      const policy = compiledMacSigningPolicy();
       const runCommand = options.runCommand ?? defaultRunCommand;
       const canonicalPath = resolve(appPath);
       const root = lstatSync(canonicalPath);
@@ -142,7 +136,7 @@ export const admitStagedMacApp = (
         "--strict",
         "--verbose=2",
         "-R",
-        DEVELOPER_ID_REQUIREMENT,
+        policy.developerIdRequirement,
         canonicalPath,
       ]);
 
@@ -175,8 +169,6 @@ export const admitStagedMacApp = (
           `staged app CFBundleExecutable must be ${PRODUCT_NAME}`,
         );
       }
-      // Team OU is enforced by DEVELOPER_ID_REQUIREMENT (certificate leaf OU).
-      void TEAM_IDENTIFIER;
     },
     catch: (cause) =>
       updateError(
