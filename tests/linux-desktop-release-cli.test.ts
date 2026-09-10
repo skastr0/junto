@@ -184,6 +184,7 @@ describe("Linux desktop local release CLI", () => {
       { ...input.index, sourceCommit: "c".repeat(40) },
       { ...input.index, binaries: [] },
       { ...input.index, binaries: [...input.index.binaries, ...input.index.binaries] },
+      { ...input.index, binaries: [...input.index.binaries, { ...input.index.binaries[0], file: "unrelated-runtime.tar.gz" }] },
       { ...input.index, schema: "unknown" },
       { ...input.index, binaries: [{ ...input.index.binaries[0], sha256: "d".repeat(64) }] },
     ]) {

@@ -128,8 +128,9 @@ export const verifyLinuxDesktopSourceBinding = async (input: {
       new Set(binaries.map((entry) => entry.file)).size !== binaries.length) {
     throw new Error("duplicate source index file");
   }
-  const binary = binaries.find((entry) => entry.file === archiveName);
-  if (binary === undefined || binary.bytes !== archive.bytes || binary.sha256 !== archive.sha256) {
+  const binary = binaries[0];
+  if (binaries.length !== 1 || binary === undefined || binary.file !== archiveName ||
+      binary.bytes !== archive.bytes || binary.sha256 !== archive.sha256) {
     throw new Error("source index does not bind the exact desktop archive bytes");
   }
   return { archive, sources: { bytes: source.bytes, sha256: source.sha256 } };
