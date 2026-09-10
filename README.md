@@ -1,648 +1,136 @@
 <p align="center">
-  <img src="assets/brand/icon-candidates/round4-hero-lozenge/vellum-icon-r4-hero-fullbleed-amber.png" alt="Vellum Command" width="160" height="160" />
+  <img src="assets/brand/vellum-command-icon.png" alt="Vellum Command" width="128" height="128" />
 </p>
 
-<h1 align="center">Vellum Command</h1>
+# Vellum Command
 
-<p align="center"><strong>Run your agent fleet from one spatial board.</strong></p>
+A desktop workspace for agents, terminals, browser pages, and shared work on a
+spatial canvas. You draw the relationships; attached agents use the tools those
+relationships allow.
 
-<p align="center">
-  Managing agents on macOS is overwhelming — terminals stay opaque, the fleet spreads across panes and hosts, and status lives nowhere you can trust.<br />
-  <strong>Vellum Command</strong> puts the whole station on one deep-field canvas.
-</p>
+Vellum Command is free, open-source software under [Apache-2.0](LICENSE). It is
+actively developed by a solo maintainer. Reports and proposals go through
+[issues](https://github.com/skastr0/vellum-command/issues); see
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
 
-<p align="center">
-  <a href="https://vellumcommand.com/download"><strong>Download for macOS</strong></a>
-  -
-  <a href="https://vellumcommand.com">vellumcommand.com</a>
-</p>
+## Status and downloads
 
----
+| Surface | Status |
+| --- | --- |
+| macOS desktop | Primary platform, macOS 13 or later, Apple silicon. Official builds are signed and notarized. |
+| Linux desktop | Alpha. Build and run on a Linux desktop with X11 or Wayland. |
+| Fleet management and Remote stations | Experimental, disabled in the default build. |
+| Windows | No supported build or release lane. |
 
-## Table of contents
+The [official download page](https://vellumcommand.com/download) lists available
+builds. Official automatic updates use the Cloudflare Worker/R2 feed. The source
+repository is not an npm package, and GitHub Releases are not the update feed.
 
-- [The pain](#the-pain)
-- [The station](#the-station)
-- [Download](#download)
-- [Quick start](#quick-start)
-- [Canvas & document](#canvas--document)
-- [Node types](#node-types)
-- [Edges & verbs](#edges--verbs)
-- [Work plane & CLI](#work-plane--cli)
-- [Browser automation](#browser-automation)
-- [Kernel: regions, watchers, timers](#kernel-regions-watchers-timers)
-- [Station roles & multi-host fleet](#station-roles--multi-host-fleet)
-- [Settings & install](#settings--install)
-- [Headless tools](#headless-tools)
-- [Configuration paths & env](#configuration-paths--env)
-- [License](#license)
-- [Security](#security)
-- [Contributing](#contributing)
+The default `ship` feature profile is defined in
+[feature-catalog.ts](src/shared/feature-catalog.ts). Browser pages are enabled;
+Fleet, Remote management, Hermes integration, audio, and schedulers remain
+experimental. Opening the source does not change those defaults.
 
----
+## Build from source
 
-## The pain
+Requirements:
 
-Managing agents is overwhelming.
+- Bun 1.3.13, as recorded in `package.json`.
+- Node.js 24.10 or later for the test and build tools, including `node:sqlite`.
+- macOS or Linux. Linux needs an interactive X11 or Wayland session to run the GUI.
+- Git and the platform's native build tools when a dependency needs compilation
+  (Xcode Command Line Tools on macOS, a C/C++ toolchain and Python 3 on Linux).
 
-- **Terminals stay opaque** — signal buried in scrollback; hard to read, harder to operate at scale
-- **The fleet scatters** — local and remote agents become an unmanageable pile of panes and hosts
-- **Status lives nowhere** — running, blocked, waiting, and done never share one surface
-
-## The station
-
-**Vellum Command** lays your Hermes fleet, terminals, browser pages, and agent work on one portable spatial canvas — so **you author the board** and the fleet acts through a real work plane.
-
-### Why operators choose it
-
-- **One spatial board for the whole fleet** — agents, work, and regions as geography, not a pile of windows
-- **Hermes multi-agent presence** — who is up, blocked, waiting, or done, live on the board
-- **Multi-host / multi-fleet over SSH** — without a second remote tool to babysit
-- **A2A work plane** — tasks, requests, input-required, messages, and artifacts with protocol, not chat chaos
-- **Vellum Command CLI** — control surface agents use so work happens without freeform canvas thrash
-- **Browser pages as first-class nodes** — same plane as agents and terminals
-- **Regions and watchers** — operational geography; the document is the product (portable JSON Canvas)
-
-### Is / is not
-
-| Vellum Command **is** | Vellum Command **is not** |
-|---|---|
-| A deep-field command station for agent fleets on macOS | Another chat app or prompt playground |
-| A spatial canvas humans author; agents act through the work plane | A free-for-all where agents rewrite your board |
-| A portable JSON Canvas document the app projects | A multi-platform toy chasing every OS |
-
-## Download
-
-**[Download Vellum Command for macOS →](https://vellumcommand.com/download)**
-
-Vellum Command is a **closed-source, privately distributed macOS application**.
-Customers receive a signed and notarized app from the Vellum Command download
-page; the source repository is private and there is no supported public
-source-build or package-install path. The app's automatic update feed is the
-Cloudflare Worker configured in
-[src/main/vellum/update/compiled-config.ts](src/main/vellum/update/compiled-config.ts),
-not GitHub Releases.
-
-Requirements: **macOS 13+** (arm64 primary). Install **Hermes** for live fleet features; browser nodes ship with the station.
-
-Authorized maintainers with repository access use the internal development and
-release instructions in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Quick start
-
-1. Download and open **Vellum Command** from the [Vellum Command download page](https://vellumcommand.com/download).
-2. Activate with your license key (in-app). The install becomes the local Command Center automatically.
-3. Author the board — drop agents, tasks, regions, and edges.
-4. Open an agent surface; drive work via the **Vellum Command CLI** or in-app chat.
-
----
-
-## Canvas & document
-
-Canvases live in the app-owned SQLite database at
-`~/.vellum-command/state/vellum-command.db`. JSON Canvas is the explicit export and
-interoperability format, not a watched source of live state.
-
-Standard **JSON Canvas 1.0** (`text`, `file`, `link`, `group`) plus optional `ether` on nodes and edges.
-
-**Two laws** on every save:
-
-1. **Graceful degradation** — strip every `ether` key and the file is still valid JSON Canvas 1.0 (Obsidian opens it).
-2. **Mirror law** — extension semantics project into native fields (blocker → red; derived phase may project to edge label/color).
-
-Derived state (blocked seats, region membership, binding health, live phase) is **never stored** — recomputed from the document + live sources.
-
-**Canonical serialize:** stable key order, 2-space indent, trailing newline.
-
----
-
-## Node types
-
-### Native JSON Canvas
-
-| Node | What it is | Why it matters |
-|---|---|---|
-| **Text** | Free note; also the carrier for many ether entity kinds | Notes and typed entities share one geometry |
-| **File** | Points at a filesystem path (`file`, optional `subpath`) | Board links to docs without embedding blobs |
-| **Link** | URL card; becomes a **page** when browser binding is set | Same geometry for bookmarks vs live browser |
-| **Group (region)** | Named geography; optional label/background | Operational geography containers |
-
-### Entity kinds (open vocabulary, richer UI)
-
-| Kind | Base | What it is | Why it matters |
-|---|---|---|---|
-| **agent** | text | Hermes profile card; key `<host>:<profile>`; ACP chat | Live agent presence and managed-terminal seat |
-| **terminal** | text | Native Vellum Command PTY session (`ether.terminal`) | Default local terminal work surface |
-| **page** | link | Bound browser page + profile name | Browser as a first-class fleet surface |
-| **task** | text | Address for a normalized SQLite task sink | Protocol tasks, not chat chaos |
-| **requests** | text | Address for a normalized input-required shelf | Operator attention queue |
-| **artifacts** | text | Address for a normalized artifact shelf | Shareable outputs on the board |
-| **watcher** | text | Predicate over live data (`ether.watch`) | Hermes stat threshold status (sensor only) |
-| **timer** | text | Interval clock (`ether.timer.everyMinutes`) | Interval clock (`nextFire` UI only) |
-| **project / orbit / plugin / station / skill** | text | Inert open-vocabulary labels | Portfolio geography without invented runtime authority |
-
-### Structural stamps
-
-| Stamp | What |
-|---|---|
-| **Flags** | `blocker` - `parked` - `attention` — visual + graph seed |
-| **View slice** | retired — project slice lens removed |
-| **Host stamp** | `ether.host` — multi-fleet execution locality |
-| **Region defaults** | Create-time defaults for page nodes inside a region |
-| **Region hold / instruction** | Structural container + onboard briefing text (`vellum-command onboard` → `region.instruction`) |
-
-Work contents never persist in authorial `ether`; task, request, message,
-artifact, and transition rows belong to the SQLite Work plane and are projected
-only for runtime rendering. Blockability derives from factory role. Only actor
-nodes can receive stoppage.
-
-### Native terminals
-
-Native `terminal` nodes are the default terminal path. Vellum Command owns their local
-processes through the app-scoped TermPlane and presents them with xterm. Quitting
-Vellum Command kills every local native terminal session; detached local sessions do not
-survive quit. Put durable work on a **Remote** station instead.
-
----
-
-## Edges & verbs
-
-An edge authors exactly one fact — its **verb**, the semantic relationship
-("Planner **manages** Backlog", "Builder **contributes to** Backlog"). Ports,
-assignability, board wake, watch predicates, and scheduler effects are all
-compiled from the verb plus the two endpoint kinds — there is nothing else to
-author, and no edge dialog: pick and read the verb as a plain sentence from
-the bottom bar.
-
-| Verb reaching a task/requests sink | Behavior |
-|---|---|
-| No edge | Soft **relates** — never generates stoppage |
-| **`manages`** / **`contributes`** / **`works`** / **`escalates`** | Attention only: a **claimed** `input-required` / `auth-required` item on the connected sink blocks that actor. `submitted` / `working` never block |
-
-Live phase is **derived** (`blocks` \| `relates`) — never authored. There is no
-actor-to-actor relay bypass or multi-hop stoppage cascade; propagating
-stoppage beyond the direct claimant is an explicit **relay** node.
-
----
-
-## Work plane & CLI
-
-While Vellum Command is running, agents talk to the **local** work control socket:
-
-| | |
-|---|---|
-| Socket | `~/.vellum-command/work/control.sock` |
-| Token | `~/.vellum-command/work/token` |
-| Protocol | `vellum-command-work/v1` (NDJSON) |
-| Authz | **Edges** — an agent only acts on connected nodes |
-
-### Vellum Command CLI
-
-```bash
-vellum-command ping              # is the station up?
-vellum-command doctor            # socket / token / protocol health
-vellum-command capabilities      # live edge contract for this principal
-vellum-command onboard           # join the work plane
-vellum-command schema            # machine contracts
-vellum-command examples          # discoverability
-vellum-command tasks list|claim|update
-vellum-command msg list|send
-vellum-command request create
-vellum-command artifact publish
+```sh
+git clone https://github.com/skastr0/vellum-command.git
+cd vellum-command
+bun install --frozen-lockfile
+bun run dev
 ```
 
-Build the CLI: `bun run cli:build` → `dist/vellum-command`.
+The development app uses `~/.vellum-command-dev/`. When compatible production
+state exists, the development launcher can seed a separate development copy.
+The packaged application uses `~/.vellum-command/`.
 
-**Process-bind:** the principal is the live ACP child PID — no freeform nodeRef identity claim. Draw edges from the agent to targets so authorization is spatial and honest.
+No payment account, activation key, private source checkout, or maintainer signing
+credential is required. Install any external agent harness you want to use
+separately; its authentication and provider costs are managed by that harness.
 
-**Task states:** `submitted` - `working` - `input-required` - `completed` - `canceled` - `failed` - `rejected` — legal transitions enforced.
+To compile and package locally:
 
----
-
-## Browser automation
-
-Browser **page** nodes bind a URL to a profile. Cookies live in Electron partitions (`persist:vellum-profile-{id}`) under app userData and **survive quit**.
-
-### Safety model (operator)
-
-| Layer | Behavior |
-|---|---|
-| **You browsing** | Log in, navigate, use pages — cookies persist; quit does not wipe |
-| **Agent automation** | Requires process-bind + **human Allow Access** + short-lived capability scoped to edges/origins |
-| **Remote pages** | Sandboxed WebContents; no Node; permissions/downloads/devices denied; public http(s) only |
-| **Profile wipe** | Explicit Settings action with typed confirmation — the only path that clears logins |
-
-**Do not** grant browser automation on a profile that holds accounts you treat as primary vault material. Without that grant, the browser is a normal Chromium profile for testing and secondary accounts.
-
-### Browser CLI (`vellum-command browser`)
-
-```bash
-vellum-command browser doctor
-vellum-command browser profiles
-vellum-command browser pages | sessions
-vellum-command browser open <vellum-ref>
-vellum-command browser goto | eval | shot | close | stop
+```sh
+bun run build              # compile the desktop application
+bun run app:build:mac      # local macOS package, run on macOS
+bun run app:build:linux    # local Linux desktop package, run on Linux
 ```
 
-App must be running. Control home: `~/.vellum-command/browser/` (override `VELLUM_COMMAND_BROWSER_HOME`). Packaged binary ships as `Contents/Resources/bin/vellum-command`.
+Local packages are development builds. Official signing and publication are
+separate maintainer operations described in
+[the macOS release runbook](docs/mac-release-runbook.md).
 
-### Profiles
+## Use the workspace
 
-- Default seeds today: `personal` and `work` (generic cookie partitions — not hard-coded dual engines)
-- Settings: max warm sessions / visible surfaces
-- Wipe: Settings → type profile id to confirm; last profile cannot be wiped
+1. Open Vellum Command and choose the local Command Center role when prompted.
+2. Add agent seats, terminals, pages, tasks, and notes to the canvas.
+3. Connect nodes with the relationship you want, such as an agent contributing to
+   a task queue or navigating a page.
+4. Open a terminal or agent surface to work. The canvas remains human-authored;
+   agents act through the connected work and browser tools.
 
----
+The app owns its durable SQLite state at
+`~/.vellum-command/state/vellum-command.db`. JSON Canvas is an explicit export
+format, not a file that agents edit to change the running application.
 
----
+Local terminal processes belong to the application and stop when it quits. Remote
+execution is part of the experimental Fleet feature, not a promise of persistent
+local terminals.
 
-## Kernel: regions, watchers, timers
+## Agent tools
 
-| Piece | What it does |
-|---|---|
-| **Region** | Group node + `ether.region` — operational geography |
-| **Membership** | Center-in-rect geometry (flat; no nested groups) — derived, never stored |
-| **Watcher** | Predicate → status (`stat_threshold`) |
-| **Timer** | `everyMinutes` schedule |
-| **Arming** | Per canvas::region switch in app-owned SQLite runtime state — **not in the document** |
-| **Agent turns** | Factory claim, work messages, board notify, managed-terminal UI — not region broadcast |
-| **Host-scoped fire** | Remote stations only fire nodes on their hostId |
+Build the CLI with `bun run cli:build`; the result is `dist/vellum-command`.
+Packaged applications include the same CLI as `bin/vellum-command`.
 
-Settings → Kernel: verbose debug only. Region pulse/arming product is retired.
-
----
-
-## Station roles & multi-host fleet
-
-| Role | Meaning |
-|---|---|
-| **Command Center** | Human authors the canvas; manages the fleet registry |
-| **Remote** | Capability host; applies complete projections; host-scoped execution only |
-
-Role is **never inferred** — you pick it. `hostId` identifies this machine (default `local`).
-
-| Config | Contract |
-|---|---|
-| Host registry | App-owned rows in `vellum-command.db` (max 32) |
-| Local host | Auto-seeded with terminal, browser, and hermes |
-| Remote host | SSH endpoint + capabilities; optional hermesId remap |
-| Fleet sync | `pair` / `configure` / `project` / `report` / `status` through `vellum-command station-stdio` |
-| Tailscale | Optional serve/peer catalog in Settings → Hosts |
-
-Advanced local, multi-host, and offline-island proof:
-[`docs/remote-station-checklist.md`](docs/remote-station-checklist.md).
-Fleet diagnostics and qualification evidence:
-[`docs/fleet-observability.md`](docs/fleet-observability.md).
-
----
-
-## Settings & install
-
-Preferences, station topology, and host enrollment live as normalized rows in
-`~/.vellum-command/state/vellum-command.db`. The app is their only mutation path.
-
-| Install | Command |
-|---|---|
-| Build + install | `bun run app:install` |
-| Supervised (LaunchAgent, crash-only KeepAlive) | `bun run app:install:supervised` |
-| Unload agent, keep app | `bun run app:uninstall-agent` |
-
-App bundle: **Vellum Command.app** - protocol: `vellum-command://` node references.
-
----
-
-## Headless tools
-
-| Command | Who | What |
-|---|---|---|
-| `bun run digest [name]` | agents + operators | Text projection + live snapshots |
-| `bun run render [name]` | agents + operators | SVG deep-field image of the board |
-| `bun run canvas:ls` | agents + operators | List canvases (`--json`) |
-| `bun run canvas:rm` | **operator only** | Delete canvases (`VELLUM_COMMAND_AUTHORIAL_WRITE=1`) |
-| `bun run ref` | tooling | `vellum-command://` node-ref CLI |
-| `bun run browser` | agents | Browser control CLI (app must be running) |
-| `bun run cli` / `cli:build` | agents | Work-plane CLI |
-
----
-
-## Work plane & CLI
-
-```bash
-vellum-command ping
-vellum-command doctor
-vellum-command capabilities
-vellum-command onboard
-vellum-command schema | examples
-vellum-command tasks list|claim|update
-vellum-command msg list|send
-vellum-command request create
-vellum-command artifact publish
+```sh
+dist/vellum-command doctor
+dist/vellum-command capabilities
+dist/vellum-command onboard
 ```
 
-| | |
-|---|---|
-| Socket | `~/.vellum-command/work/control.sock` |
-| Token | `~/.vellum-command/work/token` |
-| Authz | **Edges** — agent only acts on connected nodes |
-| Identity | Process-bind (live ACP PID), not freeform node claims |
+Protected operations require the CLI to run under an agent process registered by
+the running app. Identity comes from that process, and access comes from the
+operator's connected edges and ports. There is no client-supplied identity or
+separate browser grant token.
 
-Build: `bun run cli:build` → `dist/vellum-command`.
+Operator projection tools use the running application's control socket:
 
----
-
-## Browser automation
-
-Page nodes bind a URL to a profile. Cookies live in `persist:vellum-profile-{id}` and **survive quit**.
-
-| Layer | Behavior |
-|---|---|
-| **You browsing** | Normal Chromium profile; quit does not wipe |
-| **Agent automation** | Process-bind + human **Allow Access** + short-lived capability scoped by edges/origins |
-| **Remote pages** | Sandboxed; no Node; permissions/downloads/devices denied; public http(s) only |
-| **Wipe** | Settings → typed confirm; last profile cannot be wiped |
-
-Without granting automation, the browser is safe for testing and secondary accounts. **Do not** grant automation on profiles that hold primary credentials.
-
-```bash
-vellum-command browser doctor | profiles | pages | sessions
-vellum-command browser open <vellum-ref>
-vellum-command browser goto | eval | shot | close | stop
+```sh
+bun run canvas:ls
+bun run digest
+bun run render
 ```
 
----
+They produce readable canvas projections without opening the product database.
+See [the security doctrine](docs/security-doctrine.md),
+[the Work and Station contract](docs/vellum-protocol.md), and
+[the pad guide](docs/pad.md) for the detailed boundaries.
 
----
+## Development checks
 
-## Kernel: regions, watchers, timers
-
-| Piece | Role |
-|---|---|
-| **Region** | Group + operational geography |
-| **Membership** | Center-in-rect geometry (flat) — derived |
-| **Watcher** | `stat_threshold` status |
-| **Timer** | `everyMinutes` schedule |
-| **Arming** | Per region switch in the app — **not stored in the document** |
-| **Agent turns** | Factory claim, work messages, board notify, managed-terminal UI — not region broadcast |
-| **Host-scoped fire** | Remotes only fire nodes on their hostId |
-
----
-
-## Station roles & multi-host fleet
-
-| Role | Meaning |
-|---|---|
-| **Command Center** | Human authors the canvas; manages fleet registry |
-| **Remote** | Capability host; applies complete projections; host-scoped execution |
-
-Role is never inferred. The SQLite host registry seeds local and enrolls
-Remotes by SSH endpoint. Optional Tailscale serve catalog lives in Settings →
-Hosts.
-
----
-
-## Settings & install
-
-`~/.vellum-command/state/vellum-command.db` owns preferences, station topology, host
-enrollment, canvases, work, and Station coordination.
-
-| Install | Command |
-|---|---|
-| Build + install | `bun run app:install` |
-| Supervised LaunchAgent | `bun run app:install:supervised` |
-| Unload agent | `bun run app:uninstall-agent` |
-
-Bundle: **Vellum Command.app** - scheme: `vellum-command://`
-
----
-
-## Headless tools
-
-| Command | Who | What |
-|---|---|---|
-| `bun run digest [name]` | agents + operators | Text projection + live snapshots |
-| `bun run render [name]` | agents + operators | SVG deep-field image |
-| `bun run canvas:ls` | agents + operators | List canvases |
-| `bun run canvas:rm` | operator only | Delete (`VELLUM_COMMAND_AUTHORIAL_WRITE=1`) |
-| `bun run ref` | tooling | `vellum-command://` node-ref CLI |
-| `bun run browser` | agents | Browser control (app running) |
-| `bun run cli` / `cli:build` | agents | Work-plane CLI |
-
----
-
-## Work plane & CLI
-
-```bash
-vellum-command ping | doctor | capabilities | onboard
-vellum-command schema | examples
-vellum-command tasks list|claim|update
-vellum-command msg list|send
-vellum-command request create
-vellum-command artifact publish
+```sh
+bun run verify             # lints, typecheck, tests, ship-profile checks, compile
+bun run test:e2e           # experimental-profile GUI regression suite
 ```
 
-| | |
-|---|---|
-| Socket | `~/.vellum-command/work/control.sock` |
-| Token | `~/.vellum-command/work/token` |
-| Authz | Edges — act only on connected nodes |
-| Identity | Process-bind (live ACP PID) |
+E2E uses an existing desktop session on Linux and can fall back to Xvfb in headless
+environments. It uses test fixtures instead of real agent accounts. Keep generated
+screenshots, application state, secrets, and scan reports out of commits.
 
----
+## Security and license
 
-## Browser automation
+Report suspected vulnerabilities privately through [SECURITY.md](SECURITY.md).
+The trust model is one operator with trusted but fallible attached agents; the app
+enforces its own process, edge, peer, and update boundaries.
 
-Page nodes bind URL + profile. Cookies in `persist:vellum-profile-{id}` **survive quit**.
-
-| Layer | Behavior |
-|---|---|
-| You browsing | Normal Chromium profile |
-| Agent automation | Process-bind + human **Allow Access** + edge-scoped capability |
-| Remote pages | Sandboxed; no Node; permissions denied; public http(s) only |
-| Wipe | Settings → typed confirm |
-
-Without granting automation, use the browser freely for secondary accounts and testing.
-
-```bash
-vellum-command browser doctor | profiles | pages | sessions
-vellum-command browser open <vellum-ref>
-vellum-command browser goto | eval | shot | close | stop
-```
-
----
-
----
-
-## Kernel: regions, watchers, timers
-
-| Piece | Role |
-|---|---|
-| **Region** | Operational geography |
-| **Membership** | Center-in-rect (flat) — derived |
-| **Watcher** | `stat_threshold` status |
-| **Timer** | `everyMinutes` schedule |
-| **Arming** | App-owned SQLite runtime-state switch — **not in the document** |
-| **Agent turns** | Factory claim, work messages, board notify, managed-terminal UI — not region broadcast |
-| **Host-scoped fire** | Remotes fire only their hostId |
-
----
-
-## Station roles & multi-host fleet
-
-| Role | Meaning |
-|---|---|
-| **Command Center** | Human authors canvas; manages fleet |
-| **Remote** | Capability host; applies complete projections; host-scoped execution |
-
-Role is never inferred. Hosts are app-owned SQLite rows. Optional Tailscale
-serve catalog lives in Settings.
-
----
-
-## Configuration paths & env
-
-| Path / env | What |
-|---|---|
-| `~/.vellum-command/state/vellum-command.db` | Sole durable product state |
-| `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
-| `~/.vellum-command/work/` | Work control sock + token |
-| `~/.vellum-command/browser/` | Browser control + profiles + shots |
-| `VELLUM_COMMAND_WORK_HOME` | Override work control dir |
-| `VELLUM_COMMAND_BROWSER_HOME` | Override browser control home |
-| `VELLUM_COMMAND_AUTHORIAL_WRITE` | Allow `canvas:rm` |
-| `VELLUM_COMMAND_DEMO` | Demo mode; by default SQLite and sidecars live in a process-owned OS-temporary directory removed on shutdown |
-
----
-
-## Node types (index)
-
-| Kind | Role |
-|---|---|
-| **text / note** | Free note or entity carrier |
-| **file** | Filesystem path card |
-| **link / page** | URL; page = live browser binding |
-| **group / region** | Operational geography |
-| **agent** | Hermes profile + ACP chat |
-| **terminal** | Native PTY session; local sessions end on app quit |
-| **task / requests / artifacts** | A2A work stores |
-| **watcher / timer** | Kernel sensors / clocks |
-
-See [Node types](#node-types) detail in prior sections of this README (native types, entity kinds, flags, host stamps, region defaults).
-
-### Node types (detail)
-
-#### Native JSON Canvas
-
-| Node | Role |
-|---|---|
-| **Text** | Free note; carrier for entity kinds |
-| **File** | Filesystem path (`file`, optional `subpath`) |
-| **Link** | URL card; becomes **page** with browser binding |
-| **Group** | Region geography |
-
-#### Entity kinds
-
-| Kind | Role |
-|---|---|
-| **agent** | Hermes / managed agent seat |
-| **terminal** | Native PTY binding; default terminal surface; onDelete detach \| kill |
-| **page** | Browser page + profile; cookies persist |
-| **task** | A2A task list |
-| **requests** | Input-required shelf |
-| **artifacts** | Published artifact shelf |
-| **watcher** | `stat_threshold` |
-| **timer** | `everyMinutes` schedule |
-| **project / orbit / plugin / station / skill** | Document vocabulary labels |
-
-#### Edges
-
-| Verb | Role |
-|---|---|
-| none | Soft relates |
-| `manages` / `contributes` / `works` / `escalates` | Attention-only stoppage on a connected actor (claimed item only) |
-| `publishes` / `participates` / `messages` / `reads` / `edits` / `navigates` | Access only — never generates stoppage |
-| `feeds` | Directed task→task pipeline hop (DAG-guarded) |
-| `fires` / `announces` / `enqueues` / `wakes` / `flags` / `chains` | Scheduler wiring — watch predicate or fire action, compiled from the verb |
-
----
-
-## Configuration paths & env
-
-| Path / env | What |
-|---|---|
-| `~/.vellum-command/state/vellum-command.db` | Sole durable product state |
-| `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
-| `~/.vellum-command/work/` | Work control sock + token |
-| `~/.vellum-command/browser/` | Browser control + profiles + shots |
-| `VELLUM_COMMAND_WORK_HOME` | Override work control dir |
-| `VELLUM_COMMAND_BROWSER_HOME` | Override browser control home |
-| `VELLUM_COMMAND_AUTHORIAL_WRITE` | Allow `canvas:rm` |
-
----
-
-## Work plane & CLI
-
-```bash
-vellum-command ping | doctor | capabilities | onboard
-vellum-command schema | examples
-vellum-command tasks list|claim|update
-vellum-command msg list|send
-vellum-command request create
-vellum-command artifact publish
-```
-
-Socket `~/.vellum-command/work/control.sock` - token `~/.vellum-command/work/token` - authz by **edges** - identity by process-bind.
-
----
-
-## Browser automation
-
-Page nodes + profiles. Cookies in `persist:vellum-profile-{id}` **survive quit**. Agent automation requires process-bind + human **Allow Access** + edge-scoped capability. Remote pages: sandboxed, public http(s) only. Wipe only via Settings with typed confirm.
-
-Without granting automation, use the browser freely for secondary accounts and testing.
-
-```bash
-vellum-command browser doctor | profiles | pages | sessions
-vellum-command browser open <vellum-ref>
-vellum-command browser goto | eval | shot | close | stop
-```
-
----
-
-## Kernel - Stations - Hosts
-
-- **Kernel** — regions, watchers, timers (status/clock only; no region pulse inject)
-- **Stations** — Command Center vs Remote (never inferred); complete Station API projections
-- **Hosts** — app-owned SQLite registry; optional Tailscale serve catalog
-
----
-
-## Configuration paths & env
-
-| Path / env | What |
-|---|---|
-| `~/.vellum-command/state/vellum-command.db` | Sole durable product state |
-| `~/.vellum-command/canvases/` | Digest and SVG sidecar outputs only |
-| `~/.vellum-command/work/` | Work control sock + token |
-| `~/.vellum-command/browser/` | Browser control + profiles + shots |
-| `VELLUM_COMMAND_WORK_HOME` | Override work control dir |
-| `VELLUM_COMMAND_BROWSER_HOME` | Override browser control home |
-| `VELLUM_COMMAND_AUTHORIAL_WRITE` | Allow `canvas:rm` |
-
----
-
-## License
-
-Proprietary — © 2026 Guilherme Castro, all rights reserved. See [`LICENSE`](LICENSE).
-
-## Security
-
-Vellum Command's governing product trust model is documented in
-[`docs/security-doctrine.md`](docs/security-doctrine.md). Report security issues
-privately. See [`SECURITY.md`](SECURITY.md).
-
-## Contributing
-
-Vellum Command is closed source and privately maintained. There is no public
-contribution or source-build program. Authorized maintainers can use the
-internal workflow in [CONTRIBUTING.md](CONTRIBUTING.md); customers should use
-the download page or private support channel at support@vellumcommand.com.
+Project-owned source is licensed under [Apache-2.0](LICENSE). Third-party software
+and separately identified assets retain their own notices; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

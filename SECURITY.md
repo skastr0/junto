@@ -1,65 +1,43 @@
-# Security Policy
+# Security policy
 
-## Supported Status
+Vellum Command is actively developed and solo-maintained. Security reports for
+the current source and official builds are reviewed on a best-effort basis.
+Linux desktop is alpha; Fleet and Remote stations remain experimental and disabled
+in the default feature profile. Older versions do not receive a separate backport
+or support commitment.
 
-Vellum Command is a **closed-source, privately distributed macOS application**.
-The current customer distribution is a private beta, and security reports for
-the current signed build are reviewed on a best-effort basis.
+## Private reports
 
-| Build | Supported |
-| --- | --- |
-| Current signed Vellum Command build | Yes |
-| Authorized development builds | Best-effort |
-| Older signed builds | No (upgrade to the current build) |
+Email **support@vellumcommand.com**. Do not publish vulnerability details in a
+GitHub issue or pull request.
 
-## Reporting A Vulnerability
-
-Do not open a public issue for suspected vulnerabilities.
-
-Report privately to **support@vellumcommand.com**. Do not open a public issue or
-publish reproduction details.
-
-Include:
-
-- affected version, commit, or release artifact
-- reproduction steps
-- expected impact
-- relevant logs or proof of concept (redact secrets)
-- whether the issue appears exploitable in default configuration
-
-Please redact tokens, personal data, private endpoints, and unrelated secrets from reports.
+Include the affected version or commit, platform, build channel, enabled feature
+profile, reproduction steps, and expected impact. Redact credentials, personal
+data, and unrelated operational details from logs and examples.
 
 ## Scope
 
-In scope:
+The application, its local control and IPC surfaces, browser integration, Station
+boundaries, and official package/update verification are in scope. Source-build
+reports are useful when they reproduce on the current supported dependency set.
 
-- Vellum Command desktop app (Electron main, preload, renderer)
-- Packaged release artifacts served from the Vellum Command download page and
-  Cloudflare Worker/R2 update feed
-- Local control sockets, capability grants, browser/hermes integration as shipped
+The governing [security doctrine](docs/security-doctrine.md) describes a single
+operator with trusted but fallible agents. The app enforces operator intent within
+its own boundaries. It does not claim to isolate mutually hostile processes
+already running as the same operating-system user.
 
-Out of scope:
+Report vulnerabilities in third-party tools and services upstream. Social
+engineering, attacks on maintainer infrastructure, and unsupported forks are
+outside this project's review scope. A same-user finding is relevant when the app
+creates authority or increases impact beyond the documented trust model.
 
-- Unsupported or modified local builds
-- Social engineering
-- Denial-of-service against maintainer infrastructure
-- Findings that require an already-compromised local machine unless Vellum Command materially increases impact
-- Third-party CLIs/services the app may call (report those upstream)
+## Distribution and disclosure
 
-## Disclosure
+Official binaries are linked from the
+[Vellum Command download page](https://vellumcommand.com/download). Official macOS
+builds are signed and notarized; automatic updates use the app's configured
+Cloudflare Worker/R2 feed. Source availability does not make arbitrary third-party
+builds official, and GitHub Releases are not the automatic update feed.
 
-The maintainer will coordinate disclosure timing based on severity, available fixes, and user impact. No fixed response-time SLA is promised.
-
-## Supply Chain Notes
-
-Official customer channels:
-
-- [Vellum Command download page](https://vellumcommand.com/download) — the
-  customer entry point for the signed and notarized macOS build
-- The Cloudflare Worker feed compiled into the packaged app at
-  `src/main/vellum/update/compiled-config.ts` — automatic updates and their
-  immutable artifacts
-
-The GitHub repository is a private source and control surface, not a release
-channel. GitHub Releases are not authoritative for Vellum Command. Do not trust
-binaries, packages, or install commands from channels not listed here.
+The maintainer coordinates disclosure around severity, available fixes, and user
+impact. No response-time SLA or bug bounty is promised.

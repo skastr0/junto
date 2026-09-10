@@ -1,22 +1,21 @@
 {
   "name": "@skastr0/vellum",
   "version": "0.2.0",
-  "description": "Vellum Command \u2014 the deep-field station for multi-agent fleets.",
+  "description": "Vellum Command — the deep-field station for multi-agent fleets.",
   "author": {
-    "name": "Guilherme Castro",
-    "email": "skastr052@gmail.com"
+    "name": "Guilherme Castro"
   },
   "type": "module",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/skastr0/vellum.git"
+    "url": "git+https://github.com/skastr0/vellum-command.git"
   },
   "bugs": {
-    "url": "https://github.com/skastr0/vellum/issues"
+    "url": "https://github.com/skastr0/vellum-command/issues"
   },
-  "homepage": "https://github.com/skastr0/vellum#readme",
+  "homepage": "https://github.com/skastr0/vellum-command#readme",
   "trustedDependencies": [
     "electron",
     "node-pty"
@@ -26,11 +25,6 @@
   "scripts": {
     "postinstall": "bun scripts/ensure-node-pty-perms.ts",
     "dev": "bash scripts/dev.sh",
-    "dev:license": "bash scripts/dev-license.sh",
-    "license:status": "bun scripts/license-state.ts status",
-    "license:backup": "bun scripts/license-state.ts backup",
-    "license:clear": "bun scripts/license-state.ts clear --yes",
-    "license:restore": "bun scripts/license-state.ts restore --yes",
     "build": "bash scripts/build-app.sh --fast",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
@@ -46,7 +40,6 @@
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
     "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh",
-    "test:e2e:license": "VELLUM_COMMAND_LICENSE_CHANNEL=production VELLUM_COMMAND_E2E_LICENSE_FIXTURE=valid VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && VELLUM_COMMAND_E2E_LICENSE_STARTUP=1 scripts/run-e2e.sh e2e/scenarios/license-startup-refresh.spec.ts",
     "pty:verify": "bun scripts/pty-verify.ts",
     "test:e2e:fast": "scripts/run-e2e.sh",
     "test:e2e:perf": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/canvas-interaction-perf.spec.ts",
@@ -60,7 +53,7 @@
     "app:build:fast": "bash scripts/build-app.sh --fast",
     "app:build:verify": "bash scripts/build-app.sh --verify",
     "app:build:notarize": "bash scripts/build-app.sh --notarize",
-    "app:build:ship": "bash scripts/build-app.sh --verify --notarize",
+    "app:build:ship": "bash scripts/build-app.sh --sign --verify --notarize",
     "version:bump": "bun scripts/bump-version.ts",
     "mac:release:publish": "bun scripts/publish-mac-release.ts",
     "linux:release:evidence": "bun scripts/linux-release-inventory.ts",
@@ -91,7 +84,7 @@
     "cli:build:dev": "bun scripts/build-standalone-cli.ts vellum-command-dev",
     "remote:build": "bun scripts/build-vellum-remote.ts",
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
-    "plugin:precompile": "bun scripts/precompile-vellum-plugin.ts"
+    "test:e2e:startup": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts"
   },
   "dependencies": {
     "@dnd-kit/helpers": "^0.5.0",
@@ -117,7 +110,6 @@
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
     "thinking-orbs": "0.1.1",
-    "three": "^0.185.1",
     "ulid": "^3.0.2"
   },
   "devDependencies": {
@@ -125,14 +117,12 @@
     "@electron/fuses": "^2.1.3",
     "@electron/osx-sign": "1.3.3",
     "@playwright/test": "1.61.1",
-    "@skastr0/prism-packager": "0.4.4",
     "@tailwindcss/vite": "^4.1.17",
     "@types/bun": "1.3.13",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^5.1.0",
     "electron": "43.2.0",
     "electron-builder": "^26.0.12",
@@ -168,10 +158,11 @@
     "files": [
       "out/**",
       "!out/remote{,/**/*}",
-      "station/**",
       "package.json",
       "!node_modules/@parcel/watcher{,/**/*}",
-      "!node_modules/@parcel/watcher-*{,/**/*}"
+      "!node_modules/@parcel/watcher-*{,/**/*}",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
     ],
     "extraResources": [
       {
@@ -194,7 +185,7 @@
     ],
     "mac": {
       "artifactName": "Vellum-Command-${version}-${arch}-mac.${ext}",
-      "forceCodeSigning": true,
+      "forceCodeSigning": false,
       "target": [
         "zip",
         "dmg"
@@ -202,7 +193,6 @@
       "minimumSystemVersion": "13.0",
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "identity": "Example Maintainer (EXAMP12345)",
       "hardenedRuntime": true,
       "strictVerify": true,
       "sign": "./scripts/electron-builder-sign.mjs",
@@ -221,11 +211,12 @@
       "files": [
         "out/**",
         "!out/remote{,/**/*}",
-        "station/**",
         "package.json",
         "!node_modules/node-pty/prebuilds/darwin-*/**",
         "!node_modules/node-pty/prebuilds/win32-*/**",
-        "!node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/*.musl.node"
+        "!node_modules/@msgpackr-extract/msgpackr-extract-linux-x64/*.musl.node",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md"
       ],
       "extraResources": [
         {
@@ -267,5 +258,9 @@
         "height": 720
       }
     }
+  },
+  "engines": {
+    "node": ">=24.10.0",
+    "bun": ">=1.3.13"
   }
 }

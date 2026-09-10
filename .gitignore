@@ -25,3 +25,14 @@ ds-bundle/
 .design-sync/.cache/
 .design-sync/learnings/
 .design-sync/node_modules
+
+# Local credentials and deployment/build state
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+.vercel/
+.wrangler/
+.alchemy/
+*.tsbuildinfo
