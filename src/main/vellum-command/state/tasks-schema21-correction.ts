@@ -1514,9 +1514,12 @@ const writeMaterializedTaskProjection = (
  * - rejected -> rejected Task via create + transition facts
  * - approved -> the correlated approved Task row is preserved, never duplicated
  * IDs are preserved (proposal id == task id). A collision fails closed unless
- * the occupying row is the correlated approved task. Brief, author fields,
- * claims/rules, dependencies, finish criteria, metadata and reason are copied
- * into the normalized task tables; nothing is silently discarded.
+ * the occupying row is the correlated approved task, or a pending proposal
+ * whose same-id submitted task already carries that proposal's brief — the
+ * August pending-proposal boot backfill wrote that dual-shape and left the
+ * proposal row pending. Brief, author fields, claims/rules, dependencies,
+ * finish criteria, metadata and reason are copied into the normalized task
+ * tables; nothing is silently discarded.
  */
 const materializeProposals = (
   database: StateSchemaMigrationDatabase,
@@ -1544,7 +1547,8 @@ const materializeProposals = (
     );
   }
   const existingTask = database.prepare(
-    `SELECT task_id, entity_home FROM work_tasks WHERE canvas_name = ? AND node_id = ? AND task_id = ?`,
+    `SELECT task_id, entity_home, brief_message_id FROM work_tasks
+     WHERE canvas_name = ? AND node_id = ? AND task_id = ?`,
   );
   const planning = database.prepare(
     `SELECT depends_on_json, finish_criteria_json FROM work_proposal_planning
@@ -1573,8 +1577,22 @@ const materializeProposals = (
       proposal.canvas_name,
       proposal.node_id,
       proposal.proposal_id,
-    ) as { readonly task_id: string } | undefined;
+    ) as
+      | { readonly task_id: string; readonly brief_message_id: string | null }
+      | undefined;
     if (occupied !== undefined) {
+      const brief = materializedBrief(
+        parseJson(proposal.brief_json),
+        proposal.proposal_id,
+      );
+      // Same work item already copied by the August boot backfill: do not
+      // mint a second task.create. An unrelated occupant still fails closed.
+      if (
+        proposal.state === "pending" &&
+        occupied.brief_message_id === brief.messageId
+      ) {
+        continue;
+      }
       throw new Error(
         `tasks-schema21 correction: task id collision materializing proposal ${proposal.proposal_id} (task ${occupied.task_id} already exists)`,
       );

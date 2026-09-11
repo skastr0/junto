@@ -45,7 +45,9 @@ import { WorkRecord } from "@shared/work-protocol";
  * - canvas identity advances honestly (revision hashes, one generation bump,
  *   recomputed intent) and no proposal storage or triggers remain;
  * - a collision fails closed: the database is left untouched and the verified
- *   backup taken before the transaction is available.
+ *   backup taken before the transaction is available;
+ * - a pending proposal whose same-id task already carries that proposal's
+ *   brief (August boot backfill) is treated as already materialized.
  */
 
 const sha256 = (value: string): string =>
@@ -1709,6 +1711,162 @@ describe("schema-21 corrective migration", () => {
     expect(after).toEqual(before);
     const backups = await readBackupFiles(root);
     expect(backups.filter((name) => name.endsWith(".db"))).toHaveLength(1);
+  });
+
+  it("keeps an already-materialized pending proposal and still drops proposal storage", async () => {
+    const root = await makeRoot();
+    const path = join(root, "vellum-command.db");
+    const database = seedInvalid21Database(path);
+    insertFact(database, {
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
+      seq: "99",
+      operation: "task.create",
+      itemId: "prop-pending-1",
+      predecessor: null,
+      basis: {
+        kind: "authorial-intent",
+        generation: "7",
+        contentSha256: "a".repeat(64),
+      },
+      body: {
+        operation: "task.create",
+        task: {
+          id: "prop-pending-1",
+          state: "submitted",
+          history: [
+            {
+              messageId: pendingProposal.brief.messageId,
+              role: "user",
+              parts: pendingProposal.brief.parts,
+            },
+          ],
+          metadata: {
+            source: "board",
+            instruction: "keep too",
+            "vellum.pipeline": {
+              admission: "operator-gated",
+              raisedBy: PROPOSER,
+            },
+          },
+          reason: pendingProposal.reason,
+        },
+      },
+      originAt: T2,
+    });
+    database
+      .prepare(
+        `INSERT INTO work_tasks(
+           canvas_name, node_id, task_id, entity_home, actor_seat_id,
+           fact_event_home, fact_entity_home, fact_seq, state,
+           brief_message_id, artifact_ids_json, metadata_json, reason,
+           response, created_at, updated_at, origin_at, received_at
+         ) VALUES ('factory', 'board-1', 'prop-pending-1', 'cc-installation',
+           NULL, 'cc-installation', 'cc-installation', '99', 'submitted',
+           ?, NULL, ?, ?, NULL, ?, ?, ?, ?)`,
+      )
+      .run(
+        pendingProposal.brief.messageId,
+        canonicalJson({
+          source: "board",
+          instruction: "keep too",
+          "vellum.pipeline": {
+            admission: "operator-gated",
+            raisedBy: PROPOSER,
+          },
+        }),
+        pendingProposal.reason,
+        T2,
+        T2,
+        T2,
+        T2,
+      );
+    database
+      .prepare(
+        `INSERT INTO work_task_messages(
+           canvas_name, node_id, parent_lane, item_id, message_id, position,
+           message_kind, entity_home, fact_event_home, fact_entity_home,
+           fact_seq, role, parts_json, context_id, reference_task_ids_json,
+           metadata_json, origin_at, received_at
+         ) VALUES ('factory', 'board-1', 'task', 'prop-pending-1',
+           ?, 0, 'brief', 'cc-installation', 'cc-installation',
+           'cc-installation', '99', 'user', ?, NULL, NULL, NULL, ?, ?)`,
+      )
+      .run(
+        pendingProposal.brief.messageId,
+        canonicalJson(pendingProposal.brief.parts),
+        T2,
+        T2,
+      );
+    database
+      .prepare(
+        `INSERT INTO work_task_finish(
+           canvas_name, node_id, task_id, finish_criteria_json,
+           completion_evidence_json
+         ) VALUES ('factory', 'board-1', 'prop-pending-1', ?, NULL)`,
+      )
+      .run(canonicalJson({ description: "done means done" }));
+    database
+      .prepare(
+        `INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+         VALUES ('cc-installation', 'cc-installation', '100')
+         ON CONFLICT(event_home, entity_home) DO UPDATE SET last_seq = '100'`,
+      )
+      .run();
+    database.close();
+
+    const runtime = ManagedRuntime.make(makeStateEngineLive(path));
+    const state = await runtime.runPromise(StateEngine);
+    handles.push({
+      path,
+      root,
+      runtime,
+      dispose: async () => {
+        await runtime.dispose();
+      },
+    });
+    expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
+
+    const witness = await runtime.runPromise(
+      state.read("schema21.already-materialized", (reader) => {
+        const proposalObjects = reader.all<{ readonly name: string }>(
+          `SELECT name FROM sqlite_schema
+           WHERE (name LIKE 'work_proposal%' OR name LIKE 'work_task_proposals%')
+             AND name NOT GLOB 'sqlite_*'`,
+        );
+        const pending = reader.get<{
+          readonly task_id: string;
+          readonly state: string;
+          readonly brief_message_id: string | null;
+          readonly fact_seq: string;
+          readonly metadata_json: string | null;
+        }>(
+          `SELECT task_id, state, brief_message_id, fact_seq, metadata_json
+           FROM work_tasks WHERE task_id = 'prop-pending-1'`,
+        );
+        const creates = reader.all<{ readonly seq: string }>(
+          `SELECT seq FROM work_events
+           WHERE item_id = 'prop-pending-1' AND operation = 'task.create'`,
+        );
+        return { proposalObjects, pending, creates };
+      }),
+    );
+    expect(witness.proposalObjects).toEqual([]);
+    expect(witness.pending).toMatchObject({
+      task_id: "prop-pending-1",
+      state: "submitted",
+      brief_message_id: pendingProposal.brief.messageId,
+      fact_seq: "99",
+    });
+    expect(JSON.parse(witness.pending!.metadata_json!)).toMatchObject({
+      source: "board",
+      instruction: "keep too",
+      "vellum.tasks": {
+        admission: "approval",
+        raisedBy: PROPOSER,
+      },
+    });
+    expect(witness.creates).toEqual([{ seq: "99" }]);
   });
 
   it("corrects old-shape work data and proposals inside the 20 -> 21 step", async () => {
