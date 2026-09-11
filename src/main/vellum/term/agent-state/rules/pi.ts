@@ -9,7 +9,7 @@
  * message (prompt markers) but the region vocabulary has no osc133 slice and
  * pi's bordered editor is not a ─── rule box, so prompt_box_body is not
  * expressible here.
- * Patterns from docs/research/agent-cli-sweep/pi.md
+ * Patterns from the 2026-08 agent-CLI sweep of pi
  * (rewritten; not vendored).
  */
 

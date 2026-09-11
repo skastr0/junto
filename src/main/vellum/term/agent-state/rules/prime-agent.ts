@@ -8,7 +8,7 @@
  * empty (no token/model line to sniff). OSC 133 A/B/C zones wrap message
  * blocks but the region vocabulary has no osc133 slice — OSC 9 + grid carry
  * the pack.
- * Patterns from docs/research/agent-cli-sweep/prime-agent.md
+ * Patterns from the 2026-08 agent-CLI sweep of prime-agent
  * (rewritten; not vendored).
  */
 

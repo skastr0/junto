@@ -1,7 +1,7 @@
 /**
  * ScriptedTui — deterministic in-process model of a harness TUI that speaks
  * the REAL byte protocol captured in
- * docs/research/managed-terminal-probes/{claude-code-tui,codex-tui-probe,grok-tui-probe}.md
+ * the 2026-08 managed-terminal probe reports (claude-code, codex, grok)
  *
  * This is the OS-boundary fake the pty-e2e spec allows for drive scenarios:
  * instead of spawning a real PTY, the model consumes the drive's writes and

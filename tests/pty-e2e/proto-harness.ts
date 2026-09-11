@@ -19,7 +19,7 @@
  *  - node:os homedir -> temp dir (persistence boundary; pattern from
  *    tests/b5-races-canvases.test.ts).
  *  - ScriptedTui in-process TUI (PTY-process boundary; pattern from
- *    tests/pty-e2e/scripted-tui.ts, grounded in docs/research/managed-terminal-probes).
+ *    tests/pty-e2e/scripted-tui.ts, grounded in the 2026-08 managed-terminal probe reports).
  *  - vi fake timers for drive/observer clocks (clock boundary).
  *  - "wedged PTY" mode on the drive's writeFn: a paste write returns false,
  *    modelling a real PTY write failure (the drive reports write-failed and

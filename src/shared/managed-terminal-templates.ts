@@ -17,7 +17,7 @@ import { managedHarnessEnabled } from "./features";
  * The managed-terminal harnesses. OpenClaw is out by construction.
  *
  * v1 (2026-07): claude, codex, grok, hermes. Extended 2026-08: pi,
- * prime-agent, kimi, muse, devin, cursor (agent-CLI sweep — docs/research/agent-cli-sweep/).
+ * prime-agent, kimi, muse, devin, cursor (2026-08 agent-CLI sweep).
  *
  * Closed literal, and the *only* declaration of the set: a harness id names a
  * template in this file or it does not decode. Every document, IPC input, and
@@ -571,7 +571,7 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   efforts: [],
 };
 
-// ── Five 2026-08 harnesses (agent-CLI sweep: docs/research/agent-cli-sweep/) ─────
+// ── Five 2026-08 harnesses (2026-08 agent-CLI sweep) ─────
 
 /**
  * Pi (earendil-works pi-coding-agent) — Tier A, session pin, RPC/JSON embed.

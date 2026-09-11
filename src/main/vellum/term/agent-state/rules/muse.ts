@@ -1,7 +1,7 @@
 /**
  * Muse seat rules.
  *
- * Sweep (docs/research/agent-cli-sweep/muse.md) + 2026-08 probe:
+ * 2026-08 agent-CLI sweep + probe:
  *
  * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
  * capture on this machine, so composerVerdictFor returns null and factory

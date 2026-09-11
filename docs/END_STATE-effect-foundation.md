@@ -1,6 +1,6 @@
 # END_STATE — Effect foundation (Vellum Command main)
 
-**Campaign:** make main process a real Effect program so factory claims and product expansion are not quicksand.
+**Goal:** make the main process a real Effect program so factory claims and product expansion are not quicksand.
 
 **Not in scope:** renderer React/Legend rewrite; GPU/fan tuning; rare edge cases.
 
@@ -23,8 +23,7 @@ Product interior is pure Effect + Layers/Services. No bare `Effect.runPromise` i
 |---|---|
 | Product today | `effect@3.21.x` |
 | Target | Effect **V4** (beta OK on branch; pin lockstep `@effect/*`) |
-| **Reference codebase (V4 source of truth)** | `<effect-source-checkout>` |
-| Migration docs | `Playground/effect/MIGRATION.md`, `Playground/effect/migration/*` |
+| Reference (V4 source of truth) | the Effect repository's V4 `MIGRATION.md` and `migration/*` guides |
 | Do **not** use | outdated repo/global “effect skill” (V3-oriented) |
 
 Prefer APIs that match V4 end shape: `Context.Service`, `forkChild`/`forkDetach`, `ManagedRuntime` + `runPromise`/`runFork` with warm Context, `Layer` composition once.
@@ -36,7 +35,7 @@ Load and apply:
 1. **consolidation-engineering** — one canonical end state; kill dual hybrid paths; no “temporary” bare-runPromise left alive.
 2. **pristine-components** — pristine Effect/domain cores; messy only at Electron/IPC adapters.
 
-Read V4 patterns from **Playground/effect**, not from V3 skill text.
+Read V4 patterns from the Effect repository's migration guides, not from V3 skill text.
 
 ## Slices (finish criteria reference)
 
@@ -99,86 +98,5 @@ Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromi
 
 | Path | Debt role |
 |---|---|
-| browser/*, content/inline-media-migration, usage, canvases, settings/ipc, hosts/registry, license/monitor, station/remote-report-pump, term/router, update/service | product/adapter debt — shrink via S0 ratchet when migrated |
+| browser/*, content/inline-media-migration, usage, canvases, settings/ipc, hosts/registry, station/remote-report-pump, term/router, update/service | product/adapter debt — shrink via S0 ratchet when migrated |
 | `src/main/vellum/update/ipc.ts` | permanent: post-`AppRuntime.dispose` finalize only |
-
-## Review slices (validation lane — parallel + deep)
-
-Review tasks **depend on** the implement pack/slice completing (factory `dependsOn`).
-Claim-ready only after implement is **completed**. Reviewers are different seats from implementers when possible.
-
-| id | depends on | done when |
-|---|---|---|
-| **R4-work** | S4-work pack complete | Alignment review of `src/main/vellum/work/**` vs END_STATE §S4; dual-service / dual-path rejected; typecheck green; **≥1 commit** (review note under `docs/effect-foundation/reviews/` or nits fixed in-path). |
-| **R4-station** | S4-station | same for station/** |
-| **R4-state-content** | S4-state-content | same for state/content/install-ops |
-| **R4-hosts-ssh** | S4-hosts-ssh | same for hosts/ssh |
-| **R4-browser-term** | S4-browser-term | same for browser/term |
-| **R4-rest-main** | S4-rest-main | same for remaining main+cli pack |
-| **R5-fork** | S5-fork-main | fork rename prep does not thrash kernel; no dual fork helpers; **≥1 commit** |
-| **R7-platform** | S7-platform-imports | import map prep is coherent; package.json peers consistent; **≥1 commit** |
-| **R4-integrate** | all R4-* pack reviews **or** all S4 implement packs complete | Cross-pack coherence: no duplicate Tag ids across packs, no half-migrated service shapes, END_STATE §S4 overall; **≥1 commit** |
-| **R0–R3** | S0–S3 respectively (deep) | Deep foundation reviews: fitness gate real, runtime boundary real, kernel Context fixed, claim+content test exists and passes; **≥1 commit** each |
-
-### Review checklist (every R*)
-
-1. Load **consolidation-engineering** + **pristine-components** (not V3 effect skill).
-2. V4 truth: `<effect-source-checkout>` migration docs.
-3. Diff only the pack’s path ownership vs `main` / base.
-4. Reject dual paths, compatibility shims, bare `Effect.runPromise` in product paths (unless allowlisted by S0).
-5. Confirm finishCriteria of implement pack was commit-based (no artifact theater).
-6. Commit review note or in-path nits; complete with git evidence.
-
-**Hard `dependsOn`:** review tasks become claimable only after their implementation tasks complete. Soft order in briefs is a fallback until then.
-
-## Parallelization boundaries (hard)
-
-- **Own only the path glob in the task brief.** Do not edit other packs.
-- **Commit only your files.** Multi-agent tree: never stash/revert others’ work.
-- **No worktrees required** — path isolation is the lock.
-- Parallel packs must not touch: `src/main/vellum/kernel/**` except deep lane; `src/shared/**` Schema wire only in S8.
-- After each pack: `bun run typecheck` (or package gate) on touched surface; fix only owned paths.
-
-## Completion evidence
-
-- **finishCriteria.git.minCommits ≥ 1** — commits required; **no artifacts**.
-- Complete with git commits on `main` (or campaign branch if operator says so).
-- Point finish description at slice id + END_STATE path.
-
-## Task authoring (CLI → UI)
-
-Task detail UI maps fields as follows (not the free-text `brief` alone):
-
-| UI | Source |
-|---|---|
-| **Title** | `metadata.title` else first line of brief |
-| **Description** | `metadata.details` (long-form — **required** for agent-usable tasks) |
-| **Reason** | `reason` |
-| **Finish criteria** | `finishCriteria.description` + git/artifacts arms |
-
-`vellum-command tasks create` must always set:
-
-```json
-{
-  "brief": "<title>\\n\\n<details full text>",
-  "reason": "...",
-  "metadata": {
-    "title": "<short title>",
-    "details": "<full long-form description with DO / paths / out-of-bounds / done-when>",
-    "lane": "deep|parallel",
-    "slice": "S0|...",
-    "role": "implement|review",
-    "campaign": "effect-foundation"
-  },
-  "finishCriteria": { "description": "...", "git": { "minCommits": 1 } }
-}
-```
-
-Prefer tasks tagged `briefVersion: 3` (full description). Reject or repair empty-Description tasks before admission.
-
-## Repo roots
-
-| Root | Role |
-|---|---|
-| `<repository>` | Product under change |
-| `<effect-source-checkout>` | Effect V4 reference + migration guides |

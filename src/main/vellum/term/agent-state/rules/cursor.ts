@@ -1,6 +1,6 @@
 /**
  * Cursor Agent seat rules — grid-primary (OSC title is static).
- * Patterns from docs/research/agent-cli-sweep/cursor.md
+ * Patterns from the 2026-08 agent-CLI sweep of cursor
  * (rewritten; not vendored). Alt-screen snapshots already use buffer.active.
  */
 

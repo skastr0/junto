@@ -1,7 +1,7 @@
 # Managed terminal — end-to-end plan to beta
 
 Status: plan of record. Authored 2026-07-26 after the ACP/terminal decision arc and a 63-item executed-probe verification pass. Updated for the shipped stock Prime Agent 0.7.1 harness.
-Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) - [`research/managed-terminal-probes/`](research/managed-terminal-probes/) (raw reports) - [`process-bind-muse-prime-agent.md`](process-bind-muse-prime-agent.md) (Prime Agent process-bind resolution).
+Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md) (per-harness verified facts + traps) - the 2026-08 probe reports (retired from the repository)
 Supersedes for v1: the retired ACP-first and remote-client proposal preserved at
 [`factory-harness-integration.md`](factory-harness-integration.md). The current
 factory model has one actor runtime and one work admission path: a

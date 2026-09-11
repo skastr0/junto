@@ -164,8 +164,8 @@ The local update transaction is:
 1. stage, verify, and audit the candidate while the incumbent may run, without
    opening the canonical database;
 2. fully quiesce the incumbent and prove that it released SQLite;
-3. invoke the exact staged packaged Electron executable in sealed
-   normal app-open migration after install cutover;
+3. invoke the exact staged packaged Electron executable for the sealed
+   migration that runs on normal app open after the install cutover;
 4. for installed state, let that sole proof process open the fixed canonical
    path read-only, create and verify a retained backup, clone it, and close the
    source; for a first install, create only a disposable empty candidate;

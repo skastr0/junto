@@ -5,8 +5,8 @@
  * Pipeline per scenario (spec §anti-hacking):
  *   1. loadFixture: try P1 real captures under /tmp/vellum-pty-fixtures first;
  *      fall back to the built-in P2/P3 receipt tables below (every byte
- *      sequence is grounded in docs/research/managed-terminal-probes/*.md
- *      and docs/research/agent-cli-sweep/*.md — no invented streams).
+ *      sequence is grounded in the 2026-08 managed-terminal probe reports
+ *      and the agent-CLI sweep — no invented streams).
  *   2. Chunk the byte stream in three modes (whole / split-at-escapes /
  *      split-mid-sequence) and feed EVERY mode through a REAL SessionObserver
  *      (same read side as production) — never hand-built snapshots.

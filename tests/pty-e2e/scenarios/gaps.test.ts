@@ -4,7 +4,7 @@
  *
  * Anti-hacking bar (spec §1): every screen truth flows through a REAL
  * SessionObserver fed by REAL byte receipts (P2/P3 compositions grounded in
- * docs/research/managed-terminal-probes/*.md and the P1 corpus under
+ * the 2026-08 managed-terminal probe reports and the P1 corpus under
  * /tmp/vellum-pty-fixtures). No hand-built ObserverGridSnapshot objects.
  * Pure-function tests (scanMarker / engine ordering / isSeatIdle gate) call
  * the REAL functions with REAL observer output. Fakes sit ONLY at the OS

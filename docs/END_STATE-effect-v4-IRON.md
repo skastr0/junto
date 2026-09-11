@@ -1,9 +1,9 @@
 # END_STATE — Effect V4 IRON (no theater)
 
-**Campaign objective (one line):**\
+**Objective (one line):**\
 Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, `Context.Service` only, product domain Effects only through **AppRuntime / RemoteRuntime**, kernel factory loop is an **Effect** (not an async Promise control plane), bare `Effect.runPromise` gone except **permanent** post-dispose host adapters.
 
-**Reference:** `<effect-source-checkout>` (`MIGRATION.md`, `migration/*`).\
+**Reference:** the Effect repository's V4 `MIGRATION.md` and `migration/*` guides.\
 **Skills:** consolidation-engineering, pristine-components. **No V3 effect skill.**
 
 ---
@@ -19,18 +19,7 @@ Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, 
 | **V4-PROGRAM** | **DONE** — factory cycle/claim/deliver/hydrate are Effect; host `runFork` |
 | **V4-DEBT-ZERO** | **DONE** — `debt: []`; only permanent post-dispose `update/ipc.ts` |
 | **V4-ENTRY** | **DONE** — `index`/`ipc`/`vellum/ipc`/`vellum-command-remote` domain entry only via AppRuntime/RemoteRuntime; cement in `tests/effect-runpromise-boundary.test.ts` |
-| **V4-CONSOLIDATE-FINAL** | **DONE** — P0–P6 + typecheck + lint + full suite + claim tests green; campaign objective true |
-
----
-
-## Forbidden (instant FAIL)
-
-- Comment-only / “on V4 pin…” / import-map without live import change\
-- `Runtime.runPromise` or bare `Effect.runPromise` **inside** `src/main/vellum/kernel/**`\
-- Completing without **pasting full probe stdout** in the **git commit body**\
-- Docs-only finish\
-- Shrinking scope silently (“mostly pure”)\
-- Dual control planes left alive (async cycle **and** Effect program)
+| **V4-CONSOLIDATE-FINAL** | **DONE** — P0–P6 + typecheck + lint + full suite + claim tests green; objective true |
 
 ---
 
@@ -66,21 +55,3 @@ bunx vitest run tests/work-claim-content-ref.test.ts tests/effect-runpromise-bou
 ```
 
 ---
-
-## Remaining Deep sequence (this fill)
-
-| order | id | one-line iron done |
-|---|---|---|
-| 1 | **V4-PROGRAM** | Kernel factory loop is Effect under `AppRuntime.runFork` (or equivalent single host entry); no async `runCycle`/`runClaimTicks` Promise control plane; P3+P5+claim tests |
-| 2 | **V4-DEBT-ZERO** | `scripts/effect-runpromise-allowlist.json` **debt: []** (or all maxCount 0); every former debt site uses AppRuntime/RemoteRuntime or is deleted; permanent only post-dispose; lint green |
-| 3 | **V4-ENTRY** | Domain Effects in `src/main/index.ts`, `src/main/ipc.ts`, `src/main/vellum/ipc.ts`, `src/main/vellum-remote.ts` enter only via AppRuntime/RemoteRuntime; no new bare product runPromise |
-| 4 | **V4-CONSOLIDATE-FINAL** | P0–P6 + full test suite green; claim+content green; END_STATE one-line objective true |
-| * | **R-*** | Review re-runs same probes; PASS only if green |
-
-Parallel track: **ignored** for this endgame.
-
----
-
-## Review iron
-
-Same probes as implement. **PASS only if probes match.** Theater → **FAIL** + commit documenting FAIL.

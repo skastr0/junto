@@ -26,7 +26,7 @@
 // muse — no official monochrome vector is publicly reachable (site is auth
 //   gated, no repo/npm package, installer ships the binary only); the curated
 //   entry is a crafted monogram-M fallback. See
-//   docs/research/agent-cli-sweep/icons.md for the full hunt log.
+//   docs/harness-icon-provenance.md for the full hunt log.
 //
 // devin — deliberately NOT curated: it resolves from the generated
 //   PROVIDER_MARKS table (bundled mark set), which the harness-icons contract

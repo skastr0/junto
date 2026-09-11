@@ -5,7 +5,7 @@
  * attention; moon/braille spinners + background-agent line → working) plus
  * the TUI prompt box "> " and status footer "context: 0% (0/1M)" (idle).
  * No alt screen — the grid includes the whole session like codex.
- * Patterns from docs/research/agent-cli-sweep/kimi.md
+ * Patterns from the 2026-08 agent-CLI sweep of kimi
  *
  * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
  * capture on this machine, so composerVerdictFor returns null and factory

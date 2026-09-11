@@ -5,7 +5,7 @@
  * drive.onSeatIdle; isSeatIdle = runtime.isSeatIdle).
  *
  * The "harness" is the in-process ScriptedTui byte model (scripted-tui.ts),
- * grounded in docs/research/managed-terminal-probes receipts:
+ * grounded in the 2026-08 managed-terminal probe receipts:
  *   K3 paste+CR chip collapse, K8 Ctrl+C semantics, K9 OSC title/osc9.
  *
  * Anti-hacking: no hand-built ObserverGridSnapshot objects anywhere. Every

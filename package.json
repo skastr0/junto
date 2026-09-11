@@ -41,7 +41,6 @@
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
     "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh",
-    "pty:verify": "bun scripts/pty-verify.ts",
     "test:e2e:fast": "scripts/run-e2e.sh",
     "test:e2e:perf": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/canvas-interaction-perf.spec.ts",
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",

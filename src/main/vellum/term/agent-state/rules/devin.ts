@@ -5,7 +5,7 @@
  * "context:" footer; attention = workspace-trust + permission footers;
  * working = running-tools / guide / tool-read-timeout footers. All rules key
  * on bottom_non_empty_lines exactly like the manifest.
- * Patterns from docs/research/agent-cli-sweep/devin.md
+ * Patterns from the 2026-08 agent-CLI sweep of devin
  * (rewritten; not vendored).
  */
 

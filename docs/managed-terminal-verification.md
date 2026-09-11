@@ -2,7 +2,7 @@
 
 Status: executed-probe verification of the managed-terminal design. 2026-07-26.
 Method: every item below was verified by **running the real harness TUI in a PTY** (or reading source with file:line receipts) — not doc reads. 63/63 probe items have executed receipts.
-Raw evidence: [`research/managed-terminal-probes/`](research/managed-terminal-probes/) — per-harness full reports, gap-fill rounds, and [`journal-verdicts.md`](research/managed-terminal-probes/journal-verdicts.md) (compact per-item verdicts with pointers). Probe artifacts (`.bin` PTY captures, hook payload dumps) lived in the session scratchpad; the reports quote the load-bearing bytes.
+Raw evidence: the 2026-08 per-harness probe reports, gap-fill rounds and journal verdicts (retired from the repository; this file carries the verified facts) (compact per-item verdicts with pointers). Probe artifacts (`.bin` PTY captures, hook payload dumps) lived in the session scratchpad; the reports quote the load-bearing bytes.
 
 Scope: this map verifies mechanisms exposed by the harness binaries, not
 Vellum Command's current wiring or release status. Current release capability is
@@ -12,7 +12,7 @@ The design being verified: **one agent surface** — a Vellum Command-spawned PT
 
 Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 2026-07) - hermes (2026-07, gpt-5.4/5.5 era) - herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
 
-## Claude Code — 9/9 VERIFIED ([full report](research/managed-terminal-probes/claude-code-tui.md))
+## Claude Code — 9/9 VERIFIED 
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -28,7 +28,7 @@ Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 
 
 Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` or transcripts silently disable. `--mcp-config` (if ever used) is variadic — put last.
 
-## Codex — 14/14 VERIFIED ([full report](research/managed-terminal-probes/codex-tui-probe.md))
+## Codex — 14/14 VERIFIED 
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -72,7 +72,7 @@ Tier-B seat whose context was compacted away.
 
 Do not retry the flag on resume. The freeze is the trap.
 
-## Grok — 13/13 VERIFIED ([full report](research/managed-terminal-probes/grok-tui-probe.md))
+## Grok — 13/13 VERIFIED 
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -90,7 +90,7 @@ Do not retry the flag on resume. The freeze is the trap.
 | G12 | 0x03 mid-turn cancels turn only (`trigger:"ctrl_c"` in events); ESC same + restores composer; idle 0x03 no-op | `/exit` + CR for clean exit |
 | G13 | `--agent <file>`: frontmatter (name, model, permission_mode, tools, disallowedTools) + body appended to system prompt; `tools`/`disallowedTools` gating verified enforced | `permission_mode` in the file is inert at top level — use the CLI flag |
 
-## Hermes — 10/10 VERIFIED ([local](research/managed-terminal-probes/hermes-verify.md) - [remote](research/managed-terminal-probes/remote-hermes-ssh-verifier.md))
+## Hermes — 10/10 VERIFIED 
 
 | # | fact | key receipt / trap |
 |---|---|---|
@@ -132,7 +132,7 @@ exits at startup and has no session to capture or resume.
 
 ## Study findings that change the build
 
-From [`herdr-study.md`](research/managed-terminal-probes/herdr-study.md) (master @ c0fb777, Apache-2.0; learn-never-fork):
+From the herdr study (master @ c0fb777, Apache-2.0; learn-never-fork):
 - Detection = declarative TOML rule engine, 13 named regions (incl. `prompt_box_body` — literally the "input box idle" predicate), 4 states, priority-ranked, per-harness manifests (all four v1 harnesses covered).
 - **Settled-idle debounce, port verbatim**: 300ms tick → 100ms holding, 3 confirmations, 700ms cap, 800ms blocker heartbeat, 3s post-change grace; debounce ONLY the Working→Idle drop — visible idle chrome publishes immediately.
 - Herdr **reversed its own hooks decision** for Claude/Codex (screen+OSC won; hooks kept only for session-id) — and its hook install writes user configs (exactly Vellum Command's banned move). The target design could use per-invocation hooks without user-config writes; current Vellum Command ships no per-harness hook injection and relies on OSC/grid.
@@ -140,7 +140,7 @@ From [`herdr-study.md`](research/managed-terminal-probes/herdr-study.md) (master
 - OSC titles are untrusted model output: sanitize (256-char cap, strip controls), clear retained evidence on agent change.
 - Skip: config writing, remote unsigned manifest auto-update, literal pattern strings (re-derive from our own e2e captures).
 
-From [`tui-horizons.md`](research/managed-terminal-probes/tui-horizons.md):
+From [`tui-horizons.md`](tui-horizons.md):
 - **Vellum Command currently registers zero OSC/CSI handlers** — every structured signal above arrives and is discarded. Largest cheap win.
 - **The emulated grid is renderer-lifetime-bound** (`TerminalSurface.tsx:207/266`) — state detection must move to a main-process grid (`@xterm/headless`, not yet a dependency). The one real architecture prerequisite.
 - `bracketedPasteMode` (CSI ?2004) is a protocol-level "input box live" gate; `?2026` synchronized-output marks exact repaint boundaries — both already parsed by xterm, read by nothing.
