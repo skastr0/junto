@@ -103,6 +103,12 @@ export interface LaunchOptions {
   readonly seedHarnessInstalls?: readonly HarnessId[];
   /** Write `~/.claude.json` additionalModelOptionsCache before boot. */
   readonly claudeModelCache?: readonly ClaudeModelCacheEntry[];
+  /**
+   * Direct sandbox surgery after fixture seeding, before the app boots —
+   * for durable states that have no producer (e.g. residual `auth-required`
+   * work rows only older databases carry).
+   */
+  readonly afterSeed?: (sandbox: Sandbox) => Promise<void>;
   readonly extraEnv?: Readonly<Record<string, string>>;
   /**
    * Extra Chromium switches. The operator runs on a scaled Retina display;
@@ -457,6 +463,9 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     }
     if (options.claudeModelCache !== undefined) {
       await seedClaudeModelCache(sandbox, options.claudeModelCache);
+    }
+    if (options.afterSeed !== undefined) {
+      await options.afterSeed(sandbox);
     }
 
     server = await startRendererServer(RENDERER_DIR);

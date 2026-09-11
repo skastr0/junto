@@ -29,7 +29,7 @@ const fixtureNodes = [
     x: 360,
     y: 40,
   }),
-  requestsNode({ id: "asks", x: 360, y: 220 }),
+  requestsNode({ id: "asks", name: "approvals", x: 360, y: 220 }),
 ];
 
 const fixture = canvasDoc(fixtureNodes, [
@@ -78,7 +78,10 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     const asksRow = glance.locator('[data-peer-kind="requests"]');
     await expect(asksRow).toBeVisible();
     await expect(asksRow).not.toHaveAttribute("data-live-phase", "blocks");
-    await expect(asksRow).toContainText(/pending/i);
+    // The rail titles the peer by its authored identity, never the mechanical
+    // mirror ("N pending") that work ops rewrite.
+    await expect(asksRow).toContainText("approvals");
+    await expect(asksRow).not.toContainText(/pending/i);
 
     // Ports on both reaches should surface (tasks list/claim/update family,
     // requests escalate family).

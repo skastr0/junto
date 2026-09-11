@@ -1184,7 +1184,8 @@ describe("work pure transforms", () => {
     expect(created.task.state).toBe("input-required");
     expect(created.task.metadata?.class).toBe("review");
     expect(created.task.claimedBy).toBe(actorRef("4", "actor-4", "c").seatId);
-    expect((doc.nodes[0] as { text: string }).text.startsWith("1 pending")).toBe(true);
+    // Mirror leads with the sink identity (unnamed → kind), then the count.
+    expect((doc.nodes[0] as { text: string }).text.startsWith("requests\n1 pending")).toBe(true);
 
     const resolved = workRequestResolve(
       doc,
@@ -1199,7 +1200,7 @@ describe("work pure transforms", () => {
     expect(resolved.task.history.at(-1)?.role).toBe("user");
     // The answer is first-class on the item, not only buried in history.
     expect(resolved.task.response).toBe("approved");
-    expect((resolved.doc.nodes[0] as { text: string }).text.startsWith("0 pending")).toBe(true);
+    expect((resolved.doc.nodes[0] as { text: string }).text.startsWith("requests\n0 pending")).toBe(true);
   });
 
   it("message append to agent list and task history", () => {

@@ -5,6 +5,7 @@
  * ~/.vellum-command or userData; every path lives under os.tmpdir().
  */
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
@@ -18,6 +19,7 @@ import type {
   TextNode,
 } from "../../src/shared/canvas";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
+import { mirrorRequestsText } from "../../src/shared/task";
 import {
   CanvasesLive,
   CanvasesService,
@@ -229,7 +231,7 @@ export const writeFixtureCanvas = async (
             if (ether === undefined) return node;
             const {
               tasks,
-              requests: _requests,
+              requests,
               messages: _messages,
               artifacts: _artifacts,
               board: _board,
@@ -241,6 +243,16 @@ export const writeFixtureCanvas = async (
               ether: {
                 ...authorialEther,
                 ...(tasks === undefined ? {} : { tasks: { ...tasks, items: [] } }),
+                // Authored requests identity is document truth (same as the
+                // tasks name): it survives the strip with an empty items shell.
+                ...(requests === undefined
+                  ? {}
+                  : {
+                      requests: {
+                        items: [],
+                        ...(requests.name ? { name: requests.name } : {}),
+                      },
+                    }),
               },
             };
           }),
@@ -494,6 +506,32 @@ export const removeFixtureCanvases = async (
  * UsageCache paints it at boot and UsageService keeps it when a live poll
  * fails, so scenarios drive the native HUD without touching any source.
  */
+/**
+ * Flip one work_requests row to a state no producer can reach (residual
+ * durable state from older databases — `auth-required`). Runs directly
+ * against the sandbox's SQLite file, after fixture seeding, before boot.
+ */
+export const flipFixtureRequestState = (
+  sandbox: Sandbox,
+  request: { readonly canvasName: string; readonly nodeId: string; readonly requestId: string },
+  state: "auth-required",
+): void => {
+  const databasePath = join(
+    sandbox.homeDir,
+    ".vellum-command",
+    "state",
+    "vellum-command.db",
+  );
+  const db = new DatabaseSync(databasePath);
+  try {
+    db.prepare(
+      "UPDATE work_requests SET state = ? WHERE canvas_name = ? AND node_id = ? AND request_id = ?",
+    ).run(state, request.canvasName, request.nodeId, request.requestId);
+  } finally {
+    db.close();
+  }
+};
+
 export const writeFixtureUsageState = async (
   sandbox: Sandbox,
   state: UsageState,
@@ -689,21 +727,23 @@ export const requestsNode = (input: {
   readonly id: string;
   readonly x?: number;
   readonly y?: number;
+  /** Authored sink identity (ether.requests.name) — what every title renders. */
+  readonly name?: string;
   readonly items?: ReadonlyArray<Task>;
 }): TextNode => {
   const items = input.items ?? [];
-  const pending = items.filter((t) => t.state === "input-required").length;
   return {
     id: input.id,
     type: "text",
-    text: `${pending} pending`,
+    // Same mirror the work kernel writes: identity line, attention count, briefs.
+    text: mirrorRequestsText(items, input.name),
     x: input.x ?? 0,
     y: input.y ?? 0,
     width: 240,
     height: 120,
     ether: {
       entity: { kind: "requests" },
-      requests: { items: [...items] },
+      requests: { items: [...items], ...(input.name ? { name: input.name } : {}) },
     },
   };
 };

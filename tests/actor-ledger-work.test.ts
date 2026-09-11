@@ -246,7 +246,7 @@ describe("requestRowsForSeat", () => {
     }),
   ]);
 
-  it("filters by raiser claimedBy, includes resolved ones, sorts needs-input first", () => {
+  it("filters by raiser claimedBy, includes resolved ones, sorts attention first", () => {
     const rows = requestRowsForSeat(doc, actor.seatId);
     expect(rows.map((row) => row.requestId)).toEqual(["01C", "01B", "01A"]);
     expect(rows[0]).toEqual({
@@ -255,6 +255,7 @@ describe("requestRowsForSeat", () => {
       state: "input-required",
       title: "Request 01C body",
       needsInput: true,
+      attention: true,
     });
     expect(rows[2]).toEqual({
       requestId: "01A",
@@ -262,9 +263,25 @@ describe("requestRowsForSeat", () => {
       state: "completed",
       title: "Access to prod",
       needsInput: false,
+      attention: false,
       response: "Approved, go ahead",
       details: "Request 01A body",
     });
+  });
+
+  it("counts residual auth-required as attention but never as answerable", () => {
+    const authDoc = docOf([
+      sinkNode("requests", {
+        entity: { kind: "request" },
+        requests: {
+          items: [request("01F", "auth-required"), request("01G", "completed")],
+        },
+      }),
+    ]);
+    const rows = requestRowsForSeat(authDoc, actor.seatId);
+    expect(rows.map((row) => row.requestId)).toEqual(["01F", "01G"]);
+    expect(rows[0].attention).toBe(true);
+    expect(rows[0].needsInput).toBe(false);
   });
 
   it("falls back to Untitled request when there is no title anywhere", () => {
@@ -283,6 +300,7 @@ describe("requestRowsForSeat", () => {
         state: "input-required",
         title: "Untitled request",
         needsInput: true,
+        attention: true,
       },
     ]);
   });

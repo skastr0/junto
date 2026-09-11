@@ -188,14 +188,40 @@ describe("containsWorkProjection with board contracts", () => {
     expect(containsWorkProjection(projected)).toBe(true);
   });
 
-  it("keeps flagging every non-tasks work lane by presence", () => {
-    for (const key of ["requests", "messages", "artifacts", "board", "pad"]) {
+  it("keeps flagging presence-only lanes by presence; row lanes need rows", () => {
+    // messages / artifacts / board / pad are pure runtime projections — any
+    // presence counts. tasks / requests carry operator-authored document
+    // truth (tasks contract + name; requests name), so only projected rows
+    // make them a work projection.
+    for (const key of ["messages", "artifacts", "board", "pad"]) {
       const doc = {
         nodes: [{ ...node("n"), ether: { [key]: { items: [] } } }],
         edges: [],
       };
       expect(containsWorkProjection(doc)).toBe(true);
     }
+    for (const key of ["tasks", "requests"]) {
+      const doc = {
+        nodes: [{ ...node("n"), ether: { [key]: { items: [] } } }],
+        edges: [],
+      };
+      expect(containsWorkProjection(doc)).toBe(false);
+    }
+  });
+
+  it("flags a requests lane with projected rows", () => {
+    const projected = {
+      nodes: [
+        {
+          ...node("n"),
+          ether: {
+            requests: { items: [{ id: "q1", state: "input-required", history: [] }] },
+          },
+        },
+      ],
+      edges: [],
+    };
+    expect(containsWorkProjection(projected)).toBe(true);
   });
 
   it("does not flag an authorial contract-only tasks bag", () => {

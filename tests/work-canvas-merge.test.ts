@@ -187,4 +187,65 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
       "Fleet announcements\n- Stale glance topic",
     );
   });
+
+  it("keeps a local requests rename across a work write and regenerates the mirror", () => {
+    const local: CanvasDoc = {
+      nodes: [
+        {
+          id: "req",
+          type: "text",
+          // Node text mirror is stale the instant a rename happens.
+          text: "Vendor keys\n1 pending\napprove the deploy?",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+          ether: {
+            entity: { kind: "requests" },
+            requests: {
+              name: "Vendor keys",
+              items: [{ id: "q1", state: "input-required", history: [] }],
+            },
+          },
+        },
+      ],
+      edges: [],
+    };
+    const work: CanvasDoc = {
+      nodes: [
+        {
+          id: "req",
+          type: "text",
+          // Work write's mirror does not know the local rename.
+          text: "2 pending",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+          ether: {
+            entity: { kind: "requests" },
+            requests: {
+              items: [
+                { id: "q1", state: "completed", history: [] },
+                { id: "q2", state: "input-required", history: [] },
+              ],
+            },
+          },
+        },
+      ],
+      edges: [],
+    };
+    const merged = mergeLocalCanvasWithWorkWrite(local, work);
+    const node = merged.nodes[0];
+    expect(node?.type === "text" && node.ether?.requests?.name).toBe("Vendor keys");
+    expect(node?.type === "text" && node.ether?.requests?.items.map((i) => i.id)).toEqual([
+      "q1",
+      "q2",
+    ]);
+    // Mirror regenerated from the merged store: authored identity + attention
+    // count + briefs — not the work write's count-only text.
+    expect(node?.type === "text" && node.text).toBe(
+      "Vendor keys\n1 pending\nq1\nq2",
+    );
+  });
 });
