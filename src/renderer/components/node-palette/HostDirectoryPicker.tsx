@@ -92,7 +92,10 @@ export function HostDirectoryPicker({
   const openDirectory = (path: string) => {
     setDraft(asBrowsingDraft(path));
     void load(path).then((next) => {
-      if (next) setDraft(asBrowsingDraft(next.root));
+      if (!next) return;
+      setDraft((prev) =>
+        prev === asBrowsingDraft(path) ? asBrowsingDraft(next.root) : prev,
+      );
     });
   };
 
@@ -106,7 +109,10 @@ export function HostDirectoryPicker({
     setActivePath(undefined);
     setError("");
     void load(seed).then((next) => {
-      if (next) setDraft(asBrowsingDraft(next.root));
+      if (!next) return;
+      setDraft((prev) =>
+        prev === seed ? asBrowsingDraft(next.root) : prev,
+      );
     });
   }, [hostId, initialPath, load, resetKey]);
 
