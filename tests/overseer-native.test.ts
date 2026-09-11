@@ -17,7 +17,7 @@ import {
 import type { TermPlane } from "../src/main/vellum-command/term/plane";
 import type { ChatService } from "../src/main/vellum-command/chat/service";
 import type { BrowserSessionService } from "../src/main/vellum-command/browser/sessions";
-import type { ActorSeatOccupyApi } from "../src/main/vellum-command/term/actor-seat-occupy";
+
 
 const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 
@@ -139,17 +139,7 @@ const makeChats = (): ChatService => {
   return chats as unknown as ChatService;
 };
 
-const occupy: ActorSeatOccupyApi = {
-  occupy: () => Effect.succeed({
-    bindingId: "bind-a1",
-    hostId: "local",
-    status: "running",
-    epoch: "e1",
-    detached: true,
-    createdAt: 1,
-  } as never),
-  occupancy: () => Effect.succeed({ _tag: "vacant" } as never),
-};
+const occupySeatDefault = async (): Promise<boolean> => true;
 
 const live = (
   documents: ReadonlyArray<{ name: string; doc: CanvasDoc }>,
@@ -166,7 +156,7 @@ const live = (
     })),
     liveOverseerGrant: extra.liveOverseerGrant ?? (async () => true),
     listCanvasDocuments: extra.listCanvasDocuments ?? (async () => documents),
-    actorSeatOccupy: extra.actorSeatOccupy ?? occupy,
+    occupySeat: extra.occupySeat ?? occupySeatDefault,
     ...extra,
   });
 };
@@ -349,10 +339,10 @@ describe("overseer native adapters", () => {
     expect(openForOwner.mock.calls[0]?.[0]).toBe("overseer");
   });
 
-  it("starts an agent through actorSeatOccupy", async () => {
-    const occupySpy = vi.fn(() => occupy.occupy("unused" as never));
+  it("starts an agent through occupySeat", async () => {
+    const occupySpy = vi.fn(async () => true);
     const native = live([{ name: "factory", doc: board }], {
-      actorSeatOccupy: { ...occupy, occupy: occupySpy },
+      occupySeat: occupySpy,
     });
     const started = await run(native, "agent.start", { nodeId: "a1" });
     expect(started.ok).toBe(true);
@@ -360,35 +350,20 @@ describe("overseer native adapters", () => {
   });
 
   it("wakes an already-occupied seat through occupy (activate path), never a second occupy-vacant", async () => {
-    const { OccupiedSeat, seatAdmission } = await import(
+    const { occupiedSeat, seatAdmission } = await import(
       "../src/shared/terminal-seat-occupancy"
     );
-    const occupied = OccupiedSeat.make({
-      _tag: "OccupiedSeat",
-      bindingId: "bind-a1",
-      epoch: "live-epoch",
-      placement: "local",
-    });
+    const occupied = occupiedSeat("bind-a1", "live-epoch", "local");
     const admission = seatAdmission(occupied);
     expect(admission._tag).toBe("ActivateOccupiedSeat");
-    const occupySpy = vi.fn((spec: { bindingId: string; hostId?: string }) => {
+    const occupySpy = vi.fn(async (spec: { bindingId: string; hostId?: string }) => {
       expect(spec.bindingId).toBe("bind-a1");
       expect(spec.hostId).toBe("local");
       expect(seatAdmission(occupied)._tag).toBe("ActivateOccupiedSeat");
-      return Effect.succeed({
-        bindingId: "bind-a1",
-        hostId: "local",
-        status: "running",
-        epoch: "live-epoch",
-        detached: true,
-        createdAt: 1,
-      } as never);
+      return true;
     });
     const native = live([{ name: "factory", doc: board }], {
-      actorSeatOccupy: {
-        occupy: occupySpy,
-        occupancy: () => Effect.succeed(occupied),
-      },
+      occupySeat: occupySpy,
     });
     const woken = await run(native, "agent.wake", { nodeId: "a1" });
     expect(woken.ok).toBe(true);
@@ -431,13 +406,13 @@ describe("overseer native adapters", () => {
       ...agent("remote-a", { bindingId: "bind-remote" }),
       ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
     };
-    const occupySpy = vi.fn((spec: { hostId?: string; bindingId: string }) => {
+    const occupySpy = vi.fn(async (spec: { hostId?: string; bindingId: string }) => {
       expect(spec.hostId).toBe("studio");
       expect(spec.bindingId).toBe("bind-remote");
-      return occupy.occupy(spec as never);
+      return true;
     });
     const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
-      actorSeatOccupy: { ...occupy, occupy: occupySpy },
+      occupySeat: occupySpy,
       stationScope: () => ({
         hostId: "local",
         installationId: "cc-install",
@@ -449,6 +424,43 @@ describe("overseer native adapters", () => {
     if (!started.ok) return;
     expect((started.data as { hostId: string }).hostId).toBe("studio");
     expect(occupySpy).toHaveBeenCalled();
+  });
+
+  it("refuses self and same-binding alias reseat before kill or commit", async () => {
+    const kill = vi.fn(async () => true);
+    const commitAgentReseat = vi.fn(async () => ({ ok: true as const }));
+    const selfBoard = doc([agent("overseer-1")]);
+    const native = live([{ name: "factory", doc: selfBoard }], {
+      termPlane: makeTermPlane({ kill }),
+      commitAgentReseat,
+    });
+    const self = await run(native, "agent.reseat", {
+      nodeId: "overseer-1",
+      harness: "claude",
+    });
+    expect(self.ok).toBe(false);
+    if (self.ok) return;
+    expect(self.error.type).toBe("Forbidden");
+    expect(kill).not.toHaveBeenCalled();
+    expect(commitAgentReseat).not.toHaveBeenCalled();
+
+    const aliasBoard = doc([
+      agent("overseer-1", { bindingId: "shared-bind" }),
+      agent("alias", { bindingId: "shared-bind" }),
+    ]);
+    const aliasNative = live([{ name: "factory", doc: aliasBoard }], {
+      termPlane: makeTermPlane({ kill }),
+      commitAgentReseat,
+    });
+    const aliased = await run(aliasNative, "agent.reseat", {
+      nodeId: "alias",
+      harness: "claude",
+    });
+    expect(aliased.ok).toBe(false);
+    if (aliased.ok) return;
+    expect(aliased.error.type).toBe("Forbidden");
+    expect(kill).not.toHaveBeenCalled();
+    expect(commitAgentReseat).not.toHaveBeenCalled();
   });
 
   it("reseats by killing the prior generation and committing canvas-owned fields", async () => {
@@ -559,6 +571,39 @@ describe("overseer native adapters", () => {
     releaseGrant();
     await interrupted;
     expect(writePrompt).not.toHaveBeenCalled();
+  });
+
+  it("does not start a seat if occupy is aborted mid-flight", async () => {
+    let releaseOccupy!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseOccupy = resolve;
+    });
+    let occupyStarted = false;
+    let occupyFinished = false;
+    const occupySeat = vi.fn(async () => {
+      occupyStarted = true;
+      await held;
+      occupyFinished = true;
+      return true;
+    });
+    const native = live([{ name: "factory", doc: board }], { occupySeat });
+    const fiber = Effect.runFork(
+      native.executeResult(
+        { canvasName: "factory", nodeId: "overseer-1" },
+        { operation: "agent.start" as never, args: { nodeId: "a1" } },
+      ),
+    );
+    await vi.waitFor(() => expect(occupyStarted).toBe(true));
+    const interrupted = Effect.runPromise(Fiber.interrupt(fiber));
+    await Promise.resolve();
+    expect(occupyFinished).toBe(false);
+    const interruptPending = interrupted.then(() => "interrupted");
+    await Promise.resolve();
+    expect(occupyFinished).toBe(false);
+    releaseOccupy();
+    await interruptPending;
+    expect(occupyFinished).toBe(true);
+    expect(occupySeat).toHaveBeenCalledTimes(1);
   });
 
   it("rejects unknown native operations and invalid args via the contract decoder", () => {

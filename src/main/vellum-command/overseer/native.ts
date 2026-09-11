@@ -165,7 +165,13 @@ export type OverseerNativeLiveOptions = {
   readonly listCanvasDocuments: () => Promise<
     ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>
   >;
-  readonly actorSeatOccupy: ActorSeatOccupyApi;
+  /**
+   * Promise form of ActorSeatOccupy.occupy. Native never calls Effect.runPromise.
+   * Occupied seats activate; vacant seats occupy. Host comes from the node.
+   */
+  readonly occupySeat: (
+    spec: Parameters<ActorSeatOccupyApi["occupy"]>[0],
+  ) => Promise<boolean>;
   readonly managedDrive?: Pick<ManagedTerminalDrive, "writePrompt" | "interrupt">;
   /**
    * Canvas-owned document mutation. Native kills the prior generation and
@@ -462,65 +468,78 @@ const promptSeat = async (
   return writeSeat(ctx, bindingId, hostId, text.endsWith("\r") ? text : `${text}\r`);
 };
 
-const occupySeat = (
+const occupySeat = async (
   ctx: NativeContext,
   canvasName: string,
   node: CanvasNode,
   surface: Extract<ReturnType<typeof actorDeliverySurfaceOf>, { readonly _tag: "managedAgent" }>,
-): Effect.Effect<boolean> => {
-  if (ctx.signal.aborted) return Effect.succeed(false);
-  return ctx.actorSeatOccupy.occupy({
-    bindingId: surface.bindingId,
-    hostId: surface.hostId,
-    canvasName,
-    nodeId: node.id,
-    harness: surface.harness,
-    agentKey: surface.agentKey,
-    spawnIntent: makeManagedSpawnIntent({
+): Promise<boolean> => {
+  if (ctx.signal.aborted) return false;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      ctx.signal.removeEventListener("abort", onAbort);
+      resolve(value && !ctx.signal.aborted);
+    };
+    const onAbort = (): void => finish(false);
+    ctx.signal.addEventListener("abort", onAbort, { once: true });
+    void ctx.occupySeat({
+      bindingId: surface.bindingId,
+      hostId: surface.hostId,
+      canvasName,
       nodeId: node.id,
       harness: surface.harness,
-      documentLaunch: surface.launch,
       agentKey: surface.agentKey,
-      cwd: surface.launch?.cwd,
-      resume: true,
-    }),
-  }).pipe(
-    Effect.match({
-      onFailure: () => false,
-      onSuccess: () => !ctx.signal.aborted,
-    }),
-  );
+      spawnIntent: makeManagedSpawnIntent({
+        nodeId: node.id,
+        harness: surface.harness,
+        documentLaunch: surface.launch,
+        agentKey: surface.agentKey,
+        cwd: surface.launch?.cwd,
+        resume: true,
+      }),
+    }).then(
+      (ok) => finish(ok),
+      () => finish(false),
+    );
+  });
 };
 
-const startOrWakeAgent = (
+const startOrWakeAgent = async (
   ctx: NativeContext,
   canvasName: string,
   _doc: CanvasDoc,
   node: CanvasNode,
-): Effect.Effect<NativeOutcome> =>
-  Effect.gen(function* () {
-    const surface = actorDeliverySurfaceOf(node);
-    if (surface?._tag !== "managedAgent") {
-      return fail("InvalidArguments", "node is not a managed agent seat");
-    }
-    // Operator occupy route: ActorSeatOccupy admits Remote projection then
-    // occupies the target host. Never fabricate deriveActorSeatId(CC, remoteBinding).
-    const occupied = yield* occupySeat(ctx, canvasName, node, surface);
-    if (!occupied) return fail("RuntimeDown", "managed seat could not start");
-    const summary = yield* Effect.result(
-      Effect.tryPromise({
-        try: () => sessionSummary(ctx, surface.bindingId, surface.hostId),
-        catch: () => undefined,
-      }),
-    );
-    return ok({
-      started: true,
-      hostId: surface.hostId,
-      session: Result.isSuccess(summary)
-        ? summary.success ?? { bindingId: surface.bindingId, hostId: surface.hostId }
-        : { bindingId: surface.bindingId, hostId: surface.hostId },
-    });
+): Promise<NativeOutcome> => {
+  const surface = actorDeliverySurfaceOf(node);
+  if (surface?._tag !== "managedAgent") {
+    return fail("InvalidArguments", "node is not a managed agent seat");
+  }
+  // Operator occupy route: ActorSeatOccupy admits Remote projection then
+  // occupies the target host. Never fabricate deriveActorSeatId(CC, remoteBinding).
+  const occupied = await occupySeat(ctx, canvasName, node, surface);
+  if (!occupied) {
+    return ctx.signal.aborted
+      ? abortedGrant()
+      : fail("RuntimeDown", "managed seat could not start");
+  }
+  const still = ctx.signal.aborted ? abortedGrant() : undefined;
+  if (still) return still;
+  let summary: Awaited<ReturnType<typeof sessionSummary>>;
+  try {
+    summary = await sessionSummary(ctx, surface.bindingId, surface.hostId);
+  } catch {
+    summary = undefined;
+  }
+  if (ctx.signal.aborted) return abortedGrant();
+  return ok({
+    started: true,
+    hostId: surface.hostId,
+    session: summary ?? { bindingId: surface.bindingId, hostId: surface.hostId },
   });
+};
 
 const handleAgent = async (
   ctx: NativeContext,
@@ -582,7 +601,7 @@ const handleAgent = async (
     }
     case "agent.start":
     case "agent.wake": {
-      const started = await Effect.runPromise(startOrWakeAgent(ctx, canvasName, doc, node));
+      const started = await startOrWakeAgent(ctx, canvasName, doc, node);
       if (!started.ok) return started;
       const still = await requireGrant(ctx, caller);
       if (still) return still;
@@ -638,6 +657,23 @@ const handleAgent = async (
           "Unsupported",
           "agent.reseat requires canvas-owned commitAgentReseat",
         );
+      }
+      const originDoc = findDocument(
+        await ctx.listCanvasDocuments(),
+        caller.canvasName,
+      );
+      const originNode =
+        originDoc === undefined ? undefined : findNode(originDoc, caller.nodeId);
+      const originBinding = originNode === undefined ? undefined : bindingOf(originNode);
+      const sameSeat =
+        caller.canvasName === canvasName && caller.nodeId === node.id;
+      const sameBinding =
+        originBinding !== undefined &&
+        binding !== undefined &&
+        originBinding.bindingId === binding.bindingId &&
+        originBinding.hostId === binding.hostId;
+      if (sameSeat || sameBinding) {
+        return fail("Forbidden", "cannot reseat the live overseer seat");
       }
       const harness = (args as { harness: HarnessId }).harness;
       const priorCwd =
@@ -764,7 +800,7 @@ const handleTerminal = async (
         const documents = await ctx.listCanvasDocuments();
         const doc = findDocument(documents, canvasName);
         if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
-        const started = await Effect.runPromise(startOrWakeAgent(ctx, canvasName, doc, node));
+        const started = await startOrWakeAgent(ctx, canvasName, doc, node);
         if (!started.ok) return started;
         const still = await requireGrant(ctx, caller);
         if (still) return still;
