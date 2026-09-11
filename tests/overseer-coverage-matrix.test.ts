@@ -159,7 +159,7 @@ const collapsed = (input: string): string => input.replace(/\s+/gu, " ");
 describe("overseer coverage matrix", () => {
   it("inventories every frozen wire operation without a completion claim", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
-    expect(collapsed(matrix)).toContain("not a completion claim");
+    expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
     expect(FROZEN_OPERATIONS).toHaveLength(97);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
