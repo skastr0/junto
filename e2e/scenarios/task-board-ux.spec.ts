@@ -148,6 +148,9 @@ test("task board supports creation, operator responses, layered status, and hand
     expect(creatorOwnsCenter).toBe(true);
     const titleInput = creator.getByPlaceholder("What needs doing?");
     await expect(titleInput).toBeFocused();
+    // The dependency field carries its own accessible name (FieldCaption is
+    // decorative span text; the input must not rely on it).
+    await creator.getByLabel("Depends on", { exact: true }).fill("");
     await titleInput.pressSequentially("Audit");
 
     // A work-plane write emits the same canvas projection notification that

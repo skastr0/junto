@@ -206,7 +206,7 @@ export function TaskThread({
             Thread
           </h3>
         </div>
-        <span>{entries.length} messages</span>
+        <span>{`${entries.length} ${entries.length === 1 ? "message" : "messages"}`}</span>
       </header>
 
       <ol className="task-thread__messages">

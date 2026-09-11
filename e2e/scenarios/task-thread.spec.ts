@@ -92,7 +92,11 @@ test("task detail renders the attributed thread and operator comments notify its
     const card = board.getByTestId("task-board-card").filter({
       hasText: "Make task history legible",
     });
-    await expect(card).toContainText("Builder Alpha");
+    // The claimant chip names the agent's node, never the tasks-board id
+    // fallback ("Tasks er-alpha") — a regression the suite used to catch.
+    await expect(card.locator(".task-board-card__claimant")).toHaveText(
+      /^Builder Alpha$/,
+    );
 
     const ownerShot = testInfo.outputPath("owner-card.png");
     await board.screenshot({ path: ownerShot });
@@ -111,6 +115,11 @@ test("task detail renders the attributed thread and operator comments notify its
     await expect(thread.locator('[data-kind="update"]').first()).toContainText("Builder Alpha");
     await expect(thread.locator('[data-kind="defect"]')).toContainText("defect");
     await expect(thread.locator('[data-kind="comment"]')).toContainText("Operator");
+
+    // The details panel's identity row carries the same agent-named chip.
+    await expect(detail.locator(".task-detail-panel__claim")).toHaveText(
+      /^Builder Alpha$/,
+    );
 
     const threadShot = testInfo.outputPath("thread-detail.png");
     await board.screenshot({ path: threadShot });

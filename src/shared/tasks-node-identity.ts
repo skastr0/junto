@@ -62,8 +62,18 @@ export const tasksNodeIdentity = (
       source: "instructions",
     };
   }
+  // A generic node id ("tasks") adds nothing after the "Tasks" prefix — the
+  // fallback would read "Tasks tasks". Real ids still disambiguate.
+  const shortId = shortTasksNodeId(nodeId);
+  if (GENERIC_TASK_NAMES.has(shortId.toLowerCase())) {
+    return {
+      name: "Tasks",
+      source: "id",
+      namingHint: "Name this node to name the board.",
+    };
+  }
   return {
-    name: `Tasks ${shortTasksNodeId(nodeId)}`,
+    name: `Tasks ${shortId}`,
     source: "id",
     namingHint: "Name this node to name the board.",
   };

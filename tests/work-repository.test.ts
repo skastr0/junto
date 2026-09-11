@@ -652,6 +652,50 @@ describe("WorkRepository v2 local authority", () => {
     ).toBe(cc);
   });
 
+  it("refuses task creation on an unknown dependency and persists nothing", async () => {
+    const sink = { canvasName: "factory", nodeId: "tasks-local" };
+    const before = await runtime.runPromise(
+      repository.readSnapshot(sink.canvasName, sink.nodeId),
+    );
+
+    const refused = await runtime.runPromise(
+      repository
+        .createTask({
+          sink,
+          basis: authorialBasis,
+          dependencyScope: dependencyScope(sink),
+          task: {
+            id: "task-unknown-dep",
+            state: "submitted",
+            dependsOn: ["task-not-authored-anywhere"],
+            history: [
+              message("brief-unknown-dep", "user", "never claimable", "task-unknown-dep"),
+            ],
+          },
+          originAt: observedAt,
+          receivedAt: observedAt,
+        })
+        .pipe(Effect.result),
+    );
+    expect(refused).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "WorkAuthorityError", reason: "invalid-transition" },
+    });
+
+    // Nothing persisted: the snapshot is byte-identical and no fact row exists.
+    expect(await runtime.runPromise(repository.readSnapshot(sink.canvasName, sink.nodeId)))
+      .toEqual(before);
+    const facts = await runtime.runPromise(
+      state.read("test.read-unknown-dep-facts", (reader) =>
+        reader.get<{ readonly n: number }>(
+          `SELECT COUNT(*) AS n FROM work_events WHERE item_id = ?`,
+          ["task-unknown-dep"],
+        ),
+      ),
+    );
+    expect(facts?.n).toBe(0);
+  });
+
   it("atomically clears the claimant when active work returns to Queue", async () => {
     const sink = { canvasName: "factory", nodeId: "tasks-release" };
     const created = await runtime.runPromise(

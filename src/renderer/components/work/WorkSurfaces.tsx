@@ -163,7 +163,7 @@ export const stateHue = (state: TaskState): string => {
 
 // --- Cards -----------------------------------------------------------------
 
-/** Glance-grade sink: in-flight count + input-required hot only. */
+/** Glance-grade sink: open count + input-required hot only. */
 export function TasksCard({
   node,
   renaming = false,
@@ -174,8 +174,16 @@ export function TasksCard({
 } & SinkRenameProps) {
   const items = node.ether?.tasks?.items ?? [];
   const contract = node.ether?.tasks?.contract;
-  const { inFlight, needsInput } = sinkGlance(items, contract);
+  const { needsInput } = sinkGlance(items, contract);
   const { completed: completedCount } = taskScanCounts(items, contract);
+  // "Open" = unfinished work the fleet can act on: claimable/submitted +
+  // working. Input-required and residual auth-required are attention waits,
+  // not flight — they render as their own counter, disjoint from open.
+  // (Matches the board header counter; sinkGlance.queued would drop
+  // approval-gated and operator-assigned submitted tasks.)
+  const openCount = items.filter(
+    (t) => t.state === "submitted" || t.state === "working",
+  ).length;
   const hotItems = items.filter(
     (t) => t.state === "input-required" || t.state === "auth-required" || t.state === "working",
   );
@@ -203,47 +211,46 @@ export function TasksCard({
         onRequestRename={onRequestRename}
         onRenameDone={onRenameDone}
         trailing={
-          <>
-            <div className="flex min-w-0 max-w-[112px] flex-col items-end gap-0.5 text-right text-[9px] tabular-nums leading-tight">
-              <span
-                className="truncate"
-                style={{ color: needsInput > 0 ? HUE.amber : DIM }}
-                data-testid="tasks-glance"
-              >
-                {inFlight} open
-                {needsInput > 0 ? ` - ${needsInput} need input` : ""}
-              </span>
-              <span
-                className="truncate"
-                style={{ color: completedCount > 0 ? GREEN : DIM }}
-                data-testid="tasks-glance-completed"
-                aria-label={`${completedCount} completed`}
-              >
-                {completedCount} done
-              </span>
-            </div>
-            <button
-              type="button"
-              className="nodrag nowheel factory-glance__enqueue"
-              data-testid="tasks-card-enqueue"
-              title="Add task"
-              aria-label="Add task"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                openTaskCreateSurface(node);
-              }}
-              onDoubleClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <Plus size={11} strokeWidth={2.25} aria-hidden />
-            </button>
-          </>
+          <button
+            type="button"
+            className="nodrag nowheel factory-glance__enqueue"
+            data-testid="tasks-card-enqueue"
+            title="Add task"
+            aria-label="Add task"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openTaskCreateSurface(node);
+            }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <Plus size={11} strokeWidth={2.25} aria-hidden />
+          </button>
         }
       />
+      <div
+        className="mt-0.5 flex shrink-0 flex-col items-end gap-0.5 pr-1 text-right text-[9px] tabular-nums leading-tight"
+      >
+        <span
+          className="max-w-full truncate"
+          style={{ color: needsInput > 0 ? HUE.amber : DIM }}
+          data-testid="tasks-glance"
+        >
+          {`${openCount} open${needsInput > 0 ? ` - ${needsInput} need input` : ""}`}
+        </span>
+        <span
+          className="max-w-full truncate"
+          style={{ color: completedCount > 0 ? GREEN : DIM }}
+          data-testid="tasks-glance-completed"
+          aria-label={`${completedCount} completed`}
+        >
+          {`${completedCount} done`}
+        </span>
+      </div>
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {visibleRows.map((item) => (
             <div

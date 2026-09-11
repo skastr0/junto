@@ -96,6 +96,7 @@ import {
   type TaskDepStatus,
 } from "@shared/task-deps";
 import { FocusSurface } from "../FocusSurface";
+import { nodeTitle } from "../../lib/presentation";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
 import { Dropdown } from "../ui/Dropdown";
@@ -292,7 +293,7 @@ const LANES: ReadonlyArray<LaneDefinition> = [
     tone: "green",
     chipTone: "green",
     icon: CheckCircle2,
-    hint: "Completed and settled work",
+    hint: "Finished or stopped work",
   },
 ];
 
@@ -1478,6 +1479,7 @@ export function TaskCreateDialog({
                   help="Tasks that must finish first. Empty means this can start right away."
                 />
                 <Input
+                  aria-label="Depends on"
                   value={dependsOnText}
                   onChange={(event) => setDependsOnText(event.target.value)}
                   placeholder="task ids (same region)…"
@@ -2249,6 +2251,13 @@ export function TaskBoard({
   const boardSettings = node.ether?.tasks?.contract;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const glance = sinkGlance(items, boardSettings, nowMs);
+  // "Open" = unfinished work the fleet can act on: claimable/submitted +
+  // working. Input-required and residual auth-required are attention waits,
+  // not flight — they render as their own counter, disjoint from open.
+  const openCount = useMemo(
+    () => items.filter((task) => task.state === "submitted" || task.state === "working").length,
+    [items],
+  );
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hideClosed, setHideClosed] = useState(false);
@@ -2306,12 +2315,30 @@ export function TaskBoard({
     () => tasksNodeIdentity(doc.nodes.find((entry) => entry.id === node.id), node.id),
     [doc, node.id],
   );
+  // Kind-aware display names for ACTORS (agent seats) and generic nodes.
+  // tasksNodeName is the Tasks-board identity helper — applying it to agent
+  // nodes mangled owner chips into "Tasks <id-fragment>"; agents read their
+  // node title instead. Missing nodes fall back to the caller's raw id.
+  const nodeName = useMemo(() => {
+    const names = new Map(
+      doc.nodes.flatMap((entry) => {
+        const name =
+          entry.ether?.entity?.kind === "task"
+            ? tasksNodeName(entry)
+            : nodeTitle(entry);
+        // "untitled" is nodeTitle's empty-text placeholder; the caller's raw
+        // id fallback reads better than a placeholder for an anonymous node.
+        return name && name !== "untitled" ? [[entry.id, name] as const] : [];
+      }),
+    );
+    return (nodeId: string): string | undefined => names.get(nodeId);
+  }, [doc]);
   const seatName = useMemo(() => {
     const names = new Map<string, string>(
-      actorRefs.map((actor) => [actor.seatId, boardName(actor.nodeId)]),
+      actorRefs.map((actor) => [actor.seatId, nodeName(actor.nodeId) ?? actor.nodeId]),
     );
     return (seatId: string): string | undefined => names.get(seatId);
-  }, [actorRefs, boardName]);
+  }, [actorRefs, nodeName]);
   const ownerFor = (task: WorkTask): string | undefined => {
     const owner = currentTaskOwner(task, boardSettings);
     if (owner.kind === "operator") return "Operator";
@@ -2916,8 +2943,7 @@ export function TaskBoard({
           status={
             <>
               <span>
-                {glance.inFlight} open
-                {glance.needsInput > 0 ? ` - ${glance.needsInput} need you` : ""}
+                {`${openCount} open${glance.needsInput > 0 ? ` - ${glance.needsInput} need input` : ""}`}
               </span>
               {boardSettings?.instructions ? (
                 <>
@@ -3190,7 +3216,7 @@ export function TaskBoard({
               )}
               ownerLabel={ownerFor(selectedTask)}
               seatName={seatName}
-              nodeName={boardName}
+              nodeName={nodeName}
               operatorPanel={
                 operatorOwned &&
                 !TERMINAL_STATES.has(selectedTask.state) ? (

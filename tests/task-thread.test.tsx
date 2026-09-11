@@ -85,5 +85,23 @@ describe("TaskThread", () => {
     expect(html).toContain("https://example.com/proof");
     expect(html).toContain('aria-label="Add a task comment"');
     expect(html.match(/<time/g)).toHaveLength(4);
+    expect(html).toContain("4 messages");
+  });
+
+  it("pluralizes the thread count correctly", () => {
+    const renderCount = (historyLength: number): string =>
+      renderToStaticMarkup(
+        <TaskThread
+          task={{ ...task, history: task.history.slice(0, historyLength) }}
+          pending={false}
+          seatName={() => undefined}
+          nodeName={() => undefined}
+          onComment={vi.fn(async () => true)}
+        />,
+      );
+    const single = renderCount(1);
+    expect(single).toContain("<span>1 message</span>");
+    expect(renderCount(4)).toContain("<span>4 messages</span>");
+    expect(renderCount(0)).toContain("<span>0 messages</span>");
   });
 });

@@ -56,4 +56,16 @@ describe("Tasks-node identity", () => {
   it("resolves missing boards through the same short-id fallback", () => {
     expect(tasksNodeName(undefined, "missing-board-ABCDEF12")).toBe("Tasks ABCDEF12");
   });
+
+  it("does not stack the Tasks prefix on a generic id", () => {
+    for (const generic of ["task", "tasks", "TASKS", " tasks "]) {
+      expect(tasksNodeIdentity(board("tasks", undefined, generic)).name).toBe("Tasks");
+      expect(tasksNodeIdentity(undefined, generic).name).toBe("Tasks");
+    }
+  });
+
+  it("keeps the id suffix for meaningful short ids", () => {
+    expect(tasksNodeIdentity(board("tasks", undefined, "qa")).name).toBe("Tasks qa");
+    expect(tasksNodeIdentity(undefined, "build").name).toBe("Tasks build");
+  });
 });
