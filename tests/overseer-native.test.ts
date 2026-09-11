@@ -1,5 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Fiber, Result } from "effect";
+import { Effect, Fiber, ManagedRuntime, Result } from "effect";
 import type { CanvasDoc, CanvasNode, TextNode } from "../src/shared/canvas";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
@@ -19,7 +22,15 @@ import {
 } from "../src/main/vellum-command/overseer/native";
 import type { TermPlane } from "../src/main/vellum-command/term/plane";
 import type { ChatService } from "../src/main/vellum-command/chat/service";
-import type { BrowserSessionService } from "../src/main/vellum-command/browser/sessions";
+import {
+  BrowserSessionService,
+  type BrowserViewAdapter,
+} from "../src/main/vellum-command/browser/sessions";
+import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
+import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
+import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page-target";
 
 
 const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
@@ -294,7 +305,7 @@ describe("overseer native adapters", () => {
       data: { sessionId: "ui-sess", url: "https://example.com/next" },
     }));
     const pages = {
-      overseerSessionForRef: () => ({ owner: "vellum-command-ui", sessionId: "ui-sess" }),
+      overseerSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "ui-sess" }],
       overseerSessionOwner: (sessionId: string) =>
         sessionId === "ui-sess" ? "vellum-command-ui" : undefined,
       sessionIdForRefForOwner: () => undefined,
@@ -780,7 +791,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     pages = {
       stopForOwner,
       overseerSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "sess-late" }],
-      invalidatePendingOpensForRef: vi.fn(),
+      beginOverseerPageDelete: vi.fn(),
+      finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
     const bound = await native.prepareOverseerNodeDelete([
       { kind: "page", canvasName: "factory", nodeId: "p1" },
@@ -796,7 +808,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     const pages = {
       stopForOwner,
       overseerSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
-      invalidatePendingOpensForRef: vi.fn(),
+      beginOverseerPageDelete: vi.fn(),
+      finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
     const prepared = await native.prepareOverseerNodeDelete([
@@ -815,7 +828,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     const pages = {
       stopForOwner,
       overseerSessionsForRef: () => [],
-      invalidatePendingOpensForRef: vi.fn(),
+      beginOverseerPageDelete: vi.fn(),
+      finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
     const prepared = await native.prepareOverseerNodeDelete([
@@ -823,9 +837,12 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     ]);
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
-    expect(prepared.leaseId).toBe("");
+    expect(prepared.leaseId.length).toBeGreaterThan(0);
     expect(prepared.pageStops).toEqual([]);
     expect(stopForOwner).not.toHaveBeenCalled();
+    expect(pages.beginOverseerPageDelete).toHaveBeenCalled();
+    expect(native.finishOverseerNodeDelete(prepared.leaseId, "committed")).toEqual({ ok: true });
+    expect(pages.finishOverseerPageDelete).toHaveBeenCalled();
   });
 
   it("stops every live owner for one page ref and does not treat node id as a session id", async () => {
@@ -843,7 +860,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
               { owner: "job-b", sessionId: "auto-b" },
             ]
           : [],
-      invalidatePendingOpensForRef: vi.fn(),
+      beginOverseerPageDelete: vi.fn(),
+      finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
     const prepared = await native.prepareOverseerNodeDelete([
@@ -851,7 +869,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     ]);
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
-    expect(pages.invalidatePendingOpensForRef).toHaveBeenCalled();
+    expect(pages.beginOverseerPageDelete).toHaveBeenCalled();
     expect(stopped).toEqual([
       { owner: "vellum-command-ui", sessionId: "ui-sess" },
       { owner: "job-a", sessionId: "auto-a" },
@@ -875,7 +893,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
         message: "view still destroying",
       })),
       overseerSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
-      invalidatePendingOpensForRef: vi.fn(),
+      beginOverseerPageDelete: vi.fn(),
+      finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: doc([agent("a1"), page("p1")]) }], {
       chats,
@@ -894,5 +913,97 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     ]);
     expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
     expect(termPlane.nodeDelete.isLocked("bind-a1", "local")).toBe(false);
+  });
+
+  it("holds a pending open and a new open across prepare-to-finish without a late view", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-overseer-page-fence-"));
+    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "vellum-command.db")));
+    const state = await runtime.runPromise(StateEngine);
+    const profiles = makeBrowserProfileService(state, root);
+    await Effect.runPromise(profiles.ensureDefaults);
+
+    const views: Array<{ partition: string; destroyed: boolean; loadUrl?: string }> = [];
+    let releasePartition!: (value: string) => void;
+    const partitionHold = new Promise<string>((resolve) => {
+      releasePartition = resolve;
+    });
+    let partitionReads = 0;
+    const gatedProfiles = {
+      ...profiles,
+      partitionName: (profile: string) => {
+        if (profile === "personal") {
+          return Effect.promise(() => {
+            partitionReads += 1;
+            return partitionHold;
+          });
+        }
+        return profiles.partitionName(profile);
+      },
+    };
+    const adapter: BrowserViewAdapter = (partition) => {
+      const view = { partition, destroyed: false, loadUrl: undefined as string | undefined };
+      views.push(view);
+      return {
+        loadUrl: async (url: string) => {
+          view.loadUrl = url;
+        },
+        attach: () => {},
+        setBounds: () => {},
+        detach: () => {},
+        destroy: () => {
+          view.destroyed = true;
+        },
+      };
+    };
+    const pages = new BrowserSessionService(
+      adapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
+      gatedProfiles,
+      () => Date.now(),
+      (() => {
+        let n = 0;
+        return () => `session-${++n}`;
+      })(),
+    );
+    pages.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
+
+    const deleted: ResolvedPageTarget = {
+      ref: "vellum-command://canvas/factory?node=p1",
+      nodeId: "p1",
+      url: "https://p1.example.com",
+      hostId: "local",
+      profile: "personal",
+    };
+    const pending = pages.openForOwner("job-a", deleted);
+    await vi.waitFor(() => expect(partitionReads).toBe(1));
+
+    const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
+    const prepared = await native.prepareOverseerNodeDelete([
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
+    ]);
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+
+    const duringLease = pages.openForOwner("job-c", deleted);
+    await expect(duringLease).resolves.toMatchObject({ ok: false, code: "cancelled" });
+
+    const sibling = await pages.openForOwner("job-b", {
+      ref: "vellum-command://canvas/factory?node=p-sibling",
+      nodeId: "p-sibling",
+      url: "https://sibling.example.com",
+      hostId: "local",
+      profile: "work",
+    });
+    expect(sibling.ok).toBe(true);
+
+    expect(native.finishOverseerNodeDelete(prepared.leaseId, "committed")).toEqual({ ok: true });
+    releasePartition("persist:vellum-profile-personal");
+    await expect(pending).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    expect(views.some((view) => view.partition.includes("personal") && view.loadUrl !== undefined))
+      .toBe(false);
+    expect(pages.overseerSessionsForRef(deleted.ref)).toEqual([]);
+
+    await runtime.dispose();
+    await rm(root, { recursive: true, force: true });
   });
 });

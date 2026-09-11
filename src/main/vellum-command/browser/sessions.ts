@@ -246,6 +246,8 @@ interface SessionEntry {
 interface PendingOpen {
   readonly target: ResolvedPageTarget;
   readonly ownerEpoch: number;
+  readonly refEpoch: number;
+  readonly refSignal: AbortSignal;
   readonly profileSnapshot: BrowserProfileSnapshot;
   readonly promise: Promise<BrowserResult<BrowserSessionInfo>>;
 }
@@ -566,6 +568,9 @@ export class BrowserSessionService {
   private readonly sessionIdByOwnerRef = new Map<string, Map<string, string>>();
   private readonly pendingOpenByOwnerRef = new Map<string, Map<string, PendingOpen>>();
   private readonly ownerEpochs = new Map<string, number>();
+  private readonly refEpochs = new Map<string, number>();
+  private readonly refAborts = new Map<string, AbortController>();
+  private readonly refDeleteLeases = new Map<string, Set<string>>();
   private readonly pendingStops = new Map<string, BrowserStopRecord>();
   private readonly stoppedSessions = new Map<string, BrowserStopRecord>();
   private readonly activeUiOperations = new Map<number, BrowserUiOperation>();
@@ -773,15 +778,42 @@ export class BrowserSessionService {
     return this.ownerEpochs.get(owner) ?? 0;
   }
 
+  private refEpoch(ref: string): number {
+    return this.refEpochs.get(ref) ?? 0;
+  }
+
+  private refDeleteActive(ref: string): boolean {
+    return (this.refDeleteLeases.get(ref)?.size ?? 0) > 0;
+  }
+
+  private refAbortSignal(ref: string): AbortSignal {
+    const existing = this.refAborts.get(ref);
+    if (existing !== undefined) return existing.signal;
+    const created = new AbortController();
+    this.refAborts.set(ref, created);
+    return created.signal;
+  }
+
+  private bumpRefGeneration(ref: string): void {
+    this.refEpochs.set(ref, this.refEpoch(ref) + 1);
+    const previous = this.refAborts.get(ref);
+    previous?.abort();
+    this.refAborts.set(ref, new AbortController());
+  }
+
   private isOpenAttemptCurrent(
     owner: string,
     ownerEpoch: number,
     profileSnapshot: BrowserProfileSnapshot,
+    ref: string,
+    refEpoch: number,
     signal?: AbortSignal,
   ): boolean {
     return (
       this.uiShutdownClosedAt === undefined &&
       this.ownerEpoch(owner) === ownerEpoch &&
+      this.refEpoch(ref) === refEpoch &&
+      !this.refDeleteActive(ref) &&
       this.profileGate.isCurrent(profileSnapshot) &&
       !isAborted(signal)
     );
@@ -792,7 +824,22 @@ export class BrowserSessionService {
     record: PendingOpen,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
     const result = await record.promise;
-    if (!this.isOpenAttemptCurrent(owner, record.ownerEpoch, record.profileSnapshot)) {
+    if (
+      !this.isOpenAttemptCurrent(
+        owner,
+        record.ownerEpoch,
+        record.profileSnapshot,
+        record.target.ref,
+        record.refEpoch,
+        record.refSignal,
+      )
+    ) {
+      if (result.ok) {
+        const sessionId = result.data.sessionId;
+        if (this.entryForOwner(owner, sessionId) !== undefined) {
+          this.destroySession(sessionId, new BrowserOperationFailure("cancelled", "navigation cancelled"));
+        }
+      }
       return err("cancelled", "navigation cancelled");
     }
     if (result.ok && this.entryForOwner(owner, result.data.sessionId) === undefined) {
@@ -1383,13 +1430,17 @@ export class BrowserSessionService {
     ) {
       return err("forbidden", "automation target has no exact browser origin");
     }
-    if (isAborted(signal)) return err("cancelled", "navigation cancelled");
+    if (isAborted(signal) || this.refDeleteActive(target.ref)) {
+      return err("cancelled", "navigation cancelled");
+    }
     const profileSnapshot = this.profileGate.snapshot(target.profile);
     if (profileSnapshot === undefined) {
       return err("forbidden", "browser profile is unavailable");
     }
 
     const epoch = this.ownerEpoch(owner);
+    const currentRefEpoch = this.refEpoch(target.ref);
+    const refSignal = this.refAbortSignal(target.ref);
     const pendingByRef = this.ownerPendingOpens(owner, true);
     const pending = pendingByRef.get(target.ref);
     if (pending !== undefined) {
@@ -1403,12 +1454,15 @@ export class BrowserSessionService {
       epoch,
       profileSnapshot,
       target,
+      currentRefEpoch,
       signal,
       revalidateTarget,
     );
     const record: PendingOpen = {
       target,
       ownerEpoch: epoch,
+      refEpoch: currentRefEpoch,
+      refSignal,
       profileSnapshot,
       promise,
     };
@@ -1430,10 +1484,11 @@ export class BrowserSessionService {
     ownerEpoch: number,
     profileSnapshot: BrowserProfileSnapshot,
     target: ResolvedPageTarget,
+    refEpoch: number,
     signal?: AbortSignal,
     revalidateTarget?: BrowserTargetRevalidator,
   ): Promise<BrowserResult<BrowserSessionInfo>> {
-    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
       return err("cancelled", "navigation cancelled");
     }
     const ownerRefs = this.ownerRefSessions(owner);
@@ -1459,11 +1514,11 @@ export class BrowserSessionService {
     let maxWarmSessions: number;
     try {
       partition = await runClosedBrowserEffect(this.profiles.partitionName(target.profile));
-      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
         return err("cancelled", "navigation cancelled");
       }
       const limits = await this.resolvePoolLimits();
-      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
         return err("cancelled", "navigation cancelled");
       }
       maxWarmSessions = Math.min(
@@ -1476,7 +1531,7 @@ export class BrowserSessionService {
     } catch (error) {
       return err("invalid", error instanceof Error ? error.message : String(error));
     }
-    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
       return err("cancelled", "navigation cancelled");
     }
     if (revalidateTarget !== undefined) {
@@ -1497,7 +1552,7 @@ export class BrowserSessionService {
     if (!currentHostAdmission.ok) {
       return err(currentHostAdmission.code, currentHostAdmission.message);
     }
-    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+    if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
       return err("cancelled", "navigation cancelled");
     }
 
@@ -1561,7 +1616,7 @@ export class BrowserSessionService {
           ? undefined
           : { exactTopLevelOrigin: entry.currentOrigin },
       );
-      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, signal)) {
+      if (!this.isOpenAttemptCurrent(owner, ownerEpoch, profileSnapshot, target.ref, refEpoch, signal)) {
         this.requestViewDestruction(entry);
         return err("cancelled", "navigation cancelled");
       }
@@ -2067,17 +2122,29 @@ export class BrowserSessionService {
   }
 
   /**
-   * Drop in-flight opens for a page ref across every owner so a racing open
-   * cannot land after deletion has resolved the live set.
+   * Fence a page ref from prepare through finish. Bumps the ref generation and
+   * aborts in-flight opens so they cannot create/navigate after deletion.
+   * Sibling refs and owners stay live.
    */
-  invalidatePendingOpensForRef(ref: string): number {
-    let invalidated = 0;
+  beginOverseerPageDelete(ref: string, leaseId: string): void {
+    const id = leaseId.trim();
+    if (id.length === 0) return;
+    const holders = this.refDeleteLeases.get(ref) ?? new Set<string>();
+    holders.add(id);
+    this.refDeleteLeases.set(ref, holders);
+    this.bumpRefGeneration(ref);
     for (const [owner, pendingByRef] of this.pendingOpenByOwnerRef) {
       if (!pendingByRef.delete(ref)) continue;
-      invalidated += 1;
       if (pendingByRef.size === 0) this.pendingOpenByOwnerRef.delete(owner);
     }
-    return invalidated;
+  }
+
+  finishOverseerPageDelete(ref: string, leaseId: string): void {
+    const id = leaseId.trim();
+    const holders = this.refDeleteLeases.get(ref);
+    if (holders === undefined) return;
+    holders.delete(id);
+    if (holders.size === 0) this.refDeleteLeases.delete(ref);
   }
 
   overseerSessionOwner(sessionId: string): string | undefined {

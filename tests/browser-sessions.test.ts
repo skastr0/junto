@@ -2708,4 +2708,53 @@ describe("BrowserSessionService", () => {
     await expect(service.stop(ui.data.sessionId)).resolves.toMatchObject({ ok: true });
     expect(service.overseerSessionsForRef(page.ref)).toEqual([]);
   });
+
+  it("fences a pending open and a concurrent open across prepare-to-finish without a late view", async () => {
+    const base = makeProfileService();
+    await Effect.runPromise(base.ensureDefaults);
+    const personalPartition = deferred<string>();
+    let personalPartitionReads = 0;
+    const profiles: BrowserProfileServiceApi = {
+      ...base,
+      partitionName: (profile) => {
+        if (profile === "personal") {
+          return Effect.promise(() => {
+            personalPartitionReads += 1;
+            return personalPartition.promise;
+          });
+        }
+        return base.partitionName(profile);
+      },
+    };
+    const { adapter, views } = makeSpyAdapter();
+    const service = new BrowserSessionService(
+      adapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
+      profiles,
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+    service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
+
+    const deleted = target("deleted");
+    const pending = service.openForOwner("job-a", deleted);
+    await vi.waitFor(() => expect(personalPartitionReads).toBe(1));
+    expect(service.overseerSessionsForRef(deleted.ref)).toEqual([]);
+
+    service.beginOverseerPageDelete(deleted.ref, "lease-page");
+    const duringLease = service.openForOwner("job-c", deleted);
+    await expect(duringLease).resolves.toMatchObject({ ok: false, code: "cancelled" });
+
+    const sibling = await service.openForOwner("job-b", target("sibling", { profile: "work" }));
+    expect(sibling.ok).toBe(true);
+    if (!sibling.ok) return;
+    expect(views.some((view) => view.partition.includes("work"))).toBe(true);
+
+    service.finishOverseerPageDelete(deleted.ref, "lease-page");
+    personalPartition.resolve("persist:vellum-profile-personal");
+    await expect(pending).resolves.toMatchObject({ ok: false, code: "cancelled" });
+    expect(views.some((view) => view.partition.includes("personal"))).toBe(false);
+    expect(service.overseerSessionsForRef(deleted.ref)).toEqual([]);
+    expect(service.stateForOwner("job-b", sibling.data.sessionId)).toMatchObject({ ok: true });
+  });
 });

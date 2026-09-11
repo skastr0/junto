@@ -27,7 +27,10 @@ import { resolveTerminalBinding } from "@shared/terminal";
 import { isSchedulerNode } from "@shared/scheduler-effects";
 import { GIT_LOG_LIMIT_DEFAULT } from "@shared/git";
 import { resolveNodeHostId } from "@shared/station";
-import type { OverseerDeleteResource } from "@shared/overseer-authoring";
+import {
+  callerGrantLive,
+  type OverseerDeleteResource,
+} from "@shared/overseer-authoring";
 import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
 import { CanvasError } from "../canvases";
@@ -916,26 +919,7 @@ const resolveAllLivePageSessions = (
 ): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> => {
   const ref = pageRefOf(canvasName, nodeId);
   if (ref === undefined) return [];
-  if (typeof pages.overseerSessionsForRef === "function") {
-    return [...pages.overseerSessionsForRef(ref)];
-  }
-  const collected: Array<{ readonly owner: string; readonly sessionId: string }> = [];
-  const seen = new Set<string>();
-  const push = (owner: string, sessionId: string): void => {
-    const key = `${owner}\0${sessionId}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    collected.push({ owner, sessionId });
-  };
-  if (typeof pages.overseerSessionForRef === "function") {
-    const live = pages.overseerSessionForRef(ref);
-    if (live !== undefined) push(live.owner, live.sessionId);
-  }
-  const overseerId = pages.sessionIdForRefForOwner(pageOwner(), ref);
-  if (overseerId !== undefined) push(pageOwner(), overseerId);
-  const uiId = pages.sessionIdForRef(ref);
-  if (uiId !== undefined) push(BROWSER_UI_SESSION_OWNER, uiId);
-  return collected;
+  return [...pages.overseerSessionsForRef(ref)];
 };
 
 const resolveLivePageSession = (
@@ -1148,7 +1132,7 @@ const handleScheduler = async (
   if (operation === "scheduler.fire") {
     const revoked = await requireGrant(ctx, caller);
     if (revoked) return revoked;
-    const fired = await overseerSchedulerFire({
+    const fireInput = {
       canvasName,
       sourceNodeId: node.id,
       liveGrant: async () => {
@@ -1156,7 +1140,10 @@ const handleScheduler = async (
         const granted = await ctx.liveOverseerGrant(caller);
         return !ctx.signal.aborted && granted;
       },
-    });
+      commitGrantLive: (documents: ReadonlyMap<string, CanvasDoc>) =>
+        !ctx.signal.aborted && callerGrantLive(documents, caller),
+    };
+    const fired = await overseerSchedulerFire(fireInput);
     if (!fired.ok) {
       return fail("RuntimeDown", fired.message);
     }
@@ -1283,6 +1270,7 @@ type ActiveDeleteLease = {
   readonly id: string;
   readonly termLeaseId?: string;
   readonly chatLeaseId?: string;
+  readonly pageRefs: ReadonlyArray<string>;
 };
 
 const makeDeleteHooks = (
@@ -1306,6 +1294,8 @@ const makeDeleteHooks = (
       let termLeaseId: string | undefined;
       let chatLeaseId: string | undefined;
       const pageStops: Array<{ sessionId: string; stopped: boolean; error?: string }> = [];
+      const pageRefs: string[] = [];
+      const leaseId = `odl-${randomBytes(12).toString("hex")}`;
 
       try {
         const pageRuntime = pages.length > 0 ? ctx.pages() : undefined;
@@ -1321,14 +1311,17 @@ const makeDeleteHooks = (
           for (const page of pages) {
             const ref = pageRefOf(page.canvasName, page.nodeId);
             if (ref === undefined) {
+              const runtime = ctx.pages();
+              if (runtime !== undefined) {
+                for (const held of pageRefs) runtime.finishOverseerPageDelete(held, leaseId);
+              }
               return {
                 ok: false,
                 error: `page ${page.canvasName}/${page.nodeId} is not a canonical node ref`,
               };
             }
-            if (typeof pageRuntime.invalidatePendingOpensForRef === "function") {
-              pageRuntime.invalidatePendingOpensForRef(ref);
-            }
+            pageRuntime.beginOverseerPageDelete(ref, leaseId);
+            pageRefs.push(ref);
             for (const live of resolveAllLivePageSessions(
               pageRuntime,
               page.canvasName,
@@ -1375,13 +1368,22 @@ const makeDeleteHooks = (
             await stopLive(leftover);
           }
           if (pageStops.some((stop) => !stop.stopped)) {
+            leases.set(leaseId, {
+              id: leaseId,
+              pageRefs: Object.freeze([...pageRefs]),
+            });
             return {
               ok: true,
-              leaseId: "",
+              leaseId,
               pageStops: Object.freeze(pageStops),
             };
           }
         }
+        const releasePageFences = (): void => {
+          const runtime = ctx.pages();
+          if (runtime === undefined) return;
+          for (const ref of pageRefs) runtime.finishOverseerPageDelete(ref, leaseId);
+        };
         if (terminals.length > 0) {
           const began = await ctx.termPlane.nodeDelete.beginNodeDelete(
             terminals.map((resource) => ({
@@ -1389,7 +1391,10 @@ const makeDeleteHooks = (
               ...(resource.hostId !== undefined ? { hostId: resource.hostId } : {}),
             })),
           );
-          if (!began.ok) return { ok: false, error: began.error };
+          if (!began.ok) {
+            releasePageFences();
+            return { ok: false, error: began.error };
+          }
           termLeaseId = began.leaseId;
         }
         if (agents.length > 0) {
@@ -1400,16 +1405,10 @@ const makeDeleteHooks = (
             if (termLeaseId !== undefined) {
               ctx.termPlane.nodeDelete.finishNodeDelete(termLeaseId, "aborted");
             }
+            releasePageFences();
             return { ok: false, error: began.error };
           }
           chatLeaseId = began.leaseId;
-        }
-        if (
-          termLeaseId === undefined &&
-          chatLeaseId === undefined &&
-          pageStops.length === 0
-        ) {
-          return { ok: true, leaseId: "", pageStops: Object.freeze(pageStops) };
         }
       } catch (error) {
         if (termLeaseId !== undefined) {
@@ -1418,15 +1417,19 @@ const makeDeleteHooks = (
         if (chatLeaseId !== undefined) {
           ctx.chats.nodeDelete.finishNodeDelete(chatLeaseId, "aborted");
         }
+        const runtime = ctx.pages();
+        if (runtime !== undefined) {
+          for (const ref of pageRefs) runtime.finishOverseerPageDelete(ref, leaseId);
+        }
         return {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
         };
       }
 
-      const leaseId = `odl-${randomBytes(12).toString("hex")}`;
       leases.set(leaseId, {
         id: leaseId,
+        pageRefs: Object.freeze([...pageRefs]),
         ...(termLeaseId !== undefined ? { termLeaseId } : {}),
         ...(chatLeaseId !== undefined ? { chatLeaseId } : {}),
       });
@@ -1443,6 +1446,10 @@ const makeDeleteHooks = (
       if (id.length === 0) return { ok: false, error: "invalid lease id" };
       const lease = leases.get(id);
       if (lease === undefined) return { ok: true };
+      const runtime = ctx.pages();
+      if (runtime !== undefined) {
+        for (const ref of lease.pageRefs) runtime.finishOverseerPageDelete(ref, id);
+      }
       if (lease.termLeaseId !== undefined) {
         const finished = ctx.termPlane.nodeDelete.finishNodeDelete(lease.termLeaseId, outcome);
         if (!finished.ok) return finished;
