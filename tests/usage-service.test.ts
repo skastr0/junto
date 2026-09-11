@@ -214,6 +214,103 @@ describe("UsageService", () => {
       .toEqual(["beta"]);
   });
 
+  it("aborts admitted work on revoke so a later network stage never starts", async () => {
+    await runtime.dispose();
+    let releaseCredential!: () => void;
+    const credentialGate = new Promise<void>((resolve) => {
+      releaseCredential = resolve;
+    });
+    const stages: string[] = [];
+    let receivedSignal: AbortSignal | undefined;
+    const staged = {
+      id: "alpha",
+      detect: Effect.succeed(true),
+      fetch: Effect.promise(async (signal) => {
+        receivedSignal = signal;
+        stages.push("credential");
+        await credentialGate;
+        if (signal.aborted) {
+          stages.push("cancelled");
+          throw signal.reason instanceof Error
+            ? signal.reason
+            : new Error("provider access cancelled");
+        }
+        stages.push("network");
+        return okSnapshot("alpha", ["claude"]);
+      }),
+    } satisfies UsageSource;
+    let enabled = new Set(["alpha"]);
+    const listeners = new Set<(next: ReadonlySet<string>) => void>();
+    const access = UsagePreferences.of({
+      read: () => ({ enabledSources: [] }),
+      enabledSources: () => enabled,
+      subscribeEnabledSources: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    });
+    const setEnabled = (ids: ReadonlyArray<string>) => {
+      enabled = new Set(ids);
+      for (const listener of listeners) listener(enabled);
+    };
+    runtime = makeUsageRuntime([staged], emptyCache, ["alpha"], access);
+    const usage = await runtime.runPromise(UsageService);
+    usage.start();
+    await vi.waitFor(() => expect(stages).toEqual(["credential"]));
+    expect(receivedSignal?.aborted).toBe(false);
+
+    const refresh = runtime.runPromise(usage.refresh());
+    setEnabled([]);
+    await vi.waitFor(() => expect(receivedSignal?.aborted).toBe(true));
+    releaseCredential();
+    await refresh.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(stages).toEqual(["credential", "cancelled"]);
+    expect((await runtime.runPromise(usage.current)).snapshots).toEqual([]);
+  });
+
+  it("aborts in-flight detect/doctor and fetch on layer disposal", async () => {
+    await runtime.dispose();
+    let releaseDetect!: () => void;
+    const detectGate = new Promise<void>((resolve) => {
+      releaseDetect = resolve;
+    });
+    const stages: string[] = [];
+    let detectSignal: AbortSignal | undefined;
+    const staged = {
+      id: "alpha",
+      detect: Effect.promise(async (signal) => {
+        detectSignal = signal;
+        stages.push("detect");
+        await detectGate;
+        if (signal.aborted) {
+          stages.push("detect-cancelled");
+          throw new Error("provider access cancelled");
+        }
+        stages.push("detect-done");
+        return true;
+      }),
+      fetch: Effect.promise(async () => {
+        stages.push("fetch");
+        return okSnapshot("alpha", ["claude"]);
+      }),
+    } satisfies UsageSource;
+    runtime = makeUsageRuntime([staged], emptyCache, ["alpha"]);
+    const usage = await runtime.runPromise(UsageService);
+    const doctor = runtime.runPromise(usage.doctor);
+    await vi.waitFor(() => expect(stages).toEqual(["detect"]));
+    await runtime.dispose();
+    await vi.waitFor(() => expect(detectSignal?.aborted).toBe(true));
+    releaseDetect();
+    await doctor.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stages).toEqual(["detect", "detect-cancelled"]);
+    expect(stages).not.toContain("fetch");
+    expect(stages).not.toContain("detect-done");
+    runtime = makeUsageRuntime(sources);
+  });
+
   it("refresh merges snapshots from all sources and never rejects", async () => {
     const usage = await runtime.runPromise(UsageService);
     const state = await runtime.runPromise(usage.refresh());

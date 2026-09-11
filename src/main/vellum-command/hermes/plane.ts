@@ -320,7 +320,7 @@ export class HermesPlane extends Context.Service<HermesPlane,
   {
     readonly chat: ChatService;
     readonly shutdown: HermesShutdownPort;
-    readonly fetchBundle: () => Promise<SnapshotBundle>;
+    readonly fetchBundle: (signal?: AbortSignal) => Promise<SnapshotBundle>;
     readonly fetchAgentMessage: (
       key: string,
       text: string,
@@ -437,8 +437,10 @@ export const HermesPlaneLive = Layer.effect(
         : resolveHermesStationIdentity(initialSettings.station);
 
     const operations: HermesFleetOperations = {
-      profiles: (host) => runOwned(transport.profiles(host)),
-      version: (host) => runOwned(transport.version(host)),
+      profiles: (host, signal) =>
+        runOwned(transport.profiles(host), signal === undefined ? undefined : { signal }),
+      version: (host, signal) =>
+        runOwned(transport.version(host), signal === undefined ? undefined : { signal }),
     };
 
     const spawnAcp: SpawnFn = (target: AcpSpawnTarget) => {
@@ -496,7 +498,7 @@ export const HermesPlaneLive = Layer.effect(
     return HermesPlane.of({
       chat,
       shutdown,
-      fetchBundle: () => fetchHermesBundle(operations, stationIdentity),
+      fetchBundle: (signal) => fetchHermesBundle(operations, stationIdentity, signal),
       fetchAgentMessage: (key, text) => chat.agentMessage(key, text),
     });
   }),

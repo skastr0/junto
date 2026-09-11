@@ -96,7 +96,7 @@ const isSubsumedBy = (
 };
 
 export const makeSnapshotsLive = (
-  fetchHermesBundle: () => Promise<SnapshotBundle>,
+  fetchHermesBundle: (signal?: AbortSignal) => Promise<SnapshotBundle>,
   livePollingEnabled = true,
   access: {
     readonly enabled: () => boolean;
@@ -117,12 +117,21 @@ export const makeSnapshotsLive = (
 
   let inFlight: { readonly hints: ReadonlyArray<BindingHint> | undefined; readonly promise: Promise<SnapshotState> } | null =
     null;
+  let accessAbort = new AbortController();
+
+  const abortAdmittedAccess = (): void => {
+    accessAbort.abort();
+    accessAbort = new AbortController();
+    lastCommittedSequence = ++sequenceCounter;
+    inFlight = null;
+  };
 
   const runRefresh = async (
     _hints: ReadonlyArray<BindingHint> | undefined,
     sequence: number,
   ): Promise<SnapshotState> => {
-    const hermes = await guarded("hermes", () => fetchHermesBundle());
+    const signal = accessAbort.signal;
+    const hermes = await guarded("hermes", () => fetchHermesBundle(signal));
 
     if (access.enabled() && sequence >= lastCommittedSequence) {
       lastCommittedSequence = sequence;
@@ -161,8 +170,7 @@ export const makeSnapshotsLive = (
     stopPolling();
     if (!started || !livePollingEnabled || !access.enabled()) {
       if (!livePollingEnabled || !access.enabled()) {
-        lastCommittedSequence = ++sequenceCounter;
-        inFlight = null;
+        abortAdmittedAccess();
       }
       if (state.bundles.length > 0) {
         state = emptyState;
@@ -180,6 +188,7 @@ export const makeSnapshotsLive = (
     Effect.sync(() => {
       unsubscribeAccess();
       stopPolling();
+      abortAdmittedAccess();
       listeners.clear();
     }),
   );

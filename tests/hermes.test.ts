@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ACCESS_CANCELLED_ERROR } from "../src/main/vellum-command/access-signal";
 import {
   fetchHermesBundle,
   parseProfiles,
@@ -122,5 +123,39 @@ describe("hermes fleet host identity", () => {
       { hostId: "studio", agentHostId: "fleet-studio" },
     );
     expect(bundle).toMatchObject({ ok: true, entities: [] });
+  });
+
+  it("does not spawn version after profiles is aborted", async () => {
+    let releaseProfiles!: () => void;
+    const profilesGate = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const stages: string[] = [];
+    const abort = new AbortController();
+    const pending = fetchHermesBundle(
+      {
+        profiles: async (_host, signal) => {
+          stages.push("profiles");
+          await profilesGate;
+          if (signal?.aborted) {
+            stages.push("cancelled");
+            throw new DOMException(ACCESS_CANCELLED_ERROR, "AbortError");
+          }
+          return { ok: true, stdout: TABLE };
+        },
+        version: async () => {
+          stages.push("version");
+          return { ok: true, stdout: "Hermes Agent v0.18.2" };
+        },
+      },
+      { hostId: "studio", agentHostId: "fleet-studio" },
+      abort.signal,
+    );
+
+    await vi.waitFor(() => expect(stages).toEqual(["profiles"]));
+    abort.abort();
+    releaseProfiles();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(stages).toEqual(["profiles", "cancelled"]);
   });
 });

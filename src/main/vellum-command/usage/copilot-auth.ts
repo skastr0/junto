@@ -85,11 +85,11 @@ const readHostsFileTokens = (): string | undefined => {
 
 const GH_CLI_TIMEOUT_MS = 10_000;
 
-const readGhCliToken = async (): Promise<string | undefined> => {
+const readGhCliToken = async (signal?: AbortSignal): Promise<string | undefined> => {
   try {
     // Read-only credential probe — `gh auth token` prints the stored token
     // without network access. Fails soft on missing CLI or bad exit.
-    const result = await runCli("gh", ["auth", "token"], GH_CLI_TIMEOUT_MS);
+    const result = await runCli("gh", ["auth", "token"], GH_CLI_TIMEOUT_MS, signal);
     const token = result.ok ? result.stdout.trim() : "";
     return plausibleToken(token) ? token : undefined;
   } catch {
@@ -109,6 +109,7 @@ export interface CopilotOperatorCredentials {
  */
 export const resolveCopilotToken = async (
   operator?: CopilotOperatorCredentials,
+  signal?: AbortSignal,
 ): Promise<CopilotAuthOutcome> => {
   const operatorToken =
     typeof operator?.token === "string" && plausibleToken(operator.token)
@@ -121,7 +122,7 @@ export const resolveCopilotToken = async (
   if (envToken !== undefined) {
     return { kind: "ok", token: envToken.trim(), origin: "env" };
   }
-  const cliToken = await readGhCliToken();
+  const cliToken = await readGhCliToken(signal);
   if (cliToken !== undefined) {
     return { kind: "ok", token: cliToken.trim(), origin: "cli" };
   }

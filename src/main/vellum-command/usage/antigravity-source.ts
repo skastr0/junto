@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import { runCli } from "../adapters/exec";
 import type { UsageSource } from "./usage-source";
 
@@ -686,6 +687,7 @@ const requestJson = async (
   body: unknown,
   timeoutMs: number,
   secrets: ReadonlyArray<string>,
+  signal?: AbortSignal,
 ): Promise<unknown> => {
   let response: Response;
   try {
@@ -699,7 +701,7 @@ const requestJson = async (
           : {}),
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: timeoutSignal(timeoutMs, signal),
     });
   } catch (error) {
     // Abort/timeouts and TLS failures degrade to plain messages; never echo
@@ -731,10 +733,15 @@ const lsofBinary = (): string | undefined => {
   return undefined;
 };
 
-const listeningPortsForPid = async (pid: number): Promise<number[]> => {
+const listeningPortsForPid = async (pid: number, signal?: AbortSignal): Promise<number[]> => {
   const lsof = lsofBinary();
   if (lsof === undefined) return [];
-  const result = await runCli(lsof, ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", String(pid)], LSOF_TIMEOUT_MS);
+  const result = await runCli(
+    lsof,
+    ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", String(pid)],
+    LSOF_TIMEOUT_MS,
+    signal,
+  );
   return result.ok ? parseListeningPorts(result.stdout) : [];
 };
 
@@ -764,22 +771,24 @@ export const buildAntigravitySnapshot = (fetchedAt: string, outcome: Antigravity
         quotas: [],
       };
 
-const fetchAntigravity = async (): Promise<UsageSnapshot> => {
+const fetchAntigravity = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
     const secrets: string[] = [];
     let probeError = "";
 
-    const ps = await runCli("/bin/ps", ["-ax", "-o", "pid=,command="], PS_TIMEOUT_MS);
+    const ps = await runCli("/bin/ps", ["-ax", "-o", "pid=,command="], PS_TIMEOUT_MS, signal);
     const processes = ps.ok ? parseAntigravityProcesses(ps.stdout) : [];
 
     for (const info of processes) {
+      throwIfAborted(signal);
       if (info.csrfToken.length >= 4) secrets.push(info.csrfToken);
-      const ports = await listeningPortsForPid(info.pid);
+      const ports = await listeningPortsForPid(info.pid, signal);
       if (ports.length === 0) continue;
       const endpoints = endpointsForPorts(ports, info.csrfToken, info.kind !== "cli");
       const outcome = await probeEndpoints(
-        (endpoint, path, body, timeoutMs) => requestJson(endpoint, path, body, timeoutMs, secrets),
+        (endpoint, path, body, timeoutMs) =>
+          requestJson(endpoint, path, body, timeoutMs, secrets, signal),
         endpoints,
         fetchedAt,
         info.kind === "cli" ? "cli" : "local-server",
@@ -790,6 +799,7 @@ const fetchAntigravity = async (): Promise<UsageSnapshot> => {
       probeError = outcome.error;
     }
 
+    throwIfAborted(signal);
     // Offline fallback: local conversation databases as an extras-only signal
     // so the HUD can show honest derived presence instead of hiding entirely.
     const conversations = countOfflineConversations();
@@ -824,6 +834,7 @@ const fetchAntigravity = async (): Promise<UsageSnapshot> => {
           : redactSecrets(probeError, secrets),
     });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return buildAntigravitySnapshot(fetchedAt, {
       kind: "unavailable",
       reason: "cli-error",

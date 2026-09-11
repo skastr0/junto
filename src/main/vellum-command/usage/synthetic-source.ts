@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 
 // Native Synthetic usage source (synthetic.new) - API-key quota endpoint.
@@ -460,6 +461,7 @@ export type SyntheticLiveOutcome =
 export const fetchSyntheticUsageApi = async (
   apiKey: string,
   fetchImpl: typeof fetch = globalThis.fetch,
+  signal?: AbortSignal,
 ): Promise<SyntheticLiveOutcome> => {
   try {
     const response = await fetchImpl(SYNTHETIC_QUOTAS_URL, {
@@ -468,7 +470,7 @@ export const fetchSyntheticUsageApi = async (
         Authorization: `Bearer ${apiKey}`,
         accept: "application/json",
       },
-      signal: AbortSignal.timeout(USAGE_FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(USAGE_FETCH_TIMEOUT_MS, signal),
     });
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
@@ -532,7 +534,7 @@ export const makeSyntheticSource = (deps: SyntheticSourceDeps = {}): UsageSource
   const detectSynthetic = async (): Promise<boolean> => resolveApiKey() !== undefined;
 
   /** TOTAL fetch - every failure mode folds into the snapshot envelope. */
-  const fetchSynthetic = async (): Promise<UsageSnapshot> => {
+  const fetchSynthetic = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
     const fetchedAt = new Date().toISOString();
     try {
       const apiKey = resolveApiKey();
@@ -543,7 +545,8 @@ export const makeSyntheticSource = (deps: SyntheticSourceDeps = {}): UsageSource
           "Synthetic API key not found - set SYNTHETIC_API_KEY to enable the Synthetic source",
         );
       }
-      const outcome = await fetchSyntheticUsageApi(apiKey, fetchImpl);
+      throwIfAborted(signal);
+      const outcome = await fetchSyntheticUsageApi(apiKey, fetchImpl, signal);
       if (outcome.kind === "unauthorized") {
         return envelope(
           fetchedAt,
@@ -570,6 +573,7 @@ export const makeSyntheticSource = (deps: SyntheticSourceDeps = {}): UsageSource
         quotas: [quota],
       };
     } catch (error) {
+      rethrowIfCancelled(error, signal);
       const message = error instanceof Error ? error.message : String(error);
       return envelope(fetchedAt, "cli-error", redactSecret(message, resolveApiKey()));
     }

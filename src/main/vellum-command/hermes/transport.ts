@@ -96,7 +96,7 @@ export const HermesTransportLive = Layer.effect(
       args: ReadonlyArray<string>,
       timeoutMs: number,
     ): Effect.Effect<CliResult> =>
-      Effect.tryPromise(() => runCli("hermes", args, timeoutMs)).pipe(
+      Effect.tryPromise((signal) => runCli("hermes", args, timeoutMs, signal)).pipe(
         Effect.catch((error) =>
           Effect.succeed({
             ok: false,

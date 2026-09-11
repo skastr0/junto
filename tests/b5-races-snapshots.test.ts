@@ -6,7 +6,7 @@ import { makeSnapshotsLive, SnapshotsService } from "../src/main/vellum-command/
 
 // reentrancy: sequence stamp + in-flight coalescing on hermes-only refresh
 
-const mockFetchHermes = vi.fn<() => Promise<SnapshotBundle>>();
+const mockFetchHermes = vi.fn<(signal?: AbortSignal) => Promise<SnapshotBundle>>();
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -230,5 +230,89 @@ describe("snapshots.ts provider access", () => {
     }
 
     expect(accessListeners).toHaveLength(0);
+  });
+
+  it("aborts an in-flight Hermes fetch on revoke so a later spawn never starts", async () => {
+    let releaseProfiles!: () => void;
+    const profilesGate = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const stages: string[] = [];
+    let receivedSignal: AbortSignal | undefined;
+    mockFetchHermes.mockImplementation(async (signal?: AbortSignal) => {
+      receivedSignal = signal;
+      stages.push("profiles");
+      await profilesGate;
+      if (signal?.aborted) {
+        stages.push("cancelled");
+        throw new Error("provider access cancelled");
+      }
+      stages.push("version");
+      return hermesBundle("late");
+    });
+
+    let enabled = true;
+    const accessListeners = new Set<(enabled: boolean) => void>();
+    const gatedRuntime = ManagedRuntime.make(
+      makeSnapshotsLive((signal) => mockFetchHermes(signal), true, {
+        enabled: () => enabled,
+        subscribe: (listener) => {
+          accessListeners.add(listener);
+          return () => accessListeners.delete(listener);
+        },
+      }),
+    );
+
+    try {
+      const snapshots = await gatedRuntime.runPromise(SnapshotsService);
+      const refresh = gatedRuntime.runPromise(snapshots.refresh());
+      await vi.waitFor(() => expect(stages).toEqual(["profiles"]));
+      expect(receivedSignal?.aborted).toBe(false);
+
+      enabled = false;
+      for (const listener of accessListeners) listener(enabled);
+      await vi.waitFor(() => expect(receivedSignal?.aborted).toBe(true));
+      releaseProfiles();
+      await refresh;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(stages).toEqual(["profiles", "cancelled"]);
+      expect(await gatedRuntime.runPromise(snapshots.current)).toEqual({ bundles: [] });
+    } finally {
+      await gatedRuntime.dispose();
+    }
+  });
+
+  it("aborts admitted Hermes work when the snapshots layer is disposed", async () => {
+    let releaseProfiles!: () => void;
+    const profilesGate = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const stages: string[] = [];
+    let receivedSignal: AbortSignal | undefined;
+    mockFetchHermes.mockImplementation(async (signal?: AbortSignal) => {
+      receivedSignal = signal;
+      stages.push("profiles");
+      await profilesGate;
+      if (signal?.aborted) {
+        stages.push("cancelled");
+        throw new Error("provider access cancelled");
+      }
+      stages.push("version");
+      return hermesBundle("late");
+    });
+
+    const snapshotsRuntime = ManagedRuntime.make(
+      makeSnapshotsLive((signal) => mockFetchHermes(signal)),
+    );
+    const snapshots = await snapshotsRuntime.runPromise(SnapshotsService);
+    const refresh = snapshotsRuntime.runPromise(snapshots.refresh());
+    await vi.waitFor(() => expect(stages).toEqual(["profiles"]));
+    await snapshotsRuntime.dispose();
+    await vi.waitFor(() => expect(receivedSignal?.aborted).toBe(true));
+    releaseProfiles();
+    await refresh.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stages).toEqual(["profiles", "cancelled"]);
   });
 });

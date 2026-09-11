@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import { parseJson, runCli } from "../adapters/exec";
 import type { UsageSource } from "./usage-source";
 
@@ -569,30 +570,39 @@ const hasPartTableResult = (stdout: string): boolean => {
   return Array.isArray(payload) && payload.length > 0;
 };
 
-const runDataQuery = async (hasPartTable: boolean, cutoffMs: number): Promise<SqliteQueryOutcome> => {
+const runDataQuery = async (
+  hasPartTable: boolean,
+  cutoffMs: number,
+  signal?: AbortSignal,
+): Promise<SqliteQueryOutcome> => {
   const sql = hasPartTable ? MESSAGE_AND_PART_SQL(cutoffMs) : MESSAGE_ONLY_SQL(cutoffMs);
-  const result = await runCli("sqlite3", ["-readonly", "-json", `file:${LOCAL_DB()}`, sql], SQLITE_TIMEOUT_MS);
+  const result = await runCli("sqlite3", ["-readonly", "-json", `file:${LOCAL_DB()}`, sql], SQLITE_TIMEOUT_MS, signal);
   if (!result.ok) return { ok: false, error: result.error ?? "sqlite3 query failed" };
   return { ok: true, rows: parseSqliteRows(result.stdout) };
 };
 
-const probeSqlite = async (sql: string): Promise<{ readonly ok: boolean; readonly stdout?: string; readonly error?: string }> => {
+const probeSqlite = async (
+  sql: string,
+  signal?: AbortSignal,
+): Promise<{ readonly ok: boolean; readonly stdout?: string; readonly error?: string }> => {
   // A clean WAL shutdown can leave an idle main file without sidecars; a plain
   // read-only open then fails until SQLite recreates them. Retry immutable so
   // we never touch (or recreate) the opencode CLI's own WAL state.
-  const plain = await runCli("sqlite3", ["-readonly", "-json", `file:${LOCAL_DB()}`, sql], SQLITE_TIMEOUT_MS);
+  const plain = await runCli("sqlite3", ["-readonly", "-json", `file:${LOCAL_DB()}`, sql], SQLITE_TIMEOUT_MS, signal);
   if (plain.ok) return { ok: true, stdout: plain.stdout };
-  const immutable = await runCli("sqlite3", ["-readonly", "-json", `file:${LOCAL_DB()}?immutable=1`, sql], SQLITE_TIMEOUT_MS);
+  throwIfAborted(signal);
+  const immutable = await runCli("sqlite3", ["-readonly", "-json", `file:${LOCAL_DB()}?immutable=1`, sql], SQLITE_TIMEOUT_MS, signal);
   if (immutable.ok) return { ok: true, stdout: immutable.stdout };
   return { ok: false, error: immutable.error ?? plain.error ?? "sqlite3 query failed" };
 };
 
-const readLocalRows = async (): Promise<SqliteQueryOutcome> => {
+const readLocalRows = async (signal?: AbortSignal): Promise<SqliteQueryOutcome> => {
   const cutoffMs = Date.now() - SCAN_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
-  const probe = await probeSqlite(PART_TABLE_PROBE_SQL);
+  const probe = await probeSqlite(PART_TABLE_PROBE_SQL, signal);
   if (!probe.ok) return { ok: false, error: probe.error };
+  throwIfAborted(signal);
   // Newer databases carry per-step step-finish part rows; older ones are message-only.
-  return runDataQuery(hasPartTableResult(probe.stdout ?? ""), cutoffMs);
+  return runDataQuery(hasPartTableResult(probe.stdout ?? ""), cutoffMs, signal);
 };
 
 // ---------------------------------------------------------------------------
@@ -688,7 +698,7 @@ interface FetchApiArgs {
   readonly apiKey: string;
 }
 
-const fetchZenUsage = async (args: FetchApiArgs): Promise<ApiTier> => {
+const fetchZenUsage = async (args: FetchApiArgs, signal?: AbortSignal): Promise<ApiTier> => {
   let response: Response;
   try {
     response = await globalThis.fetch(ZEN_USAGE_URL, {
@@ -698,7 +708,7 @@ const fetchZenUsage = async (args: FetchApiArgs): Promise<ApiTier> => {
         Accept: "application/json",
         "User-Agent": "Vellum Command",
       },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
     });
   } catch (error) {
     return { kind: "failed", error: error instanceof Error ? error.message : String(error) };
@@ -719,12 +729,12 @@ const fetchZenUsage = async (args: FetchApiArgs): Promise<ApiTier> => {
   return quota !== undefined ? { kind: "ok", quota } : { kind: "failed", error: "zen usage returned no usable rate-limit windows" };
 };
 
-const fetchLocalTier = async (): Promise<LocalTier> => {
+const fetchLocalTier = async (signal?: AbortSignal): Promise<LocalTier> => {
   const dbPath = LOCAL_DB();
   if (!existsSync(dbPath)) {
     return { kind: "source-missing", error: "~/.local/share/opencode/opencode.db not found - use OpenCode Go locally first" };
   }
-  const outcome = await readLocalRows();
+  const outcome = await readLocalRows(signal);
   if (!outcome.ok) {
     return { kind: "cli-error", error: `could not read local OpenCode Go usage: ${outcome.error ?? "unknown error"}` };
   }
@@ -739,11 +749,14 @@ const fetchLocalTier = async (): Promise<LocalTier> => {
 
 const makeFetchOpenCodeGo =
   (readOperator: () => OpencodeGoOperatorCredentials | undefined) =>
-  async (): Promise<UsageSnapshot> => {
-    return fetchOpenCodeGo(resolveGoApiKey(process.env, OPENCODE_HOME(), readOperator()));
+  async (signal?: AbortSignal): Promise<UsageSnapshot> => {
+    return fetchOpenCodeGo(resolveGoApiKey(process.env, OPENCODE_HOME(), readOperator()), signal);
   };
 
-const fetchOpenCodeGo = async (apiKey: ReturnType<typeof resolveGoApiKey>): Promise<UsageSnapshot> => {
+const fetchOpenCodeGo = async (
+  apiKey: ReturnType<typeof resolveGoApiKey>,
+  signal?: AbortSignal,
+): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
     const hasLocalDb = existsSync(LOCAL_DB());
@@ -751,17 +764,20 @@ const fetchOpenCodeGo = async (apiKey: ReturnType<typeof resolveGoApiKey>): Prom
       return assembleGoSnapshot({ kind: "skipped" }, { kind: "skipped" }, fetchedAt);
     }
 
+    throwIfAborted(signal);
     const apiTier: ApiTier =
-      apiKey !== undefined ? await fetchZenUsage({ apiKey }) : { kind: "skipped" };
+      apiKey !== undefined ? await fetchZenUsage({ apiKey }, signal) : { kind: "skipped" };
 
+    throwIfAborted(signal);
     // A rejected credential alone is not worth a full local walk when the
     // database is absent — skip honestly instead of double-reporting.
     const localTier: LocalTier = hasLocalDb
-      ? await fetchLocalTier()
+      ? await fetchLocalTier(signal)
       : { kind: "source-missing", error: "~/.local/share/opencode/opencode.db not found - use OpenCode Go locally first" };
 
     return assembleGoSnapshot(apiTier, localTier, fetchedAt, [apiKey]);
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return {
       source: "opencode-go",
       fetchedAt,

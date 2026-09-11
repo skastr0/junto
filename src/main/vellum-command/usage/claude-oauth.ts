@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderQuota, UsageWindow } from "@shared/usage";
+import { timeoutSignal } from "../access-signal";
 import { parseJson, runCli } from "../adapters/exec";
 
 // Live Claude Code subscription usage over the OAuth usage API:
@@ -61,12 +62,13 @@ const readTokenFromFile = (): string | undefined => {
 
 // Best-effort only: any failure (missing binary, locked keychain, user deny)
 // degrades to undefined. stdout (which carries the secret) never surfaces.
-const readTokenFromKeychain = async (): Promise<string | undefined> => {
+const readTokenFromKeychain = async (signal?: AbortSignal): Promise<string | undefined> => {
   try {
     const result = await runCli(
       "/usr/bin/security",
       ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
       KEYCHAIN_TIMEOUT_MS,
+      signal,
     );
     if (!result.ok) return undefined;
     return extractClaudeAccessToken(parseJson(result.stdout.trim()));
@@ -76,10 +78,12 @@ const readTokenFromKeychain = async (): Promise<string | undefined> => {
 };
 
 /** Resolve the local Claude Code OAuth access token, file first, then Keychain. */
-export const resolveClaudeAccessToken = async (): Promise<string | undefined> => {
+export const resolveClaudeAccessToken = async (
+  signal?: AbortSignal,
+): Promise<string | undefined> => {
   const fromFile = readTokenFromFile();
   if (fromFile !== undefined) return fromFile;
-  return readTokenFromKeychain();
+  return readTokenFromKeychain(signal);
 };
 
 /** True when a credential could be present locally (no network). */
@@ -245,6 +249,7 @@ export const parseClaudeOAuthUsage = (
 export const fetchClaudeUsageApi = async (
   accessToken: string,
   fetchImpl: typeof fetch = globalThis.fetch,
+  signal?: AbortSignal,
 ): Promise<ClaudeLiveOutcome> => {
   try {
     const response = await fetchImpl(CLAUDE_USAGE_URL, {
@@ -255,7 +260,7 @@ export const fetchClaudeUsageApi = async (
         "User-Agent": "claude-code/2.1.0",
         accept: "application/json",
       },
-      signal: AbortSignal.timeout(USAGE_FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(USAGE_FETCH_TIMEOUT_MS, signal),
     });
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {

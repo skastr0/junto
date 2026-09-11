@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
+import { rethrowIfCancelled, throwIfAborted } from "../access-signal";
 import { parseJson } from "../adapters/exec";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
 import {
@@ -220,26 +221,30 @@ const readStaleCachePayload = (): unknown | undefined => {
   }
 };
 
-const detectClaude = async (): Promise<boolean> => {
+const detectClaude = async (signal?: AbortSignal): Promise<boolean> => {
   try {
     if (existsSync(CLAUDE_JSON())) return true;
     if (claudeCredentialsResolvable()) return true;
+    throwIfAborted(signal);
     // Keychain presence probe stays cheap and best-effort; no network.
-    const token = await resolveClaudeAccessToken();
+    const token = await resolveClaudeAccessToken(signal);
     return token !== undefined;
   } catch {
     return false;
   }
 };
 
-const fetchClaude = async (): Promise<UsageSnapshot> => {
+const fetchClaude = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const token = await resolveClaudeAccessToken();
+    const token = await resolveClaudeAccessToken(signal);
+    throwIfAborted(signal);
     const outcome =
-      token !== undefined ? await fetchClaudeUsageApi(token) : undefined;
+      token !== undefined ? await fetchClaudeUsageApi(token, globalThis.fetch, signal) : undefined;
+    throwIfAborted(signal);
     return assembleClaudeSnapshot(outcome, readStaleCachePayload(), fetchedAt);
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return {
       source: "claude",
       fetchedAt,

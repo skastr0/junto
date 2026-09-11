@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import { detectDevinCredential, resolveDevinCredential, type DevinOperatorCredentials } from "./devin-auth";
 import type { DevinCredential } from "./devin-auth";
 import type { UsageSource } from "./usage-source";
@@ -276,6 +277,7 @@ const fetchOnce = async (
   path: string,
   credential: DevinCredential,
   fetchImpl: FetchLike,
+  signal?: AbortSignal,
 ): Promise<DevinFetchOutcome> => {
   try {
     const headers: Record<string, string> = {
@@ -289,7 +291,7 @@ const fetchOnce = async (
     const response = await fetchImpl(new URL(path, BASE_URL).toString(), {
       method: "GET",
       headers,
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
     });
     if (response.status === 401 || response.status === 403) {
       return {
@@ -316,6 +318,7 @@ export const fetchDevinWith = async (
   fetchImpl: FetchLike,
   env: NodeJS.ProcessEnv = process.env,
   operator?: DevinOperatorCredentials,
+  signal?: AbortSignal,
 ): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
@@ -345,7 +348,8 @@ export const fetchDevinWith = async (
 
     let lastError = "no Devin quota endpoint succeeded";
     for (const path of candidatePaths(organization, credential.internalOrganizationId)) {
-      const outcome = await fetchOnce(path, credential, fetchImpl);
+      throwIfAborted(signal);
+      const outcome = await fetchOnce(path, credential, fetchImpl, signal);
       if (outcome.ok && outcome.payload !== undefined) {
         const quota = parseDevinQuotaUsage(outcome.payload, fetchedAt, {
           organization: credential.organization,
@@ -370,6 +374,7 @@ export const fetchDevinWith = async (
     }
     return buildDevinSnapshot(fetchedAt, { kind: "unavailable", reason: "cli-error", error: lastError });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return buildDevinSnapshot(fetchedAt, {
       kind: "unavailable",
       reason: "cli-error",
@@ -392,7 +397,9 @@ export const makeDevinSource = (
 ): UsageSource => ({
   id: "devin",
   detect: Effect.promise(() => detectDevinCredential(readOperator())),
-  fetch: Effect.promise(() => fetchDevinWith(globalThis.fetch, process.env, readOperator())),
+  fetch: Effect.promise((signal) =>
+    fetchDevinWith(globalThis.fetch, process.env, readOperator(), signal),
+  ),
 });
 
 /** Default instance: no operator tier (env overrides / browser session). */

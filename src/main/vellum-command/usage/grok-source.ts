@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 import {
   GROK_AUTH_PATH,
@@ -316,12 +317,13 @@ export const runGrokProxyTier = async (
   accessToken: string,
   email: string | undefined,
   fetchedAt: string,
+  signal?: AbortSignal,
 ): Promise<GrokTierOutcome> => {
   try {
     const response = await globalThis.fetch(PROXY_BILLING_URL, {
       method: "GET",
       headers: grokApiHeaders(accessToken),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
     });
     if (response.status === 401 || response.status === 403) {
       return {
@@ -360,7 +362,7 @@ export const runGrokProxyTier = async (
         const settingsResponse = await globalThis.fetch(PROXY_SETTINGS_URL, {
           method: "GET",
           headers: grokApiHeaders(accessToken),
-          signal: AbortSignal.timeout(SETTINGS_TIMEOUT_MS),
+          signal: timeoutSignal(SETTINGS_TIMEOUT_MS, signal),
         });
         if (settingsResponse.ok) {
           plan = parseGrokSettingsTier(await settingsResponse.json());
@@ -430,8 +432,10 @@ export const runGrokGrpcWebTier = async (
   accessToken: string,
   email: string | undefined,
   fetchedAt: string,
+  signal?: AbortSignal,
 ): Promise<GrokTierOutcome> => {
   const requestOnce = async (): Promise<{ status: number; bytes: Uint8Array }> => {
+    throwIfAborted(signal);
     const response = await globalThis.fetch(GRPC_WEB_URL, {
       method: "POST",
       headers: {
@@ -445,7 +449,7 @@ export const runGrokGrpcWebTier = async (
         "User-Agent": "Vellum Command",
       },
       body: new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x00]),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
     });
     return { status: response.status, bytes: new Uint8Array(await response.arrayBuffer()) };
   };
@@ -565,19 +569,22 @@ const detectGrok = async (): Promise<boolean> => {
   }
 };
 
-const fetchGrok = async (): Promise<UsageSnapshot> => {
+const fetchGrok = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
     const resolution = readGrokCredentials();
+    throwIfAborted(signal);
     const credentials = resolution.kind === "ok" ? resolution.credentials : undefined;
     const outcomes: GrokTierOutcome[] = [];
     if (credentials !== undefined && !isGrokCredentialExpired(credentials)) {
-      outcomes.push(await runGrokProxyTier(credentials.accessToken, credentials.email, fetchedAt));
+      outcomes.push(await runGrokProxyTier(credentials.accessToken, credentials.email, fetchedAt, signal));
       if (!outcomes.some((outcome) => outcome.kind === "ok")) {
-        outcomes.push(await runGrokGrpcWebTier(credentials.accessToken, credentials.email, fetchedAt));
+        throwIfAborted(signal);
+        outcomes.push(await runGrokGrpcWebTier(credentials.accessToken, credentials.email, fetchedAt, signal));
       }
     }
 
+    throwIfAborted(signal);
     // Lowest tier, always scanned: local session token aggregates.
     const sessionsAvailable = existsSync(GROK_SESSIONS());
     let sessionsQuota: ProviderQuota | undefined;
@@ -596,6 +603,7 @@ const fetchGrok = async (): Promise<UsageSnapshot> => {
       sessionsAvailable,
     });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return {
       source: "grok",
       fetchedAt,

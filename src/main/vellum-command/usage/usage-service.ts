@@ -89,6 +89,17 @@ export const UsageServiceLive = Layer.effect(
     let inFlight: Promise<UsageState> | null = null;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let accessGeneration = 0;
+    let accessAbort = new AbortController();
+
+    const runAccess = <A>(effect: Effect.Effect<A>): Promise<A> =>
+      Effect.runPromiseWith(runtime)(effect, { signal: accessAbort.signal });
+
+    const abortAdmittedAccess = (): void => {
+      accessAbort.abort();
+      accessAbort = new AbortController();
+      accessGeneration += 1;
+      inFlight = null;
+    };
 
     const notify = (next: UsageState): UsageState => {
       state = next;
@@ -161,7 +172,7 @@ export const UsageServiceLive = Layer.effect(
       if (generation !== accessGeneration) return;
       const enrichable = activeSources().filter((source) => source.enrich !== undefined);
       if (enrichable.length === 0) return;
-      const enriched = await Effect.runPromiseWith(runtime)(
+      const enriched = await runAccess(
         Effect.all(
           enrichable.map((source) =>
             Effect.map(source.enrich!, (snapshot) => ({ id: source.id, snapshot })),
@@ -191,16 +202,22 @@ export const UsageServiceLive = Layer.effect(
       const generation = accessGeneration;
       const admitted = activeSources();
       if (admitted.length === 0) return notify(emptyState);
-      const snapshots = await Effect.runPromiseWith(runtime)(
-        Effect.all(
-          admitted.map((source) => source.fetch),
-          { concurrency: "unbounded" },
-        ),
-      );
+      let snapshots: ReadonlyArray<UsageSnapshot>;
+      try {
+        snapshots = await runAccess(
+          Effect.all(
+            admitted.map((source) => source.fetch),
+            { concurrency: "unbounded" },
+          ),
+        );
+      } catch {
+        if (generation !== accessGeneration) return state;
+        return commitFailedLive([], generation);
+      }
       if (generation !== accessGeneration) return state;
       const committed = await applyPrimary(snapshots, generation);
       // Multi-account enrich must not delay first paint.
-      void runEnrich(snapshots, generation);
+      void runEnrich(snapshots, generation).catch(() => undefined);
       return committed;
     };
 
@@ -228,10 +245,9 @@ export const UsageServiceLive = Layer.effect(
     };
 
     const unsubscribeAccess = preferences.subscribeEnabledSources(() => {
-      // Fence old provider work and let newly enabled sources start without
-      // waiting for an obsolete in-flight request to settle.
-      accessGeneration += 1;
-      inFlight = null;
+      // Fence old provider work and abort admitted filesystem/Keychain/network
+      // stages so later fallback/retry work never starts for a revoked source.
+      abortAdmittedAccess();
       notify({ ...state, snapshots: keepActive(state.snapshots) });
       restartPolling();
     });
@@ -240,6 +256,7 @@ export const UsageServiceLive = Layer.effect(
       Effect.sync(() => {
         stopPolling();
         unsubscribeAccess();
+        abortAdmittedAccess();
       }),
     );
 
@@ -254,9 +271,15 @@ export const UsageServiceLive = Layer.effect(
             detail: "disabled until a provider is explicitly enabled in Settings",
           };
         }
-        const detected = yield* Effect.all(
-          admitted.map((source) => Effect.map(source.detect, (present) => ({ id: source.id, present }))),
-          { concurrency: "unbounded" },
+        const detected = yield* Effect.promise(() =>
+          runAccess(
+            Effect.all(
+              admitted.map((source) =>
+                Effect.map(source.detect, (present) => ({ id: source.id, present })),
+              ),
+              { concurrency: "unbounded" },
+            ),
+          ).catch(() => admitted.map((source) => ({ id: source.id, present: false }))),
         );
         const available = detected.filter((entry) => entry.present);
         const okProviders = state.snapshots

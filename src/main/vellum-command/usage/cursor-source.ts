@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
 import type { UsageUnavailableReason } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 import {
   cursorAppDbPath,
@@ -555,6 +556,7 @@ const decodeEventsPage = (payload: unknown): CursorEventsPageData | undefined =>
 export const probeCursorUsage = async (
   cookieHeader: string,
   deps: Partial<CursorHttpDeps> = {},
+  signal?: AbortSignal,
 ): Promise<UsageSnapshot> => {
   const http: CursorHttpDeps = { fetch: deps.fetch ?? ((input, init) => globalThis.fetch(input, init)) };
   const fetchedAt = new Date().toISOString();
@@ -562,7 +564,7 @@ export const probeCursorUsage = async (
   const deadline = Date.now() + FETCH_BUDGET_MS;
   const budgetMs = (cap?: number): number =>
     Math.max(1, Math.min(deadline - Date.now(), cap ?? FETCH_BUDGET_MS));
-  const signalFor = (cap?: number): AbortSignal => AbortSignal.timeout(budgetMs(cap));
+  const signalFor = (cap?: number): AbortSignal => timeoutSignal(budgetMs(cap), signal);
 
   const headers = (): Record<string, string> => ({
     Cookie: cookieHeader,
@@ -602,6 +604,8 @@ export const probeCursorUsage = async (
     const sandUsage =
       sandSettled.status === "fulfilled" && isObject(sandSettled.value) ? sandSettled.value : undefined;
 
+    throwIfAborted(signal);
+
     // Legacy request-based plans: GET /api/usage?user=<sub>, best-effort.
     let requestUsage: JsonObject | undefined;
     const subject = asString(userInfo?.sub);
@@ -623,6 +627,7 @@ export const probeCursorUsage = async (
     let eventsComplete = false;
     let pagesUsable = false;
     for (let page = 1; page <= EVENTS_MAX_PAGES; page += 1) {
+      throwIfAborted(signal);
       if (Date.now() + EVENTS_TAIL_GUARD_MS > deadline) break;
       try {
         const payload = await requestJson(http, "/api/dashboard/get-filtered-usage-events", {
@@ -658,6 +663,7 @@ export const probeCursorUsage = async (
     const quota = buildCursorQuota({ summary, userInfo, requestUsage, sandUsage }, costs, fetchedAt);
     return buildCursorSnapshot(fetchedAt, { kind: "ok", quotas: [quota] });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return buildCursorSnapshot(fetchedAt, {
       kind: "unavailable",
       reason: "cli-error",
@@ -689,11 +695,12 @@ const resolveCredentialPresence = (): boolean => {
 
 const makeFetchCursor =
   (readOperator: () => CursorOperatorCredentials | undefined) =>
-  async (): Promise<UsageSnapshot> =>
-    fetchCursor(readOperator()?.cookieHeader);
+  async (signal?: AbortSignal): Promise<UsageSnapshot> =>
+    fetchCursor(readOperator()?.cookieHeader, signal);
 
 const fetchCursor = async (
   operatorCookieHeader?: string,
+  signal?: AbortSignal,
 ): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
@@ -701,9 +708,11 @@ const fetchCursor = async (
     if (outcome.kind === "missing") {
       return buildCursorSnapshot(fetchedAt, { kind: "unavailable", reason: "source-missing", error: outcome.error });
     }
+    throwIfAborted(signal);
     const credential: CursorCredential = outcome.credential;
-    return await probeCursorUsage(credential.cookieHeader);
+    return await probeCursorUsage(credential.cookieHeader, {}, signal);
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return buildCursorSnapshot(fetchedAt, {
       kind: "unavailable",
       reason: "cli-error",

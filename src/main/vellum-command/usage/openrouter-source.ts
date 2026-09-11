@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 
 // Native OpenRouter usage source — API-key REST read, first class.
@@ -142,12 +143,13 @@ const fetchOpenRouterJson = async (
   url: string,
   headers: Record<string, string>,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<OpenRouterEndpointOutcome> => {
   try {
     const response = await globalThis.fetch(url, {
       method: "GET",
       headers,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: timeoutSignal(timeoutMs, signal),
     });
     if (response.status === 401 || response.status === 403) {
       return { kind: "unauthorized", status: response.status };
@@ -533,13 +535,15 @@ const spendHistoryNote = (outcomes: OpenRouterOutcomes, failed: boolean): string
 
 const fetchAll = async (
   credentials: OpenRouterCredentials,
+  signal?: AbortSignal,
 ): Promise<Omit<OpenRouterOutcomes, "credentialsPresent" | "managementConfigured">> => {
   const headers: Record<string, string> = { Authorization: `Bearer ${credentials.apiKey}` };
-  const creditsPromise = fetchOpenRouterJson(`${credentials.baseUrl}/credits`, headers, FETCH_TIMEOUT_MS);
+  const creditsPromise = fetchOpenRouterJson(`${credentials.baseUrl}/credits`, headers, FETCH_TIMEOUT_MS, signal);
   // Documented route first; fall back to the short form on 404.
-  let keyOutcome = await fetchOpenRouterJson(`${credentials.baseUrl}/auth/key`, headers, FETCH_TIMEOUT_MS);
+  let keyOutcome = await fetchOpenRouterJson(`${credentials.baseUrl}/auth/key`, headers, FETCH_TIMEOUT_MS, signal);
   if (keyOutcome.kind === "http-error" && keyOutcome.status === 404) {
-    keyOutcome = await fetchOpenRouterJson(`${credentials.baseUrl}/key`, headers, FETCH_TIMEOUT_MS);
+    throwIfAborted(signal);
+    keyOutcome = await fetchOpenRouterJson(`${credentials.baseUrl}/key`, headers, FETCH_TIMEOUT_MS, signal);
   }
   const creditsOutcome = await creditsPromise;
 
@@ -552,9 +556,10 @@ const fetchAll = async (
       Authorization: `Bearer ${credentials.managementApiKey}`,
     };
     const activityUrl = "https://openrouter.ai/api/v1/activity";
+    throwIfAborted(signal);
     historyOutcomes = await Promise.all([
-      fetchOpenRouterJson(activityUrl, activityHeaders, ACTIVITY_TIMEOUT_MS),
-      fetchOpenRouterJson(`${activityUrl}?date=${encodeURIComponent(bounds.latestCompleted)}`, activityHeaders, ACTIVITY_TIMEOUT_MS),
+      fetchOpenRouterJson(activityUrl, activityHeaders, ACTIVITY_TIMEOUT_MS, signal),
+      fetchOpenRouterJson(`${activityUrl}?date=${encodeURIComponent(bounds.latestCompleted)}`, activityHeaders, ACTIVITY_TIMEOUT_MS, signal),
     ]);
   }
 
@@ -573,13 +578,13 @@ const fetchAll = async (
  */
 const makeFetchCredentials =
   (readOperator: () => OpenRouterOperatorCredentials | undefined) =>
-  async (): Promise<UsageSnapshot> => {
+  async (signal?: AbortSignal): Promise<UsageSnapshot> => {
     const credentials = resolveOpenRouterCredentials(
       process.env,
       readKeyFile,
       readOperator(),
     );
-    return fetchOpenRouter(credentials);
+    return fetchOpenRouter(credentials, signal);
   };
 
 export const makeOpenRouterSource = (
@@ -594,13 +599,15 @@ export const makeOpenRouterSource = (
 
 const fetchOpenRouter = async (
   credentials: OpenRouterCredentials | undefined,
+  signal?: AbortSignal,
 ): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
     if (credentials === undefined) {
       return assembleOpenRouterSnapshot({ credentialsPresent: false, managementConfigured: false }, fetchedAt);
     }
-    const outcomes = await fetchAll(credentials);
+    throwIfAborted(signal);
+    const outcomes = await fetchAll(credentials, signal);
     return assembleOpenRouterSnapshot(
       {
         credentialsPresent: true,
@@ -611,6 +618,7 @@ const fetchOpenRouter = async (
       fetchedAt,
     );
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return {
       source: "openrouter",
       fetchedAt,

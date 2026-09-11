@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 import { detectCodexAuth, readCodexAuth } from "./codex-auth";
 
@@ -162,6 +163,7 @@ export const buildCodexSnapshot = (fetchedAt: string, outcome: CodexOutcome): Us
 const fetchWhamUsage = async (
   bearerToken: string,
   accountId: string | undefined,
+  signal?: AbortSignal,
 ): Promise<Response> => {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${bearerToken}`,
@@ -170,15 +172,20 @@ const fetchWhamUsage = async (
   };
   // ChatGPT-Account-Id selects the workspace when the credential spans several.
   if (accountId !== undefined) headers["ChatGPT-Account-Id"] = accountId;
-  return globalThis.fetch(WHAM_USAGE_URL, { method: "GET", headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  return globalThis.fetch(WHAM_USAGE_URL, {
+    method: "GET",
+    headers,
+    signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
+  });
 };
 
-const fetchCodex = async (): Promise<UsageSnapshot> => {
+const fetchCodex = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
     // No credential → honest empty (same contract as the old stub, now keyed
     // on auth.json plausibility instead of bare ~/.codex existence).
     const auth = readCodexAuth();
+    throwIfAborted(signal);
     if (auth.kind !== "ok") {
       const error =
         auth.kind === "missing"
@@ -187,7 +194,7 @@ const fetchCodex = async (): Promise<UsageSnapshot> => {
       return buildCodexSnapshot(fetchedAt, { kind: "unavailable", reason: "source-missing", error });
     }
 
-    const response = await fetchWhamUsage(auth.bearerToken, auth.accountId);
+    const response = await fetchWhamUsage(auth.bearerToken, auth.accountId, signal);
     if (response.status === 401 || response.status === 403) {
       // Never refresh in-process: the Codex CLI owns rotation. Tell the
       // operator to re-authenticate; do not spawn or redeem anything.
@@ -216,6 +223,7 @@ const fetchCodex = async (): Promise<UsageSnapshot> => {
     }
     return buildCodexSnapshot(fetchedAt, { kind: "ok", quotas: [quota] });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return buildCodexSnapshot(fetchedAt, {
       kind: "unavailable",
       reason: "cli-error",

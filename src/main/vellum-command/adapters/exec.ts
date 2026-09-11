@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { ACCESS_CANCELLED_ERROR } from "../access-signal";
 import {
   appProcessPlane,
   type AppProcessLease,
@@ -102,8 +103,12 @@ const runOwnedFile = (
     readonly timeoutMs: number;
     readonly maxBuffer: number;
     readonly env?: NodeJS.ProcessEnv;
+    readonly signal?: AbortSignal;
   },
 ): Promise<CliResult> => {
+  if (options.signal?.aborted) {
+    return Promise.resolve({ ok: false, stdout: "", error: ACCESS_CANCELLED_ERROR });
+  }
   if (adapterProcessesQuiescing) {
     return Promise.resolve({ ok: false, stdout: "", error: ADAPTER_QUIESCING_ERROR });
   }
@@ -111,6 +116,10 @@ const runOwnedFile = (
   return new Promise((resolve) => {
     // No await occurs between this final gate and registration, closing the
     // late-spawn race with terminateAdapterChildrenOnQuit().
+    if (options.signal?.aborted) {
+      resolve({ ok: false, stdout: "", error: ACCESS_CANCELLED_ERROR });
+      return;
+    }
     if (adapterProcessesQuiescing) {
       resolve({ ok: false, stdout: "", error: ADAPTER_QUIESCING_ERROR });
       return;
@@ -132,7 +141,15 @@ const runOwnedFile = (
       };
       // No await occurs between central admission and domain registration.
       adapterOperations.add(operation);
-      return runRegisteredAdapterOperation(operation, options, resolve);
+      return runRegisteredAdapterOperation(
+        operation,
+        {
+          timeoutMs: options.timeoutMs,
+          maxBuffer: options.maxBuffer,
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+        },
+        resolve,
+      );
     } catch (error) {
       resolve({
         ok: false,
@@ -148,7 +165,11 @@ const runOwnedFile = (
 
 const runRegisteredAdapterOperation = (
   operation: AdapterOperation,
-  options: { readonly timeoutMs: number; readonly maxBuffer: number },
+  options: {
+    readonly timeoutMs: number;
+    readonly maxBuffer: number;
+    readonly signal?: AbortSignal;
+  },
   resolve: (result: CliResult) => void,
 ): void => {
     const io = operation.process.io;
@@ -200,9 +221,12 @@ const runRegisteredAdapterOperation = (
       io.stderr.destroy();
     };
 
+    let abortOperation = (): void => undefined;
+
     const settleResult = (result: CliResult): void => {
       if (resultSettled) return;
       resultSettled = true;
+      options.signal?.removeEventListener("abort", abortOperation);
       clearTimers();
       detachObservers();
       settleAdapterOperation(operation);
@@ -248,6 +272,25 @@ const runRegisteredAdapterOperation = (
         error: ADAPTER_QUIESCING_ERROR,
       });
     };
+
+    abortOperation = (): void => {
+      try {
+        appProcessPlane.terminate(operation.process, "provider access cancelled");
+      } catch {
+        // The global process plane retains the lease for its authoritative drain.
+      }
+      settleResult({
+        ok: false,
+        stdout,
+        error: ACCESS_CANCELLED_ERROR,
+      });
+    };
+
+    if (options.signal?.aborted) {
+      abortOperation();
+      return;
+    }
+    options.signal?.addEventListener("abort", abortOperation, { once: true });
 
     timer = setTimeout(() => {
       timedOut = true;
@@ -438,15 +481,27 @@ export const runCli = async (
   command: string,
   args: ReadonlyArray<string>,
   timeoutMs: number = TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<CliResult> => {
   // Env resolution must never take down the read-only adapter plane. In the
   // pathological case it rejects, fall back to the sync static merge so the
   // call still degrades to an {ok:false} result on ENOENT rather than throwing.
+  if (signal?.aborted) {
+    return { ok: false, stdout: "", error: ACCESS_CANCELLED_ERROR };
+  }
   const env = await resolvedSpawnEnv().catch(() => resolvedSpawnEnvSync());
+  if (signal?.aborted) {
+    return { ok: false, stdout: "", error: ACCESS_CANCELLED_ERROR };
+  }
   if (adapterProcessesQuiescing) {
     return { ok: false, stdout: "", error: ADAPTER_QUIESCING_ERROR };
   }
-  return runOwnedFile(command, args, { timeoutMs, env, maxBuffer: MAX_BUFFER });
+  return runOwnedFile(command, args, {
+    timeoutMs,
+    env,
+    maxBuffer: MAX_BUFFER,
+    ...(signal === undefined ? {} : { signal }),
+  });
 };
 
 export const parseJson = <T>(text: string): T | undefined => {

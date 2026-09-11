@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot } from "@shared/usage";
+import { rethrowIfCancelled, throwIfAborted } from "../access-signal";
 import { runCli } from "../adapters/exec";
 import type { UsageSource } from "./usage-source";
 
@@ -157,8 +158,11 @@ const listStateDatabases = (home: string): string[] => {
   return paths;
 };
 
-const queryDatabase = async (dbPath: string): Promise<Omit<HermesAggregate, "databases"> | undefined> => {
-  const result = await runCli("sqlite3", ["-json", dbPath, SQL], QUERY_TIMEOUT_MS);
+const queryDatabase = async (
+  dbPath: string,
+  signal?: AbortSignal,
+): Promise<Omit<HermesAggregate, "databases"> | undefined> => {
+  const result = await runCli("sqlite3", ["-json", dbPath, SQL], QUERY_TIMEOUT_MS, signal);
   if (!result.ok || !result.stdout.trim()) return undefined;
   let parsed: unknown;
   try {
@@ -178,7 +182,7 @@ const detectHermes = async (): Promise<boolean> => {
   }
 };
 
-const fetchHermes = async (): Promise<UsageSnapshot> => {
+const fetchHermes = async (signal?: AbortSignal): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   const home = HERMES_HOME();
   try {
@@ -205,7 +209,8 @@ const fetchHermes = async (): Promise<UsageSnapshot> => {
     }
     const parts: Array<Omit<HermesAggregate, "databases">> = [];
     for (const db of dbs) {
-      const part = await queryDatabase(db);
+      throwIfAborted(signal);
+      const part = await queryDatabase(db, signal);
       if (part !== undefined) parts.push(part);
     }
     if (parts.length === 0) {
@@ -232,6 +237,7 @@ const fetchHermes = async (): Promise<UsageSnapshot> => {
     }
     return { source: "hermes", fetchedAt, ok: true, quotas: [quota] };
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return {
       source: "hermes",
       fetchedAt,

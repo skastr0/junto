@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import { parseJson } from "../adapters/exec";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
 import type { UsageSource } from "./usage-source";
@@ -447,6 +448,7 @@ const isSignInLocation = (location: string | null): boolean => {
 export const fetchOllamaSettingsPage = async (
   cookieHeader: string,
   fetchImpl: typeof fetch = globalThis.fetch,
+  signal?: AbortSignal,
 ): Promise<OllamaWebOutcome> => {
   try {
     const response = await fetchImpl(SETTINGS_URL, {
@@ -460,7 +462,7 @@ export const fetchOllamaSettingsPage = async (
         "accept-language": "en-US,en;q=0.9",
         referer: SETTINGS_URL,
       },
-      signal: AbortSignal.timeout(USAGE_FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(USAGE_FETCH_TIMEOUT_MS, signal),
     });
     if (response.status >= 300 && response.status < 400) {
       if (isSignInLocation(response.headers.get("location"))) return { kind: "signed-out" };
@@ -489,6 +491,7 @@ export const fetchOllamaSettingsPage = async (
 export const fetchOllamaApiKeyUsage = async (
   apiKey: string,
   fetchImpl: typeof fetch = globalThis.fetch,
+  signal?: AbortSignal,
 ): Promise<OllamaApiOutcome> => {
   try {
     const validateResponse = await fetchImpl(WEB_SEARCH_URL, {
@@ -499,7 +502,7 @@ export const fetchOllamaApiKeyUsage = async (
         "content-type": "application/json",
       },
       body: JSON.stringify({ query: "" }),
-      signal: AbortSignal.timeout(USAGE_FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(USAGE_FETCH_TIMEOUT_MS, signal),
     });
     if (validateResponse.status === 401 || validateResponse.status === 403) {
       return { kind: "unauthorized", status: validateResponse.status };
@@ -508,13 +511,14 @@ export const fetchOllamaApiKeyUsage = async (
       return { kind: "failed", error: `ollama.com validation endpoint returned ${validateResponse.status}` };
     }
 
+    throwIfAborted(signal);
     const tagsResponse = await fetchImpl(TAGS_URL, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         accept: "application/json",
       },
-      signal: AbortSignal.timeout(USAGE_FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(USAGE_FETCH_TIMEOUT_MS, signal),
     });
     if (tagsResponse.status === 401 || tagsResponse.status === 403) {
       return { kind: "unauthorized", status: tagsResponse.status };
@@ -558,7 +562,10 @@ const detectOllama = async (operator?: OllamaOperatorCredentials): Promise<boole
   }
 };
 
-const fetchOllama = async (operator?: OllamaOperatorCredentials): Promise<UsageSnapshot> => {
+const fetchOllama = async (
+  operator?: OllamaOperatorCredentials,
+  signal?: AbortSignal,
+): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   const secrets = collectSecrets(operator);
   try {
@@ -567,11 +574,19 @@ const fetchOllama = async (operator?: OllamaOperatorCredentials): Promise<UsageS
     if (cookieHeader === undefined && apiKey === undefined) {
       return assembleOllamaSnapshot(undefined, undefined, fetchedAt, secrets);
     }
+    throwIfAborted(signal);
     const web =
-      cookieHeader !== undefined ? await fetchOllamaSettingsPage(cookieHeader) : undefined;
-    const api = apiKey !== undefined ? await fetchOllamaApiKeyUsage(apiKey) : undefined;
+      cookieHeader !== undefined
+        ? await fetchOllamaSettingsPage(cookieHeader, globalThis.fetch, signal)
+        : undefined;
+    throwIfAborted(signal);
+    const api =
+      apiKey !== undefined
+        ? await fetchOllamaApiKeyUsage(apiKey, globalThis.fetch, signal)
+        : undefined;
     return assembleOllamaSnapshot(web, api, fetchedAt, secrets);
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return {
       source: "ollama",
       fetchedAt,
@@ -593,7 +608,7 @@ export const makeOllamaSource = (
 ): UsageSource => ({
   id: "ollama",
   detect: Effect.promise(() => detectOllama(readOperator())),
-  fetch: Effect.promise(() => fetchOllama(readOperator())),
+  fetch: Effect.promise((signal) => fetchOllama(readOperator(), signal)),
 });
 
 /** Default instance: no operator tier (env vars only). */

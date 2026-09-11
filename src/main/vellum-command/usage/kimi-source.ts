@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 
 // Native Kimi Code (Moonshot AI) usage source, wire protocol:
@@ -524,12 +525,13 @@ const postJson = async (
   url: string,
   body: unknown,
   headers: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<{ status: number; ok: boolean; payload?: unknown }> => {
   const response = await globalThis.fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
   });
   if (!response.ok) return { status: response.status, ok: false };
   try {
@@ -541,6 +543,7 @@ const postJson = async (
 
 const fetchCodeApiUsage = async (
   credential: KimiCredential,
+  signal?: AbortSignal,
 ): Promise<{ quota: ProviderQuota; extras: UsageWindow[] } | { failure: string }> => {
   const base = credential.codeApiBase ?? DEFAULT_CODE_API_BASE;
   // Endpoint rule: <base>/coding/v1/<usages>, tolerating bases that
@@ -558,7 +561,7 @@ const fetchCodeApiUsage = async (
         baseHeaders(credential.token, credential.kind),
         credential,
       ),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
     });
     if (response.status === 401 || response.status === 403) {
       return { failure: `Kimi Code API rejected credentials (${response.status})` };
@@ -584,10 +587,11 @@ const fetchCodeApiUsage = async (
 
 const fetchWebUsage = async (
   token: string,
+  signal?: AbortSignal,
 ): Promise<{ quota: ProviderQuota; extras: UsageWindow[] } | { failure: string }> => {
   const headers = baseHeaders(token, "web-token");
   try {
-    const usage = await postJson(WEB_USAGE_URL, { scope: ["FEATURE_CODING"] }, headers);
+    const usage = await postJson(WEB_USAGE_URL, { scope: ["FEATURE_CODING"] }, headers, signal);
     if (usage.status === 401 || usage.status === 403) {
       return { failure: "Kimi web session rejected credentials - re-authenticate at www.kimi.com/code/console" };
     }
@@ -599,7 +603,8 @@ const fetchWebUsage = async (
       return { failure: "Kimi web usage returned no usable FEATURE_CODING scope" };
     }
     // Subscription stats are enrichment: failure never sinks the primary lanes.
-    const stats = await postJson(SUBSCRIPTION_STATS_URL, {}, headers).catch(() => undefined);
+    throwIfAborted(signal);
+    const stats = await postJson(SUBSCRIPTION_STATS_URL, {}, headers, signal).catch(() => undefined);
     const extras =
       stats?.ok === true ? suppressDuplicateCodeWeekly(parseSubscriptionStats(stats.payload), quota.windows[0]) : [];
     return { quota, extras };
@@ -610,11 +615,12 @@ const fetchWebUsage = async (
 
 const makeFetchKimi =
   (readOperator: () => KimiOperatorCredentials | undefined) =>
-  async (): Promise<UsageSnapshot> =>
-    fetchKimi(resolveKimiCredential(process.env, Date.now(), readOperator()));
+  async (signal?: AbortSignal): Promise<UsageSnapshot> =>
+    fetchKimi(resolveKimiCredential(process.env, Date.now(), readOperator()), signal);
 
 const fetchKimi = async (
   credential: ReturnType<typeof resolveKimiCredential>,
+  signal?: AbortSignal,
 ): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
@@ -627,10 +633,11 @@ const fetchKimi = async (
       });
     }
 
+    throwIfAborted(signal);
     const result =
       credential.kind === "web-token"
-        ? await fetchWebUsage(credential.token)
-        : await fetchCodeApiUsage(credential);
+        ? await fetchWebUsage(credential.token, signal)
+        : await fetchCodeApiUsage(credential, signal);
 
     if ("failure" in result) {
       return buildKimiSnapshot(fetchedAt, {
@@ -645,6 +652,7 @@ const fetchKimi = async (
     const quota: ProviderQuota = { ...result.quota, windows: [...result.quota.windows, ...result.extras] };
     return buildKimiSnapshot(fetchedAt, { kind: "ok", quota, dataConfidence: "live" });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     return buildKimiSnapshot(fetchedAt, {
       kind: "unavailable",
       reason: "cli-error",

@@ -1,4 +1,5 @@
 import type { Entity, SnapshotBundle } from "@shared/entities";
+import { throwIfAborted } from "../access-signal";
 import { hermesKeyFor, hostHasCapability } from "@shared/remote-hosts";
 import {
   canonicalLocalAgentKey,
@@ -27,8 +28,8 @@ interface HermesHost {
 }
 
 export interface HermesFleetOperations {
-  readonly profiles: (host: HermesHostId) => Promise<CliResult>;
-  readonly version: (host: HermesHostId) => Promise<CliResult>;
+  readonly profiles: (host: HermesHostId, signal?: AbortSignal) => Promise<CliResult>;
+  readonly version: (host: HermesHostId, signal?: AbortSignal) => Promise<CliResult>;
 }
 
 const listHermesHosts = (
@@ -87,14 +88,16 @@ interface HermesHostFetch {
 const fetchHost = async (
   operations: HermesFleetOperations,
   host: HermesHost,
+  signal?: AbortSignal,
 ): Promise<HermesHostFetch> => {
-  const listResult = await operations.profiles(host.transportId);
+  const listResult = await operations.profiles(host.transportId, signal);
   if (!listResult.ok) return { reachable: false, host, entities: [] };
 
   const profiles = parseProfiles(listResult.stdout);
   if (profiles.length === 0) return { reachable: true, host, entities: [] };
 
-  const verResult = await operations.version(host.transportId);
+  throwIfAborted(signal);
+  const verResult = await operations.version(host.transportId, signal);
   const version = verResult.ok ? parseVersion(verResult.stdout) : undefined;
 
   const fetchedAt = new Date().toISOString();
@@ -130,14 +133,16 @@ const fetchHost = async (
 export const fetchHermesBundle = async (
   operations: HermesFleetOperations,
   station: HermesStationIdentity,
+  signal?: AbortSignal,
 ): Promise<SnapshotBundle> => {
   const fetchedAt = new Date().toISOString();
   const hosts = listHermesHosts(station);
   const perHost = await Promise.all(
     hosts.map((host) =>
-      fetchHost(operations, host).catch(
-        (): HermesHostFetch => ({ reachable: false, host, entities: [] }),
-      ),
+      fetchHost(operations, host, signal).catch((error: unknown): HermesHostFetch => {
+        if (signal?.aborted) throw error;
+        return { reachable: false, host, entities: [] };
+      }),
     ),
   );
   const entities = perHost.flatMap((result) => result.entities);

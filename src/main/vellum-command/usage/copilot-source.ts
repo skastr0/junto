@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { ProviderQuota, UsageSnapshot, UsageUnavailableReason, UsageWindow } from "@shared/usage";
+import { rethrowIfCancelled, timeoutSignal, throwIfAborted } from "../access-signal";
 import type { UsageSource } from "./usage-source";
 import { resolveCopilotToken, type CopilotOperatorCredentials } from "./copilot-auth";
 
@@ -302,11 +303,15 @@ const copilotHeaders = (token: string): Record<string, string> => ({
   "X-Github-Api-Version": "2025-04-01",
 });
 
-const fetchJson = async (url: string, token: string): Promise<{ status: number; body: unknown }> => {
+const fetchJson = async (
+  url: string,
+  token: string,
+  signal?: AbortSignal,
+): Promise<{ status: number; body: unknown }> => {
   const response = await globalThis.fetch(url, {
     method: "GET",
     headers: copilotHeaders(token),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
   });
   let body: unknown;
   try {
@@ -317,10 +322,10 @@ const fetchJson = async (url: string, token: string): Promise<{ status: number; 
   return { status: response.status, body };
 };
 
-const fetchIdentityLogin = async (token: string): Promise<string | undefined> => {
+const fetchIdentityLogin = async (token: string, signal?: AbortSignal): Promise<string | undefined> => {
   try {
     // Best-effort only — identity loss never blocks the quota payload.
-    const { status, body } = await fetchJson(IDENTITY_URL, token);
+    const { status, body } = await fetchJson(IDENTITY_URL, token, signal);
     if (status !== 200 || !isObject(body)) return undefined;
     return asString(body.login);
   } catch {
@@ -330,14 +335,16 @@ const fetchIdentityLogin = async (token: string): Promise<string | undefined> =>
 
 const makeFetchCopilot =
   (readOperator: () => CopilotOperatorCredentials | undefined) =>
-  async (): Promise<UsageSnapshot> => fetchCopilot(readOperator());
+  async (signal?: AbortSignal): Promise<UsageSnapshot> => fetchCopilot(readOperator(), signal);
 
 const fetchCopilot = async (
   operator?: CopilotOperatorCredentials,
+  signal?: AbortSignal,
 ): Promise<UsageSnapshot> => {
   const fetchedAt = new Date().toISOString();
   try {
-    const auth = await resolveCopilotToken(operator);
+    const auth = await resolveCopilotToken(operator, signal);
+    throwIfAborted(signal);
     if (auth.kind !== "ok") {
       return buildCopilotSnapshot(fetchedAt, {
         kind: "unavailable",
@@ -349,7 +356,7 @@ const fetchCopilot = async (
     let status: number;
     let body: unknown;
     try {
-      ({ status, body } = await fetchJson(USAGE_URL, auth.token));
+      ({ status, body } = await fetchJson(USAGE_URL, auth.token, signal));
     } catch (error) {
       return buildCopilotSnapshot(fetchedAt, {
         kind: "unavailable",
@@ -376,7 +383,8 @@ const fetchCopilot = async (
       });
     }
 
-    const login = await fetchIdentityLogin(auth.token);
+    throwIfAborted(signal);
+    const login = await fetchIdentityLogin(auth.token, signal);
     const quota = parseCopilotUsage(body, fetchedAt, {
       ...(login !== undefined ? { account: login } : {}),
       tokenOrigin: auth.origin,
@@ -390,6 +398,7 @@ const fetchCopilot = async (
       error: "usage endpoint returned no decodable Copilot quota snapshots",
     });
   } catch (error) {
+    rethrowIfCancelled(error, signal);
     // Belt-and-braces TOTAL fold — resolve/token paths above already degrade.
     return buildCopilotSnapshot(fetchedAt, {
       kind: "unavailable",
@@ -401,12 +410,13 @@ const fetchCopilot = async (
 
 const detectCopilot = async (
   operator?: CopilotOperatorCredentials,
+  signal?: AbortSignal,
 ): Promise<boolean> => {
   try {
     // Cheap local probe: operator settings, env vars, gh CLI credential
     // store, hosts.yml. The gh call is a local read (`gh auth token`)
     // bounded by its own timeout.
-    return (await resolveCopilotToken(operator)).kind === "ok";
+    return (await resolveCopilotToken(operator, signal)).kind === "ok";
   } catch {
     return false;
   }
@@ -421,7 +431,7 @@ export const makeCopilotSource = (
   readOperator: () => CopilotOperatorCredentials | undefined = () => undefined,
 ): UsageSource => ({
   id: "copilot",
-  detect: Effect.promise(() => detectCopilot(readOperator())),
+  detect: Effect.promise((signal) => detectCopilot(readOperator(), signal)),
   fetch: Effect.promise(makeFetchCopilot(readOperator)),
 });
 

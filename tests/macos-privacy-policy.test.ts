@@ -101,4 +101,16 @@ describe("macOS privacy policy", () => {
     expect(ui).toContain("hermesHostSnapshots");
     expect(ui).toContain("Allow Hermes host snapshot access");
   });
+
+  it("revokes admitted provider work without the global adapter shutdown switch", () => {
+    const usage = read("src/main/vellum-command/usage/usage-service.ts");
+    const snapshots = read("src/main/vellum-command/snapshots.ts");
+    const exec = read("src/main/vellum-command/adapters/exec.ts");
+
+    expect(usage).toContain("abortAdmittedAccess");
+    expect(snapshots).toContain("abortAdmittedAccess");
+    expect(usage).not.toContain("terminateAdapterChildrenOnQuit");
+    expect(snapshots).not.toContain("terminateAdapterChildrenOnQuit");
+    expect(exec).toContain("ACCESS_CANCELLED_ERROR");
+  });
 });
