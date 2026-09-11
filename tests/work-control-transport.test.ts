@@ -50,7 +50,10 @@ import {
   SettingsService,
 } from "../src/main/vellum-command/settings/service";
 import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
+import {
+  makeProcessIdentityMap,
+  type ProcessIdentityMap,
+} from "../src/main/vellum-command/process-identity";
 import { resetSeatBlocks } from "../src/main/vellum-command/work/blocked-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { ContentRef } from "../src/shared/content";
@@ -290,12 +293,14 @@ const startTestServer = async (options: {
   readonly runtime?: WorkControlRuntime;
   readonly onPreamble?: (event: PreambleEvent) => void;
   readonly onOverseer?: WorkControlServerOptions["onOverseer"];
+  readonly processMap?: ProcessIdentityMap;
   readonly decorateRun?: (
     base: WorkControlServerOptions["run"],
   ) => WorkControlServerOptions["run"];
 } = {}): Promise<{
   readonly server: WorkControlServer;
   readonly authoringGate: MainAuthoringGate;
+  readonly processMap: ProcessIdentityMap;
 }> => {
   const root = await mkdtemp(join(tmpdir(), "vellum-command-work-ctl-"));
   roots.push(root);
@@ -314,7 +319,7 @@ const startTestServer = async (options: {
   const baseRun: WorkControlServerOptions["run"] = (effect) =>
     runtime.runPromise(effect);
 
-  const processMap = makeProcessIdentityMap();
+  const processMap = options.processMap ?? makeProcessIdentityMap();
   processMap.bind(TEST_PEER_PID, {
     agentKey: "local:agent",
   });
@@ -333,7 +338,7 @@ const startTestServer = async (options: {
     onOverseer: options.onOverseer,
   }, options.runtime);
   servers.push(server);
-  return { server, authoringGate };
+  return { server, authoringGate, processMap };
 };
 
 beforeEach(async () => {
@@ -446,6 +451,139 @@ describe("work control transport", () => {
     authoringGate.beginFinalFlush();
     expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "RuntimeDown" } });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  const enableOverseer = async (): Promise<void> => {
+    const runtime = runtimes.at(-1)!;
+    const canvases = await runtime.runPromise(CanvasesService);
+    const read = await runtime.runPromise(canvases.read("work-cli"));
+    await runtime.runPromise(canvases.canvasOverseerSet({
+      canvasName: "work-cli", nodeId: "agent", overseer: true, expectedRevision: read.revision,
+    }));
+  };
+
+  const holdOverseerUntilRelease = (mode: "succeed" | "fail") => {
+    let releaseInner!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseInner = resolve;
+    });
+    let started = 0;
+    let finished = 0;
+    const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => {
+      started += 1;
+      await held;
+      finished += 1;
+      if (mode === "fail") throw new Error("inner overseer cleanup failed");
+      return { ok: true, operation: request.operation, data: { drained: true } };
+    });
+    return {
+      execute,
+      started: () => started,
+      finished: () => finished,
+      releaseInner: () => releaseInner(),
+    };
+  };
+
+  it("does not settle a revoked overseer dispatch until inner onOverseer cleanup finishes", async () => {
+    const inner = holdOverseerUntilRelease("succeed");
+    const processMap = makeProcessIdentityMap();
+    let activeWatchers = 0;
+    const tracked: ProcessIdentityMap = {
+      ...processMap,
+      subscribe: (listener) => {
+        activeWatchers += 1;
+        const stop = processMap.subscribe(listener);
+        return () => {
+          activeWatchers -= 1;
+          stop();
+        };
+      },
+    };
+    const { server, authoringGate } = await startTestServer({
+      onOverseer: inner.execute,
+      processMap: tracked,
+    });
+    await enableOverseer();
+    let settled = false;
+    const responsePromise = call(server.socketPath, {
+      token: token(),
+      op: "overseer",
+      args: { operation: "status" },
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(inner.started()).toBe(1));
+    expect(authoringGate.snapshot().activeLabels).toContain("control.overseer");
+    expect(activeWatchers).toBe(1);
+
+    tracked.unbind(TEST_PEER_PID);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(inner.finished()).toBe(0);
+    expect(authoringGate.snapshot().activeLabels).toContain("control.overseer");
+
+    inner.releaseInner();
+    const response = await responsePromise as {
+      readonly ok: false;
+      readonly error: { readonly type: string };
+    };
+    expect(response).toMatchObject({
+      ok: false,
+      error: { type: "AuthError" },
+    });
+    expect(inner.execute).toHaveBeenCalledTimes(1);
+    expect(inner.finished()).toBe(1);
+    expect(authoringGate.snapshot().activeLabels).toEqual([]);
+    expect(activeWatchers).toBe(0);
+  });
+
+  it("does not settle a revoked overseer dispatch until inner onOverseer failure cleanup finishes", async () => {
+    const inner = holdOverseerUntilRelease("fail");
+    const processMap = makeProcessIdentityMap();
+    let activeWatchers = 0;
+    const tracked: ProcessIdentityMap = {
+      ...processMap,
+      subscribe: (listener) => {
+        activeWatchers += 1;
+        const stop = processMap.subscribe(listener);
+        return () => {
+          activeWatchers -= 1;
+          stop();
+        };
+      },
+    };
+    const { server, authoringGate } = await startTestServer({
+      onOverseer: inner.execute,
+      processMap: tracked,
+    });
+    await enableOverseer();
+    let settled = false;
+    const responsePromise = call(server.socketPath, {
+      token: token(),
+      op: "overseer",
+      args: { operation: "status" },
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(inner.started()).toBe(1));
+    tracked.unbind(TEST_PEER_PID);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(inner.finished()).toBe(0);
+
+    inner.releaseInner();
+    const response = await responsePromise as {
+      readonly ok: false;
+      readonly error: { readonly type: string };
+    };
+    expect(response).toMatchObject({
+      ok: false,
+      error: { type: "AuthError" },
+    });
+    expect(inner.execute).toHaveBeenCalledTimes(1);
+    expect(inner.finished()).toBe(1);
+    expect(authoringGate.snapshot().activeLabels).toEqual([]);
+    expect(activeWatchers).toBe(0);
   });
 
   it("resolves process-bound callers to exactly one projected actor reference", () => {

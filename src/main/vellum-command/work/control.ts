@@ -2264,6 +2264,44 @@ const revokedProcessIdentity = (): WorkErrorBody => ({
   },
 });
 
+const overseerDispatchError = (error: unknown): WorkErrorBody => ({
+  type: "InternalError",
+  message: error instanceof Error ? error.message : String(error),
+  details: { retryable: false },
+});
+
+/**
+ * Drain the captured overseer Promise on interruption. Effect.tryPromise
+ * aborts its signal without awaiting the underlying Promise, which would let
+ * process revocation settle this dispatch while inner authoring-gate / native
+ * cleanup is still in flight.
+ */
+const awaitOverseerPromise = (
+  evaluate: (signal: AbortSignal) => Promise<OverseerResult>,
+): Effect.Effect<OverseerResult, WorkErrorBody> =>
+  Effect.callback<OverseerResult, WorkErrorBody>((resume, signal) => {
+    let flight: Promise<OverseerResult>;
+    try {
+      flight = Promise.resolve(evaluate(signal));
+    } catch (error) {
+      resume(Effect.fail(overseerDispatchError(error)));
+      return;
+    }
+    void flight.then(
+      (value) => resume(Effect.succeed(value)),
+      (error) => resume(Effect.fail(overseerDispatchError(error))),
+    );
+    // Keep the Effect pending until the captured Promise (including inner
+    // lease / acquisition finalizers) actually settles. AbortSignal only
+    // refuses later mutations; it cannot roll back work already in flight.
+    return Effect.promise(() =>
+      flight.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+  });
+
 /**
  * Effect v4 calls its interruptible async constructor `callback`. The listener
  * re-resolves the kernel peer on every lifecycle notification: the retired PID
@@ -2644,17 +2682,13 @@ export const startWorkControlServer = async (
                 details: { retryable: false },
               });
             }
-            return yield* Effect.tryPromise({
-              try: (signal) => execute(decoded.success, {
-                canvasName: caller.canvasName,
-                nodeId: caller.nodeId,
-              }, signal),
-              catch: (error): WorkErrorBody => ({
-                type: "InternalError",
-                message: error instanceof Error ? error.message : String(error),
-                details: { retryable: false },
-              }),
-            }).pipe(Effect.result);
+            return yield* awaitOverseerPromise(
+              (signal) =>
+                execute(decoded.success, {
+                  canvasName: caller.canvasName,
+                  nodeId: caller.nodeId,
+                }, signal),
+            ).pipe(Effect.result);
           }
           return yield* dispatchOp(
             req.op,

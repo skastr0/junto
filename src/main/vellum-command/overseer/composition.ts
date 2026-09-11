@@ -228,6 +228,38 @@ export const runOverseerProgram = <A, E>(
   signal: AbortSignal,
 ): Promise<A> => run(program, { signal });
 
+/**
+ * Drain the captured authoring-gate Promise on interruption. Effect.tryPromise
+ * aborts its signal without awaiting the underlying Promise, which would let
+ * the Station handler finish while the inner gate / native finalizer still
+ * occupies composition.
+ */
+const awaitAuthoringGatePromise = (
+  evaluate: (signal: AbortSignal) => Promise<OverseerResult>,
+): Effect.Effect<OverseerResult, unknown> =>
+  Effect.callback<OverseerResult, unknown>((resume, signal) => {
+    let flight: Promise<OverseerResult>;
+    try {
+      flight = Promise.resolve(evaluate(signal));
+    } catch (error) {
+      resume(Effect.fail(error));
+      return;
+    }
+    void flight.then(
+      (value) => resume(Effect.succeed(value)),
+      (error) => resume(Effect.fail(error)),
+    );
+    // Keep the Effect pending until the captured Promise (including inner
+    // lease / acquisition finalizers) actually settles. AbortSignal only
+    // refuses later mutations; it cannot roll back work already in flight.
+    return Effect.promise(() =>
+      flight.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+  });
+
 export const composeOverseer = async (input: {
   readonly run: OverseerRunPromise;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
@@ -423,16 +455,14 @@ export const composeOverseer = async (input: {
   let disposeRemote = (): void => undefined;
   if (input.registerRemoteHandler) {
     disposeRemote = registerStationRemoteOverseerHandler((request, source) =>
-      Effect.tryPromise({
-        try: (signal) =>
-          executeInAuthoringGate(
-            request,
-            source.caller,
-            source.installationId,
-            signal,
-          ),
-        catch: (error) => error,
-      }).pipe(
+      awaitAuthoringGatePromise((signal) =>
+        executeInAuthoringGate(
+          request,
+          source.caller,
+          source.installationId,
+          signal,
+        ),
+      ).pipe(
         Effect.catch((error) =>
           Effect.succeed({
             ok: false as const,
