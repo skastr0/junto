@@ -136,13 +136,21 @@ export type OverseerNativeDeleteHooks = {
 };
 
 export type AgentReseatCommitInput = {
+  /** Authenticated overseer seat. Never the target node. */
+  readonly caller: OverseerCaller;
+  /** Target canvas of the reseat. */
   readonly canvasName: string;
+  /** Target agent node id. */
   readonly nodeId: string;
   readonly next: TextNode;
 };
 
 export type SchedulerConfigureApplyInput = {
+  /** Authenticated overseer seat. Never the target node. */
+  readonly caller: OverseerCaller;
+  /** Target canvas of the scheduler node. */
   readonly canvasName: string;
+  /** Target scheduler node id. */
   readonly nodeId: string;
   readonly timer?: unknown;
   readonly watch?: unknown;
@@ -675,6 +683,7 @@ const handleAgent = async (
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const committed = await ctx.commitAgentReseat({
+        caller,
         canvasName,
         nodeId: node.id,
         next,
@@ -1102,6 +1111,7 @@ const handleScheduler = async (
     const revoked = await requireGrant(ctx, caller);
     if (revoked) return revoked;
     const applied = await ctx.applySchedulerConfigure({
+      caller,
       canvasName,
       nodeId: node.id,
       timer: (args as { timer?: unknown }).timer,

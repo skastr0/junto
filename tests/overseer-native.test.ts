@@ -359,6 +359,48 @@ describe("overseer native adapters", () => {
     expect(occupySpy).toHaveBeenCalled();
   });
 
+  it("wakes an already-occupied seat through occupy (activate path), never a second occupy-vacant", async () => {
+    const { OccupiedSeat, seatAdmission } = await import(
+      "../src/shared/terminal-seat-occupancy"
+    );
+    const occupied = OccupiedSeat.make({
+      _tag: "OccupiedSeat",
+      bindingId: "bind-a1",
+      epoch: "live-epoch",
+      placement: "local",
+    });
+    const admission = seatAdmission(occupied);
+    expect(admission._tag).toBe("ActivateOccupiedSeat");
+    const occupySpy = vi.fn((spec: { bindingId: string; hostId?: string }) => {
+      expect(spec.bindingId).toBe("bind-a1");
+      expect(spec.hostId).toBe("local");
+      expect(seatAdmission(occupied)._tag).toBe("ActivateOccupiedSeat");
+      return Effect.succeed({
+        bindingId: "bind-a1",
+        hostId: "local",
+        status: "running",
+        epoch: "live-epoch",
+        detached: true,
+        createdAt: 1,
+      } as never);
+    });
+    const native = live([{ name: "factory", doc: board }], {
+      actorSeatOccupy: {
+        occupy: occupySpy,
+        occupancy: () => Effect.succeed(occupied),
+      },
+    });
+    const woken = await run(native, "agent.wake", { nodeId: "a1" });
+    expect(woken.ok).toBe(true);
+    expect(occupySpy).toHaveBeenCalledTimes(1);
+    expect(occupySpy.mock.calls[0]?.[0]).toMatchObject({
+      bindingId: "bind-a1",
+      hostId: "local",
+      canvasName: "factory",
+      nodeId: "a1",
+    });
+  });
+
   it("reads remote agent output via router observe attach, not the local observer", async () => {
     const remoteAgent: TextNode = {
       ...agent("remote-a", { bindingId: "bind-remote" }),
@@ -419,7 +461,13 @@ describe("overseer native adapters", () => {
     const reseated = await run(native, "agent.reseat", { nodeId: "a1", harness: "claude" });
     expect(reseated.ok).toBe(true);
     expect(kill).toHaveBeenCalledWith("bind-a1", "local");
-    expect(commitAgentReseat).toHaveBeenCalled();
+    expect(commitAgentReseat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caller: { canvasName: "factory", nodeId: "overseer-1" },
+        canvasName: "factory",
+        nodeId: "a1",
+      }),
+    );
     const committedArg = (commitAgentReseat.mock.calls as unknown as ReadonlyArray<
       ReadonlyArray<{ next: TextNode }>
     >)[0]?.[0];
