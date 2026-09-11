@@ -36,7 +36,6 @@ import {
 } from "@shared/station-status";
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
-import { FolderLive, FolderService } from "./services/folder";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
 import { CanvasesLive, CanvasesService } from "./vellum-command/canvases";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum-command/hermes/plane";
@@ -279,7 +278,6 @@ const UpdateServiceLive = Layer.unwrap(
 );
 
 const BaseLayer = Layer.mergeAll(
-  FolderLive,
   AppInfoLive,
   CodexLive,
   SnapshotsWithProductsLive,
@@ -401,7 +399,6 @@ export const buildDoctorReport = Effect.gen(function* () {
     catch: () => undefined,
   }).pipe(Effect.ignore);
 
-  const folder = yield* FolderService;
   const appInfo = yield* AppInfoService;
   const codex = yield* CodexService;
   const canvases = yield* CanvasesService;
@@ -515,7 +512,6 @@ export const buildDoctorReport = Effect.gen(function* () {
 
   const serviceResults = yield* Effect.all(
     [
-      folder.doctor,
       codex.doctor,
       canvases.doctor,
       snapshots.doctor,

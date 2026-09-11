@@ -16,10 +16,6 @@ import {
 const TIMEOUT_MS = 30_000;
 const MAX_BUFFER = 16 * 1024 * 1024;
 
-// Login-shell PATH probe budget. A hung/misconfigured login shell must not
-// stall the whole spawn plane — on timeout we fall back to the static merge,
-// which alone resolves every reference CLI (proven under a hostile env).
-const LOGIN_SHELL_TIMEOUT_MS = 4_000;
 const ADAPTER_QUIESCING_ERROR = "adapter process plane is shutting down";
 
 interface AdapterOperation {
@@ -337,13 +333,12 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
   "/sbin",
 ];
 
-// Pure PATH-merge — extracted so the ordering/dedup contract is unit-testable
-// without spawning a shell. Precedence: the user's real login-shell PATH first
-// (it reflects their actual toolchain, mise/asdf/homebrew ordering included),
-// then whatever PATH the process already inherited, then the static floor as a
-// guaranteed fallback. First occurrence of each dir wins; empties are dropped.
+// Pure PATH merge, extracted so the ordering/dedup contract is unit-testable.
+// Precedence: the environment Electron inherited, then the static floor.
+// Vellum Command deliberately never starts a login shell to discover PATH:
+// shell startup files are arbitrary user code and are not a permission probe.
+// First occurrence of each directory wins; empty entries are dropped.
 export const mergePath = (inputs: {
-  readonly loginShellPath?: string;
   readonly currentPath?: string;
   readonly home: string;
 }): string => {
@@ -356,7 +351,6 @@ export const mergePath = (inputs: {
     }
   };
 
-  pushAll(inputs.loginShellPath);
   pushAll(inputs.currentPath);
   for (const dir of staticPathDirs(inputs.home)) segments.push(dir);
 
@@ -370,27 +364,12 @@ export const mergePath = (inputs: {
   return merged.join(":");
 };
 
-// Ask the user's login shell for its resolved PATH. Resolves to `undefined`
-// (never rejects) on any failure — a broken shell degrades to the static
-// merge rather than taking down the spawn plane.
-const queryLoginShellPath = (): Promise<string | undefined> =>
-  new Promise((resolve) => {
-    const shell = process.env.SHELL || "/bin/zsh";
-    void runOwnedFile(shell, ["-lc", "echo $PATH"], {
-      timeoutMs: LOGIN_SHELL_TIMEOUT_MS,
-      maxBuffer: 64 * 1024,
-    }).then((result) => {
-      const line = result.ok ? result.stdout.trim() : "";
-      resolve(line || undefined);
-    });
-  });
-
 let resolvedEnvPromise: Promise<NodeJS.ProcessEnv> | undefined;
 let resolvedEnvCache: NodeJS.ProcessEnv | undefined;
 
-// The one resolved environment every spawn call-site should use. Built ONCE
-// (memoized) at first use: probe the login shell, merge with the static floor,
-// and hand back an env object suitable for child_process { env } options.
+// The one resolved environment every spawn call-site should use. Built once
+// from inherited PATH plus the static floor, without executing shell startup
+// files, and handed back for child_process { env } options.
 //
 // Chat/agent spawn (chat/spawn.ts, wired by a later change), the codex/prism
 // service spawns, and runCli below all route through here so that a
@@ -404,12 +383,8 @@ let resolvedEnvCache: NodeJS.ProcessEnv | undefined;
 // assignment is idempotent. No other key of process.env is touched.
 export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
   if (resolvedEnvPromise) return resolvedEnvPromise;
-  resolvedEnvPromise = queryLoginShellPath().then((loginShellPath) => {
-    const mergedPath = mergePath({
-      loginShellPath,
-      currentPath: process.env.PATH,
-      home: homedir(),
-    });
+  resolvedEnvPromise = Promise.resolve().then(() => {
+    const mergedPath = mergePath({ currentPath: process.env.PATH, home: homedir() });
     process.env.PATH = mergedPath;
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: mergedPath };
     resolvedEnvCache = env;

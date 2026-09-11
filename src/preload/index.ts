@@ -100,8 +100,6 @@ const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Prom
 
 const chassisApi: ChassisApi = {
   doctor: () => invoke(IPC_CHANNELS.doctor, IPC_TIMEOUT_MS),
-  selectFolder: () => invoke(IPC_CHANNELS.selectFolder, IPC_TIMEOUT_MS),
-  readDirectory: (path) => invoke(IPC_CHANNELS.readDirectory, IPC_TIMEOUT_MS, path),
   probeCodex: () => invoke(IPC_CHANNELS.probeCodex, IPC_TIMEOUT_MS),
 };
 

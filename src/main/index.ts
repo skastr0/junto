@@ -1244,9 +1244,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // Warm the resolved spawn environment (login-shell PATH + static floor) so
-    // process.env.PATH is fixed before any adapter/service spawns a CLI. Never
-    // rejects; adapters also await it lazily, so this is belt-and-suspenders.
+    // Warm inherited PATH + the static tool floor before any adapter/service
+    // spawn. This never invokes a login shell or user shell startup files.
     await resolvedSpawnEnv();
     if (shutdownAdmissionClosed) return;
 

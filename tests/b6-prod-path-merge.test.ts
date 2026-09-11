@@ -7,12 +7,10 @@ import {
   staticPathDirs,
 } from "../src/main/vellum-command/adapters/exec";
 
-// b6-prod: the spawn plane must resolve user-installed CLIs under a
-// packaged/launchd/Finder launch, where the process inherits launchd's minimal
-// PATH (/usr/bin:/bin:/usr/sbin:/sbin) and no shell rc is sourced. The merge
-// logic is extracted pure so its ordering/dedup/fallback contract is testable
-// without spawning a shell; one guarded integration case exercises the real
-// login-shell probe.
+// The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
+// launch without sourcing shell startup files. The merge logic is pure so the
+// ordering, deduplication, and static fallback are testable without executing
+// any user-controlled shell code.
 
 const HOME = "/home/tester";
 const split = (p: string) => p.split(":");
@@ -33,25 +31,22 @@ describe("staticPathDirs", () => {
 });
 
 describe("mergePath", () => {
-  it("login-shell success: user PATH entries come first, in order", () => {
+  it("inherited PATH entries come first, in order", () => {
     const merged = mergePath({
-      loginShellPath: "/opt/homebrew/bin:/home/tester/.local/bin",
-      currentPath: "/usr/bin:/bin",
+      currentPath: "/opt/homebrew/bin:/home/tester/.local/bin:/usr/bin:/bin",
       home: HOME,
     });
     const dirs = split(merged);
     expect(dirs[0]).toBe("/opt/homebrew/bin");
     expect(dirs[1]).toBe("/home/tester/.local/bin");
-    // process PATH follows the login PATH, before the static-only remainder.
+    // inherited PATH remains ahead of the static-only remainder.
     expect(dirs.indexOf("/usr/bin")).toBeLessThan(dirs.indexOf("/usr/local/bin"));
     // every static-floor dir is still present after the merge.
     for (const dir of staticPathDirs(HOME)) expect(dirs).toContain(dir);
   });
 
-  it("login-shell failure: falls back to current PATH + static floor", () => {
-    // The exact hostile case: launchd's minimal PATH, no login shell resolved.
+  it("launchd's minimal PATH gains the static floor", () => {
     const merged = mergePath({
-      loginShellPath: undefined,
       currentPath: "/usr/bin:/bin:/usr/sbin:/sbin",
       home: HOME,
     });
@@ -71,8 +66,7 @@ describe("mergePath", () => {
 
   it("dedups, keeping first occurrence", () => {
     const merged = mergePath({
-      loginShellPath: "/a:/a:/b",
-      currentPath: "/b:/c",
+      currentPath: "/a:/a:/b:/b:/c",
       home: HOME,
     });
     const dirs = split(merged);
@@ -83,8 +77,7 @@ describe("mergePath", () => {
 
   it("drops empty segments and trims whitespace", () => {
     const merged = mergePath({
-      loginShellPath: " /x : : /y ",
-      currentPath: "",
+      currentPath: " /x : : /y ",
       home: HOME,
     });
     const dirs = split(merged);
@@ -104,29 +97,22 @@ describe("resolvedSpawnEnvSync", () => {
   });
 });
 
-// One guarded integration case — spawns the real login shell exactly once.
-// Skip with VELLUM_COMMAND_SKIP_SHELL_INTEGRATION=1 in shell-less CI.
-const skipShell = process.env.VELLUM_COMMAND_SKIP_SHELL_INTEGRATION === "1";
-describe("resolvedSpawnEnv (integration)", () => {
+describe("resolvedSpawnEnv", () => {
   const originalPath = process.env.PATH;
   afterAll(() => {
     process.env.PATH = originalPath;
   });
 
-  it.skipIf(skipShell)(
-    "resolves an env containing the static floor and mutates process.env.PATH once",
-    async () => {
-      const env = await resolvedSpawnEnv();
-      const dirs = split(env.PATH ?? "");
-      // Deterministic regardless of whether the login shell succeeds: the
-      // static floor is always appended.
-      expect(dirs).toContain(`${homedir()}/.local/bin`);
-      expect(dirs).toContain(`${homedir()}/.local/share/mise/shims`);
-      // The single documented mutation: process.env.PATH now equals the merge.
-      expect(process.env.PATH).toBe(env.PATH);
-      // Memoized: a second call returns the same object.
-      const again = await resolvedSpawnEnv();
-      expect(again).toBe(env);
-    },
-  );
+  it("resolves an env containing the static floor and mutates process.env.PATH once", async () => {
+    const env = await resolvedSpawnEnv();
+    const dirs = split(env.PATH ?? "");
+    // Deterministic without invoking a shell: the static floor is appended.
+    expect(dirs).toContain(`${homedir()}/.local/bin`);
+    expect(dirs).toContain(`${homedir()}/.local/share/mise/shims`);
+    // The single documented mutation: process.env.PATH now equals the merge.
+    expect(process.env.PATH).toBe(env.PATH);
+    // Memoized: a second call returns the same object.
+    const again = await resolvedSpawnEnv();
+    expect(again).toBe(env);
+  });
 });

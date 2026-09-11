@@ -9,7 +9,7 @@ export type {
   BrowserProfileWipeReceipt,
   BrowserStopReceipt,
 } from "./browser";
-import type { DirectoryEntry, DoctorReport, FolderSnapshot, ServiceCheck } from "./contracts";
+import type { DoctorReport, ServiceCheck } from "./contracts";
 import type {
   WorkMetadata,
   Task,
@@ -69,8 +69,6 @@ export type {
 
 export const IPC_CHANNELS = {
   doctor: "chassis:doctor",
-  selectFolder: "chassis:select-folder",
-  readDirectory: "chassis:read-directory",
   probeCodex: "chassis:probe-codex",
   listCanvases: "vellum-command:list-canvases",
   readCanvas: "vellum-command:read-canvas",
@@ -259,8 +257,6 @@ export type TaskCreateOptions = {
 
 export interface ChassisApi {
   readonly doctor: () => Promise<DoctorReport>;
-  readonly selectFolder: () => Promise<FolderSnapshot | null>;
-  readonly readDirectory: (path: string) => Promise<ReadonlyArray<DirectoryEntry>>;
   readonly probeCodex: () => Promise<ServiceCheck>;
 }
 

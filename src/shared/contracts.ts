@@ -29,18 +29,3 @@ export const DoctorReport = Schema.Struct({
   fleetCompatibility: Schema.optionalKey(FleetPeerCompatibilitySnapshot),
 });
 export type DoctorReport = typeof DoctorReport.Type;
-
-export const DirectoryEntry = Schema.Struct({
-  name: Schema.String,
-  path: Schema.String,
-  kind: Schema.Literals(["file", "directory"]),
-  size: Schema.Number,
-  modifiedAt: Schema.String,
-});
-export type DirectoryEntry = typeof DirectoryEntry.Type;
-
-export const FolderSnapshot = Schema.Struct({
-  root: Schema.String,
-  entries: Schema.Array(DirectoryEntry),
-});
-export type FolderSnapshot = typeof FolderSnapshot.Type;
