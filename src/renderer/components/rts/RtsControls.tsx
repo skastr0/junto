@@ -36,7 +36,7 @@ import { type PauseScope } from "@shared/pause";
 import { verbsForPair, type Verb } from "@shared/physics";
 import { isTaskSinkNode } from "@shared/flow-graph";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
-import { verbSentence } from "../../lib/verb-sentence";
+import { verbSentence as formatWireSentence } from "../../lib/verb-sentence";
 import {
   ADMISSION_ORDER,
   admissionLabel,
@@ -229,7 +229,7 @@ const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
     sentence:
       verb === undefined
         ? `${fromLabel} → ${toLabel}`
-        : verbSentence(verb, fromLabel, toLabel),
+        : formatWireSentence(verb, fromLabel, toLabel),
   };
 };
 
@@ -793,7 +793,7 @@ export function EdgePairStrip({ edge }: { readonly edge: CanvasEdge }) {
           <Button
             size="xs"
             variant="chrome"
-            title={verbSentence(sibling, view.fromLabel, view.toLabel)}
+            title={formatWireSentence(sibling, view.fromLabel, view.toLabel)}
             aria-label={`Change to ${sibling}`}
             onClick={() => swapEdgeVerb(edge.id, sibling)}
           >
