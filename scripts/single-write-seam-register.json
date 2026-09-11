@@ -983,6 +983,13 @@
       "reason": "Defines the operator control request and response decoders for that socket."
     },
     {
+      "path": "src/shared/overseer-control.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the closed overseer caller, request, per-operation argument and result decoders used by Work and Station ingress."
+    },
+    {
       "path": "src/shared/pad.ts",
       "kinds": [
         "codec"

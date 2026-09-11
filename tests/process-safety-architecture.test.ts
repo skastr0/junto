@@ -360,6 +360,11 @@ describe("machine-safety architecture", () => {
       "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
       "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      // Live-granted node targets resolve bindings, never PIDs. Router delegates
+      // to the same owned-session stop capability as terminal IPC.
+      "src/main/vellum-command/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/main/vellum-command/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/main/vellum-command/overseer/native.ts:ctx.termPlane.router.kill",
       "src/main/vellum-command/process-signal.ts:forbidden-reference:child.kill",
       "src/main/vellum-command/process-signal.ts:rec.child.kill",
       "src/main/vellum-command/term/control-server.ts:host.kill",
