@@ -34,8 +34,11 @@ from the gated Fleet release contract. An archive build alone does not prove
 signing, first install, installed update or native-host qualification.
 
 Desktop first install and updates share signed admission and generation
-activation. First install refuses an existing managed launcher; subsequent
-updates belong to the running app's flush/quiescence path. Generations live
+activation. First install is admitted by independently obtained bootstrap or
+reviewed-checkout code with the embedded release trust pin; it never executes
+candidate-archive code. First install refuses an existing managed launcher;
+subsequent updates belong to the running app's flush/quiescence path.
+Generations live
 at `~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/`, selected by
 `~/.local/bin/vellum-command-desktop` with a user desktop entry. Product state
 is outside these immutable application generations.

@@ -13,7 +13,6 @@ describe("external factory simulator prototype", () => {
     expect(manifest.filter(({ lane }) => lane === undefined)).toEqual([]);
     expect(manifest).toContainEqual({ commandId: "tasks.claim", lane: "target-matrix" });
     expect(manifest).toContainEqual({ commandId: "doctor", lane: "seat-local" });
-    expect(manifest).toContainEqual({ commandId: "desktop-install", lane: "operator-install" });
     expect(manifest).toContainEqual({ commandId: "overseer.skill", lane: "discovery" });
     expect(manifest).toContainEqual({ commandId: "overseer.status", lane: "overseer-plane" });
     expect(manifest).toContainEqual({ commandId: "overseer.tasks.claim", lane: "overseer-plane" });

@@ -24,6 +24,21 @@ const readProductDocs = async (): Promise<string> => {
 const collapsed = (input: string): string => input.replace(/\s+/gu, " ");
 
 describe("Linux desktop alpha and gated Fleet operator documentation", () => {
+  it("hosts independently authenticated first-install bootstrap instructions", async () => {
+    const bootstrap = await readDoc("linux-desktop-bootstrap.md");
+    const commands = shellBlocks(bootstrap);
+    expect(bootstrap).toContain("independently hosted first-install approval record");
+    expect(bootstrap).toContain("The packaged application CLI does not install Linux desktop");
+    expect(bootstrap).toContain("That procedure is withdrawn");
+    expect(commands).toContain("gh attestation verify");
+    expect(commands).toContain("bun scripts/install-linux-desktop.ts");
+    expect(commands).toContain("vellum-command-desktop-bootstrap-linux-x64");
+    expect(commands).not.toMatch(/^\s*tar\s+-xzf\b/mu);
+    expect(commands).not.toContain("desktop-install");
+    expect(commands).not.toContain("resources/bin/vellum-command");
+    expect(commands).not.toContain("sha256sum");
+  });
+
   it("covers managed desktop install, update and forward-only recovery", async () => {
     const runbook = await readDoc("linux-operator-runbook.md");
     const text = collapsed(runbook);
@@ -43,10 +58,13 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "Run everything as the intended ordinary user",
     );
     expect(text).toContain(
-      "Verify that SHA-256 before extracting or executing the bundled CLI",
+      "Authenticate first install with an independently obtained bootstrap or a reviewed source checkout before any candidate-archive code runs",
     );
     expect(text).toContain(
-      "`desktop-install --release ... --archive ... --sources ...`",
+      "Do not extract the archive or execute its bundled CLI",
+    );
+    expect(text).toContain(
+      "`--release ... --archive ... --sources ...`",
     );
     expect(text).toContain(
       "refuses an existing managed launcher and never launches the app or opens its database",
@@ -115,6 +133,9 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     );
     expect(text).toContain(
       "Activation itself still does not retire generations or roll back",
+    );
+    expect(text).toContain(
+      "Existing managed installations are not retroactively authenticated by a later bootstrap release",
     );
     expect(text).toContain(
       "Never add `--no-sandbox`, disable AppArmor, weaken global user namespaces, run the app as root or install a setuid helper",

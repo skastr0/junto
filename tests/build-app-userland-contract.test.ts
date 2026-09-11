@@ -13,6 +13,11 @@ describe("app build userland artifact contract", () => {
     expect(standaloneControlBuild("vellum-command")).toMatchObject({
       output: "dist/vellum-command", source: "src/cli/main.ts",
     });
+    expect(standaloneControlBuild("vellum-command-desktop-bootstrap-linux-x64")).toMatchObject({
+      output: "dist/vellum-command-desktop-bootstrap-linux-x64",
+      source: "scripts/linux-desktop-bootstrap.ts",
+    });
+    expect(build).not.toContain("vellum-command-desktop-bootstrap-linux-x64");
     expect(build).not.toContain("bun build --compile");
     expect(build).not.toContain("vellum-command-browser");
     expect(build).not.toContain("vellum-command-station");

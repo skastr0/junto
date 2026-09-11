@@ -23,16 +23,21 @@ actively developed by a solo maintainer. Reports and proposals go through
 | Windows | No supported build or release lane. |
 
 The [official download page](https://vellumcommand.com/download) lists available
-builds, checksums, signed Linux metadata, and corresponding source downloads.
-Official automatic updates use the maintainer-run release feed. Updates download
+builds, signed Linux metadata, and corresponding source downloads. Official
+automatic updates use the maintainer-run release feed. Updates download
 in the background and offer an explicit restart when ready. The source repository
-is not an npm package, and GitHub Releases are not the update feed.
+is not an npm package, and GitHub Releases are not the application update feed.
+A separately attested Linux first-install bootstrap may be published on GitHub
+Releases; it is not an update channel.
 
-For Linux, follow [the desktop alpha installation guide](docs/linux-command-center-alpha.md).
-The managed installation stays inside your account and maintains a launcher across
-updates. Its installer and updater do not ask for administrator credentials;
-any required host preparation is documented separately. An extracted source build
-can run without becoming a managed installation.
+For Linux, follow [the desktop alpha installation guide](docs/linux-command-center-alpha.md)
+and the [bootstrap guide](docs/linux-desktop-bootstrap.md). First install is
+authenticated by an independently obtained bootstrap or a reviewed source
+checkout, not by extracting the archive's bundled CLI. The managed installation
+stays inside your account and maintains a launcher across updates. Its installer
+and updater do not ask for administrator credentials; any required host
+preparation is documented separately. An extracted source build can run without
+becoming a managed installation.
 
 The default `ship` feature profile is defined in
 [feature-catalog.ts](src/shared/feature-catalog.ts). Browser pages are enabled;
@@ -75,7 +80,9 @@ bun run app:build:linux    # local Linux desktop package, run on Linux
 Local packages are development builds. Official signing and publication are
 separate maintainer operations described in
 the maintainer's private distribution repository, which holds the signing,
-notarization and publication tooling. This repository only builds.
+notarization and publication tooling. This repository builds, and it can also
+publish the independently attested Linux first-install bootstrap on GitHub
+Releases. That bootstrap is not the application update feed.
 macOS source packages start without a signing identity. Automatic updates and
 Remote package admission require the expected official signing identity compiled
 into an official build; a source package without that policy refuses admission.

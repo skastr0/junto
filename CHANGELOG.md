@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Authenticate Linux desktop first install with an independently obtained
+  bootstrap or reviewed source checkout. Do not extract or execute the
+  candidate archive's bundled CLI. Incumbent signed updates are unchanged.
 - Stop treating pad shape and ink colors as HTML or CSS. Render only
   hex/`none` paint, serialize SVG with escaped attributes, and drop
   `script-src 'unsafe-inline'` from the renderer CSP.

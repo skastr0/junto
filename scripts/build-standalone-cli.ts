@@ -36,6 +36,10 @@ const controls = {
     source: "src/cli/main.ts",
     output: "dist/vellum-command-dev",
   },
+  "vellum-command-desktop-bootstrap-linux-x64": {
+    source: "scripts/linux-desktop-bootstrap.ts",
+    output: "dist/vellum-command-desktop-bootstrap-linux-x64",
+  },
 } as const;
 
 export type StandaloneControl = keyof typeof controls;
@@ -58,7 +62,7 @@ const main = async (): Promise<void> => {
   const [rawControl, ...extraArgs] = process.argv.slice(2);
   if (!rawControl || extraArgs.length > 0 || !(rawControl in controls)) {
     throw new Error(
-      "usage: bun scripts/build-standalone-cli.ts vellum-command|vellum-command-dev",
+      "usage: bun scripts/build-standalone-cli.ts vellum-command|vellum-command-dev|vellum-command-desktop-bootstrap-linux-x64",
     );
   }
 

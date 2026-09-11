@@ -9,39 +9,79 @@ qualification does not promote Fleet to Beta or either surface to production.
 
 ## Install an official desktop alpha
 
-Use the [official download page](https://vellumcommand.com/download) to obtain
-one release's archive, signed `release.json`, corresponding-source
-`sources.json`, and the independently published archive SHA-256. If the page
-says the installer is being prepared, use the source-build instructions below;
-do not substitute an old or unsigned package.
+First install is authenticated by an independently obtained bootstrap, not by
+the downloaded archive or the download-page checksum. The website may host the
+archive, signed `release.json`, and corresponding-source `sources.json`; it is
+not the authority for which verifier to run, which trust pins to use, or how to
+bypass verification. Follow the current
+[Linux desktop bootstrap guide](linux-desktop-bootstrap.md) on GitHub for the
+approved bootstrap tag, source commit, and exact commands. If that guide says
+the bootstrap or installer is being prepared, use the source-build instructions
+below or wait; do not extract the archive or execute its bundled CLI.
 
-Download the three files into a new private directory. Close any previously
-extracted Vellum Command desktop before installing or launching the managed
-copy. Verify the archive against the download page **before extracting it or
-executing its bundled CLI**. In that download directory, replace both values:
+Download the three payload files into a new private directory. Close any
+previously extracted Vellum Command desktop before installing or launching the
+managed copy. Do not extract the archive and do not run code from it. In that
+download directory, replace the approved values from the current GitHub guide:
 
 ```sh
-set -eu
-ALPHA_VERSION="REPLACE_WITH_PUBLISHED_VERSION"
-ALPHA_ARCHIVE_SHA256="REPLACE_WITH_PUBLISHED_ARCHIVE_SHA256"
-ALPHA_ARCHIVE="vellum-command-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
+(
+  set -eu
+  umask 077
 
-printf '%s  %s\n' "$ALPHA_ARCHIVE_SHA256" "$ALPHA_ARCHIVE" | sha256sum --check -
-tar -xzf "$ALPHA_ARCHIVE"
-"./vellum-command-runtime-$ALPHA_VERSION-linux-x64/resources/bin/vellum-command" desktop-install \
-  --release "$PWD/release.json" \
-  --archive "$PWD/$ALPHA_ARCHIVE" \
-  --sources "$PWD/sources.json"
+  BOOTSTRAP_TAG="REPLACE_WITH_APPROVED_BOOTSTRAP_TAG"
+  BOOTSTRAP_COMMIT="REPLACE_WITH_APPROVED_40_HEX_COMMIT"
+  ALPHA_VERSION="REPLACE_WITH_QUALIFIED_APP_VERSION"
+
+  BOOTSTRAP="vellum-command-desktop-bootstrap-linux-x64"
+  BASE="https://github.com/skastr0/vellum-command/releases/download/$BOOTSTRAP_TAG"
+  ALPHA_ARCHIVE="vellum-command-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
+
+  gh --version
+
+  curl --fail --location --proto '=https' --proto-redir '=https' \
+    --output "$BOOTSTRAP" "$BASE/$BOOTSTRAP"
+  curl --fail --location --proto '=https' --proto-redir '=https' \
+    --output "$BOOTSTRAP.attestation.jsonl" \
+    "$BASE/$BOOTSTRAP.attestation.jsonl"
+
+  gh attestation verify "$BOOTSTRAP" \
+    --hostname github.com \
+    --bundle "$BOOTSTRAP.attestation.jsonl" \
+    --repo skastr0/vellum-command \
+    --cert-identity "https://github.com/skastr0/vellum-command/.github/workflows/linux-desktop-bootstrap.yml@refs/tags/$BOOTSTRAP_TAG" \
+    --cert-oidc-issuer https://token.actions.githubusercontent.com \
+    --source-ref "refs/tags/$BOOTSTRAP_TAG" \
+    --source-digest "$BOOTSTRAP_COMMIT" \
+    --signer-digest "$BOOTSTRAP_COMMIT" \
+    --deny-self-hosted-runners \
+    --predicate-type https://slsa.dev/provenance/v1 \
+    --digest-alg sha256
+
+  chmod 0700 "$BOOTSTRAP"
+  "./$BOOTSTRAP" \
+    --release "$PWD/release.json" \
+    --archive "$PWD/$ALPHA_ARCHIVE" \
+    --sources "$PWD/sources.json"
+)
 ```
 
-Stop on a checksum mismatch. The first-install command then verifies the
-signed descriptor and exact archive/source inputs, stages an immutable
-owner-local generation and creates the stable launcher and user desktop entry.
-It refuses an existing managed installation. It does not launch the app, open
-product state, update a running release or acquire administrator authority.
-There is no downloaded shell pipeline or separate bootstrap executable. From
-a reviewed source checkout, `bun scripts/install-linux-desktop.ts` accepts the
-same three flags and invokes the same first-install API.
+Obtain `gh` (2.68.0 or newer) from an independently trusted host source, not
+from the candidate archive or the Vellum Command download page. Stop on an
+attestation or signature mismatch. The bootstrap then verifies the signed
+descriptor and exact archive/source inputs with its embedded release trust,
+stages an immutable owner-local generation and creates the stable launcher and
+user desktop entry. It refuses an existing managed installation. It does not
+launch the app, open product state, update a running release or acquire
+administrator authority. There is no downloaded shell pipeline. The historical
+website-checksum-then-bundled-CLI procedure trusted the download page before
+executing downloaded code; that checksum was not independent authentication
+and is not a fallback.
+
+From a reviewed, commit-pinned source checkout with independently trusted Bun
+1.3.13, `bun scripts/install-linux-desktop.ts` accepts the same three flags and
+invokes the same first-install API. That source fallback is documented in the
+bootstrap guide.
 
 The managed generation is:
 

@@ -54,7 +54,6 @@ export type CliCoverageLane =
   | "target-matrix"
   | "seat-local"
   | "discovery"
-  | "operator-install"
   | "overseer-plane"
   | "browser-plane";
 
@@ -85,8 +84,6 @@ export const classifyCliCommand = (commandId: string): CliCoverageLane | undefin
   if (DISCOVERY_COMMANDS.has(commandId)) return "discovery";
   // Human delegation, not edge capability, admits this separate plane.
   if (commandId.startsWith("overseer.")) return "overseer-plane";
-  // First installation verifies release files without an agent seat or app owner.
-  if (commandId === "desktop-install") return "operator-install";
   if (commandId.startsWith("browser.")) return "browser-plane";
   return undefined;
 };
