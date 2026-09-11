@@ -75,7 +75,6 @@ const TEXT_EXT = new Set([
 const SKIP_FILE_NAMES = new Set([
   // This lint file and the strip script name the character by design.
   "lint-no-middot.ts",
-  "strip-middots.ts",
 ]);
 
 // Product surfaces only. Tests, e2e, scripts, experiments, and design-sync

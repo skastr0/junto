@@ -124,11 +124,8 @@ async function* walk(dir: string): AsyncGenerator<string> {
     const ext = path.extname(ent.name);
     const base = path.basename(full);
     const rel = path.relative(ROOT, full);
-    // Self + one-shot codemod encode the bare-token pattern on purpose.
-    if (
-      rel === `scripts${path.sep}lint-product-name.ts` ||
-      rel === `scripts${path.sep}fix-product-name-once.ts`
-    ) {
+    // This lint encodes the bare-token pattern on purpose.
+    if (rel === `scripts${path.sep}lint-product-name.ts`) {
       continue;
     }
     if (TEXT_EXT.has(ext) || ROOT_TEXT_FILES.has(base) || base.endsWith(".md")) {
