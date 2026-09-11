@@ -110,6 +110,7 @@ export class StationPeerRejectedError extends Schema.TaggedError<StationPeerReje
     operation: Schema.Literals(["pair", "configure",
     "project",
     "report",
+    "overseer",
     "status",]),
     code: StationControlErrorCode,
     message: Schema.String,
@@ -300,6 +301,11 @@ const routeMatches = (
         (localRole === "command-center" ? peer : local)
       );
     case "report":
+      return (
+        request.senderInstallationId === sender &&
+        request.targetInstallationId === target
+      );
+    case "overseer":
       return (
         request.senderInstallationId === sender &&
         request.targetInstallationId === target
@@ -641,8 +647,15 @@ export const makeStationPeerSession = (
     ): Effect.Effect<void, never, Scope.Scope> =>
       Effect.gen(function* () {
         if (
-          options.localRole === "command-center" &&
-          frame.request.op !== "report"
+          (
+            options.localRole === "command-center" &&
+            frame.request.op !== "report" &&
+            frame.request.op !== "overseer"
+          ) ||
+          (
+            options.localRole === "remote" &&
+            frame.request.op === "overseer"
+          )
         ) {
           const denied = StationSessionResponseFrame.make({
             protocol: STATION_SESSION_PROTOCOL,
@@ -650,7 +663,9 @@ export const makeStationPeerSession = (
             requestId: frame.requestId,
             envelope: stationControlErr(
               "authorization_denied",
-              "A Remote may initiate only report on the CC-opened session",
+              options.localRole === "command-center"
+                ? "A Remote may initiate only report or overseer on the CC-opened session"
+                : "Command Center may not send overseer commands to a Remote",
               false,
             ),
           });
@@ -794,14 +809,23 @@ export const makeStationPeerSession = (
       };
       return Effect.gen(function* () {
         if (
-          options.localRole === "remote" &&
-          outbound.op !== "report"
+          (
+            options.localRole === "remote" &&
+            outbound.op !== "report" &&
+            outbound.op !== "overseer"
+          ) ||
+          (
+            options.localRole === "command-center" &&
+            outbound.op === "overseer"
+          )
         ) {
           return yield* StationPeerSessionProtocolError.make({
             peerInstallationId: options.peerInstallationId,
             reason: "outbound-verb-denied",
             message:
-              "A Remote may initiate only report on the CC-opened session",
+              options.localRole === "remote"
+                ? "A Remote may initiate only report or overseer on the CC-opened session"
+                : "Command Center may not send overseer commands to a Remote",
           });
         }
         if (

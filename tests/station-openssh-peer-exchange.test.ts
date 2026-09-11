@@ -57,6 +57,7 @@ import {
   makeOpenSshStationFrameTransport,
   makeOpenSshStationPeerExchange,
 } from "../src/main/vellum-command/station/openssh-peer-exchange";
+import type { StationRemoteHandlers } from "../src/main/vellum-command/station/peer-exchange";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);
@@ -76,6 +77,21 @@ const decoder = new TextDecoder();
 const statusRequest = StatusRequest.make({
   protocol: STATION_API_PROTOCOL,
   op: "status",
+});
+
+const remoteHandlers = (
+  report: StationRemoteHandlers["report"],
+): StationRemoteHandlers => ({
+  report,
+  overseer: (request) =>
+    Effect.succeed({
+      ok: false,
+      operation: request.operation,
+      error: {
+        type: "Forbidden",
+        message: "unexpected overseer command",
+      },
+    }),
 });
 
 const statusResponse = StatusResponse.make({
@@ -576,14 +592,14 @@ describe("OpenSSH Station peer exchange", () => {
     Effect.scoped(
       exchange.open(
         route,
-        () =>
+        remoteHandlers(() =>
           Effect.succeed(
             stationControlErr(
               "authorization_denied",
               "unexpected report",
               false,
             ),
-          ),
+          )),
       ),
     ).pipe(Effect.result);
 
@@ -611,14 +627,14 @@ describe("OpenSSH Station peer exchange", () => {
         Effect.gen(function* () {
           const session = yield* harness.exchange.open(
             harness.route,
-            () =>
+            remoteHandlers(() =>
               Effect.succeed(
                 stationControlErr(
                   "authorization_denied",
                   "unexpected report",
                   false,
                 ),
-              ),
+              )),
           );
           expect(session.protocol).toMatchObject({
             _tag: "negotiated",
@@ -697,7 +713,7 @@ describe("OpenSSH Station peer exchange", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const opening = yield* Effect.forkChild(
-            harness.exchange.open(harness.route, () => {
+            harness.exchange.open(harness.route, remoteHandlers(() => {
               reportCalls += 1;
               return Effect.void.pipe(
                 Effect.andThen(
@@ -719,7 +735,7 @@ describe("OpenSSH Station peer exchange", () => {
                   ),
                 ),
               );
-            }),
+            })),
           );
           yield* Deferred.await(statusObserved).pipe(
             Effect.timeoutOrElse({
@@ -817,7 +833,7 @@ describe("OpenSSH Station peer exchange", () => {
 
     const result = await runEffect(
       Effect.scoped(
-        harness.exchange.open(harness.route, () => {
+        harness.exchange.open(harness.route, remoteHandlers(() => {
           reportCalls += 1;
           return Effect.succeed(
             stationControlErr(
@@ -826,7 +842,7 @@ describe("OpenSSH Station peer exchange", () => {
               false,
             ),
           );
-        }),
+        })),
       ).pipe(Effect.result),
     );
 

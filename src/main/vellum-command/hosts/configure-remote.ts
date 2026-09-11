@@ -290,14 +290,25 @@ export const configureRemoteHost = (
       Effect.gen(function* () {
         const session = yield* exchange.open(
           route,
-          () =>
-            Effect.succeed(
-              stationControlErr(
-                "authorization_denied",
-                "Remote reports are not admitted during enrollment",
-                false,
+          {
+            report: () =>
+              Effect.succeed(
+                stationControlErr(
+                  "authorization_denied",
+                  "Remote reports are not admitted during enrollment",
+                  false,
+                ),
               ),
-            ),
+            overseer: (request) =>
+              Effect.succeed({
+                ok: false,
+                operation: request.operation,
+                error: {
+                  type: "Forbidden",
+                  message: "Remote overseer commands are not admitted during enrollment",
+                },
+              }),
+          },
         );
         yield* session.request(pairRequest);
         return yield* session.request(configureRequest);

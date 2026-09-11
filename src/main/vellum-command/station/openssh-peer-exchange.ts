@@ -13,11 +13,15 @@ import { Cause,
   Stream, Semaphore } from "effect";
 import {
   STATION_API_PROTOCOL,
+  StationOverseerResponse,
   StatusRequest,
   type InstallationId as InstallationIdValue,
   type StationApiRequest,
 } from "@shared/station-api";
-import { stationControlErr } from "@shared/station-api-envelope";
+import {
+  stationControlErr,
+  stationControlOk,
+} from "@shared/station-api-envelope";
 import {
   StationSessionFrame,
   decodeStationSessionFrame,
@@ -61,7 +65,7 @@ import {
   isStationPeerRoute,
   mintStationPeerRoute,
   type StationPeerRoute,
-  type StationRemoteReportHandler,
+  type StationRemoteHandlers,
 } from "./peer-exchange";
 import {
   StationSessionTransportError,
@@ -777,7 +781,7 @@ const makeVerifiedCommandCenterSession = (
   peerInstallationId: InstallationIdValue,
   protocol: StationPeerProtocolBinding,
   transport: StationSessionFrameTransport,
-  onRemoteReport: StationRemoteReportHandler,
+  handlers: StationRemoteHandlers,
 ) =>
   Effect.gen(function* () {
     const verified = yield* Deferred.make<void>();
@@ -787,20 +791,63 @@ const makeVerifiedCommandCenterSession = (
       peerInstallationId,
       protocol,
       transport,
-      handleRequest: (request: StationApiRequest) =>
-        request.op === "report"
-          ? Deferred.await(verified).pipe(
-              Effect.andThen(
-                Effect.suspend(() => onRemoteReport(request)),
-              ),
-            )
-          : Effect.succeed(
-              stationControlErr(
-                "authorization_denied",
-                "A Remote may initiate only report",
-                false,
+      handleRequest: (request: StationApiRequest) => {
+        if (request.op === "report") {
+          return Deferred.await(verified).pipe(
+            Effect.andThen(
+              Effect.suspend(() => handlers.report(request)),
+            ),
+          );
+        }
+        if (request.op === "overseer") {
+          return Deferred.await(verified).pipe(
+            Effect.andThen(
+              Effect.suspend(() =>
+                handlers.overseer(request.request, {
+                  installationId: peerInstallationId,
+                  caller: request.caller,
+                })
               ),
             ),
+            Effect.map((result) => {
+              const response = Schema.decodeUnknownResult(
+                StationOverseerResponse,
+                { onExcessProperty: "error" },
+              )({
+                protocol: STATION_API_PROTOCOL,
+                op: "overseer",
+                senderInstallationId: commandCenterInstallationId,
+                targetInstallationId: peerInstallationId,
+                caller: request.caller,
+                result,
+              });
+              return Result.isFailure(response)
+                ? stationControlErr(
+                    "protocol_error",
+                    "Remote overseer result violated the Station contract",
+                    false,
+                  )
+                : stationControlOk(response.success);
+            }),
+            Effect.catch(() =>
+              Effect.succeed(
+                stationControlErr(
+                  "internal_error",
+                  "Remote overseer command failed",
+                  false,
+                ),
+              )
+            ),
+          );
+        }
+        return Effect.succeed(
+          stationControlErr(
+            "authorization_denied",
+            "A Remote may initiate only report or overseer",
+            false,
+          ),
+        );
+      },
     });
 
     // Identity is a same-session fact, not a property inferred from the SSH
@@ -831,7 +878,7 @@ export const makeOpenSshStationPeerExchange = (
   const open = Effect.fn("OpenSshStationPeerExchange.open")(
     (
       route: StationPeerRoute,
-      onRemoteReport: StationRemoteReportHandler,
+      handlers: StationRemoteHandlers,
     ) =>
       Effect.gen(function* () {
         const details = openSshRoutes.get(route);
@@ -944,7 +991,7 @@ export const makeOpenSshStationPeerExchange = (
                   route.peerInstallationId,
                   protocol,
                   asSessionTransport(connection, protocol.codec, remaining),
-                  onRemoteReport,
+                  handlers,
                 );
                 return confirm(session);
               }),

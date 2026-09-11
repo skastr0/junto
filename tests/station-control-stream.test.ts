@@ -17,6 +17,8 @@ import {
   ProjectRequest,
   ReportRequest,
   ReportResponse,
+  StationOverseerRequest,
+  StationOverseerResponse,
   STATION_API_PROTOCOL,
   StatusRequest,
   StatusResponse,
@@ -24,6 +26,10 @@ import {
   type StationApiRequest as StationApiRequestValue,
   type StationReadiness,
 } from "../src/shared/station-api";
+import {
+  OverseerCaller,
+  OverseerRequest,
+} from "../src/shared/overseer-control";
 import {
   stationControlOk,
 } from "../src/shared/station-api-envelope";
@@ -398,6 +404,23 @@ const emptyReportResponse = () =>
       acknowledge: [],
       hasMore: false,
     },
+  });
+
+const overseerCaller = Schema.decodeUnknownSync(OverseerCaller)({
+  canvasName: "factory",
+  nodeId: "remote-agent",
+});
+const overseerRequest = () =>
+  StationOverseerRequest.make({
+    protocol: STATION_API_PROTOCOL,
+    op: "overseer",
+    senderInstallationId: REMOTE,
+    targetInstallationId: COMMAND_CENTER,
+    caller: overseerCaller,
+    request: OverseerRequest.make({
+      operation: "status",
+      args: {},
+    }),
   });
 
 describe("persistent Station control stream", () => {
@@ -882,6 +905,63 @@ describe("persistent Station control stream", () => {
       op: "report",
       senderInstallationId: COMMAND_CENTER,
       targetInstallationId: REMOTE,
+    });
+  });
+
+  it("carries a Remote overseer command on the same bounded correlated session", async () => {
+    const fixture = await makeServer();
+    const socket = await connect(fixture.server.socketPath);
+    const reader = makeFrameReader(socket);
+    await bindNegotiatedSession(socket, reader);
+
+    await expect(
+      fixture.server.overseer({
+        ...overseerRequest(),
+        caller: { ...overseerCaller, claimedRole: "operator" },
+      } as never),
+    ).rejects.toMatchObject({ failure: "invalid-local-request" });
+
+    const pending = fixture.server.overseer(overseerRequest());
+    const outbound = await withTimeout(
+      reader.next(),
+      "Remote overseer request timed out",
+    );
+    if (outbound.frame !== "request" || outbound.request.op !== "overseer") {
+      throw new Error("expected an overseer request frame");
+    }
+    expect(outbound.request).toMatchObject({
+      senderInstallationId: REMOTE,
+      targetInstallationId: COMMAND_CENTER,
+      caller: overseerCaller,
+      request: { operation: "status" },
+    });
+    socket.write(
+      encodeStationControlFrame(
+        StationSessionResponseFrame.make({
+          protocol: STATION_SESSION_PROTOCOL,
+          frame: "response",
+          requestId: outbound.requestId,
+          envelope: stationControlOk(
+            StationOverseerResponse.make({
+              protocol: STATION_API_PROTOCOL,
+              op: "overseer",
+              senderInstallationId: COMMAND_CENTER,
+              targetInstallationId: REMOTE,
+              caller: overseerCaller,
+              result: {
+                ok: true,
+                operation: "status",
+                data: { authority: "current" },
+              },
+            }),
+          ),
+        }),
+      ),
+    );
+
+    await expect(pending).resolves.toMatchObject({
+      op: "overseer",
+      result: { ok: true, operation: "status" },
     });
   });
 

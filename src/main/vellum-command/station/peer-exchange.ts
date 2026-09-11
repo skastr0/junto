@@ -5,6 +5,11 @@ import {
   type ReportRequest,
 } from "@shared/station-api";
 import type { StationControlEnvelope } from "@shared/station-api-envelope";
+import type {
+  OverseerCaller,
+  OverseerRequest,
+  OverseerResult,
+} from "@shared/overseer-control";
 import {
   StationAppVersion,
   StationProtocolSupport,
@@ -82,6 +87,23 @@ export type StationRemoteReportHandler = (
   request: ReportRequest,
 ) => Effect.Effect<StationControlEnvelope>;
 
+/** Identity authenticated by the verified live Station session. */
+export interface StationAuthenticatedOverseerSource {
+  readonly installationId: InstallationIdValue;
+  readonly caller: OverseerCaller;
+}
+
+/** Main-owned authority validation and execution callback. */
+export type StationRemoteOverseerHandler = (
+  request: OverseerRequest,
+  source: StationAuthenticatedOverseerSource,
+) => Effect.Effect<OverseerResult, unknown>;
+
+export interface StationRemoteHandlers {
+  readonly report: StationRemoteReportHandler;
+  readonly overseer: StationRemoteOverseerHandler;
+}
+
 /**
  * Transport-neutral Command Center peer-session port.
  *
@@ -94,7 +116,7 @@ export class StationPeerExchange extends Context.Service<StationPeerExchange,
   {
     readonly open: (
       route: StationPeerRoute,
-      onRemoteReport: StationRemoteReportHandler,
+      handlers: StationRemoteHandlers,
     ) => Effect.Effect<
       StationPeerSession,
       StationPeerExchangeError,

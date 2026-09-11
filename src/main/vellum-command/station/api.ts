@@ -2362,6 +2362,14 @@ export const StationApiLive = Layer.effect(
           );
         case "report":
           return handleReport(request, peer);
+        case "overseer":
+          return Effect.fail(
+            invariant(
+              "overseer",
+              "peer-role-mismatch",
+              "Remote overseer commands require the registered Command Center handler",
+            ),
+          );
         case "status":
           return requireRemoteInbound("status", peer).pipe(
             Effect.flatMap(() => handleStatus(repository, readiness)),

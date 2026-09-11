@@ -9,9 +9,13 @@ import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { Result, Schema } from "effect";
 import {
   ReportRequest as ReportRequestSchema,
+  StationOverseerRequest as StationOverseerRequestSchema,
+  overseerResponseMatchesRequest,
   reportResponseSwapsDirection,
   type ReportRequest,
   type ReportResponse,
+  type StationOverseerRequest,
+  type StationOverseerResponse,
   type StationApiRequest,
   type StationReadiness,
 } from "@shared/station-api";
@@ -169,14 +173,19 @@ export interface StationControlServer {
     listener: (ready: boolean) => void,
   ) => () => void;
   readonly report: (request: ReportRequest) => Promise<ReportResponse>;
+  readonly overseer: (
+    request: StationOverseerRequest,
+  ) => Promise<StationOverseerResponse>;
   beginShutdown(): void;
   close(): Promise<StationControlShutdownReceipt>;
 }
 
-interface PendingReport {
+interface PendingRemoteRequest {
   readonly frame: StationSessionRequestFrameValue;
-  readonly request: ReportRequest;
-  readonly resolve: (response: ReportResponse) => void;
+  readonly request: ReportRequest | StationOverseerRequest;
+  readonly resolve: (
+    response: ReportResponse | StationOverseerResponse,
+  ) => void;
   readonly reject: (error: StationControlReportError) => void;
   readonly timer: ReturnType<typeof setTimeout>;
 }
@@ -185,7 +194,7 @@ interface ActiveStationControlSession {
   readonly socket: Socket;
   readonly localHandoff: StationControlLocalHandoff;
   readonly transportAdmission: StationTransportAdmission;
-  readonly pendingReports: Map<string, PendingReport>;
+  readonly pendingRequests: Map<string, PendingRemoteRequest>;
   buffer: Buffer;
   partialFrameTimer: ReturnType<typeof setTimeout> | undefined;
   writeTail: Promise<void>;
@@ -200,10 +209,14 @@ type StationControlOutboundFrame =
   | StationProtocolAccept
   | StationProtocolReject;
 
-const MAX_PENDING_REPORTS = 64;
+const MAX_PENDING_REMOTE_REQUESTS = 64;
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 const decodeReportRequest = Schema.decodeUnknownResult(
   ReportRequestSchema,
+  { onExcessProperty: "error" },
+);
+const decodeOverseerRequest = Schema.decodeUnknownResult(
+  StationOverseerRequestSchema,
   { onExcessProperty: "error" },
 );
 
@@ -396,15 +409,15 @@ export const startStationControlServer = async (
     }
   };
 
-  const rejectPendingReports = (
+  const rejectPendingRequests = (
     session: ActiveStationControlSession,
     error: StationControlReportError,
   ): void => {
-    for (const pending of session.pendingReports.values()) {
+    for (const pending of session.pendingRequests.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);
     }
-    session.pendingReports.clear();
+    session.pendingRequests.clear();
   };
 
   const terminateSession = (
@@ -420,7 +433,7 @@ export const startStationControlServer = async (
     }
     if (activeSession === session) activeSession = undefined;
     notifySessionReadiness();
-    rejectPendingReports(session, error);
+    rejectPendingRequests(session, error);
     if (graceful && !session.socket.destroyed) {
       session.socket.end();
     } else {
@@ -628,7 +641,7 @@ export const startStationControlServer = async (
     session: ActiveStationControlSession,
     response: StationSessionResponseFrame,
   ): void => {
-    const pending = session.pendingReports.get(response.requestId);
+    const pending = session.pendingRequests.get(response.requestId);
     if (pending === undefined) {
       terminateSession(
         session,
@@ -656,7 +669,7 @@ export const startStationControlServer = async (
 
     if (!response.envelope.ok) {
       clearTimeout(pending.timer);
-      session.pendingReports.delete(response.requestId);
+      session.pendingRequests.delete(response.requestId);
       pending.reject(
         new StationControlReportError(
           "remote-rejected",
@@ -666,23 +679,25 @@ export const startStationControlServer = async (
       );
       return;
     }
-    const reportResponse = response.envelope.response;
-    if (
-      reportResponse.op !== "report" ||
-      !reportResponseSwapsDirection(pending.request, reportResponse)
-    ) {
+    const apiResponse = response.envelope.response;
+    const matches = pending.request.op === "report"
+      ? apiResponse.op === "report" &&
+        reportResponseSwapsDirection(pending.request, apiResponse)
+      : apiResponse.op === "overseer" &&
+        overseerResponseMatchesRequest(pending.request, apiResponse);
+    if (!matches) {
       terminateSession(
         session,
         new StationControlReportError(
           "protocol-error",
-          "station report response has an invalid direction",
+          "station Remote response has invalid identity or direction",
         ),
       );
       return;
     }
     clearTimeout(pending.timer);
-    session.pendingReports.delete(response.requestId);
-    pending.resolve(reportResponse);
+    session.pendingRequests.delete(response.requestId);
+    pending.resolve(apiResponse as ReportResponse | StationOverseerResponse);
   };
 
   const bindProtocol = (
@@ -953,7 +968,7 @@ export const startStationControlServer = async (
       socket,
       localHandoff,
       transportAdmission: admitOwnerLocalStationHandoff(localHandoff),
-      pendingReports: new Map(),
+      pendingRequests: new Map(),
       buffer: Buffer.alloc(0),
       partialFrameTimer: undefined,
       writeTail: Promise.resolve(),
@@ -1095,23 +1110,14 @@ export const startStationControlServer = async (
     liveStationControlSessions.delete(readinessAuthority);
   });
 
-  const report = (
-    input: ReportRequest,
-  ): Promise<ReportResponse> => {
+  const remoteRequest = (
+    request: ReportRequest | StationOverseerRequest,
+  ): Promise<ReportResponse | StationOverseerResponse> => {
     if (options.door === "enroll") {
       return Promise.reject(
         new StationControlReportError(
           "invalid-local-request",
-          "station enroll door does not originate report",
-        ),
-      );
-    }
-    const decoded = decodeReportRequest(input);
-    if (Result.isFailure(decoded)) {
-      return Promise.reject(
-        new StationControlReportError(
-          "invalid-local-request",
-          "only a strict report request may originate on a Remote session",
+          "station enroll door does not originate Remote requests",
         ),
       );
     }
@@ -1130,11 +1136,11 @@ export const startStationControlServer = async (
         ),
       );
     }
-    if (session.pendingReports.size >= MAX_PENDING_REPORTS) {
+    if (session.pendingRequests.size >= MAX_PENDING_REMOTE_REQUESTS) {
       return Promise.reject(
         new StationControlReportError(
           "capacity-exceeded",
-          "station report correlation capacity is exhausted",
+          "station Remote request correlation capacity is exhausted",
         ),
       );
     }
@@ -1152,30 +1158,58 @@ export const startStationControlServer = async (
       protocol: STATION_SESSION_PROTOCOL,
       frame: "request",
       requestId,
-      request: decoded.success,
+      request,
     });
-    return new Promise<ReportResponse>((resolve, reject) => {
+    return new Promise<ReportResponse | StationOverseerResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const pending = session.pendingReports.get(requestId);
+        const pending = session.pendingRequests.get(requestId);
         if (pending === undefined) return;
-        session.pendingReports.delete(requestId);
+        session.pendingRequests.delete(requestId);
         const error = new StationControlReportError(
           "request-timeout",
-          "station report response timed out",
+          "station Remote response timed out; completion is uncertain",
         );
         pending.reject(error);
         terminateSession(session, error);
       }, requestTimeoutMs);
       timer.unref();
-      session.pendingReports.set(requestId, {
+      session.pendingRequests.set(requestId, {
         frame,
-        request: decoded.success,
+        request,
         resolve,
         reject,
         timer,
       });
       void enqueueFrame(session, frame).catch(() => undefined);
     });
+  };
+
+  const report = (input: ReportRequest): Promise<ReportResponse> => {
+    const decoded = decodeReportRequest(input);
+    if (Result.isFailure(decoded)) {
+      return Promise.reject(
+        new StationControlReportError(
+          "invalid-local-request",
+          "only a strict report request may originate on a Remote session",
+        ),
+      );
+    }
+    return remoteRequest(decoded.success) as Promise<ReportResponse>;
+  };
+
+  const overseer = (
+    input: StationOverseerRequest,
+  ): Promise<StationOverseerResponse> => {
+    const decoded = decodeOverseerRequest(input);
+    if (Result.isFailure(decoded)) {
+      return Promise.reject(
+        new StationControlReportError(
+          "invalid-local-request",
+          "only a strict overseer request may originate on a Remote session",
+        ),
+      );
+    }
+    return remoteRequest(decoded.success) as Promise<StationOverseerResponse>;
   };
 
   const subscribeSession = (
@@ -1272,6 +1306,7 @@ export const startStationControlServer = async (
     sessionReady,
     subscribeSession,
     report,
+    overseer,
     beginShutdown,
     close,
   });

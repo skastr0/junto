@@ -19,6 +19,13 @@ import {
   type WorkRoute as WorkRouteValue,
 } from "./work-protocol";
 import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
+import {
+  OVERSEER_MAX_REQUEST_BYTES,
+  OVERSEER_MAX_RESULT_BYTES,
+  OverseerCaller,
+  OverseerRequest,
+  OverseerResult,
+} from "./overseer-control";
 
 export { InstallationId } from "./installation-id";
 export { RouteCursor, WorkRecord } from "./work-protocol";
@@ -528,6 +535,69 @@ export const reportResponseSwapsDirection = (
   response.senderInstallationId === request.targetInstallationId &&
   response.targetInstallationId === request.senderInstallationId;
 
+/**
+ * A Remote overseer command sent over the already CC-opened Station session.
+ *
+ * `caller` is process-derived on the Remote. The authenticated session supplies
+ * sender identity independently; neither this reference nor a node id is a
+ * credential. Command Center must re-resolve the current seat and grant before
+ * execution.
+ */
+export const StationOverseerRequest = Schema.Struct({
+  protocol: Schema.Literal(STATION_API_PROTOCOL),
+  op: Schema.Literal("overseer"),
+  senderInstallationId: InstallationId,
+  targetInstallationId: InstallationId,
+  caller: OverseerCaller,
+  request: OverseerRequest,
+}).pipe(
+  Schema.check(Schema.makeFilter((request) =>
+    request.senderInstallationId !== request.targetInstallationId ||
+    "Overseer sender and target installations must differ",)),
+  Schema.check(Schema.makeFilter((request) => {
+    const encodedBytes = reportBatchEncodedByteLength(request.request);
+    return encodedBytes !== undefined && encodedBytes <= OVERSEER_MAX_REQUEST_BYTES ||
+      `Overseer request must be JSON and at most ${OVERSEER_MAX_REQUEST_BYTES} bytes`;
+  })),
+);
+export type StationOverseerRequest = typeof StationOverseerRequest.Type;
+
+export const StationOverseerResponse = Schema.Struct({
+  protocol: Schema.Literal(STATION_API_PROTOCOL),
+  op: Schema.Literal("overseer"),
+  senderInstallationId: InstallationId,
+  targetInstallationId: InstallationId,
+  caller: OverseerCaller,
+  result: OverseerResult,
+}).pipe(
+  Schema.check(Schema.makeFilter((response) =>
+    response.senderInstallationId !== response.targetInstallationId ||
+    "Overseer sender and target installations must differ",)),
+  Schema.check(Schema.makeFilter((response) => {
+    const encodedBytes = reportBatchEncodedByteLength(response.result);
+    return encodedBytes !== undefined && encodedBytes <= OVERSEER_MAX_RESULT_BYTES ||
+      `Overseer result must be JSON and at most ${OVERSEER_MAX_RESULT_BYTES} bytes`;
+  })),
+);
+export type StationOverseerResponse = typeof StationOverseerResponse.Type;
+
+/** Exact response direction, caller, and operation correlation. */
+export const overseerResponseMatchesRequest = (
+  request: Pick<
+    StationOverseerRequest,
+    "senderInstallationId" | "targetInstallationId" | "caller" | "request"
+  >,
+  response: Pick<
+    StationOverseerResponse,
+    "senderInstallationId" | "targetInstallationId" | "caller" | "result"
+  >,
+): boolean =>
+  response.senderInstallationId === request.targetInstallationId &&
+  response.targetInstallationId === request.senderInstallationId &&
+  response.caller.canvasName === request.caller.canvasName &&
+  response.caller.nodeId === request.caller.nodeId &&
+  response.result.operation === request.request.operation;
+
 export const StatusRequest = Schema.Struct({
   protocol: Schema.Literal(STATION_API_PROTOCOL),
   op: Schema.Literal("status"),
@@ -578,6 +648,7 @@ export const StationApiRequest = Schema.Union([PairRequest,
 ConfigureRequest,
 ProjectRequest,
 ReportRequest,
+StationOverseerRequest,
 StatusRequest,]);
 export type StationApiRequest = typeof StationApiRequest.Type;
 
@@ -585,6 +656,7 @@ export const StationApiResponse = Schema.Union([PairResponse,
 ConfigureResponse,
 ProjectResponse,
 ReportResponse,
+StationOverseerResponse,
 StatusResponse,]);
 export type StationApiResponse = typeof StationApiResponse.Type;
 

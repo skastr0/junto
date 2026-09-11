@@ -47,7 +47,7 @@ import {
   mintStationPeerRoute,
   StationPeerExchange,
   StationPeerExchangeError,
-  type StationRemoteReportHandler,
+  type StationRemoteHandlers,
 } from "../src/main/vellum-command/station/peer-exchange";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
@@ -203,7 +203,7 @@ type ApiHandleCall = {
 
 type SessionRecord = {
   readonly session: StationPeerSession;
-  readonly handler: StationRemoteReportHandler;
+  readonly handlers: StationRemoteHandlers;
   readonly open: Ref.Ref<boolean>;
   readonly closed: Deferred.Deferred<StationPeerSessionClosedError>;
 };
@@ -376,7 +376,7 @@ const makeHarness = (
   });
 
   const exchange = StationPeerExchange.of({
-    open: (route, handler) =>
+    open: (route, handlers) =>
       Effect.gen(function* () {
         const remote = route.peerInstallationId;
         const enrolled = byInstallation.get(remote);
@@ -427,7 +427,7 @@ const makeHarness = (
         };
         const record: SessionRecord = {
           session,
-          handler,
+          handlers,
           open,
           closed,
         };
@@ -560,7 +560,7 @@ const makeHarness = (
       remote: StationFleetTarget["stationInstallationId"],
       request: ReportRequestValue,
     ): Effect.Effect<StationControlEnvelope> =>
-      currentSession(remote).handler(request),
+      currentSession(remote).handlers.report(request),
     secondRouteStarted: Deferred.await(secondRouteStarted),
     releaseSecondRoute: Deferred.succeed(releaseSecondRoute, undefined).pipe(
       Effect.asVoid,

@@ -20,6 +20,7 @@ const managedActorDoc = (
     readonly harness?: HarnessId;
     readonly argv?: ReadonlyArray<string>;
     readonly sessionId?: string;
+    readonly overseer?: boolean;
   },
 ): CanvasDoc => ({
   nodes: [
@@ -36,6 +37,9 @@ const managedActorDoc = (
           kind: "agent",
           name: input.agentKey ?? `${input.hostId}:worker`,
         },
+        ...(input.overseer === undefined
+          ? {}
+          : { overseer: input.overseer }),
         host: input.hostId,
         terminal: {
           bindingId: input.bindingId,
@@ -80,6 +84,7 @@ describe("actor-seat compiler", () => {
           nodeId: "agent-z",
           hostId: "local",
           bindingId: "binding-1",
+          overseer: true,
         }),
       ],
       [
@@ -88,6 +93,7 @@ describe("actor-seat compiler", () => {
           nodeId: "agent-a",
           hostId: "local",
           bindingId: "binding-1",
+          overseer: true,
         }),
       ],
     ]);
@@ -101,6 +107,7 @@ describe("actor-seat compiler", () => {
     expect(registry[0]).toMatchObject({
       authorityInstallationId: command,
       hostId: "local",
+      overseer: true,
       bindingId: "binding-1",
       primaryRef: { canvasName: "alpha", nodeId: "agent-a" },
       refs: [
@@ -224,6 +231,49 @@ describe("actor-seat compiler", () => {
           ],
         ]),
         new Map([["local", installation("install-command")]]),
+      )
+    ).toThrow("conflicting executable descriptors");
+  });
+
+  it("defaults absent overseer authority to false and rejects alias disagreement", () => {
+    const command = installation("install-command");
+    const ordinary = compileActorSeatRegistry(
+      new Map([
+        [
+          "alpha",
+          managedActorDoc({
+            nodeId: "agent-a",
+            hostId: "local",
+            bindingId: "binding-1",
+          }),
+        ],
+      ]),
+      new Map([["local", command]]),
+    );
+    expect(ordinary[0]?.overseer).toBe(false);
+
+    expect(() =>
+      compileActorSeatRegistry(
+        new Map([
+          [
+            "alpha",
+            managedActorDoc({
+              nodeId: "agent-a",
+              hostId: "local",
+              bindingId: "binding-1",
+              overseer: true,
+            }),
+          ],
+          [
+            "zeta",
+            managedActorDoc({
+              nodeId: "agent-z",
+              hostId: "local",
+              bindingId: "binding-1",
+            }),
+          ],
+        ]),
+        new Map([["local", command]]),
       )
     ).toThrow("conflicting executable descriptors");
   });

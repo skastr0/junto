@@ -59,6 +59,9 @@ import {
   admitEnrolledOpenSshStationPeer,
 } from "./openssh-peer-exchange";
 import {
+  dispatchRegisteredStationRemoteOverseer,
+} from "./overseer-transport";
+import {
   StationPeerExchange,
   type StationPeerExchangeError,
   type StationPeerRoute,
@@ -721,7 +724,10 @@ export const StationFleetPropagationLive = Layer.effect(
                 );
               const session = yield* exchange.open(
                 route,
-                onRemoteReport,
+                {
+                  report: onRemoteReport,
+                  overseer: dispatchRegisteredStationRemoteOverseer,
+                },
               );
               if (admissionClosed) return;
               const receipt = yield* synchronizeSession(

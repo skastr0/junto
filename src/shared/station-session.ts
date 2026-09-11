@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   StationApiRequest,
   type StationApiResponse,
+  overseerResponseMatchesRequest,
   reportResponseSwapsDirection,
 } from "./station-api";
 import { StationControlEnvelope } from "./station-api-envelope";
@@ -86,6 +87,9 @@ const responseIdentityMatchesRequest = (
     case "report":
       return response.op === "report" &&
         reportResponseSwapsDirection(request, response);
+    case "overseer":
+      return response.op === "overseer" &&
+        overseerResponseMatchesRequest(request, response);
     case "status":
       // StatusRequest deliberately carries no target. The admitted peer
       // session validates response.installationId against its enrolled peer.
@@ -98,7 +102,7 @@ const responseIdentityMatchesRequest = (
  *
  * Error envelopes correlate by request ID alone because they deliberately do
  * not repeat the rejected operation. Successful responses must also preserve
- * the exact five-verb operation.
+ * the exact operation.
  */
 export const decideStationSessionCorrelation = (
   request: StationSessionRequestFrame,

@@ -31,6 +31,7 @@ export const ProjectedActorSeat = Schema.Struct({
   seatId: ActorSeatId,
   authorityInstallationId: InstallationId,
   hostId: StationHostId,
+  overseer: Schema.Boolean,
   bindingId: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
   agentKey: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(512))),
   harness: HarnessId,
@@ -199,6 +200,7 @@ const descriptorFor = (
   authorityInstallationId: InstallationIdValue,
   surface: NonNullable<ReturnType<typeof actorDeliverySurfaceOf>>,
   sessionId: string | undefined,
+  overseer: boolean,
 ): ActorSeatExecutableDescriptor => {
   const decodedHostId = Schema.decodeUnknownResult(StationHostId)(surface.hostId);
   if (Result.isFailure(decodedHostId)) {
@@ -211,6 +213,7 @@ const descriptorFor = (
   return {
     authorityInstallationId,
     hostId: decodedHostId.success,
+    overseer,
     bindingId: surface.bindingId,
     agentKey: surface.agentKey,
     harness: surface.harness,
@@ -286,6 +289,7 @@ export const compileActorSeatRegistry = (
         authorityInstallationId,
         surface,
         node.ether?.terminal?.sessionId,
+        node.ether?.overseer === true,
       );
       const descriptorKey = canonicalJson(descriptor);
       const existing = groups.get(identityKey);
