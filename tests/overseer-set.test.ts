@@ -7,10 +7,10 @@ const flushCanvasEdits = vi.fn(async () => undefined);
 const getCanvasRevision = vi.fn((_name: string): string | undefined => "rev-1");
 
 vi.mock("../src/renderer/lib/canvas-editor-flush", () => ({
-  flushCanvasEdits: (...args: unknown[]) => flushCanvasEdits(...args),
+  flushCanvasEdits: () => flushCanvasEdits(),
 }));
 vi.mock("../src/renderer/lib/mutations", () => ({
-  getCanvasRevision: (...args: unknown[]) => getCanvasRevision(...args as [string]),
+  getCanvasRevision: (name: string) => getCanvasRevision(name),
 }));
 
 import {
