@@ -1116,6 +1116,11 @@ describe("resolveManagedLaunch argv", () => {
   });
 
   it("agy: model, effort, promptMode flag-i, permissionMode, agent", () => {
+    expect(AGY_TEMPLATE.probedVersion).toBe("1.2.1");
+    expect(AGY_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
+    expect(AGY_TEMPLATE.capabilityBadges.attentionSource).toBe(
+      "permission prompt (Run this command?, Allow access to this URL?, Allow calling this tool?)",
+    );
     const launch = resolveManagedLaunch(
       "agy",
       {

@@ -1131,6 +1131,61 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.visibleAttention).toBe(true);
   });
 
+  it("agy: 1.1.28+ Run this command? is attention without the old proceed line", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  Run this command?",
+          "  ls -la",
+          "  Reason: hook flagged this action",
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash \u00B7 high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.visibleAttention).toBe(true);
+  });
+
+  it("agy: 1.1.28+ Allow access to this URL? is attention", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  Allow access to this URL?",
+          "  https://example.com",
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash \u00B7 high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.visibleAttention).toBe(true);
+  });
+
+  it("agy: 1.1.28+ Allow calling this tool? is attention", () => {
+    const result = evaluate(
+      snap({
+        lines: [
+          "  Allow calling this tool?",
+          "  mcp__search",
+          HR,
+          ">",
+          HR,
+          "? for shortcuts                    Gemini 3.7 Flash \u00B7 high",
+        ],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("attention");
+    expect(result.visibleAttention).toBe(true);
+  });
+
   it("agy: idle footer without activity line or subagents is not working", () => {
     const result = evaluate(
       snap({

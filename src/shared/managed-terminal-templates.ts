@@ -176,8 +176,10 @@ export type ArgvSpec = {
    * Vellum Command mounts ONLY its own directory
    * (`<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-rules/<seat>/`): the
    * operator's workspace is never written to, and the loaded context cites the
-   * app-owned path as its origin. Probed on agy 1.1.20 — an `AGENTS.md` in an
-   * added dir is obeyed, while a cwd `AGENTS.md` alone is not read at all.
+   * app-owned path as its origin. Official agy 1.2.1 best-practices also parse
+   * a workspace-root `AGENTS.md` / `GEMINI.md`; that is why the seat still
+   * never writes the operator cwd. Whether an `--add-dir` `AGENTS.md` is
+   * still obeyed on 1.2.1 is UNVERIFIED (1.1.20 canary; flag still exists).
    */
   readonly rulesDirFlag?: string;
   /**
@@ -1062,11 +1064,28 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
  * Tier A through the app-owned ephemeral rules dir (never the user workspace).
  * `--conversation <id>` resume was re-verified on the same build: a token
  * stated in one print-mode turn came back on the resumed conversation.
+ *
+ * Re-probed 1.2.1 (2026-09-11):
+ * - Every claimed spawn flag still exists on `agy --help`. Installed
+ *   `agy --version` and GitHub latest are both 1.2.1.
+ * - Official best-practices now say a workspace-root `AGENTS.md` or
+ *   `GEMINI.md` is parsed on startup. That contradicts the 1.1.20
+ *   cwd-negative receipt. Vellum Command still mounts ONLY the app-owned
+ *   rules dir via `--add-dir` and never writes the operator workspace.
+ *   Whether the `--add-dir` mount itself is still obeyed on 1.2.1 is
+ *   UNVERIFIED (flag exists; canary not re-run).
+ * - Permission-prompt copy since 1.1.28 names the action (`Run this
+ *   command?`, `Allow access to this URL?`, `Allow calling this tool?`)
+ *   plus an optional `Reason:` line. Attention matchers follow that copy
+ *   and still accept the older `requesting permission for:` form.
+ * - `--mode accept-edits|plan` is additive and is not a template dial.
+ * - `resumeReinjection: "re-pass"` is the 2026-08 receipt and was not
+ *   re-canaried on 1.2.1 (UNVERIFIED).
  */
 export const AGY_TEMPLATE: ManagedTerminalTemplate = {
   harness: "agy",
   displayName: "Antigravity",
-  probedVersion: "1.1.20",
+  probedVersion: "1.2.1",
   argvSpec: {
     binary: "agy",
     prefix: [],
@@ -1095,7 +1114,8 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
     remote: false,
     requiresGitCwd: false,
     stateFeed: "grid (screen rules)",
-    attentionSource: "permission prompt ([y/n], do you want to proceed?)",
+    attentionSource:
+      "permission prompt (Run this command?, Allow access to this URL?, Allow calling this tool?)",
     labels: [
       "injection A",
       "grid",

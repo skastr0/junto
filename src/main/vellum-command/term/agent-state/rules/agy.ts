@@ -3,13 +3,25 @@
  *
  * Screen rules for permission prompts, modal actions, braille/spinner working state,
  * and background tasks.
+ *
+ * Permission-prompt copy since 1.1.28 names the action (`Run this command?`,
+ * `Allow access to this URL?`, `Allow calling this tool?`) plus an optional
+ * `Reason:` line. The older `requesting permission for:` / `do you want to
+ * proceed?` form is still matched.
  */
 
 import type { SeatRulePack } from "../types";
 
+/** 1.1.28+ action titles — also used as idle/composer exclusions. */
+const AGY_PERMISSION_TITLES = [
+  { contains: ["run this command?"] },
+  { contains: ["allow access to this url?"] },
+  { contains: ["allow calling this tool?"] },
+] as const;
+
 export const agyRules: SeatRulePack = {
   harness: "agy",
-  version: "2026.08.25.1",
+  version: "2026.09.11.1",
   rules: [
     {
       id: "modal_allow_action",
@@ -33,11 +45,16 @@ export const agyRules: SeatRulePack = {
       region: "whole_recent",
       visibleAttention: true,
       matchers: {
-        contains: ["requesting permission for:"],
         any: [
-          { contains: ["do you want to proceed?"] },
-          { contains: ["tab amend"] },
-          { contains: ["edit command"] },
+          ...AGY_PERMISSION_TITLES,
+          {
+            contains: ["requesting permission for:"],
+            any: [
+              { contains: ["do you want to proceed?"] },
+              { contains: ["tab amend"] },
+              { contains: ["edit command"] },
+            ],
+          },
         ],
       },
     },
@@ -109,6 +126,7 @@ export const agyRules: SeatRulePack = {
           { contains: ["esc to cancel"] },
           { contains: ["do you want to proceed?"] },
           { contains: ["your answer:"] },
+          ...AGY_PERMISSION_TITLES,
         ],
       },
     },
@@ -125,6 +143,7 @@ export const agyRules: SeatRulePack = {
           { contains: ["esc to cancel"] },
           { contains: ["do you want to proceed?"] },
           { contains: ["your answer:"] },
+          ...AGY_PERMISSION_TITLES,
         ],
       },
     },
@@ -157,6 +176,7 @@ export const agyRules: SeatRulePack = {
           { contains: ["esc to cancel"] },
           { contains: ["do you want to proceed?"] },
           { contains: ["your answer:"] },
+          ...AGY_PERMISSION_TITLES,
         ],
       },
     },

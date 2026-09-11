@@ -15,8 +15,9 @@ import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
 /**
  * Antigravity has no system-prompt flag, so its Tier-A carrier is a DIRECTORY:
  * `--add-dir <dir>` mounts an app-owned dir whose AGENTS.md loads as doctrine.
- * Probed on agy 1.1.20 — a canary rule in an added dir was obeyed from a cwd
- * that carried no AGENTS.md, and `--conversation <id>` resumed with continuity.
+ * Official 1.2.1 best-practices also parse a workspace-root AGENTS.md /
+ * GEMINI.md; Vellum Command still writes only the app-owned dir. The 1.1.20
+ * added-dir canary was not re-run on 1.2.1 (UNVERIFIED).
  */
 describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
   const seatInjection = {
@@ -44,10 +45,14 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
   });
 
   it("declares the directory carrier and Tier A", () => {
+    expect(AGY_TEMPLATE.probedVersion).toBe("1.2.1");
     expect(AGY_TEMPLATE.argvSpec.rulesDirFlag).toBe("--add-dir");
     expect(AGY_TEMPLATE.injectionSpec.tier).toBe("A");
     expect(AGY_TEMPLATE.injectionSpec.flags).toEqual(["--add-dir"]);
     expect(AGY_TEMPLATE.capabilityBadges.instructionInjection).toBe("A");
+    expect(AGY_TEMPLATE.capabilityBadges.attentionSource).toContain(
+      "Run this command?",
+    );
     // No system-prompt flag was invented for a harness that has none.
     expect(AGY_TEMPLATE.argvSpec.systemPromptFlag).toBeUndefined();
   });
