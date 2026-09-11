@@ -89,6 +89,7 @@ import {
 } from "./term/managed-pulse-bridge";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
+import { bindManagedTerminalDriveForOverseer } from "./term/managed-drive-holder";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
@@ -1291,6 +1292,7 @@ export const registerVellumIpc = (): void => {
         composerVerdict: (bindingId) =>
           seatStateRuntime.composerVerdict(bindingId),
       });
+      bindManagedTerminalDriveForOverseer(managedDrive);
       // The composer went visibly empty (operator submitted or cleared, or a
       // repaint settled): release the queued prompts that waited on it.
       seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {

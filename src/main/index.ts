@@ -76,6 +76,11 @@ import {
   type WorkControlServer,
 } from "./vellum-command/work/control";
 import {
+  captureTrustedWindowPng,
+  composeOverseer,
+  type OverseerComposition,
+} from "./vellum-command/overseer/composition";
+import {
   startStationControlServer,
   stationControlReadiness,
   type StationControlServer,
@@ -344,6 +349,7 @@ let browserComposition: BrowserComposition | undefined;
 let browserControl: BrowserControlServer | undefined;
 let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
+let overseerComposition: OverseerComposition | undefined;
 let stationControl: StationControlServer | undefined;
 let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
@@ -1456,6 +1462,25 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Work control socket: agent protocol surface over the work plane.
     // Independent of browser composition; owns ~/.vellum-command/work/{control.sock,token}.
     try {
+      overseerComposition = await composeOverseer({
+        run: (effect) => AppRuntime.runPromise(effect),
+        captureApplicationPage: captureTrustedWindowPng(async () => {
+          const window = currentTrustedMainWindow();
+          if (
+            window === undefined ||
+            window.isDestroyed() ||
+            window.webContents.isDestroyed()
+          ) {
+            return undefined;
+          }
+          const image = await window.webContents.capturePage();
+          return new Uint8Array(image.toPNG());
+        }),
+        ...(browserComposition !== undefined
+          ? { pages: browserComposition.sessions }
+          : {}),
+        registerRemoteHandler: true,
+      });
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
@@ -1468,6 +1493,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           ) return;
           window.webContents.send(IPC_CHANNELS.preamble, event);
         },
+        onOverseer: overseerComposition.onOverseer,
       });
       if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {
@@ -1787,6 +1813,8 @@ const beginShutdownAdmission = (reason: string): void => {
   beginStationFleetPropagationShutdown();
 
   operatorControl?.beginShutdown();
+  overseerComposition?.dispose();
+  overseerComposition = undefined;
   workControl?.beginShutdown();
   stationRemoteReportPumpShutdown ??= stationRemoteReportPump?.close();
   stationControl?.beginShutdown();

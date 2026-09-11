@@ -31,6 +31,10 @@ import {
   type WorkControlServer,
 } from "./vellum-command/work/control";
 import {
+  composeOverseer,
+  type OverseerComposition,
+} from "./vellum-command/overseer/composition";
+import {
   startStationControlServer,
   type StationControlServer,
 } from "./vellum-command/station/control-server";
@@ -107,6 +111,7 @@ const runInstallUserService = (): void => {
 
 type Handles = {
   workControl?: WorkControlServer;
+  overseer?: OverseerComposition;
   stationControl?: StationControlServer;
   stationRemoteReportPump?: StationRemoteReportPump;
   hermes?: {
@@ -137,6 +142,7 @@ const runProductBoot = async (): Promise<void> => {
     if (handles.shuttingDown) return;
     handles.shuttingDown = true;
     handles.kernel?.suspend();
+    handles.overseer?.dispose();
     handles.workControl?.beginShutdown();
     void handles.stationRemoteReportPump?.close();
     handles.stationControl?.beginShutdown();
@@ -263,9 +269,25 @@ const runProductBoot = async (): Promise<void> => {
   }
 
   try {
+    handles.overseer = await composeOverseer({
+      run: (effect) => RemoteRuntime.runPromise(effect),
+      captureApplicationPage: async () => ({
+        ok: false,
+        unavailable: true,
+        reason: "Remote has no Command Center window to observe",
+      }),
+      remoteForward: (_caller, _request) =>
+        Effect.fail({
+          type: "RuntimeDown",
+          message:
+            "Remote overseer forwarding requires makeRemoteStationOverseerDispatcher on the existing CC session",
+          details: { retryable: false },
+        }),
+    });
     handles.workControl = await startWorkControlServer({
       version: remoteAppVersion(),
       run: (effect) => RemoteRuntime.runPromise(effect),
+      onOverseer: handles.overseer.onOverseer,
     });
   } catch (error) {
     console.error("[work-control] failed to start:", error);
