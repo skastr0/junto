@@ -17,7 +17,7 @@ const SHOTS = join(process.cwd(), "test-results", "design-audit");
 const CANVAS = "actor-edges-focus";
 const AGENT_LABEL = "edge focus worker";
 
-// Two legal wires, one each way: the seat takes work from the queue, and it
+// Two legal wires, one each way: the queue works the seat, and the seat
 // escalates into the requests sink. A terminal peer is not an option here —
 // terminal admits no verb, so that wire never reaches the rail.
 const fixtureNodes = [

@@ -36,6 +36,7 @@ import { type PauseScope } from "@shared/pause";
 import { verbsForPair, type Verb } from "@shared/physics";
 import { isTaskSinkNode } from "@shared/flow-graph";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
+import { verbSentence } from "../../lib/verb-sentence";
 import {
   ADMISSION_ORDER,
   admissionLabel,
@@ -183,34 +184,6 @@ export function PauseScopeKey({ scope }: { readonly scope: PauseScope }) {
 // no form, and no second authoring surface — the bottom bar reads the verb,
 // names the two ends, offers the pair's other verb when there is one, and
 // deletes. Everything else about the wire is compiled from that verb.
-
-/**
- * One product sentence per verb. The verb word is already the product word;
- * this table carries only the grammar around it, so no verb ever picks up a
- * second name.
- */
-const VERB_SENTENCE = {
-  messages: "{from} messages {to}",
-  manages: "{from} manages {to}",
-  contributes: "{from} contributes to {to}",
-  works: "{to} takes work from {from}",
-  escalates: "{from} escalates to {to}",
-  publishes: "{from} publishes to {to}",
-  participates: "{from} takes part in {to}",
-  reads: "{from} reads {to}",
-  edits: "{from} edits {to}",
-  navigates: "{from} drives {to}",
-  feeds: "{from} feeds {to}",
-  fires: "{from} fires {to}",
-  announces: "{from} announces to {to}",
-  enqueues: "{from} enqueues onto {to}",
-  wakes: "{from} wakes {to}",
-  flags: "{from} flags {to}",
-  chains: "{from} chains into {to}",
-} as const satisfies Record<Verb, string>;
-
-const verbSentence = (verb: Verb, from: string, to: string): string =>
-  VERB_SENTENCE[verb].replace("{from}", from).replace("{to}", to);
 
 type EdgeVerbView = {
   readonly verb: Verb | undefined;
