@@ -19,12 +19,6 @@ build/electron-observation-high-water.json
 .amp/in/
 .amp/portals/
 
-# design-sync machine state
-.ds-sync/
-ds-bundle/
-.design-sync/.cache/
-.design-sync/learnings/
-.design-sync/node_modules
 
 # Local credentials and deployment/build state
 .env
@@ -35,3 +29,7 @@ ds-bundle/
 .vercel/
 .wrangler/
 *.tsbuildinfo
+
+# design-sync build artifacts (tooling removed, outputs stay local)
+.ds-sync/
+ds-bundle/

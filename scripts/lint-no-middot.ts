@@ -29,7 +29,6 @@ const SKIP_DIR_NAMES = new Set([
   ".turbo",
   ".vite",
   "coverage",
-  ".design-sync",
   ".ds-sync",
   ".atlas",
   ".groundwork",
@@ -77,7 +76,7 @@ const SKIP_FILE_NAMES = new Set([
   "lint-no-middot.ts",
 ]);
 
-// Product surfaces only. Tests, e2e, scripts, experiments, and design-sync
+// Product surfaces only. Tests, e2e, scripts, and experiments
 // previews transcribe external reality and are out of scope.
 const SCAN_ROOTS = ["src", "docs", "assets"];
 const ROOT_FILES = ["README.md", "AGENTS.md", "CLAUDE.md", "PRODUCT.md"];
