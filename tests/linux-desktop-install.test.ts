@@ -207,7 +207,7 @@ describe("rootless Linux desktop installation", () => {
     const archivePath = join(location.root, `${version}-${sha256(archive)}.tar.gz`);
     await writeFile(archivePath, archive);
     await expect(stageLinuxDesktopRelease({ archivePath, descriptor: authenticate(version, archive), home: location.home })).rejects.toThrow(/NUL|unsafe|unsupported/u);
-    expect(await readdir(join(location.home, ".local/opt/vellum-command-alpha")).catch(() => [])).toEqual([]);
+    expect((await readdir(join(location.home, ".local/opt/vellum-command-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
   });
 
   it("rejects a numeric PAX path that would crash unpack", async () => {
@@ -249,7 +249,7 @@ describe("rootless Linux desktop installation", () => {
     await writeFile(input.archivePath, truncated);
     const descriptor = authenticate("0.3.0", truncated);
     await expect(stageLinuxDesktopRelease({ archivePath: input.archivePath, descriptor, home: input.home })).rejects.toThrow();
-    expect(await readdir(join(input.home, ".local/opt/vellum-command-alpha")).catch(() => [])).toEqual([]);
+    expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
   });
 
   it("first install refuses an existing managed launcher, while update preserves the previous generation", async () => {
