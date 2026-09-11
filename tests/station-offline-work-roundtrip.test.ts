@@ -28,6 +28,7 @@ import {
   PairRequest,
   ProjectRequest,
   ReportRequest,
+  ReportResponse,
   STATION_API_PROTOCOL,
   StationHostId,
   StationSha256,
@@ -2809,6 +2810,296 @@ describe("Station work authority survives Command Center downtime", () => {
         }),
       ]),
     );
+  });
+
+  it("imports only the exact cross-canvas overseer artifact outcome after grant revoke", async () => {
+    const commandCenterId = installation("cc-overseer-artifact");
+    const remoteId = installation("remote-overseer-artifact");
+    const remoteHost = hostId("artifact-remote");
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const bindingId = "binding-artifact-overseer";
+    const publisher: ActorRef = {
+      seatId: deriveActorSeatId(remoteId, bindingId),
+      canvasName: "publisher-home",
+      nodeId: "remote-overseer",
+    };
+    const artifactSink = {
+      canvasName: "factory",
+      nodeId: "artifacts",
+    };
+    const destinationDocument: CanvasDoc = {
+      nodes: [
+        {
+          id: artifactSink.nodeId,
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Cross-canvas artifacts",
+          ether: {
+            entity: { kind: "artifacts" },
+            host: "local",
+          },
+        },
+      ],
+      edges: [],
+    };
+    const publisherDocument: CanvasDoc = {
+      nodes: [
+        {
+          id: publisher.nodeId,
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Remote overseer",
+          ether: {
+            entity: {
+              kind: "agent",
+              name: `${remoteHost}:overseer`,
+            },
+            host: remoteHost,
+            terminal: {
+              bindingId,
+              harness: "codex",
+              launch: { kind: "harness", argv: ["codex"] },
+            },
+          },
+        },
+      ],
+      edges: [],
+    };
+
+    await configureDirectPair(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+      destinationDocument,
+    );
+    const publisherWrite = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.write(
+        publisher.canvasName,
+        publisherDocument,
+      ),
+    );
+    const grant = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: publisher.canvasName,
+        nodeId: publisher.nodeId,
+        overseer: true,
+        expectedRevision: publisherWrite.revision,
+      }),
+    );
+    await archiveCurrentProjection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    const installedProjection = await remote.runtime.runPromise(
+      remote.station.projection,
+    );
+    if (installedProjection === undefined) {
+      throw new Error("expected overseer projection on Remote");
+    }
+    expect(
+      decodeStationPortfolioBody(installedProjection.body).actorSeats.find(
+        (seat) => seat.seatId === publisher.seatId,
+      ),
+    ).toMatchObject({
+      overseer: true,
+      primaryRef: {
+        canvasName: publisher.canvasName,
+        nodeId: publisher.nodeId,
+      },
+    });
+
+    const artifact = {
+      artifactId: "cross-canvas-overseer-artifact",
+      name: "proof.txt",
+      parts: [{ kind: "text" as const, text: "publisher stays original" }],
+    };
+    const command = await commandCenter.runtime.runPromise(
+      commandCenter.work.enqueueRemoteCommand({
+        targetInstallationId: remoteId,
+        sink: artifactSink,
+        item: {
+          kind: "artifact",
+          itemId: artifact.artifactId,
+          sink: artifactSink,
+        },
+        action: {
+          operation: "artifact.publish",
+          artifact,
+          publishedBy: publisher,
+        },
+        originAt: now,
+        receivedAt: now,
+      }),
+    );
+    const request = await commandCenter.runtime.runPromise(
+      commandCenter.api.prepareReport(remoteId),
+    );
+    expect(request.batch.records).toEqual([
+      expect.objectContaining({
+        id: command.id,
+        recordType: "command",
+        item: {
+          kind: "artifact",
+          itemId: artifact.artifactId,
+          sink: artifactSink,
+        },
+        body: {
+          operation: "artifact.publish",
+          artifact,
+          publishedBy: publisher,
+        },
+      }),
+    ]);
+
+    const response = await remote.runtime.runPromise(
+      remote.api.handle(
+        request,
+        readiness,
+        { _tag: "command-center-route" },
+      ),
+    );
+    if (response.op !== "report") {
+      throw new Error("artifact command did not produce a report response");
+    }
+    const fact = response.batch.records.find(
+      (record) => record.recordType === "fact",
+    );
+    const disposition = response.batch.records.find(
+      (record) => record.recordType === "disposition",
+    );
+    if (
+      fact?.recordType !== "fact" ||
+      fact.body.operation !== "artifact.publish" ||
+      disposition?.recordType !== "disposition" ||
+      disposition.body.status !== "applied"
+    ) {
+      throw new Error(
+        `artifact command did not produce an applied outcome: ${JSON.stringify(response.batch.records)}`,
+      );
+    }
+    expect(fact.body.publishedBy).toEqual(publisher);
+    expect(fact.id.route).toEqual({
+      eventHome: remoteId,
+      entityHome: remoteId,
+    });
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot(
+            artifactSink.canvasName,
+            artifactSink.nodeId,
+          ),
+        )
+      ).artifacts.items,
+    ).toEqual([
+      expect.objectContaining({ artifactId: artifact.artifactId }),
+    ]);
+
+    const grantedRevision = grant.affected.find(
+      (affected) => affected.name === publisher.canvasName,
+    )?.revision;
+    if (grantedRevision === undefined) {
+      throw new Error("overseer grant did not report publisher canvas revision");
+    }
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: publisher.canvasName,
+        nodeId: publisher.nodeId,
+        overseer: false,
+        expectedRevision: grantedRevision,
+      }),
+    );
+    const statusBeforeForgery = await commandCenter.runtime.runPromise(
+      commandCenter.station.statusFacts,
+    );
+    const forgedFact = resealWorkRecord({
+      ...fact,
+      body: {
+        ...fact.body,
+        publishedBy: {
+          ...fact.body.publishedBy,
+          nodeId: "forged-overseer",
+        },
+      },
+    });
+    const forgedDisposition = resealWorkRecord({
+      ...disposition,
+      body: {
+        ...disposition.body,
+        factSha256: forgedFact.contentSha256,
+      },
+    });
+    const forgedResponse = ReportResponse.make({
+      ...response,
+      batch: {
+        ...response.batch,
+        records: response.batch.records.map((record) =>
+          record.recordType === "fact"
+            ? forgedFact
+            : record.recordType === "disposition"
+              ? forgedDisposition
+              : record
+        ),
+      },
+    });
+    const denied = await commandCenter.runtime.runPromise(
+      commandCenter.api.acceptReportResponse(
+        remoteId,
+        request,
+        forgedResponse,
+      ).pipe(Effect.result),
+    );
+    expect(Result.isFailure(denied)).toBe(true);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.station.statusFacts,
+      ),
+    ).toEqual(statusBeforeForgery);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.work.recordsAfter({
+          route: { eventHome: remoteId, entityHome: remoteId },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      (await commandCenter.runtime.runPromise(commandCenter.work.pendingCommands))[0],
+    ).toMatchObject({ command: { id: command.id }, resolution: undefined });
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.api.acceptReportResponse(remoteId, request, response),
+    );
+    expect(
+      (await commandCenter.runtime.runPromise(commandCenter.work.pendingCommands))[0],
+    ).toMatchObject({
+      command: { id: command.id },
+      resolution: { status: "applied" },
+    });
+    const imported = await commandCenter.runtime.runPromise(
+      commandCenter.work.recordsAfter({
+        route: { eventHome: remoteId, entityHome: remoteId },
+      }),
+    );
+    expect(imported[0]).toMatchObject({
+      recordType: "fact",
+      body: {
+        operation: "artifact.publish",
+        artifact,
+        publishedBy: publisher,
+      },
+    });
   });
 
 });

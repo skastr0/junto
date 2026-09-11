@@ -571,17 +571,17 @@ const authorizeMessageDestination = (
 
 const authorizeArtifactTaskProjection = (
   topology: CapturedWorkTopology,
-  fact: WorkFact,
-): WorkFactAuthorization => {
-  if (
-    fact.body.operation !== "artifact.publish" ||
-    fact.body.artifact.task === undefined
-  ) {
+  artifact: Extract<
+    WorkCommand["body"],
+    { readonly operation: "artifact.publish" }
+  >["artifact"],
+): WorkCommandAuthorization => {
+  if (artifact.task === undefined) {
     return admitted();
   }
   const taskSink = findSink(
     topology,
-    fact.body.artifact.task.sink,
+    artifact.task.sink,
     "task",
   );
   return "_tag" in taskSink ? taskSink : admitted();
@@ -662,6 +662,35 @@ const authorizeActor = (
         "capability-denied",
         decision.failure.message,
       );
+};
+
+const authorizeRemoteOverseerArtifactCommand = (
+  topology: CapturedWorkTopology,
+  action: Extract<
+    WorkCommand["body"],
+    { readonly operation: "artifact.publish" }
+  >,
+): WorkCommandAuthorization => {
+  const publisher = seatForRef(topology, action.publishedBy);
+  if (publisher === undefined) {
+    return rejected(
+      "locality-mismatch",
+      "artifact publisher does not resolve to its exact projected actor seat",
+    );
+  }
+  if (publisher.authorityInstallationId !== topology.localInstallationId) {
+    return rejected(
+      "locality-mismatch",
+      "artifact publisher is not homed on the receiving Remote",
+    );
+  }
+  if (publisher.overseer !== true) {
+    return rejected(
+      "capability-denied",
+      "artifact publisher no longer has a live human overseer grant",
+    );
+  }
+  return authorizeArtifactTaskProjection(topology, action.artifact);
 };
 
 const sinkAuthorityForHostId = (
@@ -1038,7 +1067,6 @@ export const makeStationWorkAdmission = (
         // single-homed here.
         return admitted();
       case "request.create":
-      case "artifact.publish":
       case "delivery.accepted":
       case "board.topic.create":
       case "board.post.append":
@@ -1046,6 +1074,11 @@ export const makeStationWorkAdmission = (
         return rejected(
           "locality-mismatch",
           `${command.body.operation} must originate as a local actor fact or CC-homed command`,
+        );
+      case "artifact.publish":
+        return authorizeRemoteOverseerArtifactCommand(
+          topology,
+          command.body,
         );
       case "message.append": {
         if (command.body.destination.kind === "mailbox") {
@@ -1080,7 +1113,7 @@ export const makeStationWorkAdmission = (
     if (fact.body.operation === "artifact.publish") {
       const taskProjection = authorizeArtifactTaskProjection(
         topology,
-        fact,
+        fact.body.artifact,
       );
       if (taskProjection._tag === "rejected") return taskProjection;
     }

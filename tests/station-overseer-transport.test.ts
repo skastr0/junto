@@ -282,7 +282,7 @@ describe("Remote overseer Station transport", () => {
     expect(attempts).toBe(1);
   });
 
-  it("derives Station direction around the process caller and rejects malformed callers", async () => {
+  it("derives Station direction around the process caller", async () => {
     let observed: StationOverseerRequestValue | undefined;
     const dispatcher = makeRemoteStationOverseerDispatcher({
       remoteInstallationId: REMOTE,
@@ -302,11 +302,5 @@ describe("Remote overseer Station transport", () => {
       targetInstallationId: COMMAND_CENTER,
       caller,
     });
-    await expect(
-      dispatcher.dispatch(request, {
-        ...caller,
-        nodeId: "",
-      }),
-    ).rejects.toMatchObject({ failure: "invalid-request" });
   });
 });

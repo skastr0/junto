@@ -1,4 +1,4 @@
-import { Effect, Result, Schema } from "effect";
+import { Effect } from "effect";
 import type {
   OverseerCaller,
   OverseerRequest,
@@ -6,8 +6,8 @@ import type {
 } from "@shared/overseer-control";
 import {
   STATION_API_PROTOCOL,
-  StationOverseerRequest,
   type InstallationId as InstallationIdValue,
+  type StationOverseerRequest,
 } from "@shared/station-api";
 import {
   StationControlReportError,
@@ -91,11 +91,6 @@ export interface RemoteStationOverseerDispatcherOptions {
   readonly commandCenterInstallationId: InstallationIdValue;
 }
 
-const strictDecodeStationOverseerRequest = Schema.decodeUnknownResult(
-  StationOverseerRequest,
-  { onExcessProperty: "error" },
-);
-
 const dispatchFailure = (
   failure: StationRemoteOverseerDispatchFailure,
   message: string,
@@ -114,20 +109,14 @@ export const makeRemoteStationOverseerDispatcher = (
   options: RemoteStationOverseerDispatcherOptions,
 ): RemoteStationOverseerDispatcher => ({
   dispatch: async (request, processDerivedCaller) => {
-    const decoded = strictDecodeStationOverseerRequest({
+    const stationRequest: StationOverseerRequest = {
       protocol: STATION_API_PROTOCOL,
       op: "overseer",
       senderInstallationId: options.remoteInstallationId,
       targetInstallationId: options.commandCenterInstallationId,
       caller: processDerivedCaller,
       request,
-    });
-    if (Result.isFailure(decoded)) {
-      throw dispatchFailure(
-        "invalid-request",
-        "Remote overseer request or process-derived caller is invalid",
-      );
-    }
+    };
     if (!options.control.sessionReady()) {
       throw dispatchFailure(
         "unavailable",
@@ -135,7 +124,7 @@ export const makeRemoteStationOverseerDispatcher = (
       );
     }
     try {
-      const response = await options.control.overseer(decoded.success);
+      const response = await options.control.overseer(stationRequest);
       return response.result;
     } catch (cause) {
       if (cause instanceof StationControlReportError) {

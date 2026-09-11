@@ -73,6 +73,14 @@ const commandCenterActor: ActorRef = {
   nodeId: "cc-actor",
 };
 
+const remoteOverseer: ActorRef = {
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(
+    `seat_${"d".repeat(64)}`,
+  ),
+  canvasName: "publisher-home",
+  nodeId: "remote-overseer",
+};
+
 const document = (connected: boolean) =>
   Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
     nodes: [
@@ -248,6 +256,29 @@ const projectedCommandCenterActor = Schema.decodeUnknownSync(
   ],
 });
 
+const projectedRemoteOverseer = Schema.decodeUnknownSync(
+  ProjectedActorSeat,
+  strictDecode,
+)({
+  seatId: remoteOverseer.seatId,
+  authorityInstallationId: remote,
+  hostId: "remote",
+  overseer: true,
+  bindingId: "remote-overseer",
+  agentKey: "remote:overseer",
+  harness: "codex",
+  primaryRef: {
+    canvasName: remoteOverseer.canvasName,
+    nodeId: remoteOverseer.nodeId,
+  },
+  refs: [
+    {
+      canvasName: remoteOverseer.canvasName,
+      nodeId: remoteOverseer.nodeId,
+    },
+  ],
+});
+
 type AdmissionTopology = Parameters<typeof makeStationWorkAdmission>[0];
 
 const topology = (
@@ -312,6 +343,39 @@ const topology = (
       ["remote", remote],
       ["other-remote", otherRemote],
     ]),
+  };
+};
+
+const remoteOverseerTopology = (
+  seat: ProjectedActorSeat = projectedRemoteOverseer,
+): AdmissionTopology => {
+  const base = topology("remote");
+  const publisherHome = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
+    nodes: [
+      {
+        id: remoteOverseer.nodeId,
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 100,
+        text: "Remote overseer",
+        ether: {
+          entity: { kind: "agent", name: "remote:overseer" },
+          host: "remote",
+          overseer: seat.overseer === true,
+        },
+      },
+    ],
+    edges: [],
+  });
+  return {
+    ...base,
+    documents: new Map([
+      ...base.documents,
+      [remoteOverseer.canvasName, publisherHome] as const,
+    ]),
+    actorSeats: [...base.actorSeats, seat],
   };
 };
 
@@ -490,6 +554,55 @@ const artifactFact = (
       },
       publishedBy: remoteActor,
     },
+  });
+
+const remoteOverseerArtifactCommand = (
+  publishedBy: ActorRef = remoteOverseer,
+  taskNodeId = "tasks",
+): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: remote },
+      seq: "3",
+    },
+    recordType: "command",
+    item: {
+      kind: "artifact",
+      itemId: "artifact-overseer",
+      sink: { canvasName: "factory", nodeId: "artifacts" },
+    },
+    operation: "artifact.publish",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "artifact.publish",
+      artifact: {
+        artifactId: "artifact-overseer",
+        parts: [{ kind: "text", text: "cross-canvas proof" }],
+        task: {
+          kind: "task",
+          itemId: "task-1",
+          sink: { canvasName: "factory", nodeId: taskNodeId },
+        },
+      },
+      publishedBy,
+    },
+  });
+
+const remoteOverseerArtifactFact = (
+  basis: WorkFactValue["basis"],
+): WorkFactValue =>
+  Schema.decodeUnknownSync(WorkFact, strictDecode)({
+    ...remoteOverseerArtifactCommand(),
+    id: {
+      route: { eventHome: remote, entityHome: remote },
+      seq: "4",
+    },
+    recordType: "fact",
+    basis,
+    body: remoteOverseerArtifactCommand().body,
   });
 
 const taskDescribeCommand = (
@@ -1124,6 +1237,130 @@ describe("Station API v1 work routing", () => {
       _tag: "rejected",
       reason: "projection-conflict",
     });
+  });
+
+  it("admits only an exact live Remote overseer artifact command from its paired Command Center", () => {
+    const topologyWithGrant = remoteOverseerTopology();
+    const admission = makeStationWorkAdmission(topologyWithGrant);
+    expect(admission.authorizeCommand(remoteOverseerArtifactCommand())).toEqual({
+      _tag: "admitted",
+    });
+
+    const wrongSource = remoteOverseerArtifactCommand();
+    expect(
+      admission.authorizeCommand({
+        ...wrongSource,
+        id: {
+          ...wrongSource.id,
+          route: { eventHome: otherRemote, entityHome: remote },
+        },
+      }),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "authority-mismatch",
+    });
+
+    expect(
+      admission.authorizeCommand(
+        remoteOverseerArtifactCommand({
+          ...remoteOverseer,
+          seatId: remoteActor.seatId,
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+
+    expect(
+      makeStationWorkAdmission(
+        remoteOverseerTopology({
+          ...projectedRemoteOverseer,
+          authorityInstallationId: otherRemote,
+        }),
+      ).authorizeCommand(remoteOverseerArtifactCommand()),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+
+    const {
+      overseer: _overseer,
+      ...ordinaryRemoteSeat
+    } = projectedRemoteOverseer;
+    expect(
+      makeStationWorkAdmission(
+        remoteOverseerTopology(ordinaryRemoteSeat),
+      ).authorizeCommand(remoteOverseerArtifactCommand()),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+
+    const wrongDestination = remoteOverseerArtifactCommand();
+    expect(
+      admission.authorizeCommand({
+        ...wrongDestination,
+        item: {
+          ...wrongDestination.item,
+          sink: { canvasName: "factory", nodeId: "tasks" },
+        },
+      }),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+    expect(
+      admission.authorizeCommand(
+        remoteOverseerArtifactCommand(remoteOverseer, "missing-tasks"),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "missing-entity",
+    });
+  });
+
+  it("does not broaden projected artifact facts and keeps exact command facts valid after grant revoke", () => {
+    const remoteTopology = remoteOverseerTopology();
+    const commandCenterTopology: AdmissionTopology = {
+      ...topology("command-center"),
+      documents: remoteTopology.documents,
+      actorSeats: remoteTopology.actorSeats,
+    };
+    const projectedFact = remoteOverseerArtifactFact(
+      Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
+        kind: "projected-intent",
+        generation: "1",
+        contentSha256,
+      }),
+    );
+    expect(
+      makeStationWorkAdmission(commandCenterTopology).authorizeFact(
+        projectedFact,
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+
+    const command = remoteOverseerArtifactCommand();
+    const { overseer: _overseer, ...revokedSeat } =
+      projectedRemoteOverseer;
+    const revokedRemoteTopology = remoteOverseerTopology(revokedSeat);
+    const revokedCommandCenterTopology: AdmissionTopology = {
+      ...commandCenterTopology,
+      documents: revokedRemoteTopology.documents,
+      actorSeats: revokedRemoteTopology.actorSeats,
+    };
+    expect(
+      makeStationWorkAdmission(revokedCommandCenterTopology).authorizeFact(
+        remoteOverseerArtifactFact({
+          kind: "command",
+          command: command.id,
+          commandSha256: command.contentSha256,
+        }),
+      ),
+    ).toEqual({ _tag: "admitted" });
   });
 
   it("rejects a message destination that does not match the projected sink kind", () => {
