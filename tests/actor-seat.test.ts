@@ -235,7 +235,7 @@ describe("actor-seat compiler", () => {
     ).toThrow("conflicting executable descriptors");
   });
 
-  it("defaults absent overseer authority to false and rejects alias disagreement", () => {
+  it("keeps absent authority ordinary and rejects overseer alias disagreement", () => {
     const command = installation("install-command");
     const ordinary = compileActorSeatRegistry(
       new Map([
@@ -250,7 +250,7 @@ describe("actor-seat compiler", () => {
       ]),
       new Map([["local", command]]),
     );
-    expect(ordinary[0]?.overseer).toBe(false);
+    expect(ordinary[0]?.overseer).toBeUndefined();
 
     expect(() =>
       compileActorSeatRegistry(
