@@ -56,6 +56,7 @@ export type SchedulerEffectDeps = {
     nodeId: string,
     flag: EtherFlag,
     enabled: boolean,
+    overseer?: OverseerFireAuthority,
   ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   /** Optional — inject prompt into agent mailbox. Absent = inject effects no-op. */
   readonly injectPrompt?: (input: {
@@ -124,7 +125,7 @@ const applyOne = async (
     return "failed";
   }
   if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return "skipped";
-  if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
+  if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
 
   if (binding.effect.mode === "enqueue_task") {
     // `enqueues` is the whole authored fact: the edge carries no payload, so
@@ -136,7 +137,7 @@ const applyOne = async (
       payload: defaultEffectTasksCreate(schedulerSourceLabel(binding.source)),
       ...(overseer !== undefined ? { overseer } : {}),
     });
-    if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
+    if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
     if (!result.ok) {
       console.error(
         `[kernel] enqueue_task failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
@@ -163,7 +164,7 @@ const applyOne = async (
       text,
       ...(overseer !== undefined ? { overseer } : {}),
     });
-    if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
+    if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
     if (!result.ok) {
       console.error(
         `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
@@ -191,8 +192,9 @@ const applyOne = async (
     binding.target.id,
     binding.effect.flag,
     enabled,
+    overseer,
   );
-  if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
+  if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
   if (!flagResult.ok) {
     console.error(
       `[kernel] set_flag failed on ${binding.edge.id}: ${flagResult.message ?? "unknown"}`,
@@ -211,7 +213,7 @@ const applyOne = async (
 export type ApplySchedulerFireResult = {
   readonly applied: number;
   readonly cascaded?: number;
-  readonly skipped?: "no_deps" | "paused" | "disabled" | "no_effects";
+  readonly skipped?: "no_deps" | "paused" | "disabled" | "no_effects" | "revoked";
   /** Wired edges that did not apply (downstream refuse, throw, or grant drop). */
   readonly failed?: number;
 };
@@ -283,7 +285,7 @@ export const applySchedulerFire = async (
     return { applied: 0, skipped: "paused" };
   }
   if (opts?.overseer !== undefined && !(await opts.overseer.liveGrant())) {
-    return { applied: 0, skipped: "disabled" };
+    return { applied: 0, skipped: "revoked" };
   }
   const depth = opts?.depth ?? 0;
   const visited = opts?.visited ?? new Set<string>();

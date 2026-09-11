@@ -873,11 +873,14 @@ const runManualSchedulerFire = async (input: {
   }
   if (result.skipped === "disabled") {
     return {
-      ok: true,
-      sourceNodeId: input.sourceNodeId,
-      kind,
-      applied: 0,
-      message: `No effect wires from this ${kind} yet`,
+      ok: false,
+      message: `${kind} is disabled in this Vellum Command build`,
+    };
+  }
+  if (result.skipped === "revoked") {
+    return {
+      ok: false,
+      message: "overseer grant revoked",
     };
   }
   if ((result.failed ?? 0) > 0 && result.applied === 0) {

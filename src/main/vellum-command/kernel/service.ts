@@ -112,6 +112,8 @@ import {
 import {
   admitSchedulerEffectAutomation,
   setSchedulerEffectDeps,
+  type OverseerFireAuthority,
+  type SchedulerEffectDeps,
 } from "./effects";
 import {
   makeKernelTickScheduler,
@@ -800,141 +802,29 @@ const makeKernelService = (
   // Process-local effect receipts (at-most-once within this runtime).
   const effectReceipts = new Set<string>();
 
-  /** Station role configured (not unset) + canvas playing → may consume fires. */
-  const canAutomateCanvas = (canvasName: string): boolean => {
-    // stationRole from cycle scope is mirrored here via live stations each cycle;
-    // use pause + a role snapshot refreshed in runCycle.
-    if (cachedStationRole === "") return false;
-    return pause.stateFor(canvasName).playing;
-  };
-
-  const canApplyFlagEffects = (): boolean => cachedStationRole === "command-center";
-
   let cachedStationRole: "" | "command-center" | "remote" = "";
 
-  /**
-   * Durable document flags (same truth as renderer toggleFlag).
-   * Command Center + playing only; Remote refuses authorial mutate.
-   * Also projects process-local runtime flags for same-tick kernel eval, then
-   * clears that override so the document remains sole product truth after write.
-   */
-  const setNodeFlag = async (
-    canvasName: string,
-    nodeId: string,
-    flag: EtherFlag,
-    enabled: boolean,
-  ): Promise<{ readonly ok: boolean; readonly message?: string }> => {
-    if (!pause.stateFor(canvasName).playing) {
-      return { ok: false, message: "canvas paused" };
-    }
-    if (cachedStationRole !== "command-center") {
-      return {
-        ok: false,
-        message: "flag effects require Command Center",
-      };
-    }
-    const live = docs.get(canvasName);
-    if (live === undefined || !live.nodes.some((node) => node.id === nodeId)) {
-      return {
-        ok: false,
-        message: "canvas or node is not in the live projection",
-      };
-    }
-    try {
-      // Same-tick eval: project before durable commit settles / resyncs.
-      setRuntimeFlag(canvasName, nodeId, flag, enabled);
-      await mainAuthoringGate.run("kernel.flag-mirror", () =>
-        run(
-          canvases.mutate(canvasName, (doc) =>
-            applyNodeFlag(doc, nodeId, flag, enabled),
-          ),
-        ),
-      );
-      // Hot map shares identity with cycle after hydrate — keep it current.
-      const current = docs.get(canvasName);
-      if (current !== undefined) {
-        docs.set(canvasName, applyNodeFlag(current, nodeId, flag, enabled));
-      }
-      // Document is product truth; drop the process-local ghost override.
-      clearRuntimeFlag(canvasName, nodeId, flag);
-      return { ok: true };
-    } catch (error) {
-      clearRuntimeFlag(canvasName, nodeId, flag);
-      const message =
-        error instanceof Error ? error.message : String(error);
-      console.error(
-        `[kernel] setFlag failed for ${canvasName}/${nodeId}: ${message}`,
-      );
-      return { ok: false, message };
-    }
-  };
+  const {
+    canAutomateCanvas,
+    canApplyFlagEffects,
+    setNodeFlag,
+    effectDeps,
+  } = makeSchedulerProductionEffectDeps({
+    pause,
+    work,
+    canvases,
+    docs,
+    run,
+    getStationRole: () => cachedStationRole,
+    effectReceipts,
+  });
 
   __setAutomationGateForTest({
     canAutomateCanvas,
     canApplyFlagEffects,
   });
 
-  setSchedulerEffectDeps({
-    canAutomateCanvas,
-    canApplyFlagEffects,
-    hasReceipt: (fireKey, edgeId) => effectReceipts.has(`${fireKey}::${edgeId}`),
-    recordReceipt: (fireKey, edgeId) => {
-      effectReceipts.add(`${fireKey}::${edgeId}`);
-    },
-    enqueueTask: async ({ canvasName, sinkNodeId, payload, overseer }) => {
-      const admitted = await admitSchedulerEffectAutomation({
-        canvasName,
-        canAutomateCanvas,
-        stationRole: cachedStationRole,
-        ...(overseer !== undefined ? { overseer } : {}),
-      });
-      if (!admitted.ok) return admitted;
-      const args = effectTasksCreateToWorkArgs(payload);
-      const result = await run(
-        work.workTaskCreate(
-          canvasName,
-          sinkNodeId,
-          args.brief,
-          args.metadata,
-          args.reason ?? "scheduler",
-          undefined,
-          args.dependsOn,
-          args.finishCriteria,
-        ),
-      );
-      if (!result.ok) {
-        return { ok: false, message: result.message };
-      }
-      return { ok: true };
-    },
-    setFlag: setNodeFlag,
-    injectPrompt: async ({ canvasName, agentNodeId, text, overseer }) => {
-      const admitted = await admitSchedulerEffectAutomation({
-        canvasName,
-        canAutomateCanvas,
-        stationRole: cachedStationRole,
-        requireCommandCenter: true,
-        ...(overseer !== undefined ? { overseer } : {}),
-      });
-      if (!admitted.ok) return admitted;
-      const result = await run(
-        work.workSystemMailboxNotify(
-          canvasName,
-          agentNodeId,
-          makeUserMessage({
-            messageId: ulid(),
-            text,
-            contextId: canvasName,
-            metadata: { factoryScheduler: true, injectPrompt: true },
-          }),
-        ),
-      );
-      if (!result.ok) {
-        return { ok: false, message: result.message };
-      }
-      return { ok: true };
-    },
-  });
+  setSchedulerEffectDeps(effectDeps);
 
   // flagOnUnsatisfied writes only when automation gate allows (CC + playing).
   __setFlagWriterForTest({
@@ -1619,6 +1509,172 @@ const makeKernelService = (
       );
     },
   });
+};
+
+export type SchedulerProductionEffectHost = {
+  readonly pause: Pick<PauseShape, "stateFor">;
+  readonly work: Pick<WorkShape, "workTaskCreate" | "workSystemMailboxNotify">;
+  readonly canvases: Pick<CanvasesShape, "mutate">;
+  readonly docs: Map<string, CanvasDoc>;
+  readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+  readonly getStationRole: () => "" | "command-center" | "remote";
+  readonly effectReceipts: Set<string>;
+};
+
+/**
+ * Production enqueue / inject / setFlag callbacks. Overseer skips pause only;
+ * Command Center and liveGrant remain. Tests must call this, not reconstruct it.
+ */
+export const makeSchedulerProductionEffectDeps = (
+  host: SchedulerProductionEffectHost,
+): {
+  readonly canAutomateCanvas: (canvasName: string) => boolean;
+  readonly canApplyFlagEffects: () => boolean;
+  readonly setNodeFlag: (
+    canvasName: string,
+    nodeId: string,
+    flag: EtherFlag,
+    enabled: boolean,
+    overseer?: OverseerFireAuthority,
+  ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  readonly effectDeps: SchedulerEffectDeps;
+} => {
+  const canAutomateCanvas = (canvasName: string): boolean => {
+    if (host.getStationRole() === "") return false;
+    return host.pause.stateFor(canvasName).playing;
+  };
+
+  const canApplyFlagEffects = (): boolean =>
+    host.getStationRole() === "command-center";
+
+  const setNodeFlag = async (
+    canvasName: string,
+    nodeId: string,
+    flag: EtherFlag,
+    enabled: boolean,
+    overseer?: OverseerFireAuthority,
+  ): Promise<{ readonly ok: boolean; readonly message?: string }> => {
+    if (overseer === undefined) {
+      if (!host.pause.stateFor(canvasName).playing) {
+        return { ok: false, message: "canvas paused" };
+      }
+    } else if (!(await overseer.liveGrant())) {
+      return { ok: false, message: "overseer grant revoked" };
+    }
+    if (host.getStationRole() !== "command-center") {
+      return {
+        ok: false,
+        message: "flag effects require Command Center",
+      };
+    }
+    const live = host.docs.get(canvasName);
+    if (live === undefined || !live.nodes.some((node) => node.id === nodeId)) {
+      return {
+        ok: false,
+        message: "canvas or node is not in the live projection",
+      };
+    }
+    try {
+      setRuntimeFlag(canvasName, nodeId, flag, enabled);
+      await mainAuthoringGate.run("kernel.flag-mirror", async () => {
+        // Recheck after authoring-gate admission, immediately before mutate.
+        // Nested under control.overseer is fine: the gate is not a mutex.
+        if (overseer !== undefined && !(await overseer.liveGrant())) {
+          throw new Error("overseer grant revoked");
+        }
+        await host.run(
+          host.canvases.mutate(canvasName, (doc) =>
+            applyNodeFlag(doc, nodeId, flag, enabled),
+          ),
+        );
+      });
+      const current = host.docs.get(canvasName);
+      if (current !== undefined) {
+        host.docs.set(canvasName, applyNodeFlag(current, nodeId, flag, enabled));
+      }
+      clearRuntimeFlag(canvasName, nodeId, flag);
+      return { ok: true };
+    } catch (error) {
+      clearRuntimeFlag(canvasName, nodeId, flag);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        `[kernel] setFlag failed for ${canvasName}/${nodeId}: ${message}`,
+      );
+      return { ok: false, message };
+    }
+  };
+
+  const effectDeps: SchedulerEffectDeps = {
+    canAutomateCanvas,
+    canApplyFlagEffects,
+    hasReceipt: (fireKey, edgeId) =>
+      host.effectReceipts.has(`${fireKey}::${edgeId}`),
+    recordReceipt: (fireKey, edgeId) => {
+      host.effectReceipts.add(`${fireKey}::${edgeId}`);
+    },
+    enqueueTask: async ({ canvasName, sinkNodeId, payload, overseer }) => {
+      const admitted = await admitSchedulerEffectAutomation({
+        canvasName,
+        canAutomateCanvas,
+        stationRole: host.getStationRole(),
+        ...(overseer !== undefined ? { overseer } : {}),
+      });
+      if (!admitted.ok) return admitted;
+      const args = effectTasksCreateToWorkArgs(payload);
+      const result = await host.run(
+        host.work.workTaskCreate(
+          canvasName,
+          sinkNodeId,
+          args.brief,
+          args.metadata,
+          args.reason ?? "scheduler",
+          undefined,
+          args.dependsOn,
+          args.finishCriteria,
+        ),
+      );
+      if (overseer !== undefined && !(await overseer.liveGrant())) {
+        return { ok: false, message: "overseer grant revoked" };
+      }
+      if (!result.ok) {
+        return { ok: false, message: result.message };
+      }
+      return { ok: true };
+    },
+    setFlag: setNodeFlag,
+    injectPrompt: async ({ canvasName, agentNodeId, text, overseer }) => {
+      const admitted = await admitSchedulerEffectAutomation({
+        canvasName,
+        canAutomateCanvas,
+        stationRole: host.getStationRole(),
+        requireCommandCenter: true,
+        ...(overseer !== undefined ? { overseer } : {}),
+      });
+      if (!admitted.ok) return admitted;
+      const result = await host.run(
+        host.work.workSystemMailboxNotify(
+          canvasName,
+          agentNodeId,
+          makeUserMessage({
+            messageId: ulid(),
+            text,
+            contextId: canvasName,
+            metadata: { factoryScheduler: true, injectPrompt: true },
+          }),
+        ),
+      );
+      if (overseer !== undefined && !(await overseer.liveGrant())) {
+        return { ok: false, message: "overseer grant revoked" };
+      }
+      if (!result.ok) {
+        return { ok: false, message: result.message };
+      }
+      return { ok: true };
+    },
+  };
+
+  return { canAutomateCanvas, canApplyFlagEffects, setNodeFlag, effectDeps };
 };
 
 export const KernelLive = Layer.effect(

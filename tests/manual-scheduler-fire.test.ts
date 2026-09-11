@@ -173,9 +173,10 @@ describe("manualSchedulerFire scope", () => {
         sourceNodeId: "cron1",
         liveGrant: async () => false,
       });
-      expect(revoked.ok).toBe(true);
-      if (!revoked.ok) return;
-      expect(revoked.applied).toBe(0);
+      expect(revoked.ok).toBe(false);
+      if (revoked.ok) return;
+      expect(revoked.message).toMatch(/grant revoked/i);
+      expect(revoked.message).not.toMatch(/No effect wires/i);
       expect(enqueues).toEqual([]);
     },
   );
