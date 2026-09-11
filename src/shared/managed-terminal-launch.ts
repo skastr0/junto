@@ -380,16 +380,30 @@ const buildArgv = (
   const injectionCarriersAllowed =
     !resumeId || reinjectableOnResume(template);
   if (injectionCarriersAllowed) {
+    let emittedInjectionCarrier = false;
     if (choices.agentFile && spec.agentFlag) {
       pushFlag(argv, spec.agentFlag, choices.agentFile);
+      emittedInjectionCarrier = true;
     } else if (choices.systemPrompt && spec.systemPromptFlag) {
       pushFlag(argv, spec.systemPromptFlag, choices.systemPrompt);
+      emittedInjectionCarrier = true;
     }
     // Rules DIRECTORY carrier (agy `--add-dir`). Independent of the two
     // string carriers above: the harness that mounts a dir has no
     // system-prompt flag at all, so this is not an "else" branch of them.
     if (choices.rulesDir && spec.rulesDirFlag) {
       pushFlag(argv, spec.rulesDirFlag, choices.rulesDir);
+      emittedInjectionCarrier = true;
+    }
+    // Claude 2.1.267+ records `--append-system-prompt` on the first request
+    // and reuses that record on resume unless snapshot is turned off.
+    if (
+      resumeId &&
+      emittedInjectionCarrier &&
+      spec.resumeReinjectionArgv &&
+      spec.resumeReinjectionArgv.length > 0
+    ) {
+      argv.push(...spec.resumeReinjectionArgv);
     }
   }
 

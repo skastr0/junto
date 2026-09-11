@@ -348,6 +348,49 @@ describe("resolveManagedLaunch argv", () => {
       "--permission-mode",
       "default",
     ]);
+    // Snapshot-off only rides a resume that also re-passes doctrine.
+    expect(launch.argv).not.toContain("--system-prompt-snapshot");
+  });
+
+  it("claude resume re-passing doctrine turns system-prompt-snapshot off", () => {
+    // 2.1.267+ records --append-system-prompt on the first request (default
+    // snapshot on). A later different append is ignored unless snapshot is
+    // off. Live 2.1.268 print-mode canary: ALPHA create → BETA resume (no
+    // off) stayed ALPHA; GAMMA resume with off returned GAMMA.
+    expect(CLAUDE_TEMPLATE.probedVersion).toBe("2.1.268");
+    expect(CLAUDE_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
+    expect(CLAUDE_TEMPLATE.argvSpec.resumeReinjectionArgv).toEqual([
+      "--system-prompt-snapshot",
+      "off",
+    ]);
+    expect(CLAUDE_TEMPLATE.efforts).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultracode",
+    ]);
+    expect(CLAUDE_TEMPLATE.defaultPermissionMode).toBe("default");
+    const launch = resolveManagedLaunch(
+      "claude",
+      {
+        resumeId: "abc",
+        systemPrompt: "new doctrine",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "claude",
+      "--resume",
+      "abc",
+      "--permission-mode",
+      "default",
+      "--append-system-prompt",
+      "new doctrine",
+      "--system-prompt-snapshot",
+      "off",
+    ]);
   });
 
   it("codex: prompt, -a approval, -m model, -c effort config key", () => {

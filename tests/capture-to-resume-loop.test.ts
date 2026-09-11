@@ -108,6 +108,20 @@ describe("resume argv per reinjectability class", () => {
     expect(argv).toContain("DOCTRINE");
   });
 
+  it("claude resume re-pass emits --system-prompt-snapshot off with the carrier", () => {
+    const argv = resolveManagedLaunch("claude", {
+      resumeId: "SID",
+      systemPrompt: "DOCTRINE",
+    }).argv!;
+    expect(argv).toContain("--resume");
+    expect(argv).toContain("SID");
+    expect(argv).toContain("--append-system-prompt");
+    expect(argv).toContain("DOCTRINE");
+    const snap = argv.indexOf("--system-prompt-snapshot");
+    expect(snap).toBeGreaterThan(-1);
+    expect(argv[snap + 1]).toBe("off");
+  });
+
   it("a frozen harness drops the injection flag on resume, and only on resume", () => {
     // Kimi refuses `--agent-file` alongside `--session` outright; Codex accepts
     // re-passed instructions and silently ignores them. Either way the flag on

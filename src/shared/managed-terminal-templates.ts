@@ -179,6 +179,13 @@ export type ArgvSpec = {
    */
   readonly rulesDirFlag?: string;
   /**
+   * Extra tokens emitted only on a resume that also re-passes injection
+   * carriers. Claude 2.1.267+ snapshots `--append-system-prompt` by default
+   * (`--system-prompt-snapshot` defaults on), so a later different append is
+   * ignored unless this is `["--system-prompt-snapshot", "off"]`.
+   */
+  readonly resumeReinjectionArgv?: readonly string[];
+  /**
    * Whether re-passing the injection carriers (`systemPromptFlag` / `agentFlag`)
    * on a RESUME launch actually reaches the harness. This is a probe receipt,
    * not a preference — a harness that freezes its instructions at thread
@@ -187,9 +194,12 @@ export type ArgvSpec = {
    * un-briefed.
    *
    * - `re-pass`   — resume argv carrying the injection spec is honored.
-   *   Probed 2026-08: claude, grok, pi, cursor, agy, muse, hermes. (Hermes also
-   *   needs `-m` re-passed on every resume or the model silently reverts;
-   *   `buildArgv` already re-passes every template-owned flag on resume.)
+   *   Probed 2026-08: claude, grok, pi, cursor, agy, muse, hermes. Claude
+   *   2.1.268 keeps this class only because `resumeReinjectionArgv` turns
+   *   snapshot recording off; without that, a changed append is ignored.
+   *   (Hermes also needs `-m` re-passed on every resume or the model silently
+   *   reverts; `buildArgv` already re-passes every template-owned flag on
+   *   resume.)
    * - `frozen`    — instructions are fixed at session creation and cannot be
    *   re-passed. Probed 2026-08: codex (re-passed developer instructions do not
    *   apply to an existing thread) and kimi (`--agent-file` cannot combine with
@@ -361,10 +371,24 @@ const SHARED_ENV_SPEC: EnvSpec = {
 
 // ── Four v1 templates ──────────────────────────────────────────────────────
 
+/**
+ * Claude Code — Tier A, session pin.
+ *
+ * Re-probed 2.1.268 (2026-09-11):
+ * - `--append-system-prompt` is still the Tier-A carrier.
+ * - `--system-prompt-snapshot` defaults on (CHANGELOG 2.1.267). A later
+ *   different append is ignored on resume unless `--system-prompt-snapshot
+ *   off` rides with the carrier (`resumeReinjectionArgv`). Live print-mode
+ *   canary on this build: ALPHA create → BETA resume (no off) stayed ALPHA;
+ *   GAMMA resume with off returned GAMMA.
+ * - `--effort ultracode` accepted at spawn despite incomplete CLI help.
+ * - `--permission-mode default` accepted; `--help` lists `manual` as the
+ *   displayed alias for that mode.
+ */
 export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
   harness: "claude",
   displayName: "Claude Code",
-  probedVersion: "2.1.220",
+  probedVersion: "2.1.268",
   argvSpec: {
     binary: "claude",
     prefix: [],
@@ -377,6 +401,7 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     resumeFlag: "--resume",
     systemPromptFlag: "--append-system-prompt",
     resumeReinjection: "re-pass",
+    resumeReinjectionArgv: ["--system-prompt-snapshot", "off"],
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
