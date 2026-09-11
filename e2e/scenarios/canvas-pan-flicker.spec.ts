@@ -7,13 +7,15 @@
  *
  *   - CDP screencast frames (the compositor's own output, timestamped)
  *   - a per-frame rAF sample (timestamp, mounted .vellum-node count,
- *     html[data-viewport-busy] state)
+ *     html[data-viewport-busy] state, computed will-change on the viewport)
  *   - DOM churn from a MutationObserver on the .react-flow subtree
  *     (childList adds/removes — the remint/blink signature)
- *   - attribute flips on <html> (viewport-busy latch) with timestamps — the
- *     compositor promote/de-promote signature
- *   - long tasks + CDP Performance.getMetrics deltas (Layout, RecalcStyle,
- *     Script, Task durations)
+ *   - html[data-viewport-busy] attribute transitions, deduped, from a
+ *     dedicated observer (attributeFilter — not every <html> attribute, and
+ *     never merged with the rAF-derived transitions, which live separately)
+ *   - long tasks + CDP Performance.getMetrics deltas (metrics collection is
+ *     explicitly enabled; absent metric names fail the run instead of
+ *     reading as zero)
  *   - the app's own VELLUM_PERF counters (loom replans, route wires,
  *     activity mark mounts) via the in-page harness snapshot
  *
@@ -39,19 +41,16 @@ const RELEASE_SETTLE_MS = 1_200;
 
 // --- fixture -----------------------------------------------------------------
 //
-// A real factory neighborhood, not a grid of notes: three regions, one nested
-// region inside the first, and one double-nested region — the operator's
-// "multiple regions, nested regions" shape. Alternating agent/task kinds keep
-// every neighbouring pair wireable (agent → task `contributes`). Blocker flags
-// run the heaviest continuous paint on the board.
+// A real factory neighborhood, not a grid of notes: a genuinely nested
+// geography — alpha contains bravo, bravo contains delta — plus a sibling
+// region charlie. Blocker flags run the heaviest continuous paint on the
+// board.
 
-const REGION = { width: 900, height: 560 };
-
-const seat = (i: number): TextNode =>
+const seat = (id: string, keyIndex: number): TextNode =>
   agentTextNode({
-    id: `seat${i}`,
-    key: `local:flick-${i}`,
-    label: `flick seat ${i}`,
+    id,
+    key: `local:flick-${keyIndex}`,
+    label: `flick seat ${keyIndex}`,
     x: 0,
     y: 0,
   });
@@ -63,89 +62,48 @@ const buildField = (): CanvasDoc => {
   const nodes: CanvasNode[] = [];
   const edges: CanvasEdge[] = [];
 
-  // Region Alpha — seats 0..5, one nested region (Bravo) holding seats 6..7.
+  // Geography: alpha ⊃ bravo ⊃ delta, charlie standalone.
   const alphaAt = { x: 0, y: 0 };
-  const bravoAt = { x: alphaAt.x + 60, y: alphaAt.y + 300 };
+  const bravoAt = { x: 60, y: 300 };
+  const deltaAt = { x: bravoAt.x + 40, y: bravoAt.y + 110 };
   const charlieAt = { x: 1000, y: 0 };
-  const deltaAt = { x: bravoAt.x + 60, y: bravoAt.y + 200 };
 
-  const alphaMembers: TextNode[] = [];
-  for (let i = 0; i < 6; i += 1) {
-    alphaMembers.push(place(seat(i), {
-      x: alphaAt.x + 40 + (i % 3) * 280,
-      y: alphaAt.y + 60 + Math.floor(i / 3) * 140,
-    }));
-  }
-  const bravoMembers: TextNode[] = [];
-  for (let i = 6; i < 8; i += 1) {
-    bravoMembers.push(place(seat(i), {
-      x: bravoAt.x + 40 + (i % 2) * 260,
-      y: bravoAt.y + 60,
-    }));
-  }
-  const charlieMembers: TextNode[] = [];
-  for (let i = 8; i < 14; i += 1) {
-    charlieMembers.push(place(seat(i), {
-      x: charlieAt.x + 40 + (i % 3) * 280,
-      y: charlieAt.y + 60 + Math.floor(i / 3) * 140,
-    }));
-  }
-  const deltaMembers: TextNode[] = [];
-  for (let i = 14; i < 16; i += 1) {
-    deltaMembers.push(place(seat(i), {
-      x: deltaAt.x + 40 + (i % 2) * 240,
-      y: deltaAt.y + 60,
-    }));
-  }
+  let seatIndex = 0;
+  const cluster = (
+    id: string,
+    label: string,
+    at: Placement,
+    width: number,
+    height: number,
+    seats: number,
+    columns: number,
+  ): TextNode[] => {
+    nodes.push({ id, type: "group", label, x: at.x, y: at.y, width, height });
+    const members: TextNode[] = [];
+    for (let i = 0; i < seats; i += 1) {
+      members.push(place(seat(`${id}-s${i}`, seatIndex++), {
+        x: at.x + 30 + (i % columns) * 270,
+        y: at.y + 56 + Math.floor(i / columns) * 130,
+      }));
+    }
+    nodes.push(...members);
+    return members;
+  };
+
+  // 8 seats in alpha (above the nested bravo strip).
+  const alphaMembers = cluster("rg-alpha", "alpha", alphaAt, 900, 560, 8, 3);
+  // 3 seats in bravo (which nests inside alpha, containing delta).
+  const bravoMembers = cluster("rg-bravo", "bravo", bravoAt, 640, 240, 3, 3);
+  // 2 seats in delta (double-nested).
+  const deltaMembers = cluster("rg-delta", "delta", deltaAt, 560, 120, 2, 2);
+  // 6 seats in charlie (sibling region).
+  const charlieMembers = cluster("rg-charlie", "charlie", charlieAt, 900, 560, 6, 3);
 
   const tasks = place(tasksNode({ id: "tasks", x: 1020, y: 620 }), { x: 1020, y: 620 });
-
-  nodes.push(
-    {
-      id: "rg-alpha",
-      type: "group",
-      label: "alpha",
-      x: alphaAt.x,
-      y: alphaAt.y,
-      width: REGION.width,
-      height: REGION.height,
-    },
-    ...alphaMembers,
-    {
-      id: "rg-bravo",
-      type: "group",
-      label: "bravo",
-      x: bravoAt.x,
-      y: bravoAt.y,
-      width: 620,
-      height: 220,
-    },
-    ...bravoMembers,
-    {
-      id: "rg-charlie",
-      type: "group",
-      label: "charlie",
-      x: charlieAt.x,
-      y: charlieAt.y,
-      width: REGION.width,
-      height: REGION.height,
-    },
-    ...charlieMembers,
-    {
-      id: "rg-delta",
-      type: "group",
-      label: "delta",
-      x: deltaAt.x,
-      y: deltaAt.y,
-      width: 560,
-      height: 200,
-    },
-    ...deltaMembers,
-    tasks,
-  );
+  nodes.push(tasks);
 
   // Wire every agent to the shared tasks sink: agent → task `contributes`.
-  for (const member of [...alphaMembers, ...bravoMembers, ...charlieMembers, ...deltaMembers]) {
+  for (const member of [...alphaMembers, ...bravoMembers, ...deltaMembers, ...charlieMembers]) {
     edges.push(verbEdge(`e-${member.id}`, member.id, "tasks", "contributes", nodes));
   }
   return canvasDoc(nodes, edges);
@@ -168,7 +126,15 @@ type InPageEvidence = {
   readonly maxFrameGapMs: number;
   readonly longTasks: { readonly count: number; readonly totalMs: number; readonly maxMs: number };
   readonly dom: { readonly added: number; readonly removed: number; readonly samples: string[] };
+  /** Deduped html[data-viewport-busy] attribute transitions (observer). */
   readonly busyFlips: readonly { readonly busy: boolean; readonly t: number }[];
+  /**
+   * Busy-state transitions seen by the rAF sampler — kept SEPARATE from the
+   * observer census so the two instruments never double-count.
+   */
+  readonly rafBusyTransitions: readonly { readonly busy: boolean; readonly t: number }[];
+  /** Computed will-change of .react-flow__viewport, sampled on the rAF loop. */
+  readonly willChangeValues: readonly string[];
   readonly perFrame: readonly {
     readonly t: number;
     readonly nodes: number;
@@ -197,24 +163,38 @@ async function installEvidence(page: import("@playwright/test").Page): Promise<v
       __panEvidence?: EvidenceWindow;
     };
     const perFrame: { t: number; nodes: number; busy: boolean }[] = [];
+    const willChangeValues: string[] = [];
     const busyFlips: { busy: boolean; t: number }[] = [];
+    const rafBusyTransitions: { busy: boolean; t: number }[] = [];
     const dom = { added: 0, removed: 0, samples: [] as string[] };
     const longTasks = { count: 0, totalMs: 0, maxMs: 0 };
     let frames = 0;
     let lastFrameAt = performance.now();
     let maxGap = 0;
+    let lastBusy = false;
     let running = false;
     let raf = 0;
     let domObserver: MutationObserver | undefined;
-    let attrObserver: MutationObserver | undefined;
+    let busyObserver: MutationObserver | undefined;
     let taskObserver: PerformanceObserver | undefined;
 
     const sample = (): void => {
+      const busy = document.documentElement.hasAttribute("data-viewport-busy");
       perFrame.push({
         t: Math.round(performance.now()),
         nodes: document.querySelectorAll(".vellum-node").length,
-        busy: document.documentElement.hasAttribute("data-viewport-busy"),
+        busy,
       });
+      if (busy !== lastBusy) {
+        lastBusy = busy;
+        rafBusyTransitions.push({ busy, t: Math.round(performance.now()) });
+      }
+      if (frames % 10 === 0) {
+        const viewport = document.querySelector(".react-flow__viewport");
+        willChangeValues.push(
+          viewport ? getComputedStyle(viewport).willChange : "(missing)",
+        );
+      }
     };
 
     const loop = (): void => {
@@ -234,7 +214,10 @@ async function installEvidence(page: import("@playwright/test").Page): Promise<v
         frames = 0;
         maxGap = 0;
         perFrame.length = 0;
+        willChangeValues.length = 0;
         busyFlips.length = 0;
+        rafBusyTransitions.length = 0;
+        lastBusy = document.documentElement.hasAttribute("data-viewport-busy");
         dom.added = 0;
         dom.removed = 0;
         dom.samples.length = 0;
@@ -265,13 +248,19 @@ async function installEvidence(page: import("@playwright/test").Page): Promise<v
           subtree: true,
         });
 
-        attrObserver = new MutationObserver(() => {
-          busyFlips.push({
-            busy: document.documentElement.hasAttribute("data-viewport-busy"),
-            t: Math.round(performance.now()),
-          });
+        // Busy gate only — never the attention-clock attributes, never a
+        // merged stream: the census must count busy transitions and nothing
+        // else.
+        busyObserver = new MutationObserver(() => {
+          const busy = document.documentElement.hasAttribute("data-viewport-busy");
+          const previous = busyFlips[busyFlips.length - 1];
+          if (previous && previous.busy === busy) return;
+          busyFlips.push({ busy, t: Math.round(performance.now()) });
         });
-        attrObserver.observe(document.documentElement, { attributes: true });
+        busyObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["data-viewport-busy"],
+        });
 
         taskObserver = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
@@ -289,14 +278,8 @@ async function installEvidence(page: import("@playwright/test").Page): Promise<v
         running = false;
         if (raf) cancelAnimationFrame(raf);
         domObserver?.disconnect();
-        attrObserver?.disconnect();
+        busyObserver?.disconnect();
         taskObserver?.disconnect();
-        // Dedupe per-frame busy states into flips.
-        for (let i = 1; i < perFrame.length; i += 1) {
-          if (perFrame[i]!.busy !== perFrame[i - 1]!.busy) {
-            busyFlips.push({ busy: perFrame[i]!.busy, t: perFrame[i]!.t });
-          }
-        }
         return {
           frames,
           maxFrameGapMs: Math.round(maxGap),
@@ -307,6 +290,8 @@ async function installEvidence(page: import("@playwright/test").Page): Promise<v
           },
           dom: { added: dom.added, removed: dom.removed, samples: [...dom.samples] },
           busyFlips: busyFlips.slice(0, 120),
+          rafBusyTransitions: rafBusyTransitions.slice(0, 120),
+          willChangeValues: [...new Set(willChangeValues)],
           perFrame: perFrame.filter((_, i) => i % 2 === 0),
         };
       },
@@ -314,15 +299,25 @@ async function installEvidence(page: import("@playwright/test").Page): Promise<v
   });
 }
 
+// CDP performance metrics: collection must be enabled or Chromium 150 returns
+// an empty metric list — which must fail the run, never read as zeros.
+const METRIC_KEYS = ["LayoutCount", "RecalcStyleCount", "ScriptDuration", "TaskDuration"] as const;
+
 type CdpMetrics = Record<string, number>;
 
-const metricsMap = (metrics: { name: string; value: number }[]): CdpMetrics =>
-  metrics.reduce<CdpMetrics>((acc, m) => ({ ...acc, [m.name]: m.value }), {});
+const readMetrics = async (cdp: import("playwright-core").CDPSession): Promise<CdpMetrics> => {
+  const { metrics } = await cdp.send("Performance.getMetrics");
+  const map = metrics.reduce<CdpMetrics>((acc, m) => ({ ...acc, [m.name]: m.value }), {});
+  const missing = METRIC_KEYS.filter((key) => map[key] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`Performance.getMetrics missing ${missing.join(", ")} — collection not enabled`);
+  }
+  return map;
+};
 
 const metricsDelta = (before: CdpMetrics, after: CdpMetrics): CdpMetrics => {
-  const keys = ["LayoutCount", "RecalcStyleCount", "ScriptDuration", "TaskDuration", "NodesAttached", "NodesDetached"];
   const out: CdpMetrics = {};
-  for (const key of keys) out[key] = Math.round(((after[key] ?? 0) - (before[key] ?? 0)) * 1000) / 1000;
+  for (const key of METRIC_KEYS) out[key] = Math.round(((after[key] ?? 0) - (before[key] ?? 0)) * 1000) / 1000;
   return out;
 };
 
@@ -386,8 +381,9 @@ test.describe("canvas pan flicker evidence", () => {
     await page.waitForTimeout(1_500);
     await page.mouse.move(4, 4);
 
-    // CDP: screencast + metrics.
+    // CDP: screencast + metrics (collection explicitly enabled).
     const cdp = await app.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
     const frameRecords: { file: string; ts: number }[] = [];
     cdp.on(
       "Page.screencastFrame",
@@ -399,7 +395,7 @@ test.describe("canvas pan flicker evidence", () => {
       },
     );
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: 80, everyNthFrame: 1 });
-    const metricsBefore = metricsMap((await cdp.send("Performance.getMetrics")).metrics);
+    const metricsBefore = await readMetrics(cdp);
 
     await page.evaluate(() => (window as unknown as { __panEvidence: EvidenceWindow }).__panEvidence.begin());
     await gesture(page);
@@ -409,7 +405,7 @@ test.describe("canvas pan flicker evidence", () => {
     const evidence = await page.evaluate(
       () => (window as unknown as { __panEvidence: EvidenceWindow }).__panEvidence.end(),
     );
-    const metricsAfter = metricsMap((await cdp.send("Performance.getMetrics")).metrics);
+    const metricsAfter = await readMetrics(cdp);
     await cdp.send("Page.stopScreencast").catch(() => undefined);
     await page.waitForTimeout(400);
 
@@ -436,11 +432,19 @@ test.describe("canvas pan flicker evidence", () => {
       domRemoved: evidence.dom.removed,
       domSamples: evidence.dom.samples.slice(0, 8),
       busyFlips: evidence.busyFlips,
+      rafBusyTransitions: evidence.rafBusyTransitions,
+      willChangeValues: evidence.willChangeValues,
       metrics: metricsDelta(metricsBefore, metricsAfter),
     };
     console.log(`PAN-FLICKER-EVIDENCE ${JSON.stringify(summary)}`);
 
     expect(frameRecords.length).toBeGreaterThan(10);
+    // The one invariant the flicker fix owns: the viewport's will-change hint
+    // must never change during a pan gesture.
+    expect(
+      evidence.willChangeValues,
+      "computed will-change on .react-flow__viewport changed mid-gesture",
+    ).toHaveLength(1);
   };
 
   test("wheel pan on a region-heavy canvas", async ({ vellumCommand }) => {
