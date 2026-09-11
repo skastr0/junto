@@ -28,6 +28,7 @@ import {
 } from "../src/main/vellum-command/settings/service";
 import { StateEngine } from "../src/main/vellum-command/state/service";
 import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { MemoryCredentialStore } from "../src/main/vellum-command/credentials/store";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);
@@ -211,7 +212,9 @@ describe("providers settings service persistence", () => {
     }
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
-    const service = await run(makeSettingsService(state));
+    const service = await run(
+      makeSettingsService(state, { credentials: new MemoryCredentialStore() }),
+    );
     return {
       service,
       state,
@@ -227,20 +230,28 @@ describe("providers settings service persistence", () => {
           providers: { openrouter: { apiKey: SECRET } },
         }),
       );
-      expect(patched.providers?.openrouter?.apiKey).toBe(SECRET);
+      expect(patched.providers?.openrouter?.apiKey).toBe(MASKED_SECRET);
+      expect(await run(harness.service.resolveProviders)).toEqual({
+        openrouter: { apiKey: SECRET },
+      });
 
-      // A fresh service over the same database sees the stored credential.
-      await harness.close();
-      const reopened = await openService();
-      const reread = await run(reopened.service.get);
-      expect(reread.providers?.openrouter?.apiKey).toBe(SECRET);
-
-      // Clearing works too.
-      const cleared = await run(
-        reopened.service.patch({ providers: { openrouter: { apiKey: "" } } }),
+      const liveBody = await run(
+        harness.state.read("proof.live", (reader) =>
+          String(
+            reader.get<{ body: string }>(
+              "SELECT body FROM settings_preferences WHERE singleton = 1",
+            )?.body ?? "",
+          ),
+        ),
       );
-      expect(cleared.providers?.openrouter).toEqual({});
-      await reopened.close();
+      expect(liveBody.includes(SECRET)).toBe(false);
+
+      const cleared = await run(
+        harness.service.patch({ providers: { openrouter: { apiKey: "" } } }),
+      );
+      expect(cleared.providers?.openrouter).toBeUndefined();
+      expect(await run(harness.service.resolveProviders)).toEqual({});
+      await harness.close();
     } finally {
       if (active) {
         await active.close();

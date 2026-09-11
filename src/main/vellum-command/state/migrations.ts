@@ -43,6 +43,7 @@ import {
 } from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
+import { PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
 import {
   persistCanvas,
   writePortfolioHead,
@@ -267,7 +268,7 @@ export const STATE_SCHEMA_V20_IDENTITY = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 21;
+export const CURRENT_STATE_SCHEMA_VERSION = 22;
 
 /**
  * Exact witness of schema version 21 (relational canvas authority; blob
@@ -284,12 +285,21 @@ export const STATE_SCHEMA_V21_IDENTITY = {
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
+ * Exact witness of schema version 22 (provider credential bindings).
+ * Placeholder hash is rewritten by `bun run schema:identity`.
+ */
+export const STATE_SCHEMA_V22_IDENTITY = {
+  actualSchemaSha256:
+    "08c2f4167917bb99d8ac496f978359bb2c3baadef36a0dfe1dd519a2431daf0b",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+/**
  * Stable alias for the head identity so tests and tooling never rename an
  * import on a schema bump. `bun run schema:identity` rewrites the constant
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V21_IDENTITY;
+  STATE_SCHEMA_V22_IDENTITY;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -720,6 +730,16 @@ export const STATE_SCHEMA_MIGRATIONS =
           DROP TABLE canvas_head;
         `);
         correctInvalidTasksSchema21(database);
+      },
+    },
+    {
+      fromVersion: 21,
+      toVersion: 22,
+      name: "add-provider-credential-bindings",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V21_IDENTITY,
+      migrate: (database) => {
+        database.exec(PROVIDER_CREDENTIAL_BINDINGS_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
@@ -1531,12 +1551,17 @@ export const stateSchemaAdvanceRequired = (
     return false;
   }
   if (version === plan.currentVersion && version !== 0) {
+    return false;
+  }
+  if (
+    version === 21 &&
+    plan.currentVersion > 21
+  ) {
     const actual = actualStateSchemaSha256(database);
     if (actual === INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256) {
       requireIdentity("invalid Tasks state schema version 21", verifyRecordedStateSchemaIdentity(database), INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY);
       return true;
     }
-    return false;
   }
 
   if (version === 0 && plan.baselineVersion === plan.currentVersion) {
@@ -1591,7 +1616,7 @@ export const migrateStateSchema = (
     );
   }
   const fresh = isFreshStateSchema(database);
-  const correctiveInvalid21 = !fresh && previousVersion === plan.currentVersion &&
+  const correctiveInvalid21 = !fresh && previousVersion === 21 &&
     actualStateSchemaSha256(database) === INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256;
   // SQLite ignores PRAGMA foreign_keys inside a transaction. Table-rebuild
   // steps need enforcement off *before* BEGIN IMMEDIATE so DROP of a parent
@@ -1634,7 +1659,9 @@ export const migrateStateSchema = (
             INVALID_TASKS_STATE_SCHEMA_V21_IDENTITY,
           );
           correctInvalidTasksSchema21(database);
-          recorded = expectedStateSchemaIdentity(plan.currentSchemaSql);
+          // Repair produces canonical version 21. Later steps (21 → 22)
+          // then expand from that frozen identity.
+          recorded = STATE_SCHEMA_V21_IDENTITY;
         } else {
           recorded =
             version === plan.currentVersion ||

@@ -384,11 +384,11 @@ describe("fresh compiler cohort provenance", () => {
     ).version;
     expect(facts).toMatchObject({
       appVersion: packageVersion,
-      currentStateSchemaVersion: 21,
+      currentStateSchemaVersion: 22,
       migrationHead: {
-        fromVersion: 20,
-        toVersion: 21,
-        name: "canvas-relational-authority-cutover",
+        fromVersion: 21,
+        toVersion: 22,
+        name: "add-provider-credential-bindings",
       },
       migrationIdentitySha256:
         CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,

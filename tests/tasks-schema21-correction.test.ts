@@ -7,11 +7,12 @@ import { ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
+  CURRENT_STATE_SCHEMA_IDENTITY,
   STATE_SCHEMA_V21_IDENTITY,
   stateSchemaAdvanceRequired,
 } from "../src/main/vellum-command/state/migrations";
 import {
-  STATE_SCHEMA_FRAGMENTS,
+  STATE_SCHEMA_V21_FRAGMENTS,
   STATE_SCHEMA_V20_SQL,
 } from "../src/main/vellum-command/state/schema";
 import {
@@ -50,7 +51,7 @@ import { WorkRecord } from "@shared/work-protocol";
 const sha256 = (value: string): string =>
   createHash("sha256").update(value, "utf8").digest("hex");
 
-const INVALID_21_SQL = STATE_SCHEMA_FRAGMENTS.join("\n");
+const INVALID_21_SQL = STATE_SCHEMA_V21_FRAGMENTS.join("\n");
 
 const SEAT = `seat_${"a".repeat(64)}`;
 const T0 = "2026-07-01T00:00:00.000Z";
@@ -1380,9 +1381,9 @@ describe("schema-21 corrective migration", () => {
       }),
     );
 
-    // Exact corrected identity, version still 21, backup retained.
-    expect(witness.identity).toBe(STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256);
-    expect(witness.userVersion).toBe(21);
+    // Exact corrected identity after 21 repair plus 21 → 22, backup retained.
+    expect(witness.identity).toBe(CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256);
+    expect(witness.userVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     const backups = await readBackupFiles(root);
     expect(backups.filter((name) => name.endsWith(".db"))).toHaveLength(1);
     expect(backups.some((name) => name.endsWith(".pending"))).toBe(false);
@@ -1632,7 +1633,7 @@ describe("schema-21 corrective migration", () => {
       expect(stateSchemaAdvanceRequired(probe)).toBe(false);
       expect(
         probe.prepare("PRAGMA user_version").get(),
-      ).toEqual({ user_version: 21 });
+      ).toEqual({ user_version: CURRENT_STATE_SCHEMA_VERSION });
       expect(
         probe
           .prepare(
@@ -1842,7 +1843,7 @@ describe("schema-21 corrective migration", () => {
           )
           .get(),
       ).toEqual({
-        actual_schema_sha256: STATE_SCHEMA_V21_IDENTITY.actualSchemaSha256,
+        actual_schema_sha256: CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,
       });
       const document = probe
         .prepare(

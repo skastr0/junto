@@ -9,6 +9,7 @@ import {
   SettingsError,
   defaultSection,
   defaultSettings,
+  type ProvidersSettings,
   type Settings,
   type SettingsSectionKey,
 } from "@shared/settings";
@@ -43,6 +44,27 @@ import {
   writeStationConfiguration,
   type StoredStationConfiguration,
 } from "../station/configuration-state";
+import { listCredentialBindings } from "../credentials/bindings";
+import {
+  clearAllProviderSecretOps,
+  commitProviderSecretOps,
+  discardStagedSecrets,
+  retireVaultSecrets,
+  migrateHistoricalProviderSecrets,
+  resolveProviderSecrets,
+  stageSecretValues,
+} from "../credentials/coordinator";
+import {
+  persistableProviders,
+  retainUnmigratedProviderSecrets,
+} from "../credentials/redact";
+import { projectSettingsForRead } from "../credentials/project";
+import { providerSecretOpsFromPatch } from "../credentials/slots";
+import {
+  makeFileCredentialStore,
+  type CredentialStore,
+} from "../credentials/store";
+import { dirname, join } from "node:path";
 
 /**
  * Settings preserves the renderer-facing aggregate while storing only ordinary
@@ -69,6 +91,10 @@ export class SettingsService extends Context.Service<SettingsService,
     readonly reset: (
       section?: SettingsSectionKey,
     ) => Effect.Effect<Settings, SettingsError>;
+    readonly resolveProviders: Effect.Effect<
+      ProvidersSettings,
+      SettingsError
+    >;
     readonly subscribe: (listener: (settings: Settings) => void) => () => void;
   }>()("@vellum-command/SettingsService") {}
 
@@ -82,6 +108,10 @@ export interface SettingsServiceApi {
   readonly reset: (
     section?: SettingsSectionKey,
   ) => Effect.Effect<Settings, SettingsError>;
+  readonly resolveProviders: Effect.Effect<
+    ProvidersSettings,
+    SettingsError
+  >;
   readonly subscribe: (listener: (settings: Settings) => void) => () => void;
 }
 
@@ -93,6 +123,8 @@ export type SettingsServiceOptions = {
    * enrollment). GUI Command Center boots still default this on.
    */
   readonly ensureDefaultCommandCenter?: boolean;
+  /** Override credential vault in tests. */
+  readonly credentials?: CredentialStore;
 };
 
 /** Headless enrollment must not infer Command Center. Role is never inferred. */
@@ -244,6 +276,9 @@ const readStoredState = (
 const readSettings = (reader: StateReader): Settings | undefined =>
   readStoredState(reader)?.settings;
 
+const presentSettings = (reader: StateReader, settings: Settings): Settings =>
+  projectSettingsForRead(settings, listCredentialBindings(reader));
+
 const encodedPreferences = (settings: Settings): string =>
   JSON.stringify(preferencesFromSettings(settings));
 
@@ -340,6 +375,7 @@ const ensureDefaultCommandCenter = (
 type MutationResult = {
   readonly settings: Settings;
   readonly changed: boolean;
+  readonly retired?: ReadonlyArray<string>;
 };
 
 const sameSettings = (left: Settings, right: Settings): boolean =>
@@ -348,8 +384,10 @@ const sameSettings = (left: Settings, right: Settings): boolean =>
 const publishAfterCommit = (
   result: MutationResult,
   listeners: ReadonlySet<(settings: Settings) => void>,
+  onPublish?: (settings: Settings) => void,
 ): Settings => {
   if (!result.changed) return result.settings;
+  onPublish?.(result.settings);
   for (const listener of listeners) {
     try {
       listener(result.settings);
@@ -373,7 +411,33 @@ export const makeSettingsService = (
   Effect.gen(function* () {
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
+    const credentials =
+      options.credentials ??
+      makeFileCredentialStore(join(dirname(state.info.path), "credentials"));
     yield* initializeSettings(state);
+    const migratedRetirement = yield* state.transaction(
+      "settings.migrate-provider-secrets",
+      (writer) => {
+        const current = readSettings(writer);
+        if (current === undefined) return [] as ReadonlyArray<string>;
+        try {
+          const migrated = migrateHistoricalProviderSecrets(
+            writer,
+            credentials,
+            current,
+          );
+          if (sameSettings(current, migrated.settings)) return migrated.retired;
+          writePreferences(writer, migrated.settings, new Date().toISOString());
+          return migrated.retired;
+        } catch {
+          // Vault unavailability must not block boot. Historical plaintext
+          // stays until a later successful migration; new writes still refuse
+          // SQLite persistence.
+          return [] as ReadonlyArray<string>;
+        }
+      },
+    ).pipe(Effect.mapError(stateFailure));
+    retireVaultSecrets(credentials, migratedRetirement);
     if (
       options.ensureDefaultCommandCenter !== false &&
       shouldEnsureDefaultCommandCenter()
@@ -382,6 +446,18 @@ export const makeSettingsService = (
     }
 
     const listeners = new Set<(settings: Settings) => void>();
+    const readResolved = (reader: StateReader): ProvidersSettings => {
+      const settings = readSettings(reader);
+      if (settings === undefined) return {};
+      return resolveProviderSecrets(reader, credentials, settings);
+    };
+    let resolvedProviders: ProvidersSettings = yield* state.read(
+      "settings.prime-providers",
+      readResolved,
+    ).pipe(Effect.mapError(stateFailure));
+    const refreshResolved = (reader: StateReader): void => {
+      resolvedProviders = readResolved(reader);
+    };
 
     const get = state.read("settings.get", (reader) => {
       const settings = readSettings(reader);
@@ -391,10 +467,14 @@ export const makeSettingsService = (
           message: "canonical settings rows disappeared after initialization",
         });
       }
-      return settings;
+      return presentSettings(reader, settings);
     }).pipe(
       Effect.mapError(stateFailure),
       Effect.withSpan("settings.get"),
+    );
+
+    const resolveProviders = Effect.sync(() => resolvedProviders).pipe(
+      Effect.withSpan("settings.resolve-providers"),
     );
 
     const patch = Effect.fn("SettingsService.patch")(function* (
@@ -409,26 +489,59 @@ export const makeSettingsService = (
           code: "validation",
         });
       }
-      const result = yield* state.transaction(
-        "settings.patch",
-        (writer): MutationResult => {
-          const current = readSettings(writer);
-          if (current === undefined) {
-            throw new SettingsError({
-              code: "corrupt",
-              message: "canonical settings rows are missing",
-            });
-          }
-          const validated = applyAndValidatePatch(current, decoded.success);
-          if (Result.isFailure(validated)) throw validated.failure;
-          if (sameSettings(current, validated.success)) {
-            return { settings: current, changed: false };
-          }
-          writePreferences(writer, validated.success, new Date().toISOString());
-          return { settings: validated.success, changed: true };
-        },
-      ).pipe(Effect.mapError(stateFailure));
-      return publishAfterCommit(result, listeners);
+      const secretOps = decoded.success.providers === undefined
+        ? []
+        : providerSecretOpsFromPatch(decoded.success.providers);
+      const staged = stageSecretValues(credentials, secretOps);
+      try {
+        const result = yield* state.transaction(
+          "settings.patch",
+          (writer): MutationResult => {
+            const current = readSettings(writer);
+            if (current === undefined) {
+              throw new SettingsError({
+                code: "corrupt",
+                message: "canonical settings rows are missing",
+              });
+            }
+            const presented = presentSettings(writer, current);
+            const validated = applyAndValidatePatch(presented, decoded.success);
+            if (Result.isFailure(validated)) throw validated.failure;
+            const retired = commitProviderSecretOps(writer, secretOps, staged);
+            const migratedSlots = new Set(secretOps.map((op) => op.slot));
+            const durable: Settings = {
+              ...validated.success,
+              providers: retainUnmigratedProviderSecrets(
+                current.providers,
+                persistableProviders(validated.success.providers),
+                migratedSlots,
+              ),
+            };
+            if (
+              sameSettings(current, durable) &&
+              secretOps.length === 0
+            ) {
+              return {
+                settings: presentSettings(writer, current),
+                changed: false,
+              };
+            }
+            writePreferences(writer, durable, new Date().toISOString());
+            const nextPresented = presentSettings(writer, durable);
+            refreshResolved(writer);
+            return {
+              settings: nextPresented,
+              changed: true,
+              retired,
+            };
+          },
+        ).pipe(Effect.mapError(stateFailure));
+        retireVaultSecrets(credentials, result.retired ?? []);
+        return publishAfterCommit(result, listeners);
+      } catch (error) {
+        discardStagedSecrets(credentials, staged);
+        throw error;
+      }
     });
 
     const setStationTopology = Effect.fn(
@@ -452,7 +565,10 @@ export const makeSettingsService = (
           });
           if (Result.isFailure(validated)) throw validated.failure;
           if (sameSettings(current, validated.success)) {
-            return { settings: current, changed: false };
+            return {
+              settings: presentSettings(writer, current),
+              changed: false,
+            };
           }
 
           if (current.station.role === "remote") {
@@ -564,7 +680,10 @@ export const makeSettingsService = (
             configuration.success,
             new Date().toISOString(),
           );
-          return { settings: validated.success, changed: true };
+          return {
+            settings: presentSettings(writer, validated.success),
+            changed: true,
+          };
         },
       ).pipe(Effect.mapError(stateFailure));
       return publishAfterCommit(result, listeners);
@@ -594,13 +713,35 @@ export const makeSettingsService = (
             section === undefined
               ? { ...defaultSettings(), station: current.station }
               : { ...current, [section]: defaultSection(section) };
-          if (sameSettings(current, next)) {
-            return { settings: current, changed: false };
+          const retired =
+            section === undefined || section === "providers"
+              ? commitProviderSecretOps(
+                  writer,
+                  clearAllProviderSecretOps(),
+                  [],
+                )
+              : [];
+          const durable: Settings = {
+            ...next,
+            providers: persistableProviders(next.providers),
+          };
+          if (sameSettings(current, durable) && retired.length === 0) {
+            return {
+              settings: presentSettings(writer, current),
+              changed: false,
+            };
           }
-          writePreferences(writer, next, new Date().toISOString());
-          return { settings: next, changed: true };
+          writePreferences(writer, durable, new Date().toISOString());
+          const presented = presentSettings(writer, durable);
+          refreshResolved(writer);
+          return {
+            settings: presented,
+            changed: true,
+            retired,
+          };
         },
       ).pipe(Effect.mapError(stateFailure));
+      retireVaultSecrets(credentials, result.retired ?? []);
       return publishAfterCommit(result, listeners);
     });
 
@@ -654,6 +795,7 @@ export const makeSettingsService = (
       patch,
       setStationTopology,
       reset,
+      resolveProviders,
       subscribe: (listener) => {
         listeners.add(listener);
         return () => {

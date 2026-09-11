@@ -824,7 +824,9 @@ the operator's operating system, network, harness, or provider.
   copy, escrow, or reissue SSH private keys.
 - Harness and provider credentials remain in their native harness or provider
   configuration. Vellum Command integrates with the authenticated tool; it does not
-  absorb the provider's secrets.
+  absorb the provider's secrets. The one exception is operator-entered usage
+  credentials on Settings → Providers: those values live in an OS-adjacent
+  vault outside SQLite and never in product-state backups.
 - Tailscale identity and credentials remain owned by Tailscale and the
   operator's installation.
 - Browser cookies and authenticated session data remain in the browser profile
