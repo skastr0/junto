@@ -18,6 +18,9 @@ export const SHEET_MAX_COLUMNS = 32;
 export const SHEET_MAX_ROWS = 500;
 export const SHEET_MAX_CELL_LENGTH = 2_000;
 export const SHEET_MAX_NAME_LENGTH = 120;
+/** Editor row pitch — keep in lockstep with `.vellum-sheet__grid` CSS. */
+export const SHEET_ROW_HEIGHT_PX = 32;
+export const SHEET_ROW_OVERSCAN = 10;
 
 const Identifier = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
@@ -184,6 +187,27 @@ export const sheetToMarkdown = (sheet: EtherSheet): string => {
         .join(" | ")} |`,
   );
   return [header, divider, ...body].join("\n");
+};
+
+/**
+ * Visible row window for the editor scroller. Pure so the overlay can paint
+ * hundreds of rows without mounting every cell, and so tests can pin the math.
+ * `viewportHeight <= 0` falls back to a first page so an unmeasured scroller
+ * still shows something instead of an empty grid.
+ */
+export const visibleSheetRowRange = (
+  rowCount: number,
+  scrollTop: number,
+  viewportHeight: number,
+  rowHeight = SHEET_ROW_HEIGHT_PX,
+  overscan = SHEET_ROW_OVERSCAN,
+): { readonly start: number; readonly end: number } => {
+  if (rowCount <= 0 || rowHeight <= 0) return { start: 0, end: 0 };
+  const height = viewportHeight > 0 ? viewportHeight : rowHeight * 24;
+  const start = Math.max(0, Math.floor(Math.max(0, scrollTop) / rowHeight) - overscan);
+  const visible = Math.max(1, Math.ceil(height / rowHeight));
+  const end = Math.min(rowCount, start + visible + overscan * 2);
+  return { start, end };
 };
 
 /** Card glance line: shape first, then the first column names. */

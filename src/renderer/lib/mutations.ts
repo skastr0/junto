@@ -1414,20 +1414,73 @@ const stripEmptyRegionContract = (
  * (escalation precedents). Group nodes only —
  * seats have no authorial write path to this contract.
  */
+const remintSheetCard = (): void => {
+  state$.docVersion.set(state$.docVersion.peek() + 1);
+  state$.docEpoch.set(state$.docEpoch.peek() + 1);
+};
+
+const applyNodeSheet = (
+  id: string,
+  sheet: EtherSheet,
+  options: { readonly structural: boolean; readonly recordHistory: boolean },
+): void => {
+  const doc = state$.doc.peek();
+  const current = doc.nodes.find((n) => n.id === id);
+  if (current?.ether?.sheet === sheet) {
+    // Typing already wrote this object without reminting React Flow. A later
+    // structural flush still has to bump docVersion so the card face catches up.
+    if (options.structural) remintSheetCard();
+    return;
+  }
+  commitDoc(
+    {
+      ...doc,
+      nodes: doc.nodes.map((n) => {
+        if (n.id !== id) return n;
+        return { ...n, ether: { ...(n.ether ?? {}), sheet } };
+      }),
+    },
+    options.structural,
+    options.recordHistory,
+  );
+};
+
 /**
  * Write a sheet's grid onto its node. The sheet is authored content, so this is
  * an ordinary canvas commit — no work-plane round trip, and the agent path
  * (sheet.read) has no counterpart that lands here.
+ *
+ * Keystroke bursts share one undo step and do not remint React Flow (the
+ * overlay holds a local draft). Row/column edits and closing the editor
+ * remint once so the card face matches. Quitting still flushes through
+ * `registerCanvasDraftCommit`.
  */
 export const setNodeSheet = (id: string, sheet: EtherSheet): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      return { ...n, ether: { ...(n.ether ?? {}), sheet } };
-    }),
-  });
+  applyNodeSheet(id, sheet, { structural: true, recordHistory: true });
+};
+
+const sheetTypingBurst = new Map<string, ReturnType<typeof setTimeout>>();
+const SHEET_TYPING_BURST_MS = 400;
+
+export const setNodeSheetTyping = (id: string, sheet: EtherSheet): void => {
+  const recordHistory = !sheetTypingBurst.has(id);
+  const previous = sheetTypingBurst.get(id);
+  if (previous !== undefined) clearTimeout(previous);
+  sheetTypingBurst.set(
+    id,
+    setTimeout(() => {
+      sheetTypingBurst.delete(id);
+    }, SHEET_TYPING_BURST_MS),
+  );
+  applyNodeSheet(id, sheet, { structural: false, recordHistory });
+};
+
+/** Drop a coalesced typing burst so the next write starts a new undo frame. */
+export const flushNodeSheetTyping = (id: string): void => {
+  const previous = sheetTypingBurst.get(id);
+  if (previous === undefined) return;
+  clearTimeout(previous);
+  sheetTypingBurst.delete(id);
 };
 
 export const setRegionContract = (

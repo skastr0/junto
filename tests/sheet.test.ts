@@ -13,8 +13,11 @@ import {
   sheetCell,
   sheetGlance,
   sheetToMarkdown,
+  visibleSheetRowRange,
   SHEET_MAX_COLUMNS,
   SHEET_MAX_ROWS,
+  SHEET_ROW_HEIGHT_PX,
+  SHEET_ROW_OVERSCAN,
 } from "../src/shared/sheet";
 import { decodeCanvasDoc, serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { resolveSpec, roleOf } from "../src/shared/physics";
@@ -134,6 +137,29 @@ describe("sheet glance", () => {
   it("leads with shape, then the first column names", () => {
     expect(sheetGlance(emptySheet())).toBe("1 row, 2 columns - Column A, Column B");
     expect(sheetGlance(undefined)).toBe("0 rows, 0 columns");
+  });
+});
+
+describe("visible sheet row range", () => {
+  it("windows a 500-row sheet so the editor never mounts every cell", () => {
+    const range = visibleSheetRowRange(500, 0, 320);
+    expect(range.start).toBe(0);
+    expect(range.end).toBeLessThan(500);
+    expect(range.end).toBe(Math.min(500, Math.ceil(320 / SHEET_ROW_HEIGHT_PX) + SHEET_ROW_OVERSCAN * 2));
+  });
+
+  it("advances with scroll and never overshoots the last row", () => {
+    const range = visibleSheetRowRange(500, 3200, 320);
+    expect(range.start).toBeGreaterThan(80);
+    expect(range.end).toBeLessThanOrEqual(500);
+    expect(range.end - range.start).toBeLessThan(50);
+  });
+
+  it("falls back to a first page when the scroller has not measured yet", () => {
+    const range = visibleSheetRowRange(500, 0, 0);
+    expect(range.start).toBe(0);
+    expect(range.end).toBeGreaterThan(0);
+    expect(range.end).toBeLessThan(500);
   });
 });
 

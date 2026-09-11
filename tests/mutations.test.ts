@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type GroupNode, type TextNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setBoardSettings, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, flushNodeSheetTyping, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setBoardSettings, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setNodeSheet, setNodeSheetTyping, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { FlowCycleError } from "../src/shared/flow-graph";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
@@ -1850,5 +1850,71 @@ describe("drawing a task path hop", () => {
       { fromNode: "b", toNode: "c", verb: "feeds" },
     ]);
     expect(plan.skipped).toEqual([]);
+  });
+});
+
+describe("sheet canvas writes", () => {
+  afterEach(() => {
+    flushNodeSheetTyping("sheet1");
+    loadDoc({ nodes: [], edges: [] });
+  });
+
+  const sheetNode = (): TextNode => ({
+    id: "sheet1",
+    type: "text",
+    text: "burn rate",
+    x: 0,
+    y: 0,
+    width: 260,
+    height: 120,
+    ether: {
+      entity: { kind: "sheet" },
+      sheet: {
+        columns: [
+          { id: "c1", name: "Host" },
+          { id: "c2", name: "Cost" },
+        ],
+        rows: [{ id: "r1", cells: { c1: "studio" } }],
+      },
+    },
+  });
+
+  const nextSheet = (host: string) => ({
+    columns: [
+      { id: "c1", name: "Host" },
+      { id: "c2", name: "Cost" },
+    ],
+    rows: [{ id: "r1", cells: { c1: host } }],
+  });
+
+  it("typing writes the cell without reminting React Flow", () => {
+    loadDoc({ nodes: [sheetNode()], edges: [] }, "r1", "mutation-test");
+    const version = state$.docVersion.peek();
+    const epoch = state$.docEpoch.peek();
+    setNodeSheetTyping("sheet1", nextSheet("mac-studio"));
+    const stored = state$.doc.peek().nodes[0] as TextNode;
+    expect(stored.ether?.sheet?.rows[0]?.cells.c1).toBe("mac-studio");
+    expect(state$.docVersion.peek()).toBe(version);
+    expect(state$.docEpoch.peek()).toBe(epoch + 1);
+  });
+
+  it("coalesces a typing burst into one undo frame", () => {
+    loadDoc({ nodes: [sheetNode()], edges: [] }, "r1", "mutation-test");
+    setNodeSheetTyping("sheet1", nextSheet("m"));
+    setNodeSheetTyping("sheet1", nextSheet("ma"));
+    setNodeSheetTyping("sheet1", nextSheet("mac"));
+    expect((state$.doc.peek().nodes[0] as TextNode).ether?.sheet?.rows[0]?.cells.c1).toBe("mac");
+    undo();
+    expect((state$.doc.peek().nodes[0] as TextNode).ether?.sheet?.rows[0]?.cells.c1).toBe("studio");
+  });
+
+  it("a structural write remints so the card face catches up", () => {
+    loadDoc({ nodes: [sheetNode()], edges: [] }, "r1", "mutation-test");
+    const version = state$.docVersion.peek();
+    setNodeSheet("sheet1", nextSheet("mac-studio"));
+    expect(state$.docVersion.peek()).toBe(version + 1);
+    expect((state$.doc.peek().nodes[0] as TextNode).ether?.sheet?.rows[0]?.cells.c1).toBe(
+      "mac-studio",
+    );
   });
 });
