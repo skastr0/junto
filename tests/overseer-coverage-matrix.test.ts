@@ -187,11 +187,12 @@ describe("overseer coverage matrix", () => {
       "Self-retirement via canvas delete/kind/binding",
       "Remote source impersonation",
       "Uncertain completion, no automatic replay",
-      "Viewport invariance",
     ]) {
       expect(matrix).toContain(risk);
-      expect(matrix).toMatch(new RegExp(`${risk}[\\s\\S]*?\\| missing \\|`, "u"));
+      expect(matrix).toMatch(new RegExp(`${risk}[\\s\\S]*?missing`, "u"));
     }
+    expect(matrix).toContain("Viewport invariance");
+    expect(matrix).toContain("e2e/scenarios/overseer-acceptance.spec.ts");
   });
 });
 

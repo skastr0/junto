@@ -151,12 +151,12 @@ replay.
 | risk | required proof | test owner | status |
 | --- | --- | --- | --- |
 | Stale UI save/undo restoring revoked authority | delayed save, external reload, undo/redo cannot mint or restore `ether.overseer` | renderer/canvas | missing |
-| No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | parent admission + e2e when CLI exists | missing |
+| No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | parent admission; this e2e grants without edges | missing runtime ordinary ScopeError |
 | Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | canvas | missing |
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | canvas | missing |
 | Remote source impersonation | Command Center compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | Station + parent `executeOverseer` | missing |
 | Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | Station dispatcher | missing |
-| Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | native capture + renderer | missing |
+| Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | `e2e/scenarios/overseer-acceptance.spec.ts` for human toggle; native capture still pending | e2e written; live handler required |
 
 ## Explicit non-coverage
 
