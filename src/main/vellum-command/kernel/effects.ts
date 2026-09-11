@@ -21,6 +21,11 @@ import { schedulerFeatureEnabled } from "@shared/features";
 
 export type SchedulerFireKind = "cron" | "gauge" | "relay";
 
+export type OverseerFireAuthority = {
+  /** Rechecked at every async effect and cascade hop. Pause does not admit. */
+  readonly liveGrant: () => Promise<boolean>;
+};
+
 export type SchedulerFireEvent = {
   readonly canvasName: string;
   readonly sourceNodeId: string;
@@ -43,6 +48,8 @@ export type SchedulerEffectDeps = {
     readonly canvasName: string;
     readonly sinkNodeId: string;
     readonly payload: EffectTasksCreate;
+    /** Admitted overseer fire. Pause does not admit; role checks remain. */
+    readonly overseer?: OverseerFireAuthority;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   readonly setFlag: (
     canvasName: string,
@@ -55,6 +62,8 @@ export type SchedulerEffectDeps = {
     readonly canvasName: string;
     readonly agentNodeId: string;
     readonly text: string;
+    /** Admitted overseer fire. Pause does not admit; role checks remain. */
+    readonly overseer?: OverseerFireAuthority;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
 };
 
@@ -68,10 +77,36 @@ export const setSchedulerEffectDeps = (
 
 export const __setSchedulerEffectDepsForTest = setSchedulerEffectDeps;
 
-export type OverseerFireAuthority = {
-  /** Rechecked at every async effect and cascade hop. Pause does not admit. */
-  readonly liveGrant: () => Promise<boolean>;
+/**
+ * Production enqueue/inject admission. Overseer skips pause only; station
+ * role and Command Center inject remain. liveGrant is rechecked here.
+ */
+export const admitSchedulerEffectAutomation = async (input: {
+  readonly canvasName: string;
+  readonly canAutomateCanvas: (canvasName: string) => boolean;
+  readonly stationRole: "" | "command-center" | "remote";
+  readonly overseer?: OverseerFireAuthority;
+  readonly requireCommandCenter?: boolean;
+}): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+  if (input.overseer === undefined) {
+    if (!input.canAutomateCanvas(input.canvasName)) {
+      return { ok: false, message: "canvas paused or station role unset" };
+    }
+  } else if (!(await input.overseer.liveGrant())) {
+    return { ok: false, message: "overseer grant revoked" };
+  } else if (input.stationRole === "") {
+    return { ok: false, message: "station role unset" };
+  }
+  if (
+    input.requireCommandCenter === true &&
+    input.stationRole !== "command-center"
+  ) {
+    return { ok: false, message: "inject_prompt requires Command Center" };
+  }
+  return { ok: true };
 };
+
+type ApplyOneOutcome = "applied" | "skipped" | "failed";
 
 /** True when this edge effect ran successfully under the fireKey. */
 const applyOne = async (
@@ -80,16 +115,16 @@ const applyOne = async (
   fire: SchedulerFireEvent,
   deps: SchedulerEffectDeps,
   overseer?: OverseerFireAuthority,
-): Promise<boolean> => {
+): Promise<ApplyOneOutcome> => {
   const err = validateEffectTarget(binding.effect, binding.target);
   if (err) {
     console.error(
       `[kernel] scheduler effect rejected on ${binding.edge.id}: ${err}`,
     );
-    return false;
+    return "failed";
   }
-  if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return false;
-  if (overseer !== undefined && !(await overseer.liveGrant())) return false;
+  if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return "skipped";
+  if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
 
   if (binding.effect.mode === "enqueue_task") {
     // `enqueues` is the whole authored fact: the edge carries no payload, so
@@ -99,16 +134,17 @@ const applyOne = async (
       canvasName,
       sinkNodeId: binding.target.id,
       payload: defaultEffectTasksCreate(schedulerSourceLabel(binding.source)),
+      ...(overseer !== undefined ? { overseer } : {}),
     });
-    if (overseer !== undefined && !(await overseer.liveGrant())) return false;
+    if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
     if (!result.ok) {
       console.error(
         `[kernel] enqueue_task failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
       );
-      return false;
+      return "failed";
     }
     deps.recordReceipt(fire.fireKey, binding.edge.id);
-    return true;
+    return "applied";
   }
 
   if (binding.effect.mode === "inject_prompt") {
@@ -116,7 +152,7 @@ const applyOne = async (
       console.error(
         `[kernel] inject_prompt skipped on ${binding.edge.id}: no inject handler`,
       );
-      return false;
+      return "failed";
     }
     const text =
       binding.effect.text?.trim() ||
@@ -125,45 +161,46 @@ const applyOne = async (
       canvasName,
       agentNodeId: binding.target.id,
       text,
+      ...(overseer !== undefined ? { overseer } : {}),
     });
-    if (overseer !== undefined && !(await overseer.liveGrant())) return false;
+    if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
     if (!result.ok) {
       console.error(
         `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
       );
-      return false;
+      return "failed";
     }
     deps.recordReceipt(fire.fireKey, binding.edge.id);
-    return true;
+    return "applied";
   }
 
   if (!deps.canApplyFlagEffects()) {
     console.error(
       `[kernel] set_flag skipped on ${binding.edge.id}: durable flag effects require Command Center`,
     );
-    return false;
+    return "failed";
   }
 
   const enabled = resolveMirrorFlagEnabled(
     binding.effect.enabled,
     fire.status ?? "satisfied",
   );
-  if (enabled === undefined) return false;
+  if (enabled === undefined) return "skipped";
   const flagResult = await deps.setFlag(
     canvasName,
     binding.target.id,
     binding.effect.flag,
     enabled,
   );
-  if (overseer !== undefined && !(await overseer.liveGrant())) return false;
+  if (overseer !== undefined && !(await overseer.liveGrant())) return "skipped";
   if (!flagResult.ok) {
     console.error(
       `[kernel] set_flag failed on ${binding.edge.id}: ${flagResult.message ?? "unknown"}`,
     );
-    return false;
+    return "failed";
   }
   deps.recordReceipt(fire.fireKey, binding.edge.id);
-  return true;
+  return "applied";
 };
 
 /**
@@ -175,6 +212,8 @@ export type ApplySchedulerFireResult = {
   readonly applied: number;
   readonly cascaded?: number;
   readonly skipped?: "no_deps" | "paused" | "disabled" | "no_effects";
+  /** Wired edges that did not apply (downstream refuse, throw, or grant drop). */
+  readonly failed?: number;
 };
 
 /** Max trigger hops after the root fire (root is depth 0). */
@@ -256,12 +295,20 @@ export const applySchedulerFire = async (
   // Scope law: only edges leaving this scheduler whose verb is a fire action.
   const bindings = collectEffectEdgesFrom(doc, fire.sourceNodeId);
   let applied = 0;
+  let failed = 0;
   for (const binding of bindings) {
     try {
-      if (await applyOne(fire.canvasName, binding, fire, effectDeps, opts?.overseer)) {
-        applied += 1;
-      }
+      const outcome = await applyOne(
+        fire.canvasName,
+        binding,
+        fire,
+        effectDeps,
+        opts?.overseer,
+      );
+      if (outcome === "applied") applied += 1;
+      else if (outcome === "failed") failed += 1;
     } catch (error) {
+      failed += 1;
       console.error(
         `[kernel] scheduler effect threw on ${binding.edge.id}:`,
         error,
@@ -290,6 +337,7 @@ export const applySchedulerFire = async (
         },
       );
       applied += child.applied;
+      failed += child.failed ?? 0;
       cascaded += 1 + (child.cascaded ?? 0);
     }
   }
@@ -297,7 +345,7 @@ export const applySchedulerFire = async (
   if (applied === 0 && cascaded === 0 && bindings.length === 0) {
     return { applied: 0, cascaded: 0, skipped: "no_effects" };
   }
-  return { applied, cascaded };
+  return failed > 0 ? { applied, cascaded, failed } : { applied, cascaded };
 };
 
 /** True when a node is a schedule carrier (timer body on cron/timer kinds). */

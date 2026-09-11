@@ -871,6 +871,21 @@ const runManualSchedulerFire = async (input: {
       message: "Scheduler effects are not wired in this runtime",
     };
   }
+  if (result.skipped === "disabled") {
+    return {
+      ok: true,
+      sourceNodeId: input.sourceNodeId,
+      kind,
+      applied: 0,
+      message: `No effect wires from this ${kind} yet`,
+    };
+  }
+  if ((result.failed ?? 0) > 0 && result.applied === 0) {
+    return {
+      ok: false,
+      message: "Wired scheduler effects failed to apply",
+    };
+  }
   if (result.skipped === "no_effects" || result.applied === 0) {
     return {
       ok: true,

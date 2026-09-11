@@ -109,7 +109,10 @@ import {
   __setTimerSchedulerForTest,
   setPageLoadDeps,
 } from "./cycle";
-import { setSchedulerEffectDeps } from "./effects";
+import {
+  admitSchedulerEffectAutomation,
+  setSchedulerEffectDeps,
+} from "./effects";
 import {
   makeKernelTickScheduler,
   type KernelTickScheduler,
@@ -878,10 +881,14 @@ const makeKernelService = (
     recordReceipt: (fireKey, edgeId) => {
       effectReceipts.add(`${fireKey}::${edgeId}`);
     },
-    enqueueTask: async ({ canvasName, sinkNodeId, payload }) => {
-      if (!canAutomateCanvas(canvasName)) {
-        return { ok: false, message: "canvas paused or station role unset" };
-      }
+    enqueueTask: async ({ canvasName, sinkNodeId, payload, overseer }) => {
+      const admitted = await admitSchedulerEffectAutomation({
+        canvasName,
+        canAutomateCanvas,
+        stationRole: cachedStationRole,
+        ...(overseer !== undefined ? { overseer } : {}),
+      });
+      if (!admitted.ok) return admitted;
       const args = effectTasksCreateToWorkArgs(payload);
       const result = await run(
         work.workTaskCreate(
@@ -901,13 +908,15 @@ const makeKernelService = (
       return { ok: true };
     },
     setFlag: setNodeFlag,
-    injectPrompt: async ({ canvasName, agentNodeId, text }) => {
-      if (!canAutomateCanvas(canvasName)) {
-        return { ok: false, message: "canvas paused or station role unset" };
-      }
-      if (cachedStationRole !== "command-center") {
-        return { ok: false, message: "inject_prompt requires Command Center" };
-      }
+    injectPrompt: async ({ canvasName, agentNodeId, text, overseer }) => {
+      const admitted = await admitSchedulerEffectAutomation({
+        canvasName,
+        canAutomateCanvas,
+        stationRole: cachedStationRole,
+        requireCommandCenter: true,
+        ...(overseer !== undefined ? { overseer } : {}),
+      });
+      if (!admitted.ok) return admitted;
       const result = await run(
         work.workSystemMailboxNotify(
           canvasName,

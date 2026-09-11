@@ -9,6 +9,7 @@ import {
 } from "../src/main/vellum-command/kernel/cycle";
 import {
   __setSchedulerEffectDepsForTest,
+  admitSchedulerEffectAutomation,
   applySchedulerFire,
   collectTriggerCascadeTargets,
 } from "../src/main/vellum-command/kernel/effects";
@@ -128,12 +129,20 @@ describe("manualSchedulerFire scope", () => {
   it.runIf(CRON_ENABLED)(
     "overseer fire succeeds while paused; ordinary manual fire stays paused",
     async () => {
+      const canAutomateCanvas = () => false;
       __setSchedulerEffectDepsForTest({
-        canAutomateCanvas: () => false,
+        canAutomateCanvas,
         canApplyFlagEffects: () => true,
         hasReceipt: () => false,
         recordReceipt: () => undefined,
-        enqueueTask: async ({ payload }) => {
+        enqueueTask: async ({ payload, overseer }) => {
+          const admitted = await admitSchedulerEffectAutomation({
+            canvasName: "board",
+            canAutomateCanvas,
+            stationRole: "command-center",
+            ...(overseer !== undefined ? { overseer } : {}),
+          });
+          if (!admitted.ok) return admitted;
           enqueues.push(payload.brief);
           return { ok: true };
         },
@@ -220,6 +229,32 @@ describe("manualSchedulerFire scope", () => {
     expect(result.message).toMatch(/playing/i);
     expect(enqueues).toEqual([]);
   });
+
+  it.runIf(CRON_ENABLED)(
+    "reports a wired downstream refuse instead of no-wires success",
+    async () => {
+      __setSchedulerEffectDepsForTest({
+        canAutomateCanvas: () => true,
+        canApplyFlagEffects: () => true,
+        hasReceipt: () => false,
+        recordReceipt: () => undefined,
+        enqueueTask: async () => ({
+          ok: false,
+          message: "work refused the enqueue",
+        }),
+        setFlag: async () => ({ ok: true }),
+      });
+      const result = await manualSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.message).not.toMatch(/No effect wires/i);
+      expect(result.message).toMatch(/failed to apply/i);
+      expect(enqueues).toEqual([]);
+    },
+  );
 
   it.runIf(RELAY_ENABLED)(
     "reports zero does edges without claiming work ran",
