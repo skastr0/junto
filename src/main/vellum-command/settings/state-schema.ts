@@ -99,6 +99,10 @@ const formatParse = (error: unknown): string =>
 
 export const preferencesFromSettings = (
   settings: Settings,
+  options: {
+    readonly retainHistorical?: Settings["providers"];
+    readonly migratedSlots?: ReadonlySet<string>;
+  } = {},
 ): StoredSettingsPreferences => ({
   appearance: settings.appearance,
   canvas: settings.canvas,
@@ -109,7 +113,7 @@ export const preferencesFromSettings = (
   fleet: settings.fleet,
   harnesses: settings.harnesses ?? defaultHarnesses(),
   terminal: settings.terminal ?? defaultTerminal(),
-  providers: persistableProviders(settings.providers),
+  providers: persistableProviders(settings.providers, options),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the

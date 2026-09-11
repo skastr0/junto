@@ -59,11 +59,21 @@ export const stripProviderSecretsFromPreferencesBody = (body: string): string =>
 
 export const persistableProviders = (
   providers: ProvidersSettings | undefined,
+  options: {
+    readonly retainHistorical?: ProvidersSettings;
+    readonly migratedSlots?: ReadonlySet<string>;
+  } = {},
 ): ProvidersSettings => {
   const stripped = stripProviderSecretsFromPreferences({
     providers: providers ?? {},
   }) as { readonly providers?: ProvidersSettings };
-  return stripped.providers ?? {};
+  const next = stripped.providers ?? {};
+  if (options.retainHistorical === undefined) return next;
+  return retainUnmigratedProviderSecrets(
+    options.retainHistorical,
+    next,
+    options.migratedSlots ?? new Set(),
+  );
 };
 
 /**

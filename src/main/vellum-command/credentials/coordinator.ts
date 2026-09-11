@@ -8,7 +8,6 @@ import {
   insertBinding,
   listCredentialBindings,
   setBindingLifecycle,
-  type ProviderCredentialBinding,
 } from "./bindings";
 import { persistableProviders } from "./redact";
 import {
@@ -56,7 +55,7 @@ export const resolveProviderSecrets = (
 
 const nowIso = (): string => new Date().toISOString();
 
-type StagedSecret = {
+export type StagedSecret = {
   readonly slot: ProviderCredentialSlot;
   readonly credentialId: string;
   readonly value: string;
@@ -69,26 +68,23 @@ export const stageSecretValues = (
     readonly op: ProviderCredentialFieldOp;
   }>,
 ): ReadonlyArray<StagedSecret> => {
+  if (!store.available && ops.some((op) => op.op.kind === "set")) {
+    throw new Error("credential vault is unavailable");
+  }
   const staged: StagedSecret[] = [];
   try {
     for (const { slot, op } of ops) {
       if (op.kind !== "set") continue;
       const credentialId = randomUUID();
+      staged.push({ slot, credentialId, value: op.value });
       store.put(credentialId, op.value);
       if (store.get(credentialId) !== op.value) {
         throw new Error("credential vault write could not be verified");
       }
-      staged.push({ slot, credentialId, value: op.value });
     }
     return staged;
   } catch (error) {
-    for (const item of staged) {
-      try {
-        store.delete(item.credentialId);
-      } catch {
-        // Preserve the original failure.
-      }
-    }
+    discardStagedSecrets(store, staged);
     throw error;
   }
 };
@@ -127,21 +123,20 @@ export const commitProviderSecretOps = (
       createdAt: nowIso(),
     });
   }
-  for (const id of retired) {
-    deleteBinding(writer, id);
-  }
   return retired;
 };
 
 export const retireVaultSecrets = (
+  writer: StateWriter,
   store: CredentialStore,
   retired: ReadonlyArray<string>,
 ): void => {
   for (const id of retired) {
     try {
       store.delete(id);
+      deleteBinding(writer, id);
     } catch {
-      // SQLite already revoked the binding. Vault leftovers are unused.
+      // Leave delete_pending so a later boot can retry.
     }
   }
 };
@@ -155,6 +150,32 @@ export const discardStagedSecrets = (
       store.delete(item.credentialId);
     } catch {
       // Best-effort rollback of vault items that never became active.
+    }
+  }
+};
+
+export const reconcileCredentialVault = (
+  writer: StateWriter,
+  store: CredentialStore,
+): void => {
+  const bindings = listCredentialBindings(writer);
+  const known = new Set(bindings.map((binding) => binding.credentialId));
+  for (const binding of bindings) {
+    if (binding.lifecycle !== "delete_pending") continue;
+    try {
+      store.delete(binding.credentialId);
+      deleteBinding(writer, binding.credentialId);
+    } catch {
+      // Retry next boot.
+    }
+  }
+  if (!store.available) return;
+  for (const id of store.listIds()) {
+    if (known.has(id)) continue;
+    try {
+      store.delete(id);
+    } catch {
+      // Orphan sweep is best-effort.
     }
   }
 };
@@ -173,6 +194,9 @@ export const migrateHistoricalProviderSecrets = (
       },
       retired: [],
     };
+  }
+  if (!store.available) {
+    return { settings, retired: [] };
   }
   const ops = leftovers.map((secret) => ({
     slot: secret.slot,
