@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { use$ } from "@legendapp/state/react";
 import {
   Archive,
   ArchiveRestore,
   Ban,
   Check,
   Download,
+  ExternalLink,
   FileBox,
   FileText,
   Image,
@@ -17,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import type { Artifact, CanvasNode, Part, Task, WorkMetadata } from "@shared/canvas";
+import type { TaskRef } from "@shared/work-reference";
 import type { WorkOpResult } from "@shared/ipc";
 import { isArtifactArchived } from "@shared/work";
 import { taskBrief } from "@shared/task";
@@ -29,9 +32,11 @@ import { OverlayHeader } from "../ui/OverlayHeader";
 import { StatusDot } from "../ui/StatusDot";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
+import { openWorkDetail } from "../../lib/work-detail-open";
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
+  artifactDeletionWarning,
   artifactSearchText,
   artifactTaskReferenceLabel,
 } from "./artifact-reference";
@@ -643,7 +648,6 @@ function ArtifactContents({
   readonly bodyTestId?: string;
 }) {
   const name = artifact.name?.trim() || artifact.artifactId;
-  const kind = artifactKind(artifact);
   const metaEntries = Object.entries(artifact.metadata ?? {}).filter(
     ([key]) => key !== "archived" && key !== "publishedBySeatId",
   );
@@ -654,9 +658,6 @@ function ArtifactContents({
         <span>
           {artifact.parts.length} part{artifact.parts.length === 1 ? "" : "s"}
         </span>
-        {kind !== "image" ? (
-          <span className="artifact-focus__meta-kind">{kind}</span>
-        ) : null}
         {isArtifactArchived(artifact) ? (
           <Chip tone="steel">archived</Chip>
         ) : null}
@@ -667,24 +668,30 @@ function ArtifactContents({
       >
         <section>
           <h3>Contents</h3>
-          <div className="work-ledger-parts artifact-focus__parts">
-            {artifact.parts.map((part, index) => {
-              const filename = `${name}-${index + 1}`;
-              return (
-                <PartView
-                  key={index}
-                  part={part}
-                  filename={filename}
-                  markdown={
-                    part.kind === "text" ||
-                    isMarkdownFilename(name) ||
-                    (part.kind === "raw" && isMarkdownMediaType(part.mediaType)) ||
-                    (part.kind === "content" && isMarkdownMediaType(part.ref.mediaType))
-                  }
-                />
-              );
-            })}
-          </div>
+          {artifact.parts.length === 0 ? (
+            <p className="work-ledger-empty" data-testid="artifact-empty-parts">
+              No contents
+            </p>
+          ) : (
+            <div className="work-ledger-parts artifact-focus__parts">
+              {artifact.parts.map((part, index) => {
+                const filename = `${name}-${index + 1}`;
+                return (
+                  <PartView
+                    key={index}
+                    part={part}
+                    filename={filename}
+                    markdown={
+                      part.kind === "text" ||
+                      isMarkdownFilename(name) ||
+                      (part.kind === "raw" && isMarkdownMediaType(part.mediaType)) ||
+                      (part.kind === "content" && isMarkdownMediaType(part.ref.mediaType))
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
         </section>
         {metaEntries.length > 0 ? (
           <section>
@@ -748,12 +755,15 @@ function ArtifactSideDetail({
   onExpand,
   onArchive,
   onDelete,
+  onOpenSourceTask,
 }: {
   readonly artifact: Artifact;
   readonly pending: boolean;
   readonly onExpand: () => void;
   readonly onArchive: (archived: boolean) => void;
   readonly onDelete: () => void;
+  /** Present when the artifact has provenance; opens the publishing task. */
+  readonly onOpenSourceTask?: () => void;
 }) {
   const name = artifact.name?.trim() || artifact.artifactId;
   const kind = artifactKind(artifact);
@@ -767,10 +777,19 @@ function ArtifactSideDetail({
       <header>
         <div>
           <Chip tone="violet">{kind}</Chip>
-          {archived ? <Chip tone="steel">archived</Chip> : null}
           <h2>{name}</h2>
         </div>
         <div className="work-ledger-detail__actions">
+          {onOpenSourceTask ? (
+            <IconButton
+              aria-label="Open source task"
+              title="Open the task that published this artifact"
+              onClick={onOpenSourceTask}
+              disabled={pending}
+            >
+              <ExternalLink size={14} />
+            </IconButton>
+          ) : null}
           <IconButton
             aria-label="Expand artifact"
             title="Expand"
@@ -812,10 +831,9 @@ export function ArtifactLibrary({
   const items = node.ether?.artifacts?.items ?? [];
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  /** Selected for the side pane (not the expand modal). */
+  /** Selected for the side pane (not the expand modal). First live artifact. */
   const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const firstLive = items.find((item) => !isArtifactArchived(item));
-    return firstLive?.artifactId ?? items[0]?.artifactId ?? null;
+    return items.find((item) => !isArtifactArchived(item))?.artifactId ?? null;
   });
   /** Expanded immersive reader only. */
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -823,6 +841,7 @@ export function ArtifactLibrary({
   const [error, setError] = useState("");
   const api = getVellumCommandApi();
   const name = canvasName();
+  const doc = use$(state$.doc);
   const normalized = query.trim().toLowerCase();
   const archivedCount = items.filter(isArtifactArchived).length;
   const liveCount = items.length - archivedCount;
@@ -837,18 +856,26 @@ export function ArtifactLibrary({
     );
   }, [items, normalized, showArchived]);
 
-  // Keep selection valid when list filters or items change.
+  // Selection invalidation only: a row that filters or deletes out of view
+  // clears the pane. The operator always picks the next selection — the pane
+  // never silently jumps to another artifact.
   useEffect(() => {
-    if (selectedId && visible.some((a) => a.artifactId === selectedId)) return;
-    setSelectedId(visible[0]?.artifactId ?? null);
+    if (selectedId && !visible.some((a) => a.artifactId === selectedId)) {
+      setSelectedId(null);
+    }
   }, [visible, selectedId]);
 
   const selected = selectedId
-    ? items.find((artifact) => artifact.artifactId === selectedId)
+    ? visible.find((artifact) => artifact.artifactId === selectedId)
     : undefined;
   const expanded = expandedId
     ? items.find((artifact) => artifact.artifactId === expandedId)
     : undefined;
+
+  // A deleted (or vanished) artifact closes the immersive reader.
+  useEffect(() => {
+    if (expandedId && expanded === undefined) setExpandedId(null);
+  }, [expandedId, expanded]);
 
   const runArtifactMutation = async (
     artifactId: string,
@@ -875,18 +902,56 @@ export function ArtifactLibrary({
     );
   };
 
+  /** Resolve an artifact's TaskRef to its task row in the current doc. */
+  const resolveTaskRef = (ref: TaskRef): Task | undefined => {
+    if (ref.sink.canvasName !== name) return undefined;
+    const sinkNode = doc.nodes.find((entry) => entry.id === ref.sink.nodeId);
+    return sinkNode?.ether?.tasks?.items.find((task) => task.id === ref.itemId);
+  };
+
   const deleteArtifact = (artifact: Artifact): void => {
     if (!api) return;
     const label = artifact.name?.trim() || artifact.artifactId;
-    if (!window.confirm(`Delete artifact “${label}”? This cannot be undone.`)) {
+    const warning = artifactDeletionWarning({
+      artifact,
+      sinkNodeId: node.id,
+      resolveTask: resolveTaskRef,
+    });
+    const message = warning
+      ? `Delete artifact “${label}”? This cannot be undone.\n\n${warning}`
+      : `Delete artifact “${label}”? This cannot be undone.`;
+    if (!window.confirm(message)) {
       return;
     }
+    // Selection/expanded cleanup happens through the invalidation effects
+    // once the deletion lands in the doc — never eagerly.
     void runArtifactMutation(artifact.artifactId, () =>
       api.workArtifactDelete(name, node.id, artifact.artifactId),
-    ).then(() => {
-      if (selectedId === artifact.artifactId) setSelectedId(null);
-      if (expandedId === artifact.artifactId) setExpandedId(null);
-    });
+    );
+  };
+
+  /** Provenance jump: close the library and open the publishing task. */
+  const openSourceTask = (artifact: Artifact): void => {
+    const ref = artifact.task;
+    if (ref === undefined) return;
+    if (ref.sink.canvasName !== name) {
+      setError(
+        `Source task ${ref.itemId} lives on “${ref.sink.canvasName}” — open that canvas to view it.`,
+      );
+      return;
+    }
+    const sinkNode = doc.nodes.find((entry) => entry.id === ref.sink.nodeId);
+    const task = sinkNode?.ether?.tasks?.items.find(
+      (entry) => entry.id === ref.itemId,
+    );
+    if (sinkNode === undefined || task === undefined) {
+      setError(
+        `Source task ${ref.itemId} is no longer on ${ref.sink.canvasName}/${ref.sink.nodeId}.`,
+      );
+      return;
+    }
+    onClose();
+    openWorkDetail(sinkNode.id, { itemId: task.id });
   };
 
   return (
@@ -1035,6 +1100,9 @@ export function ArtifactLibrary({
               onExpand={() => setExpandedId(selected.artifactId)}
               onArchive={(archived) => archiveArtifact(selected, archived)}
               onDelete={() => deleteArtifact(selected)}
+              onOpenSourceTask={
+                selected.task ? () => openSourceTask(selected) : undefined
+              }
             />
           ) : (
             <div className="work-ledger-detail work-ledger-detail--empty" aria-hidden>
