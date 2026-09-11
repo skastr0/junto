@@ -62,7 +62,7 @@ describe("Linux desktop update provider", () => {
     const { provider, events, calls } = harness();
     await provider.check();
     expect(events.map((event) => event._tag)).toEqual(["checking", "available", "progress", "downloaded"]);
-    expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/linux/x64/alpha.json", "/linux/x64/sources/0.2.1/sources.json", "/linux/x64/vellum-runtime-0.2.1-linux-x64.tar.gz"]);
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/linux/x64/alpha.json", "/linux/x64/sources/0.2.1/sources.json", "/linux/x64/vellum-command-runtime-0.2.1-linux-x64.tar.gz"]);
     expect(calls.every((call) => new URL(call.url).protocol === "https:" && call.options?.redirect === "error")).toBe(true);
     const downloaded = events.find((event) => event._tag === "downloaded");
     expect(downloaded?._tag).toBe("downloaded");

@@ -144,8 +144,8 @@ describe("owner-memory open-url selection", () => {
 
     expect(canonicalNodeRefUri(first)).toBe(first);
     expect(canonicalNodeRefUri("vellum-command://canvas/portfolio?node=%73econd")).toBeUndefined();
-    expect(latestNodeRefUri(["vellum", first, "--flag", second])).toBe(second);
-    expect(latestNodeRefUri(["vellum", "https://example.com/"])).toBeUndefined();
+    expect(latestNodeRefUri(["vellum-command", first, "--flag", second])).toBe(second);
+    expect(latestNodeRefUri(["vellum-command", "https://example.com/"])).toBeUndefined();
   });
 
   it("has no filesystem relay exports, paths, artifacts, or watcher", async () => {

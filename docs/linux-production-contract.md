@@ -28,7 +28,7 @@ This contract derives from
 
 ## Release and installation boundaries
 
-The canonical payload is `vellum-runtime-<version>-linux-x64.tar.gz`.
+The canonical payload is `vellum-command-runtime-<version>-linux-x64.tar.gz`.
 Desktop descriptors and the alpha feed live under `/linux/x64/`, separately
 from the gated Fleet release contract. An archive build alone does not prove
 signing, first install, installed update or native-host qualification.

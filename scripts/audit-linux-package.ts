@@ -761,7 +761,7 @@ const parseCli = (
   }
   const version =
     options.get("--version") ??
-    path.basename(runtime).match(/^vellum-runtime-(.+)-linux-x64$/u)?.[1];
+    path.basename(runtime).match(/^vellum-command-runtime-(.+)-linux-x64$/u)?.[1];
   if (version === undefined) throw new Error("runtime artifact name mismatch");
   return { runtime, version, ...(options.has("--receipt") ? { receipt: options.get("--receipt") } : {}) } as {
     readonly runtime: string;

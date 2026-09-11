@@ -8,7 +8,7 @@
  * Not in scope (word-boundary / casing):
  * - identifiers glued on: VellumCommandApi, resolveVellumCommandHome
  * - lowercase paths / bins: ~/.vellum-command/, vellum-command.db, dist/vellum-command
- * - env / package keys: VELLUM_COMMAND_*, @skastr0/vellum
+ * - env / package keys: VELLUM_COMMAND_*, @skastr0/vellum-command
  * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State
  *   (local wire labels, not product brand — do not rename for lint alone)
  *

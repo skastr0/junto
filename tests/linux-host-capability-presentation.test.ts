@@ -178,7 +178,7 @@ describe("Linux host capability presentation", () => {
         /^docs\/linux-host-preparation\.md#/u,
       );
       expect(capability.remediation?.href).toBe(
-        `https://github.com/skastr0/vellum/blob/main/${capability.remediation?.reference}`,
+        `https://github.com/skastr0/vellum-command/blob/main/${capability.remediation?.reference}`,
       );
     }
   });
@@ -217,7 +217,7 @@ describe("Linux host capability presentation", () => {
 
   it("turns only typed preparation references into the exact public docs URL", () => {
     expect(LINUX_HOST_PREPARATION_URL).toBe(
-      "https://github.com/skastr0/vellum/blob/main/docs/linux-host-preparation.md",
+      "https://github.com/skastr0/vellum-command/blob/main/docs/linux-host-preparation.md",
     );
     expect(linuxHostPreparationHref(sandbox)).toBe(
       `${LINUX_HOST_PREPARATION_URL}#apparmor-and-unprivileged-user-namespaces`,

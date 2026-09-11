@@ -125,7 +125,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
 
     // Desktop and Fleet share rootless authority but have separate qualification.
     expect(production).toContain(
-      "The canonical payload is `vellum-runtime-<version>-linux-x64.tar.gz`",
+      "The canonical payload is `vellum-command-runtime-<version>-linux-x64.tar.gz`",
     );
     expect(production).toContain(
       "Desktop descriptors and the alpha feed live under `/linux/x64/`, separately from the gated Fleet release contract",

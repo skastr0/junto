@@ -24,7 +24,7 @@ const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];
 
 const makeRoot = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-runtime-state-"));
+  const root = await mkdtemp(join(tmpdir(), "vellum-command-runtime-state-"));
   roots.push(root);
   return root;
 };

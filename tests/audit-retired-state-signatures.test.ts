@@ -151,7 +151,7 @@ describe("first-party ASAR retired-state audit", () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
       "out/renderer/index.html": "<main>vellum-command.db</main>",
-      "out/runtime.json": '{"name":"vellum"}',
+      "out/runtime.json": '{"name":"vellum-command"}',
       "node_modules/legacy/index.js": "settings.json",
       "package.json": '{"legacy":"hosts.json"}',
       "out/renderer/model.glb": Buffer.from("current.json"),
@@ -170,7 +170,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("rejects a retired signature extracted from a first-party entry", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "const authority = 'canvas-authority-v1'",
-      "out/runtime.json": '{"name":"vellum"}',
+      "out/runtime.json": '{"name":"vellum-command"}',
     });
     expect(() => auditRetiredStateAsar(archive)).toThrowError(
       expect.objectContaining({
@@ -230,7 +230,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("rejects non-positive and unsafe bounds", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
-      "out/runtime.json": '{"name":"vellum"}',
+      "out/runtime.json": '{"name":"vellum-command"}',
     });
     for (const maxAsarEntries of [
       0,
@@ -254,9 +254,9 @@ describe("complete packaged runtime retired-state audit", () => {
       const archive = await makeAsar({
         "out/main/index.js":
           target === "asar" ? "incoming.frame" : "state_schema_identity",
-        "out/runtime.json": '{"name":"vellum"}',
+        "out/runtime.json": '{"name":"vellum-command"}',
       });
-      const work = join(root, "vellum");
+      const work = join(root, "vellum-command");
       await writeFile(
         work,
         target === "work" ? "incoming.frame" : "state_schema_identity",
@@ -280,7 +280,7 @@ describe("complete Linux packaged runtime retired-state audit", () => {
       const root = await makeTempRoot();
       const archive = await makeAsar({
         "out/main/index.js": target === "asar" ? "incoming.frame" : "safe",
-        "out/runtime.json": '{"name":"vellum"}',
+        "out/runtime.json": '{"name":"vellum-command"}',
       });
       const paths = Object.fromEntries(await Promise.all(
         ["work", "installer", "bridge"].map(async (name) => {

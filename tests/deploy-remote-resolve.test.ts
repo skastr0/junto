@@ -234,7 +234,7 @@ describe("buildRemoteDeployScript", () => {
       "utf8",
     );
     expect(admit).toContain("basename(REMOTE_CLI_EXECUTABLE)");
-    expect(admit).not.toContain('"vellum",');
+    expect(admit).not.toContain('"vellum-command",');
     expect(script).toContain(
       'test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE"',
     );

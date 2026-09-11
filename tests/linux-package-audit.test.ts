@@ -37,7 +37,7 @@ describe("Linux userland runtime audit", () => {
     expect(() => validateUserServiceTemplate("User=root\nExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).toThrow(/privileged/u);
   });
   it("fails closed on chrome sandbox and privileged mode residue", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-runtime-audit-"));
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-audit-"));
     const runtime = path.join(root, linuxRuntimeArtifactName({ version: "0.1.0", arch: "x64" }));
     try {
       await mkdir(path.join(runtime, "resources/bin"), { recursive: true });

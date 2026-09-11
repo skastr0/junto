@@ -1118,7 +1118,7 @@ const observeInstalledPackage = async (
   const [packageName, version, architecture] =
     result.stdout.trim().split("\t");
   if (
-    packageName !== "vellum" ||
+    packageName !== "vellum-command" ||
     version !== artifact.version ||
     architecture !== "userland"
   ) {
@@ -1165,7 +1165,7 @@ const installPackage = async (
     'mkdir -p "$ROOT/releases" "$ROOT/staging" "$HOME/.local/bin" "$HOME/.config/systemd/user"',
     'mkdir "$STAGE"',
     '/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions',
-    `TREE="$STAGE/vellum-runtime-${artifact.version}-linux-x64"`,
+    `TREE="$STAGE/vellum-command-runtime-${artifact.version}-linux-x64"`,
     'test -x "$TREE/vellum-command"',
     'test -x "$TREE/resources/bin/vellum-command-remote"',
     'test -x "$TREE/resources/systemd/vellum-command-remote-launch"',
@@ -1187,7 +1187,7 @@ const installPackage = async (
     { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
   );
   return {
-    packageName: "vellum",
+    packageName: "vellum-command",
     version: artifact.version,
     architecture: "userland",
     sha256,
@@ -2519,7 +2519,7 @@ const managedRun = async (
     const [packageName, packageVersion, architecture] =
       remotePackage.stdout.trim().split("\t");
     if (
-      packageName !== "vellum" ||
+      packageName !== "vellum-command" ||
       packageVersion !== state.artifact.version ||
       architecture !== "userland"
     ) {
@@ -3512,7 +3512,7 @@ const observeMachine = async (
   const [packageName, version, architecture] =
     packageIdentity.stdout.trim().split("\t");
   if (
-    packageName !== "vellum" ||
+    packageName !== "vellum-command" ||
     version !== artifact.version ||
     architecture !== "userland"
   ) {

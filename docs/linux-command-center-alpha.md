@@ -24,11 +24,11 @@ executing its bundled CLI**. In that download directory, replace both values:
 set -eu
 ALPHA_VERSION="REPLACE_WITH_PUBLISHED_VERSION"
 ALPHA_ARCHIVE_SHA256="REPLACE_WITH_PUBLISHED_ARCHIVE_SHA256"
-ALPHA_ARCHIVE="vellum-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
+ALPHA_ARCHIVE="vellum-command-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
 
 printf '%s  %s\n' "$ALPHA_ARCHIVE_SHA256" "$ALPHA_ARCHIVE" | sha256sum --check -
 tar -xzf "$ALPHA_ARCHIVE"
-"./vellum-runtime-$ALPHA_VERSION-linux-x64/resources/bin/vellum-command" desktop-install \
+"./vellum-command-runtime-$ALPHA_VERSION-linux-x64/resources/bin/vellum-command" desktop-install \
   --release "$PWD/release.json" \
   --archive "$PWD/$ALPHA_ARCHIVE" \
   --sources "$PWD/sources.json"

@@ -11,7 +11,7 @@ been published.
 | --- | --- | --- |
 | Distribution / CPU | Ubuntu 24.04 LTS, x86-64 | Official alpha target |
 | C library | glibc 2.39 on Ubuntu 24.04 | Other distributions are not implied |
-| Package | Rootless `vellum-runtime-<version>-linux-x64.tar.gz` | Exact archive must pass audit and signature admission |
+| Package | Rootless `vellum-command-runtime-<version>-linux-x64.tar.gz` | Exact archive must pass audit and signature admission |
 | Install layout | `~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/` | Immutable owner-local generations |
 | Launch | `~/.local/bin/vellum-command-desktop` and user desktop entry | Same ordinary user; no system service |
 | Desktop display | X11 or Wayland/XWayland session | Native session evidence is distinct from Xvfb CI smoke |

@@ -55,7 +55,7 @@ const qualified = () => ({
     sha256: hash("1"),
   },
   package: {
-    file: "vellum-runtime-0.1.5-linux-x64.tar.gz",
+    file: "vellum-command-runtime-0.1.5-linux-x64.tar.gz",
     bytes: 252_000_000,
     sha256: hash("2"),
   },
@@ -111,7 +111,7 @@ describe("two-installation Station qualification contract", () => {
       },
       package: {
         file: Schema.decodeUnknownSync(StationQualificationPackageFile)(
-          "vellum-runtime-0.1.5-linux-x64.tar.gz",
+          "vellum-command-runtime-0.1.5-linux-x64.tar.gz",
         ),
         bytes: 252_000_000,
         sha256: Schema.decodeUnknownSync(StationQualificationSha256)(hash("2")),
@@ -259,10 +259,10 @@ describe("two-installation Station qualification contract", () => {
       ".",
       "..",
       "-option.tar.gz",
-      "../vellum-runtime-0.1.5-linux-x64.tar.gz",
-      "nested/vellum-runtime-0.1.5-linux-x64.tar.gz",
-      "vellum",
-      "vellum-runtime-0.1.5-linux-x64.tar.gz\0",
+      "../vellum-command-runtime-0.1.5-linux-x64.tar.gz",
+      "nested/vellum-command-runtime-0.1.5-linux-x64.tar.gz",
+      "vellum-command",
+      "vellum-command-runtime-0.1.5-linux-x64.tar.gz\0",
     ]) {
       const receipt = qualified();
       receipt.package.file = file;

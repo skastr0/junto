@@ -78,7 +78,7 @@ const nodes: CanvasNode[] = [
   flaggedNote,
   attentionNote,
   projectNode({ id: "proj1", name: "prism", x: 0, y: 400 }),
-  projectNode({ id: "proj2", name: "vellum", x: 260, y: 400 }),
+  projectNode({ id: "proj2", name: "vellum-command", x: 260, y: 400 }),
   agentTextNode({ id: "agent1", key: "local:default", label: "builder", x: 520, y: 400 }),
   tasksNode({
     id: "tasks1",

@@ -892,7 +892,7 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
         const archive = path.join(
           cloneRoot,
           "release",
-          `vellum-runtime-${source.appVersion}-linux-x64.tar.gz`,
+          `vellum-command-runtime-${source.appVersion}-linux-x64.tar.gz`,
         );
         await requireRegularFile(archive, "fresh candidate archive");
         const candidateRoot = await extractCandidateArchive({

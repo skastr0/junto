@@ -99,7 +99,7 @@ const fixture = async () => {
 describe("corresponding-source release inventory", () => {
   it("binds a Linux archive to the exact packaged app and relink CLI", async () => {
     const root = temporary();
-    const name = "vellum-runtime-0.2.1-linux-x64";
+    const name = "vellum-command-runtime-0.2.1-linux-x64";
     const runtimeRoot = path.join(root, name);
     mkdirSync(path.join(runtimeRoot, "resources/bin"), { recursive: true });
     writeFileSync(path.join(runtimeRoot, "resources/app.asar"), "verified app");

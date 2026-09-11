@@ -63,7 +63,7 @@ const makeRoot = async (): Promise<{ readonly root: string; readonly home: strin
 };
 
 const authenticate = (version: string, archive: Buffer): VerifiedLinuxDesktopRelease => {
-  const filename = `vellum-runtime-${version}-linux-x64.tar.gz`;
+  const filename = `vellum-command-runtime-${version}-linux-x64.tar.gz`;
   const descriptor: LinuxDesktopReleaseDescriptor = {
     schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Vellum Command", channel: "alpha", version, sourceRevision: SOURCE,
     createdAt: "2026-01-01T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
@@ -80,7 +80,7 @@ const makeAsar = async (root: string, version: string, change?: "version" | "sou
   const buildIdentity = { schema: "vellum-command/runtime-build-identity/v1", cohortNonce: "ba035b20-2435-4af4-83b7-71839c4feec7", sourceCommit: SOURCE, runtime: "electron-main" };
   const marker = change === "marker" ? { ...buildIdentity, cohortNonce: "cc035b20-2435-4af4-83b7-71839c4feec7" } : buildIdentity;
   const main = Buffer.from(`// harmless packaged fixture\n/* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:${Buffer.from(JSON.stringify(marker)).toString("base64url")} */\n`);
-  await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/vellum", version: change === "version" ? "0.0.1" : version }));
+  await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/vellum-command", version: change === "version" ? "0.0.1" : version }));
   await writeFile(join(directory, "out/main/index.js"), main);
   await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "vellum-command/package-runtime-provenance/v2", product: "Vellum Command", runtime: "electron-main", appVersion: version, sourceCommit: change === "source" ? "c".repeat(40) : SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: change === "payload" ? "0".repeat(64) : sha256(main) } }));
   const path = `${directory}.asar`;
@@ -91,7 +91,7 @@ const makeAsar = async (root: string, version: string, change?: "version" | "sou
 const fixture = async (options: { readonly root?: string; readonly home?: string; readonly version?: string; readonly change?: "version" | "source" | "payload" | "marker"; readonly members?: (rootName: string) => readonly Member[] } = {}) => {
   const location = options.root === undefined ? await makeRoot() : { root: options.root, home: options.home! };
   const version = options.version ?? "0.3.0";
-  const rootName = `vellum-runtime-${version}-linux-x64`;
+  const rootName = `vellum-command-runtime-${version}-linux-x64`;
   const members: readonly Member[] = options.members?.(rootName) ?? [
     { path: `${rootName}/`, type: "Directory" },
     { path: `${rootName}/vellum-command`, mode: 0o755, body: "#!/bin/sh\nexit 0\n" },

@@ -66,7 +66,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await writeFile(
       path.join(root, "package.json"),
       JSON.stringify({
-        name: "@skastr0/vellum",
+        name: "@skastr0/vellum-command",
         version: "0.1.0",
         dependencies: { effect: "3.0.0" },
         devDependencies: { vitest: "4.0.0" },
@@ -163,7 +163,7 @@ describe("Linux release dependency and SBOM evidence", () => {
 
     const sbom = createCycloneDxSbom({
       inventory,
-      productName: "@skastr0/vellum",
+      productName: "@skastr0/vellum-command",
       productVersion: "0.1.0",
       sourceDateEpoch: 1_784_772_800,
     });
@@ -174,7 +174,7 @@ describe("Linux release dependency and SBOM evidence", () => {
       metadata: {
         component: {
           type: "application",
-          name: "@skastr0/vellum",
+          name: "@skastr0/vellum-command",
           version: "0.1.0",
         },
       },
@@ -209,7 +209,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await mkdir(modules);
     await writeFile(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "vellum", version: "0.1.0" }),
+      JSON.stringify({ name: "vellum-command", version: "0.1.0" }),
     );
     await writePackage(path.join(modules, "bad"), "../bad", "1.0.0", "MIT");
     await expect(
@@ -235,7 +235,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await mkdir(modules);
     await writeFile(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "vellum", version: "0.1.0" }),
+      JSON.stringify({ name: "vellum-command", version: "0.1.0" }),
     );
     await Promise.all([
       writePackage(
@@ -298,7 +298,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await writeFile(
       path.join(root, "package.json"),
       JSON.stringify({
-        name: "vellum",
+        name: "vellum-command",
         version: "0.1.0",
         dependencies: { hidden: "1.0.0" },
       }),

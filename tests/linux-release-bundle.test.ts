@@ -53,7 +53,7 @@ const CREATED_AT = "2026-07-23T11:55:00.000Z";
 const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
 const QUALIFICATION_EXPIRES_AT = "2026-07-24T11:55:00.000Z";
 const KEY_ID = "vellum-linux-2026a";
-const PACKAGE = `vellum-runtime-${VERSION}-linux-x64.tar.gz`;
+const PACKAGE = `vellum-command-runtime-${VERSION}-linux-x64.tar.gz`;
 const ciTarget = {
   runner: "ubuntu-24.04",
   os: "linux",
@@ -546,7 +546,7 @@ const createFixture = async (options: {
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
     downloadLocator:
-      `https://releases.example.test/vellum-runtime-${VERSION}-linux-x64.tar.gz`,
+      `https://releases.example.test/vellum-command-runtime-${VERSION}-linux-x64.tar.gz`,
     keyId: KEY_ID,
     qualification: {
       candidateBundleDirectory: candidateDirectory,

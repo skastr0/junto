@@ -145,7 +145,7 @@ export const extractLinuxDesktopArchive = async (input: {
 }): Promise<string> => {
   const snapshotPath = join(input.attemptRoot, "archive.tar.gz");
   await snapshotArchive(input.archivePath, snapshotPath, input.expected);
-  const root = `vellum-runtime-${input.expected.version}-linux-x64`;
+  const root = `vellum-command-runtime-${input.expected.version}-linux-x64`;
   await inspectArchive(snapshotPath, root);
   const extracted = join(input.attemptRoot, "extracted");
   await mkdir(extracted, { mode: 0o700 });

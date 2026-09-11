@@ -1097,7 +1097,7 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       command_id: "desktop-install",
       command: "desktop-install",
       name: "Install verified Linux desktop files",
-      args: ["--release", "release.json", "--archive", "vellum-runtime-0.2.1-linux-x64.tar.gz", "--sources", "sources.json"],
+      args: ["--release", "release.json", "--archive", "vellum-command-runtime-0.2.1-linux-x64.tar.gz", "--sources", "sources.json"],
     }],
   },
   {

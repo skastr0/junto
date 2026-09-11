@@ -39,7 +39,7 @@ const stringArgumentsForCalls = (
 
 describe("main authoring architecture", () => {
   it("classifies every renderer, pull, portfolio, and delivery mutation ingress", () => {
-    const ipcPath = join(mainRoot, "vellum", "ipc.ts");
+    const ipcPath = join(mainRoot, "vellum-command", "ipc.ts");
     const labels = stringArgumentsForCalls(
       ipcPath,
       new Set([

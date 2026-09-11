@@ -1,5 +1,5 @@
 {
-  "name": "@skastr0/vellum",
+  "name": "@skastr0/vellum-command",
   "version": "0.2.1",
   "description": "Vellum Command — the deep-field station for multi-agent fleets.",
   "author": {

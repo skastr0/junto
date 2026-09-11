@@ -893,7 +893,7 @@ describe("packaged runtime exact parity and closure", () => {
   });
 
   it("runtime inventory changes for Node, wrapper, launcher, and node-pty", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-runtime-inventory-"));
+    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-inventory-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       const initial = await collectLinuxRuntimeInventory(candidate.runtimeRoot);

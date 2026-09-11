@@ -21,10 +21,10 @@ describe("Linux userland runtime package contract", () => {
   });
 
   it("materializes a named tree, archive, and digest manifest", async () => {
-    const release = await mkdtemp(path.join(tmpdir(), "vellum-runtime-finalize-"));
+    const release = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-finalize-"));
     try {
       const name = linuxRuntimeArtifactName({ version: "0.1.0", arch: "x64" });
-      expect(name).toBe("vellum-runtime-0.1.0-linux-x64");
+      expect(name).toBe("vellum-command-runtime-0.1.0-linux-x64");
       expect(linuxRuntimeArchiveName({ version: "0.1.0", arch: "x64" })).toBe(`${name}.tar.gz`);
       await mkdir(path.join(release, "linux-unpacked"));
       await writeFile(path.join(release, "linux-unpacked", "vellum-command"), "runtime", { mode: 0o755 });
@@ -45,12 +45,12 @@ describe("Linux userland runtime package contract", () => {
     }
     expect(() => linuxRuntimeArtifactName({ version: "1.2.3", arch: "arm64" })).toThrow(/x64/u);
     expect(linuxRuntimeTarArguments("linux")).toEqual(expect.arrayContaining(["--numeric-owner", "--owner=1000", "--group=1000", "--sort=name", "--mtime=@0"]));
-    expect(linuxRuntimeTarArguments("linux").join(" ")).not.toContain("vellum");
+    expect(linuxRuntimeTarArguments("linux").join(" ")).not.toContain("vellum-command");
   });
 
   it("rejects an archive with a second root or a symlink", async () => {
-    const release = await mkdtemp(path.join(tmpdir(), "vellum-runtime-adversarial-"));
-    const artifact = "vellum-runtime-1.2.3-linux-x64";
+    const release = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-adversarial-"));
+    const artifact = "vellum-command-runtime-1.2.3-linux-x64";
     const archive = path.join(release, "adversarial.tar.gz");
     try {
       await mkdir(path.join(release, artifact));
@@ -70,7 +70,7 @@ describe("Linux userland runtime package contract", () => {
   });
 
   it("refuses a symlinked electron-builder output before it can escape the release directory", async () => {
-    const release = await mkdtemp(path.join(tmpdir(), "vellum-runtime-source-link-"));
+    const release = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-source-link-"));
     try {
       await mkdir(path.join(release, "elsewhere"));
       await symlink("elsewhere", path.join(release, "linux-unpacked"));

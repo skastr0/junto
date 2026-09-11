@@ -24,7 +24,7 @@ describe("bump-version", () => {
   });
 
   it("rewrites only the top-level version field", () => {
-    const raw = `{\n  "name": "@skastr0/vellum",\n  "version": "0.1.2",\n  "dependencies": {\n    "thinking-orbs": "0.1.1"\n  }\n}\n`;
+    const raw = `{\n  "name": "@skastr0/vellum-command",\n  "version": "0.1.2",\n  "dependencies": {\n    "thinking-orbs": "0.1.1"\n  }\n}\n`;
     const next = replacePackageVersion(raw, "0.1.3");
     expect(next).toContain('"version": "0.1.3"');
     expect(next).toContain('"thinking-orbs": "0.1.1"');

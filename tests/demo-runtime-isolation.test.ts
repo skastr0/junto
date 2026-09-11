@@ -173,7 +173,7 @@ describe("demo runtime isolation", () => {
         "..",
         "src",
         "main",
-        "vellum",
+        "vellum-command",
         "state",
         "engine.ts",
       ),

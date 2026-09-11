@@ -128,15 +128,15 @@ chmod 700 "$STAGE"
   BEGIN { ok=1; root=""; remote=0; launch=0 }
   {
     if ($1 !~ /^[-d]/ || $0 ~ / -> / || $0 ~ / link to / || $NF ~ /^\// || $NF ~ /(^|\/)\.\.($|\/)/) { ok=0; next }
-    if ($NF !~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64(\/|$)/) { ok=0; next }
-    if (root == "" && $1 ~ /^d/ && $NF ~ /^vellum-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\/?$/) root=$NF
+    if ($NF !~ /^vellum-command-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64(\/|$)/) { ok=0; next }
+    if (root == "" && $1 ~ /^d/ && $NF ~ /^vellum-command-runtime-[0-9]+\.[0-9]+\.[0-9]+-linux-x64\/?$/) root=$NF
     if ($NF ~ /\/resources\/bin\/vellum-command-remote$/ && $1 ~ /^-/) remote=1
     if ($NF ~ /\/resources\/systemd\/vellum-command-remote-launch$/ && $1 ~ /^-/) launch=1
   }
   END { exit (ok && remote && launch) ? 0 : 1 }
 ' || fail members
 /usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions || fail extract
-RELEASE="$STAGE/vellum-runtime-$VERSION-linux-x64"
+RELEASE="$STAGE/vellum-command-runtime-$VERSION-linux-x64"
 CANDIDATE_REMOTE="$RELEASE/resources/bin/vellum-command-remote"
 [ -d "$RELEASE" ] && [ ! -L "$RELEASE" ] && [ -x "$CANDIDATE_REMOTE" ] && [ ! -L "$CANDIDATE_REMOTE" ] || fail candidate
 [ -x "$RELEASE/resources/systemd/vellum-command-remote-launch" ] && [ ! -L "$RELEASE/resources/systemd/vellum-command-remote-launch" ] || fail candidate

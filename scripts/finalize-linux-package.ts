@@ -41,7 +41,7 @@ export const linuxRuntimeArtifactName = ({
   if (resolvedArch !== "x64") {
     throw new Error(`Linux runtime requires x64, got ${String(resolvedArch)}`);
   }
-  return `vellum-runtime-${requireSemver(version)}-linux-${resolvedArch}`;
+  return `vellum-command-runtime-${requireSemver(version)}-linux-${resolvedArch}`;
 };
 
 export const linuxRuntimeArchiveName = (input: {

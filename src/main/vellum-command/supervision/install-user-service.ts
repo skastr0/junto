@@ -38,10 +38,10 @@ const RELEASE_DIRECTORY =
 
 /**
  * Candidate tree under userland runtime (releases or staging extract).
- * Staging holds `vellum-runtime-<semver>-linux-x64` before activation.
+ * Staging holds `vellum-command-runtime-<semver>-linux-x64` before activation.
  */
 const CANDIDATE_RUNTIME_ROOT =
-  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-command-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
 
 const isOwnedNonLinkFile = (path: string, executable = false): boolean => {
   try {

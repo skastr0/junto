@@ -113,7 +113,7 @@ export const compareLinuxDesktopVersions = (
 
 export const linuxDesktopArchiveName = (version: string): string => {
   versionParts(version);
-  return `vellum-runtime-${version}-linux-x64.tar.gz`;
+  return `vellum-command-runtime-${version}-linux-x64.tar.gz`;
 };
 export const linuxDesktopReleasePath = (version: string): string => {
   versionParts(version);

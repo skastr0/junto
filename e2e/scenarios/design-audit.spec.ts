@@ -179,7 +179,7 @@ const nodes: CanvasNode[] = [
   parkedNote,
   linkNode,
   projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
-  projectNode({ id: "proj2", name: "vellum", x: 260, y: 460 }),
+  projectNode({ id: "proj2", name: "vellum-command", x: 260, y: 460 }),
   agentTextNode({
     id: "agent1",
     key: "local:default",

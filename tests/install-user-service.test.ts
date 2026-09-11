@@ -56,7 +56,7 @@ describe("install-user-service path resolution", () => {
       "runtime",
       "staging",
       `1.2.3-${"b".repeat(64)}-12345`,
-      "vellum-runtime-1.2.3-linux-x64",
+      "vellum-command-runtime-1.2.3-linux-x64",
     );
     const bin = join(stage, "resources", "bin");
     mkdirSync(bin, { recursive: true, mode: 0o700 });
