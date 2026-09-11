@@ -8,7 +8,20 @@ import {
   type CanvasDoc,
   type CanvasNode,
 } from "@shared/canvas";
-import type { CanvasReadResult, CanvasSummary, CanvasWriteResult } from "@shared/ipc";
+import type {
+  CanvasOverseerSetInput,
+  CanvasOverseerSetResult,
+  CanvasReadResult,
+  CanvasSummary,
+  CanvasWriteResult,
+} from "@shared/ipc";
+import {
+  isManagedAgentNode,
+  nodeSeatBinding,
+  reconcileOverseerGrants,
+  setBindingOverseer,
+} from "@shared/overseer-authoring";
+import type { WorkErrorBody } from "@shared/work-control";
 import {
   CANVAS_NAME_INPUT_PATTERN,
   CANVAS_NAME_MAX_LENGTH,
@@ -190,8 +203,31 @@ export type CanvasReadTag =
   | "region.rollup"
   | "term.seatPlan"
   | "untagged"
+  | "overseer.canvas"
   | "work.control"
   | "work.service";
+
+export type CanvasPortfolioView = {
+  readonly documents: ReadonlyMap<string, CanvasDoc>;
+  readonly revisions: ReadonlyMap<string, string>;
+};
+
+export type CanvasPortfolioMutation<A> = {
+  readonly documents: ReadonlyMap<string, CanvasDoc>;
+  readonly result: A;
+};
+
+export type CanvasPortfolioEdit<A> =
+  | { readonly ok: true; readonly mutation: CanvasPortfolioMutation<A> }
+  | { readonly ok: false; readonly error: WorkErrorBody };
+
+export type CanvasPortfolioCommit<A> = {
+  readonly result: A;
+  readonly affected: ReadonlyArray<{
+    readonly name: string;
+    readonly revision: string;
+  }>;
+};
 
 export class CanvasesService extends Context.Service<CanvasesService,
   {
@@ -230,6 +266,22 @@ export class CanvasesService extends Context.Service<CanvasesService,
       name: string,
       fn: (doc: CanvasDoc) => CanvasDoc,
     ) => Effect.Effect<void, CanvasError>;
+    /**
+     * One authorial portfolio transaction. The callback sees every current
+     * document and revision; its returned map is reconciled, normalized, and
+     * committed atomically. Ordinary `write`/`mutate` callers are unchanged.
+     */
+    readonly mutatePortfolio: <A>(
+      fn: (current: CanvasPortfolioView) => CanvasPortfolioEdit<A>,
+    ) => Effect.Effect<CanvasPortfolioCommit<A>, CanvasError | WorkErrorBody>;
+    /**
+     * Human-only overseer grant/revoke for one managed seat binding, applied
+     * to every alias in the same generation. Never accepted from the agent
+     * command plane.
+     */
+    readonly canvasOverseerSet: (
+      input: CanvasOverseerSetInput,
+    ) => Effect.Effect<CanvasOverseerSetResult, CanvasError>;
     readonly create: (name: string) => Effect.Effect<CanvasReadResult, CanvasError>;
     // Removes the canvas from the next authority generation and projections.
     // Notifies change subscribers so the kernel can drop hydrated state.
@@ -341,7 +393,8 @@ type CanvasCommitCause =
   | "mutate"
   | "create"
   | "remove"
-  | "seed";
+  | "seed"
+  | "overseer";
 
 type CommitOutcome = {
   readonly generation: string;
@@ -970,6 +1023,42 @@ const normalizeCanvas = (
   };
 };
 
+const storedDocumentsView = (
+  snapshot: StoredAuthoritySnapshot,
+): CanvasPortfolioView => {
+  const documents = new Map<string, CanvasDoc>();
+  const revisions = new Map<string, string>();
+  for (const [name, entry] of snapshot.documents) {
+    documents.set(name, entry.doc);
+    revisions.set(name, entry.revisionSha256);
+  }
+  return { documents, revisions };
+};
+
+const normalizePortfolioDocuments = (
+  previous: StoredAuthoritySnapshot,
+  proposed: ReadonlyMap<string, CanvasDoc>,
+  modifiedAt: string,
+  operation: string,
+  preserveIncomingOverseer: boolean,
+): Map<string, StoredCanvas> => {
+  const documents = new Map<string, StoredCanvas>();
+  for (const [rawName, incoming] of proposed) {
+    const name = canvasNameFrom(rawName);
+    const prior = previous.documents.get(name);
+    const reconciled = preserveIncomingOverseer
+      ? incoming
+      : reconcileOverseerGrants(prior?.doc ?? { nodes: [], edges: [] }, incoming);
+    const candidate = normalizeCanvas(name, reconciled, modifiedAt, operation);
+    const nextEntry =
+      prior !== undefined && candidate.revisionSha256 === prior.revisionSha256
+        ? { ...candidate, modifiedAt: prior.modifiedAt }
+        : candidate;
+    documents.set(name, nextEntry);
+  }
+  return documents;
+};
+
 export const CanvasesLive = Layer.effect(
   CanvasesService,
   Effect.gen(function* () {
@@ -1273,7 +1362,7 @@ export const CanvasesLive = Layer.effect(
         }
         const candidate = normalizeCanvas(
           canonicalName,
-          doc,
+          reconcileOverseerGrants(previous?.doc ?? { nodes: [], edges: [] }, doc),
           new Date().toISOString(),
           "write",
         );
@@ -1326,7 +1415,7 @@ export const CanvasesLive = Layer.effect(
         const proposed = fn(previous.doc);
         const candidate = normalizeCanvas(
           canonicalName,
-          proposed,
+          reconcileOverseerGrants(previous.doc, proposed),
           new Date().toISOString(),
           "mutate",
         );
@@ -1360,6 +1449,211 @@ export const CanvasesLive = Layer.effect(
           }),
         );
       }
+    });
+
+  const mutatePortfolio = <A>(
+    fn: (current: CanvasPortfolioView) => CanvasPortfolioEdit<A>,
+  ): Effect.Effect<CanvasPortfolioCommit<A>, CanvasError | WorkErrorBody> =>
+    Effect.gen(function* () {
+      yield* ensureReady;
+      const outcome = yield* transaction("canvas.mutatePortfolio", (writer) => {
+        const current = readStoredAuthority(writer);
+        const edit = fn(storedDocumentsView(current));
+        if (!edit.ok) return { kind: "rejected" as const, error: edit.error };
+        const modifiedAt = new Date().toISOString();
+        const nextDocuments = normalizePortfolioDocuments(
+          current,
+          edit.mutation.documents,
+          modifiedAt,
+          "mutate",
+          false,
+        );
+        const commit = commitPortfolio(
+          writer,
+          current,
+          nextDocuments,
+          "mutate",
+        );
+        if (commit.changed) {
+          for (const [name, entry] of nextDocuments) {
+            const prior = current.documents.get(name);
+            if (
+              prior === undefined ||
+              prior.revisionSha256 !== entry.revisionSha256
+            ) {
+              syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+            }
+          }
+          for (const name of current.documents.keys()) {
+            if (!nextDocuments.has(name)) {
+              archiveAllCanvasEntities(writer, name, modifiedAt);
+            }
+          }
+        }
+        const affected: Array<{ name: string; revision: string }> = [];
+        const notifications: Array<{
+          readonly name: CanvasName;
+          readonly previous: CanvasDoc | undefined;
+          readonly next: CanvasDoc | undefined;
+        }> = [];
+        for (const [name, entry] of nextDocuments) {
+          const prior = current.documents.get(name);
+          if (
+            prior === undefined ||
+            prior.revisionSha256 !== entry.revisionSha256
+          ) {
+            affected.push({ name, revision: entry.revisionSha256 });
+            notifications.push({
+              name: name as CanvasName,
+              previous: prior?.doc,
+              next: entry.doc,
+            });
+          }
+        }
+        for (const name of current.documents.keys()) {
+          if (!nextDocuments.has(name)) {
+            const prior = current.documents.get(name);
+            notifications.push({
+              name: name as CanvasName,
+              previous: prior?.doc,
+              next: undefined,
+            });
+          }
+        }
+        return {
+          kind: "committed" as const,
+          result: edit.mutation.result,
+          affected,
+          notifications,
+        };
+      });
+      if (outcome.kind === "rejected") {
+        return yield* Effect.fail(outcome.error);
+      }
+      for (const notice of outcome.notifications) {
+        yield* Effect.sync(() =>
+          notifyListeners(notice.name, {
+            previous: notice.previous,
+            next: notice.next,
+          }),
+        );
+      }
+      return { result: outcome.result, affected: outcome.affected };
+    });
+
+  const canvasOverseerSet = (
+    input: CanvasOverseerSetInput,
+  ): Effect.Effect<CanvasOverseerSetResult, CanvasError> =>
+    Effect.gen(function* () {
+      yield* ensureReady;
+      if (typeof input.overseer !== "boolean") {
+        return yield* Effect.fail(
+          new CanvasError({ message: "overseer must be a boolean" }),
+        );
+      }
+      const canonicalName = yield* Effect.try({
+        try: () => canvasNameFrom(input.canvasName),
+        catch: toCanvasError,
+      });
+      const outcome = yield* transaction("canvas.overseerSet", (writer) => {
+        const current = readStoredAuthority(writer);
+        const previous = current.documents.get(canonicalName);
+        if (
+          previous === undefined ||
+          previous.revisionSha256 !== input.expectedRevision
+        ) {
+          throw new CanvasError({
+            message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
+          });
+        }
+        const node = previous.doc.nodes.find(
+          (candidate) => candidate.id === input.nodeId,
+        );
+        if (node === undefined) {
+          throw new CanvasError({
+            message: `node "${input.nodeId}" is not on ${canvasLabel(canonicalName)}`,
+          });
+        }
+        if (!isManagedAgentNode(node)) {
+          throw new CanvasError({
+            message: `node "${input.nodeId}" is not a managed agent seat`,
+          });
+        }
+        const seat = nodeSeatBinding(node);
+        if (seat === undefined) {
+          throw new CanvasError({
+            message: `node "${input.nodeId}" is missing host/binding identity`,
+          });
+        }
+        const view = storedDocumentsView(current);
+        const proposed = setBindingOverseer(
+          view.documents,
+          seat,
+          input.overseer,
+        );
+        const modifiedAt = new Date().toISOString();
+        const nextDocuments = normalizePortfolioDocuments(
+          current,
+          proposed,
+          modifiedAt,
+          "overseer",
+          true,
+        );
+        const commit = commitPortfolio(
+          writer,
+          current,
+          nextDocuments,
+          "overseer",
+        );
+        const affected: Array<{ name: string; revision: string }> = [];
+        const notifications: Array<{
+          readonly name: CanvasName;
+          readonly previous: CanvasDoc | undefined;
+          readonly next: CanvasDoc;
+        }> = [];
+        for (const [name, entry] of nextDocuments) {
+          const prior = current.documents.get(name);
+          if (
+            prior === undefined ||
+            prior.revisionSha256 !== entry.revisionSha256
+          ) {
+            if (commit.changed) {
+              syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+            }
+            affected.push({ name, revision: entry.revisionSha256 });
+            notifications.push({
+              name: name as CanvasName,
+              previous: prior?.doc,
+              next: entry.doc,
+            });
+          }
+        }
+        if (affected.length === 0) {
+          affected.push({
+            name: canonicalName,
+            revision: previous.revisionSha256,
+          });
+        }
+        return {
+          binding: seat,
+          overseer: input.overseer,
+          affected,
+          notifications,
+        };
+      });
+      for (const notice of outcome.notifications) {
+        yield* Effect.sync(() =>
+          notifyListeners(notice.name, {
+            previous: notice.previous,
+            next: notice.next,
+          }),
+        );
+      }
+      return {
+        binding: outcome.binding,
+        overseer: outcome.overseer,
+        affected: outcome.affected,
+      };
     });
 
   const create = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
@@ -1647,6 +1941,8 @@ export const CanvasesLive = Layer.effect(
     readNodeStructure,
     write,
     mutate,
+    mutatePortfolio,
+    canvasOverseerSet,
     create,
     remove,
     ensureSeed,

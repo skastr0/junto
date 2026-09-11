@@ -109,6 +109,10 @@ const canvases = (
       Effect.fail(new CanvasError({ message: "unused" })),
     write: () => Effect.fail(new CanvasError({ message: "unused" })),
     mutate: () => Effect.fail(new CanvasError({ message: "unused" })),
+    mutatePortfolio: () =>
+      Effect.fail(new CanvasError({ message: "unused" })),
+    canvasOverseerSet: () =>
+      Effect.fail(new CanvasError({ message: "unused" })),
     create: () => Effect.fail(new CanvasError({ message: "unused" })),
     remove: () => Effect.fail(new CanvasError({ message: "unused" })),
     ensureSeed: Effect.void,

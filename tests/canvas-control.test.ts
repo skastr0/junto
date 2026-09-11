@@ -100,6 +100,10 @@ const makeRuntime = (input: {
       Effect.fail(new CanvasError({ message: "not used" })),
     write: () => Effect.fail(new CanvasError({ message: "not used" })),
     mutate: () => Effect.fail(new CanvasError({ message: "not used" })),
+    mutatePortfolio: () =>
+      Effect.fail(new CanvasError({ message: "not used" })),
+    canvasOverseerSet: () =>
+      Effect.fail(new CanvasError({ message: "not used" })),
     create: () => Effect.fail(new CanvasError({ message: "not used" })),
     remove: () => Effect.fail(new CanvasError({ message: "not used" })),
     ensureSeed: Effect.void,

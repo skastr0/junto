@@ -170,6 +170,10 @@ const fakeCanvases = (docs: ReadonlyMap<string, CanvasDoc>) =>
         Effect.fail(new CanvasError({ message: "not used" })),
       write: () => Effect.succeed({ revision: "written-r1" }),
       mutate: () => Effect.void,
+      mutatePortfolio: () =>
+        Effect.fail(new CanvasError({ message: "not used" })),
+      canvasOverseerSet: () =>
+        Effect.fail(new CanvasError({ message: "not used" })),
       create: (name: string) => Effect.succeed({
         name,
         doc: { nodes: [], edges: [] },
