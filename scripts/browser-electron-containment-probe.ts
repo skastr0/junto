@@ -475,19 +475,25 @@ const waitForAdmissionEvidence = async (options: {
   );
 };
 
-const assertDirectProxyResolution = (audit: ProbeAudit): void => {
+const assertTrustedDirectManagedProxy = (audit: ProbeAudit): void => {
+  if (audit.defaultProxyResolution !== "DIRECT") {
+    throw new Error(
+      `trusted default session must stay DIRECT (${audit.defaultProxyResolution})`,
+    );
+  }
   if (
-    audit.defaultProxyResolution !== "DIRECT" ||
-    audit.profileProxyResolution !== "DIRECT"
+    audit.profileProxyResolution === "DIRECT" ||
+    audit.profileProxyResolution.length === 0 ||
+    !/PROXY 127\.0\.0\.1:\d+/u.test(audit.profileProxyResolution)
   ) {
     throw new Error(
-      `browser sessions did not force direct networking (${audit.defaultProxyResolution}, ${audit.profileProxyResolution})`,
+      `managed browser partition must use the owned loopback proxy (${audit.profileProxyResolution})`,
     );
   }
 };
 
 const assertRuntimeDevToolsAbsent = (audit: ProbeAudit, stage: string): void => {
-  assertDirectProxyResolution(audit);
+  assertTrustedDirectManagedProxy(audit);
   if (audit.remoteDebuggingSwitchPresent) {
     throw new Error(`${stage}: Electron runtime exposed a remote-debugging switch`);
   }

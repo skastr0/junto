@@ -22,6 +22,12 @@ export const BROWSER_MAX_LIST_ROWS = 10_000;
 export const BROWSER_MAX_CANVAS_QUERY_ROWS = 10_000;
 export const BROWSER_MAX_CANVAS_QUERY_BYTES = 64 * 1024 * 1024;
 export const BROWSER_MAX_PENDING_DNS_HOSTS = 32;
+export const BROWSER_MAX_EGRESS_SOCKETS = 64;
+export const BROWSER_MAX_EGRESS_PENDING_CONNECTS = 32;
+export const BROWSER_EGRESS_CONNECT_TIMEOUT_MS = 10_000;
+export const BROWSER_EGRESS_HEADER_MAX_BYTES = 32 * 1024;
+export const BROWSER_EGRESS_PRECONNECT_BUFFER_BYTES = 64 * 1024;
+export const BROWSER_EGRESS_HAPPY_EYEBALLS_DELAY_MS = 250;
 
 // Operation deadlines. The outer control deadline exceeds every inner page
 // operation so the session service wins the race and releases its lane first.

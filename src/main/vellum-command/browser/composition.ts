@@ -25,6 +25,9 @@ import {
 } from "./profiles";
 import { StateEngine } from "../state/service";
 import {
+  closeAllManagedBrowserPartitionNetworks,
+} from "./partition-network";
+import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserUiShutdownDrainReceipt,
@@ -351,9 +354,11 @@ export const makeBrowserShutdownCoordinator = (input: {
           },
         );
       }
+      const networkFlight = closeAllManagedBrowserPartitionNetworks();
       const allSettled = Promise.allSettled([
         uiFlight,
         storageFlight,
+        networkFlight,
         ...(controlFlight === undefined ? [] : [controlFlight]),
       ]);
       let timeout: ReturnType<typeof setTimeout> | undefined;

@@ -1563,6 +1563,7 @@ describe("BrowserSessionService", () => {
     let viewIndex = 0;
     const adapter: BrowserViewAdapter = (partition, events, options) => {
       const handle = spyAdapter(partition, events, options);
+      if (handle instanceof Promise) throw new Error("expected synchronous test adapter");
       const currentIndex = viewIndex;
       viewIndex += 1;
       if (currentIndex !== 0) return handle;
@@ -1951,6 +1952,7 @@ describe("BrowserSessionService", () => {
       const index = viewIndex;
       viewIndex += 1;
       const handle = spies.adapter(partition, events, options);
+      if (handle instanceof Promise) throw new Error("expected synchronous test adapter");
       if (index !== 0) return handle;
       return {
         ...handle,

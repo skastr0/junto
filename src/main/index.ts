@@ -105,6 +105,7 @@ import { configurePeerPidHelperRoots } from "./vellum-command/process-identity";
 import { evaluateSchemaCompatibility } from "./vellum-command/state/schema-version-probe";
 import { runStartupStateFailureDialog } from "./vellum-command/state/startup-state-failure-dialog";
 import { ensureSchemaCompatibleOrRecover } from "./vellum-command/update/startup-schema-recovery";
+import { installBrowserEgressProxyAuth } from "./vellum-command/browser/partition-network";
 import { isManagedBrowserWebContents } from "./vellum-command/browser/web-policy";
 import {
   canonicalNodeRefUri,
@@ -178,10 +179,10 @@ configureTerminalRouterLayeredRunner((effect) =>
   AppRuntime.runPromise(effect as never),
 );
 
-// Browser sessions must resolve and connect directly. An inherited system
-// proxy can perform independent DNS resolution and bypass Vellum Command's URL/DNS
-// preflight on fleet machines.
-app.commandLine.appendSwitch("no-proxy-server");
+// Managed browser partitions use an app-owned CONNECT proxy. Do not install
+// process-wide proxy-server / no-proxy-server switches: they restamp Session
+// prefs on NetworkContext create and would either force DIRECT or inherit a
+// fleet system proxy. Trusted/default traffic is pinned DIRECT after ready.
 // Defense in depth for every renderer, including future windows whose local
 // preferences might otherwise drift. This must run before app readiness.
 app.enableSandbox();
@@ -226,6 +227,7 @@ app.on(
     callback();
   },
 );
+installBrowserEgressProxyAuth(app);
 
 const nodeRefIngress = makeNodeRefIngress((ref) =>
   AppRuntime.runPromise(
@@ -1237,6 +1239,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         () => trustedMainWindow,
         trustedRendererOrigin,
       );
+      await app.setProxy({ mode: "direct" });
+      await session.defaultSession.setProxy({ mode: "direct" });
     } catch (error) {
       console.error("[window] trusted renderer protocol setup failed");
       console.error(error);

@@ -16,6 +16,10 @@ import type {
   BrowserCompositionViewBinder,
 } from "./composition-host";
 import {
+  ensureManagedBrowserPartitionNetwork,
+  releaseManagedBrowserPartitionNetwork,
+} from "./partition-network";
+import {
   canonicalBrowserOrigin,
   hardenBrowserPartition,
   installBrowserWebPolicy,
@@ -366,12 +370,13 @@ const makeElectronViewAdapter = (
   },
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
   testOnlyDownloadPath?: string,
-): BrowserViewAdapter => (partition, events, options) => {
+): BrowserViewAdapter => async (partition, events, options) => {
   const WebContentsView = requireWebContentsView();
   const browserPartition = session.fromPartition(partition);
   if (testOnlyDownloadPath !== undefined) {
     browserPartition.setDownloadPath(testOnlyDownloadPath);
   }
+  await ensureManagedBrowserPartitionNetwork(browserPartition, partition, testOnlyGrant);
   hardenBrowserPartition(browserPartition, testOnlyGrant);
   const view = new WebContentsView({
     webPreferences: {
@@ -627,6 +632,7 @@ const makeElectronViewAdapter = (
       terminationExpected = true;
       unregister?.();
       detachFromHost();
+      void releaseManagedBrowserPartitionNetwork(partition);
       try {
         if (!view.webContents.isDestroyed()) view.webContents.close();
       } catch (error) {
