@@ -5,7 +5,7 @@
 import { use$ } from "@legendapp/state/react";
 import { useCallback, useEffect, useState } from "react";
 import type { HarnessId } from "@shared/managed-terminal-templates";
-import { templateFor } from "@shared/managed-terminal-templates";
+import { isSandboxGatedPermissionMode, templateFor } from "@shared/managed-terminal-templates";
 import type {
   ManagedTerminalHarnessOption,
   ManagedTerminalModelOption,
@@ -168,7 +168,10 @@ export function HarnessesSettingsSection() {
               "bypassPermissions",
               "yolo",
               "normal",
-            ]);
+            ]).filter(
+              (mode) =>
+                row.harness !== "devin" || !isSandboxGatedPermissionMode(mode),
+            );
 
             return (
               <li

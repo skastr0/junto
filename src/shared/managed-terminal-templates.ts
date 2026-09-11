@@ -250,6 +250,15 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
   "FX_MODEL",
   "FX_PERMISSION_MODE",
   "FX_MAX_AGENT_STEPS",
+  // Devin binds the same class of spawn dials from the environment
+  // (`DEVIN_MODEL`, `DEVIN_PERMISSION_MODE`, `DEVIN_SANDBOX`). An ambient
+  // model would leak onto a seat that did not choose one; an ambient
+  // sandbox would enable the research-preview exec sandbox without a
+  // picker choice. Argv `--permission-mode` / `--sandbox` still win when
+  // the emit path sets them.
+  "DEVIN_MODEL",
+  "DEVIN_PERMISSION_MODE",
+  "DEVIN_SANDBOX",
   // Recording knobs — inherited, they make a seat write tapes nobody asked for.
   "FX_RECORD",
   "FX_RECORD_INPUT",
@@ -889,26 +898,32 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
 
 /**
  * Devin CLI (Cognition) — Tier B, capture session, grid feed.
- * Verified 3000.3.27: positional prompt REQUIRES `--` separator; --model;
- * --permission-mode enum (normal|accept-edits|smart|dangerous|autonomous);
- * resume `-r <id>` exact / `-c`; no pin.
+ * Re-probed 3000.10.21 (2026-09-11): positional prompt REQUIRES `--`
+ * separator; `--model`; `--permission-mode` (`normal`, alias `auto`;
+ * `accept-edits`; `smart`; `dangerous`, aliases `yolo` / `bypass`;
+ * `autonomous`, which requires `--sandbox` on the same argv). Help
+ * default prints `auto`. Official docs treat `normal` as the default;
+ * `defaultPermissionMode: "normal"` is still accepted. Resume is
+ * `-r <id>` exact; bare `-r` is a picker and is never emitted. No pin.
  *
- * Tier B is now a fact, not a deferral. `--agent-config` — the documented
- * Tier-A slot, verified live on 2026-08-06 — is GONE from 3000.4.16, which
- * answers `error: unexpected argument '--agent-config' found` and exits 2. No
- * DEVIN_* env carries instructions either, so doctrine is the first typed
- * message until upstream offers a replacement.
+ * `--agent-config` is gone. 3000.4.16 and 3000.10.21 both answer
+ * `error: unexpected argument '--agent-config' found` and exit 2. There
+ * is no argv replacement (`--system-prompt`, `--rules`, `--agent` are
+ * also rejected). File doctrine (`AGENTS.md`, `.devin/rules`) is
+ * workspace/user config, not a spawn flag. Doctrine stays the first
+ * typed message.
  *
- * Session capture is a lookup, not a scrape: Devin prints its slug id nowhere,
- * and writes `session_locks/<slug>.lock` from a DESCENDANT of the spawned
- * process (`~/.local/bin/devin` is a shim). `devin-session-capture` matches the
- * lock's PID against the spawn's process tree; the id becomes durable only once
+ * Session capture is a lookup, not a scrape: Devin prints its slug id
+ * nowhere, and writes `session_locks/<slug>.lock` from a descendant of
+ * the spawned process. `devin-session-capture` matches the lock's PID
+ * against the spawn's process tree; the id becomes durable only once
  * Devin's own `sessions` row exists, which is what `-r <id>` reads.
+ * `resumeReinjection` stays `unprobed`.
  */
 export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
   harness: "devin",
   displayName: "Devin",
-  probedVersion: "3000.4.16",
+  probedVersion: "3000.10.21",
   argvSpec: {
     binary: "devin",
     prefix: [],
@@ -925,7 +940,7 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
     tier: "B",
     flags: [],
     description:
-      "No system-prompt flag in v1 — doctrine delivered as the first typed message (--agent-config upgrade path documented)",
+      "No system-prompt flag — doctrine delivered as the first typed message",
   },
   capabilityBadges: {
     instructionInjection: "B",
@@ -941,6 +956,14 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
   efforts: [],
   defaultPermissionMode: "normal",
 };
+
+/**
+ * Devin 3000.10.21 rejects `--permission-mode autonomous` unless `--sandbox`
+ * is also on the argv. The settings picker never offers this mode (there is
+ * no sandbox dial). The emit path pairs the flags if a seat already carries it.
+ */
+export const isSandboxGatedPermissionMode = (mode: string): boolean =>
+  mode === "autonomous";
 
 /**
  * Cursor Agent CLI (binary: `agent`) — Tier B, session PIN, grid feed.

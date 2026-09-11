@@ -20,6 +20,7 @@ import {
   SPAWN_ENV_SCRUB,
   SPAWN_ENV_SCRUB_PREFIXES,
   isHarnessId,
+  isSandboxGatedPermissionMode,
   reinjectableOnResume,
   templateFor,
 } from "./managed-terminal-templates";
@@ -361,6 +362,16 @@ const buildArgv = (
       }
       // "off"/false/default → omit
     } else {
+      // Devin 3000.10.21: `Error: --permission-mode autonomous requires --sandbox`.
+      // Pair the flags so a saved or hand-authored mode cannot produce a
+      // spawn that dies at parse. Other modes stay unchanged.
+      if (
+        template.harness === "devin" &&
+        isSandboxGatedPermissionMode(permission) &&
+        !argv.includes("--sandbox")
+      ) {
+        argv.push("--sandbox");
+      }
       pushFlag(argv, spec.permissionModeFlag, permission);
     }
   }

@@ -6,6 +6,7 @@ import {
   CLAUDE_MODEL_ALIASES,
   CLAUDE_TEMPLATE,
   CODEX_TEMPLATE,
+  DEVIN_TEMPLATE,
   GROK_TEMPLATE,
   HERMES_TEMPLATE,
   HARNESS_IDS,
@@ -18,6 +19,7 @@ import {
   SPAWN_ENV_SCRUB_PREFIXES,
   allTemplates,
   isHarnessId,
+  isSandboxGatedPermissionMode,
   templateFor,
 } from "../src/shared/managed-terminal-templates";
 import {
@@ -219,6 +221,9 @@ describe("managed-terminal templates (data)", () => {
       "FX_MODEL",
       "FX_PERMISSION_MODE",
       "FX_MAX_AGENT_STEPS",
+      "DEVIN_MODEL",
+      "DEVIN_PERMISSION_MODE",
+      "DEVIN_SANDBOX",
       "FX_RECORD",
       "FX_RECORD_INPUT",
       // Oh My Pi shares the pi-family env namespace.
@@ -233,6 +238,34 @@ describe("managed-terminal templates (data)", () => {
     for (const t of allTemplates()) {
       expect(t.envSpec.scrub).toEqual(SPAWN_ENV_SCRUB);
     }
+  });
+
+  it("describes shipped Devin 3000.10.21 capabilities honestly", () => {
+    expect(DEVIN_TEMPLATE.probedVersion).toBe("3000.10.21");
+    expect(DEVIN_TEMPLATE.displayName).toBe("Devin");
+    expect(DEVIN_TEMPLATE.injectionSpec.tier).toBe("B");
+    expect(DEVIN_TEMPLATE.injectionSpec.flags).toEqual([]);
+    expect(DEVIN_TEMPLATE.injectionSpec.description).toBe(
+      "No system-prompt flag — doctrine delivered as the first typed message",
+    );
+    expect(DEVIN_TEMPLATE.injectionSpec.description).not.toContain(
+      "--agent-config",
+    );
+    expect(DEVIN_TEMPLATE.argvSpec).toMatchObject({
+      binary: "devin",
+      promptMode: "positional",
+      promptSeparator: "--",
+      modelFlag: "--model",
+      permissionModeFlag: "--permission-mode",
+      resumeMode: "flag",
+      resumeFlag: "-r",
+      resumeReinjection: "unprobed",
+    });
+    expect(DEVIN_TEMPLATE.defaultPermissionMode).toBe("normal");
+    expect(DEVIN_TEMPLATE.efforts).toEqual([]);
+    expect(isSandboxGatedPermissionMode("autonomous")).toBe(true);
+    expect(isSandboxGatedPermissionMode("normal")).toBe(false);
+    expect(isSandboxGatedPermissionMode("auto")).toBe(false);
   });
 
   it("uses hermes chat --tui (not headless -z)", () => {
@@ -319,6 +352,20 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
     expect(env.PATH).toBe("/opt/vellum/bin:/usr/bin");
     expect(env.VELLUM_COMMAND_SOCKET).toBe("/tmp/work.sock");
     expect(env.HOME).toBe("/home/op");
+  });
+
+  it("strips ambient Devin spawn dials", () => {
+    const scrubbed = scrubSpawnEnv({
+      PATH: "/usr/bin",
+      DEVIN_MODEL: "claude-opus-5-high",
+      DEVIN_PERMISSION_MODE: "autonomous",
+      DEVIN_SANDBOX: "1",
+      HOME: "/home/op",
+    });
+    expect(scrubbed).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/home/op",
+    });
   });
 });
 
@@ -930,6 +977,36 @@ describe("resolveManagedLaunch argv", () => {
     ]);
     const bare = resolveManagedLaunch("devin", {}, bareAmbient);
     expect(bare.argv).toEqual(["devin", "--permission-mode", "normal"]);
+    expect(bare.argv).not.toContain("--sandbox");
+  });
+
+  it("devin never emits autonomous without --sandbox", () => {
+    const launch = resolveManagedLaunch(
+      "devin",
+      { permissionMode: "autonomous", prompt: "make it" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "devin",
+      "--sandbox",
+      "--permission-mode",
+      "autonomous",
+      "--",
+      "make it",
+    ]);
+    const resume = resolveManagedLaunch(
+      "devin",
+      { resumeId: "even-birthday", permissionMode: "autonomous" },
+      bareAmbient,
+    );
+    expect(resume.argv).toEqual([
+      "devin",
+      "-r",
+      "even-birthday",
+      "--sandbox",
+      "--permission-mode",
+      "autonomous",
+    ]);
   });
 
   it("cursor: --trust prefix, positional prompt, --model, bare --yolo", () => {
