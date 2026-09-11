@@ -24,7 +24,7 @@ const STATE_BACKUP_DIRECTORY = "backups";
 const STATE_BACKUP_FILE_PREFIX = "vellum-command-backup-";
 const STATE_BACKUP_PENDING_SUFFIX = ".pending";
 const STATE_BACKUP_PENDING_FILE =
-  /^vellum-command-backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db\.pending$/u;
+  /^vellum-command-backup-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.db\.pending(?:-journal|-wal|-shm)?$/u;
 
 type BackupSchemaIdentity = {
   readonly actualSchemaSha256: string;
@@ -398,18 +398,22 @@ export const createVerifiedStateBackup = (
   if (!created.isFile() || created.isSymbolicLink()) {
     throw new Error(`state backup is not a regular file: ${pendingPath}`);
   }
-  redactProviderSecretsInBackup(pendingPath);
-  const compacted = lstatSync(pendingPath);
-  if (!compacted.isFile() || compacted.isSymbolicLink()) {
-    throw new Error(`state backup is not a regular file: ${pendingPath}`);
-  }
-  const identity = {
-    device: compacted.dev,
-    inode: compacted.ino,
+  let identity = {
+    device: created.dev,
+    inode: created.ino,
   };
   let backup: DatabaseSync | undefined;
   let published = false;
   try {
+    redactProviderSecretsInBackup(pendingPath);
+    const compacted = lstatSync(pendingPath);
+    if (!compacted.isFile() || compacted.isSymbolicLink()) {
+      throw new Error(`state backup is not a regular file: ${pendingPath}`);
+    }
+    identity = {
+      device: compacted.dev,
+      inode: compacted.ino,
+    };
     const secured = makeOwnerOnlyWithoutFollowing(pendingPath);
     if (
       secured.device !== identity.device ||

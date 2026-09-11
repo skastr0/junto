@@ -4,6 +4,7 @@
 
 - Store operator provider credentials outside SQLite and omit them from
   newly minted state backups. Historical backups remain immutable.
+  Vault unavailability no longer blocks boot or erases leftover secrets.
 - Make project-owned source available under Apache-2.0, with source-build
   instructions and third-party notices.
 - Remove purchases, activation, and commercial access checks from desktop and

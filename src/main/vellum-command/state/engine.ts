@@ -30,7 +30,10 @@ import {
   beginWorkMutationScope,
 } from "../work/mutation-seam";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
-import { createVerifiedStateBackup } from "./backup";
+import {
+  createVerifiedStateBackup,
+  reconcilePendingStateBackups,
+} from "./backup";
 import {
   migrateStateSchema,
   stateSchemaAdvanceRequired,
@@ -162,6 +165,7 @@ const openStateEngine = (
             createVerifiedStateBackup(database, directory);
           }
           const migrated = migrateStateSchema(database);
+          reconcilePendingStateBackups(directory);
           // journal_mode persists in the database. Apply it only after schema
           // admission so an older binary rejects a newer database without
           // changing it.

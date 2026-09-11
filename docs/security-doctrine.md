@@ -826,7 +826,8 @@ the operator's operating system, network, harness, or provider.
   configuration. Vellum Command integrates with the authenticated tool; it does not
   absorb the provider's secrets. The one exception is operator-entered usage
   credentials on Settings → Providers: those values live in an OS-adjacent
-  vault outside SQLite and never in product-state backups.
+  owner-only file vault outside SQLite and are omitted from newly minted
+  product-state backups. Historical backups remain immutable.
 - Tailscale identity and credentials remain owned by Tailscale and the
   operator's installation.
 - Browser cookies and authenticated session data remain in the browser profile
