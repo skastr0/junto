@@ -938,6 +938,17 @@ describe("WorkService pad author refusals", () => {
     expect(read.data.svg).toContain("<svg");
   });
 
+  it("reads a pad with a stale pinId as a plain read, not a failure", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const read = await runtime.runPromise(
+      work.workPadRead("factory", "pad-1", "pin-does-not-exist"),
+    );
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.data.pad.revision).toBeGreaterThan(0);
+    expect(read.data.lookHere).toBeUndefined();
+  });
+
   it("applies operator ink and shows the stroke in svg, not points in digest", async () => {
     const work = await runtime.runPromise(WorkService);
     const result = await runtime.runPromise(

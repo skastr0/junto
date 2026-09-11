@@ -3536,7 +3536,13 @@ export const WorkLive = Layer.effect(
             let lookHere: import("@shared/pad-project").PadLookHere | undefined;
             if (pinId !== undefined) {
               const focused = padLookHere(pad, pinId);
-              if (Result.isFailure(focused)) {
+              // A stale pinId degrades to a plain read (lookHere is an
+              // addition, not a precondition). Other projection failures
+              // still fail the read.
+              if (
+                Result.isFailure(focused) &&
+                focused.failure.code !== "missing"
+              ) {
                 return yield* Effect.fail(
                   new WorkServiceError({
                     code: "invalid",
@@ -3544,7 +3550,7 @@ export const WorkLive = Layer.effect(
                   }),
                 );
               }
-              lookHere = focused.success;
+              lookHere = Result.isSuccess(focused) ? focused.success : undefined;
             }
             const outcome = yield* local(
               Effect.succeed({

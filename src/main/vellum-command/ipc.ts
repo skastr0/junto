@@ -1171,7 +1171,10 @@ export const registerVellumIpc = (): void => {
           if (denied) return denied;
           const work = yield* WorkService;
           const result = yield* work.workPadRead(canvas, nodeId, pinId);
-          if (result.ok && pinId !== undefined) {
+          // Mark read only when the requested pin actually resolved — a
+          // stale pinId degrades to a plain read without acknowledging
+          // anything.
+          if (result.ok && pinId !== undefined && result.data.lookHere !== undefined) {
             const marked = yield* work.workPadMarkRead(
               canvas,
               nodeId,
