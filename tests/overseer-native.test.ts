@@ -600,14 +600,17 @@ describe("overseer native adapters", () => {
       ),
     );
     await vi.waitFor(() => expect(occupyStarted).toBe(true));
-    const interrupted = Effect.runPromise(Fiber.interrupt(fiber));
+    let interruptDone = false;
+    const interrupted = Effect.runPromise(Fiber.interrupt(fiber)).then(() => {
+      interruptDone = true;
+    });
     await Promise.resolve();
+    expect(interruptDone).toBe(false);
     expect(occupyFinished).toBe(false);
-    const interruptPending = interrupted.then(() => "interrupted");
-    await Promise.resolve();
-    expect(occupyFinished).toBe(false);
+    expect(spawnedAfterAbort).toBe(false);
     releaseOccupy();
-    await interruptPending;
+    await interrupted;
+    expect(interruptDone).toBe(true);
     expect(occupyFinished).toBe(true);
     expect(spawnedAfterAbort).toBe(false);
     expect(occupySeat).toHaveBeenCalledTimes(1);

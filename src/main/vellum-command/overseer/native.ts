@@ -476,17 +476,8 @@ const occupySeat = async (
   surface: Extract<ReturnType<typeof actorDeliverySurfaceOf>, { readonly _tag: "managedAgent" }>,
 ): Promise<boolean> => {
   if (ctx.signal.aborted) return false;
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const finish = (value: boolean): void => {
-      if (settled) return;
-      settled = true;
-      ctx.signal.removeEventListener("abort", onAbort);
-      resolve(value && !ctx.signal.aborted);
-    };
-    const onAbort = (): void => finish(false);
-    ctx.signal.addEventListener("abort", onAbort, { once: true });
-    void ctx.occupySeat(
+  try {
+    const occupied = await ctx.occupySeat(
       {
         bindingId: surface.bindingId,
         hostId: surface.hostId,
@@ -504,11 +495,11 @@ const occupySeat = async (
         }),
       },
       ctx.signal,
-    ).then(
-      (ok) => finish(ok && !ctx.signal.aborted),
-      () => finish(false),
     );
-  });
+    return occupied && !ctx.signal.aborted;
+  } catch {
+    return false;
+  }
 };
 
 const startOrWakeAgent = async (
@@ -679,6 +670,8 @@ const handleAgent = async (
       if (sameSeat || sameBinding) {
         return fail("Forbidden", "cannot reseat the live overseer seat");
       }
+      const beforeBuild = await requireGrant(ctx, caller);
+      if (beforeBuild) return beforeBuild;
       const harness = (args as { harness: HarnessId }).harness;
       const priorCwd =
         typeof node.ether?.terminal?.launch?.cwd === "string"
@@ -717,11 +710,13 @@ const handleAgent = async (
           error instanceof Error ? error.message : String(error),
         );
       }
+      const revoked = await requireGrant(ctx, caller);
+      if (revoked) return revoked;
       if (binding !== undefined) {
         await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
       }
-      const revoked = await requireGrant(ctx, caller);
-      if (revoked) return revoked;
+      const stillAfterKill = await requireGrant(ctx, caller);
+      if (stillAfterKill) return stillAfterKill;
       const committed = await ctx.commitAgentReseat({
         caller,
         canvasName,
