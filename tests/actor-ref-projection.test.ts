@@ -225,23 +225,22 @@ describe("active ActorRef projection", () => {
         ),
       );
 
-      await runtime.runPromise(
-        canvases.write(
-          "unresolved",
-          actorDoc(
-            "lost-agent",
-            "missing-host",
-            "binding-lost",
-            "missing-host:codex",
+      const beforeRefs = await runtime.runPromise(canvases.activeActorRefs());
+      await expect(
+        runtime.runPromise(
+          canvases.write(
+            "unresolved",
+            actorDoc(
+              "lost-agent",
+              "missing-host",
+              "binding-lost",
+              "missing-host:codex",
+            ),
           ),
         ),
-      );
-      await expect(
-        runtime.runPromise(canvases.read("alpha")),
       ).rejects.toThrow("unresolved host");
-      await expect(
-        runtime.runPromise(canvases.activeActorRefs()),
-      ).rejects.toThrow("unresolved host");
+      expect(await runtime.runPromise(canvases.read("alpha"))).toEqual(alpha);
+      expect(await runtime.runPromise(canvases.activeActorRefs())).toEqual(beforeRefs);
     } finally {
       await runtime.dispose();
     }

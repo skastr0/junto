@@ -40,6 +40,9 @@ import {
   verifyAndStampStateSchema,
 } from "../src/main/vellum-command/state/schema-identity";
 import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
+import { SettingsLive } from "../src/main/vellum-command/settings/service";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+import { managedAgentEther } from "./helpers/managed-agent-ether";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];
@@ -55,7 +58,12 @@ afterEach(async () => {
 
 const openEngine = (path: string) => {
   const repositories = Layer.provideMerge(
-    Layer.mergeAll(WorkRepositoryLive, CanvasEntityRepositoryLive),
+    Layer.mergeAll(
+      WorkRepositoryLive,
+      CanvasEntityRepositoryLive,
+      SettingsLive,
+      StationRepositoryLive,
+    ),
     makeStateEngineLive(path),
   );
   const runtime = ManagedRuntime.make(
@@ -331,10 +339,7 @@ describe("canvas entity registry", () => {
       width: 100,
       height: 40,
       text: "old",
-      ether: {
-        entity: { kind: "agent" as const, name: "local:old" },
-        terminal: { bindingId: "shared-bind" },
-      },
+      ether: managedAgentEther("local:old", { bindingId: "shared-bind" }),
     };
     const second = {
       id: "agent-new",
@@ -344,10 +349,7 @@ describe("canvas entity registry", () => {
       width: 100,
       height: 40,
       text: "new",
-      ether: {
-        entity: { kind: "agent" as const, name: "local:new" },
-        terminal: { bindingId: "shared-bind" },
-      },
+      ether: managedAgentEther("local:new", { bindingId: "shared-bind" }),
     };
     await runtime.runPromise(
       canvases.write("board", { nodes: [first], edges: [] }),
@@ -531,10 +533,7 @@ describe("canvas entity registry", () => {
       width: 40,
       height: 40,
       text: "a",
-      ether: {
-        entity: { kind: "agent" as const, name: "local:a" },
-        terminal: { bindingId: "bind-1" },
-      },
+      ether: managedAgentEther("local:a", { bindingId: "bind-1" }),
     };
     const b1 = {
       id: "b",
@@ -544,24 +543,15 @@ describe("canvas entity registry", () => {
       width: 40,
       height: 40,
       text: "b",
-      ether: {
-        entity: { kind: "agent" as const, name: "local:b" },
-        terminal: { bindingId: "bind-2" },
-      },
+      ether: managedAgentEther("local:b", { bindingId: "bind-2" }),
     };
     const a2 = {
       ...a1,
-      ether: {
-        entity: { kind: "agent" as const, name: "local:a" },
-        terminal: { bindingId: "bind-2" },
-      },
+      ether: managedAgentEther("local:a", { bindingId: "bind-2" }),
     };
     const b2 = {
       ...b1,
-      ether: {
-        entity: { kind: "agent" as const, name: "local:b" },
-        terminal: { bindingId: "bind-1" },
-      },
+      ether: managedAgentEther("local:b", { bindingId: "bind-1" }),
     };
 
     await runtime.runPromise(canvases.create("board"));
