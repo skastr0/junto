@@ -1356,24 +1356,40 @@ export const makeOverseerNativeLive = (
           },
         };
       }
-      const outcome: NativeOutcome = yield* Effect.match(
-        Effect.tryPromise({
-          try: (signal) => {
-            const ctx: NativeContext = {
-              ...options,
-              now: options.now ?? Date.now,
-              liveOverseerGrant: bindLiveGrant(options.liveOverseerGrant, signal),
-              signal,
-            };
-            return dispatchNative(ctx, caller, request);
-          },
-          catch: (error) =>
-            new Error(error instanceof Error ? error.message : String(error)),
-        }),
-        {
-          onFailure: (error) =>
-            fail("InternalError", error instanceof Error ? error.message : String(error)),
-          onSuccess: (value) => value,
+      const outcome: NativeOutcome = yield* Effect.callback<NativeOutcome>(
+        (resume, signal) => {
+          const ctx: NativeContext = {
+            ...options,
+            now: options.now ?? Date.now,
+            liveOverseerGrant: bindLiveGrant(options.liveOverseerGrant, signal),
+            signal,
+          };
+          const flight = Promise.resolve(dispatchNative(ctx, caller, request));
+          let settled = false;
+          const finish = (result: NativeOutcome): void => {
+            if (settled) return;
+            settled = true;
+            resume(Effect.succeed(result));
+          };
+          void flight.then(
+            (value) => finish(value),
+            (error) =>
+              finish(
+                fail(
+                  "InternalError",
+                  error instanceof Error ? error.message : String(error),
+                ),
+              ),
+          );
+          // Keep the Effect pending until the native flight (including lease
+          // release) actually settles. AbortSignal only refuses later
+          // mutations; it cannot roll back work already in flight.
+          return Effect.promise(() =>
+            flight.then(
+              () => undefined,
+              () => undefined,
+            ),
+          );
         },
       );
       return outcome.ok

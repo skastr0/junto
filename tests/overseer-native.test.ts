@@ -445,6 +445,46 @@ describe("overseer native adapters", () => {
     expect(configured.error.type).toBe("Unsupported");
   });
 
+  it("keeps the outer Effect pending until lease release completes after interrupt", async () => {
+    let releaseLease!: () => void;
+    const heldRelease = new Promise<void>((resolve) => {
+      releaseLease = resolve;
+    });
+    let attached = false;
+    const attach = vi.fn(async () => {
+      attached = true;
+      return {
+        ok: true as const,
+        lease: { leaseId: "ctl", bindingId: "bind-remote", epoch: "e", mode: "control" as const },
+      };
+    });
+    const release = vi.fn(async () => heldRelease);
+    const remoteAgent: TextNode = {
+      ...agent("remote-a", { bindingId: "bind-remote" }),
+      ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
+    };
+    const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
+      termPlane: makeTermPlane({ attach, release }),
+    });
+    const fiber = Effect.runFork(
+      native.executeResult(
+        { canvasName: "factory", nodeId: "overseer-1" },
+        { operation: "agent.prompt" as never, args: { nodeId: "remote-a", text: "hello" } },
+      ),
+    );
+    await vi.waitFor(() => expect(attached).toBe(true));
+    let interruptDone = false;
+    const interrupted = Effect.runPromise(Fiber.interrupt(fiber)).then(() => {
+      interruptDone = true;
+    });
+    await Promise.resolve();
+    expect(interruptDone).toBe(false);
+    expect(release).toHaveBeenCalled();
+    releaseLease();
+    await interrupted;
+    expect(interruptDone).toBe(true);
+  });
+
   it("does not mutate after Effect interrupt even if the grant is restored", async () => {
     let releaseGrant!: () => void;
     const heldGrant = new Promise<void>((resolve) => {
