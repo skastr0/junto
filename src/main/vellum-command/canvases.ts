@@ -886,6 +886,29 @@ const nextGenerationAfter = (snapshot: StoredAuthoritySnapshot): string =>
   snapshot.hasHead ? (BigInt(snapshot.generation) + 1n).toString() : "1";
 
 /**
+ * Authorial commits must compile as a live Command Center portfolio. Writes
+ * that would make later read/list/liveDocuments fail stay uncommitted.
+ */
+const assertAuthorialCandidatePortfolio = (
+  reader: StateReader,
+  documents: ReadonlyMap<string, StoredCanvas>,
+): void => {
+  const docs = new Map<string, CanvasDoc>();
+  for (const [name, entry] of documents) docs.set(name, entry.doc);
+  try {
+    compileActorSeatRegistry(docs, readCommandCenterTopology(reader));
+  } catch (error) {
+    throw error instanceof CanvasError
+      ? error
+      : new CanvasError({
+          message: `cannot commit authorial portfolio: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+  }
+};
+
+/**
  * Commit the portfolio delta: upsert changed canvases' rows, delete removed
  * canvases' rows, advance the singleton head. Only canvases whose revision
  * hash moved are touched — an unchanged canvas costs nothing.
@@ -896,6 +919,7 @@ const commitPortfolio = (
   documents: ReadonlyMap<string, StoredCanvas>,
   _cause: CanvasCommitCause,
 ): CommitOutcome => {
+  assertAuthorialCandidatePortfolio(writer, documents);
   const intentSha256 = intentSha256Of(documents);
   if (
     previous.hasHead &&

@@ -148,6 +148,31 @@ const nextRecoveryName = (): string => {
   return `recovery-${Date.now().toString(36)}-${recoveryNameSequence.toString(36)}`;
 };
 
+// A recovery canvas is a durable draft, not a second live seat. Mint a fresh
+// binding for every managed agent and drop occupancy/authority so the copy
+// cannot alias the original executable identity or restore a grant.
+const detachRecoveryExecutableIdentity = (doc: CanvasDoc): CanvasDoc => ({
+  ...doc,
+  nodes: doc.nodes.map((node) => {
+    const ether = node.ether;
+    if (ether?.entity?.kind !== "agent") return node;
+    const terminal = ether.terminal;
+    if (terminal === undefined) return node;
+    const { overseer: _overseer, ...etherWithoutOverseer } = ether;
+    const { sessionId: _sessionId, ...terminalWithoutSession } = terminal;
+    return {
+      ...node,
+      ether: {
+        ...etherWithoutOverseer,
+        terminal: {
+          ...terminalWithoutSession,
+          bindingId: ulid(),
+        },
+      },
+    };
+  }),
+});
+
 class AuthorialMergeConflictError extends Error {
   constructor(
     readonly authority: CanvasReadResult,
@@ -239,10 +264,11 @@ const recoverRevisionConflict = async (
   let snapshot = pendingSave?.name === failed.name ? pendingSave : failed;
   let recoveryRevision = created.revision;
   while (true) {
-    const recovered = await api.writeCanvas(created.name, snapshot.doc, recoveryRevision);
+    const recoveryDoc = detachRecoveryExecutableIdentity(snapshot.doc);
+    const recovered = await api.writeCanvas(created.name, recoveryDoc, recoveryRevision);
     recoveryRevision = recovered.revision;
     revisionsByName.set(created.name, recovered.revision);
-    authorialBasesByName.set(created.name, snapshot.doc);
+    authorialBasesByName.set(created.name, recoveryDoc);
     const newer = pendingSave?.name === failed.name ? pendingSave : undefined;
     if (newer === undefined || newer === snapshot) {
       if (pendingSave === snapshot) pendingSave = null;
