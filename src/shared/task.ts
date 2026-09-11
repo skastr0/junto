@@ -38,6 +38,14 @@ export const compareTasksByLatestActivityDesc = (a: Task, b: Task): number =>
   taskLatestActivityKey(b).localeCompare(taskLatestActivityKey(a));
 
 /**
+ * Attention states — the item waits on the operator. `auth-required` has no
+ * producer (residual durable rows only) but the attention plane still honors
+ * it, so every count that claims "nothing needs you" must include it.
+ */
+export const isAttentionTaskState = (state: TaskState): boolean =>
+  state === "input-required" || state === "auth-required";
+
+/**
  * Activity after the brief (history[0]), newest first for the task detail panel.
  */
 export const taskActivityNewestFirst = (task: Task): ReadonlyArray<Message> =>
@@ -152,10 +160,14 @@ export const mirrorTasksText = (items: ReadonlyArray<Task>): string => {
   return items.map(taskBrief).join("\n");
 };
 
-/** Requests node text mirror: pending count + briefs. */
-export const mirrorRequestsText = (items: ReadonlyArray<Task>): string => {
-  const pending = items.filter((item) => item.state === "input-required").length;
-  const header = `${pending} pending`;
+/** Requests node text mirror: identity line, attention count, briefs. */
+export const mirrorRequestsText = (
+  items: ReadonlyArray<Task>,
+  name?: string,
+): string => {
+  const pending = items.filter((item) => isAttentionTaskState(item.state)).length;
+  const identity = name?.replace(/\s+/g, " ").trim() || "requests";
+  const header = `${identity}\n${pending} pending`;
   if (items.length === 0) return header;
   return [header, ...items.map(taskBrief)].join("\n");
 };

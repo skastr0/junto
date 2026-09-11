@@ -17,6 +17,7 @@ import { resolveBrowserOnDelete } from "@shared/canvas";
 import { mergeAuthorialCanvas } from "@shared/authorial-canvas-merge";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
+import { mirrorRequestsText } from "@shared/task";
 import { batch } from "@legendapp/state";
 import type { BindingHint, CanvasReadResult } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
@@ -1152,6 +1153,41 @@ export const renameTasksNode = (id: string, firstLine: string): void => {
           tasks: {
             items: node.ether.tasks?.items ?? [],
             ...(node.ether.tasks ?? {}),
+            name: next,
+          },
+        },
+      };
+    }),
+  });
+};
+
+/**
+ * Author requests identity on a requests sink: ether.requests.name plus a
+ * freshly regenerated node.text mirror (identity line, attention count,
+ * briefs). The mirror is never preserved across the rename — the next work op
+ * rewrites it, and display reads the authored name, not the mirror.
+ */
+export const renameRequestsNode = (id: string, firstLine: string): void => {
+  const next = firstLine.trim();
+  if (!next) return;
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((node) => {
+      if (
+        node.id !== id ||
+        node.type !== "text" ||
+        node.ether?.entity?.kind !== "requests"
+      ) return node;
+      const items = node.ether.requests?.items ?? [];
+      return {
+        ...node,
+        text: mirrorRequestsText(items, next),
+        ether: {
+          ...node.ether,
+          requests: {
+            items,
+            ...(node.ether.requests ?? {}),
             name: next,
           },
         },

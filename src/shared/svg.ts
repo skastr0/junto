@@ -4,6 +4,7 @@ import {
   type ExecutionGraphContext,
 } from "./execution-graph";
 import { isGroup } from "./graph";
+import { requestsNodeName } from "./requests-node-identity";
 import { themeRuntime, type ThemeMode } from "./theme";
 import { hexAtAlpha } from "./theme/oklch";
 
@@ -53,6 +54,9 @@ const nodeStroke = (node: CanvasNode, pal: SvgPalette): string => {
 };
 
 const nodeTitle = (node: CanvasNode): string => {
+  // Requests identity is authored (ether.requests.name), not the mirror's
+  // first line — see requests-node-identity.ts.
+  if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
   switch (node.type) {
     case "text":
       return (node.text.split("\n")[0] ?? "").trim();

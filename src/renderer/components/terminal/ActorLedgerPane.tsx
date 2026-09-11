@@ -47,6 +47,7 @@ import {
   terminal$,
 } from "../../lib/terminal-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
+import { modKeyGlyph } from "../../lib/platform";
 import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
 import { Textarea } from "../ui/Field";
 
@@ -145,7 +146,7 @@ function RequestRowItem({
         onClick={onToggle}
       >
         <span className="actor-ledger__item-head">
-          <Chip tone={row.needsInput ? "amber" : taskStateTone(row.state)}>
+          <Chip tone={row.attention ? "amber" : taskStateTone(row.state)}>
             {row.needsInput ? "needs you" : row.state}
           </Chip>
         </span>
@@ -159,6 +160,12 @@ function RequestRowItem({
           {/* The full decision contract precedes any action. */}
           {row.details ? (
             <div className="actor-ledger__contract">{row.details}</div>
+          ) : null}
+          {row.state === "auth-required" ? (
+            <p className="actor-ledger__contract" role="note">
+              This request has an older authorization-wait state. It remains
+              unresolved and cannot be answered here.
+            </p>
           ) : null}
           {row.response ? (
             <div className="actor-ledger__contract actor-ledger__contract--response">
@@ -178,6 +185,7 @@ function RequestRowItem({
                 }}
                 placeholder="Decision, information, or authorization…"
                 rows={3}
+                aria-label="Your response"
                 aria-keyshortcuts="Meta+Enter Control+Enter"
               />
               <div className="actor-ledger__actions">
@@ -193,7 +201,7 @@ function RequestRowItem({
                   size="xs"
                   variant="primary"
                   disabled={!canSend}
-                  title="⌘↵ / Ctrl+Enter"
+                  title={`${modKeyGlyph()}+↵`}
                   onClick={() => onResolve(response.trim(), "completed")}
                 >
                   Send response
@@ -371,9 +379,11 @@ export function ActorLedgerPane({
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
   // Operator attention only: unread mail is the SEAT's backlog, not yours.
+  // Attention = input-required + auth-required (anything waiting on you);
+  // answer eligibility stays narrow (needsInput) and is not a count here.
   const needsYou =
     (claim?.needsInput ? 1 : 0) +
-    requests.filter((row) => row.needsInput).length +
+    requests.filter((row) => row.attention).length +
     raisedTasks.filter((row) => row.awaitingApproval).length;
 
   // Recent-ops receipt feed: identity-backed CLI activity from the kernel

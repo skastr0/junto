@@ -2106,7 +2106,16 @@ export const projectWorkSnapshots = (
           ...(contract ? { contract } : {}),
         };
       }
-      if (kind === "requests") ether.requests = snapshot.requests;
+      if (kind === "requests") {
+        // The authored name is operator document truth from the source
+        // document; items come from the work snapshot. The mirror regenerates
+        // from both — snapshot metadata never becomes authorial identity.
+        const name = source.ether?.requests?.name;
+        ether.requests = {
+          ...snapshot.requests,
+          ...(name !== undefined ? { name } : {}),
+        };
+      }
       if (kind === "artifacts") ether.artifacts = snapshot.artifacts;
       if (kind === "board") {
         ether.board = {
@@ -2136,7 +2145,7 @@ export const projectWorkSnapshots = (
           ? { text: mirrorTasksText(snapshot.tasks.items) }
           : {}),
         ...(node.type === "text" && kind === "requests"
-          ? { text: mirrorRequestsText(snapshot.requests.items) }
+          ? { text: mirrorRequestsText(snapshot.requests.items, source.ether?.requests?.name) }
           : {}),
         ...(node.type === "text" && kind === "artifacts"
           ? { text: mirrorArtifactsText(snapshot.artifacts.items) }

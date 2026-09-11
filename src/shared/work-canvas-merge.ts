@@ -1,6 +1,7 @@
 import { Match } from "effect";
 import type { CanvasDoc, CanvasNode, EtherNodeExtension } from "./canvas";
 import { resolveSpec } from "./physics";
+import { mirrorRequestsText } from "./task";
 
 /**
  * Board text merge: the local first line is the operator's authored title and
@@ -18,8 +19,10 @@ const mergeBoardNodeText = (local: string, work: string): string => {
 // mirrored text) take the authoritative write's values.
 //
 // Local is structural authority for membership (nodes/edges the operator has
-// added or removed), including authored ether.tasks.name|contract. Work is
-// authority for tasks.items, the other Work bags, and mirrored sink text.
+// added or removed), including authored ether.tasks.name|contract and
+// ether.requests.name. Work is authority for the items bags and mirrored sink
+// text (requests regenerates from the merged store; board keeps the local
+// authored first line).
 
 // Both predicates are exhaustive over NodeSpec, so the two lists can no longer
 // drift apart: a work store is a sink that holds a document (every sink but the
@@ -58,17 +61,40 @@ const mergeTasks = (
   };
 };
 
+const mergeRequests = (
+  local: EtherNodeExtension["requests"],
+  work: EtherNodeExtension["requests"],
+): EtherNodeExtension["requests"] => {
+  if (work === undefined) return local;
+  if (local === undefined) return work;
+  return {
+    items: work.items,
+    // A blank local name is not an authored rename — let the work write's
+    // name stand.
+    ...(local.name !== undefined && local.name.trim() !== ""
+      ? { name: local.name }
+      : work.name !== undefined
+        ? { name: work.name }
+        : {}),
+  };
+};
+
 const mergeEther = (
   local: EtherNodeExtension | undefined,
   work: EtherNodeExtension | undefined,
 ): EtherNodeExtension | undefined => {
   if (!local && !work) return undefined;
+  // ether.requests.name is operator-authored identity (rename survives work
+  // writes), while items take the authoritative work write. Regenerate the
+  // mirrored text from the merged store below in mergeNode.
   const next: EtherNodeExtension = {
     ...(local ?? {}),
     ...(local?.tasks !== undefined || work?.tasks !== undefined
       ? { tasks: mergeTasks(local?.tasks, work?.tasks) }
       : {}),
-    ...(work?.requests !== undefined ? { requests: work.requests } : {}),
+    ...(local?.requests !== undefined || work?.requests !== undefined
+      ? { requests: mergeRequests(local?.requests, work?.requests) }
+      : {}),
     ...(work?.artifacts !== undefined ? { artifacts: work.artifacts } : {}),
     ...(work?.messages !== undefined ? { messages: work.messages } : {}),
     ...(work?.board !== undefined ? { board: work.board } : {}),
@@ -84,9 +110,18 @@ const mergeNode = (local: CanvasNode, work: CanvasNode | undefined): CanvasNode 
   const kind = work.ether?.entity?.kind ?? local.ether?.entity?.kind;
   const ether = mergeEther(local.ether, work.ether);
   if (local.type === "text" && work.type === "text" && isWorkStoreKind(kind)) {
+    // Requests keeps its mirror in lockstep with the merged store: a local
+    // rename must not be overwritten by the work write's (possibly stale)
+    // mirrored text.
+    const text =
+      kind === "requests" && ether?.requests !== undefined
+        ? mirrorRequestsText(ether.requests.items, ether.requests.name)
+        : kind === "board"
+          ? mergeBoardNodeText(local.text, work.text)
+          : work.text;
     return {
       ...local,
-      text: kind === "board" ? mergeBoardNodeText(local.text, work.text) : work.text,
+      text,
       ...(ether ? { ether } : {}),
     };
   }

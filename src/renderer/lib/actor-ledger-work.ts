@@ -7,7 +7,7 @@ import type {
   TaskState,
 } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
-import { taskBrief } from "@shared/task";
+import { taskBrief, isAttentionTaskState } from "@shared/task";
 import { isArtifactArchived } from "@shared/work";
 import { claimedTaskForActorNode } from "./claimed-task";
 
@@ -45,7 +45,13 @@ export type RequestRow = {
   readonly sinkNodeId: string;
   readonly state: TaskState;
   readonly title: string;
+  /**
+   * Narrow answer eligibility: only `input-required` can be resolved here.
+   * Never broaden — `auth-required` has no producer and resolve refuses it.
+   */
   readonly needsInput: boolean;
+  /** Waits on the operator (input-required or auth-required) — drives order/tone. */
+  readonly attention: boolean;
   readonly response?: string;
   /** Full request text — the decision contract shown before resolve/reject. */
   readonly details?: string;
@@ -171,11 +177,11 @@ export const raisedTaskRowsForSeat = (
   return rows.sort(compareRaisedTaskRows);
 };
 
-/** Needs-input first, then newest first (ULID ids sort by birth order). */
+/** Attention first (waits on the operator), then newest first (ULID birth order). */
 const compareRequestRows = (a: RequestRow, b: RequestRow): number => {
-  const inputRank = (row: RequestRow): number => (row.needsInput ? 0 : 1);
-  const byInput = inputRank(a) - inputRank(b);
-  if (byInput !== 0) return byInput;
+  const attentionRank = (row: RequestRow): number => (row.attention ? 0 : 1);
+  const byAttention = attentionRank(a) - attentionRank(b);
+  if (byAttention !== 0) return byAttention;
   return b.requestId.localeCompare(a.requestId);
 };
 
@@ -202,6 +208,7 @@ export const requestRowsForSeat = (
         state: request.state,
         title,
         needsInput: request.state === "input-required",
+        attention: isAttentionTaskState(request.state),
         ...(request.response !== undefined ? { response: request.response } : {}),
         ...(details !== undefined ? { details } : {}),
       });

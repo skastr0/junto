@@ -496,7 +496,6 @@ const decodeCanvasDocStrict = Schema.decodeUnknownResult(CanvasDoc, {
 export const encodeCanvasDoc = Schema.encodeResult(CanvasDoc);
 
 const WORK_PROJECTION_KEYS = [
-  "requests",
   "messages",
   "artifacts",
   "board",
@@ -515,8 +514,9 @@ const isNonEmptyArrayField = (value: unknown, key: string): boolean => {
  * Runtime work projections share CanvasDoc with authorial intent so composed
  * readers have one shape. Persistence boundaries use this detector before
  * decode because a valid projected store must never become durable intent.
- * `ether.tasks` is special: its `contract` is operator-authored document
- * truth, so only projected task rows make it a work projection.
+ * `ether.tasks` and `ether.requests` are special: each carries operator-
+ * authored document truth (`name`), so only projected rows — a nonempty
+ * `items` array — make them a work projection.
  */
 export const containsWorkProjection = (input: unknown): boolean => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
@@ -540,7 +540,9 @@ export const containsWorkProjection = (input: unknown): boolean => {
       return true;
     }
     const tasks = (ether as { readonly tasks?: unknown }).tasks;
-    return isNonEmptyArrayField(tasks, "items");
+    if (isNonEmptyArrayField(tasks, "items")) return true;
+    const requests = (ether as { readonly requests?: unknown }).requests;
+    return isNonEmptyArrayField(requests, "items");
   });
 };
 

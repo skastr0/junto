@@ -15,6 +15,8 @@ import {
 } from "./impact";
 import type { OccupancySpectrumName } from "./occupancy";
 import { resolveSpec, roleOf, type FactoryRole } from "./physics";
+import { requestsNodeName } from "./requests-node-identity";
+import { isAttentionTaskState } from "./task";
 import { deriveRegionRollups } from "./region-rollup";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
@@ -51,6 +53,9 @@ const ROLE_COUNT_KEY: Record<FactoryRole, string> = {
 };
 
 const titleOf = (node: CanvasNode): string => {
+  // Requests identity is authored (ether.requests.name), not the mirror's
+  // first line — see requests-node-identity.ts.
+  if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
   switch (node.type) {
     case "text":
       return (node.text.split("\n")[0] ?? "").trim();
@@ -301,8 +306,8 @@ export const digestCanvas = (
       }
       if (entity.kind === "requests") {
         const items = node.ether?.requests?.items ?? [];
-        const pending = items.filter((item) => item.state === "input-required").length;
-        entityLines.push(`  requests: ${pending}/${items.length} pending`);
+        const attention = items.filter((item) => isAttentionTaskState(item.state)).length;
+        entityLines.push(`  requests: ${attention}/${items.length} need attention`);
       }
       if (entity.kind === "artifacts") {
         const items = node.ether?.artifacts?.items ?? [];

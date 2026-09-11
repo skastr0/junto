@@ -220,13 +220,19 @@ const withRequests = (
   nodes: doc.nodes.map((n) => {
     if (n.id !== nodeId) return n;
     const tn = textNode(n);
+    // The authored name is operator document truth, like ether.tasks.name —
+    // the mirror (identity + count + briefs) regenerates beneath it.
+    const name = n.ether?.requests?.name;
     return {
       ...n,
-      ...(tn ? { text: mirrorRequestsText(items) } : {}),
+      ...(tn ? { text: mirrorRequestsText(items, name) } : {}),
       ether: {
         ...(n.ether ?? {}),
         entity: n.ether?.entity ?? { kind: "requests" },
-        requests: { items: [...items] },
+        requests: {
+          items: [...items],
+          ...(name !== undefined ? { name } : {}),
+        },
       },
     } as CanvasNode;
   }),

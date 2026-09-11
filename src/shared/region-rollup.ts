@@ -10,6 +10,7 @@ import {
 } from "./execution-graph";
 import { groupMembers, isGroup } from "./graph";
 import { resolveSpec } from "./physics";
+import { requestsNodeName } from "./requests-node-identity";
 import type { WorkSurfaceActivity } from "./terminal";
 
 // Region severity rollups: the operational tier of the bottom-bar information
@@ -151,6 +152,9 @@ const GRAPH_REASON_RANK = { work: 0, edge: 1, seed: 2 } as const;
 // mirrors digest.titleOf — duplicated on purpose: shared modules stay
 // decoupled, and the label convention must not drift with the projection.
 const titleOf = (node: CanvasNode): string => {
+  // Requests identity is authored (ether.requests.name), not the mirror's
+  // first line — see requests-node-identity.ts.
+  if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
   switch (node.type) {
     case "text":
       return (node.text.split("\n")[0] ?? "").trim();

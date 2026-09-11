@@ -980,7 +980,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
 
     const {
       tasks: strippedTasks,
-      requests: _requests,
+      requests: strippedRequests,
       messages: _messages,
       artifacts: _artifacts,
       board: _board,
@@ -989,16 +989,29 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
     } = etherIn;
     const name = strippedTasks?.name;
     const contract = strippedTasks?.contract;
-    const ether = contract === undefined && name === undefined
-      ? rest
-      : {
-          ...rest,
-          tasks: {
-            items: [],
-            ...(name ? { name } : {}),
-            ...(contract ? { contract } : {}),
-          },
-        };
+    // ether.requests.name is operator-authored document truth, like the tasks
+    // name: it survives the strip with a present-and-empty items shell.
+    const requestsName = strippedRequests?.name;
+    const ether =
+      contract === undefined &&
+      name === undefined &&
+      requestsName === undefined
+        ? rest
+        : {
+            ...rest,
+            ...(name !== undefined || contract !== undefined
+              ? {
+                  tasks: {
+                    items: [],
+                    ...(name ? { name } : {}),
+                    ...(contract ? { contract } : {}),
+                  },
+                }
+              : {}),
+            ...(requestsName !== undefined
+              ? { requests: { items: [], name: requestsName } }
+              : {}),
+          };
     const kind = ether.entity?.kind;
     const text =
       node.type !== "text"
@@ -1006,7 +1019,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
         : kind === "task"
           ? mirrorTasksText([])
           : kind === "requests"
-            ? mirrorRequestsText([])
+            ? mirrorRequestsText([], requestsName)
             : kind === "artifacts"
               ? mirrorArtifactsText([])
               : kind === "board"

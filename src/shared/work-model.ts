@@ -454,9 +454,14 @@ export const WorkTasks = Schema.Struct({
 });
 export type WorkTasks = typeof WorkTasks.Type;
 
-/** Requests sink contents. Requests share the Task state machine. */
+/**
+ * Requests sink contents. Requests share the Task state machine. `name` is
+ * operator-authored document truth (the sink's stable identity, surviving
+ * work ops); items are the runtime Work projection.
+ */
 export const WorkRequests = Schema.Struct({
   items: Schema.Array(Task),
+  name: Schema.optionalKey(Schema.String),
 });
 export type WorkRequests = typeof WorkRequests.Type;
 

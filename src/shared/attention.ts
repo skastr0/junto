@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import type { Task, CanvasDoc, CanvasNode } from "./canvas";
 import type { TasksContract } from "./work-model";
-import { claimedByOf, isTerminalTaskState } from "./task";
+import { claimedByOf, isAttentionTaskState, isTerminalTaskState } from "./task";
 import { taskAdmissionState } from "./rules";
 import { isBlockableNode, type ExecutionGraph } from "./execution-graph";
 import { resolveSpec, roleOf } from "./physics/kinds";
@@ -24,8 +24,7 @@ import {
 
 export type AttentionSignal = "fire" | "ice" | "idle" | "empty";
 
-const needsHuman = (item: Task): boolean =>
-  item.state === "input-required" || item.state === "auth-required";
+const needsHuman = (item: Task): boolean => isAttentionTaskState(item.state);
 
 /** In flight = actively being worked. Queue inventory and human waits are not flight. */
 const inFlight = (item: Task): boolean => item.state === "working";

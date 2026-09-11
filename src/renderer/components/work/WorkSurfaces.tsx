@@ -14,8 +14,9 @@ import {
   isTerminalTaskState,
   taskBrief,
 } from "@shared/task";
-import { sinkGlance, taskScanCounts } from "@shared/attention";
+import { needsHuman, sinkGlance, taskScanCounts } from "@shared/attention";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
+import { requestsNodeName } from "@shared/requests-node-identity";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -23,7 +24,7 @@ import { Button } from "../ui/Button";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { applyWorkCanvasWrite, editText, renameTasksNode } from "../../lib/mutations";
+import { applyWorkCanvasWrite, editText, renameRequestsNode, renameTasksNode } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { boardAuthorLabel } from "../../lib/board-author";
@@ -74,6 +75,10 @@ function SinkGlanceHead({
   const commitRename = (nextFirst: string) => {
     if (node.ether?.entity?.kind === "task") {
       renameTasksNode(node.id, nextFirst);
+      return;
+    }
+    if (node.ether?.entity?.kind === "requests") {
+      renameRequestsNode(node.id, nextFirst);
       return;
     }
     const rest = rawText.split("\n").slice(1).join("\n");
@@ -290,16 +295,23 @@ export function RequestsCard({
 }: {
   readonly node: CanvasNode;
 } & SinkRenameProps) {
-  // Newest first (ULID birth order) — matches requests lane SQL + RequestInbox.
-  const items = [...(node.ether?.requests?.items ?? [])].sort((a, b) =>
+  // Attention first (input-required / auth-required — the states that wait on
+  // the operator), then the rest — newest first (ULID birth order) within each
+  // group, matching requests lane SQL + RequestInbox.
+  const allItems = [...(node.ether?.requests?.items ?? [])].sort((a, b) =>
     b.id.localeCompare(a.id),
   );
-  const pending = items.filter((t) => t.state === "input-required").length;
+  const items = [
+    ...allItems.filter((t) => needsHuman(t)),
+    ...allItems.filter((t) => !needsHuman(t)),
+  ];
+  const pending = allItems.filter((t) => needsHuman(t)).length;
   return (
     <div className="factory-glance factory-glance--requests flex h-full w-full flex-col overflow-hidden" data-testid="requests-card">
       <SinkGlanceHead
         node={node}
         fallback="requests"
+        displayLabel={requestsNodeName(node)}
         decal={<Inbox size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}
@@ -316,6 +328,11 @@ export function RequestsCard({
             <span style={{ color: stateHue(item.state) }}>●</span> {taskBrief(item)}
           </div>
         ))}
+        {allItems.length === 0 ? (
+          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
+            quiet
+          </div>
+        ) : null}
       </div>
     </div>
   );

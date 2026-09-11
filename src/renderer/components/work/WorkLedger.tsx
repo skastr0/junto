@@ -18,23 +18,26 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Artifact, CanvasNode, Part, Task, WorkMetadata } from "@shared/canvas";
+import type { Artifact, CanvasNode, Part, Task, TaskState, WorkMetadata } from "@shared/canvas";
 import type { TaskRef } from "@shared/work-reference";
 import type { WorkOpResult } from "@shared/ipc";
 import { isArtifactArchived } from "@shared/work";
-import { taskBrief } from "@shared/task";
+import { isAttentionTaskState, isTerminalTaskState, taskBrief } from "@shared/task";
+import { needsHuman } from "@shared/attention";
+import { requestsNodeName } from "@shared/requests-node-identity";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
-import { Chip } from "../ui/Chip";
+import { Chip, type ChipTone } from "../ui/Chip";
 import { Input, Textarea } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import { OverlayHeader } from "../ui/OverlayHeader";
-import { StatusDot } from "../ui/StatusDot";
+import { StatusDot, type StatusTone } from "../ui/StatusDot";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { state$ } from "../../lib/state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
+import { modKeyGlyph } from "../../lib/platform";
 import {
   artifactDeletionWarning,
   artifactSearchText,
@@ -74,51 +77,21 @@ const requestTitle = (request: Task): string =>
 const requestDetails = (request: Task): string | undefined =>
   metadataText(request.metadata, "details");
 
-/** List titles clip at this length; full text lives in the detail pane. */
-const REQUEST_TITLE_LIST_LIMIT = 72;
-
 /** Newer requests first (ULID time order = birth order). */
 const compareRequestsNewestFirst = (a: Task, b: Task): number =>
   b.id.localeCompare(a.id);
 
-function RequestListTitle({ title }: { readonly title: string }) {
-  const [expanded, setExpanded] = useState(false);
-  if (title.length <= REQUEST_TITLE_LIST_LIMIT) {
-    return <strong className="work-ledger-row__title">{title}</strong>;
-  }
-  if (expanded) {
-    return (
-      <strong className="work-ledger-row__title work-ledger-row__title--expanded">
-        {title}{" "}
-        <button
-          type="button"
-          className="work-ledger-read-more"
-          onClick={(event) => {
-            event.stopPropagation();
-            setExpanded(false);
-          }}
-        >
-          less
-        </button>
-      </strong>
-    );
-  }
-  return (
-    <strong className="work-ledger-row__title">
-      {`${title.slice(0, REQUEST_TITLE_LIST_LIMIT).trimEnd()}…`}{" "}
-      <button
-        type="button"
-        className="work-ledger-read-more"
-        onClick={(event) => {
-          event.stopPropagation();
-          setExpanded(true);
-        }}
-      >
-        read more
-      </button>
-    </strong>
-  );
-}
+/**
+ * Row + chip tone for a request state: attention amber (input-required /
+ * auth-required), completed green, failure/cancel crimson, in-flight cyan.
+ * The dot and chip take different tone unions, hence the pair.
+ */
+const requestTone = (state: TaskState): { dot: StatusTone; chip: ChipTone } => {
+  if (isAttentionTaskState(state)) return { dot: "amber", chip: "amber" };
+  if (state === "completed") return { dot: "green", chip: "green" };
+  if (isTerminalTaskState(state)) return { dot: "crimson", chip: "crimson" };
+  return { dot: "cyan", chip: "steel" };
+};
 
 const textOf = (parts: ReadonlyArray<Part>): string =>
   parts
@@ -351,6 +324,7 @@ function RequestDetail({
     .flatMap((message) => message.parts)
     .filter((part) => part.kind !== "text");
   const canSend = !pending && response.trim().length > 0;
+  const answerable = request.state === "input-required";
   const sendResponse = (): void => {
     if (!canSend) return;
     onResolve(request, response.trim(), "completed");
@@ -360,7 +334,7 @@ function RequestDetail({
     <aside className="work-ledger-detail" aria-label={`Request details for ${requestTitle(request)}`}>
       <header>
         <div>
-          <Chip tone={request.state === "input-required" ? "amber" : request.state === "completed" ? "green" : "crimson"}>
+          <Chip tone={requestTone(request.state).chip}>
             {request.state === "input-required" ? "Needs input" : request.state}
           </Chip>
           <h2>{requestTitle(request)}</h2>
@@ -370,6 +344,12 @@ function RequestDetail({
         </IconButton>
       </header>
       <div className="work-ledger-detail__meta">#{request.id}</div>
+      {request.state === "auth-required" ? (
+        <p className="work-ledger-detail__note" role="note">
+          This request has an older authorization-wait state. It remains unresolved
+          and cannot be answered here.
+        </p>
+      ) : null}
       <div className="work-ledger-detail__scroll">
         <section>
           <h3>Context</h3>
@@ -401,7 +381,7 @@ function RequestDetail({
             ))}
           </ol>
         </section>
-        {request.state === "input-required" ? (
+        {answerable ? (
           <section>
             <h3>Your response</h3>
             <Textarea
@@ -415,10 +395,11 @@ function RequestDetail({
               }}
               placeholder="Provide the decision, information, or authorization the agent needs…"
               rows={7}
+              aria-label="Your response"
               aria-keyshortcuts="Meta+Enter Control+Enter"
             />
             <p className="work-ledger-detail__shortcut-hint">
-              <kbd>⌘</kbd>
+              <kbd>{modKeyGlyph()}</kbd>
               <kbd>↵</kbd>
               {" "}
               send response
@@ -428,7 +409,7 @@ function RequestDetail({
           </section>
         ) : null}
       </div>
-      {request.state === "input-required" ? (
+      {answerable ? (
         <footer className="work-ledger-detail__actions">
           <Button
             variant="danger"
@@ -442,7 +423,7 @@ function RequestDetail({
             variant="primary"
             disabled={!canSend}
             onClick={sendResponse}
-            title="⌘↵ / Ctrl+Enter"
+            title={`${modKeyGlyph()}+↵`}
           >
             <Check size={12} />
             Send response
@@ -467,13 +448,21 @@ export function RequestInbox({
     () => [...(node.ether?.requests?.items ?? [])].sort(compareRequestsNewestFirst),
     [node.ether?.requests?.items],
   );
-  const pendingItems = items.filter((request) => request.state === "input-required");
+  // Honest accounting: attention = input-required + auth-required (anything
+  // that still waits on the operator); resolved = terminal states only.
+  // Intermediate states (submitted / working) get their own section so
+  // nothing is silently bucketed as "resolved".
+  const attentionItems = items.filter((request) => needsHuman(request));
+  const resolvedItems = items.filter((request) => isTerminalTaskState(request.state));
+  const otherItems = items.filter(
+    (request) => !needsHuman(request) && !isTerminalTaskState(request.state),
+  );
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (initialItemId && items.some((request) => request.id === initialItemId)) {
       return initialItemId;
     }
-    return pendingItems[0]?.id ?? null;
+    return attentionItems[0]?.id ?? null;
   });
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -490,6 +479,11 @@ export function RequestInbox({
       : items;
     return filtered;
   }, [items, normalized]);
+  const visibleAttention = visible.filter((request) => needsHuman(request));
+  const visibleResolved = visible.filter((request) => isTerminalTaskState(request.state));
+  const visibleOther = visible.filter(
+    (request) => !needsHuman(request) && !isTerminalTaskState(request.state),
+  );
   const selected = selectedId ? items.find((request) => request.id === selectedId) : undefined;
 
   const resolve = async (
@@ -524,8 +518,8 @@ export function RequestInbox({
     >
       <OverlayHeader
         eyebrow="requests"
-        title="Input requests"
-        status={`${pendingItems.length} need you - ${items.length - pendingItems.length} resolved`}
+        title={requestsNodeName(node)}
+        status={`${attentionItems.length} need attention - ${resolvedItems.length} resolved`}
         actions={
           <>
             <div className="work-ledger-search">
@@ -555,54 +549,50 @@ export function RequestInbox({
       <div className="work-ledger-workspace" data-detail-open={selected ? "true" : "false"}>
         <div className="work-ledger-list">
           {[
-            ["Needs your input", visible.filter((request) => request.state === "input-required")],
-            ["Resolved", visible.filter((request) => request.state !== "input-required")],
-          ].map(([label, requests]) => (
-            <section key={label as string}>
+            {
+              label: "Needs attention",
+              requests: visibleAttention,
+              empty: normalized ? "No matching requests" : "Nothing needs you right now",
+            },
+            {
+              label: "Resolved",
+              requests: visibleResolved,
+              empty: normalized ? "No matching requests" : "Nothing resolved yet",
+            },
+            ...(visibleOther.length > 0
+              ? [{ label: "Other states", requests: visibleOther, empty: "" }]
+              : []),
+          ].map(({ label, requests, empty }) => (
+            <section key={label}>
               <header>
-                <h2>{label as string}</h2>
-                <span>{(requests as Task[]).length}</span>
+                <h2>{label}</h2>
+                <span>{requests.length}</span>
               </header>
               <div role="list">
-                {(requests as Task[]).map((request) => (
-                  <button
-                    key={request.id}
-                    type="button"
-                    role="listitem"
-                    className="work-ledger-row"
-                    aria-current={selectedId === request.id ? "true" : undefined}
-                    onClick={() => setSelectedId(request.id)}
-                  >
-                    <StatusDot
-                      tone={
-                        request.state === "input-required"
-                          ? "amber"
-                          : request.state === "completed"
-                            ? "green"
-                            : "crimson"
-                      }
-                    />
-                    <span>
-                      <RequestListTitle title={requestTitle(request)} />
-                      <small>{requestDetails(request) ?? `Request ${request.id}`}</small>
-                    </span>
-                    <Chip
-                      tone={
-                        request.state === "input-required"
-                          ? "amber"
-                          : request.state === "completed"
-                            ? "green"
-                            : "crimson"
-                      }
-                    >
-                      {request.state === "input-required" ? "Needs input" : request.state}
-                    </Chip>
-                  </button>
-                ))}
-                {(requests as Task[]).length === 0 ? (
-                  <div className="work-ledger-list__empty">
-                    {normalized ? "No matching requests" : `No ${String(label).toLowerCase()}`}
-                  </div>
+                {requests.map((request) => {
+                  const tone = requestTone(request.state);
+                  return (
+                    <div key={request.id} role="listitem">
+                      <button
+                        type="button"
+                        className="work-ledger-row"
+                        aria-current={selectedId === request.id ? "true" : undefined}
+                        onClick={() => setSelectedId(request.id)}
+                      >
+                        <StatusDot tone={tone.dot} />
+                        <span>
+                          <strong className="work-ledger-row__title">{requestTitle(request)}</strong>
+                          <small>{requestDetails(request) ?? `Request ${request.id}`}</small>
+                        </span>
+                        <Chip tone={tone.chip}>
+                          {request.state === "input-required" ? "Needs input" : request.state}
+                        </Chip>
+                      </button>
+                    </div>
+                  );
+                })}
+                {requests.length === 0 ? (
+                  <div className="work-ledger-list__empty">{empty}</div>
                 ) : null}
               </div>
             </section>

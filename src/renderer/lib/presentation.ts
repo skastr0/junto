@@ -1,4 +1,5 @@
 import type { CanvasNode } from "@shared/canvas";
+import { requestsNodeName } from "@shared/requests-node-identity";
 
 // Shared by LinkNode.tsx and PageCard.tsx — the host to show for a link/page
 // card. Falls back to a naive scheme-strip rather than the raw url (unlike
@@ -45,7 +46,12 @@ export const nodeTitle = (node: CanvasNode): string => {
   // Artifacts shelf has no authorial name — node.text mirrors artifact names
   // and shifts on rename/archive/delete — so its title stays the kind label.
   if (node.ether?.entity?.kind === "artifacts") return "artifacts";
-  if (node.type === "text") return node.text.split("\n")[0]?.replace(/^#+\s*/, "") || "untitled";
+  if (node.type === "text") {
+    // Requests identity is authored (ether.requests.name), not the mechanical
+    // mirror's first line — the mirror is rewritten on every work op.
+    if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
+    return node.text.split("\n")[0]?.replace(/^#+\s*/, "") || "untitled";
+  }
   if (node.type === "file") return node.file.split("/").filter(Boolean).pop() ?? node.file;
   if (node.type === "link") {
     try { return new URL(node.url).host; } catch { return node.url; }

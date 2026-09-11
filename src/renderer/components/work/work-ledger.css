@@ -584,37 +584,16 @@
   white-space: nowrap;
 }
 
-.work-ledger-row__title--expanded {
+/* Ledger list titles wrap to two lines, then clamp — full text lives in the
+   detail pane. The descendant selector outranks `.work-ledger-row strong`
+   (0,1,1), whose nowrap + ellipsis would otherwise cascade-defeat the clamp. */
+.work-ledger-list .work-ledger-row .work-ledger-row__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   white-space: normal;
   text-overflow: unset;
-  overflow: visible;
   line-height: 1.35;
-}
-
-.work-ledger-read-more {
-  display: inline;
-  border: 0;
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--color-cyan);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.work-ledger-read-more:hover {
-  color: var(--color-ink);
-}
-
-.work-ledger-read-more:focus-visible {
-  outline: 1px solid color-mix(in oklab, var(--color-second) 62%, transparent);
-  outline-offset: 2px;
-  border-radius: 2px;
 }
 
 .work-ledger-row small {
@@ -743,6 +722,18 @@
   border-bottom: 1px solid var(--color-stroke);
   color: var(--color-dim);
   font-size: 9px;
+}
+
+/* Residual auth-required rows cannot be answered here — say why, inline. */
+.work-ledger-detail__note {
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--color-amber) 7%, transparent);
+  color: var(--color-amber);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .work-ledger-detail__scroll {
