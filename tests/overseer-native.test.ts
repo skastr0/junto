@@ -482,6 +482,7 @@ describe("overseer native adapters", () => {
         canvasName: "factory",
         nodeId: "a1",
       }),
+      expect.any(AbortSignal),
     );
     const committedArg = (commitAgentReseat.mock.calls as unknown as ReadonlyArray<
       ReadonlyArray<{ next: TextNode }>
@@ -664,9 +665,11 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       ok: true as const,
       data: { sessionId: "sess-late", stopped: true },
     }));
+    let pages: BrowserSessionService | undefined;
     const options: OverseerNativeLiveOptions = {
       termPlane: makeTermPlane(),
       chats: makeChats(),
+      get pages() { return pages; },
       captureApplicationPage: async () => ({ ok: true, png: PNG }),
       liveOverseerGrant: async () => true,
       listCanvasDocuments: async () => [{ name: "factory", doc: doc([page("p1")]) }],
@@ -687,7 +690,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     ]);
     native.finishOverseerNodeDelete(unbound.leaseId, "aborted");
 
-    options.pages = { stopForOwner } as unknown as BrowserSessionService;
+    pages = { stopForOwner } as unknown as BrowserSessionService;
     const bound = await native.prepareOverseerNodeDelete([
       { kind: "page", sessionId: "sess-late" },
     ]);

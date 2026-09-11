@@ -180,12 +180,14 @@ export type OverseerNativeLiveOptions = {
    */
   readonly commitAgentReseat?: (
     input: AgentReseatCommitInput,
+    signal: AbortSignal,
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /**
    * Canvas-owned scheduler timer/watch mutation. Missing → Unsupported.
    */
   readonly applySchedulerConfigure?: (
     input: SchedulerConfigureApplyInput,
+    signal: AbortSignal,
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   readonly stationScope?: () => {
     readonly hostId: string;
@@ -722,7 +724,7 @@ const handleAgent = async (
         canvasName,
         nodeId: node.id,
         next,
-      });
+      }, ctx.signal);
       const still = await requireGrant(ctx, caller);
       if (still) return still;
       if (!committed.ok) {
@@ -1151,7 +1153,7 @@ const handleScheduler = async (
       nodeId: node.id,
       timer: (args as { timer?: unknown }).timer,
       watch: (args as { watch?: unknown }).watch,
-    });
+    }, ctx.signal);
     if (!applied.ok) return fail("Conflict", applied.message);
     return ok({ configured: true, nodeId: node.id, canvas: canvasName });
   }
@@ -1468,5 +1470,4 @@ export const makeOverseerNativeLive = (
 };
 
 export const OVERSEER_PAGE_SESSION_OWNER = OVERSEER_PAGE_OWNER;
-
 

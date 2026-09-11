@@ -1,19 +1,19 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { applyMirrorLaw, type CanvasDoc, type CanvasNode, type TextNode } from "../src/shared/canvas";
 import type { OverseerCaller } from "../src/shared/overseer-control";
-import type { InstallationId } from "../src/shared/station-api";
+import { InstallationId } from "../src/shared/station-api";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
 import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+import { StationRepository, StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
 import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
 import { WorkLive } from "../src/main/vellum-command/work/service";
-import { SettingsLive } from "../src/main/vellum-command/settings/service";
+import { SettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
 import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
 import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
 import { commitAgentReseat } from "../src/main/vellum-command/overseer/canvas";
@@ -21,12 +21,13 @@ import {
   createDispatchGrant,
   lateBoundDrive,
   reseatCanvasArgs,
+  runCanvasHook,
   schedulerCanvasArgs,
 } from "../src/main/vellum-command/overseer/composition";
 
 
 const origin: OverseerCaller = { canvasName: "ops", nodeId: "overseer" };
-const targetCanvas = "ops";
+const targetCanvas = "factory";
 const targetAgent = "peer";
 
 const agent = (id: string, bindingId: string): CanvasNode => ({
@@ -38,7 +39,7 @@ const agent = (id: string, bindingId: string): CanvasNode => ({
   width: 260,
   height: 96,
   ether: {
-    entity: { kind: "agent", name: "local:amp" },
+    entity: { kind: "agent", name: `local:${id}` },
     host: "local",
     terminal: { bindingId, harness: "amp" },
   },
@@ -48,7 +49,6 @@ const overseerDoc = (): CanvasDoc =>
   applyMirrorLaw({
     nodes: [
       agent("overseer", "bind-overseer"),
-      agent("peer", "bind-peer"),
     ],
     edges: [],
   });
@@ -100,25 +100,6 @@ describe("overseer composition origin vs target", () => {
   });
 });
 
-describe("overseer composition grant closures", () => {
-  it("captures distinct sources per dispatch across Effect sleeps", async () => {
-    const local = "local-install" as InstallationId;
-    const remote = "remote-install" as InstallationId;
-    const seen: InstallationId[] = [];
-    const grant = (source: InstallationId) => async () => {
-      await Effect.runPromise(Effect.sleep("5 millis"));
-      seen.push(source);
-      return true;
-    };
-    const left = grant(local);
-    const right = grant(remote);
-    await Promise.all([left(), right()]);
-    expect(seen).toContain(local);
-    expect(seen).toContain(remote);
-    expect(createDispatchGrant.length).toBe(2);
-  });
-});
-
 describe("overseer composition absence", () => {
   it("returns false from writePrompt when the managed drive is unbound", async () => {
     const drive = lateBoundDrive();
@@ -128,14 +109,12 @@ describe("overseer composition absence", () => {
 });
 
 describe("overseer composition canvas hook with live grant", () => {
-  let canvasesDir = "";
   let stateDir = "";
-  let previousCanvases: string | undefined;
   let runtime: ReturnType<typeof makeRuntime> | undefined;
 
   const makeRuntime = (path: string) => {
-    const contentRoot = join(stateDir || path, "..", "content");
-    const installOpsPath = join(stateDir || path, "install-ops.db");
+    const contentRoot = join(stateDir, "content");
+    const installOpsPath = join(stateDir, "install-ops.db");
     const repositories = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
@@ -156,7 +135,7 @@ describe("overseer composition canvas hook with live grant", () => {
     return ManagedRuntime.make(
       Layer.provideMerge(
         WorkLive,
-        Layer.mergeAll(canvases, StationLivePeerRegistryLive) as never,
+        Layer.mergeAll(canvases, StationLivePeerRegistryLive),
       ),
     );
   };
@@ -166,33 +145,33 @@ describe("overseer composition canvas hook with live grant", () => {
       await runtime.dispose();
       runtime = undefined;
     }
-    if (previousCanvases === undefined) delete process.env.VELLUM_COMMAND_CANVASES_DIR;
-    else process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvases;
-    if (canvasesDir) await rm(canvasesDir, { recursive: true, force: true });
     if (stateDir) await rm(stateDir, { recursive: true, force: true });
-    canvasesDir = "";
     stateDir = "";
   });
 
   it("commits reseat with origin caller and live canvasOverseerSet grant", async () => {
-    canvasesDir = await mkdtemp(join(tmpdir(), "vellum-overseer-hook-canvases-"));
     stateDir = await mkdtemp(join(tmpdir(), "vellum-overseer-hook-state-"));
-    previousCanvases = process.env.VELLUM_COMMAND_CANVASES_DIR;
-    process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
     runtime = makeRuntime(join(stateDir, "vellum-command.db"));
+    const settings = await runtime.runPromise(SettingsService);
+    await runtime.runPromise(settings.setStationTopology({
+      role: "command-center", hostId: "local", supervisedPreferred: false,
+    }));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("ops", overseerDoc()));
+    await runtime.runPromise(canvases.write(targetCanvas, {
+      nodes: [agent("peer", "bind-peer")], edges: [],
+    }));
     const ops = await runtime.runPromise(canvases.read("ops"));
-    const granted = await runtime.runPromise(
-      Effect.result(
-        canvases.canvasOverseerSet({
-          canvasName: "ops",
-          nodeId: "overseer",
-          overseer: true,
-          expectedRevision: ops.revision,
-        }),
-      ),
-    );
+    await runtime.runPromise(canvases.canvasOverseerSet({
+      ...origin, overseer: true, expectedRevision: ops.revision,
+    }));
+
+    const run = <A, E>(effect: Effect.Effect<A, E, CanvasesService | StationRepository>) =>
+      runtime!.runPromise(effect.pipe(Effect.delay("5 millis")));
+    const localGrant = createDispatchGrant(run, undefined);
+    const wrongSourceGrant = createDispatchGrant(run, Schema.decodeUnknownSync(InstallationId)("wrong-installation"));
+    expect(await Promise.all([localGrant(origin), wrongSourceGrant(origin)]))
+      .toEqual([true, false]);
 
     const mapped = reseatCanvasArgs({
       caller: origin,
@@ -208,16 +187,39 @@ describe("overseer composition canvas hook with live grant", () => {
     const result = await runtime.runPromise(
       Effect.result(commitAgentReseat(mapped.caller, mapped.args, mapped.next)),
     );
-    if (granted._tag === "Success") {
-      expect(result._tag).toBe("Success");
-      const after = await runtime.runPromise(canvases.read("ops"));
-      const peer = after.doc.nodes.find((node) => node.id === "peer");
-      expect(peer && "text" in peer ? peer.text : undefined).toBe("reseated");
-    } else {
-      expect(result._tag).toBe("Failure");
-      if (result._tag === "Failure") {
-        expect(result.failure.type).toBe("AuthError");
-      }
-    }
+    expect(result._tag).toBe("Success");
+    const after = await runtime.runPromise(canvases.read(targetCanvas));
+    const peer = after.doc.nodes.find((node) => node.id === "peer");
+    expect(peer).toMatchObject({ text: "reseated", ether: { terminal: { bindingId: "bind-peer-next" } } });
+    const originAfter = await runtime.runPromise(canvases.read(origin.canvasName));
+    expect(originAfter.doc.nodes[0]).toMatchObject({ id: "overseer", ether: { overseer: true, terminal: { bindingId: "bind-overseer" } } });
+  });
+
+  it("interrupts a waiting canvas hook and drains its cleanup before returning", async () => {
+    stateDir = await mkdtemp(join(tmpdir(), "vellum-overseer-hook-abort-"));
+    runtime = makeRuntime(join(stateDir, "vellum-command.db"));
+    const entered = Deferred.makeUnsafe<void>();
+    const release = Deferred.makeUnsafe<void>();
+    let committed = false;
+    let cleaning = false;
+    let settled = false;
+    const controller = new AbortController();
+    const pending = runCanvasHook(runtime.runPromise.bind(runtime),
+      Deferred.succeed(entered, undefined).pipe(
+        Effect.andThen(Effect.never),
+        Effect.andThen(Effect.sync(() => { committed = true; })),
+        Effect.ensuring(Effect.sync(() => { cleaning = true; }).pipe(
+          Effect.andThen(Deferred.await(release)),
+        )),
+      ), controller.signal,
+    ).then(() => "completed", () => "interrupted").finally(() => { settled = true; });
+    await runtime.runPromise(Deferred.await(entered));
+    controller.abort();
+    await vi.waitFor(() => expect(cleaning).toBe(true));
+    expect(settled).toBe(false);
+    expect(committed).toBe(false);
+    await runtime.runPromise(Deferred.succeed(release, undefined));
+    expect(await pending).toBe("interrupted");
+    expect(committed).toBe(false);
   });
 });

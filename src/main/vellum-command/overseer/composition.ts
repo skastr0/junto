@@ -115,11 +115,12 @@ const listCanvasDocuments = (
     }),
   );
 
-const runCanvasHook = async <A>(
-  run: OverseerRunPromise,
+export const runCanvasHook = async <A>(
+  run: <T, E>(effect: Effect.Effect<T, E, CanvasesService>, options?: { readonly signal?: AbortSignal }) => Promise<T>,
   effect: Effect.Effect<A, WorkErrorBody, CanvasesService>,
+  signal: AbortSignal,
 ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-  const outcome = await run(Effect.result(effect));
+  const outcome = await run(Effect.result(effect), { signal });
   return Result.isSuccess(outcome)
     ? { ok: true }
     : { ok: false, message: outcome.failure.message };
@@ -213,7 +214,7 @@ export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "in
  * originating async context, so process-global / ALS stores are not enough.
  */
 export const createDispatchGrant = (
-  run: OverseerRunPromise,
+  run: <A, E>(effect: Effect.Effect<A, E, CanvasesService | StationRepository>) => Promise<A>,
   sourceInstallationId: InstallationId | undefined,
 ): ((caller: OverseerCaller) => Promise<boolean>) =>
   (caller) =>
@@ -261,22 +262,26 @@ export const composeOverseer = async (input: {
 
   const commitReseatHook = async (
     payload: AgentReseatCommitInput,
+    signal: AbortSignal,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
     const mapped = reseatCanvasArgs(payload);
     if ("ok" in mapped) return mapped;
     return runCanvasHook(
       input.run,
       commitAgentReseat(mapped.caller, mapped.args, mapped.next),
+      signal,
     );
   };
 
   const applySchedulerHook = async (
     payload: SchedulerConfigureApplyInput,
+    signal: AbortSignal,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
     const mapped = schedulerCanvasArgs(payload);
     return runCanvasHook(
       input.run,
       applySchedulerConfigure(mapped.caller, mapped.args),
+      signal,
     );
   };
 
