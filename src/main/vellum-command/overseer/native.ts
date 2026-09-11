@@ -34,8 +34,6 @@ import type { CanvasNodeReader } from "../node-ref-resolver";
 import type { TermPlane } from "../term/plane";
 import type { ChatService } from "../chat/service";
 import type { ActorSeatOccupyApi } from "../term/actor-seat-occupy";
-import { ensureManagedSeatRunning } from "../term/ensure-managed-seat";
-import type { ManagedSeatRuntimeAuthority } from "../term/ensure-managed-seat";
 import { terminalObserverPlane } from "../term/observer";
 import {
   BROWSER_UI_SESSION_OWNER,
@@ -54,7 +52,6 @@ import {
 import { reseatManagedAgentNode } from "./reseat";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import type { ManagedTerminalDrive } from "../term/drive";
-import { deriveActorSeatId } from "../station/actor-seat-compiler";
 import { makeManagedSpawnIntent } from "../term/managed-spawn-plan";
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -177,7 +174,7 @@ export type OverseerNativeLiveOptions = {
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   readonly stationScope?: () => {
     readonly hostId: string;
-    readonly installationId: ManagedSeatRuntimeAuthority["installationId"];
+    readonly installationId: string;
     readonly role: string;
   };
   readonly now?: () => number;
@@ -265,17 +262,34 @@ const decodeInputBytes = (
   return { ok: true, text: data };
 };
 
-const requireGrant = async (
+const abortedGrant = (): NativeErr =>
+  fail("Forbidden", "overseer invocation was interrupted");
+
+const bindLiveGrant = (
   liveOverseerGrant: OverseerNativeLiveOptions["liveOverseerGrant"],
+  signal: AbortSignal,
+): OverseerNativeLiveOptions["liveOverseerGrant"] =>
+  async (caller) => {
+    if (signal.aborted) return false;
+    const granted = await liveOverseerGrant(caller);
+    if (signal.aborted) return false;
+    return granted;
+  };
+
+const requireGrant = async (
+  ctx: NativeContext,
   caller: OverseerCaller,
 ): Promise<NativeErr | undefined> => {
-  const granted = await liveOverseerGrant(caller);
+  if (ctx.signal.aborted) return abortedGrant();
+  const granted = await ctx.liveOverseerGrant(caller);
+  if (ctx.signal.aborted) return abortedGrant();
   if (!granted) return fail("Forbidden", "overseer grant is no longer live");
   return undefined;
 };
 
 type NativeContext = OverseerNativeLiveOptions & {
   readonly now: () => number;
+  readonly signal: AbortSignal;
 };
 
 const canvasFail = (message: string): CanvasError => new CanvasError({ message });
@@ -348,16 +362,34 @@ const sessionSummary = async (
   hostId: string,
 ) => ctx.termPlane.router.get(bindingId, hostId);
 
-const inspectOutput = (
+const inspectOutput = async (
+  ctx: NativeContext,
   bindingId: string,
+  hostId: string,
   tailBytes: number | undefined,
-): { readonly text: string; readonly seq?: string; readonly epoch?: string } => {
-  const snap = terminalObserverPlane.snapshot(bindingId);
-  if (snap === undefined) return { text: "" };
+): Promise<{ readonly text: string; readonly seq?: string; readonly epoch?: string }> => {
+  if (ctx.termPlane.router.isLocalHostId(hostId)) {
+    const snap = terminalObserverPlane.snapshot(bindingId);
+    if (snap !== undefined) {
+      return {
+        text: tailText(snap.text, tailBytes),
+        seq: snap.seq.toString(),
+        epoch: snap.epoch,
+      };
+    }
+  }
+  const attached = await ctx.termPlane.router.attach({
+    bindingId,
+    hostId,
+    mode: "observe",
+  });
+  if (!attached.ok) return { text: "" };
+  await ctx.termPlane.router.release(attached.lease, hostId);
+  const serialized = attached.screen?.serialized ?? "";
   return {
-    text: tailText(snap.text, tailBytes),
-    seq: snap.seq.toString(),
-    epoch: snap.epoch,
+    text: tailText(serialized, tailBytes),
+    ...(attached.screen?.seq !== undefined ? { seq: attached.screen.seq.toString() } : {}),
+    ...(attached.screen?.epoch !== undefined ? { epoch: attached.screen.epoch } : {}),
   };
 };
 
@@ -367,6 +399,7 @@ const withControlLease = async (
   hostId: string,
   use: (lease: ControlLease) => Promise<boolean>,
 ): Promise<boolean> => {
+  if (ctx.signal.aborted) return false;
   const attached = await ctx.termPlane.router.attach({
     bindingId,
     hostId,
@@ -375,6 +408,7 @@ const withControlLease = async (
   });
   if (!attached.ok) return false;
   try {
+    if (ctx.signal.aborted) return false;
     return await use(attached.lease);
   } finally {
     await ctx.termPlane.router.release(attached.lease, hostId);
@@ -387,12 +421,14 @@ const writeSeat = async (
   hostId: string,
   data: string,
 ): Promise<boolean> => {
+  if (ctx.signal.aborted) return false;
   if (ctx.termPlane.router.isLocalHostId(hostId)) {
     if (ctx.termPlane.host.writeManagedSeat(bindingId, data)) return true;
   }
-  return withControlLease(ctx, bindingId, hostId, (lease) =>
-    ctx.termPlane.router.write(lease, data, hostId),
-  );
+  return withControlLease(ctx, bindingId, hostId, async (lease) => {
+    if (ctx.signal.aborted) return false;
+    return ctx.termPlane.router.write(lease, data, hostId);
+  });
 };
 
 const interruptSeat = async (
@@ -423,8 +459,9 @@ const occupySeat = (
   canvasName: string,
   node: CanvasNode,
   surface: Extract<ReturnType<typeof actorDeliverySurfaceOf>, { readonly _tag: "managedAgent" }>,
-): Effect.Effect<boolean> =>
-  ctx.actorSeatOccupy.occupy({
+): Effect.Effect<boolean> => {
+  if (ctx.signal.aborted) return Effect.succeed(false);
+  return ctx.actorSeatOccupy.occupy({
     bindingId: surface.bindingId,
     hostId: surface.hostId,
     canvasName,
@@ -442,14 +479,15 @@ const occupySeat = (
   }).pipe(
     Effect.match({
       onFailure: () => false,
-      onSuccess: () => true,
+      onSuccess: () => !ctx.signal.aborted,
     }),
   );
+};
 
 const startOrWakeAgent = (
   ctx: NativeContext,
   canvasName: string,
-  doc: CanvasDoc,
+  _doc: CanvasDoc,
   node: CanvasNode,
 ): Effect.Effect<NativeOutcome> =>
   Effect.gen(function* () {
@@ -457,42 +495,10 @@ const startOrWakeAgent = (
     if (surface?._tag !== "managedAgent") {
       return fail("InvalidArguments", "node is not a managed agent seat");
     }
-    const scope = ctx.stationScope?.();
-    if (scope === undefined) {
-      const occupied = yield* occupySeat(ctx, canvasName, node, surface);
-      if (!occupied) return fail("RuntimeDown", "managed seat could not start");
-      const summary = yield* Effect.result(
-        Effect.tryPromise({
-          try: () => sessionSummary(ctx, surface.bindingId, surface.hostId),
-          catch: () => undefined,
-        }),
-      );
-      return ok({
-        started: true,
-        session: Result.isSuccess(summary)
-          ? summary.success ?? { bindingId: surface.bindingId, hostId: surface.hostId }
-          : { bindingId: surface.bindingId, hostId: surface.hostId },
-      });
-    }
-    const authority: ManagedSeatRuntimeAuthority = {
-      actor: {
-        canvasName,
-        nodeId: node.id,
-        seatId: deriveActorSeatId(scope.installationId, surface.bindingId),
-      },
-      installationId: scope.installationId,
-      hostId: scope.hostId,
-    };
-    const running = yield* ensureManagedSeatRunning(
-      canvasName,
-      doc,
-      node,
-      authority,
-      ctx.actorSeatOccupy,
-    );
-    if (!running) {
-      return fail("RuntimeDown", "managed seat could not start on this installation");
-    }
+    // Operator occupy route: ActorSeatOccupy admits Remote projection then
+    // occupies the target host. Never fabricate deriveActorSeatId(CC, remoteBinding).
+    const occupied = yield* occupySeat(ctx, canvasName, node, surface);
+    if (!occupied) return fail("RuntimeDown", "managed seat could not start");
     const summary = yield* Effect.result(
       Effect.tryPromise({
         try: () => sessionSummary(ctx, surface.bindingId, surface.hostId),
@@ -501,6 +507,7 @@ const startOrWakeAgent = (
     );
     return ok({
       started: true,
+      hostId: surface.hostId,
       session: Result.isSuccess(summary)
         ? summary.success ?? { bindingId: surface.bindingId, hostId: surface.hostId }
         : { bindingId: surface.bindingId, hostId: surface.hostId },
@@ -566,16 +573,21 @@ const handleAgent = async (
       });
     }
     case "agent.start":
-    case "agent.wake":
-      return Effect.runPromise(startOrWakeAgent(ctx, canvasName, doc, node));
+    case "agent.wake": {
+      const started = await Effect.runPromise(startOrWakeAgent(ctx, canvasName, doc, node));
+      if (!started.ok) return started;
+      const still = await requireGrant(ctx, caller);
+      if (still) return still;
+      return started;
+    }
     case "agent.prompt": {
       const text = String((args as { text: string }).text);
       if (binding === undefined) return fail("InvalidArguments", "agent has no terminal binding");
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const delivered = await promptSeat(ctx, binding.bindingId, binding.hostId, text);
       if (!delivered) return fail("RuntimeDown", "prompt did not reach the managed seat");
-      const still = await requireGrant(ctx.liveOverseerGrant, caller);
+      const still = await requireGrant(ctx, caller);
       if (still) return still;
       return ok({ delivered: true, bindingId: binding.bindingId });
     }
@@ -583,22 +595,31 @@ const handleAgent = async (
       if (binding === undefined) return fail("InvalidArguments", "agent has no terminal binding");
       return ok({
         bindingId: binding.bindingId,
-        ...inspectOutput(binding.bindingId, (args as { tailBytes?: number }).tailBytes),
+        ...(await inspectOutput(
+          ctx,
+          binding.bindingId,
+          binding.hostId,
+          (args as { tailBytes?: number }).tailBytes,
+        )),
       });
     }
     case "agent.interrupt": {
       if (binding === undefined) return fail("InvalidArguments", "agent has no terminal binding");
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const interrupted = await interruptSeat(ctx, binding.bindingId, binding.hostId);
       if (!interrupted) return fail("RuntimeDown", "interrupt did not reach the managed seat");
+      const still = await requireGrant(ctx, caller);
+      if (still) return still;
       return ok({ interrupted: true, bindingId: binding.bindingId });
     }
     case "agent.stop": {
       if (binding === undefined) return fail("InvalidArguments", "agent has no terminal binding");
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const stopped = await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
+      const still = await requireGrant(ctx, caller);
+      if (still) return still;
       return ok({ stopped, bindingId: binding.bindingId, hostId: binding.hostId });
     }
     case "agent.reseat": {
@@ -651,13 +672,15 @@ const handleAgent = async (
       if (binding !== undefined) {
         await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
       }
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const committed = await ctx.commitAgentReseat({
         canvasName,
         nodeId: node.id,
         next,
       });
+      const still = await requireGrant(ctx, caller);
+      if (still) return still;
       if (!committed.ok) {
         return fail("Conflict", committed.message);
       }
@@ -732,7 +755,11 @@ const handleTerminal = async (
         const documents = await ctx.listCanvasDocuments();
         const doc = findDocument(documents, canvasName);
         if (doc === undefined) return fail("NotFound", `canvas not found: ${canvasName}`);
-        return Effect.runPromise(startOrWakeAgent(ctx, canvasName, doc, node));
+        const started = await Effect.runPromise(startOrWakeAgent(ctx, canvasName, doc, node));
+        if (!started.ok) return started;
+        const still = await requireGrant(ctx, caller);
+        if (still) return still;
+        return started;
       }
       const created = await ctx.termPlane.router.create({
         bindingId: binding.bindingId,
@@ -740,6 +767,8 @@ const handleTerminal = async (
         canvasName,
         nodeId: node.id,
       });
+      const stillCreate = await requireGrant(ctx, caller);
+      if (stillCreate) return stillCreate;
       return ok(created);
     }
     case "terminal.input": {
@@ -748,24 +777,31 @@ const handleTerminal = async (
         (args as { encoding?: "utf8" | "base64" }).encoding,
       );
       if (!decoded.ok) return decoded;
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const written = await writeSeat(ctx, binding.bindingId, binding.hostId, decoded.text);
       if (!written) {
         return fail("RuntimeDown", "terminal input did not reach the seat");
       }
+      const still = await requireGrant(ctx, caller);
+      if (still) return still;
       return ok({ written: true, bindingId: binding.bindingId, hostId: binding.hostId });
     }
     case "terminal.output": {
       return ok({
         bindingId: binding.bindingId,
-        ...inspectOutput(binding.bindingId, (args as { tailBytes?: number }).tailBytes),
+        ...(await inspectOutput(
+          ctx,
+          binding.bindingId,
+          binding.hostId,
+          (args as { tailBytes?: number }).tailBytes,
+        )),
       });
     }
     case "terminal.resize": {
       const cols = (args as { cols: number }).cols;
       const rows = (args as { rows: number }).rows;
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       let resized = false;
       if (ctx.termPlane.router.isLocalHostId(binding.hostId)) {
@@ -779,19 +815,25 @@ const handleTerminal = async (
       if (!resized) {
         return fail("RuntimeDown", "terminal resize did not reach the seat");
       }
+      const still = await requireGrant(ctx, caller);
+      if (still) return still;
       return ok({ resized: true, bindingId: binding.bindingId, hostId: binding.hostId, cols, rows });
     }
     case "terminal.interrupt": {
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const interrupted = await interruptSeat(ctx, binding.bindingId, binding.hostId);
       if (!interrupted) return fail("RuntimeDown", "interrupt did not reach the managed seat");
+      const stillInterrupt = await requireGrant(ctx, caller);
+      if (stillInterrupt) return stillInterrupt;
       return ok({ interrupted: true, bindingId: binding.bindingId });
     }
     case "terminal.stop": {
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const stopped = await ctx.termPlane.router.kill(binding.bindingId, binding.hostId);
+      const stillStop = await requireGrant(ctx, caller);
+      if (stillStop) return stillStop;
       return ok({ stopped, bindingId: binding.bindingId, hostId: binding.hostId });
     }
     default:
@@ -811,6 +853,28 @@ const pagesOrDown = (ctx: NativeContext): BrowserSessionService | NativeErr => {
 
 const pageOwner = (): string => OVERSEER_PAGE_OWNER;
 
+const resolveLivePageSession = (
+  pages: BrowserSessionService,
+  canvasName: string,
+  nodeId: string,
+): { readonly owner: string; readonly sessionId: string } | undefined => {
+  let ref: string;
+  try {
+    ref = formatNodeRef({ canvasName, nodeId });
+  } catch {
+    return undefined;
+  }
+  if (typeof pages.overseerSessionForRef === "function") {
+    const live = pages.overseerSessionForRef(ref);
+    if (live !== undefined) return live;
+  }
+  const overseerId = pages.sessionIdForRefForOwner(pageOwner(), ref);
+  if (overseerId !== undefined) return { owner: pageOwner(), sessionId: overseerId };
+  const uiId = pages.sessionIdForRef(ref);
+  if (uiId !== undefined) return { owner: BROWSER_UI_SESSION_OWNER, sessionId: uiId };
+  return undefined;
+};
+
 const handlePage = async (
   ctx: NativeContext,
   caller: OverseerCaller,
@@ -828,13 +892,8 @@ const handlePage = async (
       const node = findNode(doc, nodeId);
       let sessionId: string | undefined;
       if (pages !== undefined && node !== undefined) {
-        try {
-          const ref = formatNodeRef({ canvasName, nodeId });
-          sessionId = pages.sessionIdForRefForOwner(pageOwner(), ref)
-            ?? pages.sessionIdForRef(ref);
-        } catch {
-          sessionId = undefined;
-        }
+        const live = resolveLivePageSession(pages, canvasName, nodeId);
+        sessionId = live?.sessionId;
       }
       listed.push({
         nodeId,
@@ -859,16 +918,10 @@ const handlePage = async (
     const pages = ctx.pages;
     let session = undefined;
     if (pages !== undefined) {
-      try {
-        const ref = formatNodeRef({ canvasName: targeted.canvasName, nodeId: targeted.node.id });
-        const sessionId = pages.sessionIdForRefForOwner(pageOwner(), ref)
-          ?? pages.sessionIdForRef(ref);
-        if (sessionId !== undefined) {
-          const state = pages.stateForOwner(pageOwner(), sessionId);
-          session = state.ok ? state.data : undefined;
-        }
-      } catch {
-        session = undefined;
+      const live = resolveLivePageSession(pages, targeted.canvasName, targeted.node.id);
+      if (live !== undefined) {
+        const state = pages.stateForOwner(live.owner, live.sessionId);
+        session = state.ok ? state.data : undefined;
       }
     }
     return ok({
@@ -911,11 +964,14 @@ const handlePage = async (
     }
     const resolved = await resolver(ref);
     if (!resolved.ok) return fail("NotFound", resolved.message);
-    const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+    const revoked = await requireGrant(ctx, caller);
     if (revoked) return revoked;
-    const opened = await pages.openForOwner(pageOwner(), resolved.data, undefined, async () => {
+    const opened = await pages.openForOwner(pageOwner(), resolved.data, ctx.signal, async () => {
+      if (ctx.signal.aborted) {
+        return { ok: false, code: "failed", message: "overseer invocation was interrupted" };
+      }
       const stillGranted = await ctx.liveOverseerGrant(caller);
-      if (!stillGranted) {
+      if (ctx.signal.aborted || !stillGranted) {
         return { ok: false, code: "failed", message: "overseer grant is no longer live" };
       }
       const documents = await ctx.listCanvasDocuments();
@@ -936,18 +992,22 @@ const handlePage = async (
   const pages = pagesOrDown(ctx);
   if ("error" in pages) return pages;
   const sessionId = String((args as { sessionId: string }).sessionId);
-  const owner = pageOwner();
+  const liveOwner =
+    typeof pages.overseerSessionOwner === "function"
+      ? pages.overseerSessionOwner(sessionId)
+      : undefined;
+  const owner = liveOwner ?? pageOwner();
 
   switch (operation) {
     case "page.goto": {
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const result = pages.gotoForOwner(owner, sessionId, String((args as { url: string }).url));
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok(result.data);
     }
     case "page.eval": {
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const result = await pages.evalForOwner(owner, sessionId, String((args as { code: string }).code));
       if (!result.ok) return fail("RuntimeDown", result.message);
@@ -967,7 +1027,7 @@ const handlePage = async (
       return ok(result.data);
     }
     case "page.stop": {
-      const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+      const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const result = await pages.stopForOwner(owner, sessionId);
       if (!result.ok) return fail("RuntimeDown", result.message);
@@ -1011,18 +1071,22 @@ const handleScheduler = async (
   }
 
   if (operation === "scheduler.fire") {
-    const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+    const revoked = await requireGrant(ctx, caller);
     if (revoked) return revoked;
     const fired = await overseerSchedulerFire({
       canvasName,
       sourceNodeId: node.id,
-      liveGrant: () => ctx.liveOverseerGrant(caller),
+      liveGrant: async () => {
+        if (ctx.signal.aborted) return false;
+        const granted = await ctx.liveOverseerGrant(caller);
+        return !ctx.signal.aborted && granted;
+      },
     });
     if (!fired.ok) {
       return fail("RuntimeDown", fired.message);
     }
     if (fired.applied === 0) {
-      const still = await requireGrant(ctx.liveOverseerGrant, caller);
+      const still = await requireGrant(ctx, caller);
       if (still) return still;
     }
     return ok(fired);
@@ -1035,7 +1099,7 @@ const handleScheduler = async (
         "scheduler.configure requires canvas-owned applySchedulerConfigure",
       );
     }
-    const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+    const revoked = await requireGrant(ctx, caller);
     if (revoked) return revoked;
     const applied = await ctx.applySchedulerConfigure({
       canvasName,
@@ -1091,7 +1155,7 @@ const handleScreenshot = async (
   ctx: NativeContext,
   caller: OverseerCaller,
 ): Promise<NativeOutcome> => {
-  const revoked = await requireGrant(ctx.liveOverseerGrant, caller);
+  const revoked = await requireGrant(ctx, caller);
   if (revoked) return revoked;
   const captured = await ctx.captureApplicationPage();
   if (!captured.ok) {
@@ -1271,11 +1335,11 @@ export type OverseerNative = OverseerNativeDeleteHooks & {
 export const makeOverseerNativeLive = (
   options: OverseerNativeLiveOptions,
 ): OverseerNative => {
-  const ctx: NativeContext = {
-    ...options,
-    now: options.now ?? Date.now,
-  };
-  const hooks = makeDeleteHooks(ctx);
+  const hooks = makeDeleteHooks({
+    termPlane: options.termPlane,
+    chats: options.chats,
+    pages: options.pages,
+  });
 
   const executeResult = (
     caller: OverseerCaller,
@@ -1294,7 +1358,15 @@ export const makeOverseerNativeLive = (
       }
       const outcome: NativeOutcome = yield* Effect.match(
         Effect.tryPromise({
-          try: () => dispatchNative(ctx, caller, request),
+          try: (signal) => {
+            const ctx: NativeContext = {
+              ...options,
+              now: options.now ?? Date.now,
+              liveOverseerGrant: bindLiveGrant(options.liveOverseerGrant, signal),
+              signal,
+            };
+            return dispatchNative(ctx, caller, request);
+          },
           catch: (error) =>
             new Error(error instanceof Error ? error.message : String(error)),
         }),

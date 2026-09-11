@@ -2027,6 +2027,28 @@ export class BrowserSessionService {
       : undefined;
   }
 
+  /**
+   * Live overseer may operate an existing session for a page ref without
+   * impersonating the UI sender. Ordinary owner checks stay intact.
+   */
+  overseerSessionForRef(ref: string):
+    | { readonly owner: string; readonly sessionId: string }
+    | undefined {
+    for (const [owner, refs] of this.sessionIdByOwnerRef) {
+      const sessionId = refs.get(ref);
+      if (sessionId === undefined) continue;
+      const entry = this.entryForOwner(owner, sessionId);
+      if (entry !== undefined) return { owner, sessionId };
+    }
+    return undefined;
+  }
+
+  overseerSessionOwner(sessionId: string): string | undefined {
+    const entry = this.sessions.get(sessionId);
+    if (entry === undefined || !this.isCurrent(entry)) return undefined;
+    return entry.owner;
+  }
+
   authorizationSnapshotForOwner(
     owner: string,
     sessionId: string,

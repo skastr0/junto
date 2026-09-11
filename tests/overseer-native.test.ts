@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Result } from "effect";
+import { Effect, Fiber, Result } from "effect";
 import type { CanvasDoc, CanvasNode, TextNode } from "../src/shared/canvas";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import { INTERRUPT_BYTE } from "../src/main/vellum-command/term/drive";
@@ -88,12 +88,18 @@ const makeTermPlane = (overrides: {
   readonly writeManagedSeat?: (bindingId: string, data: string) => boolean;
   readonly resizeManagedSeat?: (bindingId: string, cols: number, rows: number) => boolean;
   readonly deleteBinding?: (bindingId: string, hostId?: string) => Promise<boolean>;
+  readonly attach?: (input: {
+    readonly bindingId?: string;
+    readonly hostId?: string;
+    readonly mode: string;
+  }) => Promise<unknown>;
+  readonly release?: (lease: unknown, hostId?: string) => Promise<void>;
 } = {}): TermPlane => {
   const router = {
     isLocalHostId: (hostId: string | undefined | null) =>
       hostId === undefined || hostId === null || hostId.trim() === "" || hostId === "local",
-    attach: vi.fn(async () => ({ ok: false, message: "no attach in test" })),
-    release: vi.fn(async () => undefined),
+    attach: overrides.attach ?? vi.fn(async () => ({ ok: false, message: "no attach in test" })),
+    release: overrides.release ?? vi.fn(async () => undefined),
     write: vi.fn(async () => false),
     resize: vi.fn(async () => false),
     get: overrides.get ?? (async () => undefined),
@@ -286,6 +292,39 @@ describe("overseer native adapters", () => {
     expect(opened.error.type).toBe("RuntimeDown");
   });
 
+  it("controls an existing UI-owned page without impersonating the UI sender", async () => {
+    const gotoForOwner = vi.fn(() => ({
+      ok: true as const,
+      data: { sessionId: "ui-sess", url: "https://example.com/next" },
+    }));
+    const pages = {
+      overseerSessionForRef: () => ({ owner: "vellum-command-ui", sessionId: "ui-sess" }),
+      overseerSessionOwner: (sessionId: string) =>
+        sessionId === "ui-sess" ? "vellum-command-ui" : undefined,
+      sessionIdForRefForOwner: () => undefined,
+      sessionIdForRef: () => "ui-sess",
+      stateForOwner: (owner: string, sessionId: string) => ({
+        ok: true as const,
+        data: { sessionId, owner, url: "https://example.com/" },
+      }),
+      gotoForOwner,
+      admitAutomationHost: () => ({ ok: true, host: { id: "local" } }),
+    } as unknown as BrowserSessionService;
+    const native = live([{ name: "factory", doc: board }], { pages });
+    const got = await run(native, "page.get", { nodeId: "p1" });
+    expect(got.ok).toBe(true);
+    const moved = await run(native, "page.goto", {
+      sessionId: "ui-sess",
+      url: "https://example.com/next",
+    });
+    expect(moved.ok).toBe(true);
+    expect(gotoForOwner).toHaveBeenCalledWith(
+      "vellum-command-ui",
+      "ui-sess",
+      "https://example.com/next",
+    );
+  });
+
   it("opens a page through BrowserSessionService after live-grant revalidation", async () => {
     const openForOwner = vi.fn(async (
       _owner: string,
@@ -317,6 +356,56 @@ describe("overseer native adapters", () => {
     });
     const started = await run(native, "agent.start", { nodeId: "a1" });
     expect(started.ok).toBe(true);
+    expect(occupySpy).toHaveBeenCalled();
+  });
+
+  it("reads remote agent output via router observe attach, not the local observer", async () => {
+    const remoteAgent: TextNode = {
+      ...agent("remote-a", { bindingId: "bind-remote" }),
+      ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
+    };
+    const attach = vi.fn(async (input: { hostId?: string; mode: string }) => {
+      expect(input.hostId).toBe("studio");
+      expect(input.mode).toBe("observe");
+      return {
+        ok: true,
+        lease: { leaseId: "obs", bindingId: "bind-remote", epoch: "e", mode: "observe" },
+        screen: { serialized: "remote-screen", seq: 9n, epoch: "e" },
+      };
+    });
+    const release = vi.fn(async () => undefined);
+    const plane = makeTermPlane({ attach, release });
+    const native = live([{ name: "factory", doc: doc([remoteAgent]) }], { termPlane: plane });
+    const output = await run(native, "agent.output", { nodeId: "remote-a" });
+    expect(output.ok).toBe(true);
+    if (!output.ok) return;
+    expect((output.data as { text: string }).text).toBe("remote-screen");
+    expect(attach).toHaveBeenCalled();
+    expect(release).toHaveBeenCalled();
+  });
+
+  it("starts a Remote-hosted agent via occupy hostId, never CC-derived seat identity", async () => {
+    const remoteAgent: TextNode = {
+      ...agent("remote-a", { bindingId: "bind-remote" }),
+      ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
+    };
+    const occupySpy = vi.fn((spec: { hostId?: string; bindingId: string }) => {
+      expect(spec.hostId).toBe("studio");
+      expect(spec.bindingId).toBe("bind-remote");
+      return occupy.occupy(spec as never);
+    });
+    const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
+      actorSeatOccupy: { ...occupy, occupy: occupySpy },
+      stationScope: () => ({
+        hostId: "local",
+        installationId: "cc-install",
+        role: "command-center",
+      }),
+    });
+    const started = await run(native, "agent.start", { nodeId: "remote-a" });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect((started.data as { hostId: string }).hostId).toBe("studio");
     expect(occupySpy).toHaveBeenCalled();
   });
 
@@ -354,6 +443,34 @@ describe("overseer native adapters", () => {
     expect(configured.ok).toBe(false);
     if (configured.ok) return;
     expect(configured.error.type).toBe("Unsupported");
+  });
+
+  it("does not mutate after Effect interrupt even if the grant is restored", async () => {
+    let releaseGrant!: () => void;
+    const heldGrant = new Promise<void>((resolve) => {
+      releaseGrant = resolve;
+    });
+    let grantChecks = 0;
+    const writePrompt = vi.fn(async () => true);
+    const native = live([{ name: "factory", doc: board }], {
+      managedDrive: { writePrompt, interrupt: vi.fn(async () => true) },
+      liveOverseerGrant: async () => {
+        grantChecks += 1;
+        if (grantChecks === 1) await heldGrant;
+        return true;
+      },
+    });
+    const fiber = Effect.runFork(
+      native.executeResult(
+        { canvasName: "factory", nodeId: "overseer-1" },
+        { operation: "agent.prompt" as never, args: { nodeId: "a1", text: "hello" } },
+      ),
+    );
+    await vi.waitFor(() => expect(grantChecks).toBeGreaterThan(0));
+    const interrupted = Effect.runPromise(Fiber.interrupt(fiber));
+    releaseGrant();
+    await interrupted;
+    expect(writePrompt).not.toHaveBeenCalled();
   });
 
   it("rejects unknown native operations and invalid args via the contract decoder", () => {
