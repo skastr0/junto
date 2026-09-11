@@ -4,6 +4,7 @@
  * Wires executeOverseer through the process-bind work socket and the
  * CC-opened Remote Station session. Does not own admission or dispatch routing.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Effect, Result } from "effect";
 import type { CanvasDoc, TextNode } from "@shared/canvas";
 import type { HarnessId } from "@shared/managed-terminal-templates";
@@ -71,7 +72,7 @@ export type OverseerComposition = {
     caller: OverseerCaller,
     signal: AbortSignal,
   ) => Promise<OverseerResult>;
-  readonly bindPages: (pages: BrowserSessionService) => void;
+  readonly bindPages: (pages: BrowserSessionService | undefined) => void;
   readonly bindStationForward: (input: {
     readonly control: Pick<StationControlServer, "overseer" | "sessionReady">;
     readonly remoteInstallationId: InstallationId;
@@ -153,12 +154,52 @@ const harnessFromNode = (node: TextNode): HarnessId | undefined => {
   return typeof harness === "string" && isHarnessId(harness) ? harness : undefined;
 };
 
-const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
+/** Origin caller plus target canvas/node — never treat the target as the caller. */
+export const reseatCanvasArgs = (
+  input: AgentReseatCommitInput,
+): {
+  readonly caller: OverseerCaller;
+  readonly args: OverseerArgsFor<"agent.reseat">;
+  readonly next: TextNode;
+} | { readonly ok: false; readonly message: string } => {
+  const harness = harnessFromNode(input.next);
+  if (harness === undefined) {
+    return { ok: false, message: "reseat commit requires a harness on the next agent node" };
+  }
+  return {
+    caller: input.caller,
+    args: {
+      canvas: input.canvasName,
+      nodeId: input.nodeId,
+      harness,
+    },
+    next: input.next,
+  };
+};
+
+export const schedulerCanvasArgs = (
+  input: SchedulerConfigureApplyInput,
+): {
+  readonly caller: OverseerCaller;
+  readonly args: OverseerArgsFor<"scheduler.configure">;
+} => ({
+  caller: input.caller,
+  args: {
+    canvas: input.canvasName,
+    nodeId: input.nodeId,
+    ...(input.timer !== undefined
+      ? { timer: input.timer as OverseerArgsFor<"scheduler.configure">["timer"] }
+      : {}),
+    ...(input.watch !== undefined
+      ? { watch: input.watch as OverseerArgsFor<"scheduler.configure">["watch"] }
+      : {}),
+  },
+});
+
+export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
   writePrompt: (bindingId, text, options) => {
     const drive = managedTerminalDriveForOverseer();
-    if (drive === undefined) {
-      return Promise.resolve({ ok: false, reason: "managed drive is not bound" } as never);
-    }
+    if (drive === undefined) return Promise.resolve(false);
     return drive.writePrompt(bindingId, text, options);
   },
   interrupt: (bindingId) => {
@@ -167,6 +208,22 @@ const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt
     return drive.interrupt(bindingId);
   },
 });
+
+export const createGrantSourceStore = (
+  fallback?: InstallationId,
+): {
+  readonly liveSource: () => InstallationId | undefined;
+  readonly runWithSource: <A>(
+    source: InstallationId | undefined,
+    work: () => A,
+  ) => A;
+} => {
+  const storage = new AsyncLocalStorage<InstallationId | undefined>();
+  return {
+    liveSource: () => storage.getStore() ?? fallback,
+    runWithSource: (source, work) => storage.run(source, work),
+  };
+};
 
 export const runOverseerProgram = <A, E>(
   run: OverseerRunPromise,
@@ -203,74 +260,42 @@ export const composeOverseer = async (input: {
   const pagesHolder: { current: BrowserSessionService | undefined } = {
     current: input.pages,
   };
-  const pagesProxy = new Proxy({} as BrowserSessionService, {
-    get(_target, property) {
-      const current = pagesHolder.current;
-      if (current === undefined) {
-        throw new Error("browser runtime is unavailable on this installation");
-      }
-      const value = Reflect.get(current, property, current) as unknown;
-      return typeof value === "function"
-        ? (value as (...args: ReadonlyArray<unknown>) => unknown).bind(current)
-        : value;
-    },
-  });
-
+  const grantSource = createGrantSourceStore(input.sourceInstallationId);
   let stationForward: OverseerRuntime["forward"] | undefined;
 
-  let grantSourceInstallationId = input.sourceInstallationId;
   const liveGrant = (caller: OverseerCaller): Promise<boolean> =>
     input
-      .run(admitOverseer(caller, grantSourceInstallationId))
+      .run(admitOverseer(caller, grantSource.liveSource()))
       .then(() => true)
       .catch(() => false);
 
   const commitReseatHook = async (
     payload: AgentReseatCommitInput,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-    const harness = harnessFromNode(payload.next);
-    if (harness === undefined) {
-      return { ok: false, message: "reseat commit requires a harness on the next agent node" };
-    }
-    const args: OverseerArgsFor<"agent.reseat"> = {
-      nodeId: payload.nodeId,
-      harness,
-    };
+    const mapped = reseatCanvasArgs(payload);
+    if ("ok" in mapped) return mapped;
     return runCanvasHook(
       input.run,
-      commitAgentReseat(
-        { canvasName: payload.canvasName, nodeId: payload.nodeId },
-        args,
-        payload.next,
-      ),
+      commitAgentReseat(mapped.caller, mapped.args, mapped.next),
     );
   };
 
   const applySchedulerHook = async (
     payload: SchedulerConfigureApplyInput,
   ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
-    const args: OverseerArgsFor<"scheduler.configure"> = {
-      nodeId: payload.nodeId,
-      ...(payload.timer !== undefined
-        ? { timer: payload.timer as OverseerArgsFor<"scheduler.configure">["timer"] }
-        : {}),
-      ...(payload.watch !== undefined
-        ? { watch: payload.watch as OverseerArgsFor<"scheduler.configure">["watch"] }
-        : {}),
-    };
+    const mapped = schedulerCanvasArgs(payload);
     return runCanvasHook(
       input.run,
-      applySchedulerConfigure(
-        { canvasName: payload.canvasName, nodeId: payload.nodeId },
-        args,
-      ),
+      applySchedulerConfigure(mapped.caller, mapped.args),
     );
   };
 
   const native: OverseerNative = makeOverseerNativeLive({
     termPlane,
     chats,
-    pages: pagesProxy,
+    get pages() {
+      return pagesHolder.current;
+    },
     captureApplicationPage: input.captureApplicationPage,
     liveOverseerGrant: liveGrant,
     listCanvasDocuments: () => listCanvasDocuments(input.run),
@@ -343,33 +368,30 @@ export const composeOverseer = async (input: {
         },
       });
     }
-    const previousSource = grantSourceInstallationId;
-    grantSourceInstallationId = sourceInstallationId ?? input.sourceInstallationId;
-    return mainAuthoringGate.run(overseerAuthoringLabel, () =>
-      runOverseerProgram(
-        input.run,
-        executeOverseer(caller, request, runtime, sourceInstallationId),
-        signal,
-      ).catch((error): OverseerResult => {
-        if (signal.aborted) {
+    return grantSource.runWithSource(sourceInstallationId, () =>
+      mainAuthoringGate.run(overseerAuthoringLabel, () =>
+        runOverseerProgram(
+          input.run,
+          executeOverseer(caller, request, runtime, sourceInstallationId),
+          signal,
+        ).catch((error): OverseerResult => {
+          if (signal.aborted) {
+            return {
+              ok: false,
+              operation: request.operation,
+              error: { type: "RuntimeDown", message: "overseer command aborted" },
+            };
+          }
           return {
             ok: false,
             operation: request.operation,
-            error: { type: "RuntimeDown", message: "overseer command aborted" },
+            error: {
+              type: "InternalError",
+              message: asWorkError(error).message,
+            },
           };
-        }
-        return {
-          ok: false,
-          operation: request.operation,
-          error: {
-            type: "InternalError",
-            message: asWorkError(error).message,
-          },
-        };
-      })
-      .finally(() => {
-        grantSourceInstallationId = previousSource;
-      }),
+        }),
+      ),
     );
   };
 
