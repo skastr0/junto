@@ -19,6 +19,7 @@ describe("staticPathDirs", () => {
   it("lists the guaranteed floor in priority order", () => {
     expect(staticPathDirs(HOME)).toEqual([
       "/home/tester/.local/bin",
+      "/home/tester/.kimi-code/bin",
       "/home/tester/.local/share/mise/shims",
       "/opt/homebrew/bin",
       "/usr/local/bin",
@@ -62,6 +63,19 @@ describe("mergePath", () => {
   it("empty current PATH (undefined) still yields the full static floor", () => {
     const merged = mergePath({ home: HOME });
     expect(split(merged)).toEqual(staticPathDirs(HOME));
+  });
+
+  it("places explicit tool directories after inherited PATH and before the static floor", () => {
+    const merged = mergePath({
+      currentPath: "/usr/bin:/bin",
+      home: HOME,
+      extraDirs: ["/opt/custom/bin", " /opt/custom/bin "],
+    });
+    const dirs = split(merged);
+    expect(dirs.slice(0, 3)).toEqual(["/usr/bin", "/bin", "/opt/custom/bin"]);
+    expect(dirs.indexOf("/opt/custom/bin")).toBeLessThan(
+      dirs.indexOf("/home/tester/.local/bin"),
+    );
   });
 
   it("dedups, keeping first occurrence", () => {

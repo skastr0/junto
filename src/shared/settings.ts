@@ -5,7 +5,7 @@ import {
 } from "./browser-limits";
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
-import { NativeUsageProvider } from "./usage";
+import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "./usage";
 
 // Settings plane: one schema-validated aggregate in the app-owned SQLite
 // database. Mutable user prefs are not Effect Config (boot/env) and not
@@ -96,6 +96,11 @@ export const BrowserPrefs = Schema.Struct({
 });
 export type BrowserPrefs = typeof BrowserPrefs.Type;
 
+const ToolDirectory = Schema.String.pipe(
+  Schema.check(Schema.isMaxLength(1024)),
+);
+export const TOOL_DIRECTORIES_MAX = 32;
+
 export const AdvancedSettings = Schema.Struct({
   openLastCanvas: Schema.Boolean,
   /**
@@ -105,6 +110,16 @@ export const AdvancedSettings = Schema.Struct({
    * rows without the key still decode (default false).
    */
   logsExplorer: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Extra directories for detecting and launching agent CLIs. Optional so
+   * rows written before this field still decode. Absent ≡ none. Never a
+   * reason to run a login shell.
+   */
+  toolDirectories: Schema.optionalKey(
+    Schema.Array(ToolDirectory).pipe(
+      Schema.check(Schema.isMaxLength(TOOL_DIRECTORIES_MAX)),
+    ),
+  ),
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
@@ -149,8 +164,15 @@ export const FleetSettings = Schema.Struct({
   /**
    * When false, managed Remote deployment refuses even if the release line
    * enables it. Fresh Command Centers require an explicit operator opt-in.
+   * A stored `true` without `remoteManagedInstallsConsented` is the old
+   * default, not affirmative consent, and decode treats it as off.
    */
   remoteManagedInstalls: Schema.Boolean,
+  /**
+   * Set only when the operator explicitly enables managed Remote installs
+   * through Settings. Absent on rows written before this field.
+   */
+  remoteManagedInstallsConsented: Schema.optionalKey(Schema.Boolean),
 });
 export type FleetSettings = typeof FleetSettings.Type;
 
@@ -437,6 +459,11 @@ export const ProvidersSettings = Schema.Struct({
    * session history, process state, or the network until explicitly enabled.
    */
   enabledSources: Schema.optionalKey(Schema.Array(NativeUsageProvider)),
+  /**
+   * Separate from usage-source `hermes`: local and enrolled-host SSH Hermes
+   * profile listing for the snapshot plane. Absent ≡ off.
+   */
+  hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
   kimi: Schema.optionalKey(KimiProviderCredentials),
@@ -494,6 +521,9 @@ export const redactProvidersForIpc = (settings: Settings): Settings => {
     ...settings,
     providers: {
       enabledSources: [...(providers.enabledSources ?? [])],
+      ...(providers.hermesHostSnapshots === true
+        ? { hermesHostSnapshots: true }
+        : {}),
       ...Object.fromEntries(entries),
     } as ProvidersSettings,
   };
@@ -562,6 +592,11 @@ export type BrowserPatch = typeof BrowserPatch.Type;
 export const AdvancedPatch = Schema.Struct({
   openLastCanvas: Schema.optionalKey(Schema.Boolean),
   logsExplorer: Schema.optionalKey(Schema.Boolean),
+  toolDirectories: Schema.optionalKey(
+    Schema.Array(ToolDirectory).pipe(
+      Schema.check(Schema.isMaxLength(TOOL_DIRECTORIES_MAX)),
+    ),
+  ),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
@@ -602,8 +637,22 @@ export type TerminalPatch = typeof TerminalPatch.Type;
  * section, omitted fields keep their stored value. "" clears a field;
  * MASKED_SECRET is a no-op so an echoed masked row cannot clobber the secret.
  */
+export const ProviderSourceAccessPatch = Schema.Struct({
+  source: NativeUsageProvider,
+  enabled: Schema.Boolean,
+});
+export type ProviderSourceAccessPatch = typeof ProviderSourceAccessPatch.Type;
+
 export const ProvidersPatch = Schema.Struct({
+  /**
+   * Whole-list replacement. Use only for intentional bulk operations.
+   * Individual toggles must use `sourceAccess` so concurrent disables cannot
+   * reconstruct a revoked source from a stale renderer allowlist.
+   */
   enabledSources: Schema.optionalKey(Schema.Array(NativeUsageProvider)),
+  /** One source, applied atomically against the current durable allowlist. */
+  sourceAccess: Schema.optionalKey(ProviderSourceAccessPatch),
+  hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
   kimi: Schema.optionalKey(KimiProviderCredentials),
@@ -722,6 +771,7 @@ export const defaultBrowser = (): BrowserPrefs => ({
 export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
   logsExplorer: false,
+  toolDirectories: [],
 });
 
 export const defaultHarnesses = (): HarnessesSettings => ({
@@ -768,6 +818,56 @@ export const defaultFleet = (): FleetSettings => ({
   ditherLevel: "fine",
   remoteManagedInstalls: false,
 });
+
+/**
+ * Old default-on rows are not affirmative consent. Only a stored `true` that
+ * also carries `remoteManagedInstallsConsented` remains on.
+ */
+export const effectiveRemoteManagedInstalls = (
+  fleet: FleetSettings,
+): boolean =>
+  fleet.remoteManagedInstalls === true
+  && fleet.remoteManagedInstallsConsented === true;
+
+export const sanitizeFleetConsent = (fleet: FleetSettings): FleetSettings => {
+  if (effectiveRemoteManagedInstalls(fleet)) {
+    return {
+      ...fleet,
+      remoteManagedInstalls: true,
+      remoteManagedInstallsConsented: true,
+    };
+  }
+  const { remoteManagedInstallsConsented: _retired, ...rest } = fleet;
+  return { ...rest, remoteManagedInstalls: false };
+};
+
+export const sanitizeToolDirectories = (
+  directories: ReadonlyArray<string>,
+): string[] => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const raw of directories) {
+    const dir = raw.trim();
+    if (dir.length === 0 || seen.has(dir)) continue;
+    seen.add(dir);
+    next.push(dir);
+    if (next.length >= TOOL_DIRECTORIES_MAX) break;
+  }
+  return next;
+};
+
+export const applySourceAccess = (
+  providers: ProvidersSettings,
+  change: ProviderSourceAccessPatch,
+): ProvidersSettings => {
+  const enabled = new Set(providers.enabledSources ?? []);
+  if (change.enabled) enabled.add(change.source);
+  else enabled.delete(change.source);
+  return {
+    ...providers,
+    enabledSources: NATIVE_USAGE_PROVIDERS.filter((candidate) => enabled.has(candidate)),
+  };
+};
 
 export const defaultStation = (): StationSettings => ({
   role: "",
@@ -890,10 +990,27 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     next = { ...next, browser: mergeSection(next.browser, patch.browser) };
   }
   if (patch.advanced) {
-    next = { ...next, advanced: mergeSection(next.advanced, patch.advanced) };
+    const advanced = mergeSection(next.advanced, patch.advanced);
+    next = {
+      ...next,
+      advanced: patch.advanced.toolDirectories === undefined
+        ? advanced
+        : { ...advanced, toolDirectories: sanitizeToolDirectories(patch.advanced.toolDirectories) },
+    };
   }
   if (patch.fleet) {
-    next = { ...next, fleet: mergeSection(next.fleet, patch.fleet) };
+    const fleet = mergeSection(next.fleet, patch.fleet);
+    next = {
+      ...next,
+      fleet: patch.fleet.remoteManagedInstalls === undefined
+        ? fleet
+        : patch.fleet.remoteManagedInstalls
+          ? { ...fleet, remoteManagedInstalls: true, remoteManagedInstallsConsented: true }
+          : (() => {
+              const { remoteManagedInstallsConsented: _retired, ...rest } = fleet;
+              return { ...rest, remoteManagedInstalls: false };
+            })(),
+    };
   }
   if (patch.station) {
     next = { ...next, station: mergeSection(next.station, patch.station) };
@@ -961,12 +1078,24 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.providers) {
     const current = next.providers ?? defaultProviders();
-    let providers: ProvidersSettings = patch.providers.enabledSources === undefined
-      ? current
-      : {
-          ...current,
-          enabledSources: [...new Set(patch.providers.enabledSources)],
-        };
+    let providers: ProvidersSettings = current;
+    if (patch.providers.enabledSources !== undefined) {
+      providers = {
+        ...providers,
+        enabledSources: [...new Set(patch.providers.enabledSources)],
+      };
+    }
+    if (patch.providers.sourceAccess !== undefined) {
+      providers = applySourceAccess(providers, patch.providers.sourceAccess);
+    }
+    if (patch.providers.hermesHostSnapshots !== undefined) {
+      providers = patch.providers.hermesHostSnapshots
+        ? { ...providers, hermesHostSnapshots: true }
+        : (() => {
+            const { hermesHostSnapshots: _retired, ...rest } = providers;
+            return rest;
+          })();
+    }
     for (const key of PROVIDER_SECTION_KEYS) {
       const sectionPatch: Record<string, string | undefined> | undefined =
         patch.providers[key];

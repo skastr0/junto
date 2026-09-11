@@ -324,6 +324,7 @@ const runRegisteredAdapterOperation = (
 // of them without any login shell, so even a broken login shell still works.
 export const staticPathDirs = (home: string): ReadonlyArray<string> => [
   join(home, ".local", "bin"),
+  join(home, ".kimi-code", "bin"),
   join(home, ".local", "share", "mise", "shims"),
   "/opt/homebrew/bin",
   "/usr/local/bin",
@@ -341,6 +342,7 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
 export const mergePath = (inputs: {
   readonly currentPath?: string;
   readonly home: string;
+  readonly extraDirs?: ReadonlyArray<string>;
 }): string => {
   const segments: string[] = [];
   const pushAll = (value: string | undefined) => {
@@ -352,6 +354,10 @@ export const mergePath = (inputs: {
   };
 
   pushAll(inputs.currentPath);
+  for (const dir of inputs.extraDirs ?? []) {
+    const trimmed = dir.trim();
+    if (trimmed) segments.push(trimmed);
+  }
   for (const dir of staticPathDirs(inputs.home)) segments.push(dir);
 
   const seen = new Set<string>();
@@ -364,8 +370,31 @@ export const mergePath = (inputs: {
   return merged.join(":");
 };
 
+let extraPathDirs: ReadonlyArray<string> = [];
+let inheritedPath: string | undefined;
 let resolvedEnvPromise: Promise<NodeJS.ProcessEnv> | undefined;
 let resolvedEnvCache: NodeJS.ProcessEnv | undefined;
+
+const spawnPath = (): string =>
+  mergePath({
+    currentPath: inheritedPath ?? process.env.PATH,
+    home: homedir(),
+    extraDirs: extraPathDirs,
+  });
+
+/** Operator-configured tool directories. Detection and launch both read this. */
+export const configuredToolDirectories = (): ReadonlyArray<string> => extraPathDirs;
+
+export const setConfiguredToolDirectories = (
+  directories: ReadonlyArray<string>,
+): void => {
+  extraPathDirs = directories;
+  if (resolvedEnvCache === undefined && resolvedEnvPromise === undefined) return;
+  const mergedPath = spawnPath();
+  process.env.PATH = mergedPath;
+  resolvedEnvCache = { ...process.env, PATH: mergedPath };
+  resolvedEnvPromise = Promise.resolve(resolvedEnvCache);
+};
 
 // The one resolved environment every spawn call-site should use. Built once
 // from inherited PATH plus the static floor, without executing shell startup
@@ -384,7 +413,8 @@ let resolvedEnvCache: NodeJS.ProcessEnv | undefined;
 export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
   if (resolvedEnvPromise) return resolvedEnvPromise;
   resolvedEnvPromise = Promise.resolve().then(() => {
-    const mergedPath = mergePath({ currentPath: process.env.PATH, home: homedir() });
+    inheritedPath ??= process.env.PATH;
+    const mergedPath = spawnPath();
     process.env.PATH = mergedPath;
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: mergedPath };
     resolvedEnvCache = env;
@@ -400,8 +430,8 @@ export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
 // bare minimal PATH.
 export const resolvedSpawnEnvSync = (): NodeJS.ProcessEnv => {
   if (resolvedEnvCache) return resolvedEnvCache;
-  const mergedPath = mergePath({ currentPath: process.env.PATH, home: homedir() });
-  return { ...process.env, PATH: mergedPath };
+  inheritedPath ??= process.env.PATH;
+  return { ...process.env, PATH: spawnPath() };
 };
 
 export const runCli = async (

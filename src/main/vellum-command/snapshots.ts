@@ -273,9 +273,9 @@ export const SnapshotsLive = Layer.unwrap(
             }),
         HERMES_INTEGRATION_ENABLED,
         {
-          enabled: () => preferences.enabledSources().has("hermes"),
+          enabled: () => preferences.hermesHostSnapshots(),
           subscribe: (listener) =>
-            preferences.subscribeEnabledSources((enabled) => listener(enabled.has("hermes"))),
+            preferences.subscribeHermesHostSnapshots(listener),
         },
       ),
   ),

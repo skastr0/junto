@@ -272,6 +272,44 @@ describe("SQLite settings service", () => {
     });
   });
 
+  it("turns an old default-on remoteManagedInstalls row off until explicit opt-in", async () => {
+    const first = await openService();
+    const defaults = await run(first.service.get);
+    expect(defaults.fleet.remoteManagedInstalls).toBe(false);
+    const body = await run(
+      first.state.read(
+        "test.settings.read-old-fleet",
+        (reader) =>
+          reader.get<
+            Record<string, StateOutputValue> & { body: string }
+          >(
+            "SELECT body FROM settings_preferences WHERE singleton = 1",
+          )?.body,
+      ),
+    );
+    const encoded = JSON.stringify({
+      ...JSON.parse(String(body)) as Record<string, unknown>,
+      fleet: { ditherLevel: "fine", remoteManagedInstalls: true },
+    });
+    await run(
+      first.state.transaction("test.settings.write-old-fleet", (writer) => {
+        writer.run(
+          "UPDATE settings_preferences SET body = ? WHERE singleton = 1",
+          [encoded],
+        );
+      }),
+    );
+    const second = await openService();
+    const repaired = await run(second.service.get);
+    expect(repaired.fleet.remoteManagedInstalls).toBe(false);
+    expect(repaired.fleet.remoteManagedInstallsConsented).toBeUndefined();
+    const optedIn = await run(
+      second.service.patch({ fleet: { remoteManagedInstalls: true } }),
+    );
+    expect(optedIn.fleet.remoteManagedInstalls).toBe(true);
+    expect(optedIn.fleet.remoteManagedInstallsConsented).toBe(true);
+  });
+
   it("persists preferences and canonical station configuration across restart", async () => {
     const first = await openService();
     await run(

@@ -16,6 +16,7 @@ import {
   defaultHarnesses,
   defaultProviders,
   defaultTerminal,
+  sanitizeFleetConsent,
   type Settings,
 } from "@shared/settings";
 
@@ -172,7 +173,7 @@ export const decodeStoredSettings = (
     browser: prefs.browser,
     advanced: prefs.advanced,
     audio: prefs.audio,
-    fleet: prefs.fleet,
+    fleet: sanitizeFleetConsent(prefs.fleet),
     harnesses: prefs.harnesses ?? defaultHarnesses(),
     terminal: prefs.terminal ?? defaultTerminal(),
     providers: prefs.providers ?? defaultProviders(),

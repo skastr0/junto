@@ -186,6 +186,8 @@ describe("operator settings tier sits ahead of env and files", () => {
       }),
       enabledSources: () => new Set(),
       subscribeEnabledSources: () => () => undefined,
+      hermesHostSnapshots: () => false,
+      subscribeHermesHostSnapshots: () => () => undefined,
     });
     const ids = sources.map((source) => source.id).sort();
     for (const expected of [

@@ -19,10 +19,8 @@ import {
   MASKED_SECRET,
   type ProviderSectionKey,
 } from "@shared/settings";
-import {
-  NATIVE_USAGE_PROVIDERS,
-  type NativeUsageProvider,
-} from "@shared/usage";
+import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { type NativeUsageProvider } from "@shared/usage";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { Eyebrow } from "../ui";
@@ -114,9 +112,9 @@ const PROVIDER_SPECS: ReadonlyArray<ProviderSpec> = [
   },
   {
     source: "hermes",
-    label: "Hermes",
-    blurb: "Usage from local Hermes profiles.",
-    access: "May enumerate ~/.hermes/profiles and query profile state databases.",
+    label: "Hermes usage",
+    blurb: "Local Hermes session totals, refreshed every five minutes.",
+    access: "May enumerate ~/.hermes/profiles and query local profile state databases. This does not run hermes CLI commands or reach enrolled hosts.",
     fields: [],
   },
   {
@@ -300,14 +298,12 @@ function SecretFieldRow({
 export function ProvidersSettingsSection() {
   const providers = use$(state$.settings.providers);
   const enabledSources = new Set(providers?.enabledSources ?? []);
+  const hermesHostSnapshots = providers?.hermesHostSnapshots === true;
 
   const setSourceEnabled = (source: NativeUsageProvider, enabled: boolean) => {
-    const next = new Set(enabledSources);
-    if (enabled) next.add(source);
-    else next.delete(source);
     void patchSettings({
       providers: {
-        enabledSources: NATIVE_USAGE_PROVIDERS.filter((candidate) => next.has(candidate)),
+        sourceAccess: { source, enabled },
       },
     });
   };
@@ -316,9 +312,11 @@ export function ProvidersSettingsSection() {
     <div className="settings-section">
       <p className="settings-note" role="note">
         Provider access is off by default. Enable only a source you want
-        Vellum Command to read and refresh every five minutes. Each card names the
-        local data and network access it may use. Stored values stay in this
-        installation's database, are shown masked, and are never logged.
+        Vellum Command to read. Usage sources refresh every five minutes.
+        Hermes host snapshots, when separately enabled, poll every minute.
+        Each card names the local data and network access it may use. Stored
+        values stay in this installation's database, are shown masked, and are
+        never logged.
       </p>
       {PROVIDER_SPECS.map((spec) => {
         const section = spec.credentials === undefined
@@ -364,6 +362,36 @@ export function ProvidersSettingsSection() {
           </div>
         );
       })}
+      {HERMES_INTEGRATION_ENABLED ? (
+        <div className="settings-provider-card">
+          <div className="settings-provider-head">
+            <span className="settings-provider-field__text">
+              <Eyebrow>Hermes host snapshots</Eyebrow>
+              <span className="settings-field__hint">
+                Local and enrolled-host Hermes profile listing, every minute.
+              </span>
+            </span>
+            <label className="settings-provider-enable">
+              <span>{hermesHostSnapshots ? "access on" : "access off"}</span>
+              <input
+                type="checkbox"
+                checked={hermesHostSnapshots}
+                aria-label="Allow Hermes host snapshot access"
+                onChange={(event) =>
+                  void patchSettings({
+                    providers: { hermesHostSnapshots: event.target.checked },
+                  })
+                }
+              />
+            </label>
+          </div>
+          <p className="settings-provider-access">
+            May run local and enrolled-host SSH `hermes profile list` and
+            `hermes version`, and collect remote profile metadata. Distinct
+            from Hermes usage above. Polls every one minute while enabled.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

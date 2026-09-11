@@ -89,6 +89,8 @@ import {
   shouldAvoidSharedHarnessResume,
 } from "./managed-spawn-plan";
 import { buildSpawnEnv, scrubSpawnEnv } from "./templates/resolve-launch";
+import { resolveHarnessExecutable } from "./templates/harness-install";
+import { configuredToolDirectories } from "../adapters/exec";
 import { buildManagedSeatInject } from "./templates/seat-env";
 import {
   primeAgentDaemons,
@@ -647,7 +649,11 @@ export const resolveLaunch = (
     if (file === undefined) {
       return Result.fail(unresolvable("the seat's launch profile carries no argv"));
     }
-    return Result.succeed({ file, args: argv.slice(1), cwd, env });
+    const resolvedFile = resolveHarnessExecutable(file, {
+      pathEnv: env.PATH ?? process.env.PATH,
+      extraDirs: configuredToolDirectories(),
+    }) ?? file;
+    return Result.succeed({ file: resolvedFile, args: argv.slice(1), cwd, env });
   }
 
   if (launch && launch.kind !== "shell" && argv.length > 0) {

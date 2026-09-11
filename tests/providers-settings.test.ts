@@ -59,6 +59,38 @@ describe("providers settings schema", () => {
     ).toThrow();
   });
 
+  it("applies individual sourceAccess patches against current durable settings", () => {
+    const both = applySettingsPatch(defaultSettings(), {
+      providers: { enabledSources: ["claude", "cursor"] },
+    });
+    const first = applySettingsPatch(both, {
+      providers: { sourceAccess: { source: "claude", enabled: false } },
+    });
+    const second = applySettingsPatch(first, {
+      providers: { sourceAccess: { source: "cursor", enabled: false } },
+    });
+    expect(first.providers?.enabledSources).toEqual(["cursor"]);
+    expect(second.providers?.enabledSources).toEqual([]);
+  });
+
+  it("does not reconstruct a revoked source from a stale whole-list replacement after a later disable", () => {
+    const both = applySettingsPatch(defaultSettings(), {
+      providers: { enabledSources: ["claude", "cursor"] },
+    });
+    const disableClaude = applySettingsPatch(both, {
+      providers: { sourceAccess: { source: "claude", enabled: false } },
+    });
+    const disableCursorFromStale = applySettingsPatch(both, {
+      providers: { enabledSources: ["claude"] },
+    });
+    expect(disableClaude.providers?.enabledSources).toEqual(["cursor"]);
+    expect(disableCursorFromStale.providers?.enabledSources).toEqual(["claude"]);
+    const concurrentSafe = applySettingsPatch(disableClaude, {
+      providers: { sourceAccess: { source: "cursor", enabled: false } },
+    });
+    expect(concurrentSafe.providers?.enabledSources).toEqual([]);
+  });
+
   it("applySettingsPatch deep-merges provider fields without clobbering siblings", () => {
     let next = applySettingsPatch(defaultSettings(), {
       providers: { openrouter: { apiKey: SECRET } },
@@ -228,6 +260,36 @@ describe("providers settings service persistence", () => {
       close: () => runtime.dispose(),
     };
   };
+
+  it("serializes delayed concurrent sourceAccess disables against current durable settings", async () => {
+    const harness = await openService();
+    try {
+      await run(
+        harness.service.patch({
+          providers: { enabledSources: ["claude", "cursor"] },
+        }),
+      );
+      await Promise.all([
+        run(
+          harness.service.patch({
+            providers: { sourceAccess: { source: "claude", enabled: false } },
+          }),
+        ),
+        (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 15));
+          return run(
+            harness.service.patch({
+              providers: { sourceAccess: { source: "cursor", enabled: false } },
+            }),
+          );
+        })(),
+      ]);
+      const reread = await run(harness.service.get);
+      expect(reread.providers?.enabledSources).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
 
   it("persists provider credentials through the existing settings row and repatches them", async () => {
     const harness = await openService();

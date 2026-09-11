@@ -2,7 +2,12 @@ import { mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { harnessBinaryInstalled } from "../src/main/vellum-command/term/templates/harness-install";
+import {
+  harnessBinaryInstalled,
+  resolveHarnessExecutable,
+} from "../src/main/vellum-command/term/templates/harness-install";
+import { resolveLaunch } from "../src/main/vellum-command/term/local-host";
+import { Result } from "effect";
 
 const scratchDirs: string[] = [];
 
@@ -101,6 +106,65 @@ describe("harnessBinaryInstalled", () => {
         pathSep: ":",
       }),
     ).toBe(true);
+  });
+
+  it("detects and launches kimi from ~/.kimi-code/bin under a minimal PATH", () => {
+    const home = makeScratch();
+    const kimiBinDir = join(home, ".kimi-code", "bin");
+    mkdirSync(kimiBinDir, { recursive: true });
+    const bin = join(kimiBinDir, "kimi");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    const minimalPath = "/usr/bin:/bin:/usr/sbin:/sbin";
+    const detected = resolveHarnessExecutable("kimi", {
+      pathEnv: minimalPath,
+      home,
+      pathSep: ":",
+    });
+    expect(detected).toBe(bin);
+    expect(
+      harnessBinaryInstalled("kimi", "kimi", {
+        pathEnv: minimalPath,
+        home,
+        pathSep: ":",
+      }),
+    ).toBe(true);
+
+    const previousHome = process.env.HOME;
+    const previousPath = process.env.PATH;
+    process.env.HOME = home;
+    process.env.PATH = minimalPath;
+    try {
+      const launched = Result.getOrThrow(
+        resolveLaunch({
+          kind: "agent",
+          harness: "kimi",
+          agentKey: "local:kimi",
+          launch: { kind: "harness", argv: ["kimi"] },
+        }),
+      );
+      expect(launched.file).toBe(bin);
+    } finally {
+      process.env.HOME = previousHome;
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("detects and launches a CLI from an explicit configured tool directory", () => {
+    const extra = makeScratch();
+    const bin = join(extra, "custom-cli");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    const emptyHome = makeScratch();
+    const minimalPath = "/usr/bin:/bin";
+    expect(
+      resolveHarnessExecutable("custom-cli", {
+        pathEnv: minimalPath,
+        home: emptyHome,
+        extraDirs: [extra],
+        pathSep: ":",
+      }),
+    ).toBe(bin);
   });
 
   it("checks cursor install home outside PATH", () => {

@@ -694,6 +694,19 @@
   font-size: 11px;
   line-height: 1.45;
 }
+.settings-tool-directories {
+  width: 100%;
+  min-height: 4.5em;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid var(--color-stroke);
+  background: var(--color-shadow-2);
+  color: var(--color-ink);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+}
 .settings-provider-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);

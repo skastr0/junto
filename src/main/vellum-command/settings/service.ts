@@ -280,6 +280,45 @@ const writeInitialSettings = (
   writer.run(INSERT_INITIALIZATION_SQL, [updatedAt]);
 };
 
+/**
+ * Old default-on Remote package mutation is not affirmative consent. Rewrite
+ * the stored fleet row once when it still carries that inherited `true`.
+ */
+const repairFleetConsent = (
+  state: StateService,
+): Effect.Effect<void, SettingsError> =>
+  state.transaction(
+    "settings.repair-fleet-consent",
+    (writer) => {
+      const rows = readRows(writer);
+      if (rows.preferences === undefined) return;
+      const body = parseBody(
+        "stored settings preferences",
+        rows.preferences.body,
+      );
+      const fleet =
+        typeof body === "object" && body !== null && "fleet" in body
+          ? (body as { fleet?: { remoteManagedInstalls?: unknown; remoteManagedInstallsConsented?: unknown } }).fleet
+          : undefined;
+      if (
+        fleet?.remoteManagedInstalls !== true
+        || fleet.remoteManagedInstallsConsented === true
+      ) {
+        return;
+      }
+      const stored = decodeRows(rows);
+      if (stored === undefined) return;
+      writePreferences(
+        writer,
+        stored.settings,
+        new Date().toISOString(),
+      );
+    },
+  ).pipe(
+    Effect.mapError(stateFailure),
+    Effect.withSpan("settings.repair-fleet-consent"),
+  );
+
 const initializeSettings = (
   state: StateService,
 ): Effect.Effect<StoredSettingsState, SettingsError> =>
@@ -374,6 +413,7 @@ export const makeSettingsService = (
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
     yield* initializeSettings(state);
+    yield* repairFleetConsent(state);
     if (
       options.ensureDefaultCommandCenter !== false &&
       shouldEnsureDefaultCommandCenter()

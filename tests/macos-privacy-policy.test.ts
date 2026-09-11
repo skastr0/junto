@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { defaultSettings } from "../src/shared/settings";
+import {
+  applySettingsPatch,
+  defaultSettings,
+  sanitizeFleetConsent,
+} from "../src/shared/settings";
+import { decodeStoredSettings } from "../src/main/vellum-command/settings/state-schema";
 
 const read = (path: string): string => readFileSync(path, "utf8");
 
@@ -38,7 +43,40 @@ describe("macOS privacy policy", () => {
 
   it("defaults every cross-provider reader off", () => {
     expect(defaultSettings().providers?.enabledSources).toEqual([]);
+    expect(defaultSettings().providers?.hermesHostSnapshots).toBeUndefined();
     expect(defaultSettings().fleet.remoteManagedInstalls).toBe(false);
+    expect(defaultSettings().fleet.remoteManagedInstallsConsented).toBeUndefined();
+  });
+
+  it("treats an old default-on remoteManagedInstalls row as unconsented", () => {
+    const current = defaultSettings();
+    const restored = decodeStoredSettings(
+      1,
+      {
+        appearance: current.appearance,
+        canvas: current.canvas,
+        kernel: current.kernel,
+        browser: current.browser,
+        advanced: current.advanced,
+        audio: current.audio,
+        fleet: { ditherLevel: "fine", remoteManagedInstalls: true },
+      },
+      current.station,
+    );
+    expect(restored.fleet.remoteManagedInstalls).toBe(false);
+    expect(restored.fleet.remoteManagedInstallsConsented).toBeUndefined();
+    expect(
+      sanitizeFleetConsent({
+        ditherLevel: "fine",
+        remoteManagedInstalls: true,
+        remoteManagedInstallsConsented: true,
+      }).remoteManagedInstalls,
+    ).toBe(true);
+    const optedIn = applySettingsPatch(defaultSettings(), {
+      fleet: { remoteManagedInstalls: true },
+    });
+    expect(optedIn.fleet.remoteManagedInstalls).toBe(true);
+    expect(optedIn.fleet.remoteManagedInstallsConsented).toBe(true);
   });
 
   it("does not execute a login shell or expose general filesystem enumeration IPC", () => {
@@ -49,5 +87,18 @@ describe("macOS privacy policy", () => {
     expect(spawn).not.toMatch(/\[\s*["']-lc["']/u);
     expect(ipc).not.toContain("chassis:select-folder");
     expect(ipc).not.toContain("chassis:read-directory");
+  });
+
+  it("discloses Hermes host snapshots separately from local Hermes usage", () => {
+    const docs = read("docs/macos-privacy.md");
+    const ui = read("src/renderer/components/settings/ProvidersSettingsSection.tsx");
+    expect(docs).toContain("Hermes host snapshots");
+    expect(docs).toContain("hermes profile list");
+    expect(docs).toContain("every one minute");
+    expect(docs).toContain("every five minutes");
+    expect(docs).toContain("default-on value is treated as off");
+    expect(ui).toContain("sourceAccess");
+    expect(ui).toContain("hermesHostSnapshots");
+    expect(ui).toContain("Allow Hermes host snapshot access");
   });
 });

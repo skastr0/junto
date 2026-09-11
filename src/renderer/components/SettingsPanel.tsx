@@ -545,6 +545,26 @@ function AdvancedSection() {
           />
         </FieldRow>
       ) : null}
+      <FieldRow
+        label="Agent tool directories"
+        hint="extra directories searched for agent CLIs, one per line. Detection and launch share this list. No login shell is run."
+      >
+        <textarea
+          className="settings-tool-directories"
+          aria-label="Agent tool directories"
+          rows={3}
+          spellCheck={false}
+          defaultValue={(advanced.toolDirectories ?? []).join("\n")}
+          key={(advanced.toolDirectories ?? []).join("\n")}
+          onBlur={(event) => {
+            const next = event.target.value
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0);
+            void patchSettings({ advanced: { toolDirectories: next } });
+          }}
+        />
+      </FieldRow>
       {usesAppleLoginItems ? (
         <FieldRow label="Start Vellum Command at login" hint="macOS Login Items">
           <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Vellum Command at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
@@ -1048,7 +1068,7 @@ function StationSection() {
       </FieldRow>
       <FieldRow
         label="Allow remote managed installs"
-        hint="Deploy and update Vellum Command on enrolled Remotes"
+        hint="Deploy and update Vellum Command on enrolled Remotes. Off until you opt in; an old default-on value is not treated as consent."
       >
         <input
           type="checkbox"

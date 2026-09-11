@@ -34,9 +34,9 @@ as the same trust decision as opening Terminal.app in that directory.
 | Surface | Trigger | Filesystem or system scope | Retention and limits |
 |---|---|---|---|
 | Product state | App start | `~/.vellum-command` only | Durable app state, content, sockets, and logs |
-| Spawn PATH | App start | Inherited `PATH` plus fixed executable directories such as `~/.local/bin` | No login shell and no shell startup files are executed |
+| Spawn PATH | App start | Inherited `PATH`, optional operator tool directories, and fixed executable directories such as `~/.local/bin` and `~/.kimi-code/bin` | No login shell and no shell startup files are executed |
 | Supervisor status | Packaged app start | Current-user launchd job metadata | No content-library access and no permission prompt |
-| Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; enabled sources refresh every five minutes; revocation clears the row immediately and stops future polls |
+| Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; Hermes host snapshots poll every minute when separately enabled; revocation clears the row immediately and stops future polls |
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
 | Terminal or attached agent | Explicitly creating or activating the seat | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed |
@@ -52,11 +52,13 @@ not enumerate the home directory. The old general-purpose renderer IPC that
 could enumerate any path was removed; only the explicit terminal/Git/region
 picker remains.
 
-Opening the agent picker checks only executable names on the inherited `PATH`
-and a short list of known paths such as `~/.local/bin`; it does not list those
-directories. Opening one harness's options may read that harness's one model
-cache or run its model-list command. This happens only in the open agent picker,
-not at app startup or in the background.
+Opening the agent picker checks only executable names on the inherited `PATH`,
+optional operator-configured tool directories, and a short list of known paths
+such as `~/.local/bin` and `~/.kimi-code/bin`; it does not list those
+directories. Detection and launch share that resolution. Opening one harness's
+options may read that harness's one model cache or run its model-list command.
+This happens only in the open agent picker, not at app startup or in the
+background.
 
 ## Provider access disclosures
 
@@ -70,7 +72,12 @@ Settings card names the access before opt-in:
 - Cursor: configured cookie or Cursor's local app database, Cursor network.
 - Devin: configured token or Chrome profile local storage, Devin network.
 - Grok: `~/.grok` credentials and recent session history, xAI network.
-- Hermes: `~/.hermes/profiles` and profile state databases.
+- Hermes usage: `~/.hermes/profiles` and local profile state databases. Does
+  not run `hermes` CLI commands or reach enrolled hosts. Refreshes every five
+  minutes.
+- Hermes host snapshots (separate toggle, Hermes-integration builds only):
+  local and enrolled-host SSH `hermes profile list` and `hermes version`, plus
+  remote profile metadata. Polls every one minute.
 - Kimi: configured or `~/.kimi-code` credentials, Kimi network.
 - Ollama Cloud: configured/environment credentials, Ollama network.
 - OpenCode Go: credentials and local usage database, OpenCode network.
@@ -80,7 +87,13 @@ Settings card names the access before opt-in:
 - Synthetic: configured/environment credentials, Synthetic network.
 
 Entering a credential does not silently enable its source. Revoking a source
-removes its cached row from the live UI and stops future polling.
+removes its cached row from the live UI and stops future polling. Individual
+provider checkboxes write one source against current durable settings, so a
+stale concurrent disable cannot reconstruct revoked access.
+
+Managed Remote package mutation (`remoteManagedInstalls`) is off until the
+operator explicitly opts in. An upgraded install that still carries the old
+default-on value is treated as off, not as consent.
 
 ## Gentle-request rules
 

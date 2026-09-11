@@ -12,6 +12,7 @@ import {
   type Settings,
   type SettingsOpResult,
 } from "@shared/settings";
+import { setConfiguredToolDirectories } from "../adapters/exec";
 import { Schema } from "effect";
 import { AppRuntime } from "../../runtime";
 import {
@@ -60,11 +61,18 @@ export const registerSettingsIpc = (
   const publishThemePreference = (settings: Settings): void => {
     setThemePreference(settings.appearance.theme);
   };
+  const publishToolDirectories = (settings: Settings): void => {
+    setConfiguredToolDirectories(settings.advanced.toolDirectories ?? []);
+  };
   /** Same publish, from an IPC result. See `themePublishDecision`. */
   const publishThemeFromOp = (op: SettingsOpResult): void => {
     const decision = themePublishDecision(op);
     if (decision.kind === "leave") return;
     setThemePreference(decision.preference);
+  };
+  const publishToolDirectoriesFromOp = (op: SettingsOpResult): void => {
+    if (op.settings === undefined) return;
+    publishToolDirectories(op.settings);
   };
   // Only matters while the preference is "system"; harmless otherwise.
   nativeTheme.on("updated", () => refreshThemeFromSystem());
@@ -81,6 +89,7 @@ export const registerSettingsIpc = (
         const result = yield* Effect.result(settings.get);
         const op = toOpResult(result);
         publishThemeFromOp(op);
+        publishToolDirectoriesFromOp(op);
         return toRendererOpResult(op);
       }),
     ),
@@ -98,6 +107,7 @@ export const registerSettingsIpc = (
         const result = yield* Effect.result(settings.patch(patch));
         const op = toOpResult(result);
         publishThemeFromOp(op);
+        publishToolDirectoriesFromOp(op);
         return toRendererOpResult(op);
       }),
     ),
@@ -128,14 +138,18 @@ export const registerSettingsIpc = (
         const settings = yield* SettingsService;
         if (section === undefined || section === null || section === "") {
           const result = yield* Effect.result(settings.reset());
-          return toRendererOpResult(toOpResult(result));
+          const op = toOpResult(result);
+          publishToolDirectoriesFromOp(op);
+          return toRendererOpResult(op);
         }
         const decoded = decodeSection(section);
         if (Result.isFailure(decoded)) {
           return settingsOpFail("validation", "settings reset section is invalid");
         }
         const result = yield* Effect.result(settings.reset(decoded.success));
-        return toRendererOpResult(toOpResult(result));
+        const op = toOpResult(result);
+        publishToolDirectoriesFromOp(op);
+        return toRendererOpResult(op);
       }),
     ),
   );
@@ -191,13 +205,17 @@ export const registerSettingsIpc = (
       const settings = yield* SettingsService;
       settings.subscribe((next) => {
         publishThemePreference(next);
+        publishToolDirectories(next);
         broadcast(IPC_CHANNELS.settingsChanged, redactProvidersForIpc(next));
       });
       // Prime cache so first UI open is warm and doctor is honest. This also
       // gives main the theme before any renderer exists, so a seat woken early
       // is not spawned against the pre-settings default.
       const primed = yield* settings.get.pipe(Effect.result);
-      if (Result.isSuccess(primed)) publishThemePreference(primed.success);
+      if (Result.isSuccess(primed)) {
+        publishThemePreference(primed.success);
+        publishToolDirectories(primed.success);
+      }
     }),
   );
 };

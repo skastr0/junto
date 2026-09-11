@@ -16,6 +16,7 @@ import {
   type ManagedTerminalTemplate,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
+import { configuredToolDirectories } from "../../adapters/exec";
 
 export type HarnessInstallProbe = {
   readonly harness: HarnessId;
@@ -34,81 +35,85 @@ const isExecutableFile = (path: string): boolean => {
   }
 };
 
-/**
- * Candidate absolute paths beyond PATH for known install layouts.
- * Keep short and honest — do not invent vendor trees we have not verified.
- */
-const extraInstallCandidates = (
-  harness: HarnessId,
-  binary: string,
-  home: string,
-): readonly string[] => {
-  switch (harness) {
-    case "agy":
-      return [join(home, ".local", "bin", binary)];
-    case "amp":
-      // Verified install location for the user-installed Amp CLI. Detection
-      // only — Vellum Command never installs or authenticates Amp.
-      return [join(home, ".local", "bin", binary)];
-    case "kimi":
-      return [join(home, ".kimi-code", "bin", binary)];
-    case "muse":
-      // Sweep: muse may land on PATH after install; no extra tree required.
-      return [];
-    case "prime-agent":
-      return [];
-    case "claude":
-      return [join(home, ".local", "bin", binary)];
-    case "codex":
-      return [join(home, ".local", "bin", binary)];
-    case "grok":
-      return [join(home, ".local", "bin", binary)];
-    case "pi":
-      return [join(home, ".local", "bin", binary)];
-    case "devin":
-      return [join(home, ".local", "bin", binary)];
-    case "cursor":
-      return [join(home, ".local", "bin", binary)];
-    case "hermes":
-      return [join(home, ".local", "bin", binary)];
-    default:
-      return [];
-  }
+export type HarnessExecutableResolution = {
+  readonly pathEnv?: string;
+  readonly home?: string;
+  readonly pathSep?: string;
+  readonly extraDirs?: ReadonlyArray<string>;
 };
 
 /**
- * Resolve whether `binary` is an executable on PATH (or a known install home).
- * Absolute binary paths are checked as-is.
+ * Home-relative install dirs detection and launch both search, including
+ * `~/.kimi-code/bin`. System dirs such as `/usr/bin` come from PATH itself.
+ */
+export const knownHarnessInstallDirs = (home: string): ReadonlyArray<string> => [
+  join(home, ".local", "bin"),
+  join(home, ".kimi-code", "bin"),
+  join(home, ".local", "share", "mise", "shims"),
+];
+
+/**
+ * Directories detection and launch both search: inherited PATH, operator
+ * tool directories, then known home install dirs. No login shell.
+ */
+export const harnessSearchPath = (
+  options: HarnessExecutableResolution = {},
+): string => {
+  const home = options.home ?? homedir();
+  const sep = options.pathSep ?? delimiter;
+  const segments: string[] = [];
+  const push = (value: string | undefined) => {
+    if (!value) return;
+    for (const part of value.split(sep)) {
+      const dir = part.trim();
+      if (dir) segments.push(dir);
+    }
+  };
+  push(options.pathEnv ?? process.env.PATH ?? process.env.Path ?? "");
+  for (const dir of options.extraDirs ?? configuredToolDirectories()) {
+    const trimmed = dir.trim();
+    if (trimmed) segments.push(trimmed);
+  }
+  for (const dir of knownHarnessInstallDirs(home)) segments.push(dir);
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const dir of segments) {
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    merged.push(dir);
+  }
+  return merged.join(sep);
+};
+
+/**
+ * Resolve `binary` to an absolute executable using the same search path
+ * detection and launch share. Absolute paths are checked as-is.
+ */
+export const resolveHarnessExecutable = (
+  binary: string,
+  options: HarnessExecutableResolution = {},
+): string | undefined => {
+  const name = binary.trim();
+  if (!name) return undefined;
+  if (isAbsolute(name)) return isExecutableFile(name) ? name : undefined;
+
+  const sep = options.pathSep ?? delimiter;
+  for (const dir of harnessSearchPath(options).split(sep)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    if (isExecutableFile(candidate)) return candidate;
+  }
+  return undefined;
+};
+
+/**
+ * Resolve whether `binary` is an executable on the shared search path.
  */
 export const harnessBinaryInstalled = (
-  harness: HarnessId,
+  _harness: HarnessId,
   binary: string,
-  options?: {
-    readonly pathEnv?: string;
-    readonly home?: string;
-    readonly pathSep?: string;
-  },
-): boolean => {
-  const name = binary.trim();
-  if (!name) return false;
-
-  if (isAbsolute(name)) {
-    return isExecutableFile(name);
-  }
-
-  const pathEnv = options?.pathEnv ?? process.env.PATH ?? process.env.Path ?? "";
-  const sep = options?.pathSep ?? delimiter;
-  for (const dir of pathEnv.split(sep)) {
-    if (!dir) continue;
-    if (isExecutableFile(join(dir, name))) return true;
-  }
-
-  const home = options?.home ?? homedir();
-  for (const candidate of extraInstallCandidates(harness, name, home)) {
-    if (isExecutableFile(candidate)) return true;
-  }
-  return false;
-};
+  options?: HarnessExecutableResolution,
+): boolean => resolveHarnessExecutable(binary, options) !== undefined;
 
 const probeOne = (template: ManagedTerminalTemplate): HarnessInstallProbe => {
   const binary = template.argvSpec.binary;
