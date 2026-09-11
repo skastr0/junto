@@ -8,14 +8,17 @@
  *
  *   ~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/session.jsonl
  *
- * whose first record is `runtime.session.metadata` and carries the
- * `workspace_root` the session was started in. That pairing — a workspace and
- * a start time — is what makes capture safe: a seat claims the session that
- * belongs to ITS workspace and started after IT spawned, not merely the newest
- * one on the machine, which on a busy factory could belong to another seat.
+ * whose first `runtime.session.metadata` record carries the `workspace_root`
+ * the session was started in. 1.1.1 parent logs often prepend a
+ * `retained_frame` / `session_permission_transaction` wrapper, so capture
+ * scans until that metadata record (stream.id must equal the directory name,
+ * `recorded_at` is microseconds). That pairing — a workspace and a start
+ * time — is what makes capture safe: a seat claims the session that belongs
+ * to ITS workspace and started after IT spawned, not merely the newest one
+ * on the machine, which on a busy factory could belong to another seat.
  *
  * Read-only. Nothing here writes to Muse's store, and no other file under it
- * is opened: one line of one jsonl per candidate directory.
+ * is opened: one jsonl per candidate directory, scanned only until metadata.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -54,37 +57,34 @@ const isDirectory = (path: string): boolean => {
 };
 
 /**
- * First record of a session log, as the two fields capture needs.
+ * First `runtime.session.metadata` record in a session log, as the two fields
+ * capture needs. 1.1.1 parent logs prepend `retained_frame` wrappers, so this
+ * scans past non-metadata lines instead of trusting line 1.
  *
- * `recorded_at` is microseconds since the epoch in 0.2.1 — verified against a
- * live session file. It is normalized to milliseconds here so callers compare
- * it with ordinary clock values and cannot accidentally compare across units.
+ * `recorded_at` is microseconds since the epoch — verified against live 0.2.1
+ * and 1.1.1 session files. It is normalized to milliseconds here so callers
+ * compare it with ordinary clock values and cannot accidentally compare
+ * across units.
  */
-const readCandidate = (
-  sessionsDir: string,
+const parseMetadataCandidate = (
   sessionId: string,
+  line: string,
 ): Candidate | undefined => {
-  let firstLine: string;
-  try {
-    const raw = readFileSync(join(sessionsDir, sessionId, "session.jsonl"), "utf8");
-    const newline = raw.indexOf("\n");
-    firstLine = newline >= 0 ? raw.slice(0, newline) : raw;
-  } catch {
-    return undefined;
-  }
-  if (!firstLine.trim()) return undefined;
+  if (!line.trim()) return undefined;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(firstLine);
+    parsed = JSON.parse(line);
   } catch {
     return undefined;
   }
   if (parsed === null || typeof parsed !== "object") return undefined;
   const record = parsed as {
+    readonly payload_type?: unknown;
     readonly stream?: { readonly id?: unknown };
     readonly recorded_at?: unknown;
     readonly payload?: { readonly record?: { readonly workspace_root?: unknown } };
   };
+  if (record.payload_type !== "runtime.session.metadata") return undefined;
   const streamId =
     typeof record.stream?.id === "string" ? record.stream.id : undefined;
   // The directory name is the id; the stream id must agree or this is not a
@@ -101,6 +101,23 @@ const readCandidate = (
     recordedAtMs: Math.floor(micros / 1000),
     workspaceRoot: typeof workspaceRoot === "string" ? workspaceRoot : undefined,
   };
+};
+
+const readCandidate = (
+  sessionsDir: string,
+  sessionId: string,
+): Candidate | undefined => {
+  let raw: string;
+  try {
+    raw = readFileSync(join(sessionsDir, sessionId, "session.jsonl"), "utf8");
+  } catch {
+    return undefined;
+  }
+  for (const line of raw.split("\n")) {
+    const candidate = parseMetadataCandidate(sessionId, line);
+    if (candidate) return candidate;
+  }
+  return undefined;
 };
 
 /** Every session directory in the date-nested store, unordered. */

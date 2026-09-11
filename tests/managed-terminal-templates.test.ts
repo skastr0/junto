@@ -11,6 +11,7 @@ import {
   HARNESS_IDS,
   KIMI_TEMPLATE,
   MANAGED_TERMINAL_TEMPLATES,
+  MUSE_TEMPLATE,
   PI_TEMPLATE,
   PRIME_AGENT_TEMPLATE,
   SPAWN_ENV_SCRUB,
@@ -864,6 +865,18 @@ describe("resolveManagedLaunch argv", () => {
   });
 
   it("muse: model, reasoning effort, bare --yolo, positional prompt", () => {
+    expect(MUSE_TEMPLATE.probedVersion).toBe("1.1.1-R2514.1");
+    expect(MUSE_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
+    expect(MUSE_TEMPLATE.efforts).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
     const launch = resolveManagedLaunch(
       "muse",
       {

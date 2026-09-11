@@ -830,11 +830,31 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
  * - The "responsive host" requirement is hard: with OSC 10/11 and the OSC 4
  *   palette queries unanswered, 0.2.1 emits ~260 bytes and EXITS without ever
  *   painting. Answered, the same spawn paints the TUI and runs a turn.
+ *
+ * Re-probed 1.1.1-R2514.1 (2026-09-11):
+ * - `--reasoning-effort` vocabulary adds `max` (`muse --help` and
+ *   `muse exec --reasoning-effort foo`: none|minimal|low|medium|high|xhigh|max|ultra).
+ *   Official config docs still omit it.
+ * - Parent `session.jsonl` often starts with `retained_frame` /
+ *   `session_permission_transaction`. Capture scans for the first
+ *   `runtime.session.metadata` record (stream.id === directory name,
+ *   microsecond `recorded_at`, workspace_root). Directory name remains the UUID.
+ * - `muse resume <uuid>` is still exact. Additive `muse resume --last` is a
+ *   second id-less latest-session form and must never be emitted (same as
+ *   bare `muse resume`).
+ * - `--session-id` remains TUI-rejected (exec-only). Seats stay capture-only.
+ * - `systemPrompt` on `--agents` is still rejected. Tier stays B.
+ * - Unanswered PTY still emits OSC 10/11 + OSC 4 + DSR; an 8s probe did not
+ *   exit. Painting without answers is UNVERIFIED. The 0.2.1 fatal-exit claim
+ *   is stale.
+ * - `resumeReinjection: "re-pass"` is the 2026-08 receipt and was not
+ *   re-canaried on 1.1.1 (UNVERIFIED). Root options still allowed on either
+ *   side of `resume`.
  */
 export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
   harness: "muse",
   displayName: "Muse",
-  probedVersion: "0.2.1",
+  probedVersion: "1.1.1-R2514.1",
   argvSpec: {
     binary: "muse",
     prefix: [],
@@ -864,7 +884,7 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (approval/trust dialogs)",
     labels: ["injection B", "grid", "effort", "capture session"],
   },
-  efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"],
+  efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
 
 /**

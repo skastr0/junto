@@ -35,6 +35,50 @@ const RECORD = (sessionId: string, workspaceRoot: string, atMs: number) =>
     },
   });
 
+// 1.1.1 parent logs prepend this wrapper; metadata is no longer line 1.
+// Transcribed from ~/.local/share/muse/sessions/2026/09/11/<uuid>/session.jsonl.
+const RETAINED_FRAME = (sessionId: string) =>
+  JSON.stringify({
+    retained_frame: "session_permission_transaction",
+    frame_schema_version: 1,
+    outer_log_ordinal: 1,
+    transaction_id: "ab0f52f0-ebe9-4624-8aee-70adc0d667c3",
+    children: [
+      {
+        child_index: 0,
+        record_json: JSON.stringify({
+          schema_version: 1,
+          stream: { kind: "session", id: sessionId },
+          payload_type: "runtime.session.permission_format_declared",
+        }),
+      },
+    ],
+  });
+
+const RECORD_1111 = (sessionId: string, workspaceRoot: string, atMs: number) =>
+  JSON.stringify({
+    schema_version: 1,
+    id: "388ae189-c260-42e1-9bf0-927f7a776cd3",
+    stream: { kind: "session", id: sessionId },
+    sequence: 3,
+    recorded_at: atMs * 1000,
+    record_type: "event",
+    durability: "durable",
+    causation_id: null,
+    payload_type: "runtime.session.metadata",
+    payload_schema_version: 1,
+    payload: {
+      kind: "metadata",
+      record: {
+        workspace_root: workspaceRoot,
+        provider_id: "echo",
+        web_search_mode: "client",
+        build: { sha: "b934305d21", semver: "1.1.1" },
+        tool_surface_version: "2",
+      },
+    },
+  });
+
 let home: string | undefined;
 
 const seedSession = (
@@ -48,6 +92,21 @@ const seedSession = (
   writeFileSync(
     join(dir, "session.jsonl"),
     `${RECORD(sessionId, workspaceRoot, atMs)}\n`,
+    "utf8",
+  );
+};
+
+const seedSession1111 = (
+  sessionId: string,
+  workspaceRoot: string,
+  atMs: number,
+  day = "11",
+): void => {
+  const dir = join(museSessionsRoot(home!), "2026", "09", day, sessionId);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "session.jsonl"),
+    `${RETAINED_FRAME(sessionId)}\n${RECORD_1111(sessionId, workspaceRoot, atMs)}\n`,
     "utf8",
   );
 };
@@ -131,6 +190,28 @@ describe("muse session capture", () => {
     expect(isMuseSessionId("T-01a03989-71a6-733b-ac4c-76f54969cb55")).toBe(false);
     expect(isMuseSessionId("")).toBe(false);
   });
+
+  it("skips a 1.1.1 retained_frame preamble and reads the metadata record", () => {
+    home = mkdtempSync(join(tmpdir(), "muse-capture-"));
+    seedSession1111(A, WORKSPACE, 1_000);
+    expect(
+      captureMuseSessionId({ cwd: WORKSPACE, spawnedAtMs: 900, home }),
+    ).toBe(A);
+  });
+
+  it("ignores a 1.1.1 log that never writes runtime.session.metadata", () => {
+    home = mkdtempSync(join(tmpdir(), "muse-capture-"));
+    const dir = join(museSessionsRoot(home), "2026", "09", "11", A);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "session.jsonl"),
+      `${RETAINED_FRAME(A)}\n`,
+      "utf8",
+    );
+    expect(
+      captureMuseSessionId({ cwd: WORKSPACE, spawnedAtMs: 0, home }),
+    ).toBeUndefined();
+  });
 });
 
 describe("muse launch shape", () => {
@@ -152,5 +233,21 @@ describe("muse launch shape", () => {
     // template may advertise it as an injection route.
     expect(MUSE_TEMPLATE.argvSpec.agentFlag).toBeUndefined();
     expect(MUSE_TEMPLATE.argvSpec.systemPromptFlag).toBeUndefined();
+  });
+
+  it("offers the 1.1.1 reasoning-effort vocabulary including max", () => {
+    expect(MUSE_TEMPLATE.probedVersion).toBe("1.1.1-R2514.1");
+    expect(MUSE_TEMPLATE.efforts).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    const launch = resolveManagedLaunch("muse", { effort: "max" }, {});
+    expect(launch.argv).toEqual(["muse", "--reasoning-effort", "max"]);
   });
 });
