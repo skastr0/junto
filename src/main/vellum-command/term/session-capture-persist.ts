@@ -3,9 +3,12 @@
  *
  * A capture harness (Codex, Kimi, Muse, Devin, Cursor, Antigravity, Prime
  * Agent) never accepts a session id from Vellum Command: it mints its own and
- * announces it — in a hook payload, an env echo, or the welcome card. Until
- * that announcement is written to the seat's node, the id lives only in this
- * process's diagnostic map, so the next wake opens a brand-new session and the
+ * announces it — in a hook payload, an env echo, or a labeled card once one
+ * exists. Kimi 0.34.0+ starts with a blank welcome-card `Session:` line; that
+ * spawn card is not a receipt. The id is scraped later if the card fills,
+ * then proved against `~/.kimi-code/sessions/<workDirKey>/<id>/`. Until a
+ * proven id is written to the seat's node, it lives only in this process's
+ * diagnostic map, so the next wake opens a brand-new session and the
  * operator's conversation is gone even though the harness still has it on disk.
  *
  * Three rules hold here, because the input is terminal text:

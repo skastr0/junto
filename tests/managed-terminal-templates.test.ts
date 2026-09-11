@@ -9,6 +9,7 @@ import {
   GROK_TEMPLATE,
   HERMES_TEMPLATE,
   HARNESS_IDS,
+  KIMI_TEMPLATE,
   MANAGED_TERMINAL_TEMPLATES,
   PI_TEMPLATE,
   PRIME_AGENT_TEMPLATE,
@@ -834,6 +835,32 @@ describe("resolveManagedLaunch argv", () => {
       "-m",
       "kimi-k3",
     ]);
+  });
+
+  it("kimi 0.34.0: resumeReinjection frozen never builds --agent-file beside -S", () => {
+    // Live 0.34.0 exits 1: Cannot combine --agent/--agent-file with
+    // --session/--continue. The pair must never be on argv.
+    expect(KIMI_TEMPLATE.probedVersion).toBe("0.34.0");
+    expect(KIMI_TEMPLATE.argvSpec.resumeReinjection).toBe("frozen");
+    expect(KIMI_TEMPLATE.argvSpec.agentFlag).toBe("--agent-file");
+    expect(KIMI_TEMPLATE.argvSpec.resumeFlag).toBe("-S");
+    const resume = resolveManagedLaunch(
+      "kimi",
+      {
+        resumeId: "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc",
+        agentFile: "/tmp/agent.md",
+        systemPrompt: "DOCTRINE",
+      },
+      bareAmbient,
+    );
+    expect(resume.argv).toEqual([
+      "kimi",
+      "-S",
+      "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc",
+    ]);
+    expect(resume.argv).toContain("-S");
+    expect(resume.argv).not.toContain("--agent-file");
+    expect(resume.argv).not.toContain("/tmp/agent.md");
   });
 
   it("muse: model, reasoning effort, bare --yolo, positional prompt", () => {

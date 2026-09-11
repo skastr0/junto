@@ -209,7 +209,9 @@ describe("harness session existence (external proof)", () => {
       harnessSessionExists({ harness: "kimi", sessionId: sid, home }),
     ).toBe(false);
 
-    // Layout: $KIMI_CODE_HOME/sessions/<workDirKey>/<sessionId>/{state.json, agents/...}
+    // Layout: ~/.kimi-code/sessions/<workDirKey>/<sessionId>/{state.json, agents/...}
+    // Live 0.34.0 ids are session_<uuid> or ses_<uuid>. The welcome-card
+    // Session: line is blank at spawn and is not this proof.
     const dir = join(home, ".kimi-code", "sessions", "wd_vellum", sid);
     mkdirSync(join(dir, "agents", "main"), { recursive: true });
     writeFileSync(join(dir, "state.json"), "{}");

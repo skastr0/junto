@@ -741,24 +741,29 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
 /**
  * Kimi Code (Moonshot) — Tier A by agent file, capture session, native hook feed.
  * Verified 0.29.0: NO argv prompt slot in the TUI (promptMode "none"); -m model;
- * --yolo/--auto approval (no enum); resume `-S <id>` / `-c`; no pin (capture via
- * SessionStart hook stdin or the welcome-card "Session: <uuid>" line); 20-event
- * JSON-stdin hooks (PermissionRequest→blocked) — but hooks live in the user's
- * config, so Vellum Command never installs them (badge hooks: false).
+ * --yolo/--auto approval (no enum); resume `-S <id>` (never bare `-S` / `-c`);
+ * no pin. 20-event JSON-stdin hooks (PermissionRequest→blocked) live in the
+ * user's config, so Vellum Command never installs them (badge hooks: false).
  *
- * Re-probed 0.34.0 (2026-08-25): `--agent-file <path>` loads a Markdown agent
- * definition and its body IS the system prompt (canary honored in a live
- * session), so the seat is briefed before turn 1 with no PTY paste. Frontmatter
- * validation is strict and pre-flight — a bad key exits 1 before any model call
- * — and `allowed-tools` is a Claude-side key Kimi warns it may misread, so
- * `agent-file-spec` emits only name/description/tools. The flag cannot combine
- * with `--session`/`--continue`, which is why `resumeReinjection` is frozen: a
- * resumed seat keeps its original briefing and degrades to typed delivery.
+ * Re-probed 0.34.0 (2026-09-11):
+ * - The TUI starts without a session (changelog 0.33.0). A trusted-cwd welcome
+ *   card prints a blank `Session:` line plus "No session yet — one will be
+ *   created on your first message." Capture treats `Session: <id>` as a
+ *   post-first-message scrape, never a startup receipt. Whether the card
+ *   fills after the first turn is UNVERIFIED. Durable proof is
+ *   `~/.kimi-code/sessions/<workDirKey>/<id>/` (`kimiSessionExists`).
+ * - `--agent-file <path>` still loads a Markdown agent whose body IS the
+ *   system prompt (2026-08-25 canary). Frontmatter is pre-flight — a bad key
+ *   exits 1 — so `agent-file-spec` emits only name/description/tools.
+ * - `--agent-file` cannot combine with `-S` / `--session` / `--continue`.
+ *   Live 0.34.0 exits 1: "Cannot combine --agent/--agent-file with
+ *   --session/--continue". `resumeReinjection` stays frozen; `buildArgv`
+ *   never emits that pair.
  */
 export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "kimi",
   displayName: "Kimi Code",
-  probedVersion: "0.29.0",
+  probedVersion: "0.34.0",
   argvSpec: {
     binary: "kimi",
     prefix: [],

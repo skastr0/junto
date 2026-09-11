@@ -135,6 +135,8 @@ describe("kimi template declares Tier A honestly", () => {
     // Still no system-prompt flag: the file IS the only carrier.
     expect(KIMI_TEMPLATE.argvSpec.systemPromptFlag).toBeUndefined();
     // `--agent-file` cannot combine with `--session`, so resume stays frozen.
+    // Live 0.34.0 exits 1 on that pair.
+    expect(KIMI_TEMPLATE.probedVersion).toBe("0.34.0");
     expect(KIMI_TEMPLATE.argvSpec.resumeReinjection).toBe("frozen");
   });
 });
@@ -184,6 +186,10 @@ describe("kimi injection at spawn and on resume", () => {
     expect(plan.launch.argv).not.toContain("/tmp/seat.md");
     // The model still rides: resume re-passes every template-owned flag.
     expect(plan.launch.argv).toContain("-m");
+    // 0.34.0 exits 1 if --agent-file rides beside -S.
+    expect(
+      plan.launch.argv.includes("-S") && plan.launch.argv.includes("--agent-file"),
+    ).toBe(false);
   });
 
   it("a detached terminal gets no file and no doctrine", () => {

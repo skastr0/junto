@@ -755,6 +755,31 @@ describe("LocalSessionHost", () => {
     );
   });
 
+  it("kimi spawn welcome card is not a session id; a later Session: line is", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_432),
+    }));
+    const host = hostWith(fake);
+    host.createAgentSeat({
+      bindingId: "kimi-session-capture",
+      harness: "kimi",
+      agentKey: "local:kimi",
+      launch: { kind: "harness", argv: ["kimi"] },
+    });
+
+    fake.controllers[0]?.emitData(
+      "Session:\nNo session yet — one will be created on your first message.\n",
+    );
+    expect(getCapturedSessionId("kimi-session-capture")).toBeUndefined();
+
+    fake.controllers[0]?.emitData(
+      "Session: session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc\n",
+    );
+    expect(getCapturedSessionId("kimi-session-capture")).toBe(
+      "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc",
+    );
+  });
+
   it("keeps client-exit cleanup in the shutdown fence until the Prime stop receipt settles", async () => {
     const identities = makeSyntheticIdentityMap();
     setProcessIdentityMapForTests(identities);

@@ -69,6 +69,7 @@ import {
   clearCapturedSessionId,
   getCapturedSessionId,
 } from "./session-id-store";
+import { extractKimiSessionIdFromText } from "./templates/kimi-session";
 import {
   scheduleCapturedSessionPersist,
   usesCapturedSession,
@@ -1997,9 +1998,17 @@ export class LocalSessionHost extends EventEmitter {
     // PTY text is untrusted and this value is neither durable nor a cold-resume
     // capability. Retain a bounded tail so a label split across chunks remains
     // parseable; the first candidate wins within this process lifetime.
+    //
+    // Kimi 0.34.0 starts with a blank welcome-card `Session:` line. That spawn
+    // card is not an id — `extractKimiSessionIdFromText` waits for a later
+    // filled `Session: <id>` (post-first-message scrape) or a structured
+    // session_id. Proof is still ~/.kimi-code/sessions/<workDirKey>/<id>/.
     if ((rec.agentKey || rec.harness) && !getCapturedSessionId(rec.bindingId)) {
       const captureText = `${rec.sessionCaptureTail}${data}`;
-      const sid = extractSessionIdFromText(captureText);
+      const sid =
+        rec.harness === "kimi"
+          ? extractKimiSessionIdFromText(captureText)
+          : extractSessionIdFromText(captureText);
       if (sid) {
         recordCapturedSessionId(rec.bindingId, sid);
         this.persistCapturedSession(rec, sid);

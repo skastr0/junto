@@ -373,10 +373,12 @@ const buildArgv = (
   //
   // On a resume the carriers ride only where the harness honors them
   // (`resumeReinjection`). Codex ignores re-passed instructions on an existing
-  // thread and Kimi refuses `--agent-file` alongside `--session` outright, so
-  // emitting the flag there is either a lie about what the seat was told or an
-  // argv the harness rejects. Those harnesses keep the doctrine they were given
-  // at creation; the injection supervisor re-orients them by notice instead.
+  // thread and Kimi refuses `--agent-file` alongside `--session` outright
+  // (0.34.0 exits 1: "Cannot combine --agent/--agent-file with
+  // --session/--continue"), so emitting the flag there is either a lie about
+  // what the seat was told or an argv the harness rejects. Those harnesses
+  // keep the doctrine they were given at creation; the injection supervisor
+  // re-orients them by notice instead.
   const injectionCarriersAllowed =
     !resumeId || reinjectableOnResume(template);
   if (injectionCarriersAllowed) {

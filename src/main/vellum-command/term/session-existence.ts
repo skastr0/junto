@@ -373,7 +373,11 @@ const primeAgentSessionExists = (sessionId: string, home: string): boolean => {
 
 /**
  * Kimi sessions: $KIMI_CODE_HOME/sessions/<workDirKey>/<sessionId>/ (dir name
- * equals the session id, ses_<uuid> or session_<uuid>). Probe any workDirKey.
+ * equals the session id, `ses_<uuid>` or `session_<uuid>`). Probe any
+ * workDirKey. Verified on 0.34.0 — this directory is the proof `-S <id>`
+ * reads. The welcome-card `Session:` line is blank at spawn (0.33.0+ lazy
+ * creation) and is never treated as a startup receipt; a later scrape is
+ * only stored after this probe succeeds.
  */
 const kimiSessionExists = (sessionId: string, root: string): boolean => {
   if (!isDir(root)) return false;
