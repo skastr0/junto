@@ -525,9 +525,23 @@ export const BoardTopic = Schema.Struct({
 });
 export type BoardTopic = typeof BoardTopic.Type;
 
+/**
+ * Reader-local projected topic: a topic plus the operator's unread-post count
+ * computed at the repository read boundary. Never a fact payload field —
+ * actions and immutable results carry plain BoardTopic.
+ */
+export const BoardTopicView = Schema.Struct({
+  ...BoardTopic.fields,
+  unreadPostCount: Schema.Number.pipe(
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+});
+export type BoardTopicView = typeof BoardTopicView.Type;
+
 /** Board sink contents (full lane at snapshot; ether may strip to glance). */
 export const WorkBoard = Schema.Struct({
-  topics: Schema.Array(BoardTopic),
+  topics: Schema.Array(BoardTopicView),
 });
 export type WorkBoard = typeof WorkBoard.Type;
 
@@ -541,12 +555,14 @@ export const BoardGlanceTopic = Schema.Struct({
   postCount: Schema.Number,
   lastActivityAt: Schema.String,
   authorLabel: Schema.optionalKey(Schema.String),
+  /** Operator's unread posts on this topic (own posts never count). */
+  unreadPostCount: Schema.optionalKey(Schema.Number),
 });
 export type BoardGlanceTopic = typeof BoardGlanceTopic.Type;
 
 export const EtherBoard = Schema.Struct({
   topics: Schema.Array(BoardGlanceTopic),
-  /** Operator-local unread topic count when known. */
+  /** Operator-local unread post count when known (sum over topics). */
   unread: Schema.optionalKey(Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
 });
 export type EtherBoard = typeof EtherBoard.Type;

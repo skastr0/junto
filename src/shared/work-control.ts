@@ -707,7 +707,12 @@ export const BoardMarkReadArgs = Schema.Struct({
   target: Schema.String,
   topicId: Schema.String,
   /** Inclusive last post position read; omit = mark all current posts. */
-  upToPosition: Schema.optionalKey(Schema.Number),
+  upToPosition: Schema.optionalKey(
+    Schema.Number.pipe(
+      Schema.check(Schema.isInt()),
+      Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+    ),
+  ),
 });
 export type BoardMarkReadArgs = typeof BoardMarkReadArgs.Type;
 

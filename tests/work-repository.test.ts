@@ -1808,6 +1808,129 @@ describe("WorkRepository board CC-homed facts", () => {
     });
   });
 
+  it("counts unread as non-operator posts past the operator cursor; mark-read clamps", async () => {
+    const topicId = "topic-unread";
+    const actor = { kind: "actor" as const, label: "scout" };
+    await runtime.runPromise(
+      repository.createBoardTopic({
+        sink: boardSink,
+        basis: authorialBasis,
+        topic: {
+          topicId,
+          title: "unread lane",
+          state: "open",
+          openedBy: operator,
+          openedAt: observedAt,
+          postCount: 0,
+          lastActivityAt: observedAt,
+        },
+        createdBy: operator,
+        originAt: observedAt,
+        receivedAt: observedAt,
+      }),
+    );
+    const append = (post: {
+      postId: string;
+      author: typeof operator | typeof actor;
+      position: number;
+    }) =>
+      runtime.runPromise(
+        repository.appendBoardPost({
+          sink: boardSink,
+          basis: authorialBasis,
+          post: {
+            ...post,
+            topicId,
+            parts: [{ kind: "text" as const, text: post.postId }],
+            createdAt: observedAt,
+          },
+          createdBy: post.author,
+          originAt: observedAt,
+          receivedAt: observedAt,
+        }),
+      );
+    await append({ postId: "u-op-0", author: operator, position: 0 });
+    await append({ postId: "u-agent-1", author: actor, position: 1 });
+    await append({ postId: "u-agent-2", author: actor, position: 2 });
+
+    const snap = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    const topic = snap.board.topics.find((t) => t.topicId === topicId);
+    // Own (operator) posts never count; both agent posts are unread.
+    expect(topic?.unreadPostCount).toBe(2);
+
+    // Reading up to 0 (the operator's own opening post) leaves both agent
+    // posts unread.
+    await runtime.runPromise(
+      repository.markBoardRead({
+        sink: boardSink,
+        topicId,
+        principalKey: "operator",
+        lastReadPosition: 0,
+      }),
+    );
+    const afterFirst = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    expect(
+      afterFirst.board.topics.find((t) => t.topicId === topicId)
+        ?.unreadPostCount,
+    ).toBe(2);
+
+    await runtime.runPromise(
+      repository.markBoardRead({
+        sink: boardSink,
+        topicId,
+        principalKey: "operator",
+        lastReadPosition: 1,
+      }),
+    );
+    const afterSecond = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    expect(
+      afterSecond.board.topics.find((t) => t.topicId === topicId)
+        ?.unreadPostCount,
+    ).toBe(1);
+
+    // An oversized cursor clamps to the topic's real max inside the write
+    // transaction, so a post appended later is still unread.
+    await runtime.runPromise(
+      repository.markBoardRead({
+        sink: boardSink,
+        topicId,
+        principalKey: "operator",
+        lastReadPosition: 1e9,
+      }),
+    );
+    await append({ postId: "u-agent-3", author: actor, position: 3 });
+    const afterClamp = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    expect(
+      afterClamp.board.topics.find((t) => t.topicId === topicId)
+        ?.unreadPostCount,
+    ).toBe(1);
+
+    // Acknowledging everything (within the real max) clears the lane.
+    await runtime.runPromise(
+      repository.markBoardRead({
+        sink: boardSink,
+        topicId,
+        principalKey: "operator",
+        lastReadPosition: 3,
+      }),
+    );
+    const afterClear = await runtime.runPromise(
+      repository.readSnapshot(boardSink.canvasName, boardSink.nodeId),
+    );
+    expect(
+      afterClear.board.topics.find((t) => t.topicId === topicId)
+        ?.unreadPostCount,
+    ).toBe(0);
+  });
+
   it("rejects board writes when local authority is Remote", async () => {
     const remoteRoot = join(
       tmpdir(),

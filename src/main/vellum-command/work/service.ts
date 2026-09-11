@@ -3313,6 +3313,18 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
+            // Validate before either local creation or remote enqueue: the
+            // repository decodes with strict schema and an out-of-window
+            // title would surface as an untyped defect.
+            const cleanTitle = title.trim();
+            if (cleanTitle.length < 1 || cleanTitle.length > 512) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "topic title must be between 1 and 512 characters",
+                }),
+              );
+            }
             const now = new Date().toISOString();
             const topicId = ids.id();
             const parts =
@@ -3332,7 +3344,7 @@ export const WorkLive = Layer.effect(
                 : undefined;
             const topic = {
               topicId,
-              title: title.trim(),
+              title: cleanTitle,
               state: "open" as const,
               openedBy: author,
               openedAt: now,
@@ -3395,6 +3407,16 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
+            // A blank post would fail the BoardPost parts minimum only at
+            // repository decode — as an untyped defect. Refuse it here.
+            if (text.trim().length === 0) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "post text must not be empty",
+                }),
+              );
+            }
             const now = new Date().toISOString();
             const cleanTags =
               tags && tags.length > 0
@@ -3449,6 +3471,17 @@ export const WorkLive = Layer.effect(
       workBoardMarkRead: (canvas, nodeId, topicId, principalKey, upToPosition) =>
         asResult(
           Effect.gen(function* () {
+            if (
+              upToPosition !== undefined &&
+              (!Number.isSafeInteger(upToPosition) || upToPosition < 0)
+            ) {
+              return yield* Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "upToPosition must be a non-negative integer",
+                }),
+              );
+            }
             const snap = yield* repository
               .readSnapshot(canvas, nodeId)
               .pipe(Effect.mapError(toWorkServiceError));
