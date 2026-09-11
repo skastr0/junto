@@ -22,11 +22,11 @@ const localHost: RemoteHost = {
   capabilities: ["terminal", "browser"],
 };
 
-const enrolledMac: RemoteHost = {
-  id: "mac-mini",
-  label: "mac-mini",
+const enrolledRemote: RemoteHost = {
+  id: "remote-a",
+  label: "remote-a",
   kind: "remote",
-  sshEndpoint: "mac-mini",
+  sshEndpoint: "remote-a",
   capabilities: ["terminal", "browser"],
 };
 
@@ -53,7 +53,7 @@ const shipRoutingDoc = (): CanvasDoc => {
       region: {
         hold: true,
         defaults: {
-          paths: { local: "/Users/operator/Projects/vellum", "mac-mini": "/tmp/mac-mini" },
+          paths: { local: "/Users/operator/Projects/vellum", "remote-a": "/tmp/remote-a" },
         },
       },
     },
@@ -105,8 +105,8 @@ test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch",
     await form.getByRole("button", { name: "save host" }).click();
     await expect(form).toHaveAttribute("aria-label", "Add remote host");
     await expect(form.getByRole("alert")).toHaveText("Label and SSH endpoint are required.");
-    await form.getByRole("textbox", { name: "Host label" }).fill("mac-mini");
-    await form.getByRole("textbox", { name: "Host endpoint" }).fill("mac-mini");
+    await form.getByRole("textbox", { name: "Host label" }).fill("remote-a");
+    await form.getByRole("textbox", { name: "Host endpoint" }).fill("remote-a");
     const terminalCapability = form.locator(".fleet-form__capabilities button", { hasText: "terminal" });
     const browserCapability = form.locator(".fleet-form__capabilities button", { hasText: "browser" });
     await terminalCapability.click();
@@ -117,7 +117,7 @@ test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch",
     await form.getByRole("button", { name: "save host" }).click();
     await expect(form).toHaveCount(0);
     await expect(panel.locator(".fleet-station")).toHaveCount(1);
-    await expect(panel).toContainText("mac-mini");
+    await expect(panel).toContainText("remote-a");
     await shot(page, "02-enrolled-host");
 
     await page.keyboard.press("Escape");
@@ -135,7 +135,7 @@ test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch",
 test("SHIP station detail shows probe truth and main-owned deploy gating", async () => {
   const vellumCommand = await launchVellum({
     seedCanvases: { "fleet-ship-detail": emptyFleetDoc },
-    seedHosts: [localHost, enrolledMac, terminalOnlyMac],
+    seedHosts: [localHost, enrolledRemote, terminalOnlyMac],
   });
   try {
     const { page } = vellumCommand;
@@ -144,12 +144,12 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
     await expect(panel.locator(".fleet-station")).toHaveCount(2, { timeout: 15_000 });
     await expect(panel.locator(".fleet-machine__icon")).toHaveCount(3, { timeout: 20_000 });
 
-    const macStation = panel.locator(".fleet-station", { hasText: "mac-mini" });
-    await macStation.click();
+    const remoteStation = panel.locator(".fleet-station", { hasText: "remote-a" });
+    await remoteStation.click();
     const detail = page.getByRole("complementary", { name: "Fleet node detail" });
     await expect(detail).toBeVisible();
     await expect(detail).toContainText("Enrolled machine");
-    await expect(detail).toContainText("mac-mini");
+    await expect(detail).toContainText("remote-a");
     await expect(detail.getByText("Remote deploy", { exact: true })).toBeVisible();
     await expect(detail.locator(".fleet-detail__section-label", { hasText: "Linux host" })).toHaveCount(0);
     const deploy = detail.getByRole("button", { name: "Deploy Vellum Command Remote" });
@@ -174,7 +174,7 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
 test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, and Machine settings", async () => {
   const vellumCommand = await launchVellum({
     seedCanvases: { "fleet-ship-routing": shipRoutingDoc() },
-    seedHosts: [localHost, enrolledMac],
+    seedHosts: [localHost, enrolledRemote],
   });
   try {
     const { page } = vellumCommand;
@@ -187,8 +187,8 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
     const paths = page.getByRole("dialog", { name: "Region folder paths" });
     await expect(paths).toBeVisible();
     await expect(paths.getByRole("option", { name: /local|this machine/i })).toBeVisible();
-    await paths.getByRole("option", { name: /mac-mini/i }).click();
-    await expect(paths.getByRole("textbox", { name: /Working directory for mac-mini/i })).toHaveValue("/tmp/mac-mini");
+    await paths.getByRole("option", { name: /remote-a/i }).click();
+    await expect(paths.getByRole("textbox", { name: /Working directory for remote-a/i })).toHaveValue("/tmp/remote-a");
     await shot(page, "06-region-paths-ship");
     await page.keyboard.press("Escape");
     await expect(paths).toHaveCount(0);
@@ -200,9 +200,9 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
     await expect(queueHome).toBeVisible();
     await queueHome.click();
     const queueOptions = page.getByRole("listbox", { name: "Task queue home host" });
-    await expect(queueOptions.getByRole("option", { name: /mac-mini/i })).toBeVisible();
-    await queueOptions.getByRole("option", { name: /mac-mini/i }).click();
-    await expect(queueHome).toContainText(/mac-mini/i);
+    await expect(queueOptions.getByRole("option", { name: /remote-a/i })).toBeVisible();
+    await queueOptions.getByRole("option", { name: /remote-a/i }).click();
+    await expect(queueHome).toContainText(/remote-a/i);
     await shot(page, "07-queue-home-ship");
 
     await tasks.getByTestId("tasks-card").dispatchEvent("dblclick");
@@ -218,18 +218,18 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
     const agentHost = add.getByLabel("Agent host");
     await agentHost.click();
     const agentOptions = page.getByRole("listbox", { name: "Agent host" });
-    await expect(agentOptions.getByRole("option", { name: /mac-mini/i })).toBeVisible();
-    await agentOptions.getByRole("option", { name: /mac-mini/i }).click();
-    await expect(agentHost).toContainText(/mac-mini/i);
+    await expect(agentOptions.getByRole("option", { name: /remote-a/i })).toBeVisible();
+    await agentOptions.getByRole("option", { name: /remote-a/i }).click();
+    await expect(agentHost).toContainText(/remote-a/i);
     await add.getByRole("button", { name: /^Terminal/i }).click();
     const terminalWizard = page.getByRole("dialog", { name: "New terminal" });
     await expect(terminalWizard).toBeVisible();
     const terminalHost = terminalWizard.getByLabel("Host");
     await terminalHost.click();
     const terminalOptions = page.getByRole("listbox", { name: "Host" });
-    await expect(terminalOptions.getByRole("option", { name: /mac-mini/i })).toBeVisible();
-    await terminalOptions.getByRole("option", { name: /mac-mini/i }).click();
-    await expect(terminalHost).toContainText(/mac-mini/i);
+    await expect(terminalOptions.getByRole("option", { name: /remote-a/i })).toBeVisible();
+    await terminalOptions.getByRole("option", { name: /remote-a/i }).click();
+    await expect(terminalHost).toContainText(/remote-a/i);
     await shot(page, "08-terminal-host-choice-ship");
     await page.keyboard.press("Escape");
     await expect(terminalWizard).toHaveCount(0);
@@ -251,7 +251,7 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
 test("SHIP Fleet stays usable in bright mode, reduced motion, and a narrow viewport", async () => {
   const vellumCommand = await launchVellum({
     seedCanvases: { "fleet-ship-a11y": emptyFleetDoc },
-    seedHosts: [localHost, enrolledMac],
+    seedHosts: [localHost, enrolledRemote],
   });
   try {
     const { page } = vellumCommand;

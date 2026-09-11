@@ -780,7 +780,7 @@ test("capture the fleet manager overlay", async () => {
         id: "mac-mini",
         label: "mac-mini",
         kind: "remote",
-        sshEndpoint: "mac-mini",
+        sshEndpoint: "remote-a",
         capabilities: ["hermes", "terminal"],
         hermesId: "remote-a",
       },
