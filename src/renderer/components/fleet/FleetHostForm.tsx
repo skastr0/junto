@@ -128,7 +128,7 @@ export function FleetHostForm({
             aria-label="Host label"
             value={label}
             onChange={(event) => setLabel(event.target.value)}
-            placeholder="mac-mini"
+            placeholder="remote-a"
           />
         </FieldLabel>
         <FieldLabel>

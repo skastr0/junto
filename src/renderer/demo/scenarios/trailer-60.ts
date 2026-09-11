@@ -159,7 +159,7 @@ const crewSpec = (n: number): CrewSpec => {
   return {
     id: `demo-h${nn}`,
     n,
-    host: n % 2 === 1 ? "local" : "remote-a",
+    host: n % 2 === 1 ? "local" : "mac_mini",
     paneId: `w1:p${nn}`,
     terminalId: `term-p${nn}`,
     agent,
@@ -337,7 +337,7 @@ const demoAgent: TextNode = {
   y: 160,
   width: 240,
   height: 96,
-  ether: { entity: { kind: "agent", name: "local:mira" } },
+  ether: { entity: { kind: "agent", name: "local:profile-13" } },
 };
 
 // --- beat map --------------------------------------------------------------------

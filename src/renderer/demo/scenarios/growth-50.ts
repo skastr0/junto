@@ -111,7 +111,7 @@ const spawn = (spec: CrewSpec): readonly DemoOp[] => [addNodesOp([crewNode(spec)
 
 // --- the crew roster ----------------------------------------------------------
 // Region A: build lane (local). Region B: deep research (local).
-// Region C: remote-a remote. Finale rows fill remaining seats.
+// Region C: mac_mini remote. Finale rows fill remaining seats.
 
 const A = [
   crew(1, "local", "rivet", "typecheck pass", 0, 0),
@@ -133,18 +133,18 @@ const B = [
 ] as const;
 
 const C = [
-  crew(14, "remote-a", "vector", "e2e suite", 1020, 540),
-  crew(15, "remote-a", "gauge", "perf trace", 1320, 540),
-  crew(16, "remote-a", "folio", "nightly build", 1620, 540),
-  crew(17, "remote-a", "rivet", "screenshot pass", 1020, 720),
-  crew(18, "remote-a", "brisk", "package audit", 1320, 720),
-  crew(19, "remote-a", "mote", "log triage", 1620, 720),
+  crew(14, "mac_mini", "vector", "e2e suite", 1020, 540),
+  crew(15, "mac_mini", "gauge", "perf trace", 1320, 540),
+  crew(16, "mac_mini", "folio", "nightly build", 1620, 540),
+  crew(17, "mac_mini", "rivet", "screenshot pass", 1020, 720),
+  crew(18, "mac_mini", "brisk", "package audit", 1320, 720),
+  crew(19, "mac_mini", "mote", "log triage", 1620, 720),
 ] as const;
 
 const FINALE = [
   crew(20, "local", "ward", "changelog", 600, 720),
-  crew(21, "remote-a", "relay", "backup verify", 1920, 540),
-  crew(22, "remote-a", "vector", "queue drain", 1920, 720),
+  crew(21, "mac_mini", "relay", "backup verify", 1920, 540),
+  crew(22, "mac_mini", "vector", "queue drain", 1920, 720),
 ] as const;
 
 // --- work-plane fixtures ------------------------------------------------------
@@ -207,7 +207,7 @@ const regionB: GroupNode = {
 const regionC: GroupNode = {
   id: "demo-g-region-c",
   type: "group",
-  label: "remote-a",
+  label: "mac_mini",
   x: 940,
   y: 460,
   width: 1300,
