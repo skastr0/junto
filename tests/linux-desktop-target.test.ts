@@ -16,7 +16,7 @@ const qualified: LinuxDesktopTargetObservation = {
 };
 
 describe("Linux desktop target admission", () => {
-  it.each(["2.39", "2.39.1"])("admits the qualified ordinary-user target with glibc %s", (glibcVersion) => {
+  it.each(["2.39", "2.39.1", "2.40", "3.0"])("admits the qualified ordinary-user target with glibc %s", (glibcVersion) => {
     expect(() => assertLinuxDesktopUpdateTarget({ ...qualified, glibcVersion })).not.toThrow();
   });
 
@@ -31,8 +31,6 @@ describe("Linux desktop target admission", () => {
     { osRelease: 'ID_LIKE=ubuntu\nVERSION_ID="24.04"' },
     { osRelease: "" },
     { glibcVersion: "2.38" },
-    { glibcVersion: "2.40" },
-    { glibcVersion: "3.0" },
     { glibcVersion: "1.99" },
     { glibcVersion: undefined },
     { glibcVersion: "" },

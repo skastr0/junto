@@ -129,7 +129,12 @@ checkout, not the downloads directory.
 - It does not accept downloaded keyrings, trust overrides, custom origins, or
   force flags.
 - It does not install through apt, `.deb`, `/opt`, or any privileged helper.
-- GitHub Releases for the bootstrap are not the application update feed.
+- GitHub Releases for the bootstrap are not the application update feed. A
+  qualified bootstrap publication includes the executable, its attestation, the
+  relink application object (`-relink.js`), CLI notices, Bun 1.3.13 runtime
+  notices, matching source archive, and `RELINK.md`. Corresponding Bun/WebKit
+  source archives are prepared with `scripts/prepare-runtime-sources.ts` from
+  the extracted source tree; they are not stored in git.
 
 Existing alpha installations are not retroactively authenticated by publishing
 a bootstrap. Trusted incumbents keep using the in-app updater.

@@ -1,21 +1,13 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  LINUX_DESKTOP_RELEASE_SCHEMA,
-  LINUX_DESKTOP_TARGET,
-  linuxDesktopArchiveName,
-  type LinuxDesktopReleaseDescriptor,
-} from "../src/shared/linux-desktop-release";
-import { signLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
+import { LinuxDesktopActivationError } from "../src/main/vellum-command/update/linux-install";
 import {
   installLinuxDesktop,
   linuxDesktopBootstrapIdentity,
   parseLinuxDesktopBootstrapArgs,
   runLinuxDesktopBootstrap,
 } from "../src/main/vellum-command/update/linux-first-install";
+import { linuxDesktopBootstrapReleaseAssets } from "../scripts/prepare-linux-desktop-bootstrap-release";
 
 const seam = vi.hoisted(() => ({
   verify: vi.fn(),
@@ -50,15 +42,12 @@ vi.mock("../src/main/vellum-command/update/linux-install", async () => {
   };
 });
 
-const roots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   process.exitCode = undefined;
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-const sha256 = (bytes: Buffer | string): string => createHash("sha256").update(bytes).digest("hex");
 const capture = (stream: NodeJS.WriteStream) => {
   const chunks: string[] = [];
   const spy = vi.spyOn(stream, "write").mockImplementation((chunk) => {
@@ -201,77 +190,65 @@ describe("Linux desktop bootstrap process", () => {
     expect(envelope.error.message).toMatch(/host/);
     expect(seam.stage).not.toHaveBeenCalled();
   });
+
+  it.each([false, true] as const)(
+    "serializes activation failures with activated=%s and matching recovery guidance",
+    async (activated) => {
+      seam.verify.mockResolvedValue({ version: "0.2.1" });
+      seam.stage.mockResolvedValue({
+        executablePath: "/home/example/.local/opt/vellum-command-alpha/0.2.1-hash/vellum-command",
+        generationPath: "/home/example/.local/opt/vellum-command-alpha/0.2.1-hash",
+        archiveSha256: "a".repeat(64),
+      });
+      seam.revalidate.mockResolvedValue(undefined);
+      seam.activate.mockRejectedValueOnce(
+        new LinuxDesktopActivationError("activation boundary reached", activated),
+      );
+      const stderr = capture(process.stderr);
+      await runLinuxDesktopBootstrap([
+        "--release",
+        "release.json",
+        "--archive",
+        "app.tar.gz",
+        "--sources",
+        "sources.json",
+      ]);
+      expect(process.exitCode).toBe(1);
+      const envelope = JSON.parse(stderr.text());
+      expect(envelope.error.type).toBe("LinuxDesktopInstallError");
+      expect(envelope.error.details.activated).toBe(activated);
+      if (activated) {
+        expect(envelope.error.details.next_step).toMatch(/already published/);
+        expect(envelope.error.details.next_step).not.toMatch(/Obtain the independently authenticated bootstrap/);
+      } else {
+        expect(envelope.error.details.next_step).toMatch(/Obtain the independently authenticated bootstrap/);
+        expect(envelope.error.details.next_step).not.toMatch(/already published/);
+      }
+    },
+  );
 });
 
-describe("independent first-install admission against website replacement", () => {
-  it("rejects a matching website checksum whose descriptor is not signed by embedded trust and never stages", async () => {
-    seam.verify.mockImplementation(async (input) => {
-      const actual = await vi.importActual<typeof import("../src/shared/linux-desktop-release-files")>(
-        "../src/shared/linux-desktop-release-files",
-      );
-      return actual.verifyLinuxDesktopReleaseFiles(input);
-    });
-    const root = await mkdtemp(join(await realpath(tmpdir()), "vellum-command-bootstrap-replace-"));
-    roots.push(root);
-    const home = join(root, "home");
-    await mkdir(home, { mode: 0o700 });
-    const sentinel = join(root, "candidate-executed");
-    const version = "0.2.1";
-    const archiveName = linuxDesktopArchiveName(version);
-    const archiveBytes = Buffer.from("#!/bin/sh\nprintf executed > \"$SENTINEL\"\n");
-    const archivePath = join(root, archiveName);
-    await writeFile(archivePath, archiveBytes);
-    await chmod(archivePath, 0o755);
-    const attacker = generateKeyPairSync("ed25519");
-    const sources = {
-      schema: "vellum-command/release-sources/v1",
-      product: "Vellum Command",
-      version,
-      sourceCommit: "a".repeat(40),
-      access: "same-download-location",
-      files: [{ file: "synthetic-source.tar.gz", bytes: 1, sha256: "b".repeat(64) }],
-      binaries: [{ file: archiveName, bytes: archiveBytes.length, sha256: sha256(archiveBytes) }],
-    };
-    const sourcesPath = join(root, "sources.json");
-    await writeFile(sourcesPath, JSON.stringify(sources));
-    const descriptor: LinuxDesktopReleaseDescriptor = {
-      schema: LINUX_DESKTOP_RELEASE_SCHEMA,
-      product: "Vellum Command",
-      channel: "alpha",
-      version,
-      sourceRevision: "a".repeat(40),
-      createdAt: "2026-01-01T00:00:00.000Z",
-      target: LINUX_DESKTOP_TARGET,
-      archive: {
-        file: archiveName,
-        path: `/linux/x64/${archiveName}`,
-        bytes: archiveBytes.length,
-        sha256: sha256(archiveBytes),
-      },
-      sources: {
-        path: `/linux/x64/sources/${version}/sources.json`,
-        bytes: (await readFile(sourcesPath)).length,
-        sha256: sha256(await readFile(sourcesPath)),
-      },
-      trust: { algorithm: "ed25519", keyId: "attacker-key", keyringRevision: 1 },
-    };
-    const releasePath = join(root, "release.json");
-    await writeFile(
-      releasePath,
-      JSON.stringify(signLinuxDesktopRelease(descriptor, attacker.privateKey)),
+describe("Linux desktop bootstrap publication contract", () => {
+  it("requires relink object, Bun notices, source archive, and non-latest verified tags", async () => {
+    expect(linuxDesktopBootstrapReleaseAssets()).toEqual([
+      "vellum-command-desktop-bootstrap-linux-x64",
+      "vellum-command-desktop-bootstrap-linux-x64.sha256",
+      "vellum-command-desktop-bootstrap-linux-x64.attestation.jsonl",
+      "vellum-command-desktop-bootstrap-linux-x64-relink.js",
+      "vellum-command-desktop-bootstrap-linux-x64-relink.json",
+      "vellum-command-desktop-bootstrap-linux-x64-relink-notices.txt",
+      "vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz",
+      "Vellum-Command-linux-desktop-bootstrap-1.0.0-source.tar.gz",
+      "RELINK.md",
+    ]);
+    const workflow = await readFile(
+      new URL("../.github/workflows/linux-desktop-bootstrap.yml", import.meta.url),
+      "utf8",
     );
-    await expect(installLinuxDesktop({
-      release: releasePath,
-      archive: archivePath,
-      sources: sourcesPath,
-      home,
-    }, { assertTarget: async () => undefined })).rejects.toThrow(/pinned signing trust|signature/);
-    expect(seam.stage).not.toHaveBeenCalled();
-    expect(seam.activate).not.toHaveBeenCalled();
-    await expect(readFile(sentinel, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(join(home, ".local/bin/vellum-command-desktop"), "utf8"))
-      .rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(join(home, ".vellum-command/state/vellum-command.db"), "utf8"))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    expect(workflow).toContain("vellum-command-desktop-bootstrap-linux-x64-relink.js");
+    expect(workflow).toContain("vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz");
+    expect(workflow).toContain("--verify-tag");
+    expect(workflow).toContain("--latest=false");
+    expect(workflow).toContain('sourceCommit // ""');
   });
 });

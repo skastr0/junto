@@ -163,6 +163,9 @@ export const runLinuxDesktopBootstrap = async (
     const activated = cause instanceof LinuxDesktopActivationError
       ? cause.activated
       : undefined;
+    const next_step = activated === true
+      ? "The Linux desktop launcher was already published before this failure; first install is complete on disk. Do not re-run the bootstrap or replace the launcher. Open ~/.local/bin/vellum-command-desktop when ready; future updates come from the app."
+      : "Obtain the independently authenticated bootstrap or a reviewed source checkout. Check the signed release inputs and supported host. An existing managed installation must update through the app.";
     writeJson(process.stderr, {
       ok: false,
       command: LINUX_DESKTOP_BOOTSTRAP_COMMAND,
@@ -170,8 +173,7 @@ export const runLinuxDesktopBootstrap = async (
         type: "LinuxDesktopInstallError",
         message: cause instanceof Error ? cause.message : String(cause),
         details: {
-          next_step:
-            "Obtain the independently authenticated bootstrap or a reviewed source checkout. Check the signed release inputs and supported host. An existing managed installation must update through the app.",
+          next_step,
           ...(activated === undefined ? {} : { activated }),
         },
       },
