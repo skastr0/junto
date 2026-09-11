@@ -75,6 +75,7 @@ export const IPC_CHANNELS = {
   listCanvases: "vellum-command:list-canvases",
   readCanvas: "vellum-command:read-canvas",
   writeCanvas: "vellum-command:write-canvas",
+  canvasOverseerSet: "vellum-command:canvas-overseer-set",
   createCanvas: "vellum-command:create-canvas",
   deleteCanvas: "vellum-command:delete-canvas",
   exportDigest: "vellum-command:export-digest",
@@ -290,6 +291,20 @@ export interface CanvasReadResult {
 export interface CanvasWriteResult {
   /** SHA-256 identity of the exact canonical database body committed. */
   readonly revision: string;
+}
+
+/** Direct operator delegation; never accepted by the agent command plane. */
+export interface CanvasOverseerSetInput {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly overseer: boolean;
+  readonly expectedRevision: string;
+}
+
+export interface CanvasOverseerSetResult {
+  readonly binding: { readonly hostId: string; readonly bindingId: string };
+  readonly overseer: boolean;
+  readonly affected: ReadonlyArray<{ readonly name: string; readonly revision: string }>;
 }
 
 export interface CanvasFlushRequest {
@@ -576,6 +591,9 @@ export interface VellumCommandApi extends UpdateApi {
     doc: CanvasDoc,
     expectedRevision?: string,
   ) => Promise<CanvasWriteResult>;
+  readonly canvasOverseerSet: (
+    input: CanvasOverseerSetInput,
+  ) => Promise<CanvasOverseerSetResult>;
   readonly createCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly deleteCanvas: (name: string) => Promise<{ name: string }>;
   readonly exportDigest: (name: string) => Promise<DigestResult>;

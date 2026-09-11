@@ -289,6 +289,7 @@ const call = (
 const startTestServer = async (options: {
   readonly runtime?: WorkControlRuntime;
   readonly onPreamble?: (event: PreambleEvent) => void;
+  readonly onOverseer?: WorkControlServerOptions["onOverseer"];
   readonly decorateRun?: (
     base: WorkControlServerOptions["run"],
   ) => WorkControlServerOptions["run"];
@@ -329,6 +330,7 @@ const startTestServer = async (options: {
     run: options.decorateRun?.(baseRun) ?? baseRun,
     authoringGate,
     onPreamble: options.onPreamble,
+    onOverseer: options.onOverseer,
   }, options.runtime);
   servers.push(server);
   return { server, authoringGate };
@@ -380,6 +382,52 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
+  it("admits only human-enabled overseers through the paused, no-edge administrative route", async () => {
+    const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request, caller) => ({
+      ok: true, operation: request.operation, data: { caller },
+    }));
+    const { server, authoringGate } = await startTestServer({
+      onOverseer: execute,
+      decorateRun: (base) => (effect) => base(effect.pipe(Effect.provideService(PausePlane, {
+        start: Effect.void,
+        stateFor: () => ({ playing: false, everPlayed: true, pausedNodes: ["agent"], pausedRegions: [] }),
+        setPlaying: () => Effect.void,
+        setScopePaused: () => Effect.void,
+        subscribe: () => () => {},
+      }))),
+    });
+    const runtime = runtimes.at(-1)!;
+    const canvases = await runtime.runPromise(CanvasesService);
+    const request = { token: token(), op: "overseer", args: { operation: "node.list" } };
+    expect(await call(server.socketPath, request)).toMatchObject({
+      ok: false, error: { type: "ScopeError" },
+    });
+    expect(execute).not.toHaveBeenCalled();
+    await runtime.runPromise(canvases.mutate("work-cli", (doc) => ({ ...doc, edges: [] })));
+    const toggle = async (overseer: boolean) => {
+      const read = await runtime.runPromise(canvases.read("work-cli"));
+      await runtime.runPromise(canvases.canvasOverseerSet({
+        canvasName: "work-cli", nodeId: "agent", overseer, expectedRevision: read.revision,
+      }));
+    };
+    await toggle(true);
+    expect(await call(server.socketPath, request)).toMatchObject({
+      ok: true, data: { ok: true, data: { caller: { canvasName: "work-cli", nodeId: "agent" } } },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(await call(server.socketPath, { ...request, args: {
+      operation: "node.move", args: { nodeId: "agent", x: 2, y: 3, overseer: true },
+    } })).toMatchObject({ ok: false, error: { type: "InputError" } });
+    expect(execute).toHaveBeenCalledTimes(1);
+    await toggle(false);
+    expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "ScopeError" } });
+    expect(execute).toHaveBeenCalledTimes(1);
+    await toggle(true);
+    authoringGate.beginFinalFlush();
+    expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "RuntimeDown" } });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves process-bound callers to exactly one projected actor reference", () => {
     const actor = actorRefFixture("agent", "work-cli");
     const caller = { canvasName: "work-cli", nodeId: "agent" };

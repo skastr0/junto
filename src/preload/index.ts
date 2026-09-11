@@ -388,6 +388,8 @@ const vellumApi: VellumCommandApi = {
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc, expectedRevision) =>
     invoke(IPC_CHANNELS.writeCanvas, IPC_TIMEOUT_MS, name, doc, expectedRevision),
+  canvasOverseerSet: (input) =>
+    invoke(IPC_CHANNELS.canvasOverseerSet, IPC_TIMEOUT_MS, input),
   createCanvas: (name) => invoke(IPC_CHANNELS.createCanvas, IPC_TIMEOUT_MS, name),
   deleteCanvas: (name) => invoke(IPC_CHANNELS.deleteCanvas, IPC_TIMEOUT_MS, name),
   exportDigest: (name) => invoke(IPC_CHANNELS.exportDigest, IPC_TIMEOUT_MS, name),

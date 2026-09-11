@@ -10,6 +10,8 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.canvas.create",
   "ipc.canvas.delete",
   "ipc.canvas.portfolio",
+  "ipc.canvas.overseer-set",
+  "control.overseer",
   "kernel.claim-tick",
   "startup.canvas.ensure-seed",
   "ipc.work.task-create",
@@ -80,6 +82,9 @@ const WORK_OPERATION_CLASSIFICATION = {
   // Preamble only emits an ephemeral renderer event; it does not author the
   // canvas document or a work-plane row.
   preamble: "read",
+  // The envelope can carry authoring or native effects. Close the complete
+  // administrative ingress during shutdown, independently of factory pause.
+  overseer: "authorial",
   "tasks.list": "read",
   "tasks.create": "authorial",
   "tasks.claim": "authorial",
@@ -114,6 +119,7 @@ export const classifyMainAuthoringWorkOperation = (
 ): MainAuthoringWorkClassification => WORK_OPERATION_CLASSIFICATION[operation];
 
 const WORK_AUTHORING_LABELS = {
+  overseer: "control.overseer",
   "tasks.create": "control.work.tasks-create",
   "tasks.claim": "control.work.tasks-claim",
   "tasks.update": "control.work.tasks-update",
@@ -135,6 +141,7 @@ const WORK_AUTHORING_LABELS = {
 } as const satisfies Record<
   Extract<
     WorkOpName,
+    | "overseer"
     | "tasks.create"
     | "tasks.claim"
     | "tasks.update"

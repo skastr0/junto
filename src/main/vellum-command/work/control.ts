@@ -14,6 +14,14 @@ import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, CanvasNode, Message, Part } from "@shared/canvas";
+import { isManagedAgentNode } from "@shared/actor-surface";
+import {
+  decodeOverseerArgs,
+  decodeOverseerRequest,
+  OVERSEER_MAX_REQUEST_BYTES,
+  type OverseerRequest,
+  type OverseerResult,
+} from "@shared/overseer-control";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import type { BoardAuthor, Task } from "@shared/work-model";
 import {
@@ -685,6 +693,12 @@ const PREAMBLE_TOOL = Object.freeze({
   input: { text: "..." },
 });
 
+const OVERSEER_TOOL = Object.freeze({
+  id: "overseer",
+  command: "vellum-command overseer skill",
+  description: "Learn Vellum Command canvas and node administration. Human-granted authority; independent of pause/play.",
+});
+
 const ensureCaller = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   doc: any,
@@ -873,11 +887,13 @@ const dispatchOp = (
     if (op === "capabilities") {
       const self = findNode(board, caller.nodeId)!;
       const connected = connectedCapabilities(board, caller.nodeId);
+      const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
       return {
         node: summarizeNode(self),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
-        tools: [PREAMBLE_TOOL],
+        tools: overseer ? [PREAMBLE_TOOL, OVERSEER_TOOL] : [PREAMBLE_TOOL],
+        overseer: { enabled: overseer, affectedByPause: false },
         protocol_version: WORK_PROTOCOL_VERSION,
         connected,
         co_members: regionVisibility(board, caller.nodeId),
@@ -894,6 +910,8 @@ const dispatchOp = (
       const self = findNode(board, caller.nodeId)!;
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
+      const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
+      const tools = overseer ? [PREAMBLE_TOOL, OVERSEER_TOOL] : [PREAMBLE_TOOL];
       return {
         nodeRef: formatNodeRef({
           canvasName: caller.canvasName,
@@ -902,7 +920,8 @@ const dispatchOp = (
         node: summarizeNode(self),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
-        tools: [PREAMBLE_TOOL],
+        tools,
+        overseer: { enabled: overseer, affectedByPause: false },
         region: region ?? null,
         connected: connected.map((c) => ({
           id: c.id,
@@ -925,7 +944,7 @@ const dispatchOp = (
         capabilities: {
           protocol_version: WORK_PROTOCOL_VERSION,
           connected,
-          tools: [PREAMBLE_TOOL],
+          tools,
         },
       };
     }
@@ -2056,6 +2075,12 @@ export interface WorkControlServerOptions {
   readonly authoringGate?: MainAuthoringGate;
   /** Main-process delivery for the seat-local, ephemeral preamble surface. */
   readonly onPreamble?: (event: PreambleEvent) => void;
+  /** Called only after live process-bind and seat delegation admission. */
+  readonly onOverseer?: (
+    request: OverseerRequest,
+    caller: Pick<WorkCaller, "canvasName" | "nodeId">,
+    signal: AbortSignal,
+  ) => Promise<OverseerResult>;
 }
 
 export interface WorkControlRuntime {
@@ -2570,6 +2595,58 @@ export const startWorkControlServer = async (
             workHome,
             occupant,
           };
+          // Administrative commands do not enter the ordinary factory
+          // paused/blocked or edge-scoped dispatcher. Identity and delegation
+          // remain mandatory, including on a configured Remote projection.
+          if (req.op === "overseer") {
+            const node = callerResolved.caller.node;
+            if (!isManagedAgentNode(node) || node.ether.overseer !== true) {
+              return Result.fail<WorkErrorBody>({
+                type: "ScopeError",
+                message: "only a human-enabled overseer seat may administer the canvas",
+                details: { retryable: false, caller: caller.nodeId },
+              });
+            }
+            if (Buffer.byteLength(JSON.stringify(req.args ?? null), "utf8") > OVERSEER_MAX_REQUEST_BYTES) {
+              return Result.fail<WorkErrorBody>({
+                type: "InputError", message: "overseer request exceeds the request byte limit",
+                details: { retryable: false },
+              });
+            }
+            const decoded = decodeOverseerRequest(req.args);
+            if (Result.isFailure(decoded)) {
+              return Result.fail<WorkErrorBody>({
+                type: "InputError", message: decoded.failure.message,
+                details: { retryable: false },
+              });
+            }
+            const argumentsResult = decodeOverseerArgs(decoded.success.operation, decoded.success.args);
+            if (Result.isFailure(argumentsResult)) {
+              return Result.fail<WorkErrorBody>({
+                type: "InputError", message: argumentsResult.failure.message,
+                details: { retryable: false },
+              });
+            }
+            const execute = options.onOverseer;
+            if (execute === undefined) {
+              return Result.fail<WorkErrorBody>({
+                type: "RuntimeDown",
+                message: "overseer administration is unavailable in this runtime",
+                details: { retryable: false },
+              });
+            }
+            return yield* Effect.tryPromise({
+              try: (signal) => execute(decoded.success, {
+                canvasName: caller.canvasName,
+                nodeId: caller.nodeId,
+              }, signal),
+              catch: (error): WorkErrorBody => ({
+                type: "InternalError",
+                message: error instanceof Error ? error.message : String(error),
+                details: { retryable: false },
+              }),
+            }).pipe(Effect.result);
+          }
           return yield* dispatchOp(
             req.op,
             req.args,

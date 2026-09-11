@@ -313,6 +313,28 @@ export const registerVellumIpc = (): void => {
     ),
   );
 
+  // This trusted-renderer channel is the only delegation writer. Agent
+  // commands and ordinary document saves cannot grant overseer authority.
+  const decodeOverseerToggle = Schema.decodeUnknownSync(Schema.Struct({
+    canvasName: Schema.NonEmptyString,
+    nodeId: Schema.NonEmptyString,
+    overseer: Schema.Boolean,
+    expectedRevision: Schema.NonEmptyString,
+  }), { onExcessProperty: "error" });
+  privilegedIpc.handle(IPC_CHANNELS.canvasOverseerSet, (_event, input: unknown) =>
+    runMainAuthoring(
+      "ipc.canvas.overseer-set",
+      () => AppRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* denyUnlessCommandCenterAuthorial;
+          const decoded = yield* Effect.try(() => decodeOverseerToggle(input));
+          const canvases = yield* CanvasesService;
+          return yield* canvases.canvasOverseerSet(decoded);
+        }),
+      ),
+    ),
+  );
+
   // The quit flush lands through these same handlers: the gate keeps
   // ipc.canvas.write / ipc.canvas.create admitted during its final-flush phase,
   // and the trusted-sender proof above is the only authority they need.
