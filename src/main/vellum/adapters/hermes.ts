@@ -59,7 +59,7 @@ interface ParsedProfile {
 
 // Parse the `hermes profile list` table. Rows look like:
 //   ◆default         gpt-5.5      running   —   —
-//    profile-13          gpt-5.5      running   profile-13   —
+//    profile-13      gpt-5.5      running   profile-13   —
 // Header, separator, and blank lines are skipped; columns split on 2+ spaces.
 export const parseProfiles = (stdout: string): ReadonlyArray<ParsedProfile> => {
   const rows: ParsedProfile[] = [];
@@ -68,7 +68,7 @@ export const parseProfiles = (stdout: string): ReadonlyArray<ParsedProfile> => {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
     if (/─{3,}/.test(trimmed)) continue; // separator
-    if (/^Profile\b/i.test(trimmed)) continue; // header
+    if (/^Profile(?:\s|$)/i.test(trimmed)) continue; // header
     const cols = trimmed.split(/\s{2,}/).filter((c) => c.length > 0);
     if (cols.length < 2) continue;
     const [name, model, gateway] = cols;

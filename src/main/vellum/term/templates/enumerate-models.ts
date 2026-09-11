@@ -333,7 +333,7 @@ export const parseHermesProfileList = (
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
     if (/─{3,}/.test(trimmed)) continue;
-    if (/^Profile\b/i.test(trimmed)) continue;
+    if (/^Profile(?:\s|$)/i.test(trimmed)) continue;
     const cols = trimmed.split(/\s{2,}/).filter((c) => c.length > 0);
     if (cols.length < 2) continue;
     const [name, model, gateway] = cols;

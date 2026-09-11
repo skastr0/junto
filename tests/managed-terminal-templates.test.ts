@@ -947,7 +947,7 @@ describe("model enumeration (fail-soft)", () => {
       "Profile          Model         Status    Gateway   Notes",
       "────────────────────────────────────────────────────────",
       "◆default         gpt-5.5       running   —         —",
-      " profile-13          gpt-5.4-mini  stopped   profile-13    —",
+      " profile-13      gpt-5.4-mini  stopped   profile-13 —",
     ].join("\n");
     const profiles = parseHermesProfileList(stdout);
     expect(profiles).toEqual([

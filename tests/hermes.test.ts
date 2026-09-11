@@ -15,8 +15,8 @@ const TABLE = `
  Profile          Model                        Gateway      Alias        Distribution
  ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────
  ◆default         gpt-5.5                      running      —            —
-  profile-13          gpt-5.5                      running      profile-13       —
-  profile-14           —                            stopped      —            —
+  profile-13      gpt-5.5                      running      profile-13   —
+  profile-14      —                            stopped      —            —
 `;
 
 afterEach(() => {
