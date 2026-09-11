@@ -37,19 +37,10 @@ const fixtureDoc = canvasDoc([
     id: "paused-overseer",
     key: "local:paused",
     label: "paused overseer",
-    x: 40,
-    y: 200,
+    x: 640,
+    y: 40,
   }),
 ]);
-
-const withGrant = (doc: ReturnType<typeof canvasDoc>, nodeId: string) => ({
-  ...doc,
-  nodes: doc.nodes.map((node) =>
-    node.id === nodeId
-      ? { ...node, ether: { ...node.ether, overseer: true as const } }
-      : node,
-  ),
-});
 
 const installBoard = async (
   page: Page,
@@ -79,6 +70,12 @@ const installBoard = async (
             doc: unknown,
             expectedRevision?: string,
           ) => Promise<unknown>;
+          readonly canvasOverseerSet: (input: {
+            canvasName: string;
+            nodeId: string;
+            overseer: boolean;
+            expectedRevision: string;
+          }) => Promise<unknown>;
         };
       }
     ).vellumCommand;
@@ -90,11 +87,22 @@ const installBoard = async (
     }
     const read = await api.readCanvas(name);
     await api.writeCanvas(name, board, read.revision);
+    // Generic saves cannot mint authority; exercise the trusted human seam.
+    for (const nodeId of ["overseer-seat", "paused-overseer"]) {
+      const current = await api.readCanvas(name);
+      await api.canvasOverseerSet({
+        canvasName: name,
+        nodeId,
+        overseer: true,
+        expectedRevision: current.revision,
+      });
+    }
     return name;
   }, document);
 };
 
 const shot = async (page: Page, name: string) => {
+  await page.mouse.move(30, 30);
   await page.waitForTimeout(350);
   await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
 };
@@ -107,10 +115,7 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await mkdir(join(process.cwd(), ".amp/in/artifacts"), { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-  await installBoard(
-    page,
-    withGrant(withGrant(fixtureDoc, "overseer-seat"), "paused-overseer"),
-  );
+  await installBoard(page, fixtureDoc);
 
   const granted = page.locator('.react-flow__node[data-id="overseer-seat"]');
   const ordinary = page.locator('.react-flow__node[data-id="ordinary-seat"]');
@@ -118,6 +123,15 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await expect(granted).toBeVisible({ timeout: 30_000 });
   await expect(ordinary).toBeVisible();
   await expect(paused).toBeVisible();
+
+  // Visual setup is a human camera action, separate from the invariant spec.
+  await page.getByRole("button", { name: "Fit all nodes" }).click();
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
+  await page.getByRole("radio", { name: "Dark", exact: true }).click();
+  await expect(page.getByRole("radio", { name: "Dark", exact: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme");
+  await page.locator(".settings-panel__close").click();
 
   await expect(granted.locator(".vellum-node")).toHaveAttribute("data-overseer", "true");
   await expect(granted.getByTestId("overseer-mark")).toHaveText("OVERSEER");
@@ -167,5 +181,11 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await expect(ordinary.getByTestId("overseer-mark")).toHaveCount(0);
   await shot(page, "05-bright-enabled");
 
-  await copyFile(join(SHOTS, "02-selected-enabled.png"), ARTIFACT);
+  await copyFile(join(SHOTS, "04-paused-enabled.png"), ARTIFACT);
+  await copyFile(join(SHOTS, "05-bright-enabled.png"), ARTIFACT.replace(".png", "-bright.png"));
+
+  await page.getByTestId("rts-overseer").click();
+  await expect(page.getByTestId("rts-overseer")).toHaveAttribute("data-overseer", "false");
+  await expect(granted.getByTestId("overseer-mark")).toHaveCount(0);
+  await expect(paused.getByTestId("overseer-mark")).toHaveText("OVERSEER");
 });

@@ -1,9 +1,10 @@
 # Overseer command acceptance matrix
 
-Status: inventory of the frozen 97-op contract against integrated
-handlers and owning suites on parent local main. This is not a
-pass wall and not a completion claim. Native/composition follow-ups
-and the cross-canvas artifact route are still in progress.
+Status: inventory of the frozen 97-op contract against integrated handlers
+and owning suites. Native/composition lifecycle fixes and cross-canvas
+artifact publisher-home routing are integrated. Coverage below distinguishes
+executed behavior from catalog coverage; it does not claim every operation
+has an end-to-end test.
 
 Coverage column:
 
@@ -103,7 +104,7 @@ replay.
 | `request.comment` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `artifact.list` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `artifact.get` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `artifact.publish` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; same-canvas publish exercised; cross-canvas publisher-home follow-up not integrated |
+| `artifact.publish` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/station-offline-work-roundtrip.test.ts; cross-canvas original publisher, publisher-home queue, correlated import after revoke |
 | `artifact.archive` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `artifact.delete` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.list` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
@@ -133,8 +134,8 @@ replay.
 | `agent.list` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.get` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `agent.reseat` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
-| `agent.start` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts; occupy path exercised; Remote occupy origin-caller follow-up still in progress |
-| `agent.wake` | mutation | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
+| `agent.start` | mutation | native `makeOverseerNativeLive` | exercised | tests/overseer-native.test.ts; target-host occupancy, cancellation and finalizer drain |
+| `agent.wake` | mutation | native `makeOverseerNativeLive` | exercised | tests/overseer-native.test.ts; occupied-seat activation retains target host |
 | `agent.prompt` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.output` | read | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
 | `agent.interrupt` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts |
@@ -173,19 +174,25 @@ replay.
 | risk | required proof | suite | status |
 | --- | --- | --- | --- |
 | Stale UI save/undo restoring revoked authority | delayed save, external reload, undo/redo cannot mint or restore `ether.overseer` | `tests/authorial-canvas-merge.test.ts`; `tests/canvas-save-durability.test.ts` ordinary save cannot mint/revoke | unit exercised; no undo/redo Electron proof |
-| No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; work suite last reported fixture failures on parent, not a green claim |
+| No-edge ordinary vs overseer distinction | overseer with zero edges exercises enabled families; ordinary agent without edges is `ScopeError` | `tests/overseer-work.test.ts`; `tests/overseer-native.test.ts`; `tests/overseer-admission.test.ts`; e2e grants without edges | unit exercised; integrated Work suite passes |
 | Toggle copied aliases | copy/reseat/replace clears grant; aliases of the same binding toggle together | `tests/overseer-authoring.test.ts`; `tests/overseer-canvas-commands.test.ts` `canvasOverseerSet` alias toggle | unit exercised |
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-authoring.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
 | Remote source impersonation | Command Center compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/station-overseer-transport.test.ts` | unit exercised |
 | Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/station-overseer-transport.test.ts`; `tests/work-socket-overseer.test.ts` | unit exercised |
 | Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | parent-run `e2e/scenarios/overseer-acceptance.spec.ts` for human toggle; `tests/overseer-canvas-commands.test.ts` document reads; native capture still pending | Electron toggle exercised; screenshot/native capture not proven |
 
-## Open follow-ups (not complete)
+## Verification limits
 
-- Native Remote occupy origin-caller and composition caller/hook fixes still in progress.
-- Cross-canvas `artifact.publish` publisher-home route not integrated.
+- Cross-canvas `artifact.publish` retains publisher-home residency and the
+  original ActorRef. Station tests exercise valid commands, wrong routes,
+  revoked grants, and exact response import after revocation.
+- Native lease release, occupy cleanup, and canvas hook cleanup are awaited
+  on interruption. Composition grant checks retain immutable caller-source
+  identity. Tests exercise a successful cross-canvas reseat, not just refusal.
 - Catalog-only operations have handlers, not focused invocation tests.
 - Full repository suite is not claimed green.
+- Native Remote deletion retains the existing exact-teardown refusal in
+  `TerminalRouter.deleteBinding`; it never reports an unproven stop as deletion.
 
 ## Explicit non-coverage
 

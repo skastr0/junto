@@ -197,7 +197,7 @@ describe("overseer coverage matrix", () => {
     expect(matrix).toContain("e2e/scenarios/overseer-acceptance.spec.ts");
     expect(matrix).toContain("tests/overseer-canvas-commands.test.ts");
     expect(matrix).toContain("tests/station-overseer-transport.test.ts");
-    expect(matrix).toContain("Cross-canvas `artifact.publish` publisher-home route not integrated");
+    expect(matrix).toContain("tests/station-offline-work-roundtrip.test.ts");
     expect(collapsed(matrix)).toContain("Full repository suite is not claimed green");
   });
 });
