@@ -417,6 +417,71 @@ describe("digestCanvas — design (I13)", () => {
   });
 });
 
+describe("digestCanvas — board lane", () => {
+  it("emits one board glance line with recent topic titles", () => {
+    const boardDoc: CanvasDoc = {
+      nodes: [
+        {
+          id: "board-1",
+          type: "text",
+          text: "Fleet announcements\n- alpha",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 120,
+          ether: {
+            entity: { kind: "board" },
+            board: {
+              unread: 3,
+              topics: [
+                {
+                  topicId: "t-old",
+                  title: "multi\nline title",
+                  state: "open",
+                  postCount: 2,
+                  lastActivityAt: "2026-07-01T00:00:00.000Z",
+                  unreadPostCount: 1,
+                },
+                {
+                  topicId: "t-new",
+                  title: "Ship the receiver",
+                  state: "open",
+                  postCount: 5,
+                  lastActivityAt: "2026-07-02T00:00:00.000Z",
+                  unreadPostCount: 2,
+                },
+                {
+                  topicId: "t-mid",
+                  title: "Archive the depot",
+                  state: "open",
+                  postCount: 1,
+                  lastActivityAt: "2026-07-01T12:00:00.000Z",
+                },
+                {
+                  topicId: "t-extra",
+                  title: "Older than the cut",
+                  state: "open",
+                  postCount: 1,
+                  lastActivityAt: "2026-06-01T00:00:00.000Z",
+                },
+              ],
+            },
+          },
+        },
+      ],
+      edges: [],
+    };
+    const out = digestCanvas("board-fixture", boardDoc, { bundles: [] });
+    expect(out).toContain("Fleet announcements :: board");
+    expect(out).toContain("  board: topics=4 unread=3");
+    // Recent three, newest first; newlines flattened so one lane stays one line.
+    expect(out).toContain("  topic: Ship the receiver");
+    expect(out).toContain("  topic: Archive the depot");
+    expect(out).toContain("  topic: multi line title");
+    expect(out).not.toContain("Older than the cut");
+  });
+});
+
 describe("digestCanvas — pad block", () => {
   it("emits one pad glance line under entities", () => {
     const padDoc: CanvasDoc = {

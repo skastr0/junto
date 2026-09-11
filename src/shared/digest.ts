@@ -314,6 +314,25 @@ export const digestCanvas = (
           `  pad: revision=${pad?.revision ?? 0} shapes=${pad?.shapeCount ?? 0} unread=${pad?.unreadPinCount ?? 0}`,
         );
       }
+      if (entity.kind === "board") {
+        const board = node.ether?.board;
+        const topics = board?.topics ?? [];
+        const recent = topics
+          .slice()
+          .sort(
+            (a, b) =>
+              // ISO timestamps sort lexicographically (compareTasksByLatestActivityDesc pattern).
+              b.lastActivityAt.localeCompare(a.lastActivityAt) ||
+              (a.topicId < b.topicId ? -1 : 1),
+          )
+          .slice(0, 3);
+        entityLines.push(
+          `  board: topics=${topics.length} unread=${board?.unread ?? 0}`,
+        );
+        for (const topic of recent) {
+          entityLines.push(`  topic: ${topic.title.replace(/\s+/g, " ").trim()}`);
+        }
+      }
       if (entity.kind === "sheet") {
         const sheet = node.ether?.sheet;
         entityLines.push(
