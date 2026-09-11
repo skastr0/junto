@@ -187,9 +187,8 @@ describe("kimi injection at spawn and on resume", () => {
     // The model still rides: resume re-passes every template-owned flag.
     expect(plan.launch.argv).toContain("-m");
     // 0.34.0 exits 1 if --agent-file rides beside -S.
-    expect(
-      plan.launch.argv.includes("-S") && plan.launch.argv.includes("--agent-file"),
-    ).toBe(false);
+    const argv = plan.launch.argv ?? [];
+    expect(argv.includes("-S") && argv.includes("--agent-file")).toBe(false);
   });
 
   it("a detached terminal gets no file and no doctrine", () => {
