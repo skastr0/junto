@@ -2805,8 +2805,8 @@ export const startWorkControlServer = async (
       // makes listener close unsafe until that path leaves. Keep this check and
       // close call adjacent with no await or caller-controlled seam; scheduler
       // preemption between them is the irreducible Node pathname race.
-      // Identity is lease-independent so Ctrl+C killing Darwin lockf still
-      // allows close of the exact inode we bound.
+      // Identity is lease-independent so a lost lease still allows close of
+      // the exact inode we bound.
       socketPathCleanupBlocked = true;
       server.unref();
       throw new Error("refusing to close work listener over a replacement path");

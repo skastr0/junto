@@ -115,9 +115,8 @@ describe("control filesystem lifecycle", () => {
     const first = await acquireControlListenerLease(path);
     const server = createServer();
     try {
-      // Darwin: lockf EX_TEMPFAIL (75) = contended flock, not broken /dev/fd/3
-      // inheritance through appProcessPlane.spawnChild({ inheritedFileDescriptor }).
-      // Broken inheritance would surface as EX_CANTCREAT (73) / bad file descriptor.
+      // Darwin: a contended O_EXLOCK open fails with EAGAIN, reported as
+      // "already held by another process".
       const contended = await acquireControlListenerLease(path).then(
         () => undefined,
         (error: unknown) => error,
@@ -128,7 +127,7 @@ describe("control filesystem lifecycle", () => {
       );
       if (process.platform === "darwin") {
         expect((contended as Error & { cause?: Error }).cause?.message).toMatch(
-          /already held by another process|EX_TEMPFAIL|code=75/u,
+          /already held by another process/u,
         );
       }
       await new Promise<void>((resolve, reject) => {
@@ -148,13 +147,9 @@ describe("control filesystem lifecycle", () => {
     expect(controlListenerLeaseHeld(next)).toBe(false);
   });
 
-  it("holds the Darwin lock through process-plane fd inheritance (/dev/fd/3)", async () => {
-    // Regression for the Electron 43.x lease path: appProcessPlane maps
-    // parentFd → child fd 3; lockf -k /dev/fd/3 must handshake. Repro under
-    // Electron main (not only vitest/node):
-    //   ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron /tmp/vellum-lockf-repro.mjs
-    //   ./node_modules/.bin/electron /tmp/vellum-lockf-electron-main.mjs
-    // Exit 75 = contention; exit 73 = missing/broken fd 3.
+  it("holds the Darwin kernel flock in-process and refuses a second open", async () => {
+    // O_EXLOCK locks the open file description, so a second open in the same
+    // process contends exactly like another process would.
     if (process.platform !== "darwin") return;
     const path = join(await root(), "control.sock");
     const lease = await acquireControlListenerLease(path);
@@ -164,7 +159,7 @@ describe("control filesystem lifecycle", () => {
         message: expect.stringMatching(/lease unavailable/u),
         cause: expect.objectContaining({
           message: expect.stringMatching(
-            /already held by another process|EX_TEMPFAIL|code=75/u,
+            /already held by another process/u,
           ),
         }),
       });

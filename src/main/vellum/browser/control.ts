@@ -1762,8 +1762,8 @@ export const startBrowserControlServer = async (
       // even if another process replaced that directory entry. There is no
       // identity-checked unlink primitive in Node, so refuse the close rather
       // than trying to preserve/restore a foreign path across a TOCTOU window.
-      // Identity is lease-independent so Ctrl+C killing Darwin lockf still
-      // allows close of the exact inode we bound.
+      // Identity is lease-independent so a lost lease still allows close of
+      // the exact inode we bound.
       socketPathCleanupBlocked = true;
       server.unref();
       throw new Error("refusing to close browser listener over a replacement path");

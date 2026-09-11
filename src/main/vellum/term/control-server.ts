@@ -932,8 +932,8 @@ export const startTermControlServer = async (
 
   /**
    * Pathname still names the exact inode we bound. Independent of the kernel
-   * listener lease: Ctrl+C can kill Darwin lockf holders in the process group
-   * before quit drain runs, and close must still be able to retire *our* socket.
+   * listener lease: a lease can be gone by the time quit drain runs, and close
+   * must still be able to retire *our* socket.
    */
   const pathMatchesCapturedIdentity = (): boolean => {
     if (socketIdentity === undefined) return false;
@@ -960,7 +960,7 @@ export const startTermControlServer = async (
       removeOwnedControlSocketPath(listenerLease, socketIdentity);
       return;
     }
-    // Lease may already be dead (SIGINT killed lockf). Identity is still
+    // Lease may already be dead. Identity is still
     // enough to remove our residual pathname without touching a replacement.
     if (pathMatchesCapturedIdentity()) {
       unlinkSync(socketPath);
