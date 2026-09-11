@@ -57,7 +57,8 @@ test("a sheet card shows its grid and the editor writes back to the canvas", asy
   await expect(detail.getByRole("textbox", { name: "Cost row 2" })).toHaveValue("48");
   await page.screenshot({ path: join(SHOTS, "02-editor.png") });
 
-  // Type a cell, add a row, add a column.
+  // Type a cell, add a row, add a column. Typing is local+coalesced; wait
+  // past the 120ms canvas flush so the document is the authority we read.
   const cell = detail.getByRole("textbox", { name: "Host row 1" });
   await cell.fill("mac-studio");
   await detail.getByRole("button", { name: "Row", exact: true }).click();
