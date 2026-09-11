@@ -638,6 +638,7 @@ describe("resolveManagedLaunch argv", () => {
 
   it("amp: launches --no-ide and resumes the exact thread by id", () => {
     // Both shapes verified against amp 0.0.1787664850 in a real PTY.
+    // 0.0.1789113641 still emits `--no-ide` + named `threads continue <T-id>`.
     const fresh = resolveManagedLaunch(
       "amp",
       { resumeId: "T-01a03989-71a6-733b-ac4c-76f54969cb55", mode: "low" },
@@ -661,6 +662,7 @@ describe("resolveManagedLaunch argv", () => {
     expect(AMP_TEMPLATE.capabilityBadges.sessionId).toBe("provision");
     expect(AMP_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(AMP_TEMPLATE.injectionSpec.flags).toEqual([]);
+    expect(AMP_TEMPLATE.probedVersion).toBe("0.0.1789113641");
   });
 
   it("amp: no permission-mode override is ever spawned", () => {

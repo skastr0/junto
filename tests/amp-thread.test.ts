@@ -24,6 +24,10 @@ import { AMP_TEMPLATE } from "../src/shared/managed-terminal-templates";
 // `amp threads new --visibility private` on 0.0.1787664850.
 const REAL_RECEIPT = "T-01a03989-71a6-733b-ac4c-76f54969cb55\n";
 
+// Live 0.0.1789113641 stdout: the same command now prints the thread URL.
+const REAL_URL_RECEIPT =
+  "https://ampcode.com/threads/T-01a08fbd-9f84-732e-94b6-ff9dca60b1d8\n";
+
 describe("amp thread receipts", () => {
   it("accepts the id Amp actually prints", () => {
     expect(parseAmpThreadReceipt(REAL_RECEIPT)).toBe(
@@ -32,12 +36,24 @@ describe("amp thread receipts", () => {
     expect(isAmpThreadId("T-01a03989-71a6-733b-ac4c-76f54969cb55")).toBe(true);
   });
 
+  it("extracts the T-id from the live thread URL receipt", () => {
+    expect(parseAmpThreadReceipt(REAL_URL_RECEIPT)).toBe(
+      "T-01a08fbd-9f84-732e-94b6-ff9dca60b1d8",
+    );
+    expect(isAmpThreadId("T-01a08fbd-9f84-732e-94b6-ff9dca60b1d8")).toBe(true);
+  });
+
   it("reads the id out of surrounding chatter", () => {
     expect(
       parseAmpThreadReceipt(
         ["A new version of Amp is available.", REAL_RECEIPT.trim(), ""].join("\n"),
       ),
     ).toBe("T-01a03989-71a6-733b-ac4c-76f54969cb55");
+    expect(
+      parseAmpThreadReceipt(
+        ["A new version of Amp is available.", REAL_URL_RECEIPT.trim(), ""].join("\n"),
+      ),
+    ).toBe("T-01a08fbd-9f84-732e-94b6-ff9dca60b1d8");
   });
 
   it("refuses anything that is not exactly one id", () => {
@@ -51,6 +67,11 @@ describe("amp thread receipts", () => {
           "T-01a03989-71a6-733b-ac4c-76f54969cb55",
           "T-019ffd00-6549-7498-b9ed-5d4dc405c9d6",
         ].join("\n"),
+      ),
+    ).toBeUndefined();
+    expect(
+      parseAmpThreadReceipt(
+        [REAL_URL_RECEIPT.trim(), REAL_RECEIPT.trim()].join("\n"),
       ),
     ).toBeUndefined();
     expect(isAmpThreadId("T-not-a-uuid")).toBe(false);
@@ -74,6 +95,16 @@ describe("provisionAmpThread", () => {
     expect(calls).toEqual([
       { binary: "amp", args: ["threads", "new", "--visibility", "private"] },
     ]);
+  });
+
+  it("mints from the live URL receipt the same way as a bare id", async () => {
+    const result = await provisionAmpThread({
+      run: async () => REAL_URL_RECEIPT,
+    });
+    expect(result).toEqual({
+      ok: true,
+      threadId: "T-01a08fbd-9f84-732e-94b6-ff9dca60b1d8",
+    });
   });
 
   it("surfaces an auth or network failure instead of falling back", async () => {

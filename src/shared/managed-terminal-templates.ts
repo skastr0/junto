@@ -1132,7 +1132,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
  * Amp CLI (Sourcegraph; binary: `amp`) — Tier B, provisioned thread, OSC → grid.
  *
  * Verified against 0.0.1787664850-g921ac7 by driving the real TUI in a PTY:
- * - `amp threads new --visibility private` prints one `T-<uuid>` and exits;
+ * - `amp threads new --visibility private` printed one `T-<uuid>` and exited;
  * - `amp --no-ide -m <mode> threads continue <T-id>` opens the interactive TUI
  *   on that exact thread. `--no-ide` keeps a Vellum Command-spawned seat from
  *   attaching the operator's editor selection to every message;
@@ -1142,11 +1142,21 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
  * - startup paints the composer with an `∼ Connecting` footer and NO OSC title;
  *   a turn paints a braille-prefixed title and a `≈ Streaming` footer; a
  *   finished turn paints `<title> - amp - <cwd>`.
+ *
+ * Re-probed 0.0.1789113641 (2026-09-11):
+ * - `amp threads new --visibility private` now prints a sole
+ *   `https://ampcode.com/threads/T-<uuid>` URL (help: "print its URL").
+ *   The T-id is extracted from the path. A bare `T-<uuid>` line from older
+ *   binaries is still a receipt.
+ * - Named `threads continue <T-id>` still resumes (live `--no-ide -x` pong).
+ *   Never `amp last`, `threads continue --last`, or bare `threads continue`.
+ * - Dial, `--no-ide`, Tier B, and `resumeReinjection: "unprobed"` hold.
+ *   OSC/grid paint was not re-smoked on this build (UNVERIFIED).
  */
 export const AMP_TEMPLATE: ManagedTerminalTemplate = {
   harness: "amp",
   displayName: "Amp",
-  probedVersion: "0.0.1787664850",
+  probedVersion: "0.0.1789113641",
   argvSpec: {
     binary: "amp",
     // Structural only: `--no-ide` decides what the seat IS (a standalone

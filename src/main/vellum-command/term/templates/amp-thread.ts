@@ -2,9 +2,11 @@
  * Amp thread provisioning — the public CLI, and nothing else.
  *
  * An Amp seat's session id is not a value Vellum Command may invent: Amp mints
- * it. `amp threads new --visibility private` prints exactly one `T-<uuid>` and
- * exits, and that receipt becomes the seat's `ether.terminal.sessionId` before
- * the PTY is opened, so a cold wake can resume the same thread by id.
+ * it. `amp threads new --visibility private` prints one thread receipt and
+ * exits. On 0.0.1789113641 that receipt is a sole
+ * `https://ampcode.com/threads/T-<uuid>` line; older binaries print a bare
+ * `T-<uuid>` line. Either form becomes the seat's `ether.terminal.sessionId`
+ * before the PTY is opened, so a cold wake can resume the same thread by id.
  *
  * Boundaries this module keeps:
  * - public CLI only — never amp's settings file under `~/.config/amp/`, the
@@ -23,6 +25,17 @@ const execFileAsync = promisify(execFile);
 
 /** Amp thread ids are `T-` + a UUID. Anything else is not a receipt. */
 const AMP_THREAD_ID = /^T-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Live 0.0.1789113641 stdout: a sole thread URL whose path is the T-id. */
+const AMP_THREAD_URL_PREFIX = "https://ampcode.com/threads/";
+
+const threadIdFromLine = (line: string): string | undefined => {
+  const trimmed = line.trim();
+  if (AMP_THREAD_ID.test(trimmed)) return trimmed;
+  if (!trimmed.startsWith(AMP_THREAD_URL_PREFIX)) return undefined;
+  const candidate = trimmed.slice(AMP_THREAD_URL_PREFIX.length);
+  return AMP_THREAD_ID.test(candidate) ? candidate : undefined;
+};
 
 export const isAmpThreadId = (value: string): boolean =>
   AMP_THREAD_ID.test(value.trim());
@@ -43,21 +56,22 @@ const failure = (reason: string): AmpThreadProvisionResult => ({
 });
 
 /**
- * The one line of output that is a thread id.
+ * The one line of output that is a thread receipt.
  *
  * Strict on purpose: Amp may print a banner, an update notice, or a warning
- * around the id, but exactly one line must BE an id. Zero means the call did
- * not produce a thread; more than one means the output is not what this parser
- * was written against, and guessing which is the receipt would durably pin a
- * seat to the wrong thread.
+ * around the receipt, but exactly one line must be a thread id — either a
+ * bare `T-<uuid>` or `https://ampcode.com/threads/T-<uuid>`. Zero means the
+ * call did not produce a thread; more than one means the output is not what
+ * this parser was written against, and guessing which is the receipt would
+ * durably pin a seat to the wrong thread.
  */
 export const parseAmpThreadReceipt = (
   stdout: string,
 ): string | undefined => {
   const ids = stdout
     .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => AMP_THREAD_ID.test(line));
+    .map(threadIdFromLine)
+    .filter((id): id is string => id !== undefined);
   if (ids.length !== 1) return undefined;
   return ids[0];
 };
