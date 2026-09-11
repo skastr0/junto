@@ -32,3 +32,11 @@ agent.
   stage only your own files and commit immediately. Do not leave your work
   unstaged.
 - No conciliation or consolidation passes. Write your code, commit it, move on.
+
+## Overseers
+
+Read `AGENTS.md` and `docs/security-doctrine.md`. Ordinary agents never write
+the canvas. A human-toggled overseer on an existing managed agent seat is the
+narrow exception: closed `overseer` commands, no edges required, Command Center
+authors, pause/play do not apply, no self-delete, no viewport move, no
+propagation, no operator socket.

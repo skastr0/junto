@@ -43,9 +43,10 @@ Environment variables may provide context, but never identity or authority.
 A raw OS terminal, external harness process, or plugin without a local Vellum Command
 runtime has no Vellum Command seat and no remote work-control route.
 
-The Station API is separate. Its five verbs synchronize Command Center intent
-and single-home work facts with an enrolled Remote. It is not an agent tool
-endpoint and does not mint agent authority.
+The Station API is separate. Its closed operations synchronize Command Center
+intent and single-home work facts with an enrolled Remote, including typed
+`overseer` on an existing Command Center-opened session. It is not an agent
+tool endpoint, not an RPC tunnel, and does not mint agent authority.
 
 ## Decisions that remain useful
 

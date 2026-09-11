@@ -26,7 +26,7 @@ that reaches that power.
 
 | Plane | Question it answers | Lives in | Mutated by |
 |-------|---------------------|----------|------------|
-| **Capability** | What may this principal reach? | Drawn edges + ports + process-bind | Human draw/delete; admit/release of bound process |
+| **Capability** | What may this principal reach? | Drawn edges + ports + process-bind; overseer grant is a separate human seat toggle, not an edge | Human draw/delete; admit/release of bound process; human grant/revoke of `ether.overseer` |
 | **Phase** | Is work blocked or free to proceed? | Derived edge phase (`blocks` \| `relates`) from the connected sink's claimed item state + live worker/trust state | Recomputed; never authorial input |
 | **Attention / occupancy** | Is the seat empty, busy, or needing a human? | Live runtime state on seats | Process lifecycle, task status, operator focus |
 
@@ -64,9 +64,12 @@ No “same region ⇒ power.”
 | Edge reaching a sink with no claimed blocking item | Capability to *relate*; never invents stoppage |
 
 Wielding requires **process-bind**: a live registered descendant process of the
-host-local actor seat, admitted by Unix peer PID (+ PPID walk). The document
-edge is necessary but not sufficient; the seat must be occupied by a bound
-process on that installation to exercise host-adjacent ops.
+host-local actor seat, admitted by Unix peer PID (+ PPID walk). For ordinary
+agents the document edge is necessary but not sufficient; the seat must be
+occupied by a bound process on that installation to exercise host-adjacent ops.
+A human-toggled overseer still requires process-bind and a live grant. It does
+not require connecting edges for closed `overseer` operations. Pause and play
+do not revoke that grant. Ordinary edge-scoped ops stay edge-scoped.
 
 ### 2. Roles are derived from kind — never authorial
 
@@ -155,6 +158,9 @@ Ports never substitute for process-bind identity. Open queues never block.
 
 - **Seat** — stable `agent` node where one host-local process may bind. Survives
   occupant restarts; authored by humans and compiled to one installation.
+  Overseer is a human toggle on that seat (`ether.overseer`), not a second
+  actor kind. Copied nodes do not inherit the grant. The occupant cannot
+  retire its own seat.
 - **Occupant** — live Vellum Command-spawned agent process and its registered
   descendants in that seat. Ephemeral; process-bind admits it.
 
@@ -171,8 +177,9 @@ Occupancy spectrum (live, derived — not stored as permanent document truth):
 | `parked` | Intentionally held (flag / operator park) |
 | `gone` | Former occupant exited; seat vacant until rebind |
 
-Seat without occupant ⇒ no wield. Occupant without edge ⇒ `ScopeError`. Both
-required.
+Seat without occupant ⇒ no wield. Ordinary occupant without edge ⇒
+`ScopeError`. Both required for ordinary work. An overseer occupant without
+edges may still run closed `overseer` ops after live grant admission.
 
 ### 4a. Placement, sinks, and claims
 
@@ -261,13 +268,16 @@ board notify, and the managed-terminal seat UI.
 
 ## PR test
 
-> Can an agent (or a bad test) obtain a **host capability** without a
+> Can an ordinary agent (or a bad test) obtain a **host capability** without a
 > **connected edge**, a matching **port**, and **process-bind** admission?
 > If yes, the change is not done.
 
-Host capability here means any work-control or browser-protected op that can
-mutate tasks, messages, requests, artifacts, or page control — not merely
-reading a digest projection.
+Host capability here means any ordinary work-control or browser-protected op
+that can mutate tasks, messages, requests, artifacts, or page control — not
+merely reading a digest projection. Closed `overseer` ops are a separate
+human-granted administrative plane: they still require process-bind and a
+live grant, never ambient reach, never the operator socket, and never a
+minted edge.
 
 Pair with machine safety’s PR test for the sealed kill/path plane: factory
 physics decides *whether* the seat may act; machine safety decides *whether*
@@ -336,8 +346,9 @@ Vellum Command is a **premium station**. The factory floor is legible:
 - what needs you is **occupancy and attention**, not a hidden ACL
 - host power still sits behind machine-safety seals
 
-When in doubt: **draw the edge, attenuate the port, bind the process — or the
-op does not exist.**
+When in doubt for ordinary agents: **draw the edge, attenuate the port, bind
+the process — or the op does not exist.** An overseer is a human-toggled
+exception on that same seat, not a second actor kind and not a drawn edge.
 
 ---
 

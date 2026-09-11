@@ -89,8 +89,9 @@ packages keep the ordinary manual source-build workflow.
 2. Add agent seats, terminals, pages, tasks, and notes to the canvas.
 3. Connect nodes with the relationship you want, such as an agent contributing to
    a task queue or navigating a page.
-4. Open a terminal or agent surface to work. The canvas remains human-authored;
-   agents act through the connected work and browser tools.
+4. Open a terminal or agent surface to work. Ordinary agents act through the
+   connected work and browser tools. A human-toggled overseer may author
+   through closed `overseer` commands without those edges.
 
 The app owns its durable SQLite state at
 `~/.vellum-command/state/vellum-command.db`. JSON Canvas is an explicit export

@@ -273,17 +273,21 @@ product requirement.
 
 ### Canonical canvas
 
-The canonical canvas is a protected Vellum Command document authored only through the
-operator interface.
+The canonical canvas is a protected Vellum Command document. Ordinary agents
+never write it. Command Center remains the authorial installation.
 
 The target product contract is:
 
 - canvas and protected settings have one app-owned authoring path;
-- only direct operator actions in Command Center author intent;
-- agents never write the canonical canvas;
-- agents consume read-only compiled projections and Vellum Command tools;
-- automatic history records operator changes without adding authoring chores;
-- undo, recovery, and "what authority changed?" remain operator facilities.
+- direct operator actions in Command Center author intent;
+- a human-toggled overseer on an existing managed agent seat may author through
+  closed `overseer` commands admitted by main; ordinary agents never write the
+  canonical canvas;
+- ordinary agents consume read-only compiled projections and Vellum Command tools;
+- automatic history records operator and overseer changes without adding
+  authoring chores;
+- undo, recovery, and "what authority changed?" remain operator facilities and
+  must not restore a revoked overseer grant from a stale document.
 
 JSON Canvas is an import/export and interoperability format. Its contents are
 not inherently secret. It is not the canonical live authority store. Importing
@@ -426,10 +430,20 @@ or key-management system merely because the canvas is authoritative.
 The protected document remains the product. Compiled projections and
 capability-bound tools are the agent API.
 
-Agents may receive deterministic text or visual projections, scoped context
-(including region briefing text via work-control onboard), work requests,
-messages, and artifact facilities. They do not receive an authorial canvas
-mutation path.
+Ordinary agents may receive deterministic text or visual projections, scoped
+context (including region briefing text via work-control onboard), work
+requests, messages, and artifact facilities. They do not receive an authorial
+canvas mutation path.
+
+An overseer is not another actor kind. It is an existing managed agent seat
+whose occupant may use closed `overseer` operations after a live human grant.
+Only humans grant or revoke; overseers cannot propagate authority. Copied
+aliases do not inherit the grant. Factory pause and play have no bearing on
+overseer administration. An overseer cannot delete its own seat, including
+indirect removal through canvas delete, kind change, or binding replacement,
+and cannot pan, zoom, focus, resize, or switch the operator viewport. It does
+not receive the operator socket, fleet enrollment, or credentials. Attribution
+stays the real agent seat; it never becomes the operator.
 
 ### Work authority and sink reach
 
@@ -549,7 +563,11 @@ or CLI address. A future provider adapter may expose a specifically typed
 principal only after defining an honest attribution and revocation boundary.
 
 The Station session is factory control between installations. It is not an
-agent tunnel and does not create a remote actor-access tier.
+agent tunnel and does not create a remote actor-access tier. Closed `overseer`
+traffic uses the existing Command Center-opened duplex session. A Remote does
+not author projection, does not open a new dial, and does not impersonate the
+operator. Command Center validates the live grant and authenticated source
+installation before authoring.
 
 Actor placement, seat identity, and meaningful edge constraints must be
 visible on the canvas and in inspection surfaces.
@@ -629,11 +647,13 @@ special disclosure ceremony for an operator-owned resource.
 
 ### Command Center-to-Station protocol
 
-Fleet coordination is a transport-neutral typed protocol with exactly five
-verbs: `pair`, `configure`, `project`, `report`, and `status`. Every payload is
-strict-decoded; unknown verbs and excess fields fail closed. No generic exec,
-tunnel, forward, plugin, browser, or arbitrary RPC operation may smuggle a
-sixth capability through a verb or transport adapter.
+Fleet coordination is a transport-neutral typed protocol with a closed
+operation set. Protocol 1 remains prerelease. The closed operations are
+`pair`, `configure`, `project`, `report`, `status`, and `overseer`. Every
+payload is strict-decoded; unknown operations and excess fields fail closed.
+No generic exec, tunnel, forward, plugin, browser, or arbitrary RPC operation
+may smuggle extra capability through an operation or transport adapter.
+`overseer` is a typed request/result for a granted seat, not an RPC tunnel.
 
 Browser operations are never Station API verbs. There is no Station-browser
 protocol, browser PKI, projected browser trust, browser session-handle
@@ -642,8 +662,10 @@ exchange, or cross-installation browser relay on this wire.
 Command Center initiates every fleet connection. A Remote never dials Command
 Center or another Remote for fleet control. Once Command Center establishes an
 authenticated persistent session, the channel is duplex: either side may send
-bounded `report` traffic, but `report` is the only Station verb a configured
-Remote may initiate on that existing session.
+bounded `report` traffic, and a Remote overseer occupant may send closed
+`overseer` on that existing session. A configured Remote still never dials a
+new fleet connection. Timeout or disconnect on `overseer` is uncertain
+completion; Command Center never automatically replays the mutation.
 
 The first transport adapter is OpenSSH. Command Center invokes the fixed
 `vellum-command-station` command as one persistent framed session. The helper connects
@@ -659,14 +681,14 @@ A future public transport, if shipped, is HTTPS with mutual TLS, never plain
 HTTP. Each adapter authenticates at the boundary it actually owns before
 Station API handling. OpenSSH authenticates the Remote host and operator
 account at the SSH boundary; future HTTPS authenticates both peers through
-mTLS. The five verbs, work identities, dispositions, and cursors do not change
-with the adapter.
+mTLS. The closed Station operations, work identities, dispositions, and
+cursors do not change with the adapter.
 
 A future mobile app acting as a standalone Command Center may use that HTTPS
 adapter and the same Station protocol. A mobile mirror of an existing
 sovereign Command Center requires a separate future control/synchronization
-API; it is not a Station peer, adds no sixth Station verb, and cannot create
-two sovereign Command Centers for one factory.
+API; it is not a Station peer, adds no extra Station operation beyond the
+closed set, and cannot create two sovereign Command Centers for one factory.
 
 The owner-local socket is transport containment, not a fleet credential or
 cryptographic continuation of SSH identity. The fixed packaged helper carries
@@ -699,8 +721,8 @@ its exact sentinel declares release. The current contract is content-capable:
 Work carries ContentRef metadata only, claim readiness requires verified local
 content receipts, and media bytes never enter Station NDJSON. One Station
 protocol number selects one complete closed bundle: framing, control envelope,
-the five verbs, Work records, projection encoding, bounds, and failure
-semantics. The exact discriminators inside that bundle are not separately
+the closed Station operations, Work records, projection encoding, bounds, and
+failure semantics. The exact discriminators inside that bundle are not separately
 negotiated versions. There are no session/API/Work/projection version arrays,
 capability arrays, fallback protocol, or pre-release compatibility codecs.
 Semantic compatibility analysis (Exact / Restricted / Unsupported) is

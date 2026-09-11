@@ -1,7 +1,7 @@
 # Overseer implementation plan
 
-Status: grounded design, implementation blocked on the three authority decisions
-below. This document does not describe shipped functionality.
+Status: grounded design. The three authority decisions below are settled by
+the operator. This document does not describe shipped functionality.
 
 ## Product contract
 
@@ -23,29 +23,31 @@ authorship for overseers only. Update the governing documentation alongside
 implementation. Database ownership, machine safety, truthful attribution,
 resource ownership, and legal graph physics remain intact.
 
-## Decisions requiring the operator
+## Settled authority decisions
 
-1. **Execution placement.** Must overseers also run on Remote installations?
-   Recommendation: Command Center-hosted overseers. Remote-origin authorship
-   needs an explicit CC-mediated command/disposition contract, not an ambient
-   bypass of the current Station protocol. CC-only is a scope restriction and
-   is not adopted without agreement.
-2. **Delegation.** May overseers grant/revoke overseer authority on other seats?
-   Recommendation: only the human operator manages this toggle, and a new
-   binding created by reseating does not inherit authority automatically.
-   This is an additional restriction on literal operator equivalence and is
-   not adopted without agreement. All create/copy/configuration paths must
-   follow the selected rule.
-3. **Pause.** Does factory pause suspend overseer administration?
-   Recommendation: administration remains available while execution is paused
-   or the seat is blocked; native execution follows operator readiness/pause
-   rules. Turning off overseer authority revokes administration. An alternative
-   is to make Pause suspend all overseer operations explicitly.
+The operator settled these. Older recommendations in this file do not override
+them.
 
-Scope interpretation to confirm through implementation: operator equivalence
-over canvas, nodes, and work, including use of already-enrolled hosts. Factory
-identity transfer, enrollment, package administration, and credentials remain
-separate operator facilities; the agent does not gain the operator socket.
+1. **Execution placement.** Overseers may occupy Command Center or Remote.
+   Remotes do not author projection. Command Center validates the live grant
+   and authenticated source installation and performs authoring. Closed
+   Station `overseer` uses the existing Command Center-opened duplex session.
+   Protocol remains prerelease 1. No arbitrary RPC tunnel, no Remote-initiated
+   new dial, no operator impersonation.
+2. **Delegation.** Only humans grant or revoke. Overseers cannot propagate
+   overseer authority. Copied aliases do not inherit the grant. A new binding
+   created by reseating does not inherit automatically.
+3. **Pause.** Factory pause and play have no bearing on overseer
+   administration. Pause applies to automated factory execution only. Turning
+   off overseer authority revokes administration.
+
+Operator equivalence covers canvas, nodes, and work, including already-enrolled
+hosts. Factory identity transfer, enrollment, package administration, and
+credentials remain separate operator facilities. The agent does not gain the
+operator socket. An overseer cannot delete its own seat or move the operator
+viewport.
+
+Command inventory and tests: [`overseer-coverage-matrix.md`](overseer-coverage-matrix.md).
 
 ## Evidence and required corrections
 

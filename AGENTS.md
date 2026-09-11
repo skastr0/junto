@@ -58,7 +58,9 @@ proof and never emitted or negotiated.
 [`docs/vellum-protocol.md`](docs/vellum-protocol.md) is the canonical
 multi-installation contract: identity, complete intent projection, sink/item
 authority, synchronous CC-home task claims, offline Remote execution, logical
-event convergence, the five Station verbs, and transport adapters.
+event convergence, the closed Station operations, and transport adapters.
+Protocol 1 remains prerelease. The closed operations are `pair`, `configure`,
+`project`, `report`, `status`, and `overseer`. `overseer` is not an RPC tunnel.
 
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole product
@@ -185,11 +187,27 @@ State v3; its prerelease status is not a reason to downgrade it.
 
 ## The agent surface (headless — no GUI needed)
 
-**Agents never write the canvas.** The canvas is human-authored (Command Center). Agents consume compiled projections and local Vellum Command tools.
+**Ordinary agents never write the canvas.** The canvas is human-authored in
+Command Center. Ordinary agents consume compiled projections and local
+Vellum Command tools under edge-scoped work control.
+
+**Overseer exception (narrow).** A human may toggle overseer on an existing
+managed agent seat. That seat keeps the `agent` kind, gains a distinctive UI,
+and may use closed `vellum-command overseer` commands for operator-equivalent
+canvas, node, and work operations without connecting edges. It may occupy
+Command Center or Remote. Command Center validates the live grant and
+authenticated source installation and performs authoring; a Remote does not
+author projection. Only humans grant or revoke; overseers cannot propagate
+authority. Factory pause and play have no bearing on administration. An
+overseer cannot delete its own seat or move the operator viewport. It does
+not receive the operator socket, fleet enrollment, or credentials.
+
+See [`docs/overseer-plan.md`](docs/overseer-plan.md) and
+[`docs/overseer-coverage-matrix.md`](docs/overseer-coverage-matrix.md).
 
 Headless CLIs reach `CanvasesService` through the running app's owner-local
-canvas control socket. They do not open `vellum-command.db`. Agents remain strictly
-read-only for authorial intent. Current headless CLIs:
+canvas control socket. They do not open `vellum-command.db`. Ordinary agents
+remain strictly read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
 |---|---|---|
@@ -206,10 +224,10 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops |
+| CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
 | Socket | `~/.vellum-command/work/control.sock` + bearer token `~/.vellum-command/work/token` |
 | Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
-| Authz | **edges** — agent only acts on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`) |
+| Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
 **How to use:** open the agent chat in Vellum Command so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
@@ -220,11 +238,13 @@ nodes. Station wire entry is `vellum-command station-stdio`; content transfer is
 `vellum-command content-transfer …`. Packaged installs ship **one** CLI binary
 (`bin/vellum-command`) only.
 
-Ops go through WorkService (tasks/messages/requests/artifacts/board). That is the agent write path; freeform canvas authoring remains human/Command Center.
+Ops go through WorkService (tasks/messages/requests/artifacts/board). That is
+the ordinary agent write path. Freeform canvas authoring remains
+human/Command Center except closed overseer commands from a live granted seat.
 
 **Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `wake` is CC UI only; agent posts never wake.
 
-**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Ports are `pad.read` and `pad.patch` only. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.
+**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
 
 - Contract: [`docs/pad-architecture.md`](docs/pad-architecture.md)
 - Operator and agent guide: [`docs/pad.md`](docs/pad.md)
@@ -232,8 +252,8 @@ Ops go through WorkService (tasks/messages/requests/artifacts/board). That is th
 
 ### Station roles
 
-- **Command Center** — user-selected. Human authors the canvas; fleet management via host registry.
-- **Remote** — user-selected. Capability host for that machine; applies complete Command Center projections and executes host-local rows.
+- **Command Center** — user-selected. Human authors the canvas; fleet management via host registry. Overseer mutations from any granted seat are authored here.
+- **Remote** — user-selected. Capability host for that machine; applies complete Command Center projections and executes host-local rows. A Remote overseer occupant may send closed `overseer` on the existing Command Center-opened session; it does not author projection.
 - Role is never inferred from hardware or open windows.
 - Doctor service `station` reports role, installation identity, database/work/simulation readiness, projection, and logical cursor state.
 
@@ -242,7 +262,7 @@ Ops go through WorkService (tasks/messages/requests/artifacts/board). That is th
 - Process mode is Unenrolled | Remote | Command Center. One mode.
 - Enroll door and peer door are mutually exclusive.
 - Unenrolled binds enroll only (`status` / `pair` / `configure`).
-- Remote binds peer only (`status` / `project` / `report`).
+- Remote binds peer only (`status` / `project` / `report` / `overseer`).
 - Command Center binds neither; it is the client.
 - Never both sockets. Re-enroll tears the peer door down first (mode
   change). Not two live sessions. Not "pause peer."

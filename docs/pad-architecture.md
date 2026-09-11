@@ -2,8 +2,8 @@
 
 A first-party spatial work sink. The factory canvas stays the ACL.
 The pad is the shared page: images, shapes, ink, pins. Wired agents
-read a picture + a text IR and patch structure and comments. They
-never write the factory canvas.
+read a picture + a text IR and patch structure and comments. Ordinary
+agents never write the factory canvas.
 
 This document is the contract. Implementation follows it. A production
 counterexample updates this file, then the code.
@@ -16,8 +16,9 @@ patches named boxes and pins.
 
 ## Laws
 
-1. Agents never write the factory canvas. Pad body lives on the work
-   plane (same class as `board`).
+1. Ordinary agents never write the factory canvas. Pad body lives on the work
+   plane (same class as `board`). An overseer authors canvas through closed
+   `overseer` commands, not through pad.
 2. `applyPatch` is the only mutation of a `Pad`. Editor, CLI, and
    WorkService all emit `PadPatch`.
 3. Layers do not mix. Render order is always
