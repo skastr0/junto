@@ -442,20 +442,6 @@
   padding: 8px 8px 20px;
 }
 
-.work-ledger-list--artifacts-rail > section {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.work-ledger-row--artifact-compact {
-  display: grid;
-  min-height: 48px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px;
-  padding: 4px;
-  cursor: default;
-}
-
 .work-ledger-row__select {
   display: grid;
   min-width: 0;
@@ -472,38 +458,16 @@
   cursor: pointer;
 }
 
+/* Row text column: min-width 0 so long titles ellipsize instead of
+ * sliding under the trailing kind chip (grid item automatic minimum). */
+.work-ledger-row__select > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
 .work-ledger-row__select:hover {
   background: var(--color-overlay-1);
-}
-
-.work-ledger-row--artifact-compact strong {
-  font-size: 10px;
-}
-
-.work-ledger-row--artifact-compact.is-archived {
-  opacity: 0.72;
-}
-
-.work-ledger-row--artifact-compact .work-ledger-row__icon {
-  width: 24px;
-  height: 24px;
-}
-
-.work-ledger-detail--empty {
-  display: grid;
-  flex: 1 1 0;
-  min-width: 0;
-  place-items: center;
-  color: var(--color-faint);
-  font-size: 10px;
-  background: var(--color-ground);
-}
-
-.work-ledger-detail--artifact {
-  flex: 1 1 0;
-  width: auto;
-  min-width: 0;
-  max-width: none;
 }
 
 .work-ledger-detail__actions {
@@ -564,6 +528,13 @@
 .work-ledger-list [role="list"] {
   display: grid;
   gap: 6px;
+}
+
+/* Artifacts rail drops the base section divider/padding — declared after the
+ * base rules so the cascade actually applies it. */
+.work-ledger-list--artifacts-rail > section {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .work-ledger-row {
@@ -667,6 +638,31 @@
   color: var(--color-violet);
 }
 
+/* Artifact library rows — compact modifier must come after the base
+ * .work-ledger-row rules above, or the cascade keeps the tall three-column
+ * base layout (the shelf rail needs its own two-column shape). */
+.work-ledger-row--artifact-compact {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  padding: 4px;
+  cursor: default;
+}
+
+.work-ledger-row--artifact-compact strong {
+  font-size: 10px;
+}
+
+.work-ledger-row--artifact-compact.is-archived {
+  opacity: 0.72;
+}
+
+.work-ledger-row--artifact-compact .work-ledger-row__icon {
+  width: 24px;
+  height: 24px;
+}
+
 .work-ledger-list__empty {
   display: grid;
   min-height: 80px;
@@ -689,8 +685,25 @@
   animation: work-ledger-detail-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Artifact library panes fill the workspace after the rail — declared after
+ * the base rule so the clamp width / flex: none lose the cascade. */
 .work-ledger-detail--artifact {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
   border-left-color: color-mix(in oklab, var(--color-violet) 52%, transparent);
+}
+
+.work-ledger-detail--empty {
+  display: grid;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  place-items: center;
+  color: var(--color-faint);
+  font-size: 10px;
+  background: var(--color-ground);
 }
 
 @keyframes work-ledger-detail-enter {
@@ -820,8 +833,10 @@
   line-height: 1.2;
 }
 
-.work-ledger-detail__actions {
-  display: flex;
+/* Footer toolbar strip (request detail). The artifact header also uses
+ * `.work-ledger-detail__actions` for its icon cluster — the header intent
+ * rule above must keep applying there, so scope the footer decoration. */
+.work-ledger-detail > footer.work-ledger-detail__actions {
   justify-content: flex-end;
   gap: 7px;
   padding: 11px 16px;
@@ -918,16 +933,19 @@
 .work-ledger-part--raw > div {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .work-ledger-part--raw strong {
   color: var(--color-ink-2);
   font-size: 9px;
+  overflow-wrap: anywhere;
 }
 
 .work-ledger-part--raw span {
   color: var(--color-dim);
   font-size: 8px;
+  overflow-wrap: anywhere;
 }
 
 .work-ledger-part--raw-text {
@@ -1039,7 +1057,10 @@
     width: min(180px, 26vw);
   }
 
-  .work-ledger-detail {
+  /* Requests overlay as a right pane on narrow windows (no rail to shrink).
+   * Artifact library panes already fill the workspace inline and have no
+   * back-to-rail control, so they must not become a covering pane. */
+  .work-ledger-detail:not(.work-ledger-detail--artifact):not(.work-ledger-detail--empty) {
     position: absolute;
     z-index: 2;
     inset: 0 0 0 auto;
@@ -1109,17 +1130,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-}
-
-.artifact-focus__meta-kind {
-  margin-left: auto;
-  border: 1px solid var(--color-overlay-4);
-  border-radius: 999px;
-  padding: 1px 8px;
-  color: var(--color-violet);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 /* ContentRef parts already paint their own card — avoid double border/padding. */
