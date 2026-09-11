@@ -157,14 +157,17 @@ const quotedOps = (matrix: string): ReadonlyArray<string> =>
 const collapsed = (input: string): string => input.replace(/\s+/gu, " ");
 
 describe("overseer coverage matrix", () => {
-  it("inventories every frozen wire operation without claiming handlers", () => {
+  it("inventories every frozen wire operation without a completion claim", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
-    expect(collapsed(matrix)).toContain("This file does not claim handlers");
+    expect(collapsed(matrix)).toContain("not a completion claim");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
     expect(FROZEN_OPERATIONS).toHaveLength(97);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("canvasOverseerSet");
     expect(matrix).toContain("tests/overseer-admission.test.ts");
+    expect(matrix).toContain("| catalog |");
+    expect(matrix).toContain("| exercised |");
+    expect(matrix).not.toContain("inventory; handler pending peer");
   });
 
   it("marks the frozen read-only set and treats page.eval as mutation", () => {
@@ -178,7 +181,7 @@ describe("overseer coverage matrix", () => {
     expect(matrix).toContain("| `pad.read` | mutation |");
   });
 
-  it("tracks the seven key risks as missing until peers land proofs", () => {
+  it("maps key risks to owning suites without a full-pass claim", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     for (const risk of [
       "Stale UI save/undo restoring revoked authority",
@@ -187,12 +190,15 @@ describe("overseer coverage matrix", () => {
       "Self-retirement via canvas delete/kind/binding",
       "Remote source impersonation",
       "Uncertain completion, no automatic replay",
+      "Viewport invariance",
     ]) {
       expect(matrix).toContain(risk);
-      expect(matrix).toMatch(new RegExp(`${risk}[\\s\\S]*?missing`, "u"));
     }
-    expect(matrix).toContain("Viewport invariance");
     expect(matrix).toContain("e2e/scenarios/overseer-acceptance.spec.ts");
+    expect(matrix).toContain("tests/overseer-canvas-commands.test.ts");
+    expect(matrix).toContain("tests/station-overseer-transport.test.ts");
+    expect(matrix).toContain("Cross-canvas `artifact.publish` publisher-home route not integrated");
+    expect(collapsed(matrix)).toContain("Full repository suite is not claimed green");
   });
 });
 
