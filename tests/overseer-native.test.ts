@@ -139,7 +139,10 @@ const makeChats = (): ChatService => {
   return chats as unknown as ChatService;
 };
 
-const occupySeatDefault = async (): Promise<boolean> => true;
+const occupySeatDefault = async (
+  _spec: unknown,
+  signal: AbortSignal,
+): Promise<boolean> => !signal.aborted;
 
 const live = (
   documents: ReadonlyArray<{ name: string; doc: CanvasDoc }>,
@@ -580,10 +583,13 @@ describe("overseer native adapters", () => {
     });
     let occupyStarted = false;
     let occupyFinished = false;
-    const occupySeat = vi.fn(async () => {
+    let spawnedAfterAbort = false;
+    const occupySeat = vi.fn(async (_spec: unknown, signal: AbortSignal) => {
       occupyStarted = true;
       await held;
       occupyFinished = true;
+      if (signal.aborted) return false;
+      spawnedAfterAbort = true;
       return true;
     });
     const native = live([{ name: "factory", doc: board }], { occupySeat });
@@ -603,7 +609,9 @@ describe("overseer native adapters", () => {
     releaseOccupy();
     await interruptPending;
     expect(occupyFinished).toBe(true);
+    expect(spawnedAfterAbort).toBe(false);
     expect(occupySeat).toHaveBeenCalledTimes(1);
+    expect(occupySeat.mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal);
   });
 
   it("rejects unknown native operations and invalid args via the contract decoder", () => {
@@ -646,6 +654,44 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     if (!prepared.ok) return;
     native.finishOverseerNodeDelete(prepared.leaseId, "aborted");
     expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
+  });
+
+  it("uses late-bound pages for delete after construct-time undefined", async () => {
+    const stopForOwner = vi.fn(async () => ({
+      ok: true as const,
+      data: { sessionId: "sess-late", stopped: true },
+    }));
+    const options: OverseerNativeLiveOptions = {
+      termPlane: makeTermPlane(),
+      chats: makeChats(),
+      captureApplicationPage: async () => ({ ok: true, png: PNG }),
+      liveOverseerGrant: async () => true,
+      listCanvasDocuments: async () => [{ name: "factory", doc: doc([page("p1")]) }],
+      occupySeat: occupySeatDefault,
+    };
+    const native = makeOverseerNativeLive(options);
+    const unbound = await native.prepareOverseerNodeDelete([
+      { kind: "page", sessionId: "sess-late" },
+    ]);
+    expect(unbound.ok).toBe(true);
+    if (!unbound.ok) return;
+    expect(unbound.pageStops).toEqual([
+      {
+        sessionId: "sess-late",
+        stopped: false,
+        error: "browser runtime is unavailable on this installation",
+      },
+    ]);
+    native.finishOverseerNodeDelete(unbound.leaseId, "aborted");
+
+    options.pages = { stopForOwner } as unknown as BrowserSessionService;
+    const bound = await native.prepareOverseerNodeDelete([
+      { kind: "page", sessionId: "sess-late" },
+    ]);
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) return;
+    expect(stopForOwner).toHaveBeenCalled();
+    expect(bound.pageStops).toEqual([{ sessionId: "sess-late", stopped: true }]);
   });
 
   it("stops pages through BrowserSessionService and reports partial failure honestly", async () => {

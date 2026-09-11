@@ -171,6 +171,7 @@ export type OverseerNativeLiveOptions = {
    */
   readonly occupySeat: (
     spec: Parameters<ActorSeatOccupyApi["occupy"]>[0],
+    signal: AbortSignal,
   ) => Promise<boolean>;
   readonly managedDrive?: Pick<ManagedTerminalDrive, "writePrompt" | "interrupt">;
   /**
@@ -485,23 +486,26 @@ const occupySeat = async (
     };
     const onAbort = (): void => finish(false);
     ctx.signal.addEventListener("abort", onAbort, { once: true });
-    void ctx.occupySeat({
-      bindingId: surface.bindingId,
-      hostId: surface.hostId,
-      canvasName,
-      nodeId: node.id,
-      harness: surface.harness,
-      agentKey: surface.agentKey,
-      spawnIntent: makeManagedSpawnIntent({
+    void ctx.occupySeat(
+      {
+        bindingId: surface.bindingId,
+        hostId: surface.hostId,
+        canvasName,
         nodeId: node.id,
         harness: surface.harness,
-        documentLaunch: surface.launch,
         agentKey: surface.agentKey,
-        cwd: surface.launch?.cwd,
-        resume: true,
-      }),
-    }).then(
-      (ok) => finish(ok),
+        spawnIntent: makeManagedSpawnIntent({
+          nodeId: node.id,
+          harness: surface.harness,
+          documentLaunch: surface.launch,
+          agentKey: surface.agentKey,
+          cwd: surface.launch?.cwd,
+          resume: true,
+        }),
+      },
+      ctx.signal,
+    ).then(
+      (ok) => finish(ok && !ctx.signal.aborted),
       () => finish(false),
     );
   });
@@ -1256,7 +1260,11 @@ type ActiveDeleteLease = {
 };
 
 const makeDeleteHooks = (
-  ctx: Pick<NativeContext, "termPlane" | "chats" | "pages">,
+  ctx: {
+    readonly termPlane: TermPlane;
+    readonly chats: ChatService;
+    readonly pages: () => BrowserSessionService | undefined;
+  },
 ): OverseerNativeDeleteHooks => {
   const leases = new Map<string, ActiveDeleteLease>();
 
@@ -1296,8 +1304,9 @@ const makeDeleteHooks = (
           }
           chatLeaseId = began.leaseId;
         }
+        const pageRuntime = ctx.pages();
         for (const page of pages) {
-          if (ctx.pages === undefined) {
+          if (pageRuntime === undefined) {
             pageStops.push({
               sessionId: page.sessionId,
               stopped: false,
@@ -1306,7 +1315,7 @@ const makeDeleteHooks = (
             continue;
           }
           const owner = page.owner ?? BROWSER_UI_SESSION_OWNER;
-          const stopped = await ctx.pages.stopForOwner(owner, page.sessionId);
+          const stopped = await pageRuntime.stopForOwner(owner, page.sessionId);
           pageStops.push(
             stopped.ok
               ? { sessionId: page.sessionId, stopped: true }
@@ -1384,7 +1393,7 @@ export const makeOverseerNativeLive = (
   const hooks = makeDeleteHooks({
     termPlane: options.termPlane,
     chats: options.chats,
-    pages: options.pages,
+    pages: () => options.pages,
   });
 
   const executeResult = (
