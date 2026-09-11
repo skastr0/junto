@@ -6,8 +6,9 @@ import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
+import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
+import { installLinuxDesktop } from "../src/main/vellum-command/update/linux-first-install";
 import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, LinuxDesktopActivationError, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum-command/update/linux-install";
 
 const fault = vi.hoisted(() => ({ syncPath: undefined as string | undefined, syncSuffix: undefined as string | undefined }));
@@ -107,6 +108,57 @@ const stage = (input: Awaited<ReturnType<typeof fixture>>) => stageLinuxDesktopR
 const active = (home: string) => join(home, ".local/bin/vellum-command-desktop");
 
 describe("rootless Linux desktop installation", () => {
+  it("unmocked first install rejects an attacker-signed tarball before extraction", async () => {
+    const version = "0.3.0";
+    const input = await fixture({
+      version,
+      members: (rootName) => [
+        { path: `${rootName}/`, type: "Directory" },
+        {
+          path: `${rootName}/vellum-command`,
+          mode: 0o755,
+          body: "#!/bin/sh\nprintf executed > /tmp/vellum-command-candidate-executed\n",
+        },
+      ],
+    });
+    const archiveName = linuxDesktopArchiveName(version);
+    const archivePath = join(input.root, archiveName);
+    await writeFile(archivePath, input.bytes);
+    const sources = {
+      schema: "vellum-command/release-sources/v1",
+      product: "Vellum Command",
+      version,
+      sourceCommit: SOURCE,
+      access: "same-download-location",
+      files: [{ file: "synthetic-source.tar.gz", bytes: 1, sha256: "b".repeat(64) }],
+      binaries: [{ file: archiveName, bytes: input.bytes.length, sha256: sha256(input.bytes) }],
+    };
+    const sourcesPath = join(input.root, "sources.json");
+    const sourcesBytes = Buffer.from(JSON.stringify(sources));
+    await writeFile(sourcesPath, sourcesBytes);
+    const descriptor: LinuxDesktopReleaseDescriptor = {
+      ...input.descriptor,
+      sources: {
+        path: `/linux/x64/sources/${version}/sources.json`,
+        bytes: sourcesBytes.length,
+        sha256: sha256(sourcesBytes),
+      },
+    };
+    const releasePath = join(input.root, "release.json");
+    await writeFile(
+      releasePath,
+      JSON.stringify(signLinuxDesktopRelease(descriptor, keyPair.privateKey)),
+    );
+    await expect(installLinuxDesktop({
+      release: releasePath,
+      archive: archivePath,
+      sources: sourcesPath,
+      home: input.home,
+    }, { assertTarget: async () => undefined })).rejects.toThrow(/pinned signing trust/);
+    await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("requires the cryptographic verifier's exact descriptor object", async () => {
     const input = await fixture();
     await expect(stageLinuxDesktopRelease({ ...input, descriptor: { ...input.descriptor } as VerifiedLinuxDesktopRelease })).rejects.toThrow("authenticated release");

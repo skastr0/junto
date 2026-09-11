@@ -26,8 +26,8 @@ export const assertLinuxDesktopUpdateTarget = (target: LinuxDesktopTargetObserva
     fields.get("ID") !== "ubuntu" || fields.get("VERSION_ID") !== "24.04" ||
     glibc === null || glibc[0] !== target.glibcVersion ||
     !Number.isSafeInteger(major) || !Number.isSafeInteger(minor) ||
-    major !== 2 || minor !== 39) {
-    throw updateError("platform-unsupported", "Linux desktop updates require Ubuntu 24.04 x64 with glibc 2.39");
+    major < 2 || (major === 2 && minor < 39)) {
+    throw updateError("platform-unsupported", "Linux desktop updates require Ubuntu 24.04 x64 with glibc 2.39 or newer");
   }
   if (!ordinaryUserId(target.uid) || !ordinaryUserId(target.euid)) {
     throw updateError("platform-unsupported", "Linux desktop installation and updates require an ordinary user with non-root real and effective user IDs");
