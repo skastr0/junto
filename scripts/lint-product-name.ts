@@ -116,7 +116,6 @@ async function* walk(dir: string): AsyncGenerator<string> {
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) {
       if (SKIP_DIR_NAMES.has(ent.name)) continue;
-      // Skip nested cloudflare vendor tree
       if (full.includes(`${path.sep}node_modules${path.sep}`)) continue;
       yield* walk(full);
       continue;
@@ -125,9 +124,6 @@ async function* walk(dir: string): AsyncGenerator<string> {
     const ext = path.extname(ent.name);
     const base = path.basename(full);
     const rel = path.relative(ROOT, full);
-    if (rel.startsWith(`infra${path.sep}cloudflare${path.sep}node_modules`)) {
-      continue;
-    }
     // Self + one-shot codemod encode the bare-token pattern on purpose.
     if (
       rel === `scripts${path.sep}lint-product-name.ts` ||

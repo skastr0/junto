@@ -24,7 +24,7 @@ actively developed by a solo maintainer. Reports and proposals go through
 
 The [official download page](https://vellumcommand.com/download) lists available
 builds, checksums, signed Linux metadata, and corresponding source downloads.
-Official automatic updates use the Cloudflare Worker/R2 feeds. Updates download
+Official automatic updates use the maintainer-run release feed. Updates download
 in the background and offer an explicit restart when ready. The source repository
 is not an npm package, and GitHub Releases are not the update feed.
 
@@ -74,8 +74,8 @@ bun run app:build:linux    # local Linux desktop package, run on Linux
 
 Local packages are development builds. Official signing and publication are
 separate maintainer operations described in
-[the macOS release runbook](docs/mac-release-runbook.md) and
-[the Linux release policy](docs/linux-release-key-policy.md).
+the maintainer's private distribution repository, which holds the signing,
+notarization and publication tooling. This repository only builds.
 macOS source packages start without a signing identity. Automatic updates and
 Remote package admission require the expected official signing identity compiled
 into an official build; a source package without that policy refuses admission.

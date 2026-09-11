@@ -336,58 +336,6 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     );
   });
 
-  it("separates desktop publication authority from CI and Fleet qualification", async () => {
-    const policy = await readDoc("linux-release-key-policy.md");
-    const lane = await readDoc("linux-ci-release-lane.md");
-    const text = collapsed(policy);
-    const laneText = collapsed(lane);
-    expect(text).toContain("read-only repository permission");
-    expect(text).toContain("receives no release private key");
-    expect(policy).toContain("## Human authority and custody");
-    expect(policy).toContain("## Rotation and revocation");
-    expect(policy).toContain("Revocation is irreversible");
-    expect(policy).toContain("## Desktop alpha publication gates");
-    expect(policy).toContain("## Fleet Beta publication gates");
-    expect(text).toContain("independent approval recorded against the descriptor digest before upload");
-    expect(text).toContain("supply private-key bytes only through the signing tool's standard input");
-    expect(text).toContain("Record custody as unverified until the custodian supplies the required evidence");
-    expect(text).toContain("Remaining `UNKNOWN` licenses block release preparation and cannot be waived by GO");
-    expect(text).toContain("Immutable desktop descriptors do not expire and require no periodic re-signing or version bump");
-    expect(text).toContain("Managed updates must be strictly newer than the installed version");
-    expect(text).toContain("current trust/revocation checks still apply");
-    expect(text).toContain(
-      "Fleet's two-installation gates do not apply to desktop-only publication",
-    );
-    expect(text).toContain("Desktop publication must not remove or satisfy these gates by implication");
-    expect(text).toContain("A desktop descriptor grants no Fleet release qualification or Remote deployment authority");
-    expect(policy).toContain("release-manifest.json");
-    expect(policy).toContain("SHA256SUMS");
-    for (const releasePath of [
-      "/linux/x64/alpha.json",
-      "/linux/x64/<version>/release.json",
-      "/linux/x64/vellum-runtime-<version>-linux-x64.tar.gz",
-      "/linux/x64/sources/<version>/sources.json",
-    ]) {
-      expect(policy).toContain(releasePath);
-      expect(lane).toContain(releasePath);
-    }
-    expect(laneText).toContain("That CI artifact is unsigned and is not a public release");
-    expect(laneText).toContain("CI does not hold the release private key, sign production metadata, record GO or upload a release");
-    expect(laneText).toContain("Record GO against the exact descriptor digest only when these gates pass");
-    expect(laneText).toContain("The publisher's default is a local dry run");
-    expect(laneText).toContain("Adding `--publish` performs the separately authorized external publication");
-    expect(shellBlocks(lane)).toContain("scripts/publish-linux-desktop-release.ts");
-    expect(shellBlocks(lane)).not.toContain("--publish");
-    expect(laneText).toContain(
-      "No `.deb`, `/opt`, administrator prompt, privileged helper or root journal is a fallback for either lane",
-    );
-    expect(policy).not.toContain("ubuntu-24.04-x64-release");
-    // Private custody paths must never become checked-in signing recipes.
-    expect(policy).not.toContain(
-      "< /offline/custody/vellum-linux-ed25519.pem",
-    );
-  });
-
   it("keeps the checked-in changelog visibly non-publishable", async () => {
     const changelog = await readDoc("linux-release-changelog-template.md");
     expect(changelog).toContain("NOT AUTHORIZED FOR PUBLICATION");

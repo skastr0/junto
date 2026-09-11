@@ -36,7 +36,7 @@ creates authority or increases impact beyond the documented trust model.
 Official binaries are linked from the
 [Vellum Command download page](https://vellumcommand.com/download). Official macOS
 builds are signed and notarized; automatic updates use the app's configured
-Cloudflare Worker/R2 feed. Source availability does not make arbitrary third-party
+maintainer-run release feed. Source availability does not make arbitrary third-party
 builds official, and GitHub Releases are not the automatic update feed.
 
 The maintainer coordinates disclosure around severity, available fixes, and user

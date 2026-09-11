@@ -17,7 +17,7 @@ export const MAC_ARM64_UPDATE_FEED_URL_CUSTOM_DOMAIN =
   "https://releases.vellumcommand.com/mac/arm64" as const;
 
 /**
- * Live Cloudflare Worker download surface from Alchemy deploy.
+ * Live download surface published by the maintainer's release feed.
  * Bucket: vellum-releases. Update this if the Worker hostname changes.
  */
 export const MAC_ARM64_UPDATE_FEED_URL_WORKER =

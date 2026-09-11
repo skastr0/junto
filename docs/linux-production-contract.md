@@ -11,8 +11,8 @@ Linux desktop alpha uses the existing signed rootless archive, managed
 owner-local generations and automatic signed updates with explicit Restart.
 It can be published after desktop qualification, without claiming Fleet Beta
 or production readiness. The [desktop guide](linux-command-center-alpha.md),
-[release-key policy](linux-release-key-policy.md) and
-[CI lane](linux-ci-release-lane.md) define those exact gates.
+the release-key policy and CI lane kept in the private distribution repository
+define those exact gates.
 
 Fleet Remote Beta separately requires a fully tested core userland path,
 Station-user supervision and real two-installation qualification. Optional

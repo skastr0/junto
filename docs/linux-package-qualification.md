@@ -249,7 +249,7 @@ native Ubuntu 24.04 x86-64 and upload:
 - explicit `unqualified` metadata until operator two-installation evidence and
   human promotion exist.
 
-The current `.github/workflows/linux-release.yml` is a legacy `.deb` evidence
+The retired Linux `.deb` workflow was a legacy evidence
 lane. Its output may be used only for bounded component evidence while
 migration proceeds. It is not the authoritative Linux release workflow under
 this contract and cannot emit a promotable candidate.

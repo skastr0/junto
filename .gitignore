@@ -34,5 +34,4 @@ ds-bundle/
 *.pfx
 .vercel/
 .wrangler/
-.alchemy/
 *.tsbuildinfo

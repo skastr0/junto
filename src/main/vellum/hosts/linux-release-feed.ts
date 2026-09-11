@@ -1,5 +1,5 @@
 /**
- * Linux release feed (Cloudflare Worker / R2) → local Command Center cache.
+ * Linux release feed (maintainer-run download surface) → local Command Center cache.
  *
  * Deploy Remote admits an owner-controlled directory under
  * ~/.vellum-command/releases/linux-x64-glibc/current. That directory is a *cache*, not

@@ -132,7 +132,7 @@ assert_release_zip_capability() {
   }
   base="$(basename "$path")"
   # Accept both legacy spaced names (PRODUCT_NAME) and locked production
-  # artifactName (package.json / Cloudflare: Vellum-Command-*-mac.zip).
+  # artifactName (package.json / release feed: Vellum-Command-*-mac.zip).
   [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip || "$base" == "Vellum-Command-"*-mac.zip ]] || {
     err "zip must be a Vellum Command macOS release artifact"
     return 1

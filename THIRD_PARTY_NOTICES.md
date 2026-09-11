@@ -6,7 +6,7 @@ Third-party components retain their original copyright and license notices.
 
 ## Software dependencies
 
-`package.json`, `infra/cloudflare/package.json`, and their lockfiles identify the
+`package.json` and its lockfile identify the
 dependencies and versions used by the application and release-serving Worker.
 The full license and notice files accompanying those dependencies govern their
 redistribution; this index does not replace them.

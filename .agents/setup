@@ -63,6 +63,5 @@ install_dependencies() {
 }
 
 install_dependencies .
-install_dependencies infra/cloudflare
 
 printf '[setup] Complete\n'

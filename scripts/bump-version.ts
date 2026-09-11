@@ -8,7 +8,7 @@
  *   bun scripts/bump-version.ts --set 0.2.0  # exact
  *   bun scripts/bump-version.ts --dry-run
  *
- * Does not tag, build, notarize, or publish. See docs/mac-release-runbook.md.
+ * Does not tag, build, notarize, or publish. Publishing lives in the private distribution repository.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";

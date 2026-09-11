@@ -90,7 +90,7 @@ The build emits a relocatable desktop directory and `.tar.gz` archive under
 third-party notices. It needs no billing or release credentials and uploads
 nothing. A local archive is not an official signed release. Official desktop
 publication uses the signed descriptor and source binding in
-[the release key policy](linux-release-key-policy.md). Fleet manifest/checksum
+the release key policy kept in the private distribution repository. Fleet manifest/checksum
 verification is a separate gated release contract.
 
 Launch the extracted `vellum-command` executable in your desktop session.

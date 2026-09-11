@@ -92,7 +92,7 @@ export type LocalBundleProvenanceReceipt = {
 /**
  * Artifact input for Darwin Remote deploy.
  * - `live-app` packages the admitted .app directory (running CC / local release).
- * - `release-zip` is the final shippable ZIP (Cloudflare feed / notarized artifact).
+ * - `release-zip` is the final shippable ZIP (release feed / notarized artifact).
  */
 export type DarwinDeployArtifactInput =
   | {
