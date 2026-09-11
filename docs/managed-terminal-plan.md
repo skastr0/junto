@@ -190,8 +190,9 @@ Every row below is backed by harness probes — see
 [`managed-terminal-verification.md`](managed-terminal-verification.md) for
 receipts. This is not a current Vellum Command implementation matrix. Release truth
 lives in `src/shared/managed-terminal-templates.ts`: Prime Agent's built-in
-per-session reporter is the sole zero-write hook feed currently on; Codex/Hermes
-cold wake is unavailable.
+per-session reporter is the sole zero-write hook feed currently on. Codex
+captures a thread id and cold-wakes with `codex resume <id>`; Hermes proves a
+session in `state.db` and cold-wakes with `-r <id>`.
 
 | | Claude Code | Codex | Grok | Hermes | Prime Agent 0.7.1 |
 |---|---|---|---|---|---|

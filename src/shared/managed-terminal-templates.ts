@@ -428,7 +428,7 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
 export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
   harness: "codex",
   displayName: "Codex",
-  probedVersion: "0.145.0",
+  probedVersion: "0.154.0",
   argvSpec: {
     binary: "codex",
     prefix: [],
@@ -472,8 +472,9 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
       "doctrine at creation",
     ],
   },
-  // Per-model lists come from `codex debug models`; these are common floors.
-  efforts: ["low", "medium", "high", "xhigh", "ultra"],
+  // Common floors from `codex debug models` on 0.154.0 (union). Per-model
+  // lists come from supported_reasoning_levels[].effort when the catalog runs.
+  efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
   defaultPermissionMode: "on-request",
 };
 

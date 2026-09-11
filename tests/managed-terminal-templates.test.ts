@@ -393,6 +393,19 @@ describe("resolveManagedLaunch argv", () => {
     ]);
   });
 
+  it("codex floors include max from the 0.154.0 debug-models union", () => {
+    expect(CODEX_TEMPLATE.probedVersion).toBe("0.154.0");
+    expect(CODEX_TEMPLATE.efforts).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(effortsFor("codex")).toEqual(CODEX_TEMPLATE.efforts);
+  });
+
   it("codex: prompt, -a approval, -m model, -c effort config key", () => {
     const launch = resolveManagedLaunch(
       "codex",
@@ -966,6 +979,39 @@ describe("model enumeration (fail-soft)", () => {
       id: "gpt-5.6-luna",
       efforts: ["low", "medium", "high", "ultra"],
     });
+
+    const live = parseCodexDebugModels(
+      JSON.stringify({
+        models: [
+          {
+            slug: "gpt-6-astra",
+            display_name: "GPT-6-Astra",
+            supported_reasoning_levels: [
+              { effort: "low", description: "Fast" },
+              { effort: "medium", description: "Balanced" },
+              { effort: "high", description: "Deep" },
+              { effort: "xhigh", description: "Extra" },
+              { effort: "max", description: "Maximum" },
+              { effort: "ultra", description: "Delegated" },
+            ],
+          },
+          {
+            slug: "gpt-5.5",
+            supported_reasoning_levels: [
+              { effort: "low" },
+              { effort: "medium" },
+              { effort: "high" },
+              { effort: "xhigh" },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(live.models[0]).toMatchObject({
+      id: "gpt-6-astra",
+      efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
+    });
+    expect(live.models[1]?.efforts).toEqual(["low", "medium", "high", "xhigh"]);
 
     const lines = parseCodexDebugModels(
       "gpt-5.4-mini low medium high\ngpt-5.6-sol low high ultra\n",

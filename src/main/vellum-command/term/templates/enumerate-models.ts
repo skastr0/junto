@@ -150,17 +150,43 @@ export const readClaudeModels = (
 export type CodexModelsRunner = () => Promise<string>;
 
 /**
- * Best-effort parse of `codex debug models` text.
- * Accepts JSON array when the CLI ever emits it, otherwise line-oriented
- * `model [efforts…]` sketches. Fail-soft on unknown shapes.
+ * Live `codex debug models` (0.154.0) emits
+ * `{ models: [{ slug, supported_reasoning_levels: [{ effort }] }] }`.
+ * Older sketches used a JSON array or `efforts` / `reasoning_efforts` keys,
+ * or line-oriented `model [efforts…]`. Fail-soft on unknown shapes.
  */
+const readCodexEfforts = (
+  rec: Record<string, unknown>,
+): readonly string[] | undefined => {
+  const levels = rec.supported_reasoning_levels;
+  if (Array.isArray(levels)) {
+    const fromLevels: string[] = [];
+    for (const level of levels) {
+      if (typeof level === "string" && level.length > 0) {
+        fromLevels.push(level);
+        continue;
+      }
+      if (level && typeof level === "object") {
+        const effort = (level as { effort?: unknown }).effort;
+        if (typeof effort === "string" && effort.length > 0) {
+          fromLevels.push(effort);
+        }
+      }
+    }
+    if (fromLevels.length > 0) return fromLevels;
+  }
+  const effortsRaw = rec.efforts ?? rec.reasoning_efforts ?? rec.effort;
+  if (!Array.isArray(effortsRaw)) return undefined;
+  const efforts = effortsRaw.filter((e): e is string => typeof e === "string");
+  return efforts.length > 0 ? efforts : undefined;
+};
+
 export const parseCodexDebugModels = (
   stdout: string,
 ): { models: ModelOption[]; error?: string } => {
   const trimmed = stdout.trim();
   if (!trimmed) return { models: [], error: "empty codex debug models output" };
 
-  // JSON path (future / accidental machine output).
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
     try {
       const doc = JSON.parse(trimmed) as unknown;
@@ -187,14 +213,10 @@ export const parseCodexDebugModels = (
                 ? rec.name
                 : undefined;
         if (!id) continue;
-        const effortsRaw = rec.efforts ?? rec.reasoning_efforts ?? rec.effort;
-        const efforts = Array.isArray(effortsRaw)
-          ? effortsRaw.filter((e): e is string => typeof e === "string")
-          : undefined;
         models.push({
           id,
           label: typeof rec.label === "string" ? rec.label : id,
-          efforts,
+          efforts: readCodexEfforts(rec),
         });
       }
       return { models };
