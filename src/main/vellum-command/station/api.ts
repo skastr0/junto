@@ -700,6 +700,14 @@ const authorizeRemoteOverseerCommand = (
   return admitted();
 };
 
+const authorizeLiveOverseerOrigin = (
+  topology: CapturedWorkTopology,
+  actor: ActorRef,
+): WorkCommandAuthorization => {
+  const seat = liveOverseerSeat(topology, actor);
+  return "_tag" in seat ? seat : admitted();
+};
+
 const authorizeAdministrativeTaskClaim = (
   topology: CapturedWorkTopology,
   actor: ActorRef,
@@ -1184,10 +1192,9 @@ export const makeStationWorkAdmission = (
             "actor mailboxes remain Command Center-homed",
           );
         }
-        const overseer = authorizeRemoteOverseerCommand(
+        const overseer = authorizeLiveOverseerOrigin(
           topology,
           command.body.sentBy,
-          topology.peerInstallationId,
         );
         return overseer._tag === "admitted"
           ? overseer
