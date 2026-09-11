@@ -593,6 +593,7 @@ export class BrowserSessionService {
   >();
   private readonly viewDestroyTimeoutMs: number;
   private readonly uiShutdownDrainTimeoutMs: number;
+  private maxAcknowledgedStopReceipts = BrowserSessionService.MAX_STOP_RECEIPTS;
   // Sole durable SoT for these numbers is Settings.browser; profiles.config
   // remains fallback for tests that never install a limits provider.
   private poolLimits: (() => Promise<BrowserPoolLimits>) | undefined;
@@ -1938,11 +1939,28 @@ export class BrowserSessionService {
   private rememberStoppedSession(record: BrowserStopRecord): void {
     this.stoppedSessions.delete(record.receipt.sessionId);
     this.stoppedSessions.set(record.receipt.sessionId, record);
-    while (this.stoppedSessions.size > BrowserSessionService.MAX_STOP_RECEIPTS) {
-      const oldest = this.stoppedSessions.keys().next().value as string | undefined;
+    // Unacknowledged identities stay until a later stopForOwner retry gets an
+    // exact destruction receipt. Only successful receipts are FIFO-bounded.
+    while (this.acknowledgedStopCount() > this.maxAcknowledgedStopReceipts) {
+      const oldest = this.oldestAcknowledgedStopId();
       if (oldest === undefined) break;
       this.stoppedSessions.delete(oldest);
     }
+  }
+
+  private acknowledgedStopCount(): number {
+    let count = 0;
+    for (const record of this.stoppedSessions.values()) {
+      if (record.lastResult?.ok === true) count += 1;
+    }
+    return count;
+  }
+
+  private oldestAcknowledgedStopId(): string | undefined {
+    for (const [sessionId, record] of this.stoppedSessions) {
+      if (record.lastResult?.ok === true) return sessionId;
+    }
+    return undefined;
   }
 
   async eval(
@@ -2085,7 +2103,7 @@ export class BrowserSessionService {
   /**
    * Live overseer may operate an existing session for a page ref without
    * impersonating the UI sender. Ordinary owner checks stay intact.
-   * First match only — deletion must use `overseerSessionsForRef`.
+   * First match only — deletion must use `overseerDeleteSessionsForRef`.
    */
   overseerSessionForRef(ref: string):
     | { readonly owner: string; readonly sessionId: string }
@@ -2127,6 +2145,17 @@ export class BrowserSessionService {
    * Callers must wait on stopForOwner — never treat an unacknowledged
    * teardown as absence.
    */
+  /** Test seam: bound only successful stop receipts; unacknowledged stay. */
+  setMaxAcknowledgedStopReceiptsForTest(limit: number): void {
+    if (!Number.isFinite(limit) || limit < 1) return;
+    this.maxAcknowledgedStopReceipts = Math.floor(limit);
+    while (this.acknowledgedStopCount() > this.maxAcknowledgedStopReceipts) {
+      const oldest = this.oldestAcknowledgedStopId();
+      if (oldest === undefined) break;
+      this.stoppedSessions.delete(oldest);
+    }
+  }
+
   overseerDeleteSessionsForRef(
     ref: string,
   ): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> {

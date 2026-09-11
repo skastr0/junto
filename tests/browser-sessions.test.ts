@@ -2834,4 +2834,56 @@ describe("BrowserSessionService", () => {
     await expect(retry).resolves.toMatchObject({ ok: true, data: { alreadyStopped: true } });
     expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([]);
   });
+
+  it("keeps a timed-out exact-ref receipt through successful-stop cache pressure", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
+      makeProfileService(),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+    );
+    service.setMaxAcknowledgedStopReceiptsForTest(1);
+    service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 8, maxWarmSessions: 8 }));
+
+    const timedPage = target("timeout-survivor");
+    const timed = await service.openForOwner("job-a", timedPage);
+    if (!timed.ok) throw new Error("open failed");
+    expect(await service.stopForOwner("job-a", timed.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "timeout",
+    });
+    expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([
+      { owner: "job-a", sessionId: timed.data.sessionId },
+    ]);
+
+    for (const id of ["ack-a", "ack-b"] as const) {
+      const opened = await service.openForOwner("job-b", target(id));
+      if (!opened.ok) throw new Error("open failed");
+      const stop = service.stopForOwner("job-b", opened.data.sessionId);
+      await vi.waitFor(() => expect(views.at(-1)?.destroyed).toBe(true));
+      views.at(-1)?.resolveDestroyed();
+      await expect(stop).resolves.toMatchObject({ ok: true });
+    }
+
+    expect(service.overseerSessionsForRef(timedPage.ref)).toEqual([]);
+    expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([
+      { owner: "job-a", sessionId: timed.data.sessionId },
+    ]);
+
+    const retry = service.stopForOwner("job-a", timed.data.sessionId);
+    let retrySettled = false;
+    void retry.then(() => {
+      retrySettled = true;
+    });
+    await Promise.resolve();
+    expect(retrySettled).toBe(false);
+    views[0]?.resolveDestroyed();
+    await expect(retry).resolves.toMatchObject({ ok: true, data: { alreadyStopped: true } });
+    expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([]);
+  });
 });
