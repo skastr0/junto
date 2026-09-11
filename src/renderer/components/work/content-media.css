@@ -51,6 +51,17 @@
   padding: 6px;
 }
 
+/* Image footer bar (media type + bytes + Save) sits under the image, so the
+   text-branch top-bar chrome does not apply. */
+.content-media--image .content-media__bar {
+  border-bottom: 0;
+  padding: 0 2px;
+}
+
+.content-media--image .content-media__bytes {
+  margin-left: auto;
+}
+
 .content-media--image img {
   display: block;
   max-width: 100%;

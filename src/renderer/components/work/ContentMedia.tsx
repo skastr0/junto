@@ -293,7 +293,33 @@ export function ContentMedia({
             setReason("image element failed to decode stream");
           }}
         />
-        {bare ? null : <span>{contentRef.mediaType}</span>}
+        {bare ? (
+          null
+        ) : (
+          <>
+            <div className="content-media__bar">
+              <span className="content-media__type">{contentRef.mediaType}</span>
+              <span className="content-media__bytes">
+                {formatBytes(contentRef.byteLength)}
+              </span>
+              <Button
+                size="xs"
+                variant="subtle"
+                disabled={opening}
+                data-testid="content-media-open"
+                onClick={() => void handleOpen()}
+              >
+                <Download size={11} />
+                {opening ? "Opening…" : "Save"}
+              </Button>
+            </div>
+            {openError ? (
+              <p className="content-media__error" role="alert">
+                {openError}
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
     );
   }
