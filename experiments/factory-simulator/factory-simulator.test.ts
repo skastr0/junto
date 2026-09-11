@@ -13,7 +13,6 @@ describe("external factory simulator prototype", () => {
     expect(manifest.filter(({ lane }) => lane === undefined)).toEqual([]);
     expect(manifest).toContainEqual({ commandId: "tasks.claim", lane: "target-matrix" });
     expect(manifest).toContainEqual({ commandId: "doctor", lane: "seat-local" });
-    expect(manifest).toContainEqual({ commandId: "desktop-install", lane: "operator-install" });
   });
 
   it("exhausts the current node-edge-node matrix for every target-scoped CLI command", () => {

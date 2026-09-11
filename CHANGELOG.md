@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Authenticate Linux desktop first install with an independently obtained
+  bootstrap or reviewed source checkout. Do not extract or execute the
+  candidate archive's bundled CLI. Incumbent signed updates are unchanged.
 - Make project-owned source available under Apache-2.0, with source-build
   instructions and third-party notices.
 - Remove purchases, activation, and commercial access checks from desktop and

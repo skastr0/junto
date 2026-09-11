@@ -1089,18 +1089,6 @@ export const allExamples: ReadonlyArray<CommandExample> = [
 
 export const commandCapabilities: ReadonlyArray<CommandCapability> = [
   {
-    command_id: "desktop-install",
-    command: "desktop-install",
-    category: "workflow",
-    description: "First-install a signed Linux desktop archive without launching it; existing installations update through the app.",
-    examples: [{
-      command_id: "desktop-install",
-      command: "desktop-install",
-      name: "Install verified Linux desktop files",
-      args: ["--release", "release.json", "--archive", "vellum-command-runtime-0.2.1-linux-x64.tar.gz", "--sources", "sources.json"],
-    }],
-  },
-  {
     command_id: "ping",
     command: "ping",
     category: "diagnostic",

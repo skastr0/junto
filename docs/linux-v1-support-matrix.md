@@ -22,8 +22,9 @@ been published.
 | State | One app-owned `~/.vellum-command/state/vellum-command.db` | Install/update never copies, replaces or separately opens it |
 | Maturity | Alpha | Does not imply Fleet Beta or production qualification |
 
-Use the [desktop guide](linux-command-center-alpha.md) for verified first
-install, source builds and sandbox preparation, and the
+Use the [desktop guide](linux-command-center-alpha.md) and
+[bootstrap guide](linux-desktop-bootstrap.md) for independently authenticated
+first install, source builds and sandbox preparation, and the
 [operator runbook](linux-operator-runbook.md) for updates and recovery.
 
 ## Gated Fleet Remote Beta target

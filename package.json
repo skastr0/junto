@@ -81,6 +81,7 @@
     "cli": "bun src/cli/main.ts",
     "cli:build": "bun scripts/build-standalone-cli.ts vellum-command",
     "cli:build:dev": "bun scripts/build-standalone-cli.ts vellum-command-dev",
+    "linux:desktop:bootstrap:build": "bun scripts/build-standalone-cli.ts vellum-command-desktop-bootstrap-linux-x64",
     "remote:build": "bun scripts/build-vellum-remote.ts",
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "test:e2e:startup": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts"

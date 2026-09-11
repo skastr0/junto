@@ -54,7 +54,6 @@ export type CliCoverageLane =
   | "target-matrix"
   | "seat-local"
   | "discovery"
-  | "operator-install"
   | "browser-plane";
 
 const SEAT_LOCAL_COMMANDS = new Set([
@@ -78,8 +77,6 @@ export const classifyCliCommand = (commandId: string): CliCoverageLane | undefin
   if (commandId.startsWith("pad.")) return "target-matrix";
   if (SEAT_LOCAL_COMMANDS.has(commandId)) return "seat-local";
   if (DISCOVERY_COMMANDS.has(commandId)) return "discovery";
-  // First installation verifies release files without an agent seat or app owner.
-  if (commandId === "desktop-install") return "operator-install";
   if (commandId.startsWith("browser.")) return "browser-plane";
   return undefined;
 };

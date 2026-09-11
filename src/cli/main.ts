@@ -26,7 +26,6 @@ import {
 } from "./commands/work";
 import { contentCommand } from "./commands/content";
 import { docsCommand } from "./commands/docs";
-import { desktopInstallCommand } from "./commands/desktop-install";
 import {
   fleetOperatorCommand,
   qualificationOperatorCommand,
@@ -73,7 +72,6 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     artifactCommand,
     contentCommand,
     docsCommand,
-    desktopInstallCommand,
     boardCommand,
     padCommand,
     sheetCommand,

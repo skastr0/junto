@@ -12,11 +12,14 @@ particular candidate is already published.
 ## Before first install
 
 Follow the exact commands in the
-[desktop install guide](linux-command-center-alpha.md#install-an-official-desktop-alpha).
-Obtain the archive, signed descriptor, source index and archive SHA-256 through
-the official download page. Verify that SHA-256 before extracting or executing
-the bundled CLI. Then `desktop-install --release ... --archive ... --sources ...`
-admits the signed inputs and installs a fresh managed generation. It refuses
+[desktop install guide](linux-command-center-alpha.md#install-an-official-desktop-alpha)
+and the current [Linux desktop bootstrap guide](linux-desktop-bootstrap.md).
+Obtain the archive, signed descriptor and source index through the official
+download page. Authenticate first install with an independently obtained
+bootstrap or a reviewed source checkout before any candidate-archive code runs.
+Do not extract the archive or execute its bundled CLI. The bootstrap
+`--release ... --archive ... --sources ...` admits the signed inputs with
+embedded release trust and installs a fresh managed generation. It refuses
 an existing managed launcher and never launches the app or opens its database.
 
 The generation lives at
@@ -59,6 +62,11 @@ signed release; there is no downgrade or filesystem rollback.
 Unmanaged source builds and loose extracted copies do not update themselves
 through the managed release lane. Do not rerun the first-install command to
 replace an active installation or switch the launcher to an older generation.
+Existing managed installations are not retroactively authenticated by a later
+bootstrap release. Installations whose original provenance the operator trusts
+continue using the incumbent updater. Uncertain or suspected-compromised
+installations need independent incident assessment; comparing current bytes
+does not prove that malicious code never ran.
 
 Old and staged managed generations are retained, so disk use can grow across
 alpha releases. There is no automatic generation pruning or documented

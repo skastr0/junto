@@ -87,6 +87,7 @@ describe("Linux Command Center Alpha AppArmor boundary", () => {
     );
     expect(text).toContain("the application package remains rootless");
     expect(packagedInputs).not.toMatch(/linux-command-center\.apparmor|apparmor/iu);
+    expect(packagedInputs).not.toContain("vellum-command-desktop-bootstrap-linux-x64");
   });
 
   it("documents separate Xorg and native Wayland tests without weakening", async () => {
@@ -95,6 +96,11 @@ describe("Linux Command Center Alpha AppArmor boundary", () => {
 
     expect(doc).toContain("## Xorg launch and test");
     expect(doc).toContain("## Native Wayland launch and test");
+    expect(commands).not.toMatch(/^\s*tar\s+-xzf\b/mu);
+    expect(commands).not.toContain("desktop-install");
+    expect(commands).not.toContain("resources/bin/vellum-command");
+    expect(commands).toContain("gh attestation verify");
+    expect(commands).toContain("vellum-command-desktop-bootstrap-linux-x64");
     expect(commands).toContain("--ozone-platform=x11");
     expect(commands).toContain("--ozone-platform=wayland");
     expect(commands).toContain('cat "/proc/$ALPHA_PID/attr/current"');
