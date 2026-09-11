@@ -5,6 +5,7 @@ import {
   __setAutomationGateForTest,
   __setDocsForTest,
   manualSchedulerFire,
+  overseerSchedulerFire,
 } from "../src/main/vellum-command/kernel/cycle";
 import {
   __setSchedulerEffectDepsForTest,
@@ -121,6 +122,40 @@ describe("manualSchedulerFire scope", () => {
       // cron does + cascade into relay does
       expect(result.applied).toBe(2);
       expect(enqueues).toEqual(["From morning", "From relay"]);
+    },
+  );
+
+  it.runIf(CRON_ENABLED)(
+    "overseer fire succeeds while paused; ordinary manual fire stays paused",
+    async () => {
+      __setSchedulerEffectDepsForTest({
+        canAutomateCanvas: () => false,
+        canApplyFlagEffects: () => true,
+        hasReceipt: () => false,
+        recordReceipt: () => undefined,
+        enqueueTask: async ({ payload }) => {
+          enqueues.push(payload.brief);
+          return { ok: true };
+        },
+        setFlag: async () => ({ ok: true }),
+      });
+      const ordinary = await manualSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+      });
+      expect(ordinary.ok).toBe(false);
+      if (ordinary.ok) return;
+      expect(ordinary.message).toMatch(/playing/u);
+      expect(enqueues).toEqual([]);
+
+      const overseer = await overseerSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+      });
+      expect(overseer.ok).toBe(true);
+      if (!overseer.ok) return;
+      expect(overseer.applied).toBeGreaterThan(0);
+      expect(enqueues.length).toBeGreaterThan(0);
     },
   );
 

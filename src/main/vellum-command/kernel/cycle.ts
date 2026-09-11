@@ -819,10 +819,11 @@ const resolveManualFireKind = (
   return undefined;
 };
 
-export const manualSchedulerFire = async (input: {
+const runManualSchedulerFire = async (input: {
   readonly canvasName: string;
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
+  readonly ignorePause?: boolean;
 }): Promise<ManualSchedulerFireResult> => {
   const doc = docs.get(input.canvasName);
   if (!doc) {
@@ -845,14 +846,18 @@ export const manualSchedulerFire = async (input: {
       message: `${kind} is disabled in this Vellum Command build`,
     };
   }
-  const fireKey = `manual:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
-  const result = await applySchedulerFire(doc, {
-    canvasName: input.canvasName,
-    sourceNodeId: input.sourceNodeId,
-    kind,
-    fireKey,
-    status: "satisfied",
-  });
+  const fireKey = `${input.ignorePause === true ? "overseer" : "manual"}:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
+  const result = await applySchedulerFire(
+    doc,
+    {
+      canvasName: input.canvasName,
+      sourceNodeId: input.sourceNodeId,
+      kind,
+      fireKey,
+      status: "satisfied",
+    },
+    input.ignorePause === true ? { ignorePause: true } : undefined,
+  );
   if (result.skipped === "paused") {
     return {
       ok: false,
@@ -886,6 +891,23 @@ export const manualSchedulerFire = async (input: {
         : `Ran ${result.applied} actions from this ${kind}`,
   };
 };
+
+export const manualSchedulerFire = async (input: {
+  readonly canvasName: string;
+  readonly sourceNodeId: string;
+  readonly kind?: "relay" | "cron" | "gauge";
+}): Promise<ManualSchedulerFireResult> => runManualSchedulerFire(input);
+
+/**
+ * Overseer-admitted fire. Pause/play has no bearing; feature gates, node
+ * kind, effect wiring, and role-owned effects still apply.
+ */
+export const overseerSchedulerFire = async (input: {
+  readonly canvasName: string;
+  readonly sourceNodeId: string;
+  readonly kind?: "relay" | "cron" | "gauge";
+}): Promise<ManualSchedulerFireResult> =>
+  runManualSchedulerFire({ ...input, ignorePause: true });
 
 export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;

@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { CanvasNode } from "../src/shared/canvas";
 import { registerTerminalIpc } from "../src/main/vellum-command/term/ipc";
 import type { TermPlane } from "../src/main/vellum-command/term/plane";
+import { TerminalNodeDeleteService } from "../src/main/vellum-command/term/node-delete";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
 const sender = {
@@ -43,7 +44,7 @@ const harness = (options: {
   });
   registerTerminalIpc(
     ipcMain as never,
-    { router } as unknown as TermPlane,
+    { router, nodeDelete: new TerminalNodeDeleteService(router as never) } as unknown as TermPlane,
     {
       isTrustedSender: () => true,
       ensureHostAvailable: options.ensureHostAvailable,

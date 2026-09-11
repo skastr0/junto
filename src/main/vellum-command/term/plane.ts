@@ -1,6 +1,7 @@
 import { seatStateRuntime } from "./agent-state";
 import { LocalSessionHost } from "./local-host";
 import { linuxReleaseFenceActive } from "./release-fence";
+import { TerminalNodeDeleteService } from "./node-delete";
 import { TerminalRouter } from "./router";
 import {
   startTermControlServer,
@@ -105,6 +106,8 @@ export interface TermPrimeAgentReporterPlane {
 export class TermPlane {
   readonly host: LocalSessionHost;
   readonly router: TerminalRouter;
+  /** Single process-wide terminal delete fence — renderer IPC and overseer share this. */
+  readonly nodeDelete: TerminalNodeDeleteService;
   private control: TermControlServer | undefined;
   private readonly reporter: TermPrimeAgentReporterPlane;
   private reporterStartupFailure: unknown;
@@ -130,6 +133,7 @@ export class TermPlane {
       reporter ??
       (production ? primeAgentReporterPlane : new PrimeAgentReporterPlane());
     this.router = new TerminalRouter(this.host);
+    this.nodeDelete = new TerminalNodeDeleteService(this.router);
   }
 
   /**

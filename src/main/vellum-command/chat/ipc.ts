@@ -6,7 +6,6 @@ import {
   type ChatTurnResult,
   type NodeDeleteResource,
 } from "@shared/ipc";
-import { NodeDeleteService } from "./node-delete";
 import { ChatService } from "./service";
 
 // Thin IPC pass-through onto ChatService. Exported as a factory, not
@@ -19,7 +18,7 @@ export const registerChatIpc = (
   serviceSource: ChatService | Promise<ChatService>,
 ): Promise<ChatService> => {
   const service = Promise.resolve(serviceSource);
-  const nodeDelete = service.then((resolved) => new NodeDeleteService(resolved));
+  const nodeDelete = service.then((resolved) => resolved.nodeDelete);
   void service.then((resolved) => {
     resolved.setEventSink((event) => {
       let recipients: ReadonlyArray<WebContents>;

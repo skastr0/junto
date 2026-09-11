@@ -217,6 +217,11 @@ export const applySchedulerFire = async (
   opts?: {
     readonly depth?: number;
     readonly visited?: Set<string>;
+    /**
+     * Overseer manual fire: pause/play has no bearing. Role, ownership, and
+     * effect wiring still apply. Ordinary automatic / operator Fire now stays paused.
+     */
+    readonly ignorePause?: boolean;
   },
 ): Promise<ApplySchedulerFireResult> => {
   if (!effectDeps) return { applied: 0, skipped: "no_deps" };
@@ -224,7 +229,7 @@ export const applySchedulerFire = async (
   if (!schedulerFeatureEnabled(fire.kind) || !schedulerNodeEnabled(source)) {
     return { applied: 0, skipped: "disabled" };
   }
-  if (!effectDeps.canAutomateCanvas(fire.canvasName)) {
+  if (!opts?.ignorePause && !effectDeps.canAutomateCanvas(fire.canvasName)) {
     return { applied: 0, skipped: "paused" };
   }
   const depth = opts?.depth ?? 0;
@@ -264,7 +269,11 @@ export const applySchedulerFire = async (
           sourceNodeId: targetId,
           fireKey: `${fire.fireKey}:cascade:${targetId}`,
         },
-        { depth: depth + 1, visited },
+        {
+          depth: depth + 1,
+          visited,
+          ...(opts?.ignorePause === true ? { ignorePause: true } : {}),
+        },
       );
       applied += child.applied;
       cascaded += 1 + (child.cascaded ?? 0);

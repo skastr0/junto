@@ -17,6 +17,7 @@ import {
   type JsonRpcId,
   type SpawnFn,
 } from "./acp-client";
+import { NodeDeleteService } from "./node-delete";
 import { buildAcpSpawnTarget, resolveSessionCwd, type AcpSpawnTarget } from "./spawn";
 
 // One live ACP session per agent node ("<host>:<profile>"). ChatService owns
@@ -125,6 +126,8 @@ const describeAuthMethods = (
 const describeError = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export class ChatService {
+  /** Single process-wide chat delete fence — renderer IPC and overseer share this. */
+  readonly nodeDelete: NodeDeleteService;
   private readonly sessions = new Map<string, AgentSession>();
   private readonly openInFlight = new Map<string, OpenInFlight>();
   private readonly generations = new Map<string, number>();
@@ -148,6 +151,7 @@ export class ChatService {
     private readonly spawnFn: SpawnFn,
     private readonly isLocalHost: HermesHostLocality,
   ) {
+    this.nodeDelete = new NodeDeleteService(this);
     // Sweep idle remote sessions on a fixed interval. Unref so the timer
     // alone cannot keep the process alive during headless tests / quit.
     const period = Math.min(Math.max(idleEvictMs() || 60_000, 15_000), 60_000);

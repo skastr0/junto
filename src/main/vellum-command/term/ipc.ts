@@ -19,7 +19,6 @@ import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
 import { injectionSupervisor } from "./injection-supervisor";
-import { TerminalNodeDeleteService } from "./node-delete";
 import { rememberRemoteSeatState } from "./remote-seat-state";
 import {
   ActorSeatOccupy,
@@ -63,7 +62,7 @@ export const registerTerminalIpc = (
   const owners = new Map<string, LeaseOwner>();
   const controlByBinding = new Map<string, string>();
   const router = plane.router;
-  const nodeDelete = new TerminalNodeDeleteService(router);
+  const nodeDelete = plane.nodeDelete;
 
   const assertTrusted = (event: IpcMainInvokeEvent): WebContents => {
     const sender = event.sender;

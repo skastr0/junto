@@ -1409,6 +1409,46 @@ export class LocalSessionHost extends EventEmitter {
     return this.writeRecord(rec, data);
   }
 
+  /**
+   * In-process PTY resize for a managed-agent generation. Same lease-free
+   * product-automation boundary as writeManagedSeat: never takes renderer control.
+   */
+  resizeManagedSeat(bindingId: string, cols: number, rows: number): boolean {
+    const rec = this.sessions.get(bindingId);
+    if (
+      !rec ||
+      !rec.agentKey ||
+      !rec.harness ||
+      rec.killed ||
+      !rec.lease ||
+      !sessionPhaseAllowsWrite(rec.phase)
+    ) {
+      return false;
+    }
+    const c = Math.max(20, Math.min(300, cols | 0));
+    const r = Math.max(5, Math.min(120, rows | 0));
+    if (c === rec.cols && r === rec.rows) return true;
+    try {
+      rec.lease.io.resize?.(c, r);
+      rec.cols = c;
+      rec.rows = r;
+      rec.seq = rec.seq + 1n;
+      this.pushJournal(rec, { seq: rec.seq, type: "resize", cols: c, rows: r });
+      this.observerPlane.resize(rec.bindingId, c, r);
+      this.emitEvent({
+        type: "resize",
+        bindingId: rec.bindingId,
+        epoch: rec.epoch,
+        seq: rec.seq,
+        cols: c,
+        rows: r,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private writeRecord(rec: SessionRec, data: string): boolean {
     const lease = rec.lease;
     if (!lease) return false;
