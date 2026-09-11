@@ -593,7 +593,6 @@ export class BrowserSessionService {
   >();
   private readonly viewDestroyTimeoutMs: number;
   private readonly uiShutdownDrainTimeoutMs: number;
-  private maxAcknowledgedStopReceipts = BrowserSessionService.MAX_STOP_RECEIPTS;
   // Sole durable SoT for these numbers is Settings.browser; profiles.config
   // remains fallback for tests that never install a limits provider.
   private poolLimits: (() => Promise<BrowserPoolLimits>) | undefined;
@@ -1941,26 +1940,16 @@ export class BrowserSessionService {
     this.stoppedSessions.set(record.receipt.sessionId, record);
     // Unacknowledged identities stay until a later stopForOwner retry gets an
     // exact destruction receipt. Only successful receipts are FIFO-bounded.
-    while (this.acknowledgedStopCount() > this.maxAcknowledgedStopReceipts) {
-      const oldest = this.oldestAcknowledgedStopId();
-      if (oldest === undefined) break;
-      this.stoppedSessions.delete(oldest);
-    }
-  }
-
-  private acknowledgedStopCount(): number {
-    let count = 0;
-    for (const record of this.stoppedSessions.values()) {
-      if (record.lastResult?.ok === true) count += 1;
-    }
-    return count;
-  }
-
-  private oldestAcknowledgedStopId(): string | undefined {
+    const acknowledged: string[] = [];
     for (const [sessionId, record] of this.stoppedSessions) {
-      if (record.lastResult?.ok === true) return sessionId;
+      if (record.lastResult?.ok === true) acknowledged.push(sessionId);
     }
-    return undefined;
+    for (const sessionId of acknowledged.slice(0, Math.max(
+      0,
+      acknowledged.length - BrowserSessionService.MAX_STOP_RECEIPTS,
+    ))) {
+      this.stoppedSessions.delete(sessionId);
+    }
   }
 
   async eval(
@@ -2145,17 +2134,6 @@ export class BrowserSessionService {
    * Callers must wait on stopForOwner — never treat an unacknowledged
    * teardown as absence.
    */
-  /** Test seam: bound only successful stop receipts; unacknowledged stay. */
-  setMaxAcknowledgedStopReceiptsForTest(limit: number): void {
-    if (!Number.isFinite(limit) || limit < 1) return;
-    this.maxAcknowledgedStopReceipts = Math.floor(limit);
-    while (this.acknowledgedStopCount() > this.maxAcknowledgedStopReceipts) {
-      const oldest = this.oldestAcknowledgedStopId();
-      if (oldest === undefined) break;
-      this.stoppedSessions.delete(oldest);
-    }
-  }
-
   overseerDeleteSessionsForRef(
     ref: string,
   ): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> {

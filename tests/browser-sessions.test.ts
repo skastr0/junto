@@ -2847,7 +2847,6 @@ describe("BrowserSessionService", () => {
       undefined,
       5,
     );
-    service.setMaxAcknowledgedStopReceiptsForTest(1);
     service.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 8, maxWarmSessions: 8 }));
 
     const timedPage = target("timeout-survivor");
@@ -2861,14 +2860,23 @@ describe("BrowserSessionService", () => {
       { owner: "job-a", sessionId: timed.data.sessionId },
     ]);
 
-    for (const id of ["ack-a", "ack-b"] as const) {
-      const opened = await service.openForOwner("job-b", target(id));
+    const acknowledgedIds: string[] = [];
+    // Exceed the real 1,024-receipt bound without adding a production test API.
+    for (let i = 0; i < 1_025; i += 1) {
+      const opened = await service.openForOwner("job-b", target(`ack-${i}`));
       if (!opened.ok) throw new Error("open failed");
+      acknowledgedIds.push(opened.data.sessionId);
       const stop = service.stopForOwner("job-b", opened.data.sessionId);
       await vi.waitFor(() => expect(views.at(-1)?.destroyed).toBe(true));
       views.at(-1)?.resolveDestroyed();
       await expect(stop).resolves.toMatchObject({ ok: true });
     }
+    await expect(service.stopForOwner("job-b", acknowledgedIds[0]!)).resolves.toMatchObject({
+      ok: false, code: "not_found",
+    });
+    await expect(service.stopForOwner("job-b", acknowledgedIds.at(-1)!)).resolves.toMatchObject({
+      ok: true, data: { alreadyStopped: true },
+    });
 
     expect(service.overseerSessionsForRef(timedPage.ref)).toEqual([]);
     expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([
