@@ -529,11 +529,10 @@ const sameSink = (left: SinkRef, right: SinkRef): boolean =>
 const artifactMatchesRecord = (
   item: WorkItemRef,
   artifact: Artifact,
-  publishedBy: ActorRef,
+  _publishedBy: ActorRef,
 ): boolean =>
   item.kind === "artifact" &&
   item.itemId === artifact.artifactId &&
-  publishedBy.canvasName === item.sink.canvasName &&
   (artifact.task === undefined ||
     artifact.task.sink.canvasName === item.sink.canvasName);
 

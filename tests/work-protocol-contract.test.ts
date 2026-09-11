@@ -179,6 +179,34 @@ const artifactFact = {
   },
 };
 
+const crossCanvasPublisher = {
+  ...actor,
+  canvasName: "publisher-home",
+  nodeId: "remote-overseer",
+};
+
+const crossCanvasArtifactCommand = {
+  protocol: WORK_PROTOCOL,
+  id: {
+    route: {
+      eventHome: cc,
+      entityHome: remote,
+    },
+    seq: "4",
+  },
+  recordType: "command",
+  item: artifactFact.item,
+  operation: "artifact.publish",
+  contentSha256: "9".repeat(64),
+  originAt: timestamp,
+  predecessor: null,
+  body: {
+    operation: "artifact.publish",
+    artifact: artifactFact.body.artifact,
+    publishedBy: crossCanvasPublisher,
+  },
+};
+
 describe("Work protocol v2 contract", () => {
   it("decodes InstallationId-based routes, claim records, and dispositions", () => {
     expect(Result.isSuccess(decodeWorkRecord(claimCommand))).toBe(true);
@@ -393,21 +421,6 @@ describe("Work protocol v2 contract", () => {
       ),
     ).toBe(true);
 
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...artifactFact,
-          body: {
-            ...artifactFact.body,
-            publishedBy: {
-              ...artifactFact.body.publishedBy,
-              canvasName: "other-canvas",
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-
     const appendedMessage = {
       messageId: "message-provenance",
       role: "agent" as const,
@@ -482,6 +495,28 @@ describe("Work protocol v2 contract", () => {
           operation: "message.append",
           message: taskMessage,
           sentBy: actor,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves an original publisher on cross-canvas artifact commands and facts", () => {
+    expect(Result.isSuccess(decodeWorkRecord(crossCanvasArtifactCommand))).toBe(
+      true,
+    );
+    expect(
+      Result.isSuccess(
+        decodeWorkRecord({
+          ...artifactFact,
+          basis: {
+            kind: "command",
+            command: crossCanvasArtifactCommand.id,
+            commandSha256: crossCanvasArtifactCommand.contentSha256,
+          },
+          body: {
+            ...artifactFact.body,
+            publishedBy: crossCanvasPublisher,
+          },
         }),
       ),
     ).toBe(true);
