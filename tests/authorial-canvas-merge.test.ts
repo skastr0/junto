@@ -152,20 +152,70 @@ describe("authorial canvas three-way merge", () => {
       text: "Renamed",
       ether: { overseer: true },
     });
+
+    const implicitHostChange = merged(
+      doc({
+        ...seat,
+        ether: {
+          ...seat.ether,
+          entity: { kind: "agent", name: "remote-a:builder" },
+          overseer: true,
+        },
+      }),
+      doc({
+        ...seat,
+        ether: {
+          ...seat.ether,
+          entity: { kind: "agent", name: "remote-b:builder" },
+          overseer: true,
+        },
+      }),
+      doc({
+        ...seat,
+        ether: {
+          ...seat.ether,
+          entity: { kind: "agent", name: "remote-a:builder" },
+          overseer: true,
+        },
+      }),
+    );
+    expect(implicitHostChange.nodes[0]?.ether?.overseer).toBeUndefined();
   });
 
-  it("takes Work projection fields from the latest main read without conflicting", () => {
+  it("merges authored task name and contract with the latest Work projection", () => {
     const task: TextNode = {
       ...node("tasks", "queued"),
-      ether: { entity: { kind: "task" }, tasks: { items: [] } },
+      ether: {
+        entity: { kind: "task" },
+        tasks: {
+          items: [],
+          name: "Backlog",
+          contract: { instructions: "Old instructions" },
+        },
+      },
     };
-    const local = doc({ ...task, x: 40 });
+    const local = doc({
+      ...task,
+      x: 40,
+      ether: {
+        ...task.ether,
+        tasks: {
+          items: [],
+          name: "Intake",
+          contract: { instructions: "Triage before claim" },
+        },
+      },
+    });
     const remote = doc({
       ...task,
       text: "working",
       ether: {
         ...task.ether,
-        tasks: { items: [taskItem("t1", "working", "working")] },
+        tasks: {
+          items: [taskItem("t1", "working", "working")],
+          name: "Backlog",
+          contract: { instructions: "Old instructions" },
+        },
       },
     });
 
@@ -173,7 +223,13 @@ describe("authorial canvas three-way merge", () => {
     expect(result.nodes[0]).toMatchObject({
       x: 40,
       text: "working",
-      ether: { tasks: { items: [{ id: "t1", state: "working" }] } },
+      ether: {
+        tasks: {
+          items: [{ id: "t1", state: "working" }],
+          name: "Intake",
+          contract: { instructions: "Triage before claim" },
+        },
+      },
     });
   });
 });

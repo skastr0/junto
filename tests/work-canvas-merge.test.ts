@@ -35,7 +35,19 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
       ...base(),
       nodes: base().nodes.map((n) =>
         n.id === "tasks" && n.type === "text"
-          ? { ...n, x: 50, y: 60 }
+          ? {
+              ...n,
+              x: 50,
+              y: 60,
+              ether: {
+                ...n.ether,
+                tasks: {
+                  items: [],
+                  name: "Local intake",
+                  contract: { instructions: "Use local contract" },
+                },
+              },
+            }
           : n.id === "note" && n.type === "text"
             ? { ...n, text: "edited note", x: 110 }
             : n,
@@ -54,7 +66,11 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
           height: 120,
           ether: {
             entity: { kind: "task" },
-            tasks: { items: [taskItem("t1", "ship it", "working")] },
+            tasks: {
+              items: [taskItem("t1", "ship it", "working")],
+              name: "Stale intake",
+              contract: { instructions: "Stale contract" },
+            },
           },
         },
         {
@@ -77,6 +93,8 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
     expect(tasks?.type === "text" && tasks.y).toBe(60);
     expect(tasks?.type === "text" && tasks.text).toBe("ship it");
     expect(tasks?.ether?.tasks?.items[0]?.id).toBe("t1");
+    expect(tasks?.ether?.tasks?.name).toBe("Local intake");
+    expect(tasks?.ether?.tasks?.contract?.instructions).toBe("Use local contract");
     expect(note?.type === "text" && note.text).toBe("edited note");
     expect(note?.type === "text" && note.x).toBe(110);
     expect(merged.edges).toEqual([{ id: "e1", fromNode: "tasks", toNode: "note" }]);

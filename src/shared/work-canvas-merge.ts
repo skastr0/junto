@@ -7,8 +7,8 @@ import { resolveSpec } from "./physics";
 // mirrored text) take the authoritative write's values.
 //
 // Local is structural authority for membership (nodes/edges the operator has
-// added or removed). Work is authority for ether.tasks|requests|artifacts|
-// messages and for mirrored text on task/requests/artifacts nodes.
+// added or removed), including authored ether.tasks.name|contract. Work is
+// authority for tasks.items, the other Work bags, and mirrored sink text.
 
 // Both predicates are exhaustive over NodeSpec, so the two lists can no longer
 // drift apart: a work store is a sink that holds a document (every sink but the
@@ -34,6 +34,19 @@ const isWorkSurfaceKind = (kind: string | undefined): boolean =>
     }),
   );
 
+const mergeTasks = (
+  local: EtherNodeExtension["tasks"],
+  work: EtherNodeExtension["tasks"],
+): EtherNodeExtension["tasks"] => {
+  if (work === undefined) return local;
+  if (local === undefined) return work;
+  return {
+    items: work.items,
+    ...(local.name !== undefined ? { name: local.name } : {}),
+    ...(local.contract !== undefined ? { contract: local.contract } : {}),
+  };
+};
+
 const mergeEther = (
   local: EtherNodeExtension | undefined,
   work: EtherNodeExtension | undefined,
@@ -41,7 +54,9 @@ const mergeEther = (
   if (!local && !work) return undefined;
   const next: EtherNodeExtension = {
     ...(local ?? {}),
-    ...(work?.tasks !== undefined ? { tasks: work.tasks } : {}),
+    ...(local?.tasks !== undefined || work?.tasks !== undefined
+      ? { tasks: mergeTasks(local?.tasks, work?.tasks) }
+      : {}),
     ...(work?.requests !== undefined ? { requests: work.requests } : {}),
     ...(work?.artifacts !== undefined ? { artifacts: work.artifacts } : {}),
     ...(work?.messages !== undefined ? { messages: work.messages } : {}),

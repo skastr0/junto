@@ -18,7 +18,7 @@ import { mergeAuthorialCanvas } from "@shared/authorial-canvas-merge";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch } from "@legendapp/state";
-import type { BindingHint } from "@shared/ipc";
+import type { BindingHint, CanvasReadResult } from "@shared/ipc";
 import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
@@ -75,6 +75,9 @@ const activeCanvasAuthoringOperations = new Set<Promise<void>>();
 // Names we intentionally discarded (delete). flushSave refuses to write them
 // until clearAbandonedCanvas (open/create of that name).
 const abandonedNames = new Set<string>();
+// A recovery copy is durable but the original could not be re-read. Keep its
+// visible draft explicitly blocked until an authoritative load reconciles it.
+const blockedConflictNames = new Set<string>();
 const REVISION_CONFLICT_MARKER = "revision conflict; reload before saving";
 const MAX_RECOVERY_NAME_ATTEMPTS = 32;
 let recoveryNameSequence = 0;
@@ -145,6 +148,15 @@ const nextRecoveryName = (): string => {
   return `recovery-${Date.now().toString(36)}-${recoveryNameSequence.toString(36)}`;
 };
 
+class AuthorialMergeConflictError extends Error {
+  constructor(
+    readonly authority: CanvasReadResult,
+    conflicts: Parameters<typeof describeMergeConflicts>[0],
+  ) {
+    super(`authorial merge conflict: ${describeMergeConflicts(conflicts)}`);
+  }
+}
+
 // Rebase against the exact authorial base the edit started from. Disjoint local
 // and external changes merge structurally; overlapping edits fall through to a
 // visible recovery canvas instead of silently choosing either side.
@@ -156,7 +168,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
   const authority = await api.readCanvas(failed.name);
   const merge = mergeAuthorialCanvas(localRequest.base, localRequest.doc, authority.doc);
   if (!merge.ok) {
-    throw new Error(`authorial merge conflict: ${describeMergeConflicts(merge.conflicts)}`);
+    throw new AuthorialMergeConflictError(authority, merge.conflicts);
   }
   const merged = roundDoc(merge.doc);
   const written = await api.writeCanvas(failed.name, merged, authority.revision);
@@ -201,13 +213,16 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
   state$.error.set("");
 };
 
-// Last resort: keep the external original untouched and make the newest local
-// snapshot durable under a new canvas name.
-const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void> => {
+// Last resort: keep the external original active and untouched, save the
+// freshest local draft under a recovery name, then reconcile the active view
+// to known authority without navigating or requesting viewport movement.
+const recoverRevisionConflict = async (
+  failed: PendingCanvasSave,
+  knownAuthority?: CanvasReadResult,
+): Promise<void> => {
   const api = window.vellumCommand;
   if (!api) throw new Error("Electron preload bridge is not available.");
 
-  const snapshot = pendingSave?.name === failed.name ? pendingSave : failed;
   let created: Awaited<ReturnType<typeof api.createCanvas>> | undefined;
 
   for (let attempt = 0; attempt < MAX_RECOVERY_NAME_ATTEMPTS; attempt += 1) {
@@ -221,29 +236,44 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
   }
   if (!created) throw new Error(`could not allocate a recovery canvas for "${failed.name}"`);
 
-  const recovered = await api.writeCanvas(created.name, snapshot.doc, created.revision);
-  revisionsByName.set(created.name, recovered.revision);
-  authorialBasesByName.set(created.name, snapshot.doc);
+  let snapshot = pendingSave?.name === failed.name ? pendingSave : failed;
+  let recoveryRevision = created.revision;
+  while (true) {
+    const recovered = await api.writeCanvas(created.name, snapshot.doc, recoveryRevision);
+    recoveryRevision = recovered.revision;
+    revisionsByName.set(created.name, recovered.revision);
+    authorialBasesByName.set(created.name, snapshot.doc);
+    const newer = pendingSave?.name === failed.name ? pendingSave : undefined;
+    if (newer === undefined || newer === snapshot) {
+      if (pendingSave === snapshot) pendingSave = null;
+      break;
+    }
+    snapshot = newer;
+  }
   abandonedNames.delete(created.name);
 
-  if (pendingSave?.name === failed.name) {
-    pendingSave = pendingSave === snapshot
-      ? null
-      : { name: created.name, base: snapshot.doc, doc: pendingSave.doc };
-  }
-
-  if (state$.canvasName.peek() === failed.name) {
-    state$.canvasName.set(created.name);
-    state$.actorRefs.set([...created.actorRefs]);
+  const authority = knownAuthority;
+  if (authority !== undefined && state$.canvasName.peek() === failed.name) {
+    batch(() => {
+      loadDoc(authority.doc, authority.revision, authority.name, {
+        preserveValidInteraction: true,
+      });
+      state$.actorRefs.set([...authority.actorRefs]);
+    });
+    blockedConflictNames.delete(failed.name);
+  } else if (authority === undefined) {
+    blockedConflictNames.add(failed.name);
   }
 
   await api.listCanvases()
     .then((canvases) => state$.canvases.set(canvases))
     .catch(() => undefined);
 
-  state$.saveState.set(pendingSave?.name === created.name ? "saving" : "saved");
+  state$.saveState.set(authority === undefined ? "error" : "saved");
   state$.error.set(
-    `canvas "${failed.name}" changed concurrently; that revision was preserved and your local edit was saved as canvas "${created.name}"`,
+    authority === undefined
+      ? `canvas "${failed.name}" changed concurrently; your local draft was saved as canvas "${created.name}"; reload the original before editing`
+      : `canvas "${failed.name}" changed concurrently; current authority was reloaded and your local draft was saved as canvas "${created.name}"`,
   );
 };
 
@@ -264,7 +294,12 @@ const handleSaveFailure = async (
       return;
     } catch (rebaseError) {
       try {
-        await recoverRevisionConflict(request);
+        await recoverRevisionConflict(
+          request,
+          rebaseError instanceof AuthorialMergeConflictError
+            ? rebaseError.authority
+            : undefined,
+        );
         return;
       } catch (recoveryError) {
         failure = new Error(
@@ -499,6 +534,12 @@ export const applyWorkCanvasWrite = (
 
 export const retrySave = (): void => {
   if (!canvasMutationAdmissionOpen) return;
+  const name = state$.canvasName.peek();
+  if (blockedConflictNames.has(name)) {
+    state$.saveState.set("error");
+    state$.error.set(`reload canvas "${name}" before editing after its recovery copy`);
+    return;
+  }
   if (saveTimer) {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -512,6 +553,11 @@ export const scheduleSave = (): void => {
   if (saveTimer) clearTimeout(saveTimer);
   const name = state$.canvasName.peek();
   if (!name || !window.vellumCommand || abandonedNames.has(name)) return;
+  if (blockedConflictNames.has(name)) {
+    state$.saveState.set("error");
+    state$.error.set(`reload canvas "${name}" before editing after its recovery copy`);
+    return;
+  }
   const base =
     (pendingSave?.name === name ? pendingSave.base : undefined)
     ?? (inFlightSave?.name === name ? inFlightSave.request.doc : undefined)
@@ -545,6 +591,7 @@ export const prepareCanvasRemoval = async (name: string): Promise<void> => {
   if (pendingSave?.name === name) pendingSave = null;
   revisionsByName.delete(name);
   authorialBasesByName.delete(name);
+  blockedConflictNames.delete(name);
 };
 
 // After a successful open/create of `name`, allow saves again.
@@ -605,6 +652,7 @@ export const loadDoc = (
   else revisionsByName.set(name, revision);
   if (revision === undefined) authorialBasesByName.delete(name);
   else authorialBasesByName.set(name, roundDoc(doc));
+  blockedConflictNames.delete(name);
   past.length = 0;
   future.length = 0;
   const nodeIds = options.preserveValidInteraction

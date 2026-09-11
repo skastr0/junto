@@ -1,8 +1,8 @@
 import type { CanvasDoc, CanvasEdge, CanvasNode, EtherNodeExtension } from "./canvas";
+import { resolveNodeHostId } from "./station";
 import { mergeLocalCanvasWithWorkWrite } from "./work-canvas-merge";
 
 const WORK_PROJECTION_KEYS = new Set([
-  "tasks",
   "requests",
   "artifacts",
   "messages",
@@ -43,11 +43,26 @@ const equal = (left: unknown, right: unknown): boolean => {
 
 const stripProjectionAndAuthority = (node: CanvasNode): CanvasNode => {
   if (node.ether === undefined) return node;
-  const ether = Object.fromEntries(
-    Object.entries(node.ether).filter(
-      ([key]) => key !== "overseer" && !WORK_PROJECTION_KEYS.has(key),
-    ),
+  const {
+    overseer: _overseer,
+    tasks,
+    ...withoutOverseer
+  } = node.ether;
+  const rest = Object.fromEntries(
+    Object.entries(withoutOverseer).filter(([key]) => !WORK_PROJECTION_KEYS.has(key)),
   ) as EtherNodeExtension;
+  const authoredTasks =
+    tasks?.name !== undefined || tasks?.contract !== undefined
+      ? {
+          items: [],
+          ...(tasks.name !== undefined ? { name: tasks.name } : {}),
+          ...(tasks.contract !== undefined ? { contract: tasks.contract } : {}),
+        }
+      : undefined;
+  const ether: EtherNodeExtension = {
+    ...rest,
+    ...(authoredTasks !== undefined ? { tasks: authoredTasks } : {}),
+  };
   if (Object.keys(ether).length > 0) return { ...node, ether };
   const { ether: _removed, ...plain } = node;
   return plain as CanvasNode;
@@ -57,8 +72,7 @@ const seatIdentity = (node: CanvasNode | undefined): string | undefined => {
   if (node?.ether?.entity?.kind !== "agent") return undefined;
   const bindingId = node.ether.terminal?.bindingId.trim();
   if (!bindingId) return undefined;
-  const hostId = node.ether.host?.trim() || "local";
-  return `${hostId}\0${bindingId}`;
+  return `${resolveNodeHostId(node)}\0${bindingId}`;
 };
 
 const restoreRemoteOverseer = (

@@ -187,8 +187,12 @@ describe("renderer canvas save durability", () => {
     expect(state$.error.peek()).toBe("");
   });
 
-  it("preserves a same-field local draft as a visible recovery canvas", async () => {
+  it("saves a same-field draft as recovery without navigating the active canvas", async () => {
     writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
+    state$.selectedNodeId.set("note");
+    state$.selectedNodeIds.set(["note"]);
+    state$.focusNodeId.set("note");
+    state$.fitViewRequest.set(11);
     commitDoc(doc("local-unsaved"));
 
     await flushPendingCanvasSave();
@@ -201,14 +205,44 @@ describe("renderer canvas save durability", () => {
       doc("local-unsaved"),
       `${recoveryName}-created`,
     );
-    expect(state$.canvasName.peek()).toBe(recoveryName);
+    expect(state$.canvasName.peek()).toBe("alpha");
+    expect(state$.doc.peek()).toEqual(doc("disk-external"));
+    expect(state$.selectedNodeId.peek()).toBe("note");
+    expect(state$.selectedNodeIds.peek()).toEqual(["note"]);
+    expect(state$.focusNodeId.peek()).toBe("note");
+    expect(state$.fitViewRequest.peek()).toBe(11);
     expect(state$.error.peek()).toContain("changed concurrently");
+    expect(state$.error.peek()).toContain("current authority was reloaded");
     expect(state$.error.peek()).toContain(`saved as canvas "${recoveryName}"`);
   });
 
-  it("falls back to a recovery canvas when rebase cannot complete", async () => {
+  it("updates the recovery copy when another edit arrives during its write", async () => {
+    const recoveryWrite = deferred<{ revision: string }>();
     writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
-    readCanvas.mockRejectedValueOnce(new Error("read failed"));
+    writeCanvas.mockImplementationOnce(async () => recoveryWrite.promise);
+    commitDoc(doc("first-local"));
+
+    const flush = flushPendingCanvasSave();
+    await waitFor(() => writeCanvas.mock.calls.length === 2);
+    commitDoc(doc("latest-local"));
+    recoveryWrite.resolve({ revision: "recovery-r1" });
+    await flush;
+
+    expect(writeCanvas).toHaveBeenCalledTimes(3);
+    const recoveryName = createCanvas.mock.calls[0]![0];
+    expect(writeCanvas).toHaveBeenNthCalledWith(
+      3,
+      recoveryName,
+      doc("latest-local"),
+      "recovery-r1",
+    );
+    expect(state$.canvasName.peek()).toBe("alpha");
+    expect(state$.doc.peek()).toEqual(doc("disk-external"));
+  });
+
+  it("blocks the original draft after recovery when authority cannot be re-read", async () => {
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
+    readCanvas.mockRejectedValue(new Error("read failed"));
     commitDoc(doc("local-unsaved"));
 
     await flushPendingCanvasSave();
@@ -216,8 +250,17 @@ describe("renderer canvas save durability", () => {
     expect(createCanvas).toHaveBeenCalledOnce();
     const recoveryName = createCanvas.mock.calls[0]![0];
     expect(recoveryName).toMatch(/^recovery-[a-z0-9]+-[a-z0-9]+$/);
-    expect(state$.canvasName.peek()).toBe(recoveryName);
+    expect(state$.canvasName.peek()).toBe("alpha");
+    expect(state$.doc.peek()).toEqual(doc("local-unsaved"));
+    expect(state$.saveState.peek()).toBe("error");
     expect(state$.error.peek()).toContain(`saved as canvas "${recoveryName}"`);
+    expect(state$.error.peek()).toContain("reload the original before editing");
+
+    const writesAfterRecovery = writeCanvas.mock.calls.length;
+    commitDoc(doc("must-remain-blocked"));
+    await flushPendingCanvasSave();
+    expect(writeCanvas).toHaveBeenCalledTimes(writesAfterRecovery);
+    expect(state$.error.peek()).toContain("reload canvas \"alpha\"");
   });
 
   it("keeps the flush boundary pending until the rebased write is durable", async () => {
@@ -326,6 +369,34 @@ describe("renderer canvas save durability", () => {
     commitDoc(seat(true));
     await flushPendingCanvasSave();
     expect(writeCanvas.mock.calls.at(-1)?.[1].nodes[0]?.ether?.overseer).toBeUndefined();
+  });
+
+  it("keeps authored task name and contract in an ordinary protected save", async () => {
+    const task = (name: string, instructions: string): CanvasDoc => ({
+      nodes: [{
+        id: "tasks",
+        type: "text",
+        text: "Tasks",
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 100,
+        ether: {
+          entity: { kind: "task" },
+          tasks: { items: [], name, contract: { instructions } },
+        },
+      }],
+      edges: [],
+    });
+    loadDoc(task("Backlog", "Old instructions"), "alpha-r-task", "alpha");
+    commitDoc(task("Intake", "Triage before claim"));
+
+    await flushPendingCanvasSave();
+
+    expect(writeCanvas.mock.calls.at(-1)?.[1].nodes[0]?.ether?.tasks).toMatchObject({
+      name: "Intake",
+      contract: { instructions: "Triage before claim" },
+    });
   });
 
   it("clears stale undo history when external authority reloads", async () => {
