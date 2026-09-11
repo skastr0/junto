@@ -150,6 +150,19 @@ const document = (connected: boolean) =>
         },
       },
       {
+        id: "inbox",
+        type: "text",
+        x: 600,
+        y: -140,
+        width: 240,
+        height: 100,
+        text: "Requests",
+        ether: {
+          entity: { kind: "requests" },
+          host: "local",
+        },
+      },
+      {
         id: "artifacts",
         type: "text",
         x: 600,
@@ -553,6 +566,93 @@ const artifactFact = (
         },
       },
       publishedBy: remoteActor,
+    },
+  });
+
+const remoteOverseerTaskCreateCommand = (): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: cc },
+      seq: "13",
+    },
+    recordType: "command",
+    item: {
+      kind: "task",
+      itemId: "overseer-task-1",
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "task.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "task.create",
+      task: {
+        id: "overseer-task-1",
+        state: "submitted",
+        history: [],
+        raisedBy: remoteOverseer,
+      },
+    },
+  });
+
+const remoteOverseerMailboxCommand = (): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: remote, entityHome: cc },
+      seq: "14",
+    },
+    recordType: "command",
+    item: {
+      kind: "message",
+      itemId: "overseer-mail-1",
+      sink: { canvasName: "factory", nodeId: "cc-recipient" },
+    },
+    operation: "message.append",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "message.append",
+      message: {
+        messageId: "overseer-mail-1",
+        role: "agent",
+        parts: [{ kind: "text", text: "overseer mail" }],
+        contextId: "factory",
+      },
+      sentBy: remoteOverseer,
+      destination: { kind: "mailbox" },
+    },
+  });
+
+const remoteOverseerRequestCommand = (): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: remote },
+      seq: "15",
+    },
+    recordType: "command",
+    item: {
+      kind: "request",
+      itemId: "overseer-request-1",
+      sink: { canvasName: "factory", nodeId: "inbox" },
+    },
+    operation: "request.create",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "request.create",
+      request: {
+        id: "overseer-request-1",
+        state: "input-required",
+        claimedBy: remoteOverseer.seatId,
+        history: [],
+      },
+      raisedBy: remoteOverseer,
     },
   });
 
@@ -1317,6 +1417,73 @@ describe("Station API v1 work routing", () => {
     ).toMatchObject({
       _tag: "rejected",
       reason: "missing-entity",
+    });
+  });
+
+  it("admits live Remote overseer Work without ordinary edges and keeps item residency", () => {
+    const topologyWithGrant = remoteOverseerTopology();
+    const ccAdmission = makeStationWorkAdmission({
+      ...topology("command-center"),
+      documents: topologyWithGrant.documents,
+      actorSeats: topologyWithGrant.actorSeats,
+    });
+    const remoteAdmission = makeStationWorkAdmission(topologyWithGrant);
+
+    expect(ccAdmission.authorizeCommand(remoteOverseerTaskCreateCommand())).toEqual({
+      _tag: "admitted",
+      taskDependencyScope: expect.anything(),
+    });
+    expect(ccAdmission.authorizeCommand(remoteOverseerMailboxCommand())).toEqual({
+      _tag: "admitted",
+    });
+    expect(remoteAdmission.authorizeCommand(remoteOverseerRequestCommand())).toEqual({
+      _tag: "admitted",
+    });
+
+    const { overseer: _overseer, ...ordinaryRemoteSeat } = projectedRemoteOverseer;
+    const ordinaryRemote = remoteOverseerTopology(ordinaryRemoteSeat);
+    expect(
+      makeStationWorkAdmission({
+        ...topology("command-center"),
+        documents: ordinaryRemote.documents,
+        actorSeats: ordinaryRemote.actorSeats,
+      }).authorizeCommand(remoteOverseerTaskCreateCommand()),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+    expect(
+      makeStationWorkAdmission(ordinaryRemote).authorizeCommand(
+        remoteOverseerRequestCommand(),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+
+    const validCreate = remoteOverseerTaskCreateCommand();
+    if (validCreate.body.operation !== "task.create") {
+      throw new Error("expected task.create");
+    }
+    expect(
+      ccAdmission.authorizeCommand(
+        Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+          ...validCreate,
+          body: {
+            operation: "task.create",
+            task: {
+              ...validCreate.body.task,
+              raisedBy: {
+                ...remoteOverseer,
+                nodeId: "forged-overseer",
+              },
+            },
+          },
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
     });
   });
 

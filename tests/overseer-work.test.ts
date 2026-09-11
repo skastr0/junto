@@ -86,6 +86,17 @@ const artifactsNode = (id = "arts"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "artifacts" } },
 });
 
+const requestsNode = (id = "inbox"): CanvasDoc["nodes"][number] => ({
+  id,
+  type: "text",
+  text: "requests",
+  x: 800,
+  y: 0,
+  width: 200,
+  height: 100,
+  ether: { entity: { kind: "requests" } },
+});
+
 const padNode = (id = "pad-1"): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
@@ -569,6 +580,262 @@ describe("executeOverseerWork", () => {
     );
     expect(row?.claimedBy).toBe(assignee.seatId);
     expect(row?.claimedBy).not.toBe(boss.seatId);
+  });
+
+  it("queues a CC overseer claim for a Remote assignee instead of applying it locally", async () => {
+    const remoteHost = Schema.decodeUnknownSync(HostId)("claim-assignee-remote");
+    const remoteInstallation = Schema.decodeUnknownSync(InstallationId)(
+      "claim-assignee-remote-installation",
+    );
+    const fleet = await runtime.runPromise(StationFleetTargetRepository);
+    await runtime.runPromise(
+      fleet.bind(
+        { hostId: remoteHost, stationInstallationId: remoteInstallation },
+        "2026-09-11T00:00:00.000Z",
+      ),
+    );
+    const canvases = await writeFactory("cc-claim-overseer");
+    await grantOverseer("cc-claim-overseer", "boss", true);
+    await runtime.runPromise(
+      canvases.write("cc-claim-overseer", {
+        nodes: [
+          taskNode(),
+          padNode(),
+          agentNode("boss", "cc-claim-overseer"),
+          agentNode("assignee", "cc-claim-overseer", remoteHost),
+        ],
+        edges: [],
+      }),
+    );
+    await grantOverseer("cc-claim-overseer", "boss", true);
+    const { actor: boss } = await actorOn("cc-claim-overseer", "boss");
+    const { actor: assignee } = await actorOn("cc-claim-overseer", "assignee");
+    const created = await run(
+      executeOverseerWork(
+        { canvasName: "cc-claim-overseer", nodeId: "boss" },
+        {
+          operation: "tasks.create",
+          args: {
+            target: "tasks",
+            brief: "assign remote",
+            metadata: { details: "assign remote" },
+          },
+        },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const taskId = (created as { readonly id: string }).id;
+    const claimed = await run(
+      Effect.result(
+        executeOverseerWork(
+          { canvasName: "cc-claim-overseer", nodeId: "boss" },
+          {
+            operation: "tasks.claim",
+            args: { target: "tasks", task: taskId, actor: "assignee" },
+          },
+          overseerWorkAdmin(boss),
+        ),
+      ),
+    );
+    if (Result.isSuccess(claimed)) {
+      expect(claimed.success).toMatchObject({ disposition: "queued" });
+    } else {
+      expect(claimed.failure.message).toMatch(/live|session|unavailable|enrolled/i);
+    }
+    const listed = await run(
+      executeOverseerWork(
+        { canvasName: "cc-claim-overseer", nodeId: "boss" },
+        { operation: "tasks.list", args: { target: "tasks" } },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const row = (
+      listed as {
+        readonly items: ReadonlyArray<{
+          readonly id: string;
+          readonly state?: string;
+          readonly claimedBy?: string;
+        }>;
+      }
+    ).items.find((item) => item.id === taskId);
+    expect(row?.state).toBe("submitted");
+    expect(row?.claimedBy).toBeUndefined();
+    expect(assignee.seatId).not.toBe(boss.seatId);
+  });
+
+  it("applies a Remote overseer claim for a CC assignee on Command Center, not the overseer home", async () => {
+    const remoteHost = Schema.decodeUnknownSync(HostId)("claim-overseer-remote");
+    const remoteInstallation = Schema.decodeUnknownSync(InstallationId)(
+      "claim-overseer-remote-installation",
+    );
+    const fleet = await runtime.runPromise(StationFleetTargetRepository);
+    await runtime.runPromise(
+      fleet.bind(
+        { hostId: remoteHost, stationInstallationId: remoteInstallation },
+        "2026-09-11T00:00:00.000Z",
+      ),
+    );
+    const canvases = await writeFactory("remote-claim-overseer");
+    await runtime.runPromise(
+      canvases.write("remote-claim-overseer", {
+        nodes: [
+          taskNode(),
+          padNode(),
+          agentNode("boss", "remote-claim-overseer", remoteHost),
+          agentNode("assignee", "remote-claim-overseer"),
+        ],
+        edges: [],
+      }),
+    );
+    await grantOverseer("remote-claim-overseer", "boss", true);
+    const { actor: boss } = await actorOn("remote-claim-overseer", "boss");
+    const { actor: assignee } = await actorOn("remote-claim-overseer", "assignee");
+    const created = await run(
+      executeOverseerWork(
+        { canvasName: "remote-claim-overseer", nodeId: "boss" },
+        {
+          operation: "tasks.create",
+          args: {
+            target: "tasks",
+            brief: "assign local",
+            metadata: { details: "assign local" },
+          },
+        },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const taskId = (created as { readonly id: string }).id;
+    const claimed = await run(
+      executeOverseerWork(
+        { canvasName: "remote-claim-overseer", nodeId: "boss" },
+        {
+          operation: "tasks.claim",
+          args: { target: "tasks", task: taskId, actor: "assignee" },
+        },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    expect(claimed).toMatchObject({ disposition: "applied" });
+    const listed = await run(
+      executeOverseerWork(
+        { canvasName: "remote-claim-overseer", nodeId: "boss" },
+        { operation: "tasks.list", args: { target: "tasks" } },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const row = (
+      listed as {
+        readonly items: ReadonlyArray<{
+          readonly id: string;
+          readonly claimedBy?: string;
+        }>;
+      }
+    ).items.find((item) => item.id === taskId);
+    expect(row?.claimedBy).toBe(assignee.seatId);
+    expect(row?.claimedBy).not.toBe(boss.seatId);
+  });
+
+  it("lets a Remote overseer send CC-homed mail and raise a Remote-homed request without an edge", async () => {
+    const remoteHost = Schema.decodeUnknownSync(HostId)("remote-admin-work");
+    const remoteInstallation = Schema.decodeUnknownSync(InstallationId)(
+      "remote-admin-work-installation",
+    );
+    const fleet = await runtime.runPromise(StationFleetTargetRepository);
+    await runtime.runPromise(
+      fleet.bind(
+        { hostId: remoteHost, stationInstallationId: remoteInstallation },
+        "2026-09-11T00:00:00.000Z",
+      ),
+    );
+    const canvases = await writeFactory("remote-admin");
+    await runtime.runPromise(
+      canvases.write("remote-admin", {
+        nodes: [
+          taskNode(),
+          padNode(),
+          requestsNode(),
+          mailboxNode("peer", "remote-admin"),
+          agentNode("boss", "remote-admin", remoteHost),
+          agentNode("worker", "remote-admin"),
+        ],
+        edges: [],
+      }),
+    );
+    await grantOverseer("remote-admin", "boss", true);
+    const { actor } = await actorOn("remote-admin", "boss");
+    const sent = await run(
+      executeOverseerWork(
+        { canvasName: "remote-admin", nodeId: "boss" },
+        {
+          operation: "msg.send",
+          args: { target: "peer", text: "hello from remote overseer" },
+        },
+        overseerWorkAdmin(actor),
+      ),
+    );
+    expect(sent).toMatchObject({ disposition: "applied" });
+    const raised = await run(
+      executeOverseerWork(
+        { canvasName: "remote-admin", nodeId: "boss" },
+        {
+          operation: "request.create",
+          args: {
+            target: "inbox",
+            brief: "need a ruling",
+            reason: "remote overseer raised this",
+          },
+        },
+        overseerWorkAdmin(actor),
+      ),
+    );
+    expect(raised).toMatchObject({ disposition: "queued" });
+  });
+
+  it("still process-binds ordinary agents and refuses a revoked overseer claim", async () => {
+    await writeFactory("ordinary-claim");
+    const { actor: worker } = await actorOn("ordinary-claim", "worker");
+    await expect(
+      run(
+        executeOverseerWork(
+          { canvasName: "ordinary-claim", nodeId: "worker" },
+          {
+            operation: "msg.send",
+            args: { target: "boss", text: "no grant" },
+          },
+          overseerWorkAdmin(worker),
+        ),
+      ),
+    ).rejects.toMatchObject({ type: "AuthError" });
+    await grantOverseer("ordinary-claim", "boss", true);
+    const { actor: boss } = await actorOn("ordinary-claim", "boss");
+    const created = await run(
+      executeOverseerWork(
+        { canvasName: "ordinary-claim", nodeId: "boss" },
+        {
+          operation: "tasks.create",
+          args: {
+            target: "tasks",
+            brief: "then revoke",
+            metadata: { details: "then revoke" },
+          },
+        },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const taskId = (created as { readonly id: string }).id;
+    await grantOverseer("ordinary-claim", "boss", false);
+    await expect(
+      run(
+        executeOverseerWork(
+          { canvasName: "ordinary-claim", nodeId: "boss" },
+          {
+            operation: "tasks.claim",
+            args: { target: "tasks", task: taskId, actor: "worker" },
+          },
+          overseerWorkAdmin(boss),
+        ),
+      ),
+    ).rejects.toMatchObject({ type: "AuthError" });
   });
 
   it("patches pad ink as the real overseer actor, not the operator", async () => {

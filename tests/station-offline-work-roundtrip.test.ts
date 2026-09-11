@@ -106,6 +106,10 @@ import {
   WorkService,
 } from "../src/main/vellum-command/work/service";
 import {
+  executeOverseerWork,
+  overseerWorkAdmin,
+} from "../src/main/vellum-command/overseer/work";
+import {
   createAuthorialTaskDependencyScopeCapability,
   createCurrentProjectedTaskDependencyScopeCapability,
   workRecordContentSha256,
@@ -3100,6 +3104,295 @@ describe("Station work authority survives Command Center downtime", () => {
         publishedBy: publisher,
       },
     });
+  });
+
+  it("routes overseer claims to the assignee home and Remote-homed requests without ordinary edges", async () => {
+    const commandCenterId = installation("cc-overseer-work-residency");
+    const remoteId = installation("remote-overseer-work-residency");
+    const remoteHost = hostId("residency-remote");
+    const commandCenter = await openInstallation(commandCenterId);
+    const remote = await openInstallation(remoteId);
+    const overseerBinding = "binding-remote-overseer-residency";
+    const assigneeBinding = "binding-cc-assignee-residency";
+    const document: CanvasDoc = {
+      nodes: [
+        {
+          id: "shared-tasks",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Shared tasks",
+          ether: { entity: { kind: "task" }, host: "local" },
+        },
+        {
+          id: "inbox",
+          type: "text",
+          x: 0,
+          y: 160,
+          width: 240,
+          height: 100,
+          text: "Requests",
+          ether: { entity: { kind: "requests" }, host: "local" },
+        },
+        {
+          id: "cc-assignee",
+          type: "text",
+          x: 320,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Command Center assignee",
+          ether: {
+            entity: { kind: "agent", name: "local:assignee" },
+            host: "local",
+            terminal: {
+              bindingId: assigneeBinding,
+              harness: "codex",
+              launch: { kind: "harness", argv: ["codex"] },
+            },
+          },
+        },
+        {
+          id: "remote-overseer",
+          type: "text",
+          x: 640,
+          y: 0,
+          width: 240,
+          height: 100,
+          text: "Remote overseer",
+          ether: {
+            entity: { kind: "agent", name: `${remoteHost}:overseer` },
+            host: remoteHost,
+            terminal: {
+              bindingId: overseerBinding,
+              harness: "codex",
+              launch: { kind: "harness", argv: ["codex"] },
+            },
+          },
+        },
+      ],
+      edges: [],
+    };
+    await configureDirectPair(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+      document,
+    );
+    const grantWrite = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.read("factory"),
+    );
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: "factory",
+        nodeId: "remote-overseer",
+        overseer: true,
+        expectedRevision: grantWrite.revision,
+      }),
+    );
+    await archiveCurrentProjection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    const connection = await openProductSessionConnection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    const canvas = await commandCenter.runtime.runPromise(
+      commandCenter.canvases.read("factory"),
+    );
+    const overseer = canvas.actorRefs.find((actor) => actor.nodeId === "remote-overseer");
+    const assignee = canvas.actorRefs.find((actor) => actor.nodeId === "cc-assignee");
+    if (overseer === undefined || assignee === undefined) {
+      throw new Error("expected overseer and assignee seats");
+    }
+    const created = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: overseer.nodeId },
+        {
+          operation: "tasks.create",
+          args: {
+            target: "shared-tasks",
+            brief: "assign the CC seat",
+            metadata: { details: "assign the CC seat" },
+          },
+        },
+        overseerWorkAdmin(overseer),
+      ),
+    );
+    const taskId = (created as { readonly id: string }).id;
+    const claimed = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: overseer.nodeId },
+        {
+          operation: "tasks.claim",
+          args: { target: "shared-tasks", task: taskId, actor: "cc-assignee" },
+        },
+        overseerWorkAdmin(overseer),
+      ),
+    );
+    expect(claimed).toMatchObject({ disposition: "applied" });
+    expect(
+      (
+        await commandCenter.runtime.runPromise(
+          commandCenter.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items.find((task) => task.id === taskId),
+    ).toMatchObject({
+      state: "working",
+      claimedBy: assignee.seatId,
+    });
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.work.itemHome("task", "factory", "shared-tasks", taskId),
+      ),
+    ).toBe(commandCenterId);
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: "factory",
+        nodeId: "cc-assignee",
+        overseer: true,
+        expectedRevision: (
+          await commandCenter.runtime.runPromise(commandCenter.canvases.read("factory"))
+        ).revision,
+      }),
+    );
+    await archiveCurrentProjection(
+      commandCenter,
+      remote,
+      commandCenterId,
+      remoteId,
+      remoteHost,
+    );
+    const remoteAssigned = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: assignee.nodeId },
+        {
+          operation: "tasks.create",
+          args: {
+            target: "shared-tasks",
+            brief: "assign the Remote seat",
+            metadata: { details: "assign the Remote seat" },
+          },
+        },
+        overseerWorkAdmin(assignee),
+      ),
+    );
+    const remoteTaskId = (remoteAssigned as { readonly id: string }).id;
+    const remoteClaim = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: assignee.nodeId },
+        {
+          operation: "tasks.claim",
+          args: { target: "shared-tasks", task: remoteTaskId, actor: "remote-overseer" },
+        },
+        overseerWorkAdmin(assignee),
+      ),
+    );
+    expect(remoteClaim).toMatchObject({ disposition: "queued" });
+    const claimSync = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteId,
+          hostId: stationHostId(remoteHost),
+        },
+        connection.commandCenterSession,
+      ),
+    );
+    expect(claimSync.report).toMatchObject({ inboundRejected: 0 });
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items.find((task) => task.id === remoteTaskId),
+    ).toMatchObject({
+      state: "working",
+      claimedBy: overseer.seatId,
+    });
+    expect(
+      await remote.runtime.runPromise(
+        remote.work.itemHome("task", "factory", "shared-tasks", remoteTaskId),
+      ),
+    ).toBe(remoteId);
+
+    const raised = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: overseer.nodeId },
+        {
+          operation: "request.create",
+          args: {
+            target: "inbox",
+            brief: "need a ruling",
+            reason: "remote overseer raised this",
+          },
+        },
+        overseerWorkAdmin(overseer),
+      ),
+    );
+    expect(raised).toMatchObject({ disposition: "queued" });
+    const requestId = (raised as { readonly id: string }).id;
+    const requestSync = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteId,
+          hostId: stationHostId(remoteHost),
+        },
+        connection.commandCenterSession,
+      ),
+    );
+    expect(requestSync.report).toMatchObject({
+      inboundRejected: 0,
+    });
+    expect(
+      await remote.runtime.runPromise(
+        remote.work.itemHome("request", "factory", "inbox", requestId),
+      ),
+    ).toBe(remoteId);
+    expect(
+      await commandCenter.runtime.runPromise(
+        commandCenter.work.itemHome("request", "factory", "inbox", requestId),
+      ),
+    ).toBe(remoteId);
+
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: "factory",
+        nodeId: "remote-overseer",
+        overseer: false,
+        expectedRevision: (
+          await commandCenter.runtime.runPromise(commandCenter.canvases.read("factory"))
+        ).revision,
+      }),
+    );
+    await expect(
+      commandCenter.runtime.runPromise(
+        executeOverseerWork(
+          { canvasName: "factory", nodeId: overseer.nodeId },
+          {
+            operation: "request.create",
+            args: {
+              target: "inbox",
+              brief: "revoked",
+              reason: "must fail after revoke",
+            },
+          },
+          overseerWorkAdmin(overseer),
+        ),
+      ),
+    ).rejects.toMatchObject({ type: "AuthError" });
+    await closeProductSessionConnection(connection);
   });
 
 });
