@@ -949,6 +949,50 @@ describe("WorkService pad author refusals", () => {
     expect(read.data.lookHere).toBeUndefined();
   });
 
+  it("persists a hostile shape fill as data and renders a safe svg", async () => {
+    const work = await runtime.runPromise(WorkService);
+    const fill =
+      `"></rect><image href="x-invalid:" onerror="window.pwned=42"></image><rect fill="`;
+    const result = await runtime.runPromise(
+      work.workPadPatch(
+        "factory",
+        "pad-1",
+        [
+          decodePatch({
+            op: "upsert",
+            layer: "shape",
+            shape: {
+              id: "xss-box",
+              type: "box",
+              x: 0,
+              y: 0,
+              w: 10,
+              h: 10,
+              z: 0,
+              fill,
+            },
+          }),
+        ],
+        { kind: "operator", label: "operator" },
+      ),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.pad.shapes.find((shape) => shape.id === "xss-box")?.fill).toBe(
+      fill,
+    );
+
+    const read = await runtime.runPromise(work.workPadRead("factory", "pad-1"));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.data.pad.shapes.find((shape) => shape.id === "xss-box")?.fill).toBe(
+      fill,
+    );
+    expect(read.data.svg).not.toMatch(/<(?:image|script|foreignObject)\b/i);
+    expect(read.data.svg).not.toMatch(/\son(?:error|load)\s*=/i);
+    expect(read.data.svg).toContain("<svg");
+  });
+
   it("applies operator ink and shows the stroke in svg, not points in digest", async () => {
     const work = await runtime.runPromise(WorkService);
     const result = await runtime.runPromise(

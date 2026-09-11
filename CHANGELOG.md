@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Stop treating pad shape and ink colors as HTML or CSS. Render only
+  hex/`none` paint, serialize SVG with escaped attributes, and drop
+  `script-src 'unsafe-inline'` from the renderer CSP.
 - Make project-owned source available under Apache-2.0, with source-build
   instructions and third-party notices.
 - Remove purchases, activation, and commercial access checks from desktop and

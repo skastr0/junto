@@ -46,6 +46,13 @@ import {
   trianglePoints,
   type Camera,
 } from "@shared/pad-geom";
+import {
+  padInkStroke,
+  padShapeFill,
+  padShapeStroke,
+  padSvgPalette,
+} from "@shared/pad-project";
+import type { ThemeMode } from "@shared/theme";
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
@@ -184,28 +191,18 @@ const PRE_APPLY_CODES = new Set([
   "wrong_home",
 ]);
 
-const statusStroke = (status: PadShape["status"] | undefined): string => {
-  switch (status) {
-    case "active":
-      return "var(--color-cyan)";
-    case "done":
-      return "var(--color-green)";
-    case "blocked":
-      return "var(--color-crimson)";
-    default:
-      return "var(--color-stroke)";
-  }
-};
-
 const ShapeEl = ({
   shape,
   selected,
+  theme,
 }: {
   readonly shape: PadShape;
   readonly selected: boolean;
+  readonly theme: ThemeMode;
 }) => {
-  const fill = shape.fill ?? "var(--color-overlay-1)";
-  const stroke = shape.stroke ?? statusStroke(shape.status);
+  const pal = padSvgPalette(theme);
+  const fill = padShapeFill(shape, pal);
+  const stroke = padShapeStroke(shape, pal);
   const common = {
     fill,
     stroke,
@@ -1217,7 +1214,11 @@ export function PadEditor({
               .sort((a, b) => a.z - b.z)
               .map((shape) => (
                 <g key={shape.id}>
-                  <ShapeEl shape={shape} selected={shape.id === selectedId} />
+                  <ShapeEl
+                    shape={shape}
+                    selected={shape.id === selectedId}
+                    theme={theme}
+                  />
                   {shape.text ? (
                     <text
                       x={shape.x + 8}
@@ -1241,7 +1242,11 @@ export function PadEditor({
                   data-ink-id={ink.id}
                   d={strokePath(ink.points, ink.width)}
                   fill="none"
-                  stroke={ink.id === selectedId ? "var(--color-amber)" : ink.color}
+                  stroke={
+                    ink.id === selectedId
+                      ? "var(--color-amber)"
+                      : padInkStroke(ink.color, padSvgPalette(theme))
+                  }
                   strokeWidth={ink.id === selectedId ? ink.width + 1 : ink.width}
                   strokeLinecap="round"
                   strokeLinejoin="round"

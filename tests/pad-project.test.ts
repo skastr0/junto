@@ -10,11 +10,18 @@ import {
 import { lookHereBounds, strokePath } from "../src/shared/pad-geom";
 import {
   LOOK_HERE_MARGIN,
+  isPadPaintLiteral,
+  padInkStroke,
   padLookHere,
+  padShapeFill,
+  padShapeStroke,
+  padSvgPalette,
   padToDigest,
   padToFocused,
   padToSvg,
+  resolvePadPaint,
 } from "../src/shared/pad-project";
+import type { PadShape } from "../src/shared/pad";
 
 const decodePatch = (patch: unknown): PadPatch =>
   Schema.decodeUnknownSync(PadPatch)(patch);
@@ -213,6 +220,246 @@ describe("padToSvg", () => {
     expect(open).toContain("viewBox=");
     expect(open).not.toContain("width=");
     expect(open).not.toContain("height=");
+  });
+});
+
+const XSS_BREAKOUT =
+  `"></rect><image href="x-invalid:" onerror="window.pwned=42"></image><rect fill="`;
+const XSS_ONLOAD = `" onload="window.pwned=1`;
+
+const HOSTILE_PAINT = [
+  XSS_BREAKOUT,
+  XSS_ONLOAD,
+  `" onerror="window.pwned=7`,
+  `<script>window.pwned=1</script>`,
+  "javascript:alert(1)",
+  "url(#x)",
+  "URL(https://example.invalid)",
+  "url\\28 x \\29",
+  "var(--color-ink)",
+  "rgb(0,0,0)",
+  "red",
+  " #fff",
+  "#fff\n",
+  "#gggggg",
+  "#ffffffff0",
+] as const;
+
+const VALID_PAINT = ["none", "#f00", "#f00a", "#445566", "#445566aa", "#ABC", "#ABCDEF"] as const;
+
+const shapeWith = (
+  type: PadShape["type"],
+  field: "fill" | "stroke",
+  value: string,
+): Pad =>
+  expectOk(
+    applyPatches(emptyPad(), [
+      decodePatch({
+        op: "upsert",
+        layer: "shape",
+        shape: {
+          id: "s1",
+          type,
+          x: 0,
+          y: 0,
+          w: 10,
+          h: 10,
+          z: 0,
+          [field]: value,
+        },
+      }),
+    ]),
+  );
+
+const inkWith = (color: string): Pad =>
+  expectOk(
+    applyPatches(emptyPad(), [
+      decodePatch({
+        op: "upsert",
+        layer: "ink",
+        ink: {
+          id: "k1",
+          z: 0,
+          color,
+          width: 2,
+          points: [
+            { x: 0, y: 0 },
+            { x: 1, y: 1 },
+          ],
+        },
+      }),
+    ]),
+  );
+
+const svgHasBreakout = (svg: string): boolean =>
+  /<(?:image|script|foreignObject)\b/i.test(svg) ||
+  /\son(?:error|load)\s*=/i.test(svg);
+
+describe("resolvePadPaint", () => {
+  it("accepts exact none and hex literals and rejects everything else", () => {
+    for (const value of VALID_PAINT) {
+      expect(isPadPaintLiteral(value)).toBe(true);
+      expect(resolvePadPaint(value, "#111111")).toBe(value);
+    }
+    expect(resolvePadPaint(undefined, "#111111")).toBe("#111111");
+    for (const value of HOSTILE_PAINT) {
+      expect(isPadPaintLiteral(value)).toBe(false);
+      expect(resolvePadPaint(value, "#111111")).toBe("#111111");
+    }
+  });
+});
+
+describe("padToSvg paint safety", () => {
+  const types = ["box", "ellipse", "triangle", "label"] as const;
+  const fields = ["fill", "stroke"] as const;
+  const themes = ["dark", "bright"] as const;
+
+  it("does not emit markup or event handlers from hostile fill, stroke, or ink", () => {
+    for (const theme of themes) {
+      const pal = padSvgPalette(theme);
+      for (const type of types) {
+        for (const field of fields) {
+          for (const value of HOSTILE_PAINT) {
+            const pad = shapeWith(type, field, value);
+            const svg = padToSvg(pad, theme);
+            expect(svgHasBreakout(svg)).toBe(false);
+            expect(svg).not.toContain(value);
+            const shape = pad.shapes[0]!;
+            const expected =
+              field === "fill"
+                ? padShapeFill(shape, pal)
+                : padShapeStroke(shape, pal);
+            expect(svg).toContain(`${field}="${expected}"`);
+            expect(expected === pal.fill || expected === pal.stroke).toBe(true);
+          }
+        }
+      }
+      for (const value of HOSTILE_PAINT) {
+        const pad = inkWith(value);
+        const svg = padToSvg(pad, theme);
+        expect(svgHasBreakout(svg)).toBe(false);
+        expect(svg).not.toContain(value);
+        expect(svg).toContain(`stroke="${padInkStroke(value, pal)}"`);
+        expect(padInkStroke(value, pal)).toBe(pal.text);
+      }
+    }
+  });
+
+  it("preserves supported hex and none on fill, stroke, and ink", () => {
+    for (const value of VALID_PAINT) {
+      for (const type of types) {
+        const fillPad = shapeWith(type, "fill", value);
+        const strokePad = shapeWith(type, "stroke", value);
+        expect(padToSvg(fillPad, "dark")).toContain(`fill="${value}"`);
+        expect(padToSvg(strokePad, "dark")).toContain(`stroke="${value}"`);
+      }
+      const pad = inkWith(value);
+      expect(padToSvg(pad, "dark")).toContain(`stroke="${value}"`);
+    }
+  });
+
+  it("keeps hostile strings in IR while rendering defaults", () => {
+    const pad = shapeWith("box", "fill", XSS_BREAKOUT);
+    expect(pad.shapes[0]?.fill).toBe(XSS_BREAKOUT);
+    const svg = padToSvg(pad, "dark");
+    expect(svgHasBreakout(svg)).toBe(false);
+    expect(svg).toContain(`fill="${padSvgPalette("dark").fill}"`);
+  });
+
+  it("escapes quotes in text, labels, and hrefs", () => {
+    const pad = expectOk(
+      applyPatches(emptyPad(), [
+        decodePatch({
+          op: "upsert",
+          layer: "shape",
+          shape: {
+            id: "box1",
+            type: "box",
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 10,
+            z: 0,
+            text: `say "hi" & <go>`,
+          },
+        }),
+        decodePatch({
+          op: "upsert",
+          layer: "shape",
+          shape: {
+            id: "box2",
+            type: "box",
+            x: 20,
+            y: 0,
+            w: 10,
+            h: 10,
+            z: 0,
+          },
+        }),
+        decodePatch({
+          op: "upsert",
+          layer: "edge",
+          edge: {
+            id: "e1",
+            from: "box1",
+            to: "box2",
+            label: `a"b`,
+          },
+        }),
+      ]),
+    );
+    const svg = padToSvg(pad, "dark", { hrefs: { img1: `content:"x"` } });
+    expect(svg).toContain("say &quot;hi&quot; &amp; &lt;go&gt;");
+    expect(svg).toContain(">a&quot;b<");
+    const linked = padToSvg(
+      expectOk(
+        applyPatches(emptyPad(), [
+          decodePatch({
+            op: "upsert",
+            layer: "image",
+            image: {
+              id: "img1",
+              x: 0,
+              y: 0,
+              w: 8,
+              h: 8,
+              z: 0,
+              ref: contentRef,
+            },
+          }),
+        ]),
+      ),
+      "dark",
+      { hrefs: { img1: `vellum-command-content:x" onerror="1` } },
+    );
+    expect(linked).toContain('href="vellum-command-content:x&quot; onerror=&quot;1"');
+    expect(linked).not.toMatch(/\sonerror="/i);
+  });
+
+  it("does not create extra elements when the svg is parsed as markup", () => {
+    const pad = shapeWith("box", "fill", XSS_BREAKOUT);
+    const svg = padToSvg(pad, "dark");
+    expect(svg.match(/<rect\b/g)?.length).toBeGreaterThan(0);
+    expect(svg.match(/<image\b/g) ?? []).toHaveLength(0);
+    expect(svg.match(/<script\b/g) ?? []).toHaveLength(0);
+    expect(svg).not.toMatch(/\son(?:error|load)="/i);
+    expect(svg).not.toContain("</rect><image");
+  });
+
+  it("keeps look-here svg equally safe", () => {
+    const pad = expectOk(
+      applyPatches(shapeWith("box", "fill", XSS_BREAKOUT), [
+        decodePatch({
+          op: "pin.upsert",
+          pin: { id: "p1", x: 4, y: 4, mentions: [], bounds: { w: 10, h: 10 } },
+        }),
+      ]),
+    );
+    const result = padLookHere(pad, "p1");
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isFailure(result)) throw new Error(result.failure.message);
+    expect(svgHasBreakout(result.success.svg)).toBe(false);
+    expect(result.success.svg).not.toContain("onerror=");
   });
 });
 

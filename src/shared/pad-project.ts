@@ -82,59 +82,38 @@ const svgPalette = (mode: ThemeMode) => {
     steel: tokens.steel!,
   };
 };
-type SvgPalette = ReturnType<typeof svgPalette>;
+export type PadSvgPalette = ReturnType<typeof svgPalette>;
+export const padSvgPalette = svgPalette;
 
-const esc = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+/**
+ * Render-only paint. Persisted fill/stroke/ink color remain arbitrary
+ * strings in Pad IR; this schema never decodes storage or PadPatch.
+ * Exact `none` or #RGB / #RGBA / #RRGGBB / #RRGGBBAA. No named colors,
+ * functions, variables, urls, whitespace, or suffixes.
+ */
+export const PadPaintLiteral = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value: string) =>
+        value === "none" ||
+        /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(
+          value,
+        ),
+      { message: "must be none or an exact hex color" },
+    ),
+  ),
+);
+export type PadPaintLiteral = typeof PadPaintLiteral.Type;
+export const isPadPaintLiteral = Schema.is(PadPaintLiteral);
 
-const fmt = (n: number): string => {
-  const rounded = Math.round(n * 1000) / 1000;
-  return String(Object.is(rounded, -0) ? 0 : rounded);
-};
+/** `trustedFallback` must be an application-owned color, never another Pad field. */
+export const resolvePadPaint = (
+  value: string | undefined,
+  trustedFallback: string,
+): string =>
+  value !== undefined && isPadPaintLiteral(value) ? value : trustedFallback;
 
-const byZ = <T extends { readonly z: number }>(
-  items: ReadonlyArray<T>,
-): T[] =>
-  items
-    .map((item, index) => ({ item, index }))
-    .sort((a, b) => a.item.z - b.item.z || a.index - b.index)
-    .map((entry) => entry.item);
-
-const statusStroke = (status: PadShapeStatus | undefined, pal: SvgPalette): string => {
-  switch (status) {
-    case "active":
-      return pal.cyan;
-    case "done":
-      return pal.green;
-    case "blocked":
-      return pal.crimson;
-    default:
-      return pal.stroke;
-  }
-};
-
-const shaPrefix = (sha: string): string => sha.slice(0, SHA_PREFIX);
-
-const imageLabel = (image: PadImage): string =>
-  `${image.ref.displayName ?? "image"} ${shaPrefix(image.ref.sha256)}`;
-
-const clipText = (text: string): string =>
-  text.length > 160 ? `${text.slice(0, 159)}…` : text;
-
-const firstTextPart = (pin: PadPin): string | undefined => {
-  for (const post of pin.posts) {
-    for (const part of post.parts) {
-      if (part.kind === "text" && part.text.length > 0) return part.text;
-    }
-  }
-  return undefined;
-};
-
-const viewRect = (
+export const padSvgViewRect = (
   pad: Pad,
   override?: GeomRectValue,
   padding = VIEW_PAD,
@@ -150,9 +129,75 @@ const viewRect = (
   };
 };
 
-const emitShape = (shape: PadShape, pal: SvgPalette): string[] => {
-  const fill = shape.fill ?? pal.fill;
-  const stroke = shape.stroke ?? statusStroke(shape.status, pal);
+const esc = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+const fmt = (n: number): string => {
+  const rounded = Math.round(n * 1000) / 1000;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+};
+
+export const padStatusStroke = (
+  status: PadShapeStatus | undefined,
+  pal: PadSvgPalette,
+): string => {
+  switch (status) {
+    case "active":
+      return pal.cyan;
+    case "done":
+      return pal.green;
+    case "blocked":
+      return pal.crimson;
+    default:
+      return pal.stroke;
+  }
+};
+
+export const padShapeFill = (
+  shape: PadShape,
+  pal: PadSvgPalette,
+): string => resolvePadPaint(shape.fill, pal.fill);
+
+export const padShapeStroke = (
+  shape: PadShape,
+  pal: PadSvgPalette,
+): string => resolvePadPaint(shape.stroke, padStatusStroke(shape.status, pal));
+
+export const padInkStroke = (
+  color: string,
+  pal: PadSvgPalette,
+): string => resolvePadPaint(color, pal.text);
+
+export const padImageLabel = (image: PadImage): string =>
+  `${image.ref.displayName ?? "image"} ${image.ref.sha256.slice(0, SHA_PREFIX)}`;
+
+export const padClipText = (text: string): string =>
+  text.length > 160 ? `${text.slice(0, 159)}…` : text;
+
+export const padElementsByZ = <T extends { readonly z: number }>(
+  items: ReadonlyArray<T>,
+): T[] =>
+  items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => a.item.z - b.item.z || a.index - b.index)
+    .map((entry) => entry.item);
+
+const firstTextPart = (pin: PadPin): string | undefined => {
+  for (const post of pin.posts) {
+    for (const part of post.parts) {
+      if (part.kind === "text" && part.text.length > 0) return part.text;
+    }
+  }
+  return undefined;
+};
+
+const emitShape = (shape: PadShape, pal: PadSvgPalette): string[] => {
+  const fill = esc(padShapeFill(shape, pal));
+  const stroke = esc(padShapeStroke(shape, pal));
   const parts: string[] = [];
   if (shape.type === "ellipse") {
     parts.push(
@@ -170,7 +215,7 @@ const emitShape = (shape: PadShape, pal: SvgPalette): string[] => {
   }
   if (shape.text) {
     parts.push(
-      `<text x="${fmt(shape.x + 8)}" y="${fmt(shape.y + 16)}" fill="${pal.text}" font-size="12">${esc(clipText(shape.text))}</text>`,
+      `<text x="${fmt(shape.x + 8)}" y="${fmt(shape.y + 16)}" fill="${esc(pal.text)}" font-size="12">${esc(padClipText(shape.text))}</text>`,
     );
   }
   return parts;
@@ -181,18 +226,18 @@ export const padToSvg = (
   theme: ThemeMode = "dark",
   options?: PadSvgOptions,
 ): string => {
-  const pal = svgPalette(theme);
-  const box = viewRect(pad, options?.viewBox, options?.padding);
+  const pal = padSvgPalette(theme);
+  const box = padSvgViewRect(pad, options?.viewBox, options?.padding);
   const hrefs = options?.hrefs;
   const sizeAttrs = options?.framed
     ? `preserveAspectRatio="xMidYMid meet"`
     : `width="${fmt(box.w)}" height="${fmt(box.h)}"`;
   const parts: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(box.x)} ${fmt(box.y)} ${fmt(box.w)} ${fmt(box.h)}" ${sizeAttrs} font-family="ui-monospace, SFMono-Regular, Menlo, monospace">`,
-    `<rect x="${fmt(box.x)}" y="${fmt(box.y)}" width="${fmt(box.w)}" height="${fmt(box.h)}" fill="${pal.ground}"/>`,
+    `<rect x="${fmt(box.x)}" y="${fmt(box.y)}" width="${fmt(box.w)}" height="${fmt(box.h)}" fill="${esc(pal.ground)}"/>`,
   ];
 
-  for (const image of byZ(pad.images)) {
+  for (const image of padElementsByZ(pad.images)) {
     const href = hrefs?.[image.id];
     if (href) {
       parts.push(
@@ -200,8 +245,8 @@ export const padToSvg = (
       );
     } else {
       parts.push(
-        `<rect x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.w)}" height="${fmt(image.h)}" fill="${pal.fill}" stroke="${pal.stroke}" stroke-width="1"/>`,
-        `<text x="${fmt(image.x + 8)}" y="${fmt(image.y + 16)}" fill="${pal.dim}" font-size="10">${esc(clipText(imageLabel(image)))}</text>`,
+        `<rect x="${fmt(image.x)}" y="${fmt(image.y)}" width="${fmt(image.w)}" height="${fmt(image.h)}" fill="${esc(pal.fill)}" stroke="${esc(pal.stroke)}" stroke-width="1"/>`,
+        `<text x="${fmt(image.x + 8)}" y="${fmt(image.y + 16)}" fill="${esc(pal.dim)}" font-size="10">${esc(padClipText(padImageLabel(image)))}</text>`,
       );
     }
   }
@@ -210,23 +255,23 @@ export const padToSvg = (
     const points = edgePoints(pad, edge);
     if (!points) continue;
     parts.push(
-      `<path d="${strokePath(points, 1.5)}" fill="none" stroke="${pal.steel}" stroke-width="1.5"/>`,
+      `<path d="${esc(strokePath(points, 1.5))}" fill="none" stroke="${esc(pal.steel)}" stroke-width="1.5"/>`,
     );
     if (edge.label) {
       const mid = points[Math.floor(points.length / 2)] ?? points[0]!;
       parts.push(
-        `<text x="${fmt(mid.x)}" y="${fmt(mid.y)}" fill="${pal.dim}" font-size="10" text-anchor="middle">${esc(edge.label)}</text>`,
+        `<text x="${fmt(mid.x)}" y="${fmt(mid.y)}" fill="${esc(pal.dim)}" font-size="10" text-anchor="middle">${esc(edge.label)}</text>`,
       );
     }
   }
 
-  for (const shape of byZ(pad.shapes)) {
+  for (const shape of padElementsByZ(pad.shapes)) {
     parts.push(...emitShape(shape, pal));
   }
 
-  for (const ink of byZ(pad.inks)) {
+  for (const ink of padElementsByZ(pad.inks)) {
     parts.push(
-      `<path d="${strokePath(ink.points, ink.width)}" fill="none" stroke="${esc(ink.color)}" stroke-width="${fmt(ink.width)}" stroke-linecap="round" stroke-linejoin="round"/>`,
+      `<path d="${esc(strokePath(ink.points, ink.width))}" fill="none" stroke="${esc(padInkStroke(ink.color, pal))}" stroke-width="${fmt(ink.width)}" stroke-linecap="round" stroke-linejoin="round"/>`,
     );
   }
 
@@ -234,11 +279,11 @@ export const padToSvg = (
     if (pin.bounds) {
       const crop = lookHereBounds(pin, LOOK_HERE_MARGIN);
       parts.push(
-        `<rect x="${fmt(crop.x)}" y="${fmt(crop.y)}" width="${fmt(crop.w)}" height="${fmt(crop.h)}" fill="none" stroke="${pal.dim}" stroke-dasharray="4 3" opacity="0.6"/>`,
+        `<rect x="${fmt(crop.x)}" y="${fmt(crop.y)}" width="${fmt(crop.w)}" height="${fmt(crop.h)}" fill="none" stroke="${esc(pal.dim)}" stroke-dasharray="4 3" opacity="0.6"/>`,
       );
     }
     parts.push(
-      `<circle cx="${fmt(pin.x)}" cy="${fmt(pin.y)}" r="5" fill="${pal.amber}"/>`,
+      `<circle cx="${fmt(pin.x)}" cy="${fmt(pin.y)}" r="5" fill="${esc(pal.amber)}"/>`,
     );
   }
 
@@ -260,7 +305,7 @@ export const padToDigest = (pad: Pad): string => {
   for (const image of pad.images) {
     const name = image.ref.displayName;
     lines.push(
-      `  ${image.id} :: ${xy(image.x, image.y)} ${wh(image.w, image.h)} sha=${shaPrefix(image.ref.sha256)}${field("name", name ? JSON.stringify(name) : undefined)} ${image.ref.mediaType}`,
+      `  ${image.id} :: ${xy(image.x, image.y)} ${wh(image.w, image.h)} sha=${image.ref.sha256.slice(0, SHA_PREFIX)}${field("name", name ? JSON.stringify(name) : undefined)} ${image.ref.mediaType}`,
     );
   }
   lines.push(`shapes :: ${pad.shapes.length}`);
@@ -311,7 +356,7 @@ const focused = (
 export const padToFocused = (pad: Pad): PadFocusedItem[] => {
   const items: PadFocusedItem[] = [];
   for (const image of pad.images) {
-    items.push(focused(image.id, "image", boundsOf(image), imageLabel(image)));
+    items.push(focused(image.id, "image", boundsOf(image), padImageLabel(image)));
   }
   for (const shape of pad.shapes) {
     items.push(focused(shape.id, shape.type, boundsOf(shape), shape.text, shape.status));

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { PenLine } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
-import { padToSvg } from "@shared/pad-project";
+import type { Pad } from "@shared/pad";
 import { DIM, INK } from "../../lib/theme";
 import { themeMode$ } from "../../lib/theme-mode";
 import { state$ } from "../../lib/state";
@@ -11,6 +11,7 @@ import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { editText } from "../../lib/mutations";
 import { padIsEmpty } from "./pad-editor-model";
 import { PadGlyph } from "./PadGlyph";
+import { PadSvg } from "./PadSvg";
 import "./pad-editor.css";
 
 function AmberDecal({ children }: { readonly children: ReactNode }) {
@@ -36,7 +37,7 @@ export function PadCard({
   const revision = glance?.revision ?? 0;
   const theme = use$(themeMode$);
   const canvas = use$(state$.canvasName) || "";
-  const [svg, setSvg] = useState<string | null>(null);
+  const [pad, setPad] = useState<Pad | null>(null);
   const rawText = node.type === "text" ? node.text : "";
   const firstLine = rawText.split("\n")[0] ?? "";
   const label = firstLine || "pad";
@@ -44,22 +45,22 @@ export function PadCard({
   useEffect(() => {
     const api = getVellumCommandApi();
     if (!api || revision === 0) {
-      setSvg(null);
+      setPad(null);
       return;
     }
     let cancelled = false;
     void api.workPadRead(canvas, node.id).then((result) => {
       if (cancelled || !result.ok) return;
       if (padIsEmpty(result.data.pad)) {
-        setSvg(null);
+        setPad(null);
         return;
       }
-      setSvg(padToSvg(result.data.pad, theme, { framed: true, padding: 16 }));
+      setPad(result.data.pad);
     });
     return () => {
       cancelled = true;
     };
-  }, [canvas, node.id, revision, theme]);
+  }, [canvas, node.id, revision]);
 
   const commitRename = (nextFirst: string) => {
     const rest = rawText.split("\n").slice(1).join("\n");
@@ -100,12 +101,10 @@ export function PadCard({
         </span>
       </div>
       <div className="pad-card__thumb mt-1.5">
-        {svg ? (
-          <div
-            className="h-full w-full"
-            data-testid="pad-card-thumb"
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
+        {pad ? (
+          <div className="h-full w-full" data-testid="pad-card-thumb">
+            <PadSvg pad={pad} theme={theme} options={{ framed: true, padding: 16 }} />
+          </div>
         ) : (
           <div className="pad-card__empty">
             <PadGlyph className="pad-card__glyph" testId="pad-card-empty" />

@@ -91,6 +91,13 @@ const expectFail = (
 };
 
 describe("pad applyPatch", () => {
+  it("admits a hostile fill string as data without interpreting it as markup", () => {
+    const fill =
+      `"></rect><image href="x-invalid:" onerror="window.pwned=42"></image><rect fill="`;
+    const pad = expectOk(applyPatch(emptyPad(), upsertShape("xss", { fill })));
+    expect(pad.shapes[0]?.fill).toBe(fill);
+  });
+
   it("refuses ids that are not unique within the pad", () => {
     const pad = expectOk(applyPatch(emptyPad(), upsertShape("n1")));
     expectFail(applyPatch(pad, upsertEdge("n1", "n1", "n1")), "layer_mismatch");

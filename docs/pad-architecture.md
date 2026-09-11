@@ -152,8 +152,21 @@ ink/image with `InputError`.
 `pad-project.ts` is deterministic, no DOM (same posture as
 `digest.ts` / `svg.ts`).
 
+Persisted `fill` / `stroke` / ink `color` are untrusted data. They
+remain arbitrary strings in Pad IR and Work facts so historical
+patches still decode. Rendering never treats them as HTML or CSS:
+only exact `none` or `#RGB` / `#RGBA` / `#RRGGBB` / `#RRGGBBAA`
+paint. Anything else, including quotes, tags, `url()`, `var()`,
+named colors, and functions, uses a role-specific theme default
+without rewriting storage. `padToSvg` must be safe when parsed as
+markup independently of CSP. The privileged renderer must not
+interpolate Pad strings into HTML; factory-card thumbs are
+structural React SVG. Serialized SVG is for `pad.read` / CLI /
+look-here export only.
+
 - `padToSvg(pad, theme)` — layer order; images as labeled rect +
-  sha prefix unless caller supplies an href map
+  sha prefix unless caller supplies an href map; every dynamic
+  attribute escaped; paint resolved as above
 - `padToDigest(pad)` — text IR, no ink point dumps
 - `padToFocused(pad)` — compact `{id, type, bounds, text, status}`
 - `padLookHere(pad, pinId)` — crop around `pin.bounds` or pin ± margin
@@ -224,7 +237,9 @@ clear local undo history. Deleting a pin with replies is not undoable.
 Typing targets and focused controls own their keys; only `Esc` joins the
 editor cancel chain.
 
-Factory card thumbnail is framed `padToSvg` or the empty-state glyph.
+Factory card thumbnail is framed structural React SVG (`PadSvg`) or
+the empty-state glyph. `padToSvg` is the export picture, not an
+HTML sink.
 Theme tokens from `src/shared/theme`. This is a Vellum Command
 surface: dim command room, not a crayon whiteboard. Resize handles
 are view-stable (4 AABB). Hit slop is view pixels, not scene units.
