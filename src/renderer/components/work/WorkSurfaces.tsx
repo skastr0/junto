@@ -7,8 +7,9 @@ import type {
   TaskState,
 } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
-import type { BoardPost, BoardTopic } from "@shared/work-model";
+import type { BoardPost, BoardTopic, BoardTopicView } from "@shared/work-model";
 import {
+  boardTitleFromText,
   compareTasksByLatestActivityDesc,
   isTerminalTaskState,
   taskBrief,
@@ -345,14 +346,17 @@ export function BoardCard({
             style={{ color: unread > 0 ? HUE.amber : DIM }}
             data-testid="board-glance"
           >
-            {topics.length} topics
-            {unread > 0 ? ` - ${unread} new` : ""}
+            {topics.length} {topics.length === 1 ? "topic" : "topics"}
+            {unread > 0 ? ` - ${unread} new post${unread === 1 ? "" : "s"}` : ""}
           </span>
         }
       />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {topics.slice(0, 4).map((topic) => (
           <div key={topic.topicId} className="factory-glance__row factory-glance__row--topic truncate text-[10px] leading-snug" style={{ color: INK }}>
+            {(topic.unreadPostCount ?? 0) > 0 ? (
+              <span className="mr-1 inline-block size-1.5 shrink-0 rounded-full bg-cyan align-middle" aria-label={`${topic.unreadPostCount} unread`} />
+            ) : null}
             {topic.title}
           </div>
         ))}
@@ -454,32 +458,44 @@ export function BoardDetail({
   const [selectedTopicId, setSelectedTopicId] = useState<string | undefined>();
   const [postText, setPostText] = useState("");
   const [creatingTopic, setCreatingTopic] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [detailTopics, setDetailTopics] = useState<ReadonlyArray<BoardTopic>>(
-    [],
-  );
-  const [loading, setLoading] = useState(false);
+  /** Mutation failures (create/post/mark-read/notify), separate from list loads. */
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  /** List-load failure; a successful refresh clears it without touching mutations. */
+  const [listError, setListError] = useState<string | null>(null);
+  /** Sticky inline confirmation for the last Notify all (wake count). */
+  const [notifyNote, setNotifyNote] = useState<string | null>(null);
+  /** undefined = first load in flight (no false empty state). */
+  const [detailTopics, setDetailTopics] = useState<
+    ReadonlyArray<BoardTopicView> | undefined
+  >(undefined);
+  const [creating, setCreating] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [notifying, setNotifying] = useState(false);
+  const postsRef = useRef<HTMLDivElement | null>(null);
+  /** Topic the posts pane last jumped to the bottom of. */
+  const followedTopicRef = useRef<string | undefined>(undefined);
   const doc = use$(state$.doc);
   /** Full topics from SQLite list; glance only used as empty-state labels. */
   const topics = detailTopics;
-  const selected: BoardTopic | undefined =
-    topics.find((t) => t.topicId === selectedTopicId) ?? topics[0];
+  const loaded = topics !== undefined;
+  const selected: BoardTopicView | undefined =
+    topics?.find((t) => t.topicId === selectedTopicId) ?? topics?.[0];
   const canvas = canvasName();
   const api = getVellumCommandApi();
-  // Board node text is a live glance projection ("board" when empty, or recent topic
-  // titles), not a stable sink name. Keep the work surface title predictable.
-  const boardTitle = "Board";
+  // The board node's first line is the operator's authored title (the mirror
+  // preserves it); the work surface carries the same identity.
+  const boardTitle = boardTitleFromText(node.type === "text" ? node.text : "");
 
   const refreshList = useCallback(async () => {
     if (!api) return;
-    setLoading(true);
     try {
       // Full board (all topics + posts). Do not pass topicId — that collapses the list.
       const r = await api.workBoardList(canvas, node.id);
       if (!r.ok) {
-        setError(r.message);
+        setListError(r.message);
         return;
       }
+      setListError(null);
       setDetailTopics(r.data.topics);
       setSelectedTopicId((prev) => {
         if (prev !== undefined && r.data.topics.some((t) => t.topicId === prev)) {
@@ -487,58 +503,158 @@ export function BoardDetail({
         }
         return r.data.topics[0]?.topicId;
       });
-    } finally {
-      setLoading(false);
+    } catch {
+      setListError("Board list unavailable");
     }
   }, [api, canvas, node.id]);
+
+  const refreshQueued = useRef(false);
+  // Live board: work-fact commits broadcast canvasChanged even when the write
+  // came from an agent. Coalesce bursts into one trailing refresh; keep the
+  // operator's selection and draft. Refreshing is a read — it must not run
+  // through applyWorkCanvasWrite.
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+    const off = api.onCanvasChanged((name) => {
+      if (cancelled || name !== canvas) return;
+      if (refreshQueued.current) return;
+      refreshQueued.current = true;
+      window.setTimeout(() => {
+        refreshQueued.current = false;
+        if (!cancelled) void refreshList();
+      }, 150);
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [api, canvas, refreshList]);
 
   useEffect(() => {
     void refreshList();
   }, [refreshList]);
 
   const run = async <T,>(op: () => Promise<WorkOpResult<T>>) => {
-    setError(null);
+    setMutationError(null);
     if (!api) {
-      setError("API unavailable");
+      setMutationError("API unavailable");
       return undefined;
     }
-    const result = await runWorkCanvasMutation(canvas, op);
-    if (result && !result.ok) setError(result.message);
+    let result: WorkOpResult<T> | undefined;
+    try {
+      result = await runWorkCanvasMutation(canvas, op);
+    } catch {
+      setMutationError("Operation failed");
+      return undefined;
+    }
+    if (result && !result.ok) setMutationError(result.message);
     return result;
   };
 
   const posts: ReadonlyArray<BoardPost> = selected?.posts ?? [];
   const unread = node.ether?.board?.unread ?? 0;
 
+  // Open a topic at its latest post. While reading, follow incoming posts
+  // only when the operator is already near the bottom; never yank them back
+  // from older posts.
+  useEffect(() => {
+    const el = postsRef.current;
+    if (!el) return;
+    if (followedTopicRef.current !== selected?.topicId) {
+      followedTopicRef.current = selected?.topicId;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [selected?.topicId, posts.length]);
+
   const createTopic = async () => {
-    const r = await run(() =>
-      api!.workBoardCreateTopic(
-        canvas,
-        node.id,
-        title.trim(),
-        body.trim() || undefined,
-        true,
-      ),
-    );
-    if (r?.ok) {
-      setTitle("");
-      setBody("");
-      setCreatingTopic(false);
-      setSelectedTopicId(r.data.topic.topicId);
-      await refreshList();
+    if (creating) return;
+    setCreating(true);
+    try {
+      const r = await run(() =>
+        api!.workBoardCreateTopic(
+          canvas,
+          node.id,
+          title.trim(),
+          body.trim() || undefined,
+          true,
+        ),
+      );
+      if (r?.ok) {
+        setTitle("");
+        setBody("");
+        setCreatingTopic(false);
+        setSelectedTopicId(r.data.topic.topicId);
+        await refreshList();
+      }
+    } finally {
+      setCreating(false);
     }
   };
 
   const submitPost = async () => {
-    if (!selected || !postText.trim()) return;
-    const r = await run(() =>
-      api!.workBoardPost(canvas, node.id, selected.topicId, postText.trim()),
-    );
-    if (r?.ok) {
-      setPostText("");
-      await refreshList();
+    if (posting || !selected || !postText.trim()) return;
+    setPosting(true);
+    try {
+      const r = await run(() =>
+        api!.workBoardPost(canvas, node.id, selected.topicId, postText.trim()),
+      );
+      if (r?.ok) {
+        setPostText("");
+        await refreshList();
+      }
+    } finally {
+      setPosting(false);
     }
   };
+
+  const markRead = async () => {
+    if (!selected) return;
+    // Acknowledge exactly what is displayed: the highest post position this
+    // surface has rendered, so a post arriving mid-read stays unread.
+    const highestDisplayed = Math.max(
+      ...(selected.posts ?? []).map((p) => p.position),
+      selected.postCount - 1,
+    );
+    await run(() =>
+      api!.workBoardMarkRead(
+        canvas,
+        node.id,
+        selected.topicId,
+        Number.isSafeInteger(highestDisplayed) && highestDisplayed >= 0
+          ? highestDisplayed
+          : undefined,
+      ),
+    );
+  };
+
+  const notifyAll = async () => {
+    if (notifying) return;
+    setNotifying(true);
+    setNotifyNote(null);
+    try {
+      const r = await run(() =>
+        api!.workBoardNotify(canvas, node.id, selected?.topicId),
+      );
+      if (r?.ok) {
+        const seats = r.data.wakeCount;
+        setNotifyNote(
+          seats > 0
+            ? `Notified ${seats} seat${seats === 1 ? "" : "s"}`
+            : "No seats notified",
+        );
+        await refreshList();
+      }
+    } finally {
+      setNotifying(false);
+    }
+  };
+
+  const macHints = /Mac/.test(navigator.platform);
 
   return (
     <FocusSurface
@@ -547,13 +663,25 @@ export function BoardDetail({
       height="immersive"
       layer="work"
       onClose={onClose}
-      data-testid="board-detail"
     >
-      <div className="board-surface flex h-full min-h-0 flex-col">
+      <div
+        className="board-surface flex h-full min-h-0 flex-col"
+        data-testid="board-detail"
+        data-autofocus
+        tabIndex={-1}
+      >
         <OverlayHeader
           eyebrow="board"
           title={boardTitle}
-          status={`${topics.length} ${topics.length === 1 ? "topic" : "topics"}${unread > 0 ? ` - ${unread} new` : ""}`}
+          status={
+            loaded
+              ? `${topics.length} ${topics.length === 1 ? "topic" : "topics"}${
+                  unread > 0
+                    ? ` - ${unread} new post${unread === 1 ? "" : "s"}`
+                    : ""
+                }`
+              : "loading…"
+          }
           className="board-header"
           actions={
             <>
@@ -561,11 +689,8 @@ export function BoardDetail({
                 variant="subtle"
                 size="sm"
                 className="board-notify"
-                onClick={() =>
-                  void run(() =>
-                    api!.workBoardNotify(canvas, node.id, selected?.topicId),
-                  )
-                }
+                disabled={notifying}
+                onClick={() => void notifyAll()}
               >
                 <Bell size={12} aria-hidden />
                 Notify all
@@ -574,6 +699,7 @@ export function BoardDetail({
                 variant="primary"
                 size="sm"
                 aria-expanded={creatingTopic}
+                disabled={creating}
                 onClick={() => setCreatingTopic((open) => !open)}
               >
                 <Plus size={12} aria-hidden />
@@ -585,14 +711,35 @@ export function BoardDetail({
             </>
           }
         />
-        {error ? (
-          <div className="work-ledger-error px-3 py-1 text-[11px]">{error}</div>
+        {listError ? (
+          <div className="work-ledger-error px-3 py-1 text-[11px]" role="alert">
+            {listError}
+          </div>
+        ) : null}
+        {mutationError ? (
+          <div
+            className="work-ledger-error px-3 py-1 text-[11px]"
+            role="alert"
+            data-testid="board-mutation-error"
+          >
+            {mutationError}
+          </div>
+        ) : null}
+        {notifyNote ? (
+          <div
+            className="px-3 py-1 text-[11px]"
+            style={{ color: HUE.cyan }}
+            role="status"
+            data-testid="board-notify-note"
+          >
+            {notifyNote}
+          </div>
         ) : null}
         <div className="board-workspace">
           <aside className="board-topics" aria-label="Topics">
             <div className="board-topics__heading">
               <span>Topics</span>
-              <span>{topics.length}</span>
+              <span>{loaded ? topics.length : "…"}</span>
             </div>
             {creatingTopic ? (
               <form
@@ -607,6 +754,7 @@ export function BoardDetail({
                   placeholder="New topic title"
                   value={title}
                   autoFocus
+                  maxLength={512}
                   onChange={(e) => setTitle(e.target.value)}
                 />
                 <Textarea
@@ -620,6 +768,7 @@ export function BoardDetail({
                   <Button
                     size="sm"
                     variant="subtle"
+                    disabled={creating}
                     onClick={() => {
                       setCreatingTopic(false);
                       setTitle("");
@@ -628,14 +777,21 @@ export function BoardDetail({
                   >
                     Cancel
                   </Button>
-                  <Button size="sm" variant="primary" disabled={!title.trim()} type="submit">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={creating || !title.trim()}
+                    type="submit"
+                  >
                     Create topic
                   </Button>
                 </div>
               </form>
             ) : null}
             <div className="board-topic-list">
-              {topics.length === 0 ? (
+              {!loaded ? (
+                <div className="board-posts__empty">Loading topics…</div>
+              ) : topics.length === 0 ? (
                 <div className="board-empty">
                   <MessageSquareText size={20} aria-hidden />
                   <strong>No topics yet</strong>
@@ -646,27 +802,37 @@ export function BoardDetail({
                   </Button>
                 </div>
               ) : (
-                topics.map((topic) => (
-                  <button
-                    key={topic.topicId}
-                    type="button"
-                    className="board-topic-row"
-                    aria-current={selected?.topicId === topic.topicId ? "true" : undefined}
-                    onClick={() => setSelectedTopicId(topic.topicId)}
-                  >
-                    <span className="board-topic-row__marker" aria-hidden />
-                    <span className="board-topic-row__content">
-                      <strong>{topic.title}</strong>
-                      {boardTopicPreview(topic) ? <span>{boardTopicPreview(topic)}</span> : null}
-                      <small>
-                        {boardAuthorLabel(topic.openedBy, doc.nodes)} - {boardTimestamp(topic.lastActivityAt)}
-                      </small>
-                    </span>
-                    <span className="board-topic-row__count" aria-label={`${topic.postCount} posts`}>
-                      {topic.postCount}
-                    </span>
-                  </button>
-                ))
+                topics.map((topic) => {
+                  const topicUnread = topic.unreadPostCount ?? 0;
+                  return (
+                    <button
+                      key={topic.topicId}
+                      type="button"
+                      className="board-topic-row"
+                      aria-current={selected?.topicId === topic.topicId ? "true" : undefined}
+                      onClick={() => setSelectedTopicId(topic.topicId)}
+                    >
+                      <span className="board-topic-row__marker" aria-hidden />
+                      <span className="board-topic-row__content">
+                        <strong>{topic.title}</strong>
+                        {boardTopicPreview(topic) ? <span>{boardTopicPreview(topic)}</span> : null}
+                        <small>
+                          {boardAuthorLabel(topic.openedBy, doc.nodes)} - {boardTimestamp(topic.lastActivityAt)}
+                        </small>
+                      </span>
+                      {topicUnread > 0 ? (
+                        <span
+                          className="mr-0.5 inline-block size-1.5 shrink-0 rounded-full bg-cyan align-middle"
+                          aria-label={`${topicUnread} unread`}
+                          data-testid="board-topic-unread"
+                        />
+                      ) : null}
+                      <span className="board-topic-row__count" aria-label={`${topic.postCount} posts`}>
+                        {topic.postCount}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </aside>
@@ -679,21 +845,22 @@ export function BoardDetail({
                     <p>
                       Opened by {boardAuthorLabel(selected.openedBy, doc.nodes)} - {boardTimestamp(selected.openedAt)} - {selected.postCount}{" "}
                       {selected.postCount === 1 ? "post" : "posts"}
-                      {loading ? " - loading…" : ""}
+                      {(selected.unreadPostCount ?? 0) > 0
+                        ? ` - ${selected.unreadPostCount} new`
+                        : ""}
                     </p>
                   </div>
                   <Button
                     size="sm"
                     variant="subtle"
-                    onClick={() =>
-                      void run(() => api!.workBoardMarkRead(canvas, node.id, selected.topicId))
-                    }
+                    disabled={posting || notifying || creating}
+                    onClick={() => void markRead()}
                   >
                     <Check size={12} aria-hidden />
                     Mark read
                   </Button>
                 </header>
-                <div className="board-posts" aria-live="polite">
+                <div ref={postsRef} className="board-posts" aria-live="polite">
                   {posts.length === 0 && (!selected.parts || selected.parts.length === 0) ? (
                     <div className="board-posts__empty">No posts yet. Start the conversation below.</div>
                   ) : (
@@ -739,6 +906,9 @@ export function BoardDetail({
                     value={postText}
                     onChange={(e) => setPostText(e.target.value)}
                     onKeyDown={(event) => {
+                      // IME compositions must never post (Enter confirms the
+                      // composition, not the message).
+                      if (event.nativeEvent.isComposing) return;
                       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                         event.preventDefault();
                         void submitPost();
@@ -747,21 +917,26 @@ export function BoardDetail({
                     rows={3}
                   />
                   <div className="board-reply__footer">
-                    <span>⌘ Enter to post</span>
-                    <Button size="sm" variant="primary" disabled={!postText.trim()} type="submit">
+                    <span>{macHints ? "⌘ Enter to post" : "Ctrl Enter to post"}</span>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={posting || !postText.trim()}
+                      type="submit"
+                    >
                       <Send size={12} aria-hidden />
                       Post reply
                     </Button>
                   </div>
                 </form>
               </>
-            ) : (
+            ) : loaded ? (
               <div className="board-conversation__empty">
                 <MessageSquareText size={24} aria-hidden />
                 <strong>Select a topic</strong>
                 <span>Pick a topic to read it.</span>
               </div>
-            )}
+            ) : null}
           </main>
         </div>
       </div>
