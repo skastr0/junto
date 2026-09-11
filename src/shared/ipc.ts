@@ -714,7 +714,9 @@ export interface VellumCommandApi extends UpdateApi {
     topicId?: string,
   ) => Promise<
     WorkOpResult<{
-      readonly topics: ReadonlyArray<import("./work-model").BoardTopic>;
+      readonly topics: ReadonlyArray<
+        import("./work-model").BoardTopicView
+      >;
     }>
   >;
   readonly workBoardCreateTopic: (
@@ -741,6 +743,7 @@ export interface VellumCommandApi extends UpdateApi {
     canvas: string,
     nodeId: string,
     topicId: string,
+    upToPosition?: number,
   ) => Promise<WorkOpResult<{ readonly topicId: string }>>;
   /** Operator megaphone: wake Notify-ON seats for a board/topic. */
   readonly workBoardNotify: (

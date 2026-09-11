@@ -525,13 +525,14 @@ const vellumApi: VellumCommandApi = {
       topicId,
       text,
     ),
-  workBoardMarkRead: (canvas, nodeId, topicId) =>
+  workBoardMarkRead: (canvas, nodeId, topicId, upToPosition?: number) =>
     invoke(
       IPC_CHANNELS.workBoardMarkRead,
       IPC_TIMEOUT_MS,
       canvas,
       nodeId,
       topicId,
+      upToPosition,
     ),
   workBoardNotify: (canvas, nodeId, topicId) =>
     invoke(

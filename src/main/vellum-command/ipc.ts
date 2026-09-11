@@ -96,6 +96,7 @@ import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
 import { makeUserMessage } from "@shared/task";
 import { ulid } from "ulid";
 import type { PadPatch } from "@shared/pad";
+import type { BoardPost } from "@shared/work-model";
 import { IntentFactBasis, type ActorRef } from "@shared/work-protocol";
 import {
   MainAuthoringRefused,
@@ -104,6 +105,27 @@ import {
 } from "./main-authoring-gate";
 import { StationStatusService } from "./station-status-store";
 import { StationFleetPropagation } from "./station/fleet-propagation";
+
+/**
+ * Wake excerpt for a notify-all on one topic: the latest post's text, else the
+ * opening body, else the title itself. Agents never receive raw topic ids.
+ */
+const latestBoardPostExcerpt = (topic: {
+  readonly title: string;
+  readonly parts?: ReadonlyArray<Part>;
+  readonly posts?: ReadonlyArray<BoardPost>;
+}): string => {
+  const latest = [...(topic.posts ?? [])].sort(
+    (a, b) => b.position - a.position,
+  )[0];
+  const textOf = (parts: ReadonlyArray<Part> | undefined): string =>
+    (parts ?? [])
+      .filter((part): part is Extract<Part, { kind: "text" }> => part.kind === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+  return textOf(latest?.parts) || textOf(topic.parts) || topic.title;
+};
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -1064,7 +1086,7 @@ export const registerVellumIpc = (): void => {
 
   privilegedIpc.handle(
     IPC_CHANNELS.workBoardMarkRead,
-    (_event, canvas: string, nodeId: string, topicId: string) =>
+    (_event, canvas: string, nodeId: string, topicId: string, upToPosition?: number) =>
       runRendererWorkAuthoring(
         "ipc.work.board-mark-read",
         () =>
@@ -1078,6 +1100,7 @@ export const registerVellumIpc = (): void => {
                 nodeId,
                 topicId,
                 "operator",
+                upToPosition,
               );
             }),
           ),
@@ -1094,6 +1117,21 @@ export const registerVellumIpc = (): void => {
             Effect.gen(function* () {
               const denied = yield* denyRemoteWork;
               if (denied) return denied;
+              const work = yield* WorkService;
+              // Validate the board/topic before waking so a bad request never
+              // reaches a transport, and compose the wake from canonical data.
+              const listed = yield* work.workBoardList(canvas, nodeId);
+              if (!listed.ok) return listed;
+              const topic = topicId
+                ? listed.data.topics.find((t) => t.topicId === topicId)
+                : undefined;
+              if (topicId && topic === undefined) {
+                return {
+                  ok: false as const,
+                  code: "task_not_found",
+                  message: `topic "${topicId}" not found`,
+                };
+              }
               const { deliverBoardWake } = yield* Effect.promise(
                 () => import("./work/board-delivery"),
               );
@@ -1101,19 +1139,22 @@ export const registerVellumIpc = (): void => {
                 canvas,
                 boardNodeId: nodeId,
                 kind: "operator.notify.all",
-                topicId,
-                excerptSource: topicId
-                  ? `notify topic ${topicId}`
-                  : "notify all",
+                ...(topic ? { topicId: topic.topicId, topicTitle: topic.title } : {}),
+                excerptSource: topic
+                  ? latestBoardPostExcerpt(topic)
+                  : `${listed.data.topics.length} topics on the board`,
               });
-              const work = yield* WorkService;
-              const listed = yield* work.workBoardList(canvas, nodeId, topicId);
-              if (!listed.ok) return listed;
+              // Post-delivery projection: the response carries the doc as it
+              // stands after the wake, not the preflight read.
+              const after = yield* work.workBoardList(canvas, nodeId, topicId);
+              const projection = after.ok
+                ? { doc: after.doc, revision: after.revision }
+                : { doc: listed.doc, revision: listed.revision };
               return {
                 ok: true as const,
                 data: { wakeCount },
-                doc: listed.doc,
-                revision: listed.revision,
+                doc: projection.doc,
+                revision: projection.revision,
                 disposition: "applied" as const,
               };
             }),
