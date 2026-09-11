@@ -1016,11 +1016,14 @@ const handleScheduler = async (
     const fired = await overseerSchedulerFire({
       canvasName,
       sourceNodeId: node.id,
+      liveGrant: () => ctx.liveOverseerGrant(caller),
     });
     if (!fired.ok) {
-      // Pause/play has no bearing on overseer authority. A paused canvas is
-      // reported honestly as the existing kernel skip, not as Forbidden.
       return fail("RuntimeDown", fired.message);
+    }
+    if (fired.applied === 0) {
+      const still = await requireGrant(ctx.liveOverseerGrant, caller);
+      if (still) return still;
     }
     return ok(fired);
   }

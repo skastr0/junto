@@ -68,12 +68,18 @@ export const setSchedulerEffectDeps = (
 
 export const __setSchedulerEffectDepsForTest = setSchedulerEffectDeps;
 
+export type OverseerFireAuthority = {
+  /** Rechecked at every async effect and cascade hop. Pause does not admit. */
+  readonly liveGrant: () => Promise<boolean>;
+};
+
 /** True when this edge effect ran successfully under the fireKey. */
 const applyOne = async (
   canvasName: string,
   binding: EffectEdgeBinding,
   fire: SchedulerFireEvent,
   deps: SchedulerEffectDeps,
+  overseer?: OverseerFireAuthority,
 ): Promise<boolean> => {
   const err = validateEffectTarget(binding.effect, binding.target);
   if (err) {
@@ -83,6 +89,7 @@ const applyOne = async (
     return false;
   }
   if (deps.hasReceipt(fire.fireKey, binding.edge.id)) return false;
+  if (overseer !== undefined && !(await overseer.liveGrant())) return false;
 
   if (binding.effect.mode === "enqueue_task") {
     // `enqueues` is the whole authored fact: the edge carries no payload, so
@@ -93,6 +100,7 @@ const applyOne = async (
       sinkNodeId: binding.target.id,
       payload: defaultEffectTasksCreate(schedulerSourceLabel(binding.source)),
     });
+    if (overseer !== undefined && !(await overseer.liveGrant())) return false;
     if (!result.ok) {
       console.error(
         `[kernel] enqueue_task failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
@@ -118,6 +126,7 @@ const applyOne = async (
       agentNodeId: binding.target.id,
       text,
     });
+    if (overseer !== undefined && !(await overseer.liveGrant())) return false;
     if (!result.ok) {
       console.error(
         `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
@@ -146,6 +155,7 @@ const applyOne = async (
     binding.effect.flag,
     enabled,
   );
+  if (overseer !== undefined && !(await overseer.liveGrant())) return false;
   if (!flagResult.ok) {
     console.error(
       `[kernel] set_flag failed on ${binding.edge.id}: ${flagResult.message ?? "unknown"}`,
@@ -218,10 +228,11 @@ export const applySchedulerFire = async (
     readonly depth?: number;
     readonly visited?: Set<string>;
     /**
-     * Overseer manual fire: pause/play has no bearing. Role, ownership, and
-     * effect wiring still apply. Ordinary automatic / operator Fire now stays paused.
+     * Overseer-admitted fire. Pause/play has no bearing. Ordinary automatic
+     * and operator Fire now stay paused. liveGrant is rechecked at each
+     * async effect and cascade hop — this is not a shared ignorePause path.
      */
-    readonly ignorePause?: boolean;
+    readonly overseer?: OverseerFireAuthority;
   },
 ): Promise<ApplySchedulerFireResult> => {
   if (!effectDeps) return { applied: 0, skipped: "no_deps" };
@@ -229,8 +240,11 @@ export const applySchedulerFire = async (
   if (!schedulerFeatureEnabled(fire.kind) || !schedulerNodeEnabled(source)) {
     return { applied: 0, skipped: "disabled" };
   }
-  if (!opts?.ignorePause && !effectDeps.canAutomateCanvas(fire.canvasName)) {
+  if (opts?.overseer === undefined && !effectDeps.canAutomateCanvas(fire.canvasName)) {
     return { applied: 0, skipped: "paused" };
+  }
+  if (opts?.overseer !== undefined && !(await opts.overseer.liveGrant())) {
+    return { applied: 0, skipped: "disabled" };
   }
   const depth = opts?.depth ?? 0;
   const visited = opts?.visited ?? new Set<string>();
@@ -244,7 +258,7 @@ export const applySchedulerFire = async (
   let applied = 0;
   for (const binding of bindings) {
     try {
-      if (await applyOne(fire.canvasName, binding, fire, effectDeps)) {
+      if (await applyOne(fire.canvasName, binding, fire, effectDeps, opts?.overseer)) {
         applied += 1;
       }
     } catch (error) {
@@ -272,7 +286,7 @@ export const applySchedulerFire = async (
         {
           depth: depth + 1,
           visited,
-          ...(opts?.ignorePause === true ? { ignorePause: true } : {}),
+          ...(opts?.overseer !== undefined ? { overseer: opts.overseer } : {}),
         },
       );
       applied += child.applied;

@@ -151,11 +151,23 @@ describe("manualSchedulerFire scope", () => {
       const overseer = await overseerSchedulerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
+        liveGrant: async () => true,
       });
       expect(overseer.ok).toBe(true);
       if (!overseer.ok) return;
       expect(overseer.applied).toBeGreaterThan(0);
       expect(enqueues.length).toBeGreaterThan(0);
+
+      enqueues.length = 0;
+      const revoked = await overseerSchedulerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+        liveGrant: async () => false,
+      });
+      expect(revoked.ok).toBe(true);
+      if (!revoked.ok) return;
+      expect(revoked.applied).toBe(0);
+      expect(enqueues).toEqual([]);
     },
   );
 

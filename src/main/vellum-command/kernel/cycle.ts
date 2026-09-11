@@ -823,7 +823,7 @@ const runManualSchedulerFire = async (input: {
   readonly canvasName: string;
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
-  readonly ignorePause?: boolean;
+  readonly overseer?: { readonly liveGrant: () => Promise<boolean> };
 }): Promise<ManualSchedulerFireResult> => {
   const doc = docs.get(input.canvasName);
   if (!doc) {
@@ -846,7 +846,7 @@ const runManualSchedulerFire = async (input: {
       message: `${kind} is disabled in this Vellum Command build`,
     };
   }
-  const fireKey = `${input.ignorePause === true ? "overseer" : "manual"}:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
+  const fireKey = `${input.overseer !== undefined ? "overseer" : "manual"}:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
   const result = await applySchedulerFire(
     doc,
     {
@@ -856,7 +856,7 @@ const runManualSchedulerFire = async (input: {
       fireKey,
       status: "satisfied",
     },
-    input.ignorePause === true ? { ignorePause: true } : undefined,
+    input.overseer !== undefined ? { overseer: input.overseer } : undefined,
   );
   if (result.skipped === "paused") {
     return {
@@ -906,8 +906,14 @@ export const overseerSchedulerFire = async (input: {
   readonly canvasName: string;
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
+  readonly liveGrant: () => Promise<boolean>;
 }): Promise<ManualSchedulerFireResult> =>
-  runManualSchedulerFire({ ...input, ignorePause: true });
+  runManualSchedulerFire({
+    canvasName: input.canvasName,
+    sourceNodeId: input.sourceNodeId,
+    ...(input.kind !== undefined ? { kind: input.kind } : {}),
+    overseer: { liveGrant: input.liveGrant },
+  });
 
 export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {
   docs = docsMap;
