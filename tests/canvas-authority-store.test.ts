@@ -36,6 +36,7 @@ import {
 import {
   verifyCanvasIntentMaterial,
 } from "../src/main/vellum-command/canvas-intent-identity";
+import { managedAgentEther } from "./helpers/managed-agent-ether";
 
 const noteDoc = (text: string): CanvasDoc =>
   applyMirrorLaw({
@@ -606,5 +607,173 @@ describe("CanvasesService SQLite authority", () => {
     expect(
       (await runtime.runPromise(canvases.read("alpha"))).doc.nodes[0],
     ).toMatchObject({ text: "two" });
+  });
+
+  const managedSeatDoc = (
+    id: string,
+    bindingId: string,
+    overseer = false,
+  ): CanvasDoc =>
+    applyMirrorLaw({
+      nodes: [
+        {
+          id,
+          type: "text",
+          text: id,
+          x: 0,
+          y: 0,
+          width: 260,
+          height: 96,
+          ether: {
+            ...managedAgentEther("local:amp", {
+              bindingId,
+              harness: "amp",
+              host: "local",
+            }),
+            ...(overseer ? { overseer: true } : {}),
+          },
+        },
+      ],
+      edges: [],
+    });
+
+  const bootGrantedPortfolio = async () => {
+    await installEnv();
+    const database = join(stateDir, "vellum-command.db");
+    runtime = makeCanvasRuntime(database);
+    const settings = await runtime.runPromise(SettingsService);
+    await runtime.runPromise(
+      settings.setStationTopology({
+        role: "command-center",
+        hostId: "local",
+        supervisedPreferred: true,
+      }),
+    );
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.write("ops", managedSeatDoc("overseer", "bind-live")));
+    await runtime.runPromise(canvases.write("notes", noteDoc("unrelated")));
+    const ops = await runtime.runPromise(canvases.read("ops"));
+    await runtime.runPromise(
+      canvases.canvasOverseerSet({
+        canvasName: "ops",
+        nodeId: "overseer",
+        overseer: true,
+        expectedRevision: ops.revision,
+      }),
+    );
+    return { canvases, database };
+  };
+
+  it("rejects a copied live overseer binding without advancing head, revision, or documents", async () => {
+    const { canvases } = await bootGrantedPortfolio();
+    const before = await runtime!.runPromise(canvases.authoritySnapshot());
+    const beforeOps = await runtime!.runPromise(canvases.read("ops"));
+    const beforeNotes = await runtime!.runPromise(canvases.read("notes"));
+
+    await expect(
+      runtime!.runPromise(
+        canvases.write(
+          "recovery-copy",
+          managedSeatDoc("overseer", "bind-live", true),
+        ),
+      ),
+    ).rejects.toThrow("conflicting executable descriptors");
+
+    const after = await runtime!.runPromise(canvases.authoritySnapshot());
+    expect(after.generation).toBe(before.generation);
+    expect(after.intentSha256).toBe(before.intentSha256);
+    expect([...after.documents.keys()].sort()).toEqual(["notes", "ops"]);
+    const afterOps = await runtime!.runPromise(canvases.read("ops"));
+    const afterNotes = await runtime!.runPromise(canvases.read("notes"));
+    expect(afterOps.revision).toBe(beforeOps.revision);
+    expect(afterOps.doc.nodes[0]?.ether?.overseer).toBe(true);
+    expect(afterOps.doc.nodes[0]?.ether?.terminal?.bindingId).toBe("bind-live");
+    expect(afterNotes.revision).toBe(beforeNotes.revision);
+    expect(afterNotes.doc.nodes[0]).toMatchObject({ text: "unrelated" });
+    await expect(runtime!.runPromise(canvases.list)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "ops" }),
+        expect.objectContaining({ name: "notes" }),
+      ]),
+    );
+    await expect(runtime!.runPromise(canvases.liveDocuments())).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ canvasName: "ops" }),
+        expect.objectContaining({ canvasName: "notes" }),
+      ]),
+    );
+  });
+
+  it("keeps original grant and recovery identity distinct after reopen", async () => {
+    const { canvases, database } = await bootGrantedPortfolio();
+    await runtime!.runPromise(
+      canvases.write("recovery-draft", managedSeatDoc("overseer", "bind-recovery")),
+    );
+
+    const live = await runtime!.runPromise(canvases.liveDocuments());
+    expect(live.map((entry) => entry.canvasName).sort()).toEqual([
+      "notes",
+      "ops",
+      "recovery-draft",
+    ]);
+    const original = live.find((entry) => entry.canvasName === "ops")?.doc.nodes[0];
+    const recovered = live.find((entry) => entry.canvasName === "recovery-draft")?.doc.nodes[0];
+    expect(original?.ether?.overseer).toBe(true);
+    expect(original?.ether?.terminal?.bindingId).toBe("bind-live");
+    expect(recovered?.ether?.overseer).toBeUndefined();
+    expect(recovered?.ether?.terminal?.bindingId).toBe("bind-recovery");
+
+    const refs = await runtime!.runPromise(canvases.activeActorRefs());
+    expect(new Set(refs.map((ref) => ref.seatId)).size).toBe(2);
+
+    await runtime!.dispose();
+    runtime = makeCanvasRuntime(database);
+    const reopened = await runtime.runPromise(CanvasesService);
+    const ops = await runtime.runPromise(reopened.read("ops"));
+    const recovery = await runtime.runPromise(reopened.read("recovery-draft"));
+    const notes = await runtime.runPromise(reopened.read("notes"));
+    expect(ops.doc.nodes[0]?.ether?.overseer).toBe(true);
+    expect(ops.doc.nodes[0]?.ether?.terminal?.bindingId).toBe("bind-live");
+    expect(recovery.doc.nodes[0]?.ether?.overseer).toBeUndefined();
+    expect(recovery.doc.nodes[0]?.ether?.terminal?.bindingId).toBe("bind-recovery");
+    expect(notes.doc.nodes[0]).toMatchObject({ text: "unrelated" });
+    await expect(runtime.runPromise(reopened.list)).resolves.toHaveLength(3);
+    await expect(runtime.runPromise(reopened.liveDocuments())).resolves.toHaveLength(3);
+    const reopenedRefs = await runtime.runPromise(reopened.activeActorRefs());
+    expect(new Set(reopenedRefs.map((ref) => ref.seatId)).size).toBe(2);
+  });
+
+  it("still grants every explicit identical binding alias atomically", async () => {
+    const { canvases } = await bootGrantedPortfolio();
+    const ops = await runtime!.runPromise(canvases.read("ops"));
+    await runtime!.runPromise(
+      canvases.canvasOverseerSet({
+        canvasName: "ops",
+        nodeId: "overseer",
+        overseer: false,
+        expectedRevision: ops.revision,
+      }),
+    );
+    await runtime!.runPromise(
+      canvases.write("alias", managedSeatDoc("alias", "bind-live")),
+    );
+    const ungated = await runtime!.runPromise(canvases.read("ops"));
+    await runtime!.runPromise(
+      canvases.canvasOverseerSet({
+        canvasName: "ops",
+        nodeId: "overseer",
+        overseer: true,
+        expectedRevision: ungated.revision,
+      }),
+    );
+    expect(
+      (await runtime!.runPromise(canvases.read("ops"))).doc.nodes[0]?.ether?.overseer,
+    ).toBe(true);
+    expect(
+      (await runtime!.runPromise(canvases.read("alias"))).doc.nodes[0]?.ether?.overseer,
+    ).toBe(true);
+    const refs = await runtime!.runPromise(canvases.activeActorRefs());
+    expect(new Set(refs.map((ref) => ref.seatId)).size).toBe(1);
+    expect(refs).toHaveLength(2);
   });
 });

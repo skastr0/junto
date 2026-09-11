@@ -216,6 +216,61 @@ describe("renderer canvas save durability", () => {
     expect(state$.error.peek()).toContain(`saved as canvas "${recoveryName}"`);
   });
 
+  it("mints a fresh ungranted recovery binding instead of copying live executable identity", async () => {
+    const seat = (text: string, overseer?: boolean): CanvasDoc => ({
+      nodes: [{
+        id: "seat",
+        type: "text",
+        text,
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 60,
+        ether: {
+          entity: { kind: "agent", name: "local:builder" },
+          terminal: {
+            bindingId: "live-bind",
+            harness: "codex",
+            sessionId: "sess-live",
+          },
+          ...(overseer === undefined ? {} : { overseer }),
+        },
+      }],
+      edges: [],
+    });
+    loadDoc(seat("alpha-base", true), "alpha-r1", "alpha");
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
+    readCanvas.mockResolvedValueOnce({
+      name: "alpha",
+      doc: seat("disk-external", true),
+      actorRefs: [],
+      revision: "alpha-disk",
+    });
+    state$.selectedNodeId.set("seat");
+    state$.selectedNodeIds.set(["seat"]);
+    state$.focusNodeId.set("seat");
+    state$.fitViewRequest.set(19);
+    commitDoc(seat("local-unsaved", true));
+
+    await flushPendingCanvasSave();
+
+    const recoveryName = createCanvas.mock.calls[0]![0];
+    const recoveryDoc = writeCanvas.mock.calls[1]?.[1] as CanvasDoc;
+    const recoveryEther = recoveryDoc.nodes[0]?.ether;
+    expect(recoveryEther?.terminal?.bindingId).toBeDefined();
+    expect(recoveryEther?.terminal?.bindingId).not.toBe("live-bind");
+    expect(recoveryEther?.terminal?.sessionId).toBeUndefined();
+    expect(recoveryEther?.overseer).toBeUndefined();
+    expect(recoveryEther?.entity).toEqual({ kind: "agent", name: "local:builder" });
+    expect(state$.canvasName.peek()).toBe("alpha");
+    expect(state$.doc.peek().nodes[0]?.ether?.terminal?.bindingId).toBe("live-bind");
+    expect(state$.doc.peek().nodes[0]?.ether?.overseer).toBe(true);
+    expect(state$.selectedNodeId.peek()).toBe("seat");
+    expect(state$.focusNodeId.peek()).toBe("seat");
+    expect(state$.fitViewRequest.peek()).toBe(19);
+    expect(state$.error.peek()).toContain(`saved as canvas "${recoveryName}"`);
+  });
+
   it("updates the recovery copy when another edit arrives during its write", async () => {
     const recoveryWrite = deferred<{ revision: string }>();
     writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
@@ -230,12 +285,9 @@ describe("renderer canvas save durability", () => {
 
     expect(writeCanvas).toHaveBeenCalledTimes(3);
     const recoveryName = createCanvas.mock.calls[0]![0];
-    expect(writeCanvas).toHaveBeenNthCalledWith(
-      3,
-      recoveryName,
-      doc("latest-local"),
-      "recovery-r1",
-    );
+    expect(writeCanvas.mock.calls[2]?.[0]).toBe(recoveryName);
+    expect(writeCanvas.mock.calls[2]?.[1]).toEqual(doc("latest-local"));
+    expect(writeCanvas.mock.calls[2]?.[2]).toBe("recovery-r1");
     expect(state$.canvasName.peek()).toBe("alpha");
     expect(state$.doc.peek()).toEqual(doc("disk-external"));
   });
