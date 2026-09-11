@@ -22,6 +22,15 @@ const electron = vi.hoisted(() => {
     resolveHost(): Promise<{ endpoints: ReadonlyArray<{ address: string }> }> {
       return Promise.resolve({ endpoints: [{ address: "93.184.216.34" }] });
     }
+    setProxy(): Promise<void> {
+      return Promise.resolve();
+    }
+    forceReloadProxyConfig(): Promise<void> {
+      return Promise.resolve();
+    }
+    closeAllConnections(): Promise<void> {
+      return Promise.resolve();
+    }
     on(event: string, listener: Listener): this {
       const listeners = this.listeners.get(event) ?? [];
       listeners.push(listener);
@@ -175,6 +184,23 @@ const electron = vi.hoisted(() => {
   };
 });
 
+vi.mock("../src/main/vellum-command/browser/partition-network", () => ({
+  ensureManagedBrowserPartitionNetwork: async () => ({
+    partition: "persist:test",
+    session: {},
+    proxy: {
+      host: "127.0.0.1",
+      port: 1,
+      credentials: { username: "u", password: "p", realm: "r" },
+      proxyRules: "127.0.0.1:1",
+      proxyBypassRules: "<-loopback>",
+      close: async () => undefined,
+    },
+    close: async () => undefined,
+  }),
+  releaseManagedBrowserPartitionNetwork: async () => undefined,
+}));
+
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
   session: {
@@ -224,7 +250,7 @@ describe("electron browser view generation seam", () => {
     electron.sessions.clear();
   });
 
-  const setup = (exactTopLevelOrigin?: string) => {
+  const setup = async (exactTopLevelOrigin?: string) => {
     const starts: Array<Parameters<BrowserViewEvents["onNavigationStart"]>[0]> = [];
     const urls: Array<readonly [string, string]> = [];
     const completed: Array<readonly [string, string | undefined]> = [];
@@ -232,7 +258,7 @@ describe("electron browser view generation seam", () => {
     const ambiguous: string[] = [];
     const unexpectedTerminations: number[] = [];
     let pageGeneration = 1;
-    const handle = electronViewAdapter(
+    const handle = await electronViewAdapter(
       "persist:test",
       {
         onNavigationStart: (event) => {
@@ -261,7 +287,7 @@ describe("electron browser view generation seam", () => {
     };
   };
 
-  it("parents views only through the injected host and rebinds without double parents", () => {
+  it("parents views only through the injected host and rebinds without double parents", async () => {
     const target = makeElectronBrowserViewAttachmentTarget();
     const firstChildren: unknown[] = [];
     const secondChildren: unknown[] = [];
@@ -279,7 +305,7 @@ describe("electron browser view generation seam", () => {
     });
     const first = host(firstChildren);
     const second = host(secondChildren);
-    const handle = target.adapter("persist:test", {
+    const handle = await target.adapter("persist:test", {
       onNavigationStart: () => "session",
       onNavigationAmbiguous: () => undefined,
       onNavigationUrl: () => undefined,
@@ -299,7 +325,7 @@ describe("electron browser view generation seam", () => {
     expect(secondChildren).toEqual([]);
   });
 
-  it("parks a zero-size view off the host and throttles the page", () => {
+  it("parks a zero-size view off the host and throttles the page", async () => {
     const target = makeElectronBrowserViewAttachmentTarget();
     const children: unknown[] = [];
     const host = {
@@ -314,7 +340,7 @@ describe("electron browser view generation seam", () => {
         },
       },
     };
-    const handle = target.adapter("persist:test", {
+    const handle = await target.adapter("persist:test", {
       onNavigationStart: () => "session",
       onNavigationAmbiguous: () => undefined,
       onNavigationUrl: () => undefined,
@@ -340,7 +366,7 @@ describe("electron browser view generation seam", () => {
     expect(view.webContents.getURL()).toBe("");
   });
 
-  it("restores a parked view when bounds become positive", () => {
+  it("restores a parked view when bounds become positive", async () => {
     const target = makeElectronBrowserViewAttachmentTarget();
     const children: unknown[] = [];
     const host = {
@@ -355,7 +381,7 @@ describe("electron browser view generation seam", () => {
         },
       },
     };
-    const handle = target.adapter("persist:test", {
+    const handle = await target.adapter("persist:test", {
       onNavigationStart: () => "session",
       onNavigationAmbiguous: () => undefined,
       onNavigationUrl: () => undefined,
@@ -383,7 +409,7 @@ describe("electron browser view generation seam", () => {
     expect(view.webContents.getURL()).toBe("https://example.com/");
   });
 
-  it("never attaches a view opened with zero bounds", () => {
+  it("never attaches a view opened with zero bounds", async () => {
     const target = makeElectronBrowserViewAttachmentTarget();
     const children: unknown[] = [];
     const host = {
@@ -398,7 +424,7 @@ describe("electron browser view generation seam", () => {
         },
       },
     };
-    const handle = target.adapter("persist:test", {
+    const handle = await target.adapter("persist:test", {
       onNavigationStart: () => "session",
       onNavigationAmbiguous: () => undefined,
       onNavigationUrl: () => undefined,
@@ -417,7 +443,7 @@ describe("electron browser view generation seam", () => {
     expect(view.setBoundsCalls).toEqual([]);
   });
 
-  it("fails closed when background throttling is unavailable", () => {
+  it("fails closed when background throttling is unavailable", async () => {
     const target = makeElectronBrowserViewAttachmentTarget();
     const children: unknown[] = [];
     const host = {
@@ -432,7 +458,7 @@ describe("electron browser view generation seam", () => {
         },
       },
     };
-    const handle = target.adapter("persist:test", {
+    const handle = await target.adapter("persist:test", {
       onNavigationStart: () => "session",
       onNavigationAmbiguous: () => undefined,
       onNavigationUrl: () => undefined,
@@ -452,14 +478,14 @@ describe("electron browser view generation seam", () => {
     expect(view.webContents.closeCalls).toBe(0);
   });
 
-  it("coalesces renderer-loss signals and suppresses intentional destruction", () => {
-    const crashed = setup();
+  it("coalesces renderer-loss signals and suppresses intentional destruction", async () => {
+    const crashed = await setup();
     crashed.webContents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 1 });
     crashed.webContents.destroyed = true;
     crashed.webContents.emit("destroyed");
     expect(crashed.unexpectedTerminations).toEqual([1]);
 
-    const intentional = setup();
+    const intentional = await setup();
     intentional.handle.destroy();
     intentional.handle.destroy();
     intentional.webContents.destroyed = true;
@@ -468,8 +494,8 @@ describe("electron browser view generation seam", () => {
     expect(intentional.unexpectedTerminations).toEqual([]);
   });
 
-  it("exposes a synchronous load-stop seam before runtime destruction", () => {
-    const { handle, webContents } = setup();
+  it("exposes a synchronous load-stop seam before runtime destruction", async () => {
+    const { handle, webContents } = await setup();
 
     handle.stopLoading?.();
     handle.destroy();
@@ -478,8 +504,8 @@ describe("electron browser view generation seam", () => {
     expect(webContents.closeCalls).toBe(1);
   });
 
-  it("allows a retained teardown tombstone to retry a refused close", () => {
-    const { handle, webContents } = setup();
+  it("allows a retained teardown tombstone to retry a refused close", async () => {
+    const { handle, webContents } = await setup();
     webContents.closeError = new Error("transient close refusal");
 
     expect(() => handle.destroy()).toThrow("transient close refusal");
@@ -490,7 +516,7 @@ describe("electron browser view generation seam", () => {
 
   it("returns a teardown-capable handle when policy installation fails", async () => {
     electron.failNextPolicyInstall(new Error("policy install failed"));
-    const { handle, webContents } = setup();
+    const { handle, webContents } = await setup();
 
     expect(() => handle.loadUrl("https://example.com", "session-1"))
       .toThrow("policy install failed");
@@ -504,8 +530,8 @@ describe("electron browser view generation seam", () => {
     await expect(destroyed).resolves.toBeUndefined();
   });
 
-  it("normalizes a programmatic URL before matching its expected generation", () => {
-    const { handle, webContents, starts, completed } = setup();
+  it("normalizes a programmatic URL before matching its expected generation", async () => {
+    const { handle, webContents, starts, completed } = await setup();
     handle.loadUrl("https://example.com", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/"));
     webContents.currentUrl = "https://example.com/";
@@ -521,8 +547,8 @@ describe("electron browser view generation seam", () => {
     expect(completed).toEqual([["session-1", undefined]]);
   });
 
-  it("keeps redirects on the same generation and completes at the final URL", () => {
-    const { handle, webContents, starts, urls, completed } = setup();
+  it("keeps redirects on the same generation and completes at the final URL", async () => {
+    const { handle, webContents, starts, urls, completed } = await setup();
     handle.loadUrl("https://example.com/start", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
     webContents.emit(
@@ -537,8 +563,8 @@ describe("electron browser view generation seam", () => {
     expect(completed).toEqual([["session-1", undefined]]);
   });
 
-  it("terminates an active generation when policy blocks its redirect", () => {
-    const { handle, webContents, failed } = setup();
+  it("terminates an active generation when policy blocks its redirect", async () => {
+    const { handle, webContents, failed } = await setup();
     handle.loadUrl("https://example.com/start", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
     const redirect = {
@@ -553,8 +579,8 @@ describe("electron browser view generation seam", () => {
     ]);
   });
 
-  it("pins automation views to an exact origin and retargets only deliberately", () => {
-    const { handle, webContents, failed } = setup("https://example.com");
+  it("pins automation views to an exact origin and retargets only deliberately", async () => {
+    const { handle, webContents, failed } = await setup("https://example.com");
     handle.loadUrl("https://example.com/start", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/start"));
 
@@ -591,8 +617,8 @@ describe("electron browser view generation seam", () => {
     expect(staleOrigin.preventDefault).toHaveBeenCalledOnce();
   });
 
-  it("fails closed when main-frame navigations overlap without a correlation id", () => {
-    const { webContents, completed, failed, ambiguous } = setup();
+  it("fails closed when main-frame navigations overlap without a correlation id", async () => {
+    const { webContents, completed, failed, ambiguous } = await setup();
     webContents.emit("did-start-navigation", navigation("https://first.example.com/"));
     webContents.emit("did-start-navigation", navigation("https://second.example.com/"));
     webContents.emit(
@@ -613,8 +639,8 @@ describe("electron browser view generation seam", () => {
     expect(completed).toEqual([]);
   });
 
-  it("reports same-document URL changes under the current generation", () => {
-    const { handle, webContents, urls } = setup();
+  it("reports same-document URL changes under the current generation", async () => {
+    const { handle, webContents, urls } = await setup();
     handle.loadUrl("https://example.com/", "session-1");
     webContents.emit("did-start-navigation", navigation("https://example.com/"));
     webContents.emit(
@@ -629,7 +655,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("turns a rejected programmatic load into a terminal session failure", async () => {
-    const { handle, webContents, failed } = setup();
+    const { handle, webContents, failed } = await setup();
     webContents.loadError = new Error("network unavailable");
 
     handle.loadUrl("https://example.com/", "session-1");
@@ -640,7 +666,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("absorbs Electron's aborted-load rejection without failing the session", async () => {
-    const { handle, webContents, failed } = setup();
+    const { handle, webContents, failed } = await setup();
     webContents.loadError = Object.assign(new Error("ERR_ABORTED"), { code: -3 });
 
     handle.loadUrl("https://example.com/", "session-1");
@@ -650,7 +676,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("executes automation only in the fixed non-main isolated world", async () => {
-    const { handle, webContents } = setup();
+    const { handle, webContents } = await setup();
 
     await handle.executeJavaScript?.("document.title");
 
@@ -665,8 +691,8 @@ describe("electron browser view generation seam", () => {
     });
   });
 
-  it("constructs every browser view with explicit hostile-web preferences", () => {
-    setup();
+  it("constructs every browser view with explicit hostile-web preferences", async () => {
+    await setup();
     expect(electron.options[0]).toEqual({
       webPreferences: {
         session: electron.views[0]?.webContents.session,
@@ -686,7 +712,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("acknowledges physical teardown only after Electron emits destroyed", async () => {
-    const { handle, webContents } = setup();
+    const { handle, webContents } = await setup();
     const destroyed = handle.whenDestroyed?.();
     if (destroyed === undefined) throw new Error("destruction acknowledgement unavailable");
     let acknowledged = false;
@@ -705,7 +731,7 @@ describe("electron browser view generation seam", () => {
   });
 
   it("bounds direct adapter eval source at exact N/N+1 before Electron", async () => {
-    const { handle, webContents } = setup();
+    const { handle, webContents } = await setup();
 
     await handle.executeJavaScript?.("x".repeat(BROWSER_MAX_EVAL_CODE_BYTES));
     expect(webContents.isolatedCalls).toHaveLength(1);

@@ -5,10 +5,6 @@ import type {
   WebContents,
 } from "electron";
 import {
-  BROWSER_DNS_POLICY_TIMEOUT_MS,
-  BROWSER_MAX_PENDING_DNS_HOSTS,
-} from "../src/shared/browser-limits";
-import {
   canonicalBrowserOrigin,
   installBrowserWebPolicy,
   isAllowedByBrowserExactOrigin,
@@ -43,15 +39,6 @@ class FakeSession {
   displayMedia:
     | ((request: unknown, callback: (streams: Record<string, never>) => void) => void)
     | null = null;
-  readonly resolveHost = vi.fn(
-    async (
-      _hostname: string,
-    ): Promise<{
-      endpoints: Array<{ address: string; family: "ipv4" | "ipv6" }>;
-    }> => ({
-      endpoints: [{ address: "93.184.216.34", family: "ipv4" }],
-    }),
-  );
 
   setPermissionCheckHandler(handler: FakeSession["permissionCheck"]): void {
     this.permissionCheck = handler;
@@ -126,45 +113,27 @@ const install = (
   return { session, contents, release };
 };
 
-const request = async (
+const request = (
   session: FakeSession,
   url: string,
   resourceType: OnBeforeRequestListenerDetails["resourceType"] = "mainFrame",
-): Promise<boolean> => {
+): boolean => {
   const handler = session.webRequest.handler;
   if (handler === null) throw new Error("request policy missing");
-  return new Promise((resolve) => {
-    handler(
-      { url, resourceType } as OnBeforeRequestListenerDetails,
-      ({ cancel }) => resolve(cancel === true),
-    );
-  });
-};
-
-const dispatchRequest = (
-  session: FakeSession,
-  url: string,
-  resourceType: OnBeforeRequestListenerDetails["resourceType"] = "mainFrame",
-) => {
-  const handler = session.webRequest.handler;
-  if (handler === null) throw new Error("request policy missing");
-  const responses: Array<{ readonly cancel?: boolean }> = [];
+  let cancelled = false;
   handler(
     { url, resourceType } as OnBeforeRequestListenerDetails,
-    (response) => responses.push(response),
+    ({ cancel }) => {
+      cancelled = cancel === true;
+    },
   );
-  return responses;
-};
-
-const flushMicrotasks = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
+  return cancelled;
 };
 
 afterEach(() => vi.useRealTimers());
 
 describe("browser partition policy", () => {
-  it("constructs only a canonical exact loopback-origin test capability", async () => {
+  it("constructs only a canonical exact loopback-origin test capability", () => {
     const grant = makeBrowserTestOnlyExactOriginGrant("http://127.0.0.1:49152");
     expect(
       isAllowedByBrowserTestOnlyExactOriginGrant(
@@ -194,8 +163,8 @@ describe("browser partition policy", () => {
     }
 
     const { session } = install(new FakeSession(), {}, grant);
-    expect(await request(session, "http://127.0.0.1:49152/fixture")).toBe(false);
-    expect(await request(session, "http://127.0.0.1:49153/private-sentinel")).toBe(true);
+    expect(request(session, "http://127.0.0.1:49152/fixture")).toBe(false);
+    expect(request(session, "http://127.0.0.1:49153/private-sentinel")).toBe(true);
   });
 
   it("denies every ambient permission and unmanaged popup by default", () => {
@@ -209,153 +178,22 @@ describe("browser partition policy", () => {
     session.displayMedia?.({}, displayResult);
     expect(displayResult).toHaveBeenCalledWith({});
     expect(contents.windowOpenHandler?.({})).toEqual({ action: "deny" });
-    expect(contents.webRtcPolicy).toBe("default_public_interface_only");
+    expect(contents.webRtcPolicy).toBe("disable_non_proxied_udp");
   });
 
-  it("admits only public resolved network targets", async () => {
+  it("admits syntactic public targets and denies literal private ones", () => {
     const { session } = install();
-    expect(await request(session, "https://1.1.1.1/")).toBe(false);
-    expect(await request(session, "https://example.com/")).toBe(false);
-    expect(session.resolveHost).toHaveBeenCalledWith("example.com", {
-      cacheUsage: "allowed",
-      secureDnsPolicy: "allow",
-    });
-    expect(await request(session, "wss://example.com/socket", "webSocket")).toBe(false);
+    expect(request(session, "https://1.1.1.1/")).toBe(false);
+    expect(request(session, "https://example.com/")).toBe(false);
+    expect(request(session, "wss://example.com/socket", "webSocket")).toBe(false);
 
-    expect(await request(session, "http://127.0.0.1/")).toBe(true);
-    expect(await request(session, "http://169.254.169.254/")).toBe(true);
-    expect(await request(session, "https://user:secret@example.com/")).toBe(true);
-    expect(await request(session, "file:///etc/passwd")).toBe(true);
-    expect(await request(session, "custom://escape", "other")).toBe(true);
-    expect(await request(session, "blob:https://example.com/id", "mainFrame")).toBe(true);
-    expect(await request(session, "blob:https://example.com/id", "image")).toBe(false);
-  });
-
-  it("fails closed on empty, mixed-private, invalid, and failed DNS results", async () => {
-    const { session } = install();
-    session.resolveHost
-      .mockResolvedValueOnce({ endpoints: [] })
-      .mockResolvedValueOnce({
-        endpoints: [
-          { address: "93.184.216.34", family: "ipv4" as const },
-          { address: "10.0.0.1", family: "ipv4" as const },
-        ],
-      })
-      .mockResolvedValueOnce({
-        endpoints: [{ address: "not-an-ip", family: "ipv4" as const }],
-      })
-      .mockResolvedValueOnce({
-        endpoints: [{ address: "fec0::1", family: "ipv6" }],
-      })
-      .mockRejectedValueOnce(new Error("dns down"));
-
-    expect(await request(session, "https://empty.example.net/")).toBe(true);
-    expect(await request(session, "https://mixed.example.net/")).toBe(true);
-    expect(await request(session, "https://invalid.example.net/")).toBe(true);
-    expect(await request(session, "https://site-local.example.net/")).toBe(true);
-    expect(await request(session, "https://failed.example.net/")).toBe(true);
-  });
-
-  it("bounds one shared DNS lookup exactly once and ignores its late settlement", async () => {
-    vi.useFakeTimers();
-    const { session } = install();
-    const settlers: Array<
-      (value: { endpoints: Array<{ address: string; family: "ipv4" }> }) => void
-    > = [];
-    session.resolveHost.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          settlers.push(resolve);
-        }),
-    );
-
-    const first = dispatchRequest(session, "https://hung.example.net/a", "image");
-    expect(session.resolveHost).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(BROWSER_DNS_POLICY_TIMEOUT_MS);
-    expect(first).toEqual([{ cancel: true }]);
-
-    const replacement = dispatchRequest(session, "https://hung.example.net/b", "script");
-    expect(session.resolveHost).toHaveBeenCalledTimes(2);
-    settlers[0]?.({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
-    await flushMicrotasks();
-    expect(first).toEqual([{ cancel: true }]);
-
-    const deduplicated = dispatchRequest(session, "https://hung.example.net/c", "image");
-    expect(session.resolveHost).toHaveBeenCalledTimes(2);
-    settlers[1]?.({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
-    await flushMicrotasks();
-    expect(replacement).toEqual([{ cancel: false }]);
-    expect(deduplicated).toEqual([{ cancel: false }]);
-  });
-
-  it("releases timed-out DNS capacity for a new hostname", async () => {
-    vi.useFakeTimers();
-    const { session } = install();
-    const settlers: Array<
-      (value: { endpoints: Array<{ address: string; family: "ipv4" }> }) => void
-    > = [];
-    session.resolveHost.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          settlers.push(resolve);
-        }),
-    );
-    const pending = Array.from({ length: BROWSER_MAX_PENDING_DNS_HOSTS }, (_, index) =>
-      dispatchRequest(session, `https://hung-${index}.example.net/`, "image"),
-    );
-    const excess = dispatchRequest(session, "https://excess.example.net/", "image");
-    await flushMicrotasks();
-    expect(excess).toEqual([{ cancel: true }]);
-
-    await vi.advanceTimersByTimeAsync(BROWSER_DNS_POLICY_TIMEOUT_MS);
-    expect(pending.every((responses) => responses.length === 1 && responses[0]?.cancel)).toBe(true);
-    const reused = dispatchRequest(session, "https://reused.example.net/", "image");
-    expect(session.resolveHost).toHaveBeenCalledTimes(BROWSER_MAX_PENDING_DNS_HOSTS + 1);
-    expect(reused).toEqual([]);
-    settlers.at(-1)?.({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
-    await flushMicrotasks();
-    expect(reused).toEqual([{ cancel: false }]);
-  });
-
-  it("fails closed when Electron resolveHost throws synchronously", async () => {
-    const { session } = install();
-    session.resolveHost.mockImplementationOnce(() => {
-      throw new Error("resolver unavailable");
-    });
-    expect(await request(session, "https://sync-throw.example.net/")).toBe(true);
-  });
-
-  it("deduplicates an in-flight hostname and caps unique DNS work", async () => {
-    const { session } = install();
-    const settlers = new Map<
-      string,
-      (value: { endpoints: Array<{ address: string; family: "ipv4" }> }) => void
-    >();
-    session.resolveHost.mockImplementation(
-      (hostname) =>
-        new Promise((resolve) => {
-          settlers.set(hostname, resolve);
-        }),
-    );
-
-    const first = request(session, "https://same.example.net/a", "image");
-    const second = request(session, "https://same.example.net/b", "script");
-    expect(session.resolveHost).toHaveBeenCalledTimes(1);
-
-    const distinct = Array.from({ length: BROWSER_MAX_PENDING_DNS_HOSTS - 1 }, (_, index) =>
-      request(session, `https://host-${index}.example.net/`, "image"),
-    );
-    const excess = request(session, "https://excess.example.net/", "image");
-    expect(await excess).toBe(true);
-
-    for (const settle of settlers.values()) {
-      settle({ endpoints: [{ address: "93.184.216.34", family: "ipv4" }] });
-    }
-    expect(await first).toBe(false);
-    expect(await second).toBe(false);
-    expect(await Promise.all(distinct)).toEqual(
-      Array.from({ length: BROWSER_MAX_PENDING_DNS_HOSTS - 1 }, () => false),
-    );
+    expect(request(session, "http://127.0.0.1/")).toBe(true);
+    expect(request(session, "http://169.254.169.254/")).toBe(true);
+    expect(request(session, "https://user:secret@example.com/")).toBe(true);
+    expect(request(session, "file:///etc/passwd")).toBe(true);
+    expect(request(session, "custom://escape", "other")).toBe(true);
+    expect(request(session, "blob:https://example.com/id", "mainFrame")).toBe(true);
+    expect(request(session, "blob:https://example.com/id", "image")).toBe(false);
   });
 
   it("cancels downloads and every device selection surface", () => {
