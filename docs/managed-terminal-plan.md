@@ -206,7 +206,7 @@ session in `state.db` and cold-wakes with `-r <id>`.
 | cold wake | `--resume <id>` (re-pass flags) | `codex resume <id>` (re-pass flags) | `grok -r <id>` | `chat --tui -r <id>` (re-pass `-m`) | `-r <id>` (re-pass model/thinking) |
 | typing | paste + CR, 0ms ok | paste + **separate** CR | paste + CR, ≥1.5s after spawn | paste + CR | positional at spawn; paste + CR live drive not re-probed |
 | `/compact` | ✅ + Pre/PostCompact hooks | ✅ | ✅ | via `/` commands | available; live drive not re-probed |
-| effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ❌ typed `/reasoning` or omit | ✅ `--thinking` (7 levels) |
+| effort at spawn | ✅ `--effort` | ✅ per-model list | ✅ high/med/low | ✅ `--reasoning` (8 levels) | ✅ `--thinking` (7 levels) |
 | daemon ownership | n/a | n/a | n/a | n/a | one foreground daemon per binding; roots stop before exact daemon lease |
 | remote (ssh) | — | — | — | ✅ verified end-to-end | ✅ enabled (daemon plane is host-local on the Remote); ssh drive not re-probed |
 

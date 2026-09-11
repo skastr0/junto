@@ -106,7 +106,7 @@ export const enumerateManagedModels = async (
       };
     }
     // hermes — profiles from `hermes profile list`; models from provider cache.
-    // Cascade: profile → model (−m); no effort flag in v1.
+    // Cascade: profile → model (−m) → effort (--reasoning).
     if (harness === "hermes") {
       const result = readHermesModels();
       return {

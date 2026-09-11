@@ -342,7 +342,7 @@ export type ManagedTerminalTemplate = {
   readonly capabilityBadges: CapabilityBadges;
   /**
    * Effort values the picker may offer. Empty = omit effort in v1
-   * (Hermes: typed `/reasoning` only, or omitted).
+   * (no spawn flag on the harness).
    */
   readonly efforts: readonly string[];
   /**
@@ -552,28 +552,31 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
 /**
  * Hermes — Tier B, capture session, remote-capable.
  *
- * Re-probed 0.20.4 (2026-08-25):
- * - Session storage is `~/.hermes/state.db` ALONE. The jsonl transcripts under
- *   `~/.hermes/sessions/` are retired: new sessions write nothing there, so the
- *   database is the only current receipt and `hermesSessionExists` reads it.
+ * Re-probed 0.21.0 (2026-09-11):
+ * - `--reasoning LEVEL` is a spawn flag on root and `hermes chat`
+ *   (`none|minimal|low|medium|high|xhigh|max|ultra`). The 0.20.4 probe
+ *   recorded no effort flag (typed `/reasoning` only).
+ * - Session storage is still `~/.hermes/state.db` ALONE. The jsonl transcripts
+ *   under `~/.hermes/sessions/` remain retired: new sessions write nothing
+ *   there, so the database is the only current receipt and
+ *   `hermesSessionExists` reads it.
  * - `HERMES_SESSION_ID` reaches the agent shell and IS the session id
  *   (`%Y%m%d_%H%M%S_<hex6>`), which is what the capture path observes.
- * - `--resume <id>` keeps continuity but SILENTLY reverts the model unless
- *   `-m` (and `--provider`, where one was chosen) are re-passed — the revert is
- *   visible only in `session_model_usage` rows, never on screen. `buildArgv`
- *   re-passes every template-owned flag on resume, which is what makes a cold
- *   wake keep both the conversation and the model it was running.
+ * - `--resume <id>` keeps continuity. Silent model revert unless `-m` (and
+ *   `--provider`, where one was chosen) are re-passed is a 0.20.4 receipt,
+ *   not re-smoked on 0.21.0 (UNVERIFIED). `buildArgv` still re-passes every
+ *   template-owned flag on resume.
  * - Trap: the `hermes resume` SUBCOMMAND lifts an ESTOP sentinel; it is not
  *   session resume. This template resumes by flag and never by subcommand.
  *
  * `chat --tui` stays the prefix: a Vellum Command seat is a visible TUI on a
- * real PTY. The headless `chat -q` form in the receipts is the no-TTY path,
- * which this integration does not use.
+ * real PTY. On 0.21.0, `-q` on a TTY seeds an interactive session; the
+ * headless answer-and-exit path is `--oneshot` / `-Q` / non-TTY.
  */
 export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   harness: "hermes",
   displayName: "Hermes",
-  probedVersion: "0.20.4",
+  probedVersion: "0.21.0",
   argvSpec: {
     binary: "hermes",
     // -z / chat -q without --tui are headless. Interactive auto-submit needs --tui.
@@ -582,7 +585,7 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     modelFlag: "-m",
     // Re-passed with the model on every resume, or the model reverts silently.
     providerFlag: "--provider",
-    // No effort flag — omit in v1 (typed /reasoning is session-scoped only).
+    effortFlag: "--reasoning",
     permissionModeFlag: "--yolo",
     profileFlag: "--profile",
     resumeMode: "flag",
@@ -599,7 +602,7 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   capabilityBadges: {
     instructionInjection: "B",
     hooks: false,
-    effortAtSpawn: false,
+    effortAtSpawn: true,
     // state.db proves a session id, so cold resume is real; the badge used to
     // say unavailable because the retired jsonl tree was the only thing probed.
     sessionId: "capture",
@@ -610,12 +613,12 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     labels: [
       "injection B",
       "OSC + grid",
-      "no effort flag",
+      "effort",
       "capture session",
       "remote",
     ],
   },
-  efforts: [],
+  efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
 
 // ── Five 2026-08 harnesses (2026-08 agent-CLI sweep) ─────

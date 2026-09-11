@@ -96,7 +96,7 @@ Do not retry the flag on resume. The freeze is the trap.
 |---|---|---|
 | H1 | ⚠ CORRECTION: `-z` and `chat -q` are HEADLESS. TUI auto-submit = **`hermes chat --tui -q "<prompt>"`** | default interface is `cli` — `--tui` must be explicit |
 | H2 | `hermes profile list` ~1s, ANSI-free fixed-width, cacheable; hidden `-p/--profile` selects at spawn | no `--json` anywhere; cacheable truth = `~/.hermes/profiles/` + per-profile config.yaml |
-| H3 | Model at spawn: `-m` + `--provider`; enumeration from `provider_models_cache.json` (7–24 ids per provider) | ⚠ cache staleness PROVEN (exit 0 with HTTP 404 body) — validate, don't trust exit codes. NO effort flag — a Vellum Command-owned `HERMES_HOME` overlay (`agent.reasoning_effort`) is the only spawn lever (verified, zero writes to real config) |
+| H3 | Model at spawn: `-m` + `--provider`; enumeration from `provider_models_cache.json` (7–24 ids per provider) | ⚠ cache staleness PROVEN (exit 0 with HTTP 404 body) — validate, don't trust exit codes. Effort at spawn is `--reasoning LEVEL` (`none|minimal|low|medium|high|xhigh|max|ultra`) on installed 0.21.0 (`hermes chat --help`). Typed `/reasoning` remains the in-session override. |
 | H4 | Session id `%Y%m%d_%H%M%S_<hex6>`; `HERMES_SESSION_ID` env set unconditionally; `--pass-session-id` puts it in the system prompt; live binding file in `$TMPDIR`; `--resume <id>` rehydrates | ⚠ resume reverts model — re-pass `-m`. No `--session-id` pin exists |
 | H5 | Paste + separate CR submits; TUI enables 2004/1049/mouse/kitty-kbd | mid-turn typing governed by `display.busy_input_mode` (queue/steer/interrupt) — idle-gating is correct |
 | H6 | Per-session usage in `state.db` (tokens incl. reasoning, `estimated_cost_usd`, billing_mode); `hermes insights`; `/usage` RPC | |

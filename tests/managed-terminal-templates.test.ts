@@ -117,7 +117,7 @@ describe("managed-terminal templates (data)", () => {
     // Hermes proves session ids from ~/.hermes/state.db; the retired jsonl
     // tree was the only thing the old "unavailable" badge described.
     expect(HERMES_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
-    expect(HERMES_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(false);
+    expect(HERMES_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(true);
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
     expect(HERMES_TEMPLATE.capabilityBadges.remote).toBe(true);
     expect(CLAUDE_TEMPLATE.capabilityBadges.labels).toEqual(
@@ -226,6 +226,22 @@ describe("managed-terminal templates (data)", () => {
     expect(HERMES_TEMPLATE.argvSpec.binary).toBe("hermes");
     expect(HERMES_TEMPLATE.argvSpec.prefix).toEqual(["chat", "--tui"]);
     expect(HERMES_TEMPLATE.argvSpec.promptMode).toBe("flag-q");
+    expect(HERMES_TEMPLATE.probedVersion).toBe("0.21.0");
+    expect(HERMES_TEMPLATE.argvSpec.effortFlag).toBe("--reasoning");
+    expect(HERMES_TEMPLATE.efforts).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
+    expect(HERMES_TEMPLATE.capabilityBadges.labels).toEqual(
+      expect.arrayContaining(["effort", "capture session"]),
+    );
+    expect(HERMES_TEMPLATE.capabilityBadges.labels).not.toContain("no effort flag");
   });
 });
 
@@ -587,6 +603,52 @@ describe("resolveManagedLaunch argv", () => {
       "gpt-5.4-mini",
       "-q",
       "Reply with OK",
+    ]);
+  });
+
+  it("hermes emits --reasoning at spawn and re-passes it on resume", () => {
+    const launch = resolveManagedLaunch(
+      "hermes",
+      {
+        profile: "default",
+        model: "gpt-5.4-mini",
+        effort: "high",
+        prompt: "Reply with OK",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "hermes",
+      "chat",
+      "--tui",
+      "--profile",
+      "default",
+      "-m",
+      "gpt-5.4-mini",
+      "--reasoning",
+      "high",
+      "-q",
+      "Reply with OK",
+    ]);
+    const resume = resolveManagedLaunch(
+      "hermes",
+      {
+        resumeId: "20000101_120001_abc001",
+        model: "gpt-5.4-mini",
+        effort: "xhigh",
+      },
+      bareAmbient,
+    );
+    expect(resume.argv).toEqual([
+      "hermes",
+      "chat",
+      "--tui",
+      "-r",
+      "20000101_120001_abc001",
+      "-m",
+      "gpt-5.4-mini",
+      "--reasoning",
+      "xhigh",
     ]);
   });
 
@@ -1121,7 +1183,16 @@ describe("model enumeration (fail-soft)", () => {
   });
 
   it("effortsFor prefers model-carried list then template defaults", () => {
-    expect(effortsFor("hermes")).toEqual([]);
+    expect(effortsFor("hermes")).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
     expect(effortsFor("grok")).toEqual(["xhigh", "high", "medium", "low"]);
     expect(
       effortsFor("codex", {
