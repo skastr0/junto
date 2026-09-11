@@ -1,5 +1,5 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
-import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { serializeCanvas, type CanvasDoc, type CanvasNode } from "@shared/canvas";
 import type { InstallationId as InstallationIdValue } from "@shared/installation-id";
 import { StationContextTagIds } from "./context-services";
 import {
@@ -51,6 +51,7 @@ import {
   CanvasesService,
   type CanvasAuthorityMaterialSnapshot,
   type CanvasError,
+  type InstalledProjectionCanvasChange,
 } from "../canvases";
 import {
   WorkRepository,
@@ -2077,6 +2078,60 @@ const requireConfiguredPeer = (
     return { localInstallationId, configuration };
   });
 
+export const projectionCanvasChanges = (
+  previousDocuments: ReadonlyArray<{
+    readonly canvasName: string;
+    readonly doc: CanvasDoc;
+  }>,
+  nextDocuments: ReadonlyMap<string, CanvasDoc>,
+): ReadonlyArray<InstalledProjectionCanvasChange> => {
+  const previousByName = new Map(
+    previousDocuments.map(({ canvasName, doc }) => [canvasName, doc] as const),
+  );
+  const names = new Set([...previousByName.keys(), ...nextDocuments.keys()]);
+  return [...names]
+    .sort()
+    .flatMap((name) => {
+      const previous = previousByName.get(name);
+      const next = nextDocuments.get(name);
+      if (
+        previous !== undefined &&
+        next !== undefined &&
+        serializeCanvas(previous) === serializeCanvas(next)
+      ) {
+        return [];
+      }
+      return [{ name, detail: { previous, next } }];
+    });
+};
+
+export interface ProjectionInstallNotificationDeps<InstallError, ReadError> {
+  readonly currentDocuments: () => Effect.Effect<
+    ReadonlyArray<{ readonly canvasName: string; readonly doc: CanvasDoc }>,
+    ReadError
+  >;
+  readonly install: (
+    request: ProjectRequest,
+  ) => Effect.Effect<ProjectResponse, InstallError>;
+  readonly announce: (
+    changes: ReadonlyArray<InstalledProjectionCanvasChange>,
+  ) => void;
+}
+
+export const installProjectionAndNotify = <InstallError, ReadError>(
+  request: ProjectRequest,
+  deps: ProjectionInstallNotificationDeps<InstallError, ReadError>,
+): Effect.Effect<ProjectResponse, InstallError | ReadError> =>
+  Effect.gen(function* () {
+    const decoded = decodeStationPortfolioBody(request.projection.body);
+    const previousDocuments = yield* deps.currentDocuments();
+    const installed = yield* deps.install(request);
+    if (installed.decision === "install") {
+      deps.announce(projectionCanvasChanges(previousDocuments, decoded.documents));
+    }
+    return installed;
+  });
+
 const handleProject = (
   repository: Context.Service.Shape<typeof StationRepository>,
   canvases: Context.Service.Shape<typeof CanvasesService>,
@@ -2099,10 +2154,11 @@ const handleProject = (
         "projection install requires a paired Command Center",
       );
     }
-    const installed = yield* repository.installProjection(request);
-    const decoded = decodeStationPortfolioBody(request.projection.body);
-    canvases.announceInstalledProjection([...decoded.documents.keys()]);
-    return installed;
+    return yield* installProjectionAndNotify(request, {
+      currentDocuments: canvases.liveDocuments,
+      install: repository.installProjection,
+      announce: canvases.announceInstalledProjection,
+    });
   }).pipe(Effect.withSpan("station-api.project"));
 
 const handleStatus = (

@@ -163,7 +163,10 @@ describe("CanvasesService Station projection", () => {
           }),
         ),
       );
-      canvases.announceInstalledProjection(["command-floor"]);
+      canvases.announceInstalledProjection([{
+        name: "command-floor",
+        detail: { previous: undefined, next: note("remote intent") },
+      }]);
       stop();
       expect(announced).toEqual(["command-floor"]);
 

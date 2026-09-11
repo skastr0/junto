@@ -17,6 +17,7 @@ import type { ActorRef } from "../src/shared/work-protocol";
 import {
   CanvasError,
   CanvasesService,
+  type CanvasChangeDetail,
 } from "../src/main/vellum-command/canvases";
 import {
   listCanvasesThroughControl,
@@ -64,7 +65,10 @@ const makeRuntime = (input: {
 }) => {
   const documents = input.documents ?? new Map([["portfolio", doc()]]);
   const modifiedAt = "2026-07-27T12:00:00.000Z";
-  const listeners = new Set<(name: string) => void>();
+  const listeners = new Set<(
+    name: string,
+    detail?: CanvasChangeDetail,
+  ) => void>();
   const canvases = CanvasesService.of({
     doctor: Effect.succeed({
       id: "canvases",
@@ -114,9 +118,9 @@ const makeRuntime = (input: {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    announceInstalledProjection: (names) => {
-      for (const name of names) {
-        for (const listener of listeners) listener(name);
+    announceInstalledProjection: (changes) => {
+      for (const change of changes) {
+        for (const listener of listeners) listener(change.name, change.detail);
       }
     },
     liveDocuments: () =>

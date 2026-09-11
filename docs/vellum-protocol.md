@@ -27,11 +27,12 @@ one complete replace-only projection of that intent and independently executes
 the actors, schedulers, physical resources, and work items whose authority is
 homed there.
 
-The Station API is the closed five-verb protocol connecting them:
-`pair`, `configure`, `project`, `report`, and `status`. Command Center opens the
-authenticated connection. Once a session exists, either side may send `report`
-traffic on that same connection. A Remote never opens a fleet-control
-connection to Command Center or another Remote.
+The Station API is the closed six-operation protocol connecting them:
+`pair`, `configure`, `project`, `report`, `overseer`, and `status`. Command
+Center opens the authenticated connection. Once a session exists, either side
+may send `report` traffic on that same connection; a Remote may also send
+`overseer` to Command Center. A Remote never opens a fleet-control connection
+to Command Center or another Remote.
 
 This is not a shared-document protocol. It has no canvas merge, CRDT, election,
 lease, shared offline queue, or clock-ordering algorithm. Correctness comes
@@ -109,7 +110,7 @@ is deliberately changed to `REMOTE STATIONS ARE RELEASED`. Only then does a
 new protocol number become compatibility work for independently updated peers.
 
 One negotiated integer selects the complete strict bundle: session framing,
-control envelope, five Station API operations, Work records, projection
+control envelope, six Station API operations, Work records, projection
 encoding, bounds, and failure semantics. Discriminators such as
 `vellum/work/v2` are members of the selected Station protocol integer, not
 independently negotiated versions.
@@ -136,7 +137,7 @@ The canonical implementation has:
 4. one Command Center authoring canvas and protected topology;
 5. one complete replace-only authorial projection on each Remote;
 6. normalized, single-home work rows outside canvas generations;
-7. one transport-neutral Station dispatcher with exactly five verbs;
+7. one transport-neutral Station dispatcher with exactly six operations;
 8. one Command Center-initiated persistent session per reachable Remote;
 9. OpenSSH as the first authenticated session adapter;
 10. a clean adapter boundary for future HTTPS with mutual TLS;
@@ -235,7 +236,7 @@ The transport-neutral domain protocol between Command Center and one Remote.
 Its operation union is exactly:
 
 ```text
-pair | configure | project | report | status
+pair | configure | project | report | overseer | status
 ```
 
 Transport framing, SSH endpoints, HTTPS URLs, certificates, socket paths, and
@@ -1499,8 +1500,26 @@ Laws:
 - Remote commands receive a disposition before acknowledgement;
 - report replay is idempotent.
 
-`report` is the only Station API operation a configured Remote may initiate on
-the established session.
+### `overseer`
+
+Purpose: let a granted Remote agent seat ask Command Center to perform one
+closed, typed overseer operation against sovereign factory intent.
+
+Laws:
+
+- only a Remote may initiate it, and only on the authenticated session that
+  Command Center opened;
+- the request carries exact sender and target installation identities, the
+  caller canvas/node identity, and one strict `OverseerRequest`;
+- Command Center derives the source installation from the session, verifies
+  the caller's current human-granted authority, and performs any authoring;
+- a Remote does not author or merge projected intent;
+- the response reverses the exact installation direction, echoes the caller,
+  and returns an `OverseerResult` for the same inner operation;
+- uncertain completion is surfaced and never replayed automatically.
+
+`report` and `overseer` are the only Station API operations a configured
+Remote may initiate on the established Command Center-opened session.
 
 ### `status`
 
@@ -1839,7 +1858,7 @@ The HTTPS adapter must:
 3. bind the authenticated Remote credential to its enrolled
    `InstallationId`;
 4. encrypt and integrity-protect the complete session;
-5. use the same five verbs, event identities, dispositions, and cursors;
+5. use the same six operations, event identities, dispositions, and cursors;
 6. support certificate replacement and revocation without changing factory
    identity;
 7. keep private key custody explicit and browser-independent;
@@ -1855,7 +1874,7 @@ canvas ID into a secret.
 
 The retired browser signing system is not a template for HTTPS. Any future
 transport credential belongs to the Station transport adapter and protects all
-five verbs uniformly.
+six operations uniformly.
 
 A future mobile app acting as a standalone Command Center uses this same
 Station protocol over the HTTPS adapter to control its enrolled Remotes. A
@@ -1965,8 +1984,8 @@ Repositories accept domain values, not raw network JSON.
 
 ### Dispatcher
 
-One `StationApiDispatcher` owns the five verb handlers. Every transport adapter
-delivers its admitted transport context plus a decoded request to this
+One `StationApiDispatcher` owns the six operation handlers. Every transport
+adapter delivers its admitted transport context plus a decoded request to this
 dispatcher. The context may contain cryptographic peer evidence only when the
 adapter can actually provide it.
 
@@ -1981,6 +2000,7 @@ Command Center side of an authenticated session:
 - connect/disconnect lifecycle;
 - correlated request/response;
 - Remote-initiated report delivery on an existing session;
+- Remote-initiated overseer delivery on that same session;
 - typed transport failures;
 - cancellation and backpressure.
 
@@ -2158,7 +2178,8 @@ The canonical protocol blocks release while any live path preserves:
 Station protocol 1 is the sole live, unreleased Station contract in source. Its
 current implementation surface is:
 
-- the wire has exactly `pair | configure | project | report | status`;
+- the protocol 1 wire has exactly
+  `pair | configure | project | report | overseer | status`;
 - creation persists one submitted Task with a stable `TaskId`; admission is
   `auto | approval | operator`, and approval retains the same Task identity;
 - `dependsOn` is TaskId-only and is persisted in the create transaction;
@@ -2181,8 +2202,8 @@ current implementation surface is:
 - `StationPeerExchange` is transport-neutral, while the shipped OpenSSH
   adapter keeps one bounded Command Center-opened duplex session with
   reconnect and cursor-based replay;
-- Remote-originated traffic is limited to `report`; Remotes receive no peer
-  route and never open fleet connections;
+- Remote-originated traffic is limited to `report | overseer`; Remotes receive
+  no peer route and never open fleet connections;
 - `configure` carries only the Remote installation registration. SSH endpoint,
   identity-file path, host-key policy, and Command Center presentation state
   remain Command Center-local and are rejected as excess Station fields;
@@ -2198,10 +2219,10 @@ candidate/previous-version interoperability and real reconnect interruption.
 That matrix validates packaging and deployed OpenSSH behavior; it does not
 authorize a second protocol or storage path.
 
-HTTPS remains a future transport adapter over the same five verbs and Station
-protocol version. Its design must keep route, authentication, and framing out
-of the domain contract; it must not add placeholder credentials, a dormant
-listener, or SSH-shaped fields to Station messages.
+HTTPS remains a future transport adapter over the same six operations and
+Station protocol version. Its design must keep route, authentication, and
+framing out of the domain contract; it must not add placeholder credentials,
+a dormant listener, or SSH-shaped fields to Station messages.
 
 ## Proof matrix
 

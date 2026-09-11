@@ -117,6 +117,11 @@ export type CanvasChangeDetail = {
   readonly next: CanvasDoc | undefined;
 };
 
+export type InstalledProjectionCanvasChange = {
+  readonly name: string;
+  readonly detail: CanvasChangeDetail;
+};
+
 /** One transactionally coherent semantic view of the protected document authority. */
 export type CanvasAuthoritySnapshot = {
   readonly generation: string;
@@ -308,7 +313,7 @@ export class CanvasesService extends Context.Service<CanvasesService,
      * Remote has no authorial write, so install would otherwise stay silent.
      */
     readonly announceInstalledProjection: (
-      names: ReadonlyArray<string>,
+      changes: ReadonlyArray<InstalledProjectionCanvasChange>,
     ) => void;
     /** Snapshot of live authority docs for process-bind caller resolution. */
     readonly liveDocuments: () => Effect.Effect<
@@ -1921,15 +1926,10 @@ export const CanvasesLive = Layer.effect(
         }),
       }),
     ),
-    announceInstalledProjection: (names) => {
-      if (names.length === 0) {
-        // Empty name is the bulk invalidation signal for projection installs.
-        notifyListeners("" as CanvasName);
-        return;
-      }
-      for (const name of names) {
+    announceInstalledProjection: (changes) => {
+      for (const change of changes) {
         try {
-          notifyListeners(canvasNameFrom(name));
+          notifyListeners(canvasNameFrom(change.name), change.detail);
         } catch {
           // Installed projection names are system-owned; skip corrupt rows.
         }
