@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VIEWPORT_BUSY_ATTR,
   VIEWPORT_BUSY_END_HOLD_MS,
-  VIEWPORT_BUSY_MAX_MS,
+  VIEWPORT_BUSY_IDLE_MS,
   markViewportBusy,
   releaseViewportBusy,
   resetViewportBusy,
@@ -38,14 +38,29 @@ describe("viewportBusy$", () => {
     expect(viewportBusy$.peek()).toBe(false);
   });
 
-  it("forces idle after the hard max even if release is dropped", () => {
+  it("forces idle after the inactivity timeout even if release is dropped", () => {
     vi.useFakeTimers();
     markViewportBusy();
     expect(viewportBusy$.peek()).toBe(true);
-    // No releaseViewportBusy — only the max timer.
-    vi.advanceTimersByTime(VIEWPORT_BUSY_MAX_MS - 1);
+    // No releaseViewportBusy — only the inactivity watchdog.
+    vi.advanceTimersByTime(VIEWPORT_BUSY_IDLE_MS - 1);
     expect(viewportBusy$.peek()).toBe(true);
     vi.advanceTimersByTime(2);
+    expect(viewportBusy$.peek()).toBe(false);
+  });
+
+  it("never force-releases a continuous gesture — every mark refreshes the watchdog", () => {
+    vi.useFakeTimers();
+    markViewportBusy();
+    // Ten seconds of continuous marks at 500ms each — far past the old
+    // absolute 2s cap, which force-dropped mid-gesture here.
+    for (let tick = 0; tick < 20; tick += 1) {
+      vi.advanceTimersByTime(500);
+      markViewportBusy();
+      expect(viewportBusy$.peek()).toBe(true);
+    }
+    // Sustained silence is the only forced release.
+    vi.advanceTimersByTime(VIEWPORT_BUSY_IDLE_MS + 1);
     expect(viewportBusy$.peek()).toBe(false);
   });
 
@@ -146,18 +161,20 @@ describe("viewport compositor promotion marker (html attribute)", () => {
     expect(dom.busy()).toBe(true);
     resetViewportBusy();
     expect(dom.busy()).toBe(false);
-    vi.advanceTimersByTime(VIEWPORT_BUSY_MAX_MS + 1);
+    vi.advanceTimersByTime(VIEWPORT_BUSY_IDLE_MS + 1);
     expect(dom.busy()).toBe(false);
     expect(viewportBusy$.peek()).toBe(false);
   });
 
-  it("holds the marker across a long gesture until the hard cap forces idle", () => {
+  it("holds the marker across a long gesture — silence, not duration, releases it", () => {
     vi.useFakeTimers();
     markViewportBusy();
-    vi.advanceTimersByTime(VIEWPORT_BUSY_MAX_MS - 1);
-    markViewportBusy();
-    expect(dom.busy()).toBe(true);
-    vi.advanceTimersByTime(2);
+    for (let tick = 0; tick < 12; tick += 1) {
+      vi.advanceTimersByTime(500);
+      markViewportBusy();
+      expect(dom.busy()).toBe(true);
+    }
+    vi.advanceTimersByTime(VIEWPORT_BUSY_IDLE_MS + 1);
     expect(dom.busy()).toBe(false);
   });
 });

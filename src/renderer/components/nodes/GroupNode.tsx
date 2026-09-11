@@ -240,6 +240,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     const onMove = (event: PointerEvent): void => {
       const drag = regionDragRef.current;
       if (drag === null) return;
+      // Heartbeat: keep the viewport busy gate latched for the whole label
+      // drag. The gate's watchdog releases after sustained silence — a long
+      // drag must not flush a structural rebuild mid-move.
+      markViewportBusy();
       const now = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const dx = now.x - drag.startFlow.x;
       const dy = now.y - drag.startFlow.y;

@@ -1240,12 +1240,15 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
-/* GPU-promote the viewport only while the camera is interacting
-   (html[data-viewport-busy]). Permanent will-change kept the full node/edge/shadow
-   subtree promoted at idle (xyflow #4617 — promote during pan/zoom only).
-   The attribute is stamped on <html> by viewport-busy (a direct DOM write on
-   an element React never renders, so no canvas render can clear it). */
-html[data-viewport-busy] .react-flow .react-flow__viewport {
+/* GPU-promote the viewport for the canvas-mount lifetime. The hint must be
+   STABLE: promoting and de-promoting on busy-gate boundaries (pan start and
+   end, or a timer) re-rasters the visible canvas on every flip, and each
+   flip reads as content popping out. Tiled rasterization keeps the retained
+   working set bounded to the visible area and its raster scales — not to the
+   canvas extent — so the steady-state cost is the near-viewport tile set.
+   The busy attribute (below) stays the work-deferral gate; it no longer
+   changes rendering policy. */
+.react-flow .react-flow__viewport {
   will-change: transform;
 }
 
@@ -1286,22 +1289,28 @@ html[data-surface-motion="paused"] *::after {
   animation-play-state: paused !important;
 }
 
-/* Viewport busy freeze — pan/zoom owns the compositor; kill paint thrash. */
+/* Viewport busy freeze — pan/zoom defers competing work; cut transitions.
+   Animations PAUSE rather than cancel: cancelling restarts them from their
+   keyframe origin at release, a second visible flip at every gesture
+   boundary. */
 html[data-viewport-busy] .react-flow .react-flow__node,
 html[data-viewport-busy] .react-flow .react-flow__edge,
 html[data-viewport-busy] .react-flow .vellum-node,
 html[data-viewport-busy] .react-flow .vellum-edge-label {
   transition: none !important;
-  animation: none !important;
 }
-html[data-viewport-busy] .react-flow .react-flow__node:hover .vellum-node {
-  transform: none;
+html[data-viewport-busy] .react-flow .react-flow__node,
+html[data-viewport-busy] .react-flow .react-flow__edge,
+html[data-viewport-busy] .react-flow .vellum-node,
+html[data-viewport-busy] .react-flow .vellum-edge-label {
+  animation-play-state: paused !important;
 }
-/* Impact-mode filter/opacity transitions are especially expensive mid-pan. */
+/* Impact-mode filter/opacity transitions are especially expensive mid-pan.
+   Only the transition is cut: the filter itself must not change with the
+   camera, or every busy boundary pops the whole board's saturation. */
 html[data-viewport-busy] .react-flow.impact-mode .react-flow__node,
 html[data-viewport-busy] .react-flow.connection-focus-mode .react-flow__node {
   transition: none !important;
-  filter: none;
 }
 html[data-viewport-busy] .react-flow .react-flow__edge-path {
   transition: none !important;

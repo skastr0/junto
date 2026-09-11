@@ -5,18 +5,19 @@
 // the RF transform path stays free of competing React work.
 //
 // Mark on move start / continuous move; release after a short hold past
-// panOnScroll's end debounce. A hard max duration guarantees we never stick busy
-// if onMoveEnd is dropped.
+// panOnScroll's end debounce. An inactivity watchdog guarantees we never stick
+// busy if onMoveEnd is dropped; every mark refreshes it, so a continuous
+// gesture never force-releases mid-pan.
 //
-// Compositor promotion (will-change on .react-flow__viewport) is the same
-// lifecycle: CSS gates promotion on the html[data-viewport-busy] attribute so
-// the large subtree is promoted only during interaction, never while settled.
+// Rendering policy is decoupled from this gate: the viewport's compositor
+// promotion (will-change on .react-flow__viewport) is STABLE for the canvas
+// mount lifetime (see styles.css). Toggling promotion on these busy
+// boundaries promoted and de-promoted the layer — each flip re-rastered the
+// visible canvas and read as content popping out.
 //
 // The marker lives on <html>, not on the ReactFlow root: React rewrites the
 // root's className on every canvas render (seat state, selection, mail), and a
 // class set imperatively on that element was dropped and re-added mid-gesture.
-// Every such flip de-promotes and re-promotes the viewport layer, which costs
-// a full re-raster of the visible canvas and reads as content popping out.
 
 import { observable } from "@legendapp/state";
 import { canvasPerformance } from "./performance/canvas-performance";
@@ -36,15 +37,21 @@ export const VIEWPORT_BUSY_ATTR = "data-viewport-busy";
 
 /** Hold past panOnScroll's ~150ms end debounce so consecutive ticks stay frozen. */
 export const VIEWPORT_BUSY_END_HOLD_MS = 160;
-/** Absolute cap — if move-end is missed, force idle so deferred work flushes. */
-export const VIEWPORT_BUSY_MAX_MS = 2_000;
+/**
+ * Inactivity timeout — sustained silence while busy force-releases the gate so
+ * deferred work flushes even when onMoveEnd is lost. Every mark refreshes it:
+ * a continuous gesture never force-releases mid-pan. (The former absolute cap
+ * strobed the gate every 2s on long pans — each drop and re-latch promoted and
+ * de-promoted the viewport layer, a full visible re-raster.)
+ */
+export const VIEWPORT_BUSY_IDLE_MS = 2_000;
 
 // Back-compat aliases used by older call sites / tests.
 const END_HOLD_MS = VIEWPORT_BUSY_END_HOLD_MS;
-const MAX_BUSY_MS = VIEWPORT_BUSY_MAX_MS;
+const IDLE_MS = VIEWPORT_BUSY_IDLE_MS;
 
 let endTimer: ReturnType<typeof setTimeout> | undefined;
-let maxTimer: ReturnType<typeof setTimeout> | undefined;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
 const clearEndTimer = (): void => {
   if (endTimer === undefined) return;
@@ -52,10 +59,10 @@ const clearEndTimer = (): void => {
   endTimer = undefined;
 };
 
-const clearMaxTimer = (): void => {
-  if (maxTimer === undefined) return;
-  clearTimeout(maxTimer);
-  maxTimer = undefined;
+const clearIdleTimer = (): void => {
+  if (idleTimer === undefined) return;
+  clearTimeout(idleTimer);
+  idleTimer = undefined;
 };
 
 const syncDom = (): void => {
@@ -65,7 +72,7 @@ const syncDom = (): void => {
 
 const setIdle = (): void => {
   clearEndTimer();
-  clearMaxTimer();
+  clearIdleTimer();
   if (viewportBusy$.peek()) {
     viewportBusy$.set(false);
     canvasPerformance.recordViewportBusy(false);
@@ -73,22 +80,23 @@ const setIdle = (): void => {
   syncDom();
 };
 
-/** Enter (or stay in) the busy freeze + compositor promotion. Idempotent; cancels a pending release. */
+/**
+ * Enter (or stay in) the busy freeze. Idempotent; cancels a pending release
+ * and refreshes the inactivity watchdog — busy means "work arrived recently",
+ * so only sustained silence releases the gate.
+ */
 export const markViewportBusy = (): void => {
   clearEndTimer();
+  clearIdleTimer();
+  idleTimer = setTimeout(() => {
+    idleTimer = undefined;
+    setIdle();
+  }, IDLE_MS);
   if (!viewportBusy$.peek()) {
     viewportBusy$.set(true);
     canvasPerformance.recordViewportBusy(true);
-    syncDom();
-    clearMaxTimer();
-    maxTimer = setTimeout(() => {
-      maxTimer = undefined;
-      setIdle();
-    }, MAX_BUSY_MS);
-  } else {
-    // Already busy — keep the attribute latched (no toggle thrash mid-gesture).
-    syncDom();
   }
+  syncDom();
 };
 
 /** Schedule release after END_HOLD_MS of no further marks. */
