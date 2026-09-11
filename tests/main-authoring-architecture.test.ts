@@ -51,6 +51,7 @@ describe("main authoring architecture", () => {
       "delivery.message-stamp",
       "ipc.canvas.create",
       "ipc.canvas.delete",
+      "ipc.canvas.overseer-set",
       "ipc.canvas.portfolio",
       "ipc.canvas.write",
       // Artifact library operator actions (archive / hard-delete).
@@ -102,6 +103,8 @@ describe("main authoring architecture", () => {
       "src/main/vellum-command/hosts/operator-qualification-work.ts",
       "src/main/vellum-command/ipc.ts",
       "src/main/vellum-command/kernel/service.ts",
+      // Closed administrative dispatch is still process-bound and gated.
+      "src/main/vellum-command/overseer/work.ts",
       "src/main/vellum-command/work/control.ts",
       // Canvas topology changes emit exactly one compact edge map-change
       // notice per seat; this is the classified authoring listener, not a
