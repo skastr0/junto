@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime, Result } from "effect";
+import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Result } from "effect";
 import {
   CanvasesLive,
   CanvasesService,
@@ -10,6 +10,7 @@ import {
 import {
   executeOverseerCanvas,
   setOverseerNativeDeleteHooks,
+  type OverseerNativeDeleteHooks,
 } from "../src/main/vellum-command/overseer/canvas";
 import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
@@ -439,20 +440,19 @@ describe("executeOverseerCanvas", () => {
     expect(other.doc.nodes[0]?.ether?.overseer).toBeUndefined();
   });
 
-  it("serializes concurrent writes so a revoke cannot race a structural create", async () => {
+  const noteText = (node: CanvasNode | undefined): string | undefined =>
+    node?.type === "text" ? node.text : undefined;
+
+  it("create then revoke leaves no grant; a later create cannot restore it", async () => {
     const canvases = await boot();
+    await expectOk({
+      operation: "node.create",
+      args: {
+        node: { type: "text", text: "racy", x: 0, y: 0, width: 100, height: 40 },
+      },
+    });
     const ops = await runtime!.runPromise(canvases.read("ops"));
-    const create = runtime!.runPromise(
-      Effect.result(
-        executeOverseerCanvas(CALLER, {
-          operation: "node.create",
-          args: {
-            node: { type: "text", text: "racy", x: 0, y: 0, width: 100, height: 40 },
-          },
-        }),
-      ),
-    );
-    const revoke = runtime!.runPromise(
+    await runtime!.runPromise(
       canvases.canvasOverseerSet({
         canvasName: "ops",
         nodeId: "overseer",
@@ -460,17 +460,151 @@ describe("executeOverseerCanvas", () => {
         expectedRevision: ops.revision,
       }),
     );
-    const [created, revoked] = await Promise.all([create, revoke]);
-    expect(revoked.binding.bindingId).toBe("bind-overseer");
     const after = await runtime!.runPromise(canvases.read("ops"));
-    const racy = after.doc.nodes.find((node) => node.text === "racy");
-    if (Result.isSuccess(created)) {
-      expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBe(true);
-      expect(racy).toBeDefined();
-    } else {
-      expect(created.failure.type).toBe("AuthError");
-      expect(racy).toBeUndefined();
-    }
+    expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
+    expect(after.doc.nodes.some((node) => noteText(node) === "racy")).toBe(true);
+    await expectErr(
+      {
+        operation: "node.create",
+        args: {
+          node: { type: "text", text: "late", x: 0, y: 0, width: 100, height: 40 },
+        },
+      },
+      "AuthError",
+    );
+    const late = await runtime!.runPromise(canvases.read("ops"));
+    expect(late.doc.nodes.some((node) => noteText(node) === "late")).toBe(false);
+    expect(late.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
+  });
+
+  it("revoke then create is AuthError and does not restore the grant", async () => {
+    const canvases = await boot();
+    const ops = await runtime!.runPromise(canvases.read("ops"));
+    await runtime!.runPromise(
+      canvases.canvasOverseerSet({
+        canvasName: "ops",
+        nodeId: "overseer",
+        overseer: false,
+        expectedRevision: ops.revision,
+      }),
+    );
+    await expectErr(
+      {
+        operation: "node.create",
+        args: {
+          node: { type: "text", text: "racy", x: 0, y: 0, width: 100, height: 40 },
+        },
+      },
+      "AuthError",
+    );
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.doc.nodes.find((node) => node.id === "overseer")?.ether?.overseer).toBeUndefined();
+    expect(after.doc.nodes.some((node) => noteText(node) === "racy")).toBe(false);
+  });
+
+  const deferredNative = () => {
+    let releasePrepare: (() => void) | undefined;
+    let enteredPrepare: (value: void) => void = () => undefined;
+    const prepared = new Promise<void>((resolve) => {
+      enteredPrepare = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releasePrepare = resolve;
+    });
+    const finishes: Array<"committed" | "aborted"> = [];
+    const hooks: OverseerNativeDeleteHooks = {
+      prepareOverseerNodeDelete: async () => {
+        enteredPrepare();
+        await gate;
+        return { ok: true, leaseId: "lease-interrupt", pageStops: [] };
+      },
+      finishOverseerNodeDelete: (_leaseId, outcome) => {
+        finishes.push(outcome);
+        return { ok: true };
+      },
+    };
+    return {
+      hooks,
+      prepared,
+      release: () => releasePrepare?.(),
+      finishes,
+    };
+  };
+
+  it("interrupting during native prepare does not leave a lease", async () => {
+    const canvases = await boot();
+    const native = deferredNative();
+    setOverseerNativeDeleteHooks(native.hooks);
+    const fiber = runtime!.runFork(
+      executeOverseerCanvas(CALLER, {
+        operation: "node.delete",
+        args: { nodeId: "peer" },
+      }),
+    );
+    await native.prepared;
+    const interrupted = runtime!.runPromise(Fiber.interrupt(fiber));
+    native.release();
+    await interrupted;
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.doc.nodes.some((node) => node.id === "peer")).toBe(true);
+    expect(native.finishes).toEqual(["aborted"]);
+  });
+
+  it("interrupting after prepare finishes the lease aborted and does not delete", async () => {
+    const canvases = await boot();
+    const entered = await runtime!.runPromise(Deferred.make<void>());
+    const gate = await runtime!.runPromise(Deferred.make<void>());
+    const finishes: Array<"committed" | "aborted"> = [];
+    setOverseerNativeDeleteHooks({
+      prepareOverseerNodeDelete: async () => ({
+        ok: true,
+        leaseId: "lease-body",
+        pageStops: [],
+      }),
+      finishOverseerNodeDelete: (_leaseId, outcome) => {
+        finishes.push(outcome);
+        return { ok: true };
+      },
+    });
+    const originalMutate = canvases.mutatePortfolio.bind(canvases);
+    const wrapped = {
+      ...canvases,
+      mutatePortfolio: ((fn) =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(entered, undefined);
+          yield* Deferred.await(gate);
+          return yield* originalMutate(fn);
+        })) as typeof canvases.mutatePortfolio,
+    };
+    const fiber = runtime!.runFork(
+      executeOverseerCanvas(CALLER, {
+        operation: "node.delete",
+        args: { nodeId: "peer" },
+      }).pipe(Effect.provideService(CanvasesService, wrapped)),
+    );
+    await runtime!.runPromise(Deferred.await(entered));
+    await runtime!.runPromise(Fiber.interrupt(fiber));
+    await runtime!.runPromise(Deferred.succeed(gate, undefined));
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.doc.nodes.some((node) => node.id === "peer")).toBe(true);
+    expect(finishes).toEqual(["aborted"]);
+  });
+
+  it("reports finish failure after a successful commit", async () => {
+    await boot();
+    setOverseerNativeDeleteHooks({
+      prepareOverseerNodeDelete: async () => ({
+        ok: true,
+        leaseId: "lease-finish-fail",
+        pageStops: [],
+      }),
+      finishOverseerNodeDelete: () => ({ ok: false, error: "fence stuck" }),
+    });
+    const error = await expectErr(
+      { operation: "node.delete", args: { nodeId: "peer" } },
+      "InternalError",
+    );
+    expect(error.message).toContain("finish failed after commit");
   });
 
   it("generic write cannot restore a revoked grant", async () => {

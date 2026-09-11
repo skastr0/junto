@@ -1,4 +1,4 @@
-import { Effect, Result } from "effect";
+import { Effect, Exit, Result } from "effect";
 import { ulid } from "ulid";
 import {
   decodeCanvasDoc,
@@ -221,33 +221,58 @@ const activeDeleteHooks = (
 ): OverseerNativeDeleteHooks | undefined =>
   hooks?.nativeDelete ?? deleteHooks;
 
-const prepareDelete = async (
+const prepareDelete = (
   resources: ReadonlyArray<OverseerDeleteResource>,
-  hooks?: OverseerCanvasHooks,
+  hooks: OverseerCanvasHooks | undefined,
+  signal: AbortSignal,
 ): Promise<OverseerDeletePrepareResult> => {
   if (resources.length === 0) {
-    return { ok: true, leaseId: "", pageStops: [] };
+    return Promise.resolve({ ok: true, leaseId: "", pageStops: [] });
   }
   const native = activeDeleteHooks(hooks);
   if (native === undefined) {
-    return {
+    return Promise.resolve({
       ok: false,
       error:
         "native deletion hooks are not wired; refusing to drop live seats",
-    };
+    });
   }
-  return native.prepareOverseerNodeDelete(resources);
+  return Promise.race([
+    native.prepareOverseerNodeDelete(resources),
+    new Promise<never>((_resolve, reject) => {
+      if (signal.aborted) {
+        reject(new Error("native delete prepare interrupted"));
+        return;
+      }
+      signal.addEventListener(
+        "abort",
+        () => reject(new Error("native delete prepare interrupted")),
+        { once: true },
+      );
+    }),
+  ]);
 };
 
 const finishDelete = (
   leaseId: string,
   outcome: "committed" | "aborted",
   hooks?: OverseerCanvasHooks,
-): void => {
+): { readonly ok: true } | { readonly ok: false; readonly error: string } => {
   const native = activeDeleteHooks(hooks);
-  if (leaseId.length === 0 || native === undefined) return;
-  native.finishOverseerNodeDelete(leaseId, outcome);
+  if (leaseId.length === 0 || native === undefined) return { ok: true };
+  return native.finishOverseerNodeDelete(leaseId, outcome);
 };
+
+const finishError = (
+  outcome: "committed" | "aborted",
+  error: string,
+): WorkErrorBody =>
+  fail(
+    "InternalError",
+    outcome === "committed"
+      ? `native delete finish failed after commit: ${error}`
+      : `native delete finish failed: ${error}`,
+  );
 
 const withPreparedDelete = <A>(
   resources: ReadonlyArray<OverseerDeleteResource>,
@@ -255,33 +280,44 @@ const withPreparedDelete = <A>(
   hooks?: OverseerCanvasHooks,
 ): Effect.Effect<A, WorkErrorBody, CanvasesService> =>
   Effect.gen(function* () {
-    const prepared = yield* Effect.tryPromise({
-      try: () => prepareDelete(resources, hooks),
-      catch: (error): WorkErrorBody =>
-        fail(
-          "InternalError",
-          error instanceof Error ? error.message : String(error),
+    let finishFailure: WorkErrorBody | undefined;
+    const result = yield* Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: (signal) => prepareDelete(resources, hooks, signal),
+        catch: (error): WorkErrorBody =>
+          fail(
+            "InternalError",
+            error instanceof Error ? error.message : String(error),
+          ),
+      }).pipe(
+        Effect.flatMap((prepared) =>
+          prepared.ok
+            ? Effect.succeed(prepared)
+            : Effect.fail(fail("InternalError", prepared.error)),
         ),
-    });
-    if (!prepared.ok) {
-      return yield* Effect.fail(fail("InternalError", prepared.error));
-    }
-    if (prepared.pageStops.some((stop) => !stop.stopped)) {
-      finishDelete(prepared.leaseId, "aborted", hooks);
-      return yield* Effect.fail(
-        fail("InternalError", "page stop failed; nodes were not deleted"),
-      );
-    }
-    const outcome = yield* Effect.result(body());
-    finishDelete(
-      prepared.leaseId,
-      Result.isSuccess(outcome) ? "committed" : "aborted",
-      hooks,
+      ),
+      (prepared) => {
+        if (prepared.pageStops.some((stop) => !stop.stopped)) {
+          return Effect.fail(
+            fail("InternalError", "page stop failed; nodes were not deleted"),
+          );
+        }
+        return body();
+      },
+      (prepared, exit) =>
+        Effect.sync(() => {
+          if (prepared.leaseId.length === 0) return;
+          const outcome = Exit.isSuccess(exit) ? "committed" : "aborted";
+          const finished = finishDelete(prepared.leaseId, outcome, hooks);
+          if (!finished.ok) {
+            finishFailure = finishError(outcome, finished.error);
+          }
+        }),
     );
-    if (Result.isFailure(outcome)) {
-      return yield* Effect.fail(outcome.failure);
+    if (finishFailure !== undefined) {
+      return yield* Effect.fail(finishFailure);
     }
-    return outcome.success;
+    return result;
   });
 
 const executeOnPortfolio = <A>(
