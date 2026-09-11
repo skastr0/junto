@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Schema } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   BoxId,
 } from "../src/main/vellum/box";
@@ -84,6 +84,12 @@ const success = (stdout: string): BoxProcessResult => ({
   stderr: "",
 });
 
+// A real executable on every platform: /bin/true is absent on macOS.
+const STUB_ROOT = mkdtempSync(join(tmpdir(), "vellum-box-cli-stub-"));
+const STUB_EXECUTABLE = join(STUB_ROOT, "box");
+writeFileSync(STUB_EXECUTABLE, "#!/bin/sh\nexit 0\n");
+chmodSync(STUB_EXECUTABLE, 0o700);
+
 const withCli = <A>(
   runner: Context.Service.Shape<typeof BoxProcessRunner>,
   path: string,
@@ -92,6 +98,10 @@ const withCli = <A>(
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+afterAll(() => {
+  rmSync(STUB_ROOT, { recursive: true, force: true });
 });
 
 describe("Box CLI adapter", () => {
@@ -119,7 +129,7 @@ describe("Box CLI adapter", () => {
       return success(JSON.stringify(status));
     });
 
-    const availability = await withCli(runner, "/bin/true", (cli) =>
+    const availability = await withCli(runner, STUB_EXECUTABLE, (cli) =>
       cli.availability,
     );
 
@@ -166,7 +176,7 @@ describe("Box CLI adapter", () => {
       return success(JSON.stringify(machine));
     });
 
-    const result = await withCli(runner, "/bin/true", (cli) =>
+    const result = await withCli(runner, STUB_EXECUTABLE, (cli) =>
       cli.create({
         autoStop: { kind: "ttl", ttlSeconds: 600 },
         includeAccountSecrets: false,
@@ -202,7 +212,7 @@ describe("Box CLI adapter", () => {
       return success("ok\n");
     });
 
-    await withCli(runner, "/bin/true", (cli) => cli.prepareSsh(ownedBox));
+    await withCli(runner, STUB_EXECUTABLE, (cli) => cli.prepareSsh(ownedBox));
 
     expect(request?.args).toEqual([
       "--no-update",
@@ -219,7 +229,7 @@ describe("Box CLI adapter", () => {
       return success("{}");
     });
 
-    await withCli(runner, "/bin/true", (cli) =>
+    await withCli(runner, STUB_EXECUTABLE, (cli) =>
       Effect.all([
         cli.setAutoStop(ownedBox, { kind: "ttl", ttlSeconds: 600 }),
         cli.setAutoStop(ownedBox, { kind: "disabled" }),
@@ -247,7 +257,7 @@ describe("Box CLI adapter", () => {
 
     const result = await Effect.runPromise(
       Effect.result(
-        makeBoxCli(runner, { executablePath: "/bin/true" }).create(),
+        makeBoxCli(runner, { executablePath: STUB_EXECUTABLE }).create(),
       ),
     );
 
@@ -268,13 +278,13 @@ describe("Box CLI adapter", () => {
     const malformed = makeRunner(() => success("{"));
 
     await expect(
-      withCli(failed, "/bin/true", (cli) => cli.info(ownedBox)),
+      withCli(failed, STUB_EXECUTABLE, (cli) => cli.info(ownedBox)),
     ).rejects.toMatchObject({
       _tag: "BoxCliCommandError",
       detail: expect.stringMatching(/not authenticated/u),
     });
     await expect(
-      withCli(malformed, "/bin/true", (cli) => cli.info(ownedBox)),
+      withCli(malformed, STUB_EXECUTABLE, (cli) => cli.info(ownedBox)),
     ).rejects.toMatchObject({
       _tag: "BoxCliProtocolError",
       detail: expect.stringMatching(/invalid JSON/u),

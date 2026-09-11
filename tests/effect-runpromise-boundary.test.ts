@@ -12,7 +12,7 @@
  * Allowlist file: scripts/effect-runpromise-allowlist.json
  * Scanner:        scripts/lint-effect-runpromise.ts
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -175,19 +175,28 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(remote).toMatch(/RemoteRuntime\.runFork/);
 
     // Exactly one ManagedRuntime.make construction per process role (S1 + V4-ENTRY).
-    const makes = spawnSync(
-      "rg",
-      ["-n", "ManagedRuntime\\.make\\s*\\(", "src/main", "--type", "ts"],
-      { cwd: ROOT, encoding: "utf8" },
-    );
-    const constructions = (makes.stdout ?? "")
-      .split("\n")
-      .filter((line) => line.length > 0)
-      .filter((line) => {
-        // rg format: path:lineno:content — drop pure comment/docblock hits
-        const content = line.replace(/^[^:]+:\d+:/, "");
-        return !isCommentOnlyLine(content);
-      });
+    // Pure-Node scan: CI runners do not all ship ripgrep.
+    const constructions: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.isFile() || !/\.tsx?$/u.test(entry.name)) continue;
+        const rel = path.relative(ROOT, full);
+        readFileSync(full, "utf8")
+          .split("\n")
+          .forEach((content, index) => {
+            if (!/ManagedRuntime\.make\s*\(/u.test(content)) return;
+            // drop pure comment/docblock hits
+            if (isCommentOnlyLine(content)) return;
+            constructions.push(`${rel}:${String(index + 1)}:${content}`);
+          });
+      }
+    };
+    walk(path.join(ROOT, "src/main"));
     expect(
       constructions.map((l) => l.split(":")[0]).sort(),
       constructions.join("\n"),
