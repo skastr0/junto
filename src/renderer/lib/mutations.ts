@@ -14,6 +14,7 @@ import type {
   TextNode,
 } from "@shared/canvas";
 import { resolveBrowserOnDelete } from "@shared/canvas";
+import { mergeAuthorialCanvas } from "@shared/authorial-canvas-merge";
 import { mergeLocalCanvasWithWorkWrite } from "@shared/work-canvas-merge";
 import { stripEmptyRegionDefaults } from "@shared/region-defaults";
 import { batch } from "@legendapp/state";
@@ -49,6 +50,7 @@ const confirmDestructive = (message: string): boolean =>
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 interface PendingCanvasSave {
   readonly name: string;
+  readonly base: CanvasDoc;
   readonly doc: CanvasDoc;
 }
 
@@ -58,8 +60,13 @@ interface PendingCanvasSave {
 // overwritten. One pump serializes local writes so a newer local edit can use
 // the revision produced by the prior local write.
 let pendingSave: PendingCanvasSave | null = null;
-let inFlightSave: { readonly name: string; readonly promise: Promise<void> } | null = null;
+let inFlightSave: {
+  readonly name: string;
+  readonly request: PendingCanvasSave;
+  readonly promise: Promise<void>;
+} | null = null;
 const revisionsByName = new Map<string, string>();
+const authorialBasesByName = new Map<string, CanvasDoc>();
 // Process-lifetime latch. Signal quit closes it once; there is deliberately no
 // reopen API because a later mutation would invalidate the acknowledged final
 // durable boundary while main is authorized to destroy the renderer.
@@ -110,6 +117,27 @@ const messageOf = (error: unknown): string =>
 const isRevisionConflict = (error: unknown): boolean =>
   messageOf(error).includes(REVISION_CONFLICT_MARKER);
 
+const describeMergeConflicts = (
+  conflicts: ReadonlyArray<{
+    readonly object: "node" | "edge";
+    readonly id: string;
+    readonly path: string;
+    readonly kind: string;
+  }>,
+): string => conflicts
+  .map((conflict) =>
+    `${conflict.object} "${conflict.id}"${conflict.path ? ` ${conflict.path}` : ""} (${conflict.kind})`,
+  )
+  .join(", ");
+
+const protectOverseerAuthority = (base: CanvasDoc, local: CanvasDoc): CanvasDoc => {
+  const merge = mergeAuthorialCanvas(base, local, base);
+  if (!merge.ok) {
+    throw new Error(`local authorial merge failed: ${describeMergeConflicts(merge.conflicts)}`);
+  }
+  return roundDoc(merge.doc);
+};
+
 const nextRecoveryName = (): string => {
   recoveryNameSequence += 1;
   // Fixed-width prefix keeps the filename safely below common NAME_MAX even
@@ -117,30 +145,39 @@ const nextRecoveryName = (): string => {
   return `recovery-${Date.now().toString(36)}-${recoveryNameSequence.toString(36)}`;
 };
 
-// Prefer rebase when authority advanced under a local save (work ops, kernel
-// mirrors, external edits that share node ids): keep freeform local geometry
-// and graph membership, take work stores from authority, write at its revision.
-// Falls through to recovery-canvas only when rebase cannot complete.
+// Rebase against the exact authorial base the edit started from. Disjoint local
+// and external changes merge structurally; overlapping edits fall through to a
+// visible recovery canvas instead of silently choosing either side.
 const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => {
   const api = window.vellumCommand;
   if (!api) throw new Error("Electron preload bridge is not available.");
 
-  const localSnapshot =
-    pendingSave?.name === failed.name ? pendingSave.doc : failed.doc;
+  const localRequest = pendingSave?.name === failed.name ? pendingSave : failed;
   const authority = await api.readCanvas(failed.name);
-  const merged = roundDoc(mergeLocalCanvasWithWorkWrite(localSnapshot, authority.doc));
+  const merge = mergeAuthorialCanvas(localRequest.base, localRequest.doc, authority.doc);
+  if (!merge.ok) {
+    throw new Error(`authorial merge conflict: ${describeMergeConflicts(merge.conflicts)}`);
+  }
+  const merged = roundDoc(merge.doc);
   const written = await api.writeCanvas(failed.name, merged, authority.revision);
   revisionsByName.set(failed.name, written.revision);
+  authorialBasesByName.set(failed.name, merged);
 
   // Drop the conflicted queue entry; re-queue only if a newer pending edit
-  // arrived while we rebased (same name, different snapshot).
+  // arrived while we rebased. Its delta is itself rebased over the document
+  // just written, so a late edit cannot restore an external field.
   if (pendingSave?.name === failed.name) {
-    if (pendingSave.doc === localSnapshot) {
+    if (pendingSave === localRequest) {
       pendingSave = null;
     } else {
+      const lateMerge = mergeAuthorialCanvas(localRequest.doc, pendingSave.doc, merged);
+      if (!lateMerge.ok) {
+        throw new Error(`late authorial merge conflict: ${describeMergeConflicts(lateMerge.conflicts)}`);
+      }
       pendingSave = {
         name: failed.name,
-        doc: roundDoc(mergeLocalCanvasWithWorkWrite(pendingSave.doc, authority.doc)),
+        base: merged,
+        doc: roundDoc(lateMerge.doc),
       };
     }
   }
@@ -151,7 +188,7 @@ const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => 
     const selectedEdgeId = state$.selectedEdgeId.peek();
     const focusNodeId = state$.focusNodeId.peek();
     const editNodeId = state$.editNodeId.peek();
-    state$.doc.set(merged);
+    state$.doc.set(pendingSave?.name === failed.name ? pendingSave.doc : merged);
     state$.docVersion.set(state$.docVersion.peek() + 1);
     state$.docEpoch.set(state$.docEpoch.peek() + 1);
     replaceSelection({ nodeId: selectedNodeId, nodeIds: selectedNodeIds, edgeId: selectedEdgeId });
@@ -186,12 +223,13 @@ const recoverRevisionConflict = async (failed: PendingCanvasSave): Promise<void>
 
   const recovered = await api.writeCanvas(created.name, snapshot.doc, created.revision);
   revisionsByName.set(created.name, recovered.revision);
+  authorialBasesByName.set(created.name, snapshot.doc);
   abandonedNames.delete(created.name);
 
   if (pendingSave?.name === failed.name) {
     pendingSave = pendingSave === snapshot
       ? null
-      : { name: created.name, doc: pendingSave.doc };
+      : { name: created.name, base: snapshot.doc, doc: pendingSave.doc };
   }
 
   if (state$.canvasName.peek() === failed.name) {
@@ -267,6 +305,7 @@ const runSave = async (request: PendingCanvasSave): Promise<void> => {
         return;
       }
       revisionsByName.set(name, result.revision);
+      authorialBasesByName.set(name, doc);
       if (pendingSave === null && state$.canvasName.peek() === name) {
         state$.saveState.set("saved");
       }
@@ -276,7 +315,7 @@ const runSave = async (request: PendingCanvasSave): Promise<void> => {
     }
   })();
 
-  inFlightSave = { name, promise: run };
+  inFlightSave = { name, request, promise: run };
   try {
     await run;
   } finally {
@@ -311,6 +350,9 @@ export const getCanvasRevision = (name: string): string | undefined =>
 
 export const acceptCanvasRevision = (name: string, revision: string): void => {
   revisionsByName.set(name, revision);
+  if (state$.canvasName.peek() === name) {
+    authorialBasesByName.set(name, roundDoc(state$.doc.peek()));
+  }
 };
 
 export const canvasMutationsQuiesced = (): boolean => !canvasMutationAdmissionOpen;
@@ -368,13 +410,39 @@ export const applyWorkCanvasWrite = (
   revision: string,
 ): void => {
   if (!canvasMutationAdmissionOpen) return;
-  revisionsByName.set(name, revision);
   if (abandonedNames.has(name)) return;
   if (state$.canvasName.peek() !== name) return;
 
   const local = state$.doc.peek();
+  const previousRevision = revisionsByName.get(name);
+  const base = authorialBasesByName.get(name);
+  const authorialAdvanced = previousRevision !== undefined && previousRevision !== revision;
   const hadPending = hasPendingCanvasChanges(name);
-  const merged = roundDoc(mergeLocalCanvasWithWorkWrite(local, workDoc));
+  const pendingBase = pendingSave?.name === name ? pendingSave.base : undefined;
+  let merged: CanvasDoc;
+  if (authorialAdvanced && base !== undefined) {
+    const merge = mergeAuthorialCanvas(base, local, workDoc);
+    if (!merge.ok) {
+      if (pendingSave?.name !== name) {
+        pendingSave = { name, base, doc: roundDoc(local) };
+      }
+      state$.saveState.set("saving");
+      state$.error.set(
+        `canvas "${name}" changed concurrently; local edits were preserved (${describeMergeConflicts(merge.conflicts)})`,
+      );
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saveTimer = null;
+        void flushPendingCanvasSave().catch(() => undefined);
+      }, 500);
+      return;
+    }
+    merged = roundDoc(merge.doc);
+  } else {
+    merged = roundDoc(mergeLocalCanvasWithWorkWrite(local, workDoc));
+  }
+  revisionsByName.set(name, revision);
+  authorialBasesByName.set(name, roundDoc(workDoc));
 
   // Drop any stale pending snapshot baselined at the pre-work revision —
   // we'll re-queue a merge at the new baseline if freeform still differs.
@@ -398,10 +466,27 @@ export const applyWorkCanvasWrite = (
   state$.editNodeId.set(editNodeId);
   state$.error.set("");
 
+  if (authorialAdvanced) {
+    past.length = 0;
+    future.length = 0;
+  } else {
+    for (let index = 0; index < past.length; index += 1) {
+      past[index] = roundDoc(mergeLocalCanvasWithWorkWrite(past[index]!, workDoc));
+    }
+    for (let index = 0; index < future.length; index += 1) {
+      future[index] = roundDoc(mergeLocalCanvasWithWorkWrite(future[index]!, workDoc));
+    }
+  }
+  syncHistoryState();
+
   const freeformStillPending =
     hadPending || JSON.stringify(merged) !== JSON.stringify(roundDoc(workDoc));
   if (freeformStillPending) {
-    pendingSave = { name, doc: merged };
+    pendingSave = {
+      name,
+      base: authorialAdvanced ? roundDoc(workDoc) : (pendingBase ?? base ?? roundDoc(workDoc)),
+      doc: merged,
+    };
     state$.saveState.set("saving");
     saveTimer = setTimeout(() => {
       saveTimer = null;
@@ -427,7 +512,16 @@ export const scheduleSave = (): void => {
   if (saveTimer) clearTimeout(saveTimer);
   const name = state$.canvasName.peek();
   if (!name || !window.vellumCommand || abandonedNames.has(name)) return;
-  pendingSave = { name, doc: roundDoc(state$.doc.peek()) };
+  const base =
+    (pendingSave?.name === name ? pendingSave.base : undefined)
+    ?? (inFlightSave?.name === name ? inFlightSave.request.doc : undefined)
+    ?? authorialBasesByName.get(name)
+    ?? roundDoc(state$.doc.peek());
+  pendingSave = {
+    name,
+    base,
+    doc: protectOverseerAuthority(base, state$.doc.peek()),
+  };
   state$.saveState.set("saving");
   saveTimer = setTimeout(() => {
     saveTimer = null;
@@ -450,6 +544,7 @@ export const prepareCanvasRemoval = async (name: string): Promise<void> => {
   if (inFlightSave?.name === name) await inFlightSave.promise.catch(() => undefined);
   if (pendingSave?.name === name) pendingSave = null;
   revisionsByName.delete(name);
+  authorialBasesByName.delete(name);
 };
 
 // After a successful open/create of `name`, allow saves again.
@@ -508,6 +603,8 @@ export const loadDoc = (
   }
   if (revision === undefined) revisionsByName.delete(name);
   else revisionsByName.set(name, revision);
+  if (revision === undefined) authorialBasesByName.delete(name);
+  else authorialBasesByName.set(name, roundDoc(doc));
   past.length = 0;
   future.length = 0;
   const nodeIds = options.preserveValidInteraction

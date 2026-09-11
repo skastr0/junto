@@ -6,6 +6,7 @@ import {
   flushPendingCanvasSave,
   loadDoc,
   prepareCanvasRemoval,
+  undo,
 } from "../src/renderer/lib/mutations";
 import {
   flushCanvasEdits,
@@ -50,6 +51,22 @@ const doc = (text: string): CanvasDoc => ({
   nodes: [{ id: "note", type: "text", text, x: 0, y: 0, width: 120, height: 60 }],
   edges: [],
 });
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+const waitFor = async (predicate: () => boolean): Promise<void> => {
+  for (let turn = 0; turn < 20; turn += 1) {
+    if (predicate()) return;
+    await Promise.resolve();
+  }
+  throw new Error("condition did not become true");
+};
 
 describe("renderer canvas save durability", () => {
   beforeEach(() => {
@@ -129,8 +146,24 @@ describe("renderer canvas save durability", () => {
     }
   });
 
-  it("rebases freeform local edits over an authority revision conflict instead of recovery-canvas", async () => {
+  it("rebases disjoint local and external edits without moving interaction state", async () => {
     writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
+    readCanvas.mockResolvedValueOnce({
+      name: "alpha",
+      doc: {
+        nodes: [
+          { ...doc("alpha-base").nodes[0]!, y: 90 },
+          { id: "external", type: "text", text: "external", x: 200, y: 0, width: 120, height: 60 },
+        ],
+        edges: [],
+      },
+      actorRefs: [],
+      revision: "alpha-disk",
+    });
+    state$.selectedNodeId.set("note");
+    state$.selectedNodeIds.set(["note"]);
+    state$.focusNodeId.set("note");
+    state$.fitViewRequest.set(7);
     commitDoc(doc("local-unsaved"));
 
     await flushPendingCanvasSave();
@@ -142,9 +175,35 @@ describe("renderer canvas save durability", () => {
     expect(writeCanvas.mock.calls[1]?.[0]).toBe("alpha");
     expect(writeCanvas.mock.calls[1]?.[2]).toBe("alpha-disk");
     expect(state$.canvasName.peek()).toBe("alpha");
-    expect(state$.doc.peek()).toEqual(doc("local-unsaved"));
+    expect(state$.doc.peek().nodes).toEqual([
+      { ...doc("local-unsaved").nodes[0]!, y: 90 },
+      { id: "external", type: "text", text: "external", x: 200, y: 0, width: 120, height: 60 },
+    ]);
+    expect(state$.selectedNodeId.peek()).toBe("note");
+    expect(state$.selectedNodeIds.peek()).toEqual(["note"]);
+    expect(state$.focusNodeId.peek()).toBe("note");
+    expect(state$.fitViewRequest.peek()).toBe(7);
     expect(state$.saveState.peek()).toBe("saved");
     expect(state$.error.peek()).toBe("");
+  });
+
+  it("preserves a same-field local draft as a visible recovery canvas", async () => {
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
+    commitDoc(doc("local-unsaved"));
+
+    await flushPendingCanvasSave();
+
+    expect(createCanvas).toHaveBeenCalledOnce();
+    const recoveryName = createCanvas.mock.calls[0]![0];
+    expect(writeCanvas).toHaveBeenNthCalledWith(
+      2,
+      recoveryName,
+      doc("local-unsaved"),
+      `${recoveryName}-created`,
+    );
+    expect(state$.canvasName.peek()).toBe(recoveryName);
+    expect(state$.error.peek()).toContain("changed concurrently");
+    expect(state$.error.peek()).toContain(`saved as canvas "${recoveryName}"`);
   });
 
   it("falls back to a recovery canvas when rebase cannot complete", async () => {
@@ -168,6 +227,15 @@ describe("renderer canvas save durability", () => {
     });
     writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
     writeCanvas.mockImplementationOnce(async () => rebaseWrite);
+    readCanvas.mockResolvedValueOnce({
+      name: "alpha",
+      doc: {
+        nodes: [{ ...doc("alpha-base").nodes[0]!, y: 30 }],
+        edges: [],
+      },
+      actorRefs: [],
+      revision: "alpha-disk",
+    });
     commitDoc(doc("durability-gate"));
 
     let flushed = false;
@@ -184,6 +252,99 @@ describe("renderer canvas save durability", () => {
     expect(flushed).toBe(true);
     expect(state$.saveState.peek()).toBe("saved");
     expect(state$.canvasName.peek()).toBe("alpha");
+  });
+
+  it("rebases an edit that arrives while conflict resolution is reading authority", async () => {
+    const authorityRead = deferred<Awaited<ReturnType<typeof readCanvas>>>();
+    writeCanvas.mockRejectedValueOnce(new Error('canvas "alpha" revision conflict; reload before saving'));
+    readCanvas.mockImplementationOnce(async () => authorityRead.promise);
+    commitDoc({
+      nodes: [{ ...doc("alpha-base").nodes[0]!, x: 15 }],
+      edges: [],
+    });
+
+    const flush = flushPendingCanvasSave();
+    await waitFor(() => readCanvas.mock.calls.length === 1);
+    commitDoc({
+      nodes: [{ ...doc("late-local").nodes[0]!, x: 15 }],
+      edges: [],
+    });
+    authorityRead.resolve({
+      name: "alpha",
+      doc: {
+        nodes: [{ ...doc("alpha-base").nodes[0]!, y: 30 }],
+        edges: [],
+      },
+      actorRefs: [],
+      revision: "alpha-disk",
+    });
+
+    await flush;
+
+    expect(writeCanvas).toHaveBeenCalledTimes(3);
+    expect(writeCanvas.mock.calls[1]?.[1].nodes[0]).toMatchObject({
+      text: "alpha-base",
+      x: 15,
+      y: 30,
+    });
+    expect(writeCanvas.mock.calls[2]?.[1].nodes[0]).toMatchObject({
+      text: "late-local",
+      x: 15,
+      y: 30,
+    });
+    expect(state$.doc.peek().nodes[0]).toMatchObject({
+      text: "late-local",
+      x: 15,
+      y: 30,
+    });
+  });
+
+  it("does not let an ordinary save mint or revoke overseer authority", async () => {
+    const seat = (overseer?: boolean): CanvasDoc => ({
+      nodes: [{
+        id: "seat",
+        type: "text",
+        text: "Builder",
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 60,
+        ether: {
+          entity: { kind: "agent", name: "local:builder" },
+          terminal: { bindingId: "seat-1", harness: "codex" },
+          ...(overseer === undefined ? {} : { overseer }),
+        },
+      }],
+      edges: [],
+    });
+    loadDoc(seat(true), "alpha-r-seat", "alpha");
+    commitDoc(seat(false));
+    await flushPendingCanvasSave();
+    expect(writeCanvas.mock.calls.at(-1)?.[1].nodes[0]?.ether?.overseer).toBe(true);
+
+    loadDoc({ nodes: [], edges: [] }, "alpha-r-empty", "alpha");
+    commitDoc(seat(true));
+    await flushPendingCanvasSave();
+    expect(writeCanvas.mock.calls.at(-1)?.[1].nodes[0]?.ether?.overseer).toBeUndefined();
+  });
+
+  it("clears stale undo history when external authority reloads", async () => {
+    const granted: CanvasDoc = {
+      nodes: [{ ...doc("alpha-base").nodes[0]!, ether: { overseer: true } }],
+      edges: [],
+    };
+    commitDoc({
+      nodes: [{ ...doc("alpha-base").nodes[0]!, x: 25 }],
+      edges: [],
+    });
+    await flushPendingCanvasSave();
+    expect(state$.canUndo.peek()).toBe(true);
+
+    loadDoc(granted, "alpha-r-granted", "alpha", { preserveValidInteraction: true });
+    undo();
+
+    expect(state$.canUndo.peek()).toBe(false);
+    expect(state$.doc.peek().nodes[0]?.ether?.overseer).toBe(true);
   });
 
   it("does not create a recovery canvas for an ordinary write failure", async () => {
