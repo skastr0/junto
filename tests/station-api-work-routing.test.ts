@@ -627,6 +627,52 @@ const remoteOverseerMailboxCommand = (): WorkCommandValue =>
     },
   });
 
+const remoteAssigneeClaimCommand = (): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: remote },
+      seq: "16",
+    },
+    recordType: "command",
+    item: {
+      kind: "task",
+      itemId: "assigned-remote-task",
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "task.claim",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "task.claim",
+      sourceQueueHome: cc,
+      sourcePredecessor: {
+        route: { eventHome: cc, entityHome: cc },
+        seq: "9",
+      },
+      sourceTask: {
+        id: "assigned-remote-task",
+        state: "submitted",
+        history: [],
+      },
+      sink: { canvasName: "factory", nodeId: "tasks" },
+      actor: remoteActor,
+      targetHome: remote,
+    },
+  });
+
+const remoteAssigneeClaimCommandAuthorizedBy = (
+  authorizedBy: ActorRef,
+): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    ...remoteAssigneeClaimCommand(),
+    body: {
+      ...remoteAssigneeClaimCommand().body,
+      authorizedBy,
+    },
+  });
+
 const remoteOverseerRequestCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
     protocol: "vellum/work/v2",
@@ -1479,6 +1525,35 @@ describe("Station API v1 work routing", () => {
               },
             },
           },
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+
+    expect(
+      makeStationWorkAdmission(topology("remote", false)).authorizeCommand(
+        remoteAssigneeClaimCommand(),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+
+    expect(
+      makeStationWorkAdmission(remoteOverseerTopology()).authorizeCommand(
+        remoteAssigneeClaimCommandAuthorizedBy(commandCenterActor),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "capability-denied",
+    });
+    expect(
+      makeStationWorkAdmission(remoteOverseerTopology()).authorizeCommand(
+        remoteAssigneeClaimCommandAuthorizedBy({
+          ...remoteOverseer,
+          nodeId: "forged-overseer",
         }),
       ),
     ).toMatchObject({

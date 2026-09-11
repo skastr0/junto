@@ -1305,10 +1305,12 @@ export const WorkLive = Layer.effect(
 
     const beforeCommit = (
       admin?: OverseerWorkAdmin,
-    ): Effect.Effect<void, WorkServiceError> =>
+    ): Effect.Effect<ActorRef | undefined, WorkServiceError> =>
       admin === undefined
-        ? Effect.void
-        : requireLiveOverseer(admin).pipe(Effect.asVoid);
+        ? Effect.succeed(undefined)
+        : requireLiveOverseer(admin).pipe(
+          Effect.map((live): ActorRef | undefined => live),
+        );
 
     const local = <T>(
       effect: Effect.Effect<
@@ -2338,19 +2340,28 @@ export const WorkLive = Layer.effect(
                     `actor host ${JSON.stringify(hostId)} has no exact enrolled Station target`,
                 });
               }
-              yield* beforeCommit(admin);
               const witness = yield* livePeers
                 .require(hostId, actorHome)
                 .pipe(Effect.mapError(toWorkServiceError));
               yield* livePeers.withSession(
                 witness,
-                repository.reserveRemoteTaskClaim({
-                  sink: sinkRef(canvas, nodeId),
-                  basis,
-                  dependencyScope,
-                  taskId,
-                  actor,
-                  targetInstallationId: actorHome,
+                Effect.gen(function* () {
+                  const live = yield* beforeCommit(admin);
+                  if (admin !== undefined && live === undefined) {
+                    return yield* new WorkServiceError({
+                      code: "invalid",
+                      message: "administrative task claim lost its live overseer origin",
+                    });
+                  }
+                  return yield* repository.reserveRemoteTaskClaim({
+                    sink: sinkRef(canvas, nodeId),
+                    basis,
+                    dependencyScope,
+                    taskId,
+                    actor,
+                    targetInstallationId: actorHome,
+                    ...(live === undefined ? {} : { authorizedBy: live }),
+                  }).pipe(Effect.mapError(toWorkServiceError));
                 }),
               ).pipe(Effect.mapError(toWorkServiceError));
               outcome = {

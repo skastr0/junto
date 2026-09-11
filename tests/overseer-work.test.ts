@@ -637,11 +637,11 @@ describe("executeOverseerWork", () => {
         ),
       ),
     );
+    expect(Result.isFailure(claimed)).toBe(true);
     if (Result.isSuccess(claimed)) {
-      expect(claimed.success).toMatchObject({ disposition: "queued" });
-    } else {
-      expect(claimed.failure.message).toMatch(/live|session|unavailable|enrolled/i);
+      throw new Error("CC overseer claim for Remote assignee queued without a live session");
     }
+    expect(claimed.failure.message).toMatch(/live|session|unavailable/i);
     const listed = await run(
       executeOverseerWork(
         { canvasName: "cc-claim-overseer", nodeId: "boss" },

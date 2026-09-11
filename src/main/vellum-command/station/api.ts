@@ -700,6 +700,29 @@ const authorizeRemoteOverseerCommand = (
   return admitted();
 };
 
+const authorizeAdministrativeTaskClaim = (
+  topology: CapturedWorkTopology,
+  actor: ActorRef,
+  authorizedBy: ActorRef,
+): WorkCommandAuthorization => {
+  const assignee = seatForRef(topology, actor);
+  if (assignee === undefined) {
+    return rejected(
+      "locality-mismatch",
+      `actor ${JSON.stringify(`${actor.canvasName}/${actor.nodeId}`)} does not resolve to its projected seat`,
+    );
+  }
+  if (assignee.authorityInstallationId !== topology.localInstallationId) {
+    return rejected(
+      "locality-mismatch",
+      `actor seat ${JSON.stringify(actor.seatId)} is not homed on the required installation`,
+    );
+  }
+  const origin = liveOverseerSeat(topology, authorizedBy);
+  if ("_tag" in origin) return origin;
+  return admitted();
+};
+
 const authorizeRemoteOverseerArtifactCommand = (
   topology: CapturedWorkTopology,
   action: Extract<
@@ -783,9 +806,20 @@ const validateTaskTopologyCommand = (
     ? "tasks.claim" as const
     : "tasks.create" as const;
   if (actor !== undefined) {
-    const overseer = liveOverseerSeat(topology, actor);
-    if (!("_tag" in overseer)) {
-      return authorization;
+    if (
+      command.body.operation === "task.claim" &&
+      command.body.authorizedBy !== undefined
+    ) {
+      const administrative = authorizeAdministrativeTaskClaim(
+        topology,
+        actor,
+        command.body.authorizedBy,
+      );
+      if (administrative._tag === "admitted") return authorization;
+      return administrative;
+    } else if (command.body.operation !== "task.claim") {
+      const overseer = liveOverseerSeat(topology, actor);
+      if (!("_tag" in overseer)) return authorization;
     }
     if (
       !taskDependencyScopeCapabilityAllowsActor(
@@ -1086,37 +1120,28 @@ export const makeStationWorkAdmission = (
             "task claim source queue does not match projected sink authority",
           );
         }
-        const overseer = authorizeRemoteOverseerCommand(
+        if (command.body.authorizedBy !== undefined) {
+          return authorizeAdministrativeTaskClaim(
+            topology,
+            command.body.actor,
+            command.body.authorizedBy,
+          );
+        }
+        return authorizeActor(
           topology,
           command.body.actor,
           topology.localInstallationId,
+          command.item.sink,
+          "tasks.claim",
         );
-        return overseer._tag === "admitted"
-          ? overseer
-          : authorizeActor(
-            topology,
-            command.body.actor,
-            topology.localInstallationId,
-            command.item.sink,
-            "tasks.claim",
-          );
       }
-      case "task.create": {
-        if (sinkAuthority(topology, sink) !== topology.localInstallationId) {
-          return rejected(
+      case "task.create":
+        return sinkAuthority(topology, sink) === topology.localInstallationId
+          ? admitted()
+          : rejected(
             "locality-mismatch",
             "task creation command targets a queue not homed on this installation",
           );
-        }
-        const raisedBy = command.body.task.raisedBy;
-        if (raisedBy === undefined) return admitted();
-        const overseer = authorizeRemoteOverseerCommand(
-          topology,
-          raisedBy,
-          topology.peerInstallationId,
-        );
-        return overseer._tag === "admitted" ? overseer : admitted();
-      }
       case "task.describe":
       case "task.transition":
       case "request.resolve":

@@ -233,6 +233,12 @@ export const TaskClaimAction = Schema.Struct({
   sink: SinkRef,
   actor: ActorRef,
   targetHome: InstallationId,
+  /**
+   * Exact live overseer that authorized an administrative assignment.
+   * A separate field from `actor` (the assignee). Values may be the same
+   * seat when an overseer claims for itself. Ordinary edge claims omit it.
+   */
+  authorizedBy: Schema.optionalKey(ActorRef),
 }).pipe(
   Schema.check(Schema.makeFilter((action) => {
     if (action.sourceTask.state !== "submitted") {

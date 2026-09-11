@@ -1073,6 +1073,8 @@ export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
   readonly taskId: string;
   readonly actor: ActorRef;
   readonly targetInstallationId: InstallationId;
+  /** Exact live overseer origin for an administrative assignment. */
+  readonly authorizedBy?: ActorRef;
 };
 
 export type EnqueueRemoteCommandInput = WorkRepositoryInput & {
@@ -9207,6 +9209,9 @@ export const WorkRepositoryLive = Layer.effect(
             sink: input.sink,
             actor: input.actor,
             targetHome: input.targetInstallationId,
+            ...(input.authorizedBy === undefined
+              ? {}
+              : { authorizedBy: input.authorizedBy }),
           });
           const command = makeCommand(
             writer,

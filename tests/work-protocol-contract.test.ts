@@ -210,6 +210,14 @@ const crossCanvasArtifactCommand = {
 describe("Work protocol v2 contract", () => {
   it("decodes InstallationId-based routes, claim records, and dispositions", () => {
     expect(Result.isSuccess(decodeWorkRecord(claimCommand))).toBe(true);
+    expect(
+      Result.isSuccess(
+        decodeWorkAction({
+          ...claimCommand.body,
+          authorizedBy: actor,
+        }),
+      ),
+    ).toBe(true);
     expect(Result.isSuccess(decodeWorkRecord(claimFact))).toBe(true);
     expect(Result.isSuccess(decodeWorkRecord(appliedDisposition))).toBe(true);
     expect(Result.isSuccess(decodeWorkRecord(artifactFact))).toBe(true);

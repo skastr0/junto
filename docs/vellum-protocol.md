@@ -656,8 +656,9 @@ TaskClaimAction {
   sourcePredecessor: WorkRecordId | null
   sourceTask: Task                     // exactly submitted and unclaimed
   sink: SinkRef                        // (canvasName, nodeId)
-  actor: ActorRef                      // (seatId, canvasName, nodeId)
+  actor: ActorRef                      // assignee (seatId, canvasName, nodeId)
   targetHome: InstallationId
+  authorizedBy?: ActorRef              // exact live overseer origin; omit on ordinary edge claims
 }
 ```
 
