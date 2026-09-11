@@ -2,6 +2,17 @@ import { Match } from "effect";
 import type { CanvasDoc, CanvasNode, EtherNodeExtension } from "./canvas";
 import { resolveSpec } from "./physics";
 
+/**
+ * Board text merge: the local first line is the operator's authored title and
+ * always wins (a work write may carry a stale title from the persisted
+ * document); the projected topic lines beneath it come from the work write.
+ */
+const mergeBoardNodeText = (local: string, work: string): string => {
+  const first = local.trim().split("\n")[0]?.trim() ?? "";
+  if (first === "") return work;
+  return [first, ...work.split("\n").slice(1)].join("\n");
+};
+
 // Merge an authority/work write into the operator's local document so freeform
 // geometry and graph structure are preserved while work stores (and their
 // mirrored text) take the authoritative write's values.
@@ -75,7 +86,7 @@ const mergeNode = (local: CanvasNode, work: CanvasNode | undefined): CanvasNode 
   if (local.type === "text" && work.type === "text" && isWorkStoreKind(kind)) {
     return {
       ...local,
-      text: work.text,
+      text: kind === "board" ? mergeBoardNodeText(local.text, work.text) : work.text,
       ...(ether ? { ether } : {}),
     };
   }

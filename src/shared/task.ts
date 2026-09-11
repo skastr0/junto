@@ -167,19 +167,27 @@ export const mirrorArtifactsText = (items: ReadonlyArray<Artifact>): string => {
   return live.map((item) => item.name?.trim() || item.artifactId).join("\n");
 };
 
+/** First line of board node text is the authorial title. */
+export const boardTitleFromText = (title: string): string =>
+  title.trim().split("\n")[0]?.trim() || "board";
+
 /**
- * Board node text mirror: recent topic titles for offline glance.
- * Empty → kind name ("board"), never a mood word like "quiet" (that leaked
- * into card titles and edge labels).
+ * Board node text mirror: the authored title plus recent topic titles for
+ * offline glance. The first line is operator-authored identity — the
+ * projection and the persistence strip must both preserve it (the Pad
+ * pattern). Empty title falls back to the kind name, never a mood word like
+ * "quiet" (that leaked into card titles and edge labels).
  */
 export const mirrorBoardText = (
+  title: string,
   topics: ReadonlyArray<{ readonly title: string }>,
 ): string => {
-  if (topics.length === 0) return "board";
-  return topics
-    .slice(0, 4)
-    .map((t) => `- ${t.title}`)
-    .join("\n");
+  const head = boardTitleFromText(title);
+  if (topics.length === 0) return head;
+  return [
+    head,
+    ...topics.slice(0, 4).map((t) => `- ${t.title}`),
+  ].join("\n");
 };
 
 /** First line of pad node text is the authorial title. */

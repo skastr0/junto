@@ -34,6 +34,7 @@ import {
   type TaskState,
   type WorkSnapshot as WorkSnapshotValue,
   type BoardTopic as BoardTopicValue,
+  type BoardTopicView as BoardTopicViewValue,
   type BoardPost as BoardPostValue,
   type BoardAuthor as BoardAuthorValue,
   type EtherPad as EtherPadValue,
@@ -2115,10 +2116,15 @@ export const projectWorkSnapshots = (
             state: topic.state,
             postCount: topic.postCount,
             lastActivityAt: topic.lastActivityAt,
+            unreadPostCount: topic.unreadPostCount,
             authorLabel:
               topic.openedBy.label ??
               (topic.openedBy.kind === "operator" ? "operator" : topic.openedBy.nodeId),
           })),
+          unread: snapshot.board.topics.reduce(
+            (sum, topic) => sum + topic.unreadPostCount,
+            0,
+          ),
         };
       }
       if (snapshot.messages.items.length > 0) {
@@ -2136,7 +2142,7 @@ export const projectWorkSnapshots = (
           ? { text: mirrorArtifactsText(snapshot.artifacts.items) }
           : {}),
         ...(node.type === "text" && kind === "board"
-          ? { text: mirrorBoardText(snapshot.board.topics) }
+          ? { text: mirrorBoardText(node.text, snapshot.board.topics) }
           : {}),
         ether,
       } as CanvasNode;
@@ -3044,12 +3050,41 @@ const loadBoardPostsByTopic = (
   return byTopic;
 };
 
+/**
+ * Operator read cursors for one board sink, keyed by topic id. Unread is the
+ * pad-glance pattern: join the cursors table with the fixed "operator"
+ * principal at the read boundary; a missing cursor reads every post.
+ */
+const loadOperatorReadCursors = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): Map<string, number> => {
+  try {
+    const rows = reader.all<
+      StateRow & { readonly topic_id: string; readonly last_read_position: number }
+    >(
+      `
+        SELECT topic_id, MAX(last_read_position) AS last_read_position
+        FROM work_board_read_cursors
+        WHERE canvas_name = ? AND node_id = ? AND principal_key = 'operator'
+        GROUP BY topic_id
+      `,
+      [sink.canvasName, sink.nodeId],
+    );
+    return new Map(rows.map((row) => [row.topic_id, row.last_read_position]));
+  } catch {
+    // Pre-migration databases or missing table — nothing was read yet.
+    return new Map();
+  }
+};
+
 const loadBoardTopics = (
   reader: StateReader,
   sink: SinkRefValue,
-): ReadonlyArray<BoardTopicValue> => {
+): ReadonlyArray<BoardTopicViewValue> => {
   try {
     const postsByTopic = loadBoardPostsByTopic(reader, sink);
+    const readCursors = loadOperatorReadCursors(reader, sink);
     return reader
       .all<
         StateRow & {
@@ -3085,19 +3120,25 @@ const loadBoardTopics = (
         `,
         [sink.canvasName, sink.nodeId],
       )
-      .map((row): BoardTopicValue => {
+      .map((row): BoardTopicViewValue => {
         const parts = parseJson(row.parts_json);
         const posts = postsByTopic.get(row.topic_id) ?? [];
+        const lastRead = readCursors.get(row.topic_id) ?? -1;
+        const unreadPostCount = posts.filter(
+          (post) =>
+            post.author.kind !== "operator" && post.position > lastRead,
+        ).length;
         return {
           topicId: row.topic_id,
           title: row.title,
-          state: row.state as BoardTopicValue["state"],
+          state: row.state as BoardTopicViewValue["state"],
           openedBy: boardAuthorFromRow(row),
           openedAt: row.created_at,
           postCount: row.post_count,
           lastActivityAt: row.last_activity_at,
+          unreadPostCount,
           ...(Array.isArray(parts) && parts.length > 0
-            ? { parts: parts as BoardTopicValue["parts"] }
+            ? { parts: parts as BoardTopicViewValue["parts"] }
             : {}),
           ...(posts.length > 0 ? { posts } : {}),
         };
@@ -8992,6 +9033,25 @@ export const WorkRepositoryLive = Layer.effect(
     }): Effect.Effect<void, RepositoryFailure> => {
       const updatedAt = timestamp(input.updatedAt);
       return transaction("work.board.mark_read", input.sink, (writer) => {
+        // Clamp to the topic's real max inside the write transaction: an
+        // oversized request acknowledges nothing past the stored posts, and
+        // the MAX() UPSERT keeps existing cursors monotone. An empty topic
+        // clamps to -1 so its future first post stays unread.
+        const topicMax = writer.get<StateRow & { readonly m: number | null }>(
+          `
+            SELECT MAX(position) AS m FROM work_board_posts
+            WHERE canvas_name = ? AND node_id = ? AND topic_id = ?
+          `,
+          [input.sink.canvasName, input.sink.nodeId, input.topicId],
+        );
+        const topicMaxPosition =
+          typeof topicMax?.m === "number" && Number.isFinite(topicMax.m)
+            ? topicMax.m
+            : -1;
+        const clamped = Math.max(
+          -1,
+          Math.min(Math.trunc(input.lastReadPosition), topicMaxPosition),
+        );
         writer.run(
           `
             INSERT INTO work_board_read_cursors(
@@ -9011,7 +9071,7 @@ export const WorkRepositoryLive = Layer.effect(
             input.sink.nodeId,
             input.topicId,
             input.principalKey,
-            input.lastReadPosition,
+            clamped,
             updatedAt,
           ],
         );

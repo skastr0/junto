@@ -147,4 +147,44 @@ describe("mergeLocalCanvasWithWorkWrite", () => {
     const merged = mergeLocalCanvasWithWorkWrite(local, work);
     expect(merged.nodes.map((n) => n.id)).toEqual(["note"]);
   });
+
+  it("keeps the operator's board title when work carries a stale glance", () => {
+    // The operator renamed the board; the work snapshot still projects the
+    // old glance text. The local first line is authorial and must win.
+    const local: CanvasDoc = {
+      nodes: [
+        {
+          id: "board-1",
+          type: "text",
+          text: "Fleet announcements\n- Renamed after sync",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 120,
+          ether: { entity: { kind: "board" } },
+        },
+      ],
+      edges: [],
+    };
+    const work: CanvasDoc = {
+      nodes: [
+        {
+          id: "board-1",
+          type: "text",
+          text: "board\n- Stale glance topic",
+          x: 0,
+          y: 0,
+          width: 240,
+          height: 120,
+          ether: { entity: { kind: "board" } },
+        },
+      ],
+      edges: [],
+    };
+    const merged = mergeLocalCanvasWithWorkWrite(local, work);
+    const board = merged.nodes.find((n) => n.id === "board-1");
+    expect(board?.type === "text" && board.text).toBe(
+      "Fleet announcements\n- Stale glance topic",
+    );
+  });
 });

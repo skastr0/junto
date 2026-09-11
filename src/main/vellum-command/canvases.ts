@@ -1010,7 +1010,7 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
             : kind === "artifacts"
               ? mirrorArtifactsText([])
               : kind === "board"
-                ? mirrorBoardText([])
+                ? mirrorBoardText(node.text ?? "", [])
                 : kind === "pad"
                   ? padTitleFromText(node.text ?? "")
                   : node.text;
