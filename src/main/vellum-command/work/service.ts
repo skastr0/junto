@@ -135,7 +135,15 @@ import {
 } from "../station/session-registry";
 import { ContentService } from "../content/service";
 import type { ContentOwner } from "../content/manifest";
-import { admitWorkTarget, regionStackFor } from "./authz";
+import {
+  admitLiveOverseer,
+  admitOverseerWorkTarget,
+  admitWorkTarget,
+  regionStackFor,
+  type OverseerWorkAdmin,
+} from "./authz";
+
+export type { OverseerWorkAdmin };
 import { clearSeatBlockedByRequest } from "./blocked-seat";
 import {
   mailboxMessageReactId,
@@ -469,6 +477,7 @@ export interface WorkServiceShape {
       nodeId: string,
       taskId: string,
       note?: string,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Task>>;
     /**
      * Task record with visits. Seat view is onion-scoped: prior boards expose
@@ -511,12 +520,14 @@ export interface WorkServiceShape {
       taskId: string,
       responseText: string,
       disposition: "working" | "rejected",
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskClaim: (
       canvas: string,
       nodeId: string,
       taskId: string,
       actor: ActorRef,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Task>>;
     /** Command Center operator comment on the canonical task thread. */
     readonly workTaskComment: (
@@ -524,6 +535,7 @@ export interface WorkServiceShape {
       nodeId: string,
       taskId: string,
       message: Message,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
     readonly workMessageAppend: (
       canvas: string,
@@ -531,6 +543,7 @@ export interface WorkServiceShape {
       taskId: string | null,
       message: Message,
       sentBy: ActorRef,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Message>>;
     /**
      * Command Center system mailbox notify (no process-bound sender).
@@ -551,6 +564,7 @@ export interface WorkServiceShape {
       nodeId: string,
       messageId: string,
       reader: ActorRef,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<{ readonly messageId: string; readonly readAt: string }>>;
     readonly workMessageReact: (
       canvas: string,
@@ -558,6 +572,7 @@ export interface WorkServiceShape {
       messageId: string,
       reaction: "ack",
       reactor: ActorRef,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<
       WorkOpResult<{
         readonly messageId: string;
@@ -572,6 +587,7 @@ export interface WorkServiceShape {
       metadata: WorkMetadata | undefined,
       raisedBy: ActorRef,
       reason?: string,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workRequestResolve: (
       canvas: string,
@@ -585,6 +601,7 @@ export interface WorkServiceShape {
       nodeId: string,
       artifact: Artifact,
       publishedBy: ActorRef,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Artifact>>;
     /** Operator soft-archive / restore (metadata.archived). */
     readonly workArtifactArchive: (
@@ -657,6 +674,7 @@ export interface WorkServiceShape {
       nodeId: string,
       patches: ReadonlyArray<PadPatch>,
       author: import("@shared/work-model").BoardAuthor,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<
       WorkOpResult<{
         readonly revision: number;
@@ -945,6 +963,30 @@ export const WorkLive = Layer.effect(
         : Effect.succeed(node);
     };
 
+    const requireLiveOverseer = (
+      admin: OverseerWorkAdmin,
+    ): Effect.Effect<ActorRef, WorkServiceError> =>
+      readCanvas(admin.actor.canvasName).pipe(
+        Effect.flatMap((origin) => {
+          const admitted = admitLiveOverseer(
+            origin.doc,
+            origin.actorRefs,
+            { canvasName: admin.actor.canvasName, nodeId: admin.actor.nodeId },
+            admin,
+          );
+          if (Result.isFailure(admitted)) {
+            return Effect.fail(
+              new WorkServiceError({
+                code: "invalid",
+                message: admitted.failure.message,
+                details: admitted.failure.details,
+              }),
+            );
+          }
+          return Effect.succeed(admitted.success);
+        }),
+      );
+
     const requireActor = (
       read: CanvasReadResult,
       actor: ActorRef,
@@ -958,6 +1000,7 @@ export const WorkLive = Layer.effect(
         | "msg.react"
         | "request.escalate"
         | "artifact.publish",
+      admin?: OverseerWorkAdmin,
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
       const exact = read.actorRefs.filter((candidate) =>
         sameActor(candidate, actor)
@@ -988,6 +1031,49 @@ export const WorkLive = Layer.effect(
             }),
           )
           : Effect.succeed(actorNode);
+      }
+      if (admin !== undefined) {
+        return requireLiveOverseer(admin).pipe(
+          Effect.flatMap((live) => {
+            if (!sameActor(live, actor)) {
+              return Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "overseer admin actor does not match the acting seat",
+                }),
+              );
+            }
+            const overseerTarget = admitOverseerWorkTarget(
+              read.doc,
+              targetNodeId,
+              op,
+            );
+            if (Result.isFailure(overseerTarget)) {
+              return Effect.fail(
+                new WorkServiceError({
+                  code:
+                    overseerTarget.failure.type === "UnknownTarget"
+                      ? "node_not_found"
+                      : "invalid",
+                  message: overseerTarget.failure.message,
+                }),
+              );
+            }
+            return readCanvas(actor.canvasName).pipe(
+              Effect.flatMap((origin) => {
+                const actorNode = nodeById(origin.doc, actor.nodeId);
+                return actorNode === undefined
+                  ? Effect.fail(
+                    new WorkServiceError({
+                      code: "node_not_found",
+                      message: `actor node "${actor.nodeId}" not found`,
+                    }),
+                  )
+                  : Effect.succeed(actorNode);
+              }),
+            );
+          }),
+        );
       }
       const admitted = admitWorkTarget(
         read.doc,
@@ -1096,8 +1182,9 @@ export const WorkLive = Layer.effect(
         | "request.escalate"
         | "artifact.publish",
       context: StationContext,
+      admin?: OverseerWorkAdmin,
     ): Effect.Effect<CanvasNode, WorkServiceError> =>
-      requireActor(read, actor, targetNodeId, op).pipe(
+      requireActor(read, actor, targetNodeId, op, admin).pipe(
         Effect.flatMap((actorNode) =>
           homeForNode(actorNode, context).pipe(
             Effect.flatMap((actorHome) =>
@@ -1512,7 +1599,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskPromote: (canvas, nodeId, taskId, note) =>
+      workTaskPromote: (canvas, nodeId, taskId, note, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -1520,7 +1607,9 @@ export const WorkLive = Layer.effect(
               readCanvas(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
-            if (context.configuration.role !== "command-center") {
+            if (admin !== undefined) {
+              yield* requireLiveOverseer(admin);
+            } else if (context.configuration.role !== "command-center") {
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
@@ -1910,7 +1999,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
+      workTaskRespond: (canvas, nodeId, taskId, responseText, disposition, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -1918,7 +2007,9 @@ export const WorkLive = Layer.effect(
               readCanvas(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
-            if (context.configuration.role !== "command-center") {
+            if (admin !== undefined) {
+              yield* requireLiveOverseer(admin);
+            } else if (context.configuration.role !== "command-center") {
               return yield* new WorkServiceError({
                 code: "invalid",
                 message: "only the configured Command Center operator may respond to a task",
@@ -1963,7 +2054,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskClaim: (canvas, nodeId, taskId, actor) =>
+      workTaskClaim: (canvas, nodeId, taskId, actor, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, sourceHome] = yield* Effect.all([
@@ -1976,6 +2067,7 @@ export const WorkLive = Layer.effect(
               actor,
               nodeId,
               "tasks.claim",
+              admin,
             );
             const actorHome = yield* homeForNode(actorNode, context);
             if (sourceHome !== context.localInstallationId) {
@@ -2225,7 +2317,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskComment: (canvas, nodeId, taskId, message) =>
+      workTaskComment: (canvas, nodeId, taskId, message, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -2233,7 +2325,11 @@ export const WorkLive = Layer.effect(
               readCanvas(canvas),
               itemHome("task", canvas, nodeId, taskId),
             ]);
-            if (context.configuration.role !== "command-center") {
+            const overseer =
+              admin === undefined
+                ? undefined
+                : yield* requireLiveOverseer(admin);
+            if (overseer === undefined && context.configuration.role !== "command-center") {
               return yield* new WorkServiceError({
                 code: "invalid",
                 message:
@@ -2264,7 +2360,7 @@ export const WorkLive = Layer.effect(
               nodeId,
               recordId: policy.message.messageId,
             });
-            const sentBy = operatorActorRef(canvas);
+            const sentBy = overseer ?? operatorActorRef(canvas);
             const destination = { kind: "task" as const, itemId: taskId };
             const outcome = home === context.localInstallationId
               ? yield* local(
@@ -2355,6 +2451,7 @@ export const WorkLive = Layer.effect(
         taskId,
         message,
         sentBy,
+        admin,
       ) =>
         asResult(
           Effect.gen(function* () {
@@ -2368,6 +2465,7 @@ export const WorkLive = Layer.effect(
               nodeId,
               "msg.send",
               context,
+              admin,
             );
             const targetNode = yield* requireNode(read.doc, nodeId);
             const policy = yield* runPolicy(() =>
@@ -2586,7 +2684,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workMessageMarkRead: (canvas, nodeId, messageId, reader) =>
+      workMessageMarkRead: (canvas, nodeId, messageId, reader, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -2599,6 +2697,7 @@ export const WorkLive = Layer.effect(
               nodeId,
               "msg.read",
               context,
+              admin,
             );
             if (reader.nodeId !== nodeId || reader.canvasName !== canvas) {
               return yield* Effect.fail(
@@ -2695,7 +2794,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workMessageReact: (canvas, nodeId, messageId, reaction, reactor) =>
+      workMessageReact: (canvas, nodeId, messageId, reaction, reactor, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
@@ -2708,6 +2807,7 @@ export const WorkLive = Layer.effect(
               nodeId,
               "msg.react",
               context,
+              admin,
             );
             if (reactor.nodeId !== nodeId || reactor.canvasName !== canvas) {
               return yield* Effect.fail(
@@ -2819,6 +2919,7 @@ export const WorkLive = Layer.effect(
         metadata,
         raisedBy,
         reason,
+        admin,
       ) =>
         asResult(
           Effect.gen(function* () {
@@ -2832,6 +2933,7 @@ export const WorkLive = Layer.effect(
               nodeId,
               "request.escalate",
               context,
+              admin,
             );
             const policy = yield* runPolicy(() =>
               workRequestCreate(
@@ -2945,6 +3047,7 @@ export const WorkLive = Layer.effect(
         nodeId,
         artifact,
         publishedBy,
+        admin,
       ) =>
         asResult(
           Effect.gen(function* () {
@@ -2958,6 +3061,7 @@ export const WorkLive = Layer.effect(
               nodeId,
               "artifact.publish",
               context,
+              admin,
             );
             const policy = yield* runPolicy(() =>
               workArtifactPublish(
@@ -3302,13 +3406,17 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workPadPatch: (canvas, nodeId, patches, author) =>
+      workPadPatch: (canvas, nodeId, patches, author, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
               readCanvas(canvas),
             ]);
+            const overseer =
+              admin === undefined
+                ? undefined
+                : yield* requireLiveOverseer(admin);
             if (
               read.doc.nodes.find((n) => n.id === nodeId)?.ether?.entity
                 ?.kind !== "pad"
@@ -3325,6 +3433,7 @@ export const WorkLive = Layer.effect(
               author,
               stamped,
               inboundActorNodeIds(read.doc, nodeId),
+              overseer === undefined ? undefined : { overseer: true },
             );
             if (rule !== undefined) {
               return yield* Effect.fail(
@@ -3358,6 +3467,7 @@ export const WorkLive = Layer.effect(
                       patchId,
                       patches: materialized,
                       author,
+                      ...(overseer === undefined ? {} : { overseer: true }),
                     })
                     .pipe(
                       Effect.map((result) => ({

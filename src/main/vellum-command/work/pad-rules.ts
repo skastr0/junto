@@ -54,9 +54,11 @@ export const padAuthorRuleError = (
   author: BoardAuthor,
   patches: ReadonlyArray<PadPatch>,
   inboundActors: ReadonlySet<string>,
+  options?: { readonly overseer?: boolean },
 ): string | undefined => {
+  const allowMedia = author.kind === "operator" || options?.overseer === true;
   for (const patch of patches) {
-    if (author.kind === "actor") {
+    if (!allowMedia && author.kind === "actor") {
       if (patch.op === "upsert" && patch.layer === "ink") {
         return "agents cannot upsert ink";
       }

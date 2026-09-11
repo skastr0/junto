@@ -1062,6 +1062,8 @@ export type ApplyPadPatchInput = LocalWorkInput & {
   readonly patchId: string;
   readonly patches: ReadonlyArray<import("@shared/pad").PadPatch>;
   readonly author: BoardAuthorValue;
+  /** Live overseer: ink/image admitted without operator impersonation. */
+  readonly overseer?: boolean;
 };
 
 export type ReserveRemoteTaskClaimInput = WorkRepositoryInput & {
@@ -2038,11 +2040,13 @@ const assertPadPatchRules = (
   sink: SinkRefValue,
   author: BoardAuthorValue,
   patches: ReadonlyArray<import("@shared/pad").PadPatch>,
+  overseer?: boolean,
 ): void => {
   const rule = padAuthorRuleError(
     author,
     patches,
     inboundActorsForPad(reader, sink),
+    overseer === true ? { overseer: true } : undefined,
   );
   if (rule !== undefined) {
     throw authorityError("invalid-transition", rule);
@@ -8909,7 +8913,13 @@ export const WorkRepositoryLive = Layer.effect(
           );
         }
         const patches = stampPadPatchAuthors(input.patches, input.author);
-        assertPadPatchRules(writer, input.sink, input.author, patches);
+        assertPadPatchRules(
+          writer,
+          input.sink,
+          input.author,
+          patches,
+          input.overseer,
+        );
         const current = loadPad(writer, input.sink);
         const applied = applyPatches(current, patches);
         if (Result.isFailure(applied)) {

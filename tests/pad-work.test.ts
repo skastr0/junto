@@ -272,6 +272,24 @@ describe("pad author rules", () => {
       ),
     ).toBeUndefined();
   });
+
+  it("admits overseer actor ink without operator impersonation", () => {
+    expect(
+      padAuthorRuleError(
+        { kind: "actor", nodeId: "agent", seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`) },
+        [upsertInk("k1"), upsertImage("img1")],
+        new Set(["agent"]),
+        { overseer: true },
+      ),
+    ).toBeUndefined();
+    expect(
+      padAuthorRuleError(
+        { kind: "actor", nodeId: "agent" },
+        [upsertInk("k1")],
+        new Set(["agent"]),
+      ),
+    ).toMatch(/ink/i);
+  });
 });
 
 describe("pad ScopeError without edge", () => {

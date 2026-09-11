@@ -17,6 +17,8 @@ import {
   type TargetWorkOpName,
 } from "@shared/physics";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
+import { OPERATOR_SEAT_ID } from "@shared/work-reference";
+import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
 import { RELAY_ENABLED } from "@shared/features";
 import { tasksNodeName } from "@shared/tasks-node-identity";
@@ -135,9 +137,141 @@ export const visibilityOf = (
   return "none";
 };
 
+/**
+ * Main-derived overseer authority. Never user-supplied as a principal, never
+ * `OPERATOR_SEAT_ID`. The live `ether.overseer` flag is re-checked at use.
+ */
+export type OverseerWorkAdmin = {
+  readonly kind: "overseer";
+  readonly actor: ActorRef;
+};
+
+export const overseerWorkAdmin = (actor: ActorRef): OverseerWorkAdmin => ({
+  kind: "overseer",
+  actor,
+});
+
+const overseerAuthError = (
+  callerId: string,
+  message: string,
+  missing: string,
+): WorkErrorBody => ({
+  type: "AuthError",
+  message,
+  details: {
+    caller: callerId,
+    retryable: false,
+    missing,
+    next_step: "ask the operator to grant ether.overseer on this agent seat",
+  },
+});
+
+/** True when the node is a managed agent seat with a live human overseer grant. */
+export const isLiveOverseerNode = (node: CanvasNode | undefined): boolean =>
+  node !== undefined &&
+  nodeKind(node) === "agent" &&
+  node.ether?.overseer === true;
+
+/**
+ * Admit a claimed overseer admin against the live document. Callers cannot
+ * forge `kind: "overseer"` without a matching compiled ActorRef and flag.
+ */
+export const admitLiveOverseer = (
+  doc: CanvasDoc,
+  actorRefs: ReadonlyArray<ActorRef>,
+  caller: { readonly canvasName: string; readonly nodeId: string },
+  claimed: OverseerWorkAdmin,
+): Result.Result<ActorRef, WorkErrorBody> => {
+  if (claimed.kind !== "overseer") {
+    return Result.fail(
+      overseerAuthError(caller.nodeId, "overseer admin kind is invalid", "overseer grant"),
+    );
+  }
+  const actor = claimed.actor;
+  if (
+    actor.seatId === OPERATOR_SEAT_ID ||
+    actor.nodeId === "operator"
+  ) {
+    return Result.fail(
+      overseerAuthError(
+        caller.nodeId,
+        "overseer provenance cannot use the operator seat",
+        "overseer grant",
+      ),
+    );
+  }
+  if (actor.canvasName !== caller.canvasName || actor.nodeId !== caller.nodeId) {
+    return Result.fail(
+      overseerAuthError(
+        caller.nodeId,
+        "overseer admin actor does not match the admitted caller",
+        "overseer grant",
+      ),
+    );
+  }
+  const exact = actorRefs.filter(
+    (candidate) =>
+      candidate.seatId === actor.seatId &&
+      candidate.canvasName === actor.canvasName &&
+      candidate.nodeId === actor.nodeId,
+  );
+  if (exact.length !== 1) {
+    return Result.fail(
+      overseerAuthError(
+        caller.nodeId,
+        `actor ${JSON.stringify(actor.nodeId)} does not identify exactly one compiled actor seat`,
+        "overseer grant",
+      ),
+    );
+  }
+  const node = findNode(doc, caller.nodeId);
+  if (!isLiveOverseerNode(node)) {
+    return Result.fail(
+      overseerAuthError(
+        caller.nodeId,
+        `node "${caller.nodeId}" is not a live overseer`,
+        "overseer grant",
+      ),
+    );
+  }
+  return Result.succeed(exact[0]!);
+};
+
+/**
+ * Target admission for a live overseer: node existence + kind, no edge.
+ * Ordinary agents still go through {@link admitWorkTarget}.
+ */
+export const admitOverseerWorkTarget = (
+  doc: CanvasDoc,
+  targetId: string,
+  op: WorkOpName,
+): Result.Result<{ readonly node: CanvasNode }, WorkErrorBody> => {
+  const target = findNode(doc, targetId);
+  if (!target) {
+    return Result.fail({
+      type: "UnknownTarget",
+      message: `target "${targetId}" not found`,
+      details: { target: targetId, retryable: false },
+    });
+  }
+  if (requiresConnection(op) && isTargetWorkOp(op) && !kindAllowsOp(nodeKind(target), op)) {
+    return Result.fail(
+      scopeError("overseer", targetId, "wrong_kind", {
+        kind: nodeKind(target),
+        op,
+      }),
+    );
+  }
+  return Result.succeed({ node: target });
+};
+
 /** Ops that require a connected edge to the target (mutations + full reads). */
-export const requiresConnection = (op: WorkOpName): boolean => {
+export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
   switch (op) {
+    case "overseer":
+      // Administrative envelope, not a grant. Parent dispatches before the
+      // ordinary work-op switch; this case keeps the exhaustive switch honest.
+      return false;
     case "ping":
     case "doctor":
     case "capabilities":
