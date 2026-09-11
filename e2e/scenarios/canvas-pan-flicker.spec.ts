@@ -464,4 +464,76 @@ test.describe("canvas pan flicker evidence", () => {
     await installEvidence(page);
     await capture({ app, page }, "middle-drag-pan", (p) => middleDragPan(p));
   });
+
+  test("pan with an active selection keeps node filters stable", async ({ vellumCommand }) => {
+    const { app, page } = vellumCommand;
+    await installEvidence(page);
+
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".react-flow__node")).toHaveCount(NODE_COUNT, { timeout: 30_000 });
+    await page.waitForTimeout(1_500);
+
+    // Engage connection-focus mode (focus cone + dimming) via the node
+    // toolbar — the idle fixture has no execution snapshot, so stoppage
+    // impact cones never engage, but the dimming CSS family is shared.
+    const seat = page.locator(".react-flow__node", { hasText: "flick seat 0" }).first();
+    await seat.click();
+    // The toolbar mounts only for the selected node and portals outside
+    // .react-flow__node (React Flow NodeToolbar).
+    await page.locator('[data-testid="node-toolbar-focus"]').first().click();
+    await expect(page.locator(".react-flow.connection-focus-mode")).toBeAttached({ timeout: 10_000 });
+
+    // Sample computed filters of three cards (selected, near, far) on a rAF
+    // loop while panning. The busy gate may no longer change appearance with
+    // the camera: each card's filter must hold exactly one value.
+    const filters = await page.evaluate(
+      () =>
+        new Promise<Record<string, string[]>>((resolve) => {
+          const picks = [0, 1, 2].map((i) => {
+            const nodes = document.querySelectorAll(".react-flow__node");
+            return nodes[i] ?? nodes[nodes.length - 1];
+          });
+          const seen: Record<string, string[]> = { a: [], b: [], c: [] };
+          const start = performance.now();
+          const tick = (): void => {
+            picks.forEach((el, i) => {
+              if (el) seen[["a", "b", "c"][i]!]!.push(getComputedStyle(el).filter);
+            });
+            if (performance.now() - start < 5_000) requestAnimationFrame(tick);
+            else resolve(seen);
+          };
+          requestAnimationFrame(tick);
+          void (async () => {
+            // Wheel-pan under the sampler.
+            const end = Date.now() + 4_000;
+            while (Date.now() < end) {
+              const phase = (Date.now() % 4000) / 4000;
+              await new Promise<void>((done) => {
+                // Playwright mouse is not reachable inside evaluate; dispatch
+                // wheel events directly on the pane.
+                document
+                  .querySelector(".react-flow__pane")
+                  ?.dispatchEvent(
+                    new WheelEvent("wheel", {
+                      deltaX: Math.cos(phase * Math.PI * 2) * 90,
+                      deltaY: Math.sin(phase * Math.PI * 2) * 90,
+                      bubbles: true,
+                      cancelable: true,
+                    }),
+                  );
+                setTimeout(done, 12);
+              });
+            }
+          })();
+        }),
+    );
+
+    for (const [key, values] of Object.entries(filters)) {
+      const distinct = [...new Set(values)];
+      expect(
+        distinct,
+        `node ${key} filter changed during pan: ${distinct.join(" | ")}`,
+      ).toHaveLength(1);
+    }
+  });
 });
