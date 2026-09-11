@@ -1,18 +1,20 @@
 /**
  * Production overseer composition for Command Center and Remote.
  *
- * Wires executeOverseer through the process-bind work socket and, when the
- * Station transport module is present, the CC-opened Remote session. Does not
- * own admission or dispatch routing.
+ * Wires executeOverseer through the process-bind work socket and the
+ * CC-opened Remote Station session. Does not own admission or dispatch routing.
  */
-import { Effect } from "effect";
-import type { CanvasDoc } from "@shared/canvas";
-import type { InstallationId } from "@shared/installation-id";
+import { Effect, Result } from "effect";
+import type { CanvasDoc, TextNode } from "@shared/canvas";
+import type { HarnessId } from "@shared/managed-terminal-templates";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import type {
+  OverseerArgsFor,
   OverseerCaller,
   OverseerRequest,
   OverseerResult,
 } from "@shared/overseer-control";
+import type { InstallationId } from "@shared/station-api";
 import type { WorkErrorBody } from "@shared/work-control";
 import { CanvasesService } from "../canvases";
 import { ChatServiceContext } from "../chat/service";
@@ -20,17 +22,45 @@ import { ActorSeatOccupy } from "../term/actor-seat-occupy";
 import { termPlane } from "../term/plane";
 import { StationRepository } from "../station/repository";
 import type { BrowserSessionService } from "../browser/sessions";
+import {
+  mainAuthoringGate,
+  mainAuthoringLabelForWorkOperation,
+} from "../main-authoring-gate";
 import { executeOverseer, type OverseerRuntime } from "./dispatch";
+import { admitOverseer } from "./admission";
+import {
+  applySchedulerConfigure,
+  commitAgentReseat,
+  setOverseerNativeDeleteHooks,
+} from "./canvas";
 import {
   makeOverseerNativeLive,
+  type AgentReseatCommitInput,
   type ApplicationCaptureResult,
   type OverseerNative,
+  type SchedulerConfigureApplyInput,
 } from "./native";
 import { managedTerminalDriveForOverseer } from "../term/managed-drive-holder";
-import { mainAuthoringGate, mainAuthoringLabelForWorkOperation } from "../main-authoring-gate";
+import {
+  makeRemoteStationOverseerDispatcher,
+  registerStationRemoteOverseerHandler,
+} from "../station/overseer-transport";
+import type { StationControlServer } from "../station/control-server";
+import type { ManagedTerminalDrive } from "../term/drive";
+import type { ContentService } from "../content/service";
+import type { WorkService } from "../work/service";
+
+type OverseerServices =
+  | CanvasesService
+  | ChatServiceContext
+  | ActorSeatOccupy
+  | StationRepository
+  | ContentService
+  | WorkService;
 
 export type OverseerRunPromise = <A, E>(
-  effect: Effect.Effect<A, E>,
+  effect: Effect.Effect<A, E, OverseerServices>,
+  options?: { readonly signal?: AbortSignal },
 ) => Promise<A>;
 
 export type OverseerComposition = {
@@ -41,6 +71,12 @@ export type OverseerComposition = {
     caller: OverseerCaller,
     signal: AbortSignal,
   ) => Promise<OverseerResult>;
+  readonly bindPages: (pages: BrowserSessionService) => void;
+  readonly bindStationForward: (input: {
+    readonly control: Pick<StationControlServer, "overseer" | "sessionReady">;
+    readonly remoteInstallationId: InstallationId;
+    readonly commandCenterInstallationId: InstallationId;
+  }) => void;
   readonly dispose: () => void;
 };
 
@@ -68,23 +104,6 @@ const asWorkError = (error: unknown): WorkErrorBody => {
   };
 };
 
-const liveOverseerGrant = (
-  run: OverseerRunPromise,
-  caller: OverseerCaller,
-): Promise<boolean> =>
-  run(
-    Effect.gen(function* () {
-      const canvases = yield* CanvasesService;
-      const read = yield* canvases.readNodeStructure(
-        caller.canvasName,
-        caller.nodeId,
-        "overseer.live-grant",
-      );
-      const ether = read?.node.ether as { readonly overseer?: unknown } | undefined;
-      return ether?.overseer === true;
-    }).pipe(Effect.catch(() => Effect.succeed(false))),
-  );
-
 const listCanvasDocuments = (
   run: OverseerRunPromise,
 ): Promise<ReadonlyArray<{ readonly name: string; readonly doc: CanvasDoc }>> =>
@@ -93,28 +112,17 @@ const listCanvasDocuments = (
       const canvases = yield* CanvasesService;
       const live = yield* canvases.liveDocuments();
       return live.map((entry) => ({ name: entry.canvasName, doc: entry.doc }));
-    }).pipe(Effect.catch(() => Effect.succeed([]))),
+    }),
   );
 
-const tryLoadStationTransport = async (): Promise<
-  | {
-      readonly registerStationRemoteOverseerHandler: (
-        handler: (
-          request: OverseerRequest,
-          source: {
-            readonly installationId: InstallationId;
-            readonly caller: OverseerCaller;
-          },
-        ) => Effect.Effect<OverseerResult, unknown>,
-      ) => () => void;
-    }
-  | undefined
-> => {
-  try {
-    return (await import("../station/overseer-transport.ts")) as never;
-  } catch {
-    return undefined;
-  }
+const runCanvasHook = async <A>(
+  run: OverseerRunPromise,
+  effect: Effect.Effect<A, WorkErrorBody, CanvasesService>,
+): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+  const outcome = await run(Effect.result(effect));
+  return Result.isSuccess(outcome)
+    ? { ok: true }
+    : { ok: false, message: outcome.failure.message };
 };
 
 export const captureTrustedWindowPng = (
@@ -140,55 +148,45 @@ export const captureTrustedWindowPng = (
     }
   };
 
-const runWithAbort = (
-  run: OverseerRunPromise,
-  request: OverseerRequest,
-  program: Effect.Effect<OverseerResult>,
-  signal: AbortSignal,
-): Promise<OverseerResult> => {
-  if (signal.aborted) {
-    return Promise.resolve({
-      ok: false,
-      operation: request.operation,
-      error: { type: "RuntimeDown", message: "overseer command aborted" },
-    });
-  }
-  return new Promise((resolve) => {
-    const abort = () =>
-      resolve({
-        ok: false,
-        operation: request.operation,
-        error: { type: "RuntimeDown", message: "overseer command aborted" },
-      });
-    signal.addEventListener("abort", abort, { once: true });
-    void run(program).then(
-      (result) => {
-        signal.removeEventListener("abort", abort);
-        resolve(result);
-      },
-      (error) => {
-        signal.removeEventListener("abort", abort);
-        resolve({
-          ok: false,
-          operation: request.operation,
-          error: { type: "InternalError", message: asWorkError(error).message },
-        });
-      },
-    );
-  });
+const harnessFromNode = (node: TextNode): HarnessId | undefined => {
+  const harness = node.ether?.terminal?.harness;
+  return typeof harness === "string" && isHarnessId(harness) ? harness : undefined;
 };
+
+const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
+  writePrompt: (bindingId, text, options) => {
+    const drive = managedTerminalDriveForOverseer();
+    if (drive === undefined) {
+      return Promise.resolve({ ok: false, reason: "managed drive is not bound" } as never);
+    }
+    return drive.writePrompt(bindingId, text, options);
+  },
+  interrupt: (bindingId) => {
+    const drive = managedTerminalDriveForOverseer();
+    if (drive === undefined) return Promise.resolve(false);
+    return drive.interrupt(bindingId);
+  },
+});
+
+export const runOverseerProgram = <A, E>(
+  run: OverseerRunPromise,
+  program: Effect.Effect<A, E, OverseerServices>,
+  signal: AbortSignal,
+): Promise<A> => run(program, { signal });
 
 export const composeOverseer = async (input: {
   readonly run: OverseerRunPromise;
   readonly captureApplicationPage: () => Promise<ApplicationCaptureResult>;
   readonly pages?: BrowserSessionService;
   readonly registerRemoteHandler?: boolean;
-  readonly remoteForward?: OverseerRuntime["forward"];
+  readonly sourceInstallationId?: InstallationId;
 }): Promise<OverseerComposition> => {
-  const chats = await input.run(ChatServiceContext);
-  const actorSeatOccupy = await input.run(ActorSeatOccupy);
-  const managedDrive = managedTerminalDriveForOverseer();
-  const station = await tryLoadStationTransport();
+  const chats = await input.run(Effect.gen(function* () {
+    return yield* ChatServiceContext;
+  }));
+  const actorSeatOccupy = await input.run(Effect.gen(function* () {
+    return yield* ActorSeatOccupy;
+  }));
   const scope = await input.run(
     Effect.gen(function* () {
       const stations = yield* StationRepository;
@@ -199,53 +197,135 @@ export const composeOverseer = async (input: {
         installationId,
         role: configuration?.configuration.role ?? "unconfigured",
       };
-    }).pipe(
-      Effect.catch(() =>
-        Effect.succeed({
-          hostId: "local",
-          installationId: "local" as never,
-          role: "unconfigured",
-        }),
-      ),
-    ),
+    }),
   );
+
+  const pagesHolder: { current: BrowserSessionService | undefined } = {
+    current: input.pages,
+  };
+  const pagesProxy = new Proxy({} as BrowserSessionService, {
+    get(_target, property) {
+      const current = pagesHolder.current;
+      if (current === undefined) {
+        throw new Error("browser runtime is unavailable on this installation");
+      }
+      const value = Reflect.get(current, property, current) as unknown;
+      return typeof value === "function"
+        ? (value as (...args: ReadonlyArray<unknown>) => unknown).bind(current)
+        : value;
+    },
+  });
+
+  let stationForward: OverseerRuntime["forward"] | undefined;
+
+  let grantSourceInstallationId = input.sourceInstallationId;
+  const liveGrant = (caller: OverseerCaller): Promise<boolean> =>
+    input
+      .run(admitOverseer(caller, grantSourceInstallationId))
+      .then(() => true)
+      .catch(() => false);
+
+  const commitReseatHook = async (
+    payload: AgentReseatCommitInput,
+  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+    const harness = harnessFromNode(payload.next);
+    if (harness === undefined) {
+      return { ok: false, message: "reseat commit requires a harness on the next agent node" };
+    }
+    const args: OverseerArgsFor<"agent.reseat"> = {
+      nodeId: payload.nodeId,
+      harness,
+    };
+    return runCanvasHook(
+      input.run,
+      commitAgentReseat(
+        { canvasName: payload.canvasName, nodeId: payload.nodeId },
+        args,
+        payload.next,
+      ),
+    );
+  };
+
+  const applySchedulerHook = async (
+    payload: SchedulerConfigureApplyInput,
+  ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+    const args: OverseerArgsFor<"scheduler.configure"> = {
+      nodeId: payload.nodeId,
+      ...(payload.timer !== undefined
+        ? { timer: payload.timer as OverseerArgsFor<"scheduler.configure">["timer"] }
+        : {}),
+      ...(payload.watch !== undefined
+        ? { watch: payload.watch as OverseerArgsFor<"scheduler.configure">["watch"] }
+        : {}),
+    };
+    return runCanvasHook(
+      input.run,
+      applySchedulerConfigure(
+        { canvasName: payload.canvasName, nodeId: payload.nodeId },
+        args,
+      ),
+    );
+  };
 
   const native: OverseerNative = makeOverseerNativeLive({
     termPlane,
     chats,
-    ...(input.pages !== undefined ? { pages: input.pages } : {}),
+    pages: pagesProxy,
     captureApplicationPage: input.captureApplicationPage,
-    liveOverseerGrant: (caller) => liveOverseerGrant(input.run, caller),
+    liveOverseerGrant: liveGrant,
     listCanvasDocuments: () => listCanvasDocuments(input.run),
     actorSeatOccupy,
-    ...(managedDrive !== undefined ? { managedDrive } : {}),
+    managedDrive: lateBoundDrive(),
+    commitAgentReseat: commitReseatHook,
+    applySchedulerConfigure: applySchedulerHook,
     stationScope: () => scope,
   });
-  try {
-    const canvas = await import("./canvas.ts");
-    canvas.setOverseerNativeDeleteHooks?.({
-      prepareOverseerNodeDelete: native.prepareOverseerNodeDelete,
-      finishOverseerNodeDelete: native.finishOverseerNodeDelete,
-    });
-  } catch {
-    // Canvas dispatcher not present in this checkout; parent integrates it.
-  }
 
-  const nativeExecute: OverseerRuntime["native"] = (caller, request) =>
-    native.execute(caller, request);
+  setOverseerNativeDeleteHooks({
+    prepareOverseerNodeDelete: native.prepareOverseerNodeDelete,
+    finishOverseerNodeDelete: native.finishOverseerNodeDelete,
+  });
 
-  const forward: OverseerRuntime["forward"] =
-    input.remoteForward ??
-    ((_caller, _request) =>
-      Effect.fail(
-        unavailable(
-          "Remote overseer forwarding requires an active Command Center Station session",
-        ),
-      ));
+  const bindStationForward = (forwardInput: {
+    readonly control: Pick<StationControlServer, "overseer" | "sessionReady">;
+    readonly remoteInstallationId: InstallationId;
+    readonly commandCenterInstallationId: InstallationId;
+  }): void => {
+    const dispatcher = makeRemoteStationOverseerDispatcher(forwardInput);
+    stationForward = (caller, request) =>
+      Effect.tryPromise({
+        try: () => dispatcher.dispatch(request, caller),
+        catch: (error): WorkErrorBody => {
+          const body = asWorkError(error);
+          if (body.message.includes("uncertain")) {
+            return {
+              type: "InternalError",
+              message: body.message,
+              details: { retryable: false },
+            };
+          }
+          return unavailable(body.message);
+        },
+      });
+  };
 
-  const runtime: OverseerRuntime = { native: nativeExecute, forward };
+  const runtime: OverseerRuntime = {
+    native: (caller, request) => native.execute(caller, request),
+    forward: (caller, request) =>
+      stationForward !== undefined
+        ? stationForward(caller, request)
+        : Effect.fail(
+            unavailable(
+              "Remote overseer forwarding requires an active Command Center Station session",
+            ),
+          ),
+  };
+
   let accepting = true;
   const overseerAuthoringLabel = mainAuthoringLabelForWorkOperation("overseer");
+  if (overseerAuthoringLabel === undefined) {
+    throw new Error("main authoring gate must classify WorkOpName overseer");
+  }
 
   const executeInAuthoringGate = (
     request: OverseerRequest,
@@ -263,22 +343,34 @@ export const composeOverseer = async (input: {
         },
       });
     }
-    const run = () =>
-      runWithAbort(
+    const previousSource = grantSourceInstallationId;
+    grantSourceInstallationId = sourceInstallationId ?? input.sourceInstallationId;
+    return mainAuthoringGate.run(overseerAuthoringLabel, () =>
+      runOverseerProgram(
         input.run,
-        request,
         executeOverseer(caller, request, runtime, sourceInstallationId),
         signal,
-      );
-    if (overseerAuthoringLabel === undefined) return run();
-    return mainAuthoringGate.run(overseerAuthoringLabel, run).catch((error) => ({
-      ok: false as const,
-      operation: request.operation,
-      error: {
-        type: "RuntimeDown" as const,
-        message: error instanceof Error ? error.message : String(error),
-      },
-    }));
+      ).catch((error): OverseerResult => {
+        if (signal.aborted) {
+          return {
+            ok: false,
+            operation: request.operation,
+            error: { type: "RuntimeDown", message: "overseer command aborted" },
+          };
+        }
+        return {
+          ok: false,
+          operation: request.operation,
+          error: {
+            type: "InternalError",
+            message: asWorkError(error).message,
+          },
+        };
+      })
+      .finally(() => {
+        grantSourceInstallationId = previousSource;
+      }),
+    );
   };
 
   const onOverseer = (
@@ -289,11 +381,16 @@ export const composeOverseer = async (input: {
     executeInAuthoringGate(request, caller, undefined, signal);
 
   let disposeRemote = (): void => undefined;
-  if (input.registerRemoteHandler && station?.registerStationRemoteOverseerHandler) {
-    disposeRemote = station.registerStationRemoteOverseerHandler((request, source) =>
+  if (input.registerRemoteHandler) {
+    disposeRemote = registerStationRemoteOverseerHandler((request, source) =>
       Effect.tryPromise({
         try: (signal) =>
-          executeInAuthoringGate(request, source.caller, source.installationId, signal),
+          executeInAuthoringGate(
+            request,
+            source.caller,
+            source.installationId,
+            signal,
+          ),
         catch: (error) => error,
       }).pipe(
         Effect.catch((error) =>
@@ -314,8 +411,13 @@ export const composeOverseer = async (input: {
     runtime,
     native,
     onOverseer,
+    bindPages: (next) => {
+      pagesHolder.current = next;
+    },
+    bindStationForward,
     dispose: () => {
       accepting = false;
+      setOverseerNativeDeleteHooks(undefined);
       disposeRemote();
     },
   };

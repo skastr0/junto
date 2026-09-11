@@ -270,19 +270,12 @@ const runProductBoot = async (): Promise<void> => {
 
   try {
     handles.overseer = await composeOverseer({
-      run: (effect) => RemoteRuntime.runPromise(effect),
+      run: RemoteRuntime.runPromise,
       captureApplicationPage: async () => ({
         ok: false,
         unavailable: true,
         reason: "Remote has no Command Center window to observe",
       }),
-      remoteForward: (_caller, _request) =>
-        Effect.fail({
-          type: "RuntimeDown",
-          message:
-            "Remote overseer forwarding requires makeRemoteStationOverseerDispatcher on the existing CC session",
-          details: { retryable: false },
-        }),
     });
     handles.workControl = await startWorkControlServer({
       version: remoteAppVersion(),
@@ -334,6 +327,15 @@ const runProductBoot = async (): Promise<void> => {
         control: handles.stationControl,
         runPromise: (effect) => RemoteRuntime.runPromise(effect as never),
       });
+      const pairing = await RemoteRuntime.runPromise(stations.pairing);
+      const remoteInstallationId = await RemoteRuntime.runPromise(stations.installationId);
+      if (pairing !== undefined && handles.overseer !== undefined) {
+        handles.overseer.bindStationForward({
+          control: handles.stationControl,
+          remoteInstallationId,
+          commandCenterInstallationId: pairing.commandCenterInstallationId,
+        });
+      }
     }
   } catch (error) {
     console.error("[station-control] failed to start:", error);

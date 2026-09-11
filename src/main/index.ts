@@ -1463,7 +1463,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Independent of browser composition; owns ~/.vellum-command/work/{control.sock,token}.
     try {
       overseerComposition = await composeOverseer({
-        run: (effect) => AppRuntime.runPromise(effect),
+        run: AppRuntime.runPromise,
         captureApplicationPage: captureTrustedWindowPng(async () => {
           const window = currentTrustedMainWindow();
           if (
@@ -1476,9 +1476,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           const image = await window.webContents.capturePage();
           return new Uint8Array(image.toPNG());
         }),
-        ...(browserComposition !== undefined
-          ? { pages: browserComposition.sessions }
-          : {}),
         registerRemoteHandler: true,
       });
       workControl = await startWorkControlServer({
@@ -1697,6 +1694,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           );
           composition.bindControlShutdown(browserControl);
           registerBrowserIpcHandlers(composition.sessions);
+          overseerComposition?.bindPages(composition.sessions);
           // Page→relay watch: thin load map from browser sessions + wake on
           // load ok/fail so rising-edge fire is not stuck on the 30s watchdog.
           const kernel = kernelService;

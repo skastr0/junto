@@ -35,19 +35,6 @@ describe("overseer composition helpers", () => {
       expect(result.reason).toMatch(/no trusted Command Center window/);
     }
   });
-
-  it("propagates AbortSignal as an inner RuntimeDown, not success", async () => {
-    const { runWithAbortForTest } = await import("./overseer-composition-abort-harness");
-    const controller = new AbortController();
-    controller.abort();
-    const request: OverseerRequest = { operation: "status", args: {} };
-    const result = await runWithAbortForTest(request, controller.signal);
-    expect(result).toEqual({
-      ok: false,
-      operation: "status",
-      error: { type: "RuntimeDown", message: "overseer command aborted" },
-    });
-  });
 });
 
 describe("overseer work-socket callback shape", () => {
