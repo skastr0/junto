@@ -597,6 +597,39 @@ const remoteOverseerTaskCreateCommand = (): WorkCommandValue =>
     },
   });
 
+const remoteOverseerThreadCommentCommand = (
+  sentBy: ActorRef = remoteOverseer,
+): WorkCommandValue =>
+  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+    protocol: "vellum/work/v2",
+    id: {
+      route: { eventHome: cc, entityHome: remote },
+      seq: "17",
+    },
+    recordType: "command",
+    item: {
+      kind: "message",
+      itemId: "overseer-thread-1",
+      sink: { canvasName: "factory", nodeId: "tasks" },
+    },
+    operation: "message.append",
+    contentSha256,
+    originAt: observedAt,
+    predecessor: null,
+    body: {
+      operation: "message.append",
+      message: {
+        messageId: "overseer-thread-1",
+        role: "agent",
+        parts: [{ kind: "text", text: "overseer thread comment" }],
+        contextId: "factory",
+        taskId: "task-1",
+      },
+      sentBy,
+      destination: { kind: "task", itemId: "task-1" },
+    },
+  });
+
 const remoteOverseerMailboxCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
     protocol: "vellum/work/v2",
@@ -1559,6 +1592,40 @@ describe("Station API v1 work routing", () => {
     ).toMatchObject({
       _tag: "rejected",
       reason: "locality-mismatch",
+    });
+
+    expect(
+      remoteAdmission.authorizeCommand(remoteOverseerThreadCommentCommand()),
+    ).toEqual({ _tag: "admitted" });
+    expect(
+      makeStationWorkAdmission(topology("remote")).authorizeCommand(
+        remoteOverseerThreadCommentCommand(),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+    expect(
+      remoteAdmission.authorizeCommand(
+        remoteOverseerThreadCommentCommand({
+          ...remoteOverseer,
+          nodeId: "forged-overseer",
+        }),
+      ),
+    ).toMatchObject({
+      _tag: "rejected",
+      reason: "locality-mismatch",
+    });
+    const {
+      overseer: _revokedGrant,
+      ...revokedThreadSeat
+    } = projectedRemoteOverseer;
+    expect(
+      makeStationWorkAdmission(
+        remoteOverseerTopology(revokedThreadSeat),
+      ).authorizeCommand(remoteOverseerThreadCommentCommand()),
+    ).toMatchObject({
+      _tag: "rejected",
     });
   });
 

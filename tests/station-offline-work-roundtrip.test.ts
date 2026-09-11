@@ -3431,6 +3431,97 @@ describe("Station work authority survives Command Center downtime", () => {
       ),
     ).toBe(remoteId);
 
+    const requestComment = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: remoteOverseer.nodeId },
+        {
+          operation: "request.comment",
+          args: {
+            target: "inbox",
+            request: requestId,
+            text: "remote overseer follows up",
+          },
+        },
+        overseerWorkAdmin(remoteOverseer),
+      ),
+    );
+    expect(requestComment).toMatchObject({ disposition: "queued" });
+    const requestCommentId = (requestComment as { readonly messageId: string }).messageId;
+    const requestCommentSync = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteId,
+          hostId: stationHostId(remoteHost),
+        },
+        connection.commandCenterSession,
+      ),
+    );
+    expect(requestCommentSync.report).toMatchObject({ inboundRejected: 0 });
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot("factory", "inbox"),
+        )
+      ).requests.items.find((item) => item.id === requestId)?.history.some(
+        (message) => message.messageId === requestCommentId,
+      ),
+    ).toBe(true);
+
+    await expect(
+      commandCenter.runtime.runPromise(
+        executeOverseerWork(
+          { canvasName: "factory", nodeId: remoteOverseer.nodeId },
+          {
+            operation: "request.comment",
+            args: {
+              target: "inbox",
+              request: "missing-request",
+              text: "wrong parent",
+            },
+          },
+          overseerWorkAdmin(remoteOverseer),
+        ),
+      ),
+    ).rejects.toMatchObject({ type: expect.stringMatching(/UnknownTarget|InputError|NotFound/) });
+
+    const grantedRevision = (
+      await commandCenter.runtime.runPromise(commandCenter.canvases.read("factory"))
+    ).revision;
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: "factory",
+        nodeId: "remote-overseer",
+        overseer: false,
+        expectedRevision: grantedRevision,
+      }),
+    );
+    await expect(
+      commandCenter.runtime.runPromise(
+        executeOverseerWork(
+          { canvasName: "factory", nodeId: remoteOverseer.nodeId },
+          {
+            operation: "request.comment",
+            args: {
+              target: "inbox",
+              request: requestId,
+              text: "after revoke",
+            },
+          },
+          overseerWorkAdmin(remoteOverseer),
+        ),
+      ),
+    ).rejects.toMatchObject({ type: "AuthError" });
+    await commandCenter.runtime.runPromise(
+      commandCenter.canvases.canvasOverseerSet({
+        canvasName: "factory",
+        nodeId: "remote-overseer",
+        overseer: true,
+        expectedRevision: (
+          await commandCenter.runtime.runPromise(commandCenter.canvases.read("factory"))
+        ).revision,
+      }),
+    );
+
     const secondCreate = await commandCenter.runtime.runPromise(
       executeOverseerWork(
         { canvasName: "factory", nodeId: overseer.nodeId },
@@ -3691,6 +3782,42 @@ describe("Station work authority survives Command Center downtime", () => {
       state: "working",
       claimedBy: remoteOverseer.seatId,
     });
+
+    const selfComment = await commandCenter.runtime.runPromise(
+      executeOverseerWork(
+        { canvasName: "factory", nodeId: remoteOverseer.nodeId },
+        {
+          operation: "tasks.comment",
+          args: {
+            target: "shared-tasks",
+            task: selfId,
+            text: "remote overseer comments on own claim",
+          },
+        },
+        overseerWorkAdmin(remoteOverseer),
+      ),
+    );
+    expect(selfComment).toMatchObject({ disposition: "queued" });
+    const selfCommentId = (selfComment as { readonly messageId: string }).messageId;
+    const selfCommentSync = await commandCenter.runtime.runPromise(
+      commandCenter.propagation.synchronize(
+        {
+          stationInstallationId: remoteId,
+          hostId: stationHostId(remoteHost),
+        },
+        connection.commandCenterSession,
+      ),
+    );
+    expect(selfCommentSync.report).toMatchObject({ inboundRejected: 0 });
+    expect(
+      (
+        await remote.runtime.runPromise(
+          remote.work.readSnapshot("factory", "shared-tasks"),
+        )
+      ).tasks.items.find((task) => task.id === selfId)?.history.some(
+        (message) => message.messageId === selfCommentId,
+      ),
+    ).toBe(true);
 
     const remoteHomeCreate = await remote.runtime.runPromise(
       executeOverseerWork(
