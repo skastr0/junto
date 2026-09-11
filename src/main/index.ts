@@ -1561,6 +1561,21 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           control: stationControl,
           runPromise: (effect) => AppRuntime.runPromise(effect as never),
         });
+        // Same authority route as the displayless Node Remote: overseer
+        // commands from the work control socket forward over this peer
+        // connection using the durable pairing identity. Dispatch still
+        // refuses when the session is down; binding only installs the route.
+        const pairing = await AppRuntime.runPromise(stations.pairing);
+        const remoteInstallationId = await AppRuntime.runPromise(
+          stations.installationId,
+        );
+        if (pairing !== undefined) {
+          overseerComposition.bindStationForward({
+            control: stationControl,
+            remoteInstallationId,
+            commandCenterInstallationId: pairing.commandCenterInstallationId,
+          });
+        }
         if (shutdownAdmissionClosed) {
           stationRemoteReportPumpShutdown ??= stationRemoteReportPump.close();
           stationControl.beginShutdown();
