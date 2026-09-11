@@ -158,8 +158,8 @@ describe("managed-terminal templates (data)", () => {
     );
   });
 
-  it("describes shipped Prime Agent 0.7.1 capabilities honestly", () => {
-    expect(PRIME_AGENT_TEMPLATE.probedVersion).toBe("0.7.1");
+  it("describes shipped Prime Agent 0.9.4 capabilities honestly", () => {
+    expect(PRIME_AGENT_TEMPLATE.probedVersion).toBe("0.9.4");
     expect(PRIME_AGENT_TEMPLATE.displayName).toBe("Prime Agent");
     expect(PRIME_AGENT_TEMPLATE.injectionSpec.tier).toBe("A");
     expect(PRIME_AGENT_TEMPLATE.argvSpec).toMatchObject({
@@ -171,7 +171,17 @@ describe("managed-terminal templates (data)", () => {
       resumeMode: "flag",
       resumeFlag: "-r",
       systemPromptFlag: "--append-system-prompt",
+      resumeReinjection: "unprobed",
     });
+    expect(PRIME_AGENT_TEMPLATE.efforts).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
     expect(PRIME_AGENT_TEMPLATE.capabilityBadges).toMatchObject({
       hooks: true,
       effortAtSpawn: true,

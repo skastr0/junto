@@ -684,11 +684,18 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
  * unattended mode, not an approval enum). Vellum Command owns one isolated
  * foreground daemon per live binding. Its unique --daemon-socket is runtime
  * launch state and must never enter this authorial argv template.
+ *
+ * Re-probed 0.9.4 (2026-09-11): every template-owned spawn flag still exists
+ * on `prime-agent --help` and official usage.md. Changelog 0.7.2–0.9.4 does
+ * not rename or remove `--model`, `--thinking`, `-r` / `--resume`, or
+ * `--append-system-prompt`. Daemon admission is `>= 0.7.1`, not an exact pin.
+ * `resumeReinjection: "unprobed"` stays — append-on-cold-`-r` was not
+ * canaried (UNVERIFIED). Remote SSH TUI was not re-probed (UNVERIFIED).
  */
 export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
   harness: "prime-agent",
   displayName: "Prime Agent",
-  probedVersion: "0.7.1",
+  probedVersion: "0.9.4",
   argvSpec: {
     binary: "prime-agent",
     prefix: [],

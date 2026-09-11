@@ -93,9 +93,10 @@ export const primeAgentRules: SeatRulePack = {
     },
   ],
   // Composer probes — grounded in a live capture of prime-agent v0.8.1
-  // (2026-08-28): the composer is a bare `>` line above the shortcut footer;
-  // empty shows `>   Try "refactor @<filepath>"`, a draft replaces it
-  // (`>  hello`). No ─── rule box, so probes scope to the bottom strip.
+  // (2026-08-28). Not recaptured on 0.9.4 (UNVERIFIED): the composer is a
+  // bare `>` line above the shortcut footer; empty shows
+  // `>   Try "refactor @<filepath>"`, a draft replaces it (`>  hello`).
+  // No ─── rule box, so probes scope to the bottom strip.
   composer: [
     {
       id: "placeholder_hint_empty",
