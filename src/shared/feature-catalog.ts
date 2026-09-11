@@ -41,9 +41,10 @@ export const FEATURE_CATALOG = {
     define: "__VELLUM_COMMAND_DEV_TOOLS_ENABLED__",
   },
   /**
-   * Experimental managed harnesses — seat rules / process-bind still unfinished.
-   * Ship/prod keeps them off; all-on and explicit env overrides re-enable.
-   * Durable HarnessId decode still admits historical canvas rows.
+   * Managed harness authoring gates. Ship now enables all of them — each gate
+   * remains the way back off for a single harness without a rebuild of the
+   * whole surface. Durable HarnessId decode still admits historical canvas
+   * rows in every profile.
    */
   harnessKimi: {
     env: "VELLUM_COMMAND_HARNESS_KIMI",
@@ -99,11 +100,11 @@ export const SHIP_FEATURES: FeatureSet = {
   audio: false,
   hermesIntegration: false,
   devTools: false,
-  harnessKimi: false,
-  harnessMuse: false,
+  harnessKimi: true,
+  harnessMuse: true,
   harnessFx: true,
-  harnessAmp: false,
-  harnessOmp: false,
+  harnessAmp: true,
+  harnessOmp: true,
   harnessPrimeAgent: true,
   harnessSettings: false,
 };

@@ -76,7 +76,8 @@ describe("managed-terminal templates (data)", () => {
     expect(allTemplates().map((template) => template.harness)).toEqual([
       ...expected,
     ]);
-    // Ship defaults: Kimi/Muse off, Prime Agent on (unless overridden).
+    // Ship defaults: every harness gate is on; Hermes still rides the wider
+    // integration gate.
     if (!HERMES_INTEGRATION_ENABLED) {
       expect(expected).not.toContain("hermes");
     }

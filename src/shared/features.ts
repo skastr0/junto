@@ -85,13 +85,13 @@ export const DEV_TOOLS_ENABLED: boolean =
     ? __VELLUM_COMMAND_DEV_TOOLS_ENABLED__
     : envEnabled("VELLUM_COMMAND_DEV_TOOLS");
 
-/** Experimental Kimi Code managed seat — ship/prod off. */
+/** Kimi Code managed seat — ON; the gate stays as the way back off. */
 export const HARNESS_KIMI_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__ === "boolean"
     ? __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__
     : envEnabled("VELLUM_COMMAND_HARNESS_KIMI");
 
-/** Experimental Muse Code managed seat — ship/prod off. */
+/** Muse Code managed seat — ON; the gate stays as the way back off. */
 export const HARNESS_MUSE_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__ === "boolean"
     ? __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__
@@ -115,8 +115,8 @@ export const HARNESS_FX_ENABLED: boolean =
     : envEnabled("VELLUM_COMMAND_HARNESS_FX");
 
 /**
- * Amp managed seat — ship/prod off until its seat rules are proven at ship
- * grade. All-on and the explicit env override keep it exercised in dev.
+ * Amp managed seat — ON; the gate stays as the way back off. Seat rules and
+ * the thread-receipt parser are proven against the installed CLI.
  */
 export const HARNESS_AMP_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_AMP_ENABLED__ === "boolean"
@@ -124,12 +124,12 @@ export const HARNESS_AMP_ENABLED: boolean =
     : envEnabled("VELLUM_COMMAND_HARNESS_AMP");
 
 /**
- * Oh My Pi managed seat — ship/prod off until an approval dialog is captured.
+ * Oh My Pi managed seat — ON, with the gate kept for a fast way back off.
  *
- * Everything else about the seat is proven against 18.0.9 (Tier-A doctrine on
- * argv, title state machine, capture and same-session resume), but its
- * attention rule matches literals taken from the shipped binary rather than a
- * rendered frame, so a seat sitting on a permission prompt may read idle.
+ * Residual, unchanged by the flag: its approval dialog has never been
+ * captured, so the attention rule matches literals taken from the shipped
+ * binary rather than a rendered frame — a seat sitting on a permission prompt
+ * may read idle until that capture exists.
  */
 export const HARNESS_OMP_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_OMP_ENABLED__ === "boolean"

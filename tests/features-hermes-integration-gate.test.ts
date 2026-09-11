@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   HARNESS_AMP_ENABLED,
   HARNESS_FX_ENABLED,
+  HARNESS_KIMI_ENABLED,
+  HARNESS_MUSE_ENABLED,
+  HARNESS_OMP_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   managedHarnessEnabled,
@@ -33,15 +36,18 @@ describe("Hermes integration product gate", () => {
         "grok",
         "pi",
         ...(HARNESS_PRIME_AGENT_ENABLED ? ["prime-agent" as const] : []),
+        ...(HARNESS_KIMI_ENABLED ? ["kimi" as const] : []),
+        ...(HARNESS_MUSE_ENABLED ? ["muse" as const] : []),
         "devin",
         "cursor",
         "agy",
         ...(HARNESS_AMP_ENABLED ? ["amp" as const] : []),
         ...(HARNESS_FX_ENABLED ? ["fx" as const] : []),
+        ...(HARNESS_OMP_ENABLED ? ["omp" as const] : []),
       ]);
       expect(managedHarnessEnabled("hermes")).toBe(false);
-      expect(managedHarnessEnabled("kimi")).toBe(false);
-      expect(managedHarnessEnabled("muse")).toBe(false);
+      expect(managedHarnessEnabled("kimi")).toBe(HARNESS_KIMI_ENABLED);
+      expect(managedHarnessEnabled("muse")).toBe(HARNESS_MUSE_ENABLED);
       expect(managedHarnessEnabled("prime-agent")).toBe(
         HARNESS_PRIME_AGENT_ENABLED,
       );

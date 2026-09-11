@@ -14,14 +14,18 @@ import { SHIP_FEATURES } from "../src/shared/feature-catalog";
 import { resolveBuildFeatures } from "../scripts/build-features";
 
 describe("managed harness product gates", () => {
-  it("ships Prime Agent while keeping Kimi and Muse experimental", () => {
+  it("ships every managed harness gate on", () => {
     const ship = resolveBuildFeatures({});
     expect(ship.profile).toBe("ship");
-    expect(ship.features.harnessKimi).toBe(false);
-    expect(ship.features.harnessMuse).toBe(false);
+    expect(ship.features.harnessKimi).toBe(true);
+    expect(ship.features.harnessMuse).toBe(true);
+    expect(ship.features.harnessAmp).toBe(true);
+    expect(ship.features.harnessOmp).toBe(true);
     expect(ship.features.harnessPrimeAgent).toBe(true);
-    expect(SHIP_FEATURES.harnessKimi).toBe(false);
-    expect(SHIP_FEATURES.harnessMuse).toBe(false);
+    expect(SHIP_FEATURES.harnessKimi).toBe(true);
+    expect(SHIP_FEATURES.harnessMuse).toBe(true);
+    expect(SHIP_FEATURES.harnessAmp).toBe(true);
+    expect(SHIP_FEATURES.harnessOmp).toBe(true);
     expect(SHIP_FEATURES.harnessPrimeAgent).toBe(true);
   });
 

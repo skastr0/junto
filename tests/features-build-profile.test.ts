@@ -26,16 +26,12 @@ describe("compile-time feature profiles", () => {
       audio: false,
       hermesIntegration: false,
       devTools: false,
-      harnessKimi: false,
-      harnessMuse: false,
-      // fx ships ON: it is the lightweight end of the range, and running many
-      // seats at once is the point of having it. The gate stays as the way
-      // back off.
+      // Every managed harness ships ON; each gate remains the way back off.
+      harnessKimi: true,
+      harnessMuse: true,
       harnessFx: true,
-      // Amp ships off until its seat rules are proven at ship grade.
-      harnessAmp: false,
-      // Oh My Pi ships off until its approval dialog is captured.
-      harnessOmp: false,
+      harnessAmp: true,
+      harnessOmp: true,
       harnessPrimeAgent: true,
       harnessSettings: false,
     });
