@@ -93,4 +93,22 @@ describe("attachXtermAutoCopy", () => {
     expect(write).not.toHaveBeenCalled();
     dispose();
   });
+
+  it("does not touch the clipboard while copy-on-select is disabled", async () => {
+    const { attachXtermAutoCopy } = await import(
+      "../src/renderer/lib/xterm-auto-copy"
+    );
+    const host = mockHost();
+    const write = vi.fn(async () => undefined);
+    const dispose = attachXtermAutoCopy(
+      host.el,
+      term("private value"),
+      write,
+      () => false,
+    );
+    host.fireMouseUp();
+    await Promise.resolve();
+    expect(write).not.toHaveBeenCalled();
+    dispose();
+  });
 });

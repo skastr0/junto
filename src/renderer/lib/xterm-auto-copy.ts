@@ -47,11 +47,13 @@ export const attachXtermAutoCopy = (
   host: HTMLElement,
   term: XtermSelectionApi,
   writeClipboard: ClipboardWriter = defaultClipboardWrite,
+  isEnabled: () => boolean = () => true,
 ): (() => void) => {
   let lastCopied: string | undefined;
   let inFlight: string | undefined;
 
   const onMouseUp = (): void => {
+    if (!isEnabled()) return;
     const text = shouldAutoCopySelection(term, lastCopied);
     if (text === undefined) return;
     // Coalesce concurrent mouseup + selectionchange paths.

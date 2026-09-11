@@ -767,7 +767,6 @@ type RemoteDeployScriptCommands = {
   readonly find: string;
   readonly plutil: string;
   readonly stat: string;
-  readonly osascript: string;
   readonly sleep: string;
 };
 
@@ -813,7 +812,6 @@ const PRODUCTION_DEPLOY_SCRIPT_RUNTIME: RemoteDeployScriptRuntime = {
     find: "/usr/bin/find",
     plutil: "/usr/bin/plutil",
     stat: "/usr/bin/stat",
-    osascript: "/usr/bin/osascript",
     sleep: "/bin/sleep",
   },
 };
@@ -921,7 +919,6 @@ CODESIGN=${shellLiteral(runtime.commands.codesign)}
 FIND=${shellLiteral(runtime.commands.find)}
 PLUTIL=${shellLiteral(runtime.commands.plutil)}
 STAT=${shellLiteral(runtime.commands.stat)}
-OSASCRIPT=${shellLiteral(runtime.commands.osascript)}
 SLEEP=${shellLiteral(runtime.commands.sleep)}
 test "$("$UNAME" -s)" = "Darwin" || { echo "REMOTE_NOT_DARWIN $("$UNAME" -s)" >&2; exit 3; }
 APP=${shellLiteral(remoteAppPath)}
@@ -1740,15 +1737,14 @@ else
   fi
 fi
 
-# Ask both the app and launchd to retire an admitted old generation. A first
-# install has no incumbent and does not issue speculative quit/bootout calls.
-# Neither command is treated as proof; the bounded observation below is the
+# Ask launchd to retire an admitted old generation. bootout delivers the
+# process signal consumed by Vellum Command's bounded graceful-shutdown path;
+# avoiding Apple Events means deployment never raises an Automation prompt.
+# A first install has no incumbent and does not issue a speculative bootout.
+# The command is not treated as proof; bounded observation below remains the
 # destructive gate.
 if [ "$OLD_JOB_WAS_LOADED" = "1" ]; then
   INCUMBENT_STOP_REQUESTED=1
-  "$OSASCRIPT" -e ${shellLiteral(`with timeout of 5 seconds
-  tell application "${PRODUCT_NAME}" to quit
-end timeout`)} >/dev/null 2>&1 || true
   "$LAUNCHCTL" bootout "$JOB" >/dev/null 2>&1 || true
 fi
 
@@ -2322,4 +2318,3 @@ export const activateDarwinRemoteRuntimeForTarget = (
       disposition: "ready" as const,
     } satisfies DeployRemoteResult;
   });
-

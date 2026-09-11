@@ -7,6 +7,7 @@ import {
   type UsageState,
 } from "@shared/usage";
 import { UsageCache } from "./usage-cache";
+import { UsagePreferences } from "./preferences";
 import { UsageSources } from "./usage-source";
 
 // Provider usage plane read service.
@@ -54,12 +55,17 @@ export const UsageServiceLive = Layer.effect(
   Effect.gen(function* () {
     const sources = yield* UsageSources;
     const cache = yield* UsageCache;
+    const preferences = yield* UsagePreferences;
     const runtime = yield* Effect.context<never>();
-    const activeSourceIds = new Set(sources.map((source) => source.id));
 
-    /** Drop snapshots from sources not in the current live registry (e.g. stale cached rows). */
+    const activeSources = () => {
+      const enabled = preferences.enabledSources();
+      return sources.filter((source) => enabled.has(source.id));
+    };
+
+    /** Drop stale cache rows and every source the operator has not enabled. */
     const keepActive = (snapshots: ReadonlyArray<UsageSnapshot>): ReadonlyArray<UsageSnapshot> =>
-      snapshots.filter((snapshot) => activeSourceIds.has(snapshot.source));
+      snapshots.filter((snapshot) => activeSources().some((source) => source.id === snapshot.source));
 
     // Instant paint from SQLite when available (always stale until live lands).
     // Cache faults are non-fatal at this read-plane boundary.
@@ -82,12 +88,7 @@ export const UsageServiceLive = Layer.effect(
     const listeners = new Set<(state: UsageState) => void>();
     let inFlight: Promise<UsageState> | null = null;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
-
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        if (pollTimer !== undefined) clearInterval(pollTimer);
-      }),
-    );
+    let accessGeneration = 0;
 
     const notify = (next: UsageState): UsageState => {
       state = next;
@@ -98,7 +99,9 @@ export const UsageServiceLive = Layer.effect(
     /** Commit a successful live payload (has quotas) — persist + clear stale. */
     const commitLive = async (
       snapshots: ReadonlyArray<UsageSnapshot>,
+      generation: number,
     ): Promise<UsageState> => {
+      if (generation !== accessGeneration) return state;
       const next: UsageState = {
         snapshots: [...snapshots],
         stale: false,
@@ -109,6 +112,7 @@ export const UsageServiceLive = Layer.effect(
       await Effect.runPromiseWith(runtime)(
         cache.saveLastGood(next).pipe(Effect.catch(() => Effect.void)),
       );
+      if (generation !== accessGeneration) return state;
       return notify(next);
     };
 
@@ -117,7 +121,11 @@ export const UsageServiceLive = Layer.effect(
      * and keep painting the previous rows. With no last-good: empty state so
      * the HUD hides (fail open — no error chip for missing CLI / empty poll).
      */
-    const commitFailedLive = (snapshots: ReadonlyArray<UsageSnapshot>): UsageState => {
+    const commitFailedLive = (
+      snapshots: ReadonlyArray<UsageSnapshot>,
+      generation: number,
+    ): UsageState => {
+      if (generation !== accessGeneration) return state;
       const error = liveErrorMessage(snapshots);
       if (hasUsageQuotas(state)) {
         return notify({
@@ -136,16 +144,22 @@ export const UsageServiceLive = Layer.effect(
 
     const applyPrimary = async (
       snapshots: ReadonlyArray<UsageSnapshot>,
+      generation: number,
     ): Promise<UsageState> => {
+      if (generation !== accessGeneration) return state;
       const kept = keepActive(snapshots);
       const live: UsageState = { snapshots: [...kept] };
       return hasUsageQuotas(live)
-        ? await commitLive(kept)
-        : commitFailedLive(kept);
+        ? await commitLive(kept, generation)
+        : commitFailedLive(kept, generation);
     };
 
-    const runEnrich = async (primary: ReadonlyArray<UsageSnapshot>): Promise<void> => {
-      const enrichable = sources.filter((source) => source.enrich !== undefined);
+    const runEnrich = async (
+      primary: ReadonlyArray<UsageSnapshot>,
+      generation: number,
+    ): Promise<void> => {
+      if (generation !== accessGeneration) return;
+      const enrichable = activeSources().filter((source) => source.enrich !== undefined);
       if (enrichable.length === 0) return;
       const enriched = await Effect.runPromiseWith(runtime)(
         Effect.all(
@@ -155,6 +169,7 @@ export const UsageServiceLive = Layer.effect(
           { concurrency: "unbounded" },
         ),
       );
+      if (generation !== accessGeneration) return;
       let next = [...(hasUsageQuotas(state) ? state.snapshots : primary)];
       let changed = false;
       for (const entry of enriched) {
@@ -169,19 +184,23 @@ export const UsageServiceLive = Layer.effect(
         }
         changed = true;
       }
-      if (changed) await commitLive(keepActive(next));
+      if (changed) await commitLive(keepActive(next), generation);
     };
 
     const runRefresh = async (): Promise<UsageState> => {
+      const generation = accessGeneration;
+      const admitted = activeSources();
+      if (admitted.length === 0) return notify(emptyState);
       const snapshots = await Effect.runPromiseWith(runtime)(
         Effect.all(
-          sources.map((source) => source.fetch),
+          admitted.map((source) => source.fetch),
           { concurrency: "unbounded" },
         ),
       );
-      const committed = await applyPrimary(snapshots);
+      if (generation !== accessGeneration) return state;
+      const committed = await applyPrimary(snapshots, generation);
       // Multi-account enrich must not delay first paint.
-      void runEnrich(snapshots);
+      void runEnrich(snapshots, generation);
       return committed;
     };
 
@@ -195,10 +214,48 @@ export const UsageServiceLive = Layer.effect(
       return promise;
     };
 
+    const stopPolling = (): void => {
+      if (pollTimer !== undefined) clearInterval(pollTimer);
+      pollTimer = undefined;
+    };
+
+    const restartPolling = (): void => {
+      stopPolling();
+      if (!started || activeSources().length === 0) return;
+      void refresh();
+      pollTimer = setInterval(() => void refresh(), POLL_INTERVAL_MS);
+      pollTimer.unref();
+    };
+
+    const unsubscribeAccess = preferences.subscribeEnabledSources(() => {
+      // Fence old provider work and let newly enabled sources start without
+      // waiting for an obsolete in-flight request to settle.
+      accessGeneration += 1;
+      inFlight = null;
+      notify({ ...state, snapshots: keepActive(state.snapshots) });
+      restartPolling();
+    });
+
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        stopPolling();
+        unsubscribeAccess();
+      }),
+    );
+
     return UsageService.of({
       doctor: Effect.gen(function* () {
+        const admitted = activeSources();
+        if (admitted.length === 0) {
+          return {
+            id: "usage",
+            label: "Provider Usage",
+            status: "ok" as const,
+            detail: "disabled until a provider is explicitly enabled in Settings",
+          };
+        }
         const detected = yield* Effect.all(
-          sources.map((source) => Effect.map(source.detect, (present) => ({ id: source.id, present }))),
+          admitted.map((source) => Effect.map(source.detect, (present) => ({ id: source.id, present }))),
           { concurrency: "unbounded" },
         );
         const available = detected.filter((entry) => entry.present);
@@ -226,10 +283,8 @@ export const UsageServiceLive = Layer.effect(
       start: () => {
         if (started) return;
         started = true;
-        // Immediate first poll — never wait for the interval.
-        void refresh();
-        pollTimer = setInterval(() => void refresh(), POLL_INTERVAL_MS);
-        pollTimer.unref();
+        // No enabled source means no local credential/filesystem/network work.
+        restartPolling();
       },
       subscribe: (listener) => {
         listeners.add(listener);

@@ -1100,8 +1100,14 @@ export function TerminalSurface({
     };
     host.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
 
-    // Drag-select → system clipboard on mouseup.
-    const detachAutoCopy = attachXtermAutoCopy(host, term);
+    // Copy-on-select is explicit opt-in because it replaces the user's system
+    // clipboard. Read live settings so toggling it does not require a restart.
+    const detachAutoCopy = attachXtermAutoCopy(
+      host,
+      term,
+      undefined,
+      () => terminalSettings(state$.settings.peek()).copyOnSelect === true,
+    );
 
     // Live appearance protocol: OSC 10/11 via xterm theme; CSI ?996n / ?2031
     // / live ?997 reports. Policy from settings (follow Vellum Command default).

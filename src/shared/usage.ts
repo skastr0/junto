@@ -86,6 +86,10 @@ export const NATIVE_USAGE_PROVIDERS = [
   "antigravity",
   "synthetic",
 ] as const;
+export type NativeUsageProvider = (typeof NATIVE_USAGE_PROVIDERS)[number];
+
+/** Provider usage sources an operator may explicitly allow to read local state. */
+export const NativeUsageProvider = Schema.Literals([...NATIVE_USAGE_PROVIDERS]);
 
 /** True when any quota extras mark partial / tokens-only coverage. */
 export const usageStateIsPartial = (state: { readonly snapshots: ReadonlyArray<UsageSnapshot> }): boolean =>

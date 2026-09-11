@@ -45,8 +45,18 @@ const OTHER_SECRET = "management-secret-abcdef123456";
 describe("providers settings schema", () => {
   it("defaults carry no provider credentials and still decode", () => {
     const settings = defaultSettings();
-    expect(settings.providers).toEqual({});
+    expect(settings.providers).toEqual({ enabledSources: [] });
     expect(decodeSettingsStrict(settings)).toEqual(settings);
+  });
+
+  it("requires an explicit, validated source allowlist and deduplicates it", () => {
+    const next = applySettingsPatch(defaultSettings(), {
+      providers: { enabledSources: ["claude", "cursor", "claude"] },
+    });
+    expect(next.providers?.enabledSources).toEqual(["claude", "cursor"]);
+    expect(() =>
+      decodePatchStrict({ providers: { enabledSources: ["unknown-provider"] } }),
+    ).toThrow();
   });
 
   it("applySettingsPatch deep-merges provider fields without clobbering siblings", () => {
@@ -178,7 +188,7 @@ describe("providers settings schema", () => {
       hostId: "local",
       supervisedPreferred: false,
     });
-    expect(restored.providers).toEqual({});
+    expect(restored.providers).toEqual({ enabledSources: [] });
     expect(() =>
       Schema.decodeUnknownSync(Settings, { onExcessProperty: "error" })(restored),
     ).not.toThrow();

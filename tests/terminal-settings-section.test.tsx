@@ -104,6 +104,7 @@ describe("terminal settings section", () => {
         letterSpacing: 0.5,
         screenReaderMode: true,
         bell: "visual",
+        copyOnSelect: true,
       },
     });
 
@@ -118,6 +119,7 @@ describe("terminal settings section", () => {
     expect(inputFor(html, "Line height")).toContain('value="1.35"');
     expect(inputFor(html, "Letter spacing")).toContain('value="0.5"');
     expect(inputFor(html, "Screen reader mode")).toContain("checked");
+    expect(inputFor(html, "Copy selection automatically")).toContain("checked");
     // Selects are the design-system dropdown: labelled trigger, selected label.
     expect(selectLabel(html, "Cursor style")).toBe("bar");
     expect(selectLabel(html, "Bell")).toBe("flash the surface");

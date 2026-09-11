@@ -5,6 +5,7 @@ import {
 } from "./browser-limits";
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
+import { NativeUsageProvider } from "./usage";
 
 // Settings plane: one schema-validated aggregate in the app-owned SQLite
 // database. Mutable user prefs are not Effect Config (boot/env) and not
@@ -147,7 +148,7 @@ export const FleetSettings = Schema.Struct({
   ditherLevel: FleetDitherLevel,
   /**
    * When false, managed Remote deployment refuses even if the release line
-   * enables it. Fresh Command Centers enable managed installs by default.
+   * enables it. Fresh Command Centers require an explicit operator opt-in.
    */
   remoteManagedInstalls: Schema.Boolean,
 });
@@ -340,6 +341,8 @@ export const TerminalSettings = Schema.Struct({
   ),
   screenReaderMode: Schema.Boolean,
   bell: TerminalBell,
+  /** Optional so installed settings rows keep decoding; absent means off. */
+  copyOnSelect: Schema.optionalKey(Schema.Boolean),
 });
 export type TerminalSettings = typeof TerminalSettings.Type;
 
@@ -429,6 +432,11 @@ export const PROVIDER_SECTION_KEYS = [
 export type ProviderSectionKey = (typeof PROVIDER_SECTION_KEYS)[number];
 
 export const ProvidersSettings = Schema.Struct({
+  /**
+   * Default empty: no provider source may inspect credentials, browser data,
+   * session history, process state, or the network until explicitly enabled.
+   */
+  enabledSources: Schema.optionalKey(Schema.Array(NativeUsageProvider)),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
   kimi: Schema.optionalKey(KimiProviderCredentials),
@@ -454,7 +462,7 @@ export const PROVIDER_SECRET_FIELDS: Readonly<
   cursor: ["cookieHeader"],
 };
 
-export const defaultProviders = (): ProvidersSettings => ({});
+export const defaultProviders = (): ProvidersSettings => ({ enabledSources: [] });
 
 /**
  * Copy of the aggregate safe for renderers: every configured provider secret
@@ -484,7 +492,10 @@ export const redactProvidersForIpc = (settings: Settings): Settings => {
   if (entries.length === 0) return settings;
   return {
     ...settings,
-    providers: Object.fromEntries(entries) as ProvidersSettings,
+    providers: {
+      enabledSources: [...(providers.enabledSources ?? [])],
+      ...Object.fromEntries(entries),
+    } as ProvidersSettings,
   };
 };
 
@@ -582,6 +593,7 @@ export const TerminalPatch = Schema.Struct({
   ),
   screenReaderMode: Schema.optionalKey(Schema.Boolean),
   bell: Schema.optionalKey(TerminalBell),
+  copyOnSelect: Schema.optionalKey(Schema.Boolean),
 });
 export type TerminalPatch = typeof TerminalPatch.Type;
 
@@ -591,6 +603,7 @@ export type TerminalPatch = typeof TerminalPatch.Type;
  * MASKED_SECRET is a no-op so an echoed masked row cannot clobber the secret.
  */
 export const ProvidersPatch = Schema.Struct({
+  enabledSources: Schema.optionalKey(Schema.Array(NativeUsageProvider)),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
   kimi: Schema.optionalKey(KimiProviderCredentials),
@@ -729,6 +742,8 @@ export const defaultHarnesses = (): HarnessesSettings => ({
  * - cursorBlink — true, because the surface blinks whenever the terminal is
  *   visible; the preference gates that, it does not replace it
  * - bell — "off", because nothing subscribes to xterm's onBell today
+ * - copyOnSelect — off, because selection must not replace the system
+ *   clipboard without explicit operator opt-in
  *
  * tests/settings.test.ts pins the first bullet against the renderer constants
  * so the two copies cannot drift apart silently.
@@ -745,12 +760,13 @@ export const defaultTerminal = (): TerminalSettings => ({
   letterSpacing: 0,
   screenReaderMode: false,
   bell: "off",
+  copyOnSelect: false,
 });
 
-/** Managed Remote deployment is available by default; the operator may disable it. */
+/** Remote package mutation is disabled until the operator explicitly allows it. */
 export const defaultFleet = (): FleetSettings => ({
   ditherLevel: "fine",
-  remoteManagedInstalls: true,
+  remoteManagedInstalls: false,
 });
 
 export const defaultStation = (): StationSettings => ({
@@ -945,7 +961,12 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.providers) {
     const current = next.providers ?? defaultProviders();
-    let providers = current;
+    let providers: ProvidersSettings = patch.providers.enabledSources === undefined
+      ? current
+      : {
+          ...current,
+          enabledSources: [...new Set(patch.providers.enabledSources)],
+        };
     for (const key of PROVIDER_SECTION_KEYS) {
       const sectionPatch: Record<string, string | undefined> | undefined =
         patch.providers[key];

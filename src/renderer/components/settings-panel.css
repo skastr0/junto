@@ -674,9 +674,25 @@
 }
 .settings-provider-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.settings-provider-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  color: var(--color-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.settings-provider-access {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: 11px;
+  line-height: 1.45;
 }
 .settings-provider-field {
   display: grid;

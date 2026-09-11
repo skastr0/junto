@@ -4,6 +4,7 @@ import type { SnapshotBundle, SnapshotState } from "@shared/entities";
 import type { BindingHint } from "@shared/ipc";
 import { HermesPlane } from "./hermes/plane";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { UsagePreferences } from "./usage/preferences";
 
 // Read-only data plane: hermes only. refresh never fails — a broken adapter
 // yields ok:false. Private source adapters are gone, not stubbed.
@@ -97,10 +98,18 @@ const isSubsumedBy = (
 export const makeSnapshotsLive = (
   fetchHermesBundle: () => Promise<SnapshotBundle>,
   livePollingEnabled = true,
-) => Layer.sync(SnapshotsService, () => {
+  access: {
+    readonly enabled: () => boolean;
+    readonly subscribe: (listener: (enabled: boolean) => void) => () => void;
+  } = {
+    enabled: () => true,
+    subscribe: () => () => undefined,
+  },
+) => Layer.effect(SnapshotsService, Effect.gen(function* () {
   let state: SnapshotState = emptyState;
   let lastHints: ReadonlyArray<BindingHint> | undefined;
   let started = false;
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
   const listeners = new Set<(state: SnapshotState) => void>();
 
   let sequenceCounter = 0;
@@ -115,7 +124,7 @@ export const makeSnapshotsLive = (
   ): Promise<SnapshotState> => {
     const hermes = await guarded("hermes", () => fetchHermesBundle());
 
-    if (sequence >= lastCommittedSequence) {
+    if (access.enabled() && sequence >= lastCommittedSequence) {
       lastCommittedSequence = sequence;
       const previous = state.bundles.find((bundle) => bundle.source === "hermes");
       state = { bundles: [retainLastKnownFacts(previous, hermes)] };
@@ -126,6 +135,7 @@ export const makeSnapshotsLive = (
   };
 
   const refresh = (hints?: ReadonlyArray<BindingHint>): Promise<SnapshotState> => {
+    if (!livePollingEnabled || !access.enabled()) return Promise.resolve(state);
     lastHints = hints;
 
     if (inFlight && isSubsumedBy(hints, inFlight.hints)) {
@@ -142,14 +152,48 @@ export const makeSnapshotsLive = (
     return promise;
   };
 
+  const stopPolling = (): void => {
+    if (pollTimer !== undefined) clearInterval(pollTimer);
+    pollTimer = undefined;
+  };
+
+  const syncPolling = (): void => {
+    stopPolling();
+    if (!started || !livePollingEnabled || !access.enabled()) {
+      if (!livePollingEnabled || !access.enabled()) {
+        lastCommittedSequence = ++sequenceCounter;
+        inFlight = null;
+      }
+      if (state.bundles.length > 0) {
+        state = emptyState;
+        for (const listener of listeners) listener(state);
+      }
+      return;
+    }
+    void refresh(lastHints);
+    pollTimer = setInterval(() => void refresh(lastHints), POLL_INTERVAL_MS);
+    pollTimer.unref();
+  };
+
+  const unsubscribeAccess = access.subscribe(() => syncPolling());
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      unsubscribeAccess();
+      stopPolling();
+      listeners.clear();
+    }),
+  );
+
   return SnapshotsService.of({
     doctor: Effect.sync(() => {
-      if (!livePollingEnabled) {
+      if (!livePollingEnabled || !access.enabled()) {
         return {
           id: "snapshots",
           label: "Adapter Snapshots",
           status: "ok" as const,
-          detail: "optional live adapters disabled for this build",
+          detail: livePollingEnabled
+            ? "Hermes access disabled until explicitly enabled in Settings"
+            : "optional live adapters disabled for this build",
           metadata: {
             fleetBlind: "false",
             freshFacts: "0",
@@ -205,29 +249,34 @@ export const makeSnapshotsLive = (
     start: () => {
       if (started) return;
       started = true;
-      if (!livePollingEnabled) return;
-      void refresh(lastHints);
-      setInterval(() => void refresh(lastHints), POLL_INTERVAL_MS);
+      syncPolling();
     },
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
   });
-});
+}));
 
 export const SnapshotsLive = Layer.unwrap(
-  Effect.map(HermesPlane, (plane) =>
-    makeSnapshotsLive(
-      HERMES_INTEGRATION_ENABLED
-        ? plane.fetchBundle
-        : async () => ({
-            source: "hermes" as const,
-            fetchedAt: new Date().toISOString(),
-            ok: true,
-            entities: [],
-          }),
-      HERMES_INTEGRATION_ENABLED,
-    ),
+  Effect.map(
+    Effect.all({ plane: HermesPlane, preferences: UsagePreferences }),
+    ({ plane, preferences }) =>
+      makeSnapshotsLive(
+        HERMES_INTEGRATION_ENABLED
+          ? plane.fetchBundle
+          : async () => ({
+              source: "hermes" as const,
+              fetchedAt: new Date().toISOString(),
+              ok: true,
+              entities: [],
+            }),
+        HERMES_INTEGRATION_ENABLED,
+        {
+          enabled: () => preferences.enabledSources().has("hermes"),
+          subscribe: (listener) =>
+            preferences.subscribeEnabledSources((enabled) => listener(enabled.has("hermes"))),
+        },
+      ),
   ),
 );

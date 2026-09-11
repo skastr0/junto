@@ -12,7 +12,7 @@ import { makeOllamaSource } from "./ollama-source";
 import { makeOpenRouterSource } from "./openrouter-source";
 import { makeOpencodeGoSource } from "./opencodego-source";
 import { makeSyntheticSource } from "./synthetic-source";
-import { OperatorProviderCredentials } from "./operator-credentials";
+import { UsagePreferences } from "./preferences";
 import type { UsageSource } from "./usage-source";
 import { UsageSources } from "./usage-source";
 
@@ -32,15 +32,15 @@ import { UsageSources } from "./usage-source";
  *
  * Sources with an operator-configurable credential tier (copilot, cursor,
  * devin, kimi, ollama, opencode-go, openrouter, synthetic) are built over the
- * OperatorProviderCredentials reader so Settings > Providers sits FIRST in
+ * UsagePreferences reader so Settings > Providers sits FIRST in
  * every resolution chain: operator setting -> env var -> credential files.
  */
-type OperatorProviderCredentialsShape = Context.Service.Shape<
-  typeof OperatorProviderCredentials
+type UsagePreferencesShape = Context.Service.Shape<
+  typeof UsagePreferences
 >;
 
 export const makeNativeUsageSources = (
-  operator: OperatorProviderCredentialsShape,
+  operator: UsagePreferencesShape,
 ): ReadonlyArray<UsageSource> => {
   const readOperator = operator.read;
   return [
@@ -64,7 +64,7 @@ export const makeNativeUsageSources = (
 export const StationUsageSourcesLive = Layer.effect(
   UsageSources,
   Effect.gen(function* () {
-    const operator = yield* OperatorProviderCredentials;
+    const operator = yield* UsagePreferences;
     return [...makeNativeUsageSources(operator)];
   }),
 );

@@ -53,7 +53,7 @@ describe("settings contract", () => {
     expect(settings.browser.maxVisibleSurfaces).toBe(2);
     expect(settings.browser.maxWarmSessions).toBe(3);
     expect(settings.fleet.ditherLevel).toBe("fine");
-    expect(settings.fleet.remoteManagedInstalls).toBe(true);
+    expect(settings.fleet.remoteManagedInstalls).toBe(false);
     expect(settings.advanced.logsExplorer).toBe(false);
   });
 

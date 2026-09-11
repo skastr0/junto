@@ -1,9 +1,9 @@
 import { Layer } from "effect";
 import { StationUsageSourcesLive } from "./native-sources";
 import {
-  makeOperatorProviderCredentialsLive,
-  OperatorProviderCredentials,
-} from "./operator-credentials";
+  UsagePreferences,
+  UsagePreferencesLive,
+} from "./preferences";
 import { UsageCacheLive } from "./usage-cache";
 import { UsageServiceLive } from "./usage-service";
 
@@ -23,9 +23,9 @@ export const UsageLive = Layer.provideMerge(
   UsageServiceLive,
   Layer.provideMerge(
     Layer.mergeAll(StationUsageSourcesLive, UsageCacheLive),
-    makeOperatorProviderCredentialsLive,
+    UsagePreferencesLive,
   ),
 );
 
 /** Re-exported for runtimes that must satisfy the SettingsService link. */
-export { OperatorProviderCredentials };
+export { UsagePreferences };

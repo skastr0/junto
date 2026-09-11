@@ -190,3 +190,45 @@ describe("snapshots.ts refresh() — in-flight coalescing", () => {
     expect(mockFetchHermes).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("snapshots.ts provider access", () => {
+  it("does no Hermes work until enabled and clears live data on revoke", async () => {
+    let enabled = false;
+    const accessListeners = new Set<(enabled: boolean) => void>();
+    const gatedRuntime = ManagedRuntime.make(
+      makeSnapshotsLive(() => mockFetchHermes(), true, {
+        enabled: () => enabled,
+        subscribe: (listener) => {
+          accessListeners.add(listener);
+          return () => accessListeners.delete(listener);
+        },
+      }),
+    );
+
+    try {
+      const snapshots = await gatedRuntime.runPromise(SnapshotsService);
+      snapshots.start();
+      await gatedRuntime.runPromise(snapshots.refresh());
+      expect(mockFetchHermes).not.toHaveBeenCalled();
+
+      enabled = true;
+      for (const listener of accessListeners) listener(enabled);
+      await vi.waitFor(() => expect(mockFetchHermes).toHaveBeenCalledTimes(1));
+      await vi.waitFor(async () =>
+        expect(await gatedRuntime.runPromise(snapshots.current)).toMatchObject({
+          bundles: [{ source: "hermes" }],
+        }),
+      );
+
+      enabled = false;
+      for (const listener of accessListeners) listener(enabled);
+      expect(await gatedRuntime.runPromise(snapshots.current)).toEqual({ bundles: [] });
+      await gatedRuntime.runPromise(snapshots.refresh());
+      expect(mockFetchHermes).toHaveBeenCalledTimes(1);
+    } finally {
+      await gatedRuntime.dispose();
+    }
+
+    expect(accessListeners).toHaveLength(0);
+  });
+});

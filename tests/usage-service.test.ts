@@ -1,5 +1,5 @@
-import { Effect, Layer, ManagedRuntime } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageSnapshot, UsageState } from "../src/shared/usage";
 import {
   UsageCache,
@@ -7,6 +7,7 @@ import {
 } from "../src/main/vellum-command/usage/usage-cache";
 import { UsageSources, type UsageSource } from "../src/main/vellum-command/usage/usage-source";
 import { UsageService, UsageServiceLive } from "../src/main/vellum-command/usage/usage-service";
+import { UsagePreferences } from "../src/main/vellum-command/usage/preferences";
 
 // UsageService mirrors SnapshotsService: closure state, single in-flight
 // fan-out, subscribe, idempotent start. Sources are total (envelope-folded),
@@ -63,9 +64,20 @@ const emptyCache = UsageCache.of({
   saveLastGood: () => Effect.void,
 });
 
+type UsageAccess = Context.Service.Shape<typeof UsagePreferences>;
+
+const fixedUsageAccess = (enabledSourceIds: ReadonlyArray<string>): UsageAccess =>
+  UsagePreferences.of({
+    read: () => ({ enabledSources: [] }),
+    enabledSources: () => new Set(enabledSourceIds),
+    subscribeEnabledSources: () => () => undefined,
+  });
+
 const makeUsageRuntime = (
   sourceValues: ReadonlyArray<UsageSource>,
   cache = emptyCache,
+  enabledSourceIds: ReadonlyArray<string> = sourceValues.map((source) => source.id),
+  access: UsageAccess = fixedUsageAccess(enabledSourceIds),
 ): ManagedRuntime.ManagedRuntime<UsageService, never> =>
   ManagedRuntime.make(
     Layer.provideMerge(
@@ -73,6 +85,10 @@ const makeUsageRuntime = (
       Layer.mergeAll(
         Layer.succeed(UsageSources, sourceValues),
         Layer.succeed(UsageCache, cache),
+        Layer.succeed(
+          UsagePreferences,
+          access,
+        ),
       ),
     ),
   );
@@ -99,6 +115,97 @@ describe("UsageService", () => {
     const usage = await runtime.runPromise(UsageService);
     const state = await runtime.runPromise(usage.current);
     expect(state).toEqual({ snapshots: [] });
+  });
+
+  it("does not detect or fetch any source before explicit provider consent", async () => {
+    await runtime.dispose();
+    runtime = makeUsageRuntime(sources, emptyCache, []);
+    const usage = await runtime.runPromise(UsageService);
+
+    usage.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const doctor = await runtime.runPromise(usage.doctor);
+
+    expect(sources.map((source) => source.fetchCount)).toEqual([0, 0]);
+    expect(doctor.status).toBe("ok");
+    expect(doctor.detail).toContain("explicitly enabled");
+    expect(await runtime.runPromise(usage.current)).toEqual({ snapshots: [] });
+  });
+
+  it("starts only the newly enabled source after consent and removes it on revoke", async () => {
+    await runtime.dispose();
+    let enabled = new Set<string>();
+    const listeners = new Set<(next: ReadonlySet<string>) => void>();
+    const access = UsagePreferences.of({
+      read: () => ({ enabledSources: [] }),
+      enabledSources: () => enabled,
+      subscribeEnabledSources: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    });
+    const setEnabled = (ids: ReadonlyArray<string>) => {
+      enabled = new Set(ids);
+      for (const listener of listeners) listener(enabled);
+    };
+    runtime = makeUsageRuntime(sources, emptyCache, [], access);
+    const usage = await runtime.runPromise(UsageService);
+    usage.start();
+
+    setEnabled(["alpha"]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sources.map((source) => source.fetchCount)).toEqual([1, 0]);
+    expect((await runtime.runPromise(usage.current)).snapshots.map((row) => row.source))
+      .toEqual(["alpha"]);
+
+    setEnabled([]);
+    expect(await runtime.runPromise(usage.current)).toEqual({
+      snapshots: [],
+      stale: false,
+      lastLiveAt: expect.any(String),
+    });
+  });
+
+  it("fences revoked in-flight work while immediately starting newly enabled access", async () => {
+    await runtime.dispose();
+    let resolveAlpha!: (snapshot: UsageSnapshot) => void;
+    const alphaResult = new Promise<UsageSnapshot>((resolve) => {
+      resolveAlpha = resolve;
+    });
+    const racingSources = [
+      fakeSource("alpha", { fetch: () => alphaResult }),
+      fakeSource("beta", { fetch: () => okSnapshot("beta", ["codex"]) }),
+    ] as Array<UsageSource & { readonly fetchCount: number }>;
+    let enabled = new Set(["alpha"]);
+    const listeners = new Set<(next: ReadonlySet<string>) => void>();
+    const access = UsagePreferences.of({
+      read: () => ({ enabledSources: [] }),
+      enabledSources: () => enabled,
+      subscribeEnabledSources: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    });
+    const setEnabled = (ids: ReadonlyArray<string>) => {
+      enabled = new Set(ids);
+      for (const listener of listeners) listener(enabled);
+    };
+    runtime = makeUsageRuntime(racingSources, emptyCache, [], access);
+    const usage = await runtime.runPromise(UsageService);
+    usage.start();
+    await vi.waitFor(() => expect(racingSources[0]?.fetchCount).toBe(1));
+
+    setEnabled(["beta"]);
+    await vi.waitFor(() => expect(racingSources[1]?.fetchCount).toBe(1));
+    await vi.waitFor(async () =>
+      expect((await runtime.runPromise(usage.current)).snapshots.map((row) => row.source))
+        .toEqual(["beta"]),
+    );
+
+    resolveAlpha(okSnapshot("alpha", ["claude"]));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect((await runtime.runPromise(usage.current)).snapshots.map((row) => row.source))
+      .toEqual(["beta"]);
   });
 
   it("refresh merges snapshots from all sources and never rejects", async () => {

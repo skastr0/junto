@@ -118,7 +118,7 @@ describe("managedTerminalOptions", () => {
     expect(options.fastScrollSensitivity).toBe(40);
   });
 
-  it("routes every terminal preference except the bell into an xterm option", () => {
+  it("routes every xterm-owned terminal preference into an xterm option", () => {
     const base = defaultTerminal();
     const bumps: Partial<TerminalSettings> = {
       scrollSensitivity: 9,
@@ -142,10 +142,10 @@ describe("managedTerminalOptions", () => {
       expect(write.changed.length, `${key} reached no xterm option`).toBeGreaterThan(0);
     }
 
-    // The bell is the one preference with no xterm option behind it (xterm 6
-    // exposes onBell only). A field added to TerminalSettings and left out of
-    // the surface fails here rather than shipping as a dead control.
-    expect(Object.keys(bumps).length).toBe(Object.keys(base).length - 1);
+    // Bell response and copy-on-select are event policies rather than xterm
+    // options. Their focused tests pin those paths separately. A new setting
+    // omitted from all three surfaces still fails this count.
+    expect(Object.keys(bumps).length).toBe(Object.keys(base).length - 2);
   });
 });
 

@@ -304,8 +304,7 @@ describe("buildRemoteDeployScript", () => {
     const validation = script.indexOf(
       '"$CODESIGN" --verify --deep --strict',
     );
-    const quit = script.indexOf('"$OSASCRIPT" -e');
-    const bootout = script.indexOf('"$LAUNCHCTL" bootout "$JOB"', quit);
+    const bootout = script.indexOf('"$LAUNCHCTL" bootout "$JOB"', validation);
     const boundedProof = script.indexOf(
       "if ! wait_until_job_and_executable_gone 30; then",
       bootout,
@@ -328,10 +327,9 @@ describe("buildRemoteDeployScript", () => {
     );
 
     expect(validation).toBeGreaterThan(0);
-    expect(quit).toBeGreaterThan(validation);
-    expect(quit).toBeGreaterThan(0);
-    expect(bootout).toBeGreaterThan(quit);
-    expect(script).toContain("with timeout of 5 seconds");
+    expect(bootout).toBeGreaterThan(validation);
+    expect(script).not.toContain("osascript");
+    expect(script).not.toContain("tell application");
     expect(boundedProof).toBeGreaterThan(bootout);
     expect(proofFailure).toBeGreaterThan(boundedProof);
     expect(socketRemoval).toBeGreaterThan(proofFailure);
@@ -359,12 +357,15 @@ describe("buildRemoteDeployScript", () => {
       "INCUMBENT_STOP_REQUESTED=1",
       supervisionRace,
     );
-    const quit = script.indexOf('"$OSASCRIPT" -e', stopRequested);
+    const bootout = script.indexOf(
+      '"$LAUNCHCTL" bootout "$JOB"',
+      stopRequested,
+    );
 
     expect(refusal).toBeGreaterThan(0);
     expect(supervisionRace).toBeGreaterThan(refusal);
     expect(stopRequested).toBeGreaterThan(supervisionRace);
-    expect(quit).toBeGreaterThan(stopRequested);
+    expect(bootout).toBeGreaterThan(stopRequested);
   });
 
   it("uses launchd exclusively and requires a distinct executable-backed generation", () => {
@@ -586,7 +587,7 @@ describe("remote deploy transaction behavior", () => {
       uname: executable("uname", 'echo "Darwin"'),
       id: executable(
         "id",
-        'if [ "${1:-}" = "-un" ]; then echo "remote"; else echo "501"; fi',
+        'if [ "${1:-}" = "-un" ]; then echo "remote"; else /usr/bin/id -u; fi',
       ),
       env: executable(
         "env",
@@ -769,16 +770,12 @@ describe("remote deploy transaction behavior", () => {
           'kind="${raw##*:}"',
           'case "$kind" in',
           '  directory) kind="Directory" ;;',
-          '  "regular file") kind="Regular File" ;;',
+          '  regular*) kind="Regular File" ;;',
           '  socket) kind="Socket" ;;',
           '  *) kind="Unsupported" ;;',
           "esac",
           'printf \'%s:%s\\n\' "$prefix" "$kind"',
         ].join("\n"),
-      ),
-      osascript: executable(
-        "osascript",
-        'echo "quit-requested" >> "$FAKE_STATE/osascript.log"',
       ),
       sleep: executable("sleep", "exit 0"),
     } satisfies RemoteDeployScriptTestRuntime["commands"];
@@ -796,7 +793,7 @@ describe("remote deploy transaction behavior", () => {
       { kind: "app-tar", expectedPackageState },
     );
     const run = (overrides: NodeJS.ProcessEnv = {}) =>
-      spawnSync("/bin/bash", ["-lc", script], {
+      spawnSync("/bin/bash", ["-c", script], {
         encoding: "utf8",
         // Pure hang-safety net (the script's own retry bound is iteration-count,
         // not wall-clock — `sleep` is stubbed to exit 0). 30s gives headroom
@@ -978,7 +975,7 @@ describe("remote deploy transaction behavior", () => {
           `${process.pid}\n`,
         );
         const result = harness.run();
-        expect(result.status).toBe(8);
+        expect(result.status, result.stderr).toBe(8);
         expect(result.stderr).toContain("DEPLOY_ALREADY_IN_PROGRESS");
         expect(result.stderr).not.toContain("DEPLOY_STALE_LOCK_RECLAIMED");
         expect(existsSync(join(harness.state, "tar-ran"))).toBe(false);
@@ -1101,9 +1098,6 @@ describe("remote deploy transaction behavior", () => {
           "old-generation",
         );
         expect(readFileSync(harness.plistPath, "utf8")).toBe("old-plist");
-        expect(
-          existsSync(join(harness.state, "osascript.log")),
-        ).toBe(false);
         const launchctlLog = readFileSync(
           join(harness.state, "launchctl.log"),
           "utf8",

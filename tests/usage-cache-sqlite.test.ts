@@ -21,6 +21,7 @@ import {
   UsageService,
   UsageServiceLive,
 } from "../src/main/vellum-command/usage/usage-service";
+import { UsagePreferences } from "../src/main/vellum-command/usage/preferences";
 
 type EngineRuntime = ManagedRuntime.ManagedRuntime<
   StateEngine,
@@ -117,7 +118,18 @@ const serviceRuntime = (
   const runtime = ManagedRuntime.make(
     Layer.provide(
       UsageServiceLive,
-      Layer.mergeAll(cache, Layer.succeed(UsageSources, sources)),
+      Layer.mergeAll(
+        cache,
+        Layer.succeed(UsageSources, sources),
+        Layer.succeed(
+          UsagePreferences,
+          UsagePreferences.of({
+            read: () => ({ enabledSources: [] }),
+            enabledSources: () => new Set(sources.map((source) => source.id)),
+            subscribeEnabledSources: () => () => undefined,
+          }),
+        ),
+      ),
     ),
   );
   dispose.push(() => runtime.dispose());

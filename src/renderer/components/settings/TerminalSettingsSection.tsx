@@ -265,6 +265,20 @@ export function TerminalSettingsSection() {
         onCommit={(next) => patch({ scrollback: next })}
       />
 
+      <Row
+        label="Copy selection automatically"
+        hint="off by default; selecting text otherwise replaces the system clipboard"
+      >
+        <input
+          type="checkbox"
+          checked={terminal.copyOnSelect === true}
+          aria-label="Copy selection automatically"
+          onChange={(event) =>
+            void patch({ copyOnSelect: event.target.checked })
+          }
+        />
+      </Row>
+
       <div
         className="settings-profile-list"
         role="group"

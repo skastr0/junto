@@ -94,8 +94,8 @@ describe("Hermes integration product gate", () => {
       );
       expect(ipc).toContain("void registerChatIpc(");
       expect(ipc).toContain("AppRuntime.runPromise(ChatServiceContext),");
-      expect(snapshots).toContain(
-        "HERMES_INTEGRATION_ENABLED\n        ? plane.fetchBundle",
+      expect(snapshots).toMatch(
+        /HERMES_INTEGRATION_ENABLED\s*\?\s*plane\.fetchBundle/u,
       );
       expect(terminalIpc).toContain(
         "if (!managedHarnessEnabled(surface.harness))",

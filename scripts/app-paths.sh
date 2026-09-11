@@ -856,20 +856,15 @@ vellum_processes_running() {
     pgrep -f "${APP_DST}/" >/dev/null 2>&1
 }
 
-# Soft-quit any unsupervised Dock/Finder instances (not launchd — use unload).
+# Refuse to replace an unsupervised Dock/Finder instance. Asking the operator
+# to quit it avoids Apple Events and the surprising macOS Automation prompt
+# that osascript would otherwise raise from the installing terminal.
 quit_running_app() {
   if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
     return 0
   fi
   if vellum_processes_running; then
-    log "quitting running ${PRODUCT_NAME} (osascript) …"
-    osascript -e "tell application \"${PRODUCT_NAME}\" to quit" 2>/dev/null || true
-    local i
-    for i in $(seq 1 20); do
-      vellum_processes_running || return 0
-      sleep 0.5
-    done
-    err "${PRODUCT_NAME} processes remain after 10s; refusing to replace the app"
+    err "Quit ${PRODUCT_NAME} before installing; refusing to replace a running app"
     return 1
   fi
   return 0

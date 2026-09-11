@@ -17,9 +17,12 @@ import { useEffect, useState } from "react";
 import { Eye, EyeOff, X } from "lucide-react";
 import {
   MASKED_SECRET,
-  PROVIDER_SECTION_KEYS,
   type ProviderSectionKey,
 } from "@shared/settings";
+import {
+  NATIVE_USAGE_PROVIDERS,
+  type NativeUsageProvider,
+} from "@shared/usage";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { Eyebrow } from "../ui";
@@ -31,47 +34,97 @@ interface ProviderFieldSpec {
 }
 
 interface ProviderSpec {
-  readonly id: ProviderSectionKey;
+  readonly source: NativeUsageProvider;
+  readonly credentials?: ProviderSectionKey;
   readonly label: string;
   readonly blurb: string;
+  readonly access: string;
   readonly fields: ReadonlyArray<ProviderFieldSpec>;
 }
 
 /** Where each credential comes from - operator guidance, not marketing. */
 const PROVIDER_SPECS: ReadonlyArray<ProviderSpec> = [
   {
-    id: "openrouter",
-    label: "OpenRouter",
-    blurb: "Credits and API-key budget windows.",
+    source: "claude",
+    label: "Claude",
+    blurb: "Plan windows from Claude OAuth.",
+    access: "May read ~/.claude credentials and ask macOS Keychain, then contact Anthropic.",
+    fields: [],
+  },
+  {
+    source: "codex",
+    label: "Codex",
+    blurb: "ChatGPT plan limits.",
+    access: "May read ~/.codex/auth.json and contact OpenAI.",
+    fields: [],
+  },
+  {
+    source: "copilot",
+    credentials: "copilot",
+    label: "Copilot",
+    blurb: "GitHub Copilot quota snapshots.",
+    access: "May run gh auth token or read ~/.config/gh/hosts.yml, then contact GitHub.",
     fields: [
       {
-        field: "apiKey",
-        label: "API key",
-        hint: "sk-or-v1 key from openrouter.ai/keys - beats OPENROUTER_API_KEY and key files",
-      },
-      {
-        field: "managementApiKey",
-        label: "Management key (optional)",
-        hint: "openrouter.ai/credits provisioning key - enables per-model spend history",
+        field: "token",
+        label: "GitHub token",
+        hint: "token with Copilot access - beats gh auth login and hosts.yml credentials",
       },
     ],
   },
   {
-    id: "synthetic",
-    label: "Synthetic",
-    blurb: "Quota lanes for synthetic.new plans.",
+    source: "cursor",
+    credentials: "cursor",
+    label: "Cursor",
+    blurb: "Usage summary and event costs from cursor.com.",
+    access: "May read Cursor's local app database for its login cookie, then contact Cursor.",
     fields: [
       {
-        field: "apiKey",
-        label: "API key",
-        hint: "from the synthetic.new dashboard - takes precedence over SYNTHETIC_API_KEY",
+        field: "cookieHeader",
+        label: "Cookie header",
+        hint: "full Cookie header copied from cursor.com - avoids reading Cursor app files",
       },
     ],
   },
   {
-    id: "kimi",
+    source: "devin",
+    credentials: "devin",
+    label: "Devin",
+    blurb: "Live quota readouts from app.devin.ai.",
+    access: "May inspect Chrome profile local storage for a Devin session, then contact Devin.",
+    fields: [
+      {
+        field: "bearerToken",
+        label: "Bearer token",
+        hint: "session bearer token from app.devin.ai requests - avoids reading Chrome profiles",
+      },
+      {
+        field: "organizationId",
+        label: "Organization ID (optional)",
+        hint: "org slug or internal id for the x-cog-org-id header",
+      },
+    ],
+  },
+  {
+    source: "grok",
+    label: "Grok",
+    blurb: "Grok usage and local session totals.",
+    access: "May read ~/.grok credentials and recent session history, then contact xAI.",
+    fields: [],
+  },
+  {
+    source: "hermes",
+    label: "Hermes",
+    blurb: "Usage from local Hermes profiles.",
+    access: "May enumerate ~/.hermes/profiles and query profile state databases.",
+    fields: [],
+  },
+  {
+    source: "kimi",
+    credentials: "kimi",
     label: "Kimi",
     blurb: "Billing windows or Code API usage.",
+    access: "May read ~/.kimi-code credentials, then contact Kimi.",
     fields: [
       {
         field: "authToken",
@@ -86,50 +139,11 @@ const PROVIDER_SPECS: ReadonlyArray<ProviderSpec> = [
     ],
   },
   {
-    id: "devin",
-    label: "Devin",
-    blurb: "Live quota readouts from app.devin.ai.",
-    fields: [
-      {
-        field: "bearerToken",
-        label: "Bearer token",
-        hint: "session bearer token from app.devin.ai requests - beats DEVIN_* env vars",
-      },
-      {
-        field: "organizationId",
-        label: "Organization ID (optional)",
-        hint: "org slug or internal id for the x-cog-org-id header",
-      },
-    ],
-  },
-  {
-    id: "opencodeGo",
-    label: "OpenCode Go",
-    blurb: "Zen rate-limit windows and local cost rows.",
-    fields: [
-      {
-        field: "apiKey",
-        label: "API key",
-        hint: "zen key from opencode.ai - takes precedence over OPENCODE_API_KEY and auth.json",
-      },
-    ],
-  },
-  {
-    id: "copilot",
-    label: "Copilot",
-    blurb: "GitHub Copilot quota snapshots.",
-    fields: [
-      {
-        field: "token",
-        label: "GitHub token",
-        hint: "token with Copilot access - beats gh auth login and hosts.yml credentials",
-      },
-    ],
-  },
-  {
-    id: "ollama",
+    source: "ollama",
+    credentials: "ollama",
     label: "Ollama Cloud",
-    blurb: "Session/hourly/weekly usage from ollama.com.",
+    blurb: "Session, hourly, and weekly usage from ollama.com.",
+    access: "Uses configured or environment credentials, then contacts Ollama Cloud.",
     fields: [
       {
         field: "sessionCookie",
@@ -144,14 +158,56 @@ const PROVIDER_SPECS: ReadonlyArray<ProviderSpec> = [
     ],
   },
   {
-    id: "cursor",
-    label: "Cursor",
-    blurb: "Usage summary and event costs from cursor.com.",
+    source: "opencode-go",
+    credentials: "opencodeGo",
+    label: "OpenCode Go",
+    blurb: "Zen rate-limit windows and local cost rows.",
+    access: "May read OpenCode credentials and query its local usage database, then contact OpenCode.",
     fields: [
       {
-        field: "cookieHeader",
-        label: "Cookie header",
-        hint: "full Cookie header copied from cursor.com - beats CURSOR_COOKIE and app files",
+        field: "apiKey",
+        label: "API key",
+        hint: "zen key from opencode.ai - avoids reading OpenCode auth.json",
+      },
+    ],
+  },
+  {
+    source: "openrouter",
+    credentials: "openrouter",
+    label: "OpenRouter",
+    blurb: "Credits and API-key budget windows.",
+    access: "May read ~/.openrouter or ~/.config/openrouter API keys, then contact OpenRouter.",
+    fields: [
+      {
+        field: "apiKey",
+        label: "API key",
+        hint: "sk-or-v1 key from openrouter.ai/keys - beats OPENROUTER_API_KEY and key files",
+      },
+      {
+        field: "managementApiKey",
+        label: "Management key (optional)",
+        hint: "openrouter.ai/credits provisioning key - enables per-model spend history",
+      },
+    ],
+  },
+  {
+    source: "antigravity",
+    label: "Antigravity",
+    blurb: "Gemini/Antigravity local usage.",
+    access: "May read ~/.gemini conversations and inspect running process command lines and ports.",
+    fields: [],
+  },
+  {
+    source: "synthetic",
+    credentials: "synthetic",
+    label: "Synthetic",
+    blurb: "Quota lanes for synthetic.new plans.",
+    access: "Uses configured or environment credentials, then contacts Synthetic.",
+    fields: [
+      {
+        field: "apiKey",
+        label: "API key",
+        hint: "from the synthetic.new dashboard - takes precedence over SYNTHETIC_API_KEY",
       },
     ],
   },
@@ -243,37 +299,62 @@ function SecretFieldRow({
 
 export function ProvidersSettingsSection() {
   const providers = use$(state$.settings.providers);
+  const enabledSources = new Set(providers?.enabledSources ?? []);
+
+  const setSourceEnabled = (source: NativeUsageProvider, enabled: boolean) => {
+    const next = new Set(enabledSources);
+    if (enabled) next.add(source);
+    else next.delete(source);
+    void patchSettings({
+      providers: {
+        enabledSources: NATIVE_USAGE_PROVIDERS.filter((candidate) => next.has(candidate)),
+      },
+    });
+  };
 
   return (
     <div className="settings-section">
       <p className="settings-note" role="note">
-        Credentials here are deliberate operator intent: each usage source
-        checks its setting first, then environment variables, then local
-        credential files. Values stay in this installation's database and are
-        shown masked - Vellum Command never logs them.
+        Provider access is off by default. Enable only a source you want
+        Vellum Command to read and refresh every five minutes. Each card names the
+        local data and network access it may use. Stored values stay in this
+        installation's database, are shown masked, and are never logged.
       </p>
-      {PROVIDER_SECTION_KEYS.map((key) => {
-        const spec = PROVIDER_SPECS.find((candidate) => candidate.id === key);
-        if (spec === undefined) return null;
-        const section = providers?.[key];
-        const configured = PROVIDER_SPECS.find((c) => c.id === key)?.fields.filter(
+      {PROVIDER_SPECS.map((spec) => {
+        const section = spec.credentials === undefined
+          ? undefined
+          : providers?.[spec.credentials];
+        const configured = spec.fields.filter(
           (field) => {
             const record = section as Record<string, string | undefined> | undefined;
             return record !== undefined && record[field.field] !== undefined;
           },
         ).length ?? 0;
         return (
-          <div key={key} className="settings-provider-card">
+          <div key={spec.source} className="settings-provider-card">
             <div className="settings-provider-head">
-              <Eyebrow>{spec.label}</Eyebrow>
-              <span className="settings-field__hint">
-                {configured > 0 ? `${configured} configured` : spec.blurb}
+              <span className="settings-provider-field__text">
+                <Eyebrow>{spec.label}</Eyebrow>
+                <span className="settings-field__hint">{spec.blurb}</span>
               </span>
+              <label className="settings-provider-enable">
+                <span>{enabledSources.has(spec.source) ? "access on" : "access off"}</span>
+                <input
+                  type="checkbox"
+                  checked={enabledSources.has(spec.source)}
+                  aria-label={`Allow ${spec.label} usage access`}
+                  onChange={(event) => setSourceEnabled(spec.source, event.target.checked)}
+                />
+              </label>
             </div>
+            <p className="settings-provider-access">{spec.access}</p>
+            {configured > 0 ? (
+              <span className="settings-field__hint">{configured} credential fields configured</span>
+            ) : null}
             {spec.fields.map((fieldSpec) => (
               <SecretFieldRow
                 key={fieldSpec.field}
-                providerId={key}
+                providerId={spec.credentials!}
                 spec={fieldSpec}
                 stored={(section as Record<string, string | undefined> | undefined)?.[
                   fieldSpec.field

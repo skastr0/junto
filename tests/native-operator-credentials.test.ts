@@ -184,6 +184,8 @@ describe("operator settings tier sits ahead of env and files", () => {
         ollama: { sessionCookie: OPERATOR_KEY },
         cursor: { cookieHeader: OPERATOR_KEY },
       }),
+      enabledSources: () => new Set(),
+      subscribeEnabledSources: () => () => undefined,
     });
     const ids = sources.map((source) => source.id).sort();
     for (const expected of [
