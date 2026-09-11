@@ -455,6 +455,7 @@ export interface WorkServiceShape {
       finishCriteria?: FinishCriteria,
       rules?: ReadonlyArray<TaskRule>,
       options?: WorkTaskCreateOptions,
+      admin?: OverseerWorkAdmin,
     ) => Effect.Effect<WorkOpResult<Task>>;
     readonly workTaskDescribe: (
       canvas: string,
@@ -1002,6 +1003,50 @@ export const WorkLive = Layer.effect(
         | "artifact.publish",
       admin?: OverseerWorkAdmin,
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
+      if (admin !== undefined) {
+        return requireLiveOverseer(admin).pipe(
+          Effect.flatMap((live) => {
+            const overseerTarget = admitOverseerWorkTarget(
+              read.doc,
+              targetNodeId,
+              op,
+            );
+            if (Result.isFailure(overseerTarget)) {
+              return Effect.fail(
+                new WorkServiceError({
+                  code:
+                    overseerTarget.failure.type === "UnknownTarget"
+                      ? "node_not_found"
+                      : "invalid",
+                  message: overseerTarget.failure.message,
+                }),
+              );
+            }
+            const originActor = live;
+            if (op !== "tasks.claim" && !sameActor(originActor, actor)) {
+              return Effect.fail(
+                new WorkServiceError({
+                  code: "invalid",
+                  message: "overseer admin actor does not match the acting seat",
+                }),
+              );
+            }
+            return readCanvas(originActor.canvasName).pipe(
+              Effect.flatMap((origin) => {
+                const actorNode = nodeById(origin.doc, originActor.nodeId);
+                return actorNode === undefined
+                  ? Effect.fail(
+                    new WorkServiceError({
+                      code: "node_not_found",
+                      message: `actor node "${originActor.nodeId}" not found`,
+                    }),
+                  )
+                  : Effect.succeed(actorNode);
+              }),
+            );
+          }),
+        );
+      }
       const exact = read.actorRefs.filter((candidate) =>
         sameActor(candidate, actor)
       );
@@ -1031,49 +1076,6 @@ export const WorkLive = Layer.effect(
             }),
           )
           : Effect.succeed(actorNode);
-      }
-      if (admin !== undefined) {
-        return requireLiveOverseer(admin).pipe(
-          Effect.flatMap((live) => {
-            if (!sameActor(live, actor)) {
-              return Effect.fail(
-                new WorkServiceError({
-                  code: "invalid",
-                  message: "overseer admin actor does not match the acting seat",
-                }),
-              );
-            }
-            const overseerTarget = admitOverseerWorkTarget(
-              read.doc,
-              targetNodeId,
-              op,
-            );
-            if (Result.isFailure(overseerTarget)) {
-              return Effect.fail(
-                new WorkServiceError({
-                  code:
-                    overseerTarget.failure.type === "UnknownTarget"
-                      ? "node_not_found"
-                      : "invalid",
-                  message: overseerTarget.failure.message,
-                }),
-              );
-            }
-            return readCanvas(actor.canvasName).pipe(
-              Effect.flatMap((origin) => {
-                const actorNode = nodeById(origin.doc, actor.nodeId);
-                return actorNode === undefined
-                  ? Effect.fail(
-                    new WorkServiceError({
-                      code: "node_not_found",
-                      message: `actor node "${actor.nodeId}" not found`,
-                    }),
-                  )
-                  : Effect.succeed(actorNode);
-              }),
-            );
-          }),
-        );
       }
       const admitted = admitWorkTarget(
         read.doc,
@@ -1260,8 +1262,10 @@ export const WorkLive = Layer.effect(
         { readonly operation: "task.claim" }
       >,
       value: T,
+      admin?: OverseerWorkAdmin,
     ): Effect.Effect<WorkMutationOutcome<T>, WorkServiceError> =>
-      requireRoutableRemote(targetInstallationId, context).pipe(
+      beforeCommit(admin).pipe(
+        Effect.flatMap(() => requireRoutableRemote(targetInstallationId, context)),
         Effect.flatMap(() =>
           repository.enqueueRemoteCommand({
             sink: item.sink,
@@ -1277,18 +1281,30 @@ export const WorkLive = Layer.effect(
         }),
       );
 
+    const beforeCommit = (
+      admin?: OverseerWorkAdmin,
+    ): Effect.Effect<void, WorkServiceError> =>
+      admin === undefined
+        ? Effect.void
+        : requireLiveOverseer(admin).pipe(Effect.asVoid);
+
     const local = <T>(
       effect: Effect.Effect<
         { readonly value: T },
         unknown
       >,
+      admin?: OverseerWorkAdmin,
     ): Effect.Effect<WorkMutationOutcome<T>, WorkServiceError> =>
-      effect.pipe(
-        Effect.mapError(toWorkServiceError),
-        Effect.map(({ value }) => ({
-          value,
-          disposition: "applied" as const,
-        })),
+      beforeCommit(admin).pipe(
+        Effect.flatMap(() =>
+          effect.pipe(
+            Effect.mapError(toWorkServiceError),
+            Effect.map(({ value }) => ({
+              value,
+              disposition: "applied" as const,
+            })),
+          ),
+        ),
       );
 
     const itemHome = (
@@ -1342,13 +1358,14 @@ export const WorkLive = Layer.effect(
     return WorkService.of({
       workTaskHome: (canvas, nodeId, taskId) =>
         itemHome("task", canvas, nodeId, taskId),
-      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options) =>
+      workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options, admin) =>
         asResult(
           Effect.gen(function* () {
             const [context, read] = yield* Effect.all([
               stationContext,
               readCanvas(canvas),
             ]);
+            if (admin !== undefined) yield* requireLiveOverseer(admin);
             const node = yield* requireNode(read.doc, nodeId);
             const policy = yield* runPolicy(() =>
               workTaskCreate(
@@ -1394,6 +1411,7 @@ export const WorkLive = Layer.effect(
                   dependencyScope,
                   task,
                 }),
+                admin,
               )
               : yield* enqueue(
                 context,
@@ -1401,6 +1419,7 @@ export const WorkLive = Layer.effect(
                 workItem("task", task.id, canvas, nodeId),
                 { operation: "task.create", task },
                 task,
+                admin,
               );
             return yield* complete(canvas, outcome);
           }),
@@ -2042,6 +2061,7 @@ export const WorkLive = Layer.effect(
                   state: disposition,
                   message,
                 }),
+                admin,
               )
               : yield* enqueue(
                 context,
@@ -2049,6 +2069,7 @@ export const WorkLive = Layer.effect(
                 workItem("task", taskId, canvas, nodeId),
                 action,
                 policy.task,
+                admin,
               );
             return yield* complete(canvas, outcome);
           }),
@@ -2371,6 +2392,7 @@ export const WorkLive = Layer.effect(
                   sentBy,
                   destination,
                 }),
+                admin,
               )
               : yield* enqueue(
                 context,
@@ -2388,6 +2410,7 @@ export const WorkLive = Layer.effect(
                   destination,
                 },
                 materializedMessage,
+                admin,
               );
             if (outcome.disposition === "applied") {
               yield* Effect.gen(function* () {
@@ -2523,6 +2546,7 @@ export const WorkLive = Layer.effect(
                   sentBy,
                   destination,
                 }),
+                admin,
               )
               : yield* enqueue(
                 context,
@@ -2540,6 +2564,7 @@ export const WorkLive = Layer.effect(
                   destination,
                 },
                 materializedMessage,
+                admin,
               );
             if (outcome.disposition === "applied" && taskId === null) {
               messageDelivery.notifyAppended(
@@ -2954,6 +2979,7 @@ export const WorkLive = Layer.effect(
                 request: policy.task,
                 raisedBy,
               }),
+              admin,
             );
             return yield* complete(canvas, outcome);
           }),
@@ -3089,6 +3115,7 @@ export const WorkLive = Layer.effect(
                 artifact: materializedArtifact,
                 publishedBy,
               }),
+              admin,
             );
             return yield* complete(canvas, outcome);
           }),
@@ -3478,6 +3505,7 @@ export const WorkLive = Layer.effect(
                         },
                       })),
                     ),
+                  admin,
                 )
                 : yield* enqueue(
                   context,
@@ -3494,6 +3522,7 @@ export const WorkLive = Layer.effect(
                     pad: current,
                     digest: padToDigest(current),
                   },
+                  admin,
                 );
             if (
               home === context.localInstallationId &&

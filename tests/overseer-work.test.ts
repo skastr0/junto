@@ -48,6 +48,36 @@ const taskNode = (id = "tasks"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "task" } },
 });
 
+const mailboxNode = (id: string): CanvasDoc["nodes"][number] => ({
+  id,
+  type: "text",
+  text: id,
+  x: 400,
+  y: 0,
+  width: 200,
+  height: 100,
+  ether: {
+    entity: { kind: "agent", name: `local:${id}` },
+    terminal: {
+      bindingId: `binding-${id}`,
+      launch: { kind: "harness", argv: ["claude"] },
+      harness: "claude",
+    },
+    host: "local",
+  },
+});
+
+const artifactsNode = (id = "arts"): CanvasDoc["nodes"][number] => ({
+  id,
+  type: "text",
+  text: "artifacts",
+  x: 600,
+  y: 0,
+  width: 200,
+  height: 100,
+  ether: { entity: { kind: "artifacts" } },
+});
+
 const padNode = (id = "pad-1"): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
@@ -59,10 +89,7 @@ const padNode = (id = "pad-1"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "pad" } },
 });
 
-const agentNode = (
-  id: string,
-  overseer = false,
-): CanvasDoc["nodes"][number] => ({
+const agentNode = (id: string): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
   text: id,
@@ -72,7 +99,6 @@ const agentNode = (
   height: 100,
   ether: {
     entity: { kind: "agent", name: `local:${id}` },
-    ...(overseer ? { overseer: true } : {}),
     terminal: {
       bindingId: `binding-${id}`,
       launch: { kind: "harness", argv: ["claude"] },
@@ -82,8 +108,8 @@ const agentNode = (
   },
 });
 
-const factoryDoc = (overseer: boolean, edges: CanvasDoc["edges"]): CanvasDoc => ({
-  nodes: [taskNode(), padNode(), agentNode("boss", overseer), agentNode("worker")],
+const factoryDoc = (edges: CanvasDoc["edges"] = []): CanvasDoc => ({
+  nodes: [taskNode(), padNode(), agentNode("boss"), agentNode("worker")],
   edges,
 });
 
@@ -144,6 +170,28 @@ const actorOn = async (canvas: string, nodeId: string) => {
   return { canvases, read, actor };
 };
 
+const writeFactory = async (
+  canvas: string,
+  edges: CanvasDoc["edges"] = [],
+) => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  await runtime.runPromise(canvases.write(canvas, factoryDoc(edges)));
+  return canvases;
+};
+
+const grantOverseer = async (canvas: string, nodeId: string, overseer: boolean) => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  const read = await runtime.runPromise(canvases.read(canvas));
+  return runtime.runPromise(
+    canvases.canvasOverseerSet({
+      canvasName: canvas,
+      nodeId,
+      overseer,
+      expectedRevision: read.revision,
+    }),
+  );
+};
+
 describe("overseer work authz", () => {
   it("treats the overseer envelope as not an edge grant", () => {
     expect(requiresConnection("overseer")).toBe(false);
@@ -151,7 +199,14 @@ describe("overseer work authz", () => {
   });
 
   it("admits a live overseer without an edge and denies an ordinary agent", () => {
-    const doc = factoryDoc(true, []);
+    const doc = {
+      ...factoryDoc(),
+      nodes: factoryDoc().nodes.map((node) =>
+        node.id === "boss"
+          ? { ...node, ether: { ...node.ether, overseer: true } }
+          : node,
+      ),
+    };
     const overseer = admitOverseerWorkTarget(doc, "tasks", "tasks.list");
     expect(Result.isSuccess(overseer)).toBe(true);
     const ordinary = admitWorkTarget(doc, "worker", "tasks", "tasks.list");
@@ -162,7 +217,15 @@ describe("overseer work authz", () => {
   });
 
   it("refuses operator-seat impersonation and a revoked grant", () => {
-    const doc = factoryDoc(true, []);
+    const granted = {
+      ...factoryDoc(),
+      nodes: factoryDoc().nodes.map((node) =>
+        node.id === "boss"
+          ? { ...node, ether: { ...node.ether, overseer: true } }
+          : node,
+      ),
+    };
+    const doc = granted;
     const live = {
       seatId: Schema.decodeUnknownSync(ActorSeatId)("seat_" + "a".repeat(64)),
       canvasName: "floor",
@@ -179,7 +242,7 @@ describe("overseer work authz", () => {
     );
     expect(Result.isFailure(forged)).toBe(true);
 
-    const revokedDoc = factoryDoc(false, []);
+    const revokedDoc = factoryDoc();
     const revoked = admitLiveOverseer(
       revokedDoc,
       [live],
@@ -192,8 +255,8 @@ describe("overseer work authz", () => {
 
 describe("executeOverseerWork", () => {
   it("lets a no-edge overseer create and comment as the real actor, not the operator", async () => {
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("floor", factoryDoc(true, [])));
+    await writeFactory("floor");
+    await grantOverseer("floor", "boss", true);
     const { actor } = await actorOn("floor", "boss");
     const created = await run(
       executeOverseerWork(
@@ -225,8 +288,8 @@ describe("executeOverseerWork", () => {
   });
 
   it("denies an ordinary agent wrapping itself as overseer admin", async () => {
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("denial", factoryDoc(true, [])));
+    await writeFactory("denial");
+    await grantOverseer("denial", "boss", true);
     const { actor } = await actorOn("denial", "worker");
     await expect(
       run(
@@ -245,10 +308,10 @@ describe("executeOverseerWork", () => {
   });
 
   it("fails after grant revocation at commit", async () => {
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("revoke", factoryDoc(true, [])));
+    await writeFactory("revoke");
+    await grantOverseer("revoke", "boss", true);
     const { actor } = await actorOn("revoke", "boss");
-    await runtime.runPromise(canvases.write("revoke", factoryDoc(false, [])));
+    await grantOverseer("revoke", "boss", false);
     const result = await run(
       executeOverseerWork(
         { canvasName: "revoke", nodeId: "boss" },
@@ -261,8 +324,8 @@ describe("executeOverseerWork", () => {
   });
 
   it("operates on another canvas while keeping origin actor provenance", async () => {
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("here", factoryDoc(true, [])));
+    const canvases = await writeFactory("here");
+    await grantOverseer("here", "boss", true);
     await runtime.runPromise(
       canvases.write("there", {
         nodes: [taskNode(), padNode()],
@@ -300,14 +363,142 @@ describe("executeOverseerWork", () => {
     )).toBe(true);
   });
 
-  it("patches pad ink as the real overseer actor, not the operator", async () => {
-    const canvases = await runtime.runPromise(CanvasesService);
+  it("sends mail and publishes artifacts onto another canvas without an origin alias", async () => {
+    const canvases = await writeFactory("origin-mail");
+    await grantOverseer("origin-mail", "boss", true);
     await runtime.runPromise(
-      canvases.write("admin", {
-        nodes: [taskNode(), padNode(), agentNode("boss", true)],
+      canvases.write("target-mail", {
+        nodes: [mailboxNode("peer"), artifactsNode()],
         edges: [],
       }),
     );
+    const { actor } = await actorOn("origin-mail", "boss");
+    const sent = await run(
+      executeOverseerWork(
+        { canvasName: "origin-mail", nodeId: "boss" },
+        {
+          operation: "msg.send",
+          args: { canvas: "target-mail", target: "peer", text: "hello from origin" },
+        },
+        overseerWorkAdmin(actor),
+      ),
+    );
+    expect(sent).toMatchObject({ disposition: "applied" });
+  });
+
+  it("publishes artifacts on the origin canvas without an edge", async () => {
+    const canvases = await writeFactory("origin-arts");
+    await grantOverseer("origin-arts", "boss", true);
+    await runtime.runPromise(
+      canvases.write("origin-arts", {
+        nodes: [taskNode(), padNode(), agentNode("boss"), agentNode("worker"), artifactsNode()],
+        edges: [],
+      }),
+    );
+    await grantOverseer("origin-arts", "boss", true);
+    const { actor } = await actorOn("origin-arts", "boss");
+    const published = await run(
+      executeOverseerWork(
+        { canvasName: "origin-arts", nodeId: "boss" },
+        {
+          operation: "artifact.publish",
+          args: {
+            target: "arts",
+            parts: [{ kind: "text", text: "proof" }],
+          },
+        },
+        overseerWorkAdmin(actor),
+      ),
+    );
+    expect(published).toMatchObject({ disposition: "applied" });
+  });
+
+  it("refuses cross-canvas artifact publish rather than rewriting origin canvasName", async () => {
+    const canvases = await writeFactory("origin-xart");
+    await grantOverseer("origin-xart", "boss", true);
+    await runtime.runPromise(
+      canvases.write("target-arts", {
+        nodes: [artifactsNode()],
+        edges: [],
+      }),
+    );
+    const { actor } = await actorOn("origin-xart", "boss");
+    const result = await run(
+      executeOverseerWork(
+        { canvasName: "origin-xart", nodeId: "boss" },
+        {
+          operation: "artifact.publish",
+          args: {
+            canvas: "target-arts",
+            target: "arts",
+            parts: [{ kind: "text", text: "proof" }],
+          },
+        },
+        overseerWorkAdmin(actor),
+      ).pipe(Effect.result),
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.type).toBe("InputError");
+    }
+  });
+
+  it("claims for an explicit assignee distinct from the overseer admin", async () => {
+    const canvases = await writeFactory("claim-home");
+    await grantOverseer("claim-home", "boss", true);
+    await runtime.runPromise(
+      canvases.write("claim-board", {
+        nodes: [taskNode(), mailboxNode("assignee")],
+        edges: [{ id: "e-claim", fromNode: "assignee", toNode: "tasks" }],
+      }),
+    );
+    const { actor: boss } = await actorOn("claim-home", "boss");
+    const created = await run(
+      executeOverseerWork(
+        { canvasName: "claim-home", nodeId: "boss" },
+        {
+          operation: "tasks.create",
+          args: {
+            canvas: "claim-board",
+            target: "tasks",
+            brief: "assign me",
+            metadata: { details: "assign me" },
+          },
+        },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const taskId = (created as { readonly id: string }).id;
+    const claimed = await run(
+      executeOverseerWork(
+        { canvasName: "claim-home", nodeId: "boss" },
+        {
+          operation: "tasks.claim",
+          args: { canvas: "claim-board", target: "tasks", task: taskId, actor: "assignee" },
+        },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    expect(claimed).toMatchObject({ disposition: "applied" });
+    const { actor: assignee } = await actorOn("claim-board", "assignee");
+    expect((claimed as { readonly claimedBy?: string }).claimedBy ?? (claimed as { readonly id?: string }).id).toBeDefined();
+    const listed = await run(
+      executeOverseerWork(
+        { canvasName: "claim-home", nodeId: "boss" },
+        { operation: "tasks.list", args: { canvas: "claim-board", target: "tasks" } },
+        overseerWorkAdmin(boss),
+      ),
+    );
+    const row = (listed as { readonly items: ReadonlyArray<{ readonly id: string; readonly claimedBy?: string }> }).items.find(
+      (item) => item.id === taskId,
+    );
+    expect(row?.claimedBy).toBe(assignee.seatId);
+    expect(row?.claimedBy).not.toBe(boss.seatId);
+  });
+
+  it("patches pad ink as the real overseer actor, not the operator", async () => {
+    await writeFactory("admin");
+    await grantOverseer("admin", "boss", true);
     const { actor } = await actorOn("admin", "boss");
     const patched = await run(
       executeOverseerWork(
@@ -346,8 +537,8 @@ describe("executeOverseerWork", () => {
     expect(overseerWorkRunsLocally("content.ingest")).toBe(true);
     expect(overseerWorkRunsLocally("content.path")).toBe(true);
     expect(overseerWorkRunsLocally("tasks.create")).toBe(false);
-    const canvases = await runtime.runPromise(CanvasesService);
-    await runtime.runPromise(canvases.write("bytes", factoryDoc(true, [])));
+    await writeFactory("bytes");
+    await grantOverseer("bytes", "boss", true);
     const { actor } = await actorOn("bytes", "boss");
     const ingested = await run(
       executeOverseerWork(

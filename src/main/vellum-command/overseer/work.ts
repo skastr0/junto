@@ -339,6 +339,7 @@ export const executeOverseerWork = (
           ...(args.waitFor !== undefined ? { waitForMs: args.waitFor } : {}),
           raisedBy: actor,
         },
+        admin,
       );
       return exposeMutation(yield* fromWorkResult(result));
     }
@@ -349,9 +350,12 @@ export const executeOverseerWork = (
       const assignee =
         args.actor === undefined
           ? actor
-          : read.actorRefs.find(
+          : (yield* readCanvas(canvas)).actorRefs.find(
               (candidate) =>
                 candidate.canvasName === canvas && candidate.nodeId === args.actor,
+            ) ??
+            origin.actorRefs.find(
+              (candidate) => candidate.nodeId === args.actor,
             );
       if (assignee === undefined) {
         return yield* failBody({
@@ -554,6 +558,18 @@ export const executeOverseerWork = (
     if (op === "artifact.publish") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
+      if (canvas !== actor.canvasName) {
+        return yield* failBody({
+          type: "InputError",
+          message:
+            "artifact.publish keeps publishedBy on the origin canvas; it cannot rewrite ActorRef.canvasName onto another canvas",
+          details: {
+            caller: actor.nodeId,
+            target: canvas,
+            retryable: false,
+          },
+        });
+      }
       yield* requireTarget(read.doc, target, "artifact.publish");
       const artifact: Artifact = {
         artifactId: args.artifactId?.trim() || ulid(),
