@@ -42,7 +42,7 @@ describe("pad operator and agent docs", () => {
     expect(guide).not.toMatch(/\bVellum\b(?! Command)/);
     expect(guide).not.toMatch(/\bPNG\b/);
     expect(guide).toContain("SVG + digest + look-here crop");
-    expect(guide).toContain("local inverse patch (not durable)");
+    expect(guide).toContain("local inverse patch — durable with the next editor write");
   });
 
   it("docs/pad-architecture.md product sentence matches shipped pad.read", async () => {
@@ -53,6 +53,6 @@ describe("pad operator and agent docs", () => {
     expect(architecture).not.toMatch(/\bPNG\b/);
     expect(architecture).toContain("SVG + digest + look-here crop");
     expect(architecture).toContain("pad.read   → { revision, pad, digest, svg }");
-    expect(architecture).toContain("local inverse patch (not durable)");
+    expect(architecture).toContain("local inverse patch — durable with the next editor write");
   });
 });

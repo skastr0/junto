@@ -34,8 +34,6 @@ import {
   type PadSide,
 } from "@shared/pad";
 import { state$ } from "../../lib/state";
-import { applyWorkCanvasWrite } from "../../lib/mutations";
-import { getVellumCommandApi } from "../../lib/vellum-api";
 import { PadPinThread } from "./PadPinThread";
 import {
   anchorPoint,
@@ -69,7 +67,6 @@ import {
   canZ,
   clientToScene,
   clientToView,
-  cycleSelection,
   dataTransferHasImage,
   defaultInkColor,
   deletePatch,
@@ -84,6 +81,7 @@ import {
   handleHit,
   imageById,
   inversePatches,
+  isControlTarget,
   isShapeTool,
   isTypingTarget,
   moveImage,
@@ -108,6 +106,7 @@ import {
   zOf,
   zPatch,
   zoomAt,
+  type PadCommitOutcome,
   type PadShapeTool,
   type PadTool,
   type ResizeHandle,
@@ -162,6 +161,28 @@ type PendingImage = {
   readonly h: number;
   readonly z: number;
 };
+
+type CommitTask = {
+  readonly operatorPatches: ReadonlyArray<PadPatch>;
+  /** Inverse frame for the operator patches, computed against `base`. */
+  readonly inverse: ReadonlyArray<PadPatch>;
+  readonly deletesPopulatedPin: boolean;
+  /** Pad view the optimistic apply started from; used for rollback. */
+  readonly base: Pad;
+  /** Revision the frames were computed against. */
+  readonly expectedRev: number;
+  readonly retried: boolean;
+};
+
+/** Patch failure codes raised before the server mutates anything. */
+const PRE_APPLY_CODES = new Set([
+  "canvas_not_found",
+  "node_not_found",
+  "illegal_kind",
+  "invalid",
+  "illegal_transition",
+  "wrong_home",
+]);
 
 const statusStroke = (status: PadShape["status"] | undefined): string => {
   switch (status) {
@@ -253,11 +274,15 @@ export function PadEditor({
   pad: remotePad,
   padNodeId,
   onCommit,
+  onReadPad,
   onClose,
 }: {
   readonly pad: Pad;
   readonly padNodeId: string;
-  readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<boolean>;
+  /** Queued pad write; resolves with the authoritative outcome. */
+  readonly onCommit: (patches: ReadonlyArray<PadPatch>) => Promise<PadCommitOutcome>;
+  /** Read (and mark pin threads read) through the host's acceptance path. */
+  readonly onReadPad: (pinId?: string) => Promise<Pad | null>;
   readonly onClose: () => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -266,7 +291,14 @@ export function PadEditor({
   const [camera, setCamera] = useState<Camera>(identityCamera);
   const [tool, setTool] = useState<PadTool>("select");
   const [selectedId, setSelectedId] = useState<string | undefined>();
-  const [gesture, setGesture] = useState<Gesture>({ kind: "idle" });
+  const [gesture, setGestureState] = useState<Gesture>({ kind: "idle" });
+  // Mirror gestures into a ref so stable callbacks (commit, undo, fit) can
+  // check for in-flight drags without re-subscribing.
+  const gestureRef = useRef<Gesture>({ kind: "idle" });
+  const setGesture = useCallback((next: Gesture) => {
+    gestureRef.current = next;
+    setGestureState(next);
+  }, []);
   const [spaceDown, setSpaceDown] = useState(false);
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState("");
@@ -276,9 +308,48 @@ export function PadEditor({
   const [undoDepth, setUndoDepth] = useState(0);
   const [localPad, setLocalPad] = useState<Pad | undefined>();
   const remotePadRef = useRef(remotePad);
+  // Serial commit queue: at most one `onCommit` in flight so revision
+  // accounting sees exactly the patches it dispatched.
+  const commitQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const commitBusyRef = useRef(false);
+  const [commitBusy, setCommitBusy] = useState(false);
+  // Authoritative pad revision the local undo history is based on.
+  const expectedRevRef = useRef(remotePad.revision);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Transient status line; auto-clears so stale errors do not linger.
+  const notice = useCallback((message: string) => {
+    setHint(message);
+    if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = setTimeout(() => setHint(null), 4000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    },
+    [],
+  );
   if (remotePadRef.current !== remotePad) {
     remotePadRef.current = remotePad;
     if (localPad !== undefined) setLocalPad(undefined);
+    // Revision accounting: reads may lag, echo own acks, or reveal foreign
+    // writes. Own acks are adopted in `dispatchCommit` (props never carry
+    // them), so anything beyond the expected revision is foreign.
+    const expected = expectedRevRef.current;
+    if (remotePad.revision < expected) {
+      // Stale echo of an older read; keep the current view.
+    } else if (remotePad.revision === expected) {
+      // Confirms the current base; keep the undo history and preview.
+    } else {
+      const hadHistory =
+        undoRef.current.length > 0 || pendingInverseRef.current.length > 0;
+      undoRef.current = [];
+      pendingInverseRef.current = [];
+      setUndoDepth(0);
+      expectedRevRef.current = remotePad.revision;
+      if (hadHistory) {
+        notice("Pad changed elsewhere. Local undo history was cleared.");
+      }
+    }
   }
   const pad = localPad ?? remotePad;
   const padRef = useRef(pad);
@@ -305,6 +376,8 @@ export function PadEditor({
     clientToScene(camera, { x: event.clientX, y: event.clientY }, originOf());
 
   const fit = useCallback(() => {
+    // Never yank the view out from under an active gesture.
+    if (gestureRef.current.kind !== "idle") return;
     const el = svgRef.current;
     if (!el) return;
     const box = el.getBoundingClientRect();
@@ -328,6 +401,8 @@ export function PadEditor({
     observer.observe(svg);
     const onNativeWheel = (event: WheelEvent) => {
       event.preventDefault();
+      // Zooming mid-gesture corrupts in-flight drag geometry.
+      if (gestureRef.current.kind !== "idle") return;
       const view = clientToView({ x: event.clientX, y: event.clientY }, originOf());
       const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
       setCamera((current) => {
@@ -344,67 +419,166 @@ export function PadEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: wheel/resize bind to this SVG; originOf/fit read refs
   }, []);
 
-  const fittedContent = useRef(false);
-  useEffect(() => {
-    if (fittedContent.current) return;
-    if (padIsEmpty(pad)) return;
-    fittedContent.current = true;
-    fit();
-  }, [fit, pad]);
-
   useEffect(() => {
     if (!selectedPin) return;
-    const api = getVellumCommandApi();
-    if (!api) return;
-    let cancelled = false;
-    void api.workPadRead(canvasName, padNodeId, selectedPin.id).then((result) => {
-      if (cancelled || !result.ok) return;
-      applyWorkCanvasWrite(canvasName, result.doc, result.revision);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [canvasName, padNodeId, selectedPin?.id]);
+    // Marks the pin thread read and accepts a fresh pad through the host so
+    // agent replies written while the pad is open become visible.
+    void onReadPad(selectedPin.id);
+  }, [onReadPad, selectedPin?.id]);
+
+  const dispatchCommit = useCallback(
+    async (task: CommitTask): Promise<boolean> => {
+      const expected = expectedRevRef.current;
+      const hadPending = pendingInverseRef.current.length > 0;
+      const flushed = hadPending
+        ? [...pendingInverseRef.current, ...task.operatorPatches]
+        : task.operatorPatches;
+      commitBusyRef.current = true;
+      setCommitBusy(true);
+      try {
+        const outcome = await onCommit(flushed);
+        if (outcome.ok) {
+          // The batch is durable, so any frames computed before it are spent.
+          pendingInverseRef.current = [];
+          const nextExpected = expected + flushed.length;
+          if (outcome.pad.revision === nextExpected) {
+            // Contiguous own ack: every frame in the batch was applied on a
+            // base that still exists, so undo history remains valid.
+            expectedRevRef.current = nextExpected;
+            if (
+              !task.deletesPopulatedPin &&
+              task.expectedRev === expected &&
+              task.inverse.length > 0
+            ) {
+              undoRef.current = [...undoRef.current, [...task.inverse]];
+              setUndoDepth(undoRef.current.length);
+            }
+          } else {
+            // Revision gap: a foreign write interleaved and every frame we
+            // hold was computed against a base that no longer exists.
+            expectedRevRef.current = outcome.pad.revision;
+            undoRef.current = [];
+            setUndoDepth(0);
+            notice("Pad changed elsewhere. Local undo history was cleared.");
+          }
+          setLocalPad(outcome.pad);
+          return true;
+        }
+        if (hadPending && outcome.code === "illegal_transition" && !task.retried) {
+          // The rejected batch carried pending inverse frames: an undo was
+          // replayed against a stale base. Prove it with a fresh read, then
+          // retry the operator's patches alone once.
+          const fresh = await onReadPad();
+          if (fresh !== null) {
+            const inverseApplicable = Result.isSuccess(
+              applyPatches(fresh, pendingInverseRef.current),
+            );
+            const operatorApplicable = Result.isSuccess(
+              applyPatches(fresh, task.operatorPatches),
+            );
+            pendingInverseRef.current = [];
+            undoRef.current = [];
+            setUndoDepth(0);
+            expectedRevRef.current = fresh.revision;
+            setLocalPad(fresh);
+            if (!inverseApplicable && operatorApplicable) {
+              notice("Pad changed elsewhere. Undo history was cleared.");
+              const retryInverse = inversePatches(fresh, task.operatorPatches);
+              return dispatchCommit({
+                operatorPatches: task.operatorPatches,
+                inverse: Result.isSuccess(retryInverse)
+                  ? [...retryInverse.success]
+                  : [],
+                deletesPopulatedPin: task.deletesPopulatedPin,
+                base: fresh,
+                expectedRev: fresh.revision,
+                retried: true,
+              });
+            }
+          }
+          notice(outcome.message);
+          return false;
+        }
+        if (outcome.code !== undefined && PRE_APPLY_CODES.has(outcome.code)) {
+          // Rejected before anything applied: restore the pre-optimistic view.
+          setLocalPad(task.base);
+        }
+        notice(outcome.message);
+        return false;
+      } finally {
+        commitBusyRef.current = false;
+        setCommitBusy(false);
+      }
+    },
+    [notice, onCommit, onReadPad],
+  );
 
   const commit = useCallback(
-    async (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
-      if (patches.length === 0) return true;
-      const inverse = inversePatches(padRef.current, patches);
-      const flushed =
-        pendingInverseRef.current.length === 0
-          ? patches
-          : [...pendingInverseRef.current, ...patches];
-      const ok = await onCommit(flushed);
-      if (!ok) return false;
-      pendingInverseRef.current = [];
-      const next = applyPatches(padRef.current, patches);
-      if (Result.isSuccess(next)) setLocalPad(next.success);
-      if (Result.isSuccess(inverse) && inverse.success.length > 0) {
-        undoRef.current = [...undoRef.current, inverse.success];
-        setUndoDepth(undoRef.current.length);
-      }
-      return true;
+    (patches: ReadonlyArray<PadPatch>): Promise<boolean> => {
+      if (patches.length === 0) return Promise.resolve(true);
+      const base = padRef.current;
+      const inverse = inversePatches(base, patches);
+      const deletesPopulatedPin = patches.some(
+        (patch) =>
+          patch.op === "delete" &&
+          (base.pins.find((pin) => pin.id === patch.id)?.posts.length ?? 0) > 0,
+      );
+      // Optimistic display; the authoritative pad replaces it at ack.
+      const optimistic = applyPatches(base, patches);
+      if (Result.isSuccess(optimistic)) setLocalPad(optimistic.success);
+      const task: CommitTask = {
+        operatorPatches: [...patches],
+        inverse: Result.isSuccess(inverse) ? [...inverse.success] : [],
+        deletesPopulatedPin,
+        base,
+        expectedRev: expectedRevRef.current,
+        retried: false,
+      };
+      const run = commitQueueRef.current.then(() => dispatchCommit(task));
+      commitQueueRef.current = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
     },
-    [onCommit],
+    [dispatchCommit],
   );
 
   const undo = useCallback(() => {
+    // Undo is a local view change; never interleave with a drag or an
+    // in-flight commit.
+    if (gestureRef.current.kind !== "idle" || commitBusyRef.current) return;
     const applied = applyLocalUndo(padRef.current, undoRef.current);
-    if (!applied || Result.isFailure(applied)) return;
+    if (!applied) return;
+    if (Result.isFailure(applied)) {
+      // The top frame no longer applies. Drop the poisoned frame instead of
+      // wedging the whole stack.
+      undoRef.current = undoRef.current.slice(0, -1);
+      setUndoDepth(undoRef.current.length);
+      notice("That change can no longer be undone.");
+      return;
+    }
     undoRef.current = applied.success.stack.map((frame) => [...frame]);
-    pendingInverseRef.current = [...pendingInverseRef.current, ...applied.success.frame];
+    pendingInverseRef.current = [
+      ...pendingInverseRef.current,
+      ...applied.success.frame,
+    ];
     setUndoDepth(undoRef.current.length);
     setLocalPad(applied.success.pad);
     if (selectedId && !editableLayer(applied.success.pad, selectedId)) {
       setSelectedId(undefined);
     }
-  }, [selectedId]);
+  }, [notice, selectedId]);
 
   const applyDelete = useCallback(async () => {
     if (!selectedId || !canDelete(selectedLayer)) return;
+    const pin = pinById(padRef.current, selectedId);
+    if (pin && pin.posts.length > 0) {
+      notice("Pins with replies cannot be undone — delete removes the thread for good.");
+    }
     await commit([deletePatch(selectedId as PadElementId)]);
     setSelectedId(undefined);
-  }, [commit, selectedId, selectedLayer]);
+  }, [commit, notice, selectedId, selectedLayer]);
 
   const applyZ = useCallback(
     async (delta: 1 | -1) => {
@@ -542,17 +716,32 @@ export function PadEditor({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === " " && !isTypingTarget(event.target)) {
+      if (event.key === " " && !isTypingTarget(event.target) && !isControlTarget(event.target)) {
         if (!event.repeat) setSpaceDown(true);
         event.preventDefault();
         return;
       }
       const typing = isTypingTarget(event.target) || editingLabel;
-      const action = editorKeyAction(event, { typing });
-      if (!action) return;
-      event.preventDefault();
-      event.stopPropagation();
-      switch (action.type) {
+      if (typing && event.key === "Escape") {
+        // Child inputs own Escape (label input cancels itself; the pin thread
+        // dismisses its mention menu and keeps the draft). Do not intercept.
+        return;
+      }
+      const control = !typing && isControlTarget(event.target);
+      const action = editorKeyAction(event, { typing, control });
+      if (action) {
+        event.preventDefault();
+        event.stopPropagation();
+      } else if (!typing) {
+        // The pad surface owns the keyboard while open: a declined key must
+        // not reach the factory canvas behind the modal — ReactFlow's
+        // document-level deleteKeyCode deletes the selected node on
+        // Backspace even when a pad control has focus. Only other listeners
+        // are stopped; native behavior (focus move, button activation,
+        // native Space/Enter) is preserved.
+        event.stopPropagation();
+      }
+      switch (action?.type) {
         case "tool":
           setTool(action.tool);
           setEditingLabel(false);
@@ -568,9 +757,6 @@ export function PadEditor({
           return;
         case "nudge":
           void applyNudge(action.dx, action.dy);
-          return;
-        case "cycle":
-          setSelectedId(cycleSelection(padRef.current, selectedId, action.dir));
           return;
         case "edit-label":
           beginLabelEdit();
@@ -669,18 +855,19 @@ export function PadEditor({
         return;
       }
     }
-    const selectedShape = selectedId ? shapeById(pad, selectedId) : undefined;
-    if (selectedShape) {
-      const side = sideHit(selectedShape, scene, viewSlop(camera, SIDE_VIEW_PX));
-      if (side) {
-        setGesture({ kind: "edge", from: selectedShape.id, fromSide: side, current: scene });
-        return;
-      }
-    }
     const hit = hitTest(pad, scene, viewSlop(camera, HIT_VIEW_PX));
     if (!hit) {
       setSelectedId(undefined);
       return;
+    }
+    // Edge gestures start from any shape's side, selected or not.
+    const hitShape = shapeById(pad, hit.id);
+    if (hitShape) {
+      const side = sideHit(hitShape, scene, viewSlop(camera, SIDE_VIEW_PX));
+      if (side) {
+        setGesture({ kind: "edge", from: hitShape.id, fromSide: side, current: scene });
+        return;
+      }
     }
     setSelectedId(hit.id);
     const layer = editableLayer(pad, hit.id);
@@ -942,7 +1129,7 @@ export function PadEditor({
             aria-label="Undo"
             title="Undo"
             size="sm"
-            disabled={undoDepth === 0}
+            disabled={undoDepth === 0 || commitBusy}
             onClick={undo}
           >
             <Undo2 size={13} />

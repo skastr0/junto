@@ -151,3 +151,87 @@ test("pad pin: wired mention look-here crop; unwired mention refused", async ({
   expect(after.data.pad.pins.map((pin) => pin.id)).toEqual([pinId]);
   expect(after.data.pad.pins[0]?.mentions).toEqual(["seat"]);
 });
+
+test("pad pin: draft survives Escape, mention picks by click, replies arrive live", async ({
+  vellumCommand,
+}) => {
+  const { page } = vellumCommand;
+
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await waitForApi(page);
+  await expect(page.getByTestId("pad-card")).toBeVisible({ timeout: 15_000 });
+
+  const pinId = "thread-pin" as Pad["pins"][number]["id"];
+  const seeded = await patchPad(page, [
+    {
+      op: "pin.upsert",
+      pin: { id: pinId, x: 60, y: 60, mentions: ["seat"] },
+    },
+    {
+      op: "pin.reply",
+      pinId,
+      post: {
+        postId: "seed-post" as Pad["pins"][number]["posts"][number]["postId"],
+        author: { kind: "operator", label: "operator" },
+        parts: [{ kind: "text", text: "seed reply" }],
+      },
+    },
+  ]);
+  expect(seeded.ok).toBe(true);
+  if (!seeded.ok) return;
+
+  await page.locator(".react-flow__node").filter({ has: page.getByTestId("pad-card") }).dblclick();
+  await expect(page.getByTestId("pad-detail")).toBeVisible({ timeout: 15_000 });
+
+  // Select the pin to open its thread.
+  await page.getByTestId("pad-pin").click();
+  const replyBox = page.getByTestId("pad-pin-reply");
+  await expect(replyBox).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("pad-pin-thread")).toContainText("seed reply");
+
+  // Mention menu opens on @, and an option activates on click (mouse users
+  // must not lose the textarea focus or the draft).
+  await replyBox.fill("draft ");
+  await page.keyboard.type("@s");
+  await expect(page.getByTestId("pad-mention-list")).toBeVisible();
+  await page.locator('[data-testid="pad-mention-option"][data-node-id="seat"]').click();
+  // The pick inserts the actor's name (the seeded key) and a trailing space.
+  await expect(replyBox).toHaveValue("draft @local:pad-pin-seat ");
+
+  // Escape dismisses the menu and never destroys the draft.
+  await page.keyboard.type("hello @s");
+  await expect(page.getByTestId("pad-mention-list")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("pad-mention-list")).toHaveCount(0);
+  await expect(replyBox).toHaveValue("draft @local:pad-pin-seat hello @s");
+
+  // Post the reply (⌘ Enter), then an external write — what a wired agent
+  // would do — surfaces in the open thread without closing the pad.
+  await page.keyboard.press("Meta+Enter");
+  await expect
+    .poll(async () => {
+      const read = await readPad(page);
+      return read.ok
+        ? (read.data.pad.pins.find((pin) => pin.id === "thread-pin")?.posts.length ?? 0)
+        : 0;
+    }, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(2);
+
+  const agentReply = await patchPad(page, [
+    {
+      op: "pin.reply",
+      pinId,
+      post: {
+        postId: "agent-live-post" as Pad["pins"][number]["posts"][number]["postId"],
+        author: { kind: "operator", label: "operator" },
+        parts: [{ kind: "text", text: "agent live reply" }],
+      },
+    },
+  ]);
+  expect(agentReply.ok).toBe(true);
+  if (!agentReply.ok) return;
+  await expect(
+    page.getByTestId("pad-pin-thread").getByText("agent live reply"),
+  ).toBeVisible({ timeout: 15_000 });
+});
+

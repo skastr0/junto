@@ -16,7 +16,6 @@ import {
   applyLocalUndo,
   canDelete,
   INK_MIN_DISTANCE,
-  cycleSelection,
   dataTransferHasImage,
   DEFAULT_IMAGE_SIZE,
   draftImageRect,
@@ -111,6 +110,24 @@ describe("pad editor tools", () => {
     expect(
       editorKeyAction({ key: "ArrowRight", metaKey: false, ctrlKey: false, altKey: false, shiftKey: true, target: null }, { typing: false }),
     ).toEqual({ type: "nudge", dx: 10, dy: 0 });
+    // Focused controls own Space/Enter/Backspace/Tab; only Escape joins the
+    // editor cancel chain (see PadEditor's window handler).
+    const control = { typing: false, control: true };
+    expect(
+      editorKeyAction({ key: " ", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, control),
+    ).toBeUndefined();
+    expect(
+      editorKeyAction({ key: "Backspace", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, control),
+    ).toBeUndefined();
+    expect(
+      editorKeyAction({ key: "v", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, control),
+    ).toBeUndefined();
+    expect(
+      editorKeyAction({ key: "Escape", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, control),
+    ).toEqual({ type: "cancel" });
+    expect(
+      editorKeyAction({ key: "Escape", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, target: null }, { typing: true }),
+    ).toEqual({ type: "cancel" });
   });
 });
 
@@ -266,10 +283,50 @@ describe("pad editor inverse patches", () => {
     expect(undone.success.stack).toEqual([]);
     expect(applyLocalUndo(start, [])).toBeUndefined();
   });
+
+  it("produces no frame for a reply-only pin change", () => {
+    const start = expectOk(
+      applyPatches(emptyPad(), [
+        upsertPinPatch({ id: asPadElementId("p1"), x: 12, y: 8, mentions: [] }),
+      ]),
+    );
+    const patches: PadPatch[] = [
+      pinReplyPatch(asPadElementId("p1"), "look here", asPadPostId("post-1")),
+    ];
+    const after = expectOk(applyPatches(start, patches));
+    expect(after.pins[0]?.posts).toHaveLength(1);
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    // Posts are append-only; undoing a reply must not consume an undo step.
+    expect(inverse.success).toEqual([]);
+  });
+
+  it("restores a moved pin shell without touching its posts", () => {
+    const start = expectOk(
+      applyPatches(emptyPad(), [
+        upsertPinPatch({ id: asPadElementId("p1"), x: 12, y: 8, mentions: [] }),
+        pinReplyPatch(asPadElementId("p1"), "look here", asPadPostId("post-1")),
+      ]),
+    );
+    const moved = { id: asPadElementId("p1"), x: 40, y: 30, mentions: [] };
+    const patches: PadPatch[] = [upsertPinPatch(moved)];
+    const inverse = inversePatches(start, patches);
+    expect(Result.isSuccess(inverse)).toBe(true);
+    if (Result.isFailure(inverse)) return;
+    const after = expectOk(applyPatches(start, patches));
+    const undone = expectOk(applyPatches(after, inverse.success));
+    const pin = undone.pins.find((candidate) => candidate.id === "p1");
+    expect(pin).toBeDefined();
+    expect(pin?.x).toBe(12);
+    expect(pin?.y).toBe(8);
+    // The move must not erase the thread that lived on the pin.
+    expect(pin?.posts).toHaveLength(1);
+  });
 });
 
 describe("pad editor selection", () => {
-  it("cycles shapes then edges", () => {
+  it("keeps delete coverage and bounds helpers", () => {
     const pad = expectOk(
       applyPatches(emptyPad(), [
         upsertShapePatch(box("a", { z: 1 })),
@@ -281,9 +338,6 @@ describe("pad editor selection", () => {
         }),
       ]),
     );
-    expect(cycleSelection(pad, undefined, 1)).toBe("b");
-    expect(cycleSelection(pad, "b", 1)).toBe("a");
-    expect(cycleSelection(pad, "a", 1)).toBe("e1");
     expect(canDelete("shape")).toBe(true);
     expect(canDelete("pin")).toBe(true);
     expect(canDelete("ink")).toBe(true);

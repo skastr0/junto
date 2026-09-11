@@ -165,6 +165,16 @@ export function PadPinThread({
               setCursor(event.currentTarget.selectionStart);
             }}
             onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                // Escape dismisses the mention menu (if open) and never
+                // destroys the draft or closes the pad. The editor's global
+                // handler stays out of typing targets; stopPropagation keeps
+                // other window listeners out too.
+                event.preventDefault();
+                event.stopPropagation();
+                setCursor(0);
+                return;
+              }
               if (mention && suggestions.length > 0) {
                 if (event.key === "ArrowDown") {
                   event.preventDefault();
@@ -185,11 +195,6 @@ export function PadPinThread({
                     pickActor(pick.nodeId);
                     return;
                   }
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setCursor(0);
-                  return;
                 }
               }
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -213,9 +218,10 @@ export function PadPinThread({
                       data-testid="pad-mention-option"
                       data-node-id={actor.nodeId}
                       onMouseDown={(event) => {
+                        // Keep focus in the textarea while choosing a mention.
                         event.preventDefault();
-                        pickActor(actor.nodeId);
                       }}
+                      onClick={() => pickActor(actor.nodeId)}
                     >
                       <strong>{actor.label}</strong>
                       <span>{actor.nodeId}</span>

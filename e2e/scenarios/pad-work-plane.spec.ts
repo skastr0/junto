@@ -157,3 +157,78 @@ test("pad work plane: create, wire seat, patch box, read, persist across reload"
   expect(afterReload.data.pad.shapes.map((shape) => shape.text)).toContain("api-box");
   expect(afterReload.data.pad.revision).toBeGreaterThanOrEqual(seen.data.revision);
 });
+
+test("pad work plane: an external patch surfaces in the open pad", async ({
+  vellumCommand,
+}) => {
+  const { page } = vellumCommand;
+
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await waitForApi(page);
+  await expect(page.locator(".react-flow__node", { hasText: "seat" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await page.getByRole("button", { name: "Add canvas item" }).click();
+  const deck = page.getByRole("dialog", { name: "Add canvas item" });
+  await expect(deck).toBeVisible();
+  await deck.getByRole("searchbox", { name: "Search nodes and agents" }).fill("pad");
+  await deck.locator(".node-deck-catalog__card").filter({ hasText: "Pad" }).click();
+  await expect(deck).toHaveCount(0);
+
+  const padCard = page.getByTestId("pad-card");
+  await expect(padCard).toBeVisible({ timeout: 15_000 });
+
+  let padId = "";
+  await expect
+    .poll(
+      async () => {
+        padId = await page.evaluate(async (canvas) => {
+          const read = await window.vellumCommand!.readCanvas(canvas);
+          return (
+            read.doc.nodes.find((node) => node.ether?.entity?.kind === "pad")?.id ??
+            ""
+          );
+        }, CANVAS);
+        return padId.length;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(0);
+
+  // Open the pad on empty content, then patch it from outside the editor —
+  // the call a wired agent makes. The open surface must pick the patch up
+  // without closing.
+  await page.locator(".react-flow__node").filter({ has: padCard }).dblclick();
+  const detail = page.getByTestId("pad-detail");
+  await expect(detail).toBeVisible({ timeout: 15_000 });
+  const svg = page.getByTestId("pad-svg");
+  await expect(svg).toBeVisible();
+
+  const patched = await patchPad(page, padId, [
+    {
+      op: "upsert",
+      layer: "shape",
+      shape: {
+        id: "external-box" as Pad["shapes"][number]["id"],
+        type: "box",
+        x: 20,
+        y: 20,
+        w: 80,
+        h: 40,
+        z: 0,
+        text: "external-box",
+      },
+    },
+  ]);
+  expect(patched.ok).toBe(true);
+  if (!patched.ok) return;
+
+  await expect(svg.getByText("external-box")).toBeVisible({ timeout: 15_000 });
+  await expect(
+    detail.getByText(new RegExp(`rev ${patched.data.revision}$`)),
+  ).toBeVisible({ timeout: 15_000 });
+
+  await detail.getByRole("button", { name: "Close pad", exact: true }).click();
+  await expect(detail).toHaveCount(0);
+});

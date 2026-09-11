@@ -36,6 +36,14 @@ export type PadShapeTool = (typeof PAD_SHAPE_TOOLS)[number];
 export const PAD_TOOLS = ["select", ...PAD_SHAPE_TOOLS, "pin", "image", "ink"] as const;
 export type PadTool = (typeof PAD_TOOLS)[number];
 
+/**
+ * Result of an editor commit. The acknowledged pad is authoritative — the
+ * editor must adopt it instead of replaying local patches across the await.
+ */
+export type PadCommitOutcome =
+  | { readonly ok: true; readonly pad: Pad }
+  | { readonly ok: false; readonly code?: string; readonly message: string };
+
 export const PAD_TOOL_KEYS: Readonly<Record<string, PadTool>> = {
   v: "select",
   r: "box",
@@ -106,7 +114,6 @@ export type EditorKeyAction =
   | { readonly type: "undo" }
   | { readonly type: "z"; readonly delta: 1 | -1 }
   | { readonly type: "nudge"; readonly dx: number; readonly dy: number }
-  | { readonly type: "cycle"; readonly dir: 1 | -1 }
   | { readonly type: "edit-label" }
   | { readonly type: "cancel" };
 
@@ -122,11 +129,25 @@ export const isTypingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement &&
   Boolean(target.closest("input, textarea, [contenteditable='true']"));
 
+/**
+ * Non-editing controls (toolbar buttons, mention chips, mention options).
+ * Drawing shortcuts, delete, undo, nudges, and Tab must not steal these —
+ * Space/Enter activate the focused control natively; only Escape still
+ * reaches the editor chain.
+ */
+export const isControlTarget = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  Boolean(
+    target.closest("button, a, select, [role='button'], [role='option']"),
+  );
+
 export const editorKeyAction = (
   event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "target">,
-  options: { readonly typing: boolean },
+  options: { readonly typing: boolean; readonly control?: boolean },
 ): EditorKeyAction | undefined => {
-  if (options.typing) {
+  // Typing surfaces and focused controls own their keys; only Escape joins
+  // the editor's cancel chain.
+  if (options.typing || options.control) {
     return event.key === "Escape" ? { type: "cancel" } : undefined;
   }
   if (event.altKey) return undefined;
@@ -141,7 +162,6 @@ export const editorKeyAction = (
   if (event.key === "]") return { type: "z", delta: 1 };
   if (event.key === "Escape") return { type: "cancel" };
   if (event.key === "Enter") return { type: "edit-label" };
-  if (event.key === "Tab") return { type: "cycle", dir: event.shiftKey ? -1 : 1 };
   const step = event.shiftKey ? 10 : 1;
   if (event.key === "ArrowLeft") return { type: "nudge", dx: -step, dy: 0 };
   if (event.key === "ArrowRight") return { type: "nudge", dx: step, dy: 0 };
@@ -596,8 +616,19 @@ const upsertFromSnap = (snap: ElementSnap): PadPatch => {
   }
 };
 
+/**
+ * Pin snaps compare as shells: posts are append-only (no patch removes one),
+ * so a pin.reply diff must not produce a no-op undo frame, and a shell-only
+ * diff must not drag posts into the comparison.
+ */
+const snapKey = (snap: ElementSnap | undefined): string | undefined => {
+  if (snap === undefined) return undefined;
+  if (snap.layer !== "pin") return JSON.stringify(snap);
+  return JSON.stringify({ ...snap, pin: { ...snap.pin, posts: [] } });
+};
+
 const sameSnap = (a: ElementSnap | undefined, b: ElementSnap | undefined): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
+  snapKey(a) === snapKey(b);
 
 const layerRank = (snap: ElementSnap): number => {
   switch (snap.layer) {
@@ -711,31 +742,6 @@ export const canZ = (layer: ReturnType<typeof editableLayer>): boolean =>
 
 export const canDelete = (layer: ReturnType<typeof editableLayer>): boolean =>
   layer === "shape" || layer === "edge" || layer === "image" || layer === "ink" || layer === "pin";
-
-export const cycleSelection = (
-  pad: Pad,
-  selectedId: string | undefined,
-  dir: 1 | -1,
-): string | undefined => {
-  const ids = [
-    ...[...pad.shapes]
-      .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id))
-      .map((item) => item.id),
-    ...[...pad.images]
-      .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id))
-      .map((item) => item.id),
-    ...[...pad.inks]
-      .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id))
-      .map((item) => item.id),
-    ...pad.edges.map((item) => item.id),
-    ...pad.pins.map((item) => item.id),
-  ];
-  if (ids.length === 0) return undefined;
-  if (!selectedId) return dir === 1 ? ids[0] : ids[ids.length - 1];
-  const index = ids.findIndex((id) => id === selectedId);
-  if (index < 0) return ids[0];
-  return ids[(index + dir + ids.length) % ids.length];
-};
 
 export const zOf = (pad: Pad, id: string): number | undefined => {
   const snap = snapOf(pad, id);

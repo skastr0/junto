@@ -28,9 +28,16 @@ is a `PadPatch`. Theme is the dim command room, not a crayon whiteboard.
 | `d` | ink — record points, upsert on pointer up |
 | `[` `]` | z inside the layer |
 | delete | delete the selection |
-| `⌘z` | local inverse patch (not durable) |
+| `⌘z` | local inverse patch — durable with the next editor write |
 | space + drag / middle mouse | pan |
 | wheel | zoom |
+
+Undo changes the local view immediately. Pending inverse patches become
+durable with the next successful editor write; closing before that write
+discards them. External pad changes clear local undo history. Deleting a
+pin that has replies is not undoable — the confirm-free delete removes
+the thread for good. Typing targets (label input, pin reply) and focused
+controls own their keys; only `Esc` joins the editor cancel chain.
 
 Empty pad: mark the page. `R` box, `P` pin, `I` image, `D` ink.
 
@@ -101,7 +108,9 @@ an unwired agent. `pin.reply` authors are stamped by WorkService.
 
 `pad.read` with `pinId`, or `vellum-command pad look-here`. Crop is
 `pin.bounds` when present, otherwise the pin ± margin. Use it when the
-operator pointed at a region.
+operator pointed at a region. A pinId that no longer resolves degrades a
+`pad.read` to a plain read (`lookHere` omitted, nothing marked read);
+`vellum-command pad look-here` stays strict and fails on the same input.
 
 ### tagged
 

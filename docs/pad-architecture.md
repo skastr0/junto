@@ -215,7 +215,14 @@ All writes are `PadPatch`. No xyflow.
 | `d` | ink (record points, upsert on pointerup) |
 | `[` `]` | z inside layer |
 | `delete` | delete |
-| `⌘z` | local inverse patch (not durable) |
+| `⌘z` | local inverse patch — durable with the next editor write |
+
+Undo changes the local view immediately. Pending inverse patches become
+durable with the next successful editor write; closing before that write
+discards them. External pad changes (any read past the expected revision)
+clear local undo history. Deleting a pin with replies is not undoable.
+Typing targets and focused controls own their keys; only `Esc` joins the
+editor cancel chain.
 
 Factory card thumbnail is framed `padToSvg` or the empty-state glyph.
 Theme tokens from `src/shared/theme`. This is a Vellum Command
