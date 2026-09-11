@@ -53,7 +53,10 @@ const taskNode = (id = "tasks"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "task" } },
 });
 
-const mailboxNode = (id: string): CanvasDoc["nodes"][number] => ({
+const mailboxNode = (
+  id: string,
+  canvas = "mailbox",
+): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
   text: id,
@@ -62,9 +65,9 @@ const mailboxNode = (id: string): CanvasDoc["nodes"][number] => ({
   width: 200,
   height: 100,
   ether: {
-    entity: { kind: "agent", name: `local:${id}` },
+    entity: { kind: "agent", name: `local:${canvas}-${id}` },
     terminal: {
-      bindingId: `binding-${id}`,
+      bindingId: `binding-${canvas}-${id}`,
       launch: { kind: "harness", argv: ["claude"] },
       harness: "claude",
     },
@@ -94,7 +97,11 @@ const padNode = (id = "pad-1"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "pad" } },
 });
 
-const agentNode = (id: string): CanvasDoc["nodes"][number] => ({
+const agentNode = (
+  id: string,
+  canvas = "factory",
+  hostId = "local",
+): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
   text: id,
@@ -103,18 +110,26 @@ const agentNode = (id: string): CanvasDoc["nodes"][number] => ({
   width: 200,
   height: 100,
   ether: {
-    entity: { kind: "agent", name: `local:${id}` },
+    entity: { kind: "agent", name: `${hostId}:${canvas}-${id}` },
     terminal: {
-      bindingId: `binding-${id}`,
+      bindingId: `binding-${canvas}-${id}`,
       launch: { kind: "harness", argv: ["claude"] },
       harness: "claude",
     },
-    host: "local",
+    host: hostId,
   },
 });
 
-const factoryDoc = (edges: CanvasDoc["edges"] = []): CanvasDoc => ({
-  nodes: [taskNode(), padNode(), agentNode("boss"), agentNode("worker")],
+const factoryDoc = (
+  canvas: string,
+  edges: CanvasDoc["edges"] = [],
+): CanvasDoc => ({
+  nodes: [
+    taskNode(),
+    padNode(),
+    agentNode("boss", canvas),
+    agentNode("worker", canvas),
+  ],
   edges,
 });
 
@@ -180,7 +195,7 @@ const writeFactory = async (
   edges: CanvasDoc["edges"] = [],
 ) => {
   const canvases = await runtime.runPromise(CanvasesService);
-  await runtime.runPromise(canvases.write(canvas, factoryDoc(edges)));
+  await runtime.runPromise(canvases.write(canvas, factoryDoc(canvas, edges)));
   return canvases;
 };
 
@@ -205,8 +220,8 @@ describe("overseer work authz", () => {
 
   it("admits a live overseer without an edge and denies an ordinary agent", () => {
     const doc = {
-      ...factoryDoc(),
-      nodes: factoryDoc().nodes.map((node) =>
+      ...factoryDoc("pure"),
+      nodes: factoryDoc("pure").nodes.map((node) =>
         node.id === "boss"
           ? { ...node, ether: { ...node.ether, overseer: true } }
           : node,
@@ -223,8 +238,8 @@ describe("overseer work authz", () => {
 
   it("refuses operator-seat impersonation and a revoked grant", () => {
     const granted = {
-      ...factoryDoc(),
-      nodes: factoryDoc().nodes.map((node) =>
+      ...factoryDoc("pure"),
+      nodes: factoryDoc("pure").nodes.map((node) =>
         node.id === "boss"
           ? { ...node, ether: { ...node.ether, overseer: true } }
           : node,
@@ -247,7 +262,7 @@ describe("overseer work authz", () => {
     );
     expect(Result.isFailure(forged)).toBe(true);
 
-    const revokedDoc = factoryDoc();
+    const revokedDoc = factoryDoc("pure");
     const revoked = admitLiveOverseer(
       revokedDoc,
       [live],
@@ -373,7 +388,7 @@ describe("executeOverseerWork", () => {
     await grantOverseer("origin-mail", "boss", true);
     await runtime.runPromise(
       canvases.write("target-mail", {
-        nodes: [mailboxNode("peer"), artifactsNode()],
+        nodes: [mailboxNode("peer", "target-mail"), artifactsNode()],
         edges: [],
       }),
     );
@@ -396,7 +411,13 @@ describe("executeOverseerWork", () => {
     await grantOverseer("origin-arts", "boss", true);
     await runtime.runPromise(
       canvases.write("origin-arts", {
-        nodes: [taskNode(), padNode(), agentNode("boss"), agentNode("worker"), artifactsNode()],
+        nodes: [
+          taskNode(),
+          padNode(),
+          agentNode("boss", "origin-arts"),
+          agentNode("worker", "origin-arts"),
+          artifactsNode(),
+        ],
         edges: [],
       }),
     );
@@ -463,14 +484,8 @@ describe("executeOverseerWork", () => {
     await runtime.runPromise(
       canvases.write("remote-origin", {
         nodes: [
-          {
-            ...agentNode("boss"),
-            ether: {
-              ...agentNode("boss").ether,
-              host: remoteHost,
-            },
-          },
-          agentNode("worker"),
+          agentNode("boss", "remote-origin", remoteHost),
+          agentNode("worker", "remote-origin"),
           taskNode(),
           padNode(),
         ],
@@ -508,7 +523,7 @@ describe("executeOverseerWork", () => {
     await grantOverseer("claim-home", "boss", true);
     await runtime.runPromise(
       canvases.write("claim-board", {
-        nodes: [taskNode(), mailboxNode("assignee")],
+        nodes: [taskNode(), mailboxNode("assignee", "claim-board")],
         edges: [{ id: "e-claim", fromNode: "assignee", toNode: "tasks" }],
       }),
     );
