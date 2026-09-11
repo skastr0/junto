@@ -988,6 +988,36 @@ export const WorkLive = Layer.effect(
         }),
       );
 
+    const requireExactActorNode = (
+      actor: ActorRef,
+    ): Effect.Effect<CanvasNode, WorkServiceError> =>
+      readCanvas(actor.canvasName).pipe(
+        Effect.flatMap((origin) => {
+          const exact = origin.actorRefs.filter((candidate) =>
+            sameActor(candidate, actor)
+          );
+          if (exact.length !== 1) {
+            return Effect.fail(
+              new WorkServiceError({
+                code: "invalid",
+                message:
+                  `actor ${JSON.stringify(actor.nodeId)} does not identify exactly one ` +
+                  "compiled actor seat in the current projection",
+              }),
+            );
+          }
+          const actorNode = nodeById(origin.doc, actor.nodeId);
+          return actorNode === undefined
+            ? Effect.fail(
+              new WorkServiceError({
+                code: "node_not_found",
+                message: `actor node "${actor.nodeId}" not found`,
+              }),
+            )
+            : Effect.succeed(actorNode);
+        }),
+      );
+
     const requireActor = (
       read: CanvasReadResult,
       actor: ActorRef,
@@ -1022,8 +1052,7 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            const originActor = live;
-            if (op !== "tasks.claim" && !sameActor(originActor, actor)) {
+            if (op !== "tasks.claim" && !sameActor(live, actor)) {
               return Effect.fail(
                 new WorkServiceError({
                   code: "invalid",
@@ -1031,19 +1060,10 @@ export const WorkLive = Layer.effect(
                 }),
               );
             }
-            return readCanvas(originActor.canvasName).pipe(
-              Effect.flatMap((origin) => {
-                const actorNode = nodeById(origin.doc, originActor.nodeId);
-                return actorNode === undefined
-                  ? Effect.fail(
-                    new WorkServiceError({
-                      code: "node_not_found",
-                      message: `actor node "${originActor.nodeId}" not found`,
-                    }),
-                  )
-                  : Effect.succeed(actorNode);
-              }),
-            );
+            // Administrative authorization is the live overseer. Residency and
+            // claim routing use the acting seat's exact ActorRef/node, never
+            // the overseer's installation as a stand-in.
+            return requireExactActorNode(actor);
           }),
         );
       }
@@ -1188,26 +1208,28 @@ export const WorkLive = Layer.effect(
     ): Effect.Effect<CanvasNode, WorkServiceError> =>
       requireActor(read, actor, targetNodeId, op, admin).pipe(
         Effect.flatMap((actorNode) =>
-          homeForNode(actorNode, context).pipe(
-            Effect.flatMap((actorHome) =>
-              actorHome === context.localInstallationId
-                ? Effect.succeed(actorNode)
-                : Effect.fail(
-                  new WorkServiceError({
-                    code: "wrong_home",
-                    message:
-                      `${op} must originate on the installation that owns ` +
-                      `actor ${JSON.stringify(actor.nodeId)}`,
-                    details: {
-                      caller: actor.nodeId,
-                      retryable: false,
-                      next_step:
-                        "run this op from the installation that owns the actor",
-                    },
-                  }),
-                )
-            ),
-          )
+          admin !== undefined
+            ? Effect.succeed(actorNode)
+            : homeForNode(actorNode, context).pipe(
+              Effect.flatMap((actorHome) =>
+                actorHome === context.localInstallationId
+                  ? Effect.succeed(actorNode)
+                  : Effect.fail(
+                    new WorkServiceError({
+                      code: "wrong_home",
+                      message:
+                        `${op} must originate on the installation that owns ` +
+                        `actor ${JSON.stringify(actor.nodeId)}`,
+                      details: {
+                        caller: actor.nodeId,
+                        retryable: false,
+                        next_step:
+                          "run this op from the installation that owns the actor",
+                      },
+                    }),
+                  )
+              ),
+            )
         ),
       );
 
@@ -2292,6 +2314,7 @@ export const WorkLive = Layer.effect(
                   taskId,
                   actor,
                 }),
+                admin,
               );
             } else {
               if (context.configuration.role !== "command-center") {
@@ -2315,6 +2338,7 @@ export const WorkLive = Layer.effect(
                     `actor host ${JSON.stringify(hostId)} has no exact enrolled Station target`,
                 });
               }
+              yield* beforeCommit(admin);
               const witness = yield* livePeers
                 .require(hostId, actorHome)
                 .pipe(Effect.mapError(toWorkServiceError));
@@ -2952,7 +2976,7 @@ export const WorkLive = Layer.effect(
               stationContext,
               readCanvas(canvas),
             ]);
-            yield* requireLocalActor(
+            const raiserNode = yield* requireLocalActor(
               read,
               raisedBy,
               nodeId,
@@ -2972,15 +2996,29 @@ export const WorkLive = Layer.effect(
                 reason,
               )
             );
-            const outcome = yield* local(
-              repository.createRequest({
-                sink: sinkRef(canvas, nodeId),
-                basis: intentBasis(context, read.intentWitness),
-                request: policy.task,
-                raisedBy,
-              }),
-              admin,
-            );
+            const home = yield* homeForNode(raiserNode, context);
+            const outcome = home === context.localInstallationId
+              ? yield* local(
+                repository.createRequest({
+                  sink: sinkRef(canvas, nodeId),
+                  basis: intentBasis(context, read.intentWitness),
+                  request: policy.task,
+                  raisedBy,
+                }),
+                admin,
+              )
+              : yield* enqueue(
+                context,
+                home,
+                workItem("request", policy.task.id, canvas, nodeId),
+                {
+                  operation: "request.create",
+                  request: policy.task,
+                  raisedBy,
+                },
+                policy.task,
+                admin,
+              );
             return yield* complete(canvas, outcome);
           }),
         ),

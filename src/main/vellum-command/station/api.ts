@@ -664,6 +664,42 @@ const authorizeActor = (
       );
 };
 
+const liveOverseerSeat = (
+  topology: CapturedWorkTopology,
+  actor: ActorRef,
+): ProjectedActorSeat | WorkCommandAuthorization => {
+  const seat = seatForRef(topology, actor);
+  if (seat === undefined) {
+    return rejected(
+      "locality-mismatch",
+      `actor ${JSON.stringify(`${actor.canvasName}/${actor.nodeId}`)} does not resolve to its projected seat`,
+    );
+  }
+  if (seat.overseer !== true) {
+    return rejected(
+      "capability-denied",
+      "actor no longer has a live human overseer grant",
+    );
+  }
+  return seat;
+};
+
+const authorizeRemoteOverseerCommand = (
+  topology: CapturedWorkTopology,
+  actor: ActorRef,
+  expectedAuthority: InstallationIdValue,
+): WorkCommandAuthorization => {
+  const seat = liveOverseerSeat(topology, actor);
+  if ("_tag" in seat) return seat;
+  if (seat.authorityInstallationId !== expectedAuthority) {
+    return rejected(
+      "locality-mismatch",
+      `overseer seat ${JSON.stringify(actor.seatId)} is not homed on the required installation`,
+    );
+  }
+  return admitted();
+};
+
 const authorizeRemoteOverseerArtifactCommand = (
   topology: CapturedWorkTopology,
   action: Extract<
@@ -671,26 +707,14 @@ const authorizeRemoteOverseerArtifactCommand = (
     { readonly operation: "artifact.publish" }
   >,
 ): WorkCommandAuthorization => {
-  const publisher = seatForRef(topology, action.publishedBy);
-  if (publisher === undefined) {
-    return rejected(
-      "locality-mismatch",
-      "artifact publisher does not resolve to its exact projected actor seat",
-    );
-  }
-  if (publisher.authorityInstallationId !== topology.localInstallationId) {
-    return rejected(
-      "locality-mismatch",
-      "artifact publisher is not homed on the receiving Remote",
-    );
-  }
-  if (publisher.overseer !== true) {
-    return rejected(
-      "capability-denied",
-      "artifact publisher no longer has a live human overseer grant",
-    );
-  }
-  return authorizeArtifactTaskProjection(topology, action.artifact);
+  const origin = authorizeRemoteOverseerCommand(
+    topology,
+    action.publishedBy,
+    topology.localInstallationId,
+  );
+  return origin._tag === "rejected"
+    ? origin
+    : authorizeArtifactTaskProjection(topology, action.artifact);
 };
 
 const sinkAuthorityForHostId = (
@@ -758,19 +782,24 @@ const validateTaskTopologyCommand = (
   const grant = command.body.operation === "task.claim"
     ? "tasks.claim" as const
     : "tasks.create" as const;
-  if (
-    actor !== undefined &&
-    !taskDependencyScopeCapabilityAllowsActor(
-      capability,
-      command.item.sink,
-      actor.nodeId,
-      grant,
-    )
-  ) {
-    return rejected(
-      "capability-denied",
-      `Task command actor lacks authenticated ${grant} authority`,
-    );
+  if (actor !== undefined) {
+    const overseer = liveOverseerSeat(topology, actor);
+    if (!("_tag" in overseer)) {
+      return authorization;
+    }
+    if (
+      !taskDependencyScopeCapabilityAllowsActor(
+        capability,
+        command.item.sink,
+        actor.nodeId,
+        grant,
+      )
+    ) {
+      return rejected(
+        "capability-denied",
+        `Task command actor lacks authenticated ${grant} authority`,
+      );
+    }
   }
   return authorization;
 };
@@ -915,13 +944,20 @@ export const makeStationWorkAdmission = (
 
     if (topology.localRole === "command-center") {
       if (command.body.operation === "message.append") {
-        return authorizeActor(
+        const overseer = authorizeRemoteOverseerCommand(
           topology,
           command.body.sentBy,
           topology.peerInstallationId,
-          command.item.sink,
-          "msg.send",
         );
+        return overseer._tag === "admitted"
+          ? overseer
+          : authorizeActor(
+            topology,
+            command.body.sentBy,
+            topology.peerInstallationId,
+            command.item.sink,
+            "msg.send",
+          );
       }
       if (command.body.operation === "task.create") {
         if (sinkAuthority(topology, sink) !== topology.localInstallationId) {
@@ -942,13 +978,20 @@ export const makeStationWorkAdmission = (
             "task creation command item and stable Task identity differ",
           );
         }
-        return authorizeActor(
+        const overseer = authorizeRemoteOverseerCommand(
           topology,
           command.body.task.raisedBy,
           topology.peerInstallationId,
-          command.item.sink,
-          "tasks.create",
         );
+        return overseer._tag === "admitted"
+          ? overseer
+          : authorizeActor(
+            topology,
+            command.body.task.raisedBy,
+            topology.peerInstallationId,
+            command.item.sink,
+            "tasks.create",
+          );
       }
       if (
         command.body.operation === "board.topic.create" ||
@@ -1043,21 +1086,37 @@ export const makeStationWorkAdmission = (
             "task claim source queue does not match projected sink authority",
           );
         }
-        return authorizeActor(
+        const overseer = authorizeRemoteOverseerCommand(
           topology,
           command.body.actor,
           topology.localInstallationId,
-          command.item.sink,
-          "tasks.claim",
         );
+        return overseer._tag === "admitted"
+          ? overseer
+          : authorizeActor(
+            topology,
+            command.body.actor,
+            topology.localInstallationId,
+            command.item.sink,
+            "tasks.claim",
+          );
       }
-      case "task.create":
-        return sinkAuthority(topology, sink) === topology.localInstallationId
-          ? admitted()
-          : rejected(
-              "locality-mismatch",
-              "task creation command targets a queue not homed on this installation",
-            );
+      case "task.create": {
+        if (sinkAuthority(topology, sink) !== topology.localInstallationId) {
+          return rejected(
+            "locality-mismatch",
+            "task creation command targets a queue not homed on this installation",
+          );
+        }
+        const raisedBy = command.body.task.raisedBy;
+        if (raisedBy === undefined) return admitted();
+        const overseer = authorizeRemoteOverseerCommand(
+          topology,
+          raisedBy,
+          topology.peerInstallationId,
+        );
+        return overseer._tag === "admitted" ? overseer : admitted();
+      }
       case "task.describe":
       case "task.transition":
       case "request.resolve":
@@ -1066,7 +1125,20 @@ export const makeStationWorkAdmission = (
         // sink may intentionally be CC-placed while its claimed/request row is
         // single-homed here.
         return admitted();
-      case "request.create":
+      case "request.create": {
+        const origin = authorizeRemoteOverseerCommand(
+          topology,
+          command.body.raisedBy,
+          topology.localInstallationId,
+        );
+        if (origin._tag === "rejected") {
+          return rejected(
+            "locality-mismatch",
+            `${command.body.operation} must originate as a local actor fact or CC-homed command`,
+          );
+        }
+        return origin;
+      }
       case "delivery.accepted":
       case "board.topic.create":
       case "board.post.append":
@@ -1087,13 +1159,20 @@ export const makeStationWorkAdmission = (
             "actor mailboxes remain Command Center-homed",
           );
         }
-        return authorizeActor(
+        const overseer = authorizeRemoteOverseerCommand(
           topology,
           command.body.sentBy,
           topology.peerInstallationId,
-          command.item.sink,
-          "msg.send",
         );
+        return overseer._tag === "admitted"
+          ? overseer
+          : authorizeActor(
+            topology,
+            command.body.sentBy,
+            topology.peerInstallationId,
+            command.item.sink,
+            "msg.send",
+          );
       }
     }
   };
