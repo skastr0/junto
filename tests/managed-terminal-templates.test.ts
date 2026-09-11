@@ -6,6 +6,7 @@ import {
   CLAUDE_MODEL_ALIASES,
   CLAUDE_TEMPLATE,
   CODEX_TEMPLATE,
+  CURSOR_TEMPLATE,
   DEVIN_TEMPLATE,
   GROK_TEMPLATE,
   HERMES_TEMPLATE,
@@ -266,6 +267,37 @@ describe("managed-terminal templates (data)", () => {
     expect(isSandboxGatedPermissionMode("autonomous")).toBe(true);
     expect(isSandboxGatedPermissionMode("normal")).toBe(false);
     expect(isSandboxGatedPermissionMode("auto")).toBe(false);
+  });
+
+  it("describes shipped Cursor Agent 2026.09.10-fd3934a capabilities honestly", () => {
+    expect(CURSOR_TEMPLATE.probedVersion).toBe("2026.09.10-fd3934a");
+    expect(CURSOR_TEMPLATE.displayName).toBe("Cursor Agent");
+    expect(CURSOR_TEMPLATE.injectionSpec.tier).toBe("B");
+    expect(CURSOR_TEMPLATE.argvSpec).toMatchObject({
+      binary: "agent",
+      prefix: ["--trust"],
+      promptMode: "positional",
+      modelFlag: "--model",
+      effortModelBracketKey: "effort",
+      permissionModeFlag: "--yolo",
+      sessionIdFlag: "--new-session-id",
+      resumeMode: "flag",
+      resumeFlag: "--resume",
+      resumeReinjection: "re-pass",
+    });
+    expect(CURSOR_TEMPLATE.argvSpec.effortFlag).toBeUndefined();
+    expect(CURSOR_TEMPLATE.efforts).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "extra-high",
+      "max",
+    ]);
+    expect(CURSOR_TEMPLATE.capabilityBadges.sessionId).toBe("pin");
+    expect(CURSOR_TEMPLATE.capabilityBadges.effortAtSpawn).toBe(true);
   });
 
   it("uses hermes chat --tui (not headless -z)", () => {
@@ -1044,6 +1076,28 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.argv).not.toContain("--continue");
   });
 
+  it("cursor model+effort emits a hyphenated catalog slug, not [effort=]", () => {
+    const launch = resolveManagedLaunch(
+      "cursor",
+      { model: "claude-opus-4-8", effort: "high", prompt: "ok" },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "agent",
+      "--trust",
+      "--model",
+      "claude-opus-4-8-high",
+      "ok",
+    ]);
+    expect(launch.argv?.join(" ")).not.toContain("[effort=");
+    const bracketed = resolveManagedLaunch(
+      "cursor",
+      { model: "composer-2.5[fast=false]" },
+      bareAmbient,
+    );
+    expect(bracketed.argv).toContain("composer-2.5[fast=false]");
+  });
+
   it("devin resume re-passes --model and default permission via -r", () => {
     const launch = resolveManagedLaunch(
       "devin",
@@ -1333,6 +1387,16 @@ describe("model enumeration (fail-soft)", () => {
       "ultra",
     ]);
     expect(effortsFor("grok")).toEqual(["xhigh", "high", "medium", "low"]);
+    expect(effortsFor("cursor")).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "extra-high",
+      "max",
+    ]);
     expect(
       effortsFor("codex", {
         id: "gpt-5.6-luna",

@@ -9,6 +9,9 @@ const LIVE_STDOUT = `Available models
 auto - Auto (default)
 gpt-5.3-codex-low - Codex 5.3 Low
 cursor-grok-4.6-high-fast - Cursor Grok 4.6 Fast
+claude-opus-4-8-medium - Claude Opus 4.8 1M Medium
+claude-opus-4-8-xhigh - Claude Opus 4.8 1M Extra High
+claude-opus-4-8-max - Claude Opus 4.8 1M Max
 `;
 
 describe("parseCursorModelsList", () => {
@@ -18,6 +21,9 @@ describe("parseCursorModelsList", () => {
       { id: "auto", label: "Auto (default)" },
       { id: "gpt-5.3-codex-low", label: "Codex 5.3 Low" },
       { id: "cursor-grok-4.6-high-fast", label: "Cursor Grok 4.6 Fast" },
+      { id: "claude-opus-4-8-medium", label: "Claude Opus 4.8 1M Medium" },
+      { id: "claude-opus-4-8-xhigh", label: "Claude Opus 4.8 1M Extra High" },
+      { id: "claude-opus-4-8-max", label: "Claude Opus 4.8 1M Max" },
     ]);
   });
 

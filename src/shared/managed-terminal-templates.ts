@@ -129,10 +129,12 @@ export type ArgvSpec = {
   readonly modelEnvKey?: string;
   readonly permissionModeEnvKey?: string;
   /**
-   * When set, effort is not a token at all: it rides inside the model value as
-   * a bracketed option (Cursor `--model claude-opus-4-8[effort=high]`, merged
-   * into any brackets the model already carries). A picker effort with no model
-   * selected has nothing to attach to and is dropped rather than guessed at.
+   * When set, effort is not a token at all: it rides inside the model value.
+   * Cursor 2026.09.10-fd3934a accepts the hyphenated catalog slug
+   * (`--model claude-opus-4-8-high`) and rejects `[effort=…]` on those ids
+   * (`Cannot use this model`). Non-effort brackets the catalog already
+   * carries (`composer-2.5[fast=false]`) stay intact. A picker effort with
+   * no model selected has nothing to attach to and is dropped.
    */
   readonly effortModelBracketKey?: string;
   /** Permission / approval flag (`--permission-mode`, `-a`, `--yolo`). */
@@ -978,21 +980,34 @@ export const isSandboxGatedPermissionMode = (mode: string): boolean =>
  *   server-side only — nothing lands on disk until the first turn, so such an
  *   id can never be proven before use. A minted pin is knowable from the start.
  *   Durable proof appears at `~/.cursor/chats/<workspaceHash>/<id>/meta.json`.
- * - Effort is not a flag and not only a model-id suffix: `--model` accepts
- *   bracketed options verbatim (`claude-opus-4-8[context=1m,effort=high]`), so
- *   a picker effort rides inside the model value (`effortModelBracketKey`).
  * - `--resume <id>` continues that exact session; it does not fork.
+ *
+ * Re-probed 2026.09.10-fd3934a (2026-09-11):
+ * - Help still shows `'claude-opus-4-8[context=1m,effort=high,fast=false]'`.
+ *   Live `--print --trust --model 'claude-opus-4-8[effort=high]'` (and the
+ *   help example, and `claude-opus-4-8-high[effort=high]`) all reject with
+ *   `Cannot use this model`. Working form is the hyphenated catalog slug
+ *   (`claude-opus-4-8-high`, `claude-opus-5-high`).
+ * - Non-effort brackets still work (`composer-2.5[fast=false]`).
+ * - `--new-session-id` remains hidden from `--help` and official parameters
+ *   but still pins. `create-chat` still returns a UUID with no disk receipt.
+ * - Hidden `--system-prompt <file>` is client-parsed then API-rejected.
+ *   Tier stays B. Whether a future server honors it is UNVERIFIED.
+ * - `resumeReinjection: "re-pass"` is the 2026-08 receipt. `--model` is
+ *   parsed on resume; typed TUI doctrine re-brief was not re-smoked
+ *   (UNVERIFIED).
  */
 export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   harness: "cursor",
   displayName: "Cursor Agent",
-  probedVersion: "2026.08.11-e8db854",
+  probedVersion: "2026.09.10-fd3934a",
   argvSpec: {
     binary: "agent",
     prefix: ["--trust"],
     promptMode: "positional",
     modelFlag: "--model",
-    // Bracketed inside the model value, never a flag of its own.
+    // Effort rides in the model value as a hyphenated catalog slug, never
+    // a flag of its own and never `[effort=…]` (rejected on this build).
     effortModelBracketKey: "effort",
     permissionModeFlag: "--yolo",
     sessionIdFlag: "--new-session-id",
@@ -1010,7 +1025,7 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   capabilityBadges: {
     instructionInjection: "B",
     hooks: false,
-    // True only with a model: the bracket has nothing to attach to otherwise.
+    // True only with a model: the hyphenated slug has nothing to attach to otherwise.
     effortAtSpawn: true,
     sessionId: "pin",
     remote: false,
@@ -1019,10 +1034,19 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (approval forms)",
     labels: ["injection B", "grid", "effort in model", "session pin"],
   },
-  // The levels the harness's own vocabulary attests: `effort=high` appears
-  // verbatim in `--model` help and the live model list carries `-low` / `-high`
-  // variants. A model that advertises its own levels wins via `effortsFor`.
-  efforts: ["low", "high"],
+  // Suffixes `agent models` enumerates on 2026.09.10-fd3934a. `-fast` is a
+  // variant after the effort token (`-high-fast`), not a picker level. A
+  // model that advertises its own levels still wins via `effortsFor`.
+  efforts: [
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "extra-high",
+    "max",
+  ],
 };
 
 /**

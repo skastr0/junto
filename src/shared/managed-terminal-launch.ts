@@ -248,12 +248,15 @@ const pushFlag = (
 
 /**
  * Merge one `key=value` option into a model's bracket group, the way Cursor
- * writes it in `--model` help: `claude-opus-4-8[context=1m,effort=high]`.
+ * help still writes it: `claude-opus-4-8[context=1m,effort=high]`.
  *
  * A model that already names the key keeps its position and takes the new
  * value; a model with other options gains one entry; a bare model gains the
  * whole group. Exported because this is a harness syntax fact worth testing on
- * its own, not an inline string concat.
+ * its own. Cursor 2026.09.10-fd3934a rejects `effort=` brackets on catalog
+ * ids — spawn uses `withModelEffortSlug` instead. Non-effort brackets such as
+ * `composer-2.5[fast=false]` still go through this helper when a caller
+ * asks for them.
  */
 export const withModelBracketOption = (
   model: string,
@@ -274,6 +277,54 @@ export const withModelBracketOption = (
   if (at >= 0) parts[at] = entry;
   else parts.push(entry);
   return `${base}[${parts.join(",")}]`;
+};
+
+/**
+ * Catalog suffixes `agent models` enumerates on 2026.09.10-fd3934a.
+ * Longest-first so `xhigh` / `extra-high` are not eaten as `high`.
+ * `-fast` is a variant after the effort token, not an effort itself.
+ */
+const MODEL_EFFORT_SUFFIX_RE =
+  /-(extra-high|xhigh|medium|minimal|high|low|none|max)(-fast)?$/;
+
+/**
+ * Attach a picker effort to a Cursor catalog id as a hyphenated slug
+ * (`claude-opus-4-8` + `high` → `claude-opus-4-8-high`).
+ *
+ * Live 2026.09.10-fd3934a rejects `[effort=…]` on catalog ids
+ * (`Cannot use this model`) and also rejects a hyphenated slug that then
+ * grows an effort bracket. Existing non-effort brackets stay on the model
+ * (`composer-2.5[fast=false]`). A trailing effort token (and optional
+ * `-fast`) is replaced rather than stacked.
+ */
+export const withModelEffortSlug = (model: string, effort: string): string => {
+  const trimmed = model.trim();
+  const slug = effort.trim();
+  if (!slug) return trimmed;
+
+  const open = trimmed.indexOf("[");
+  const hasBrackets = open >= 0 && trimmed.endsWith("]");
+  const rawBase = hasBrackets ? trimmed.slice(0, open) : trimmed;
+  let brackets = hasBrackets ? trimmed.slice(open) : "";
+  if (brackets) {
+    const inner = brackets.slice(1, -1);
+    const parts = inner
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => {
+        if (part.length === 0) return false;
+        return part.split("=")[0]?.trim() !== "effort";
+      });
+    brackets = parts.length > 0 ? `[${parts.join(",")}]` : "";
+  }
+
+  const match = rawBase.match(MODEL_EFFORT_SUFFIX_RE);
+  const nextBase = match
+    ? `${rawBase.slice(0, match.index)}-${slug}${match[2] ?? ""}`
+    : rawBase.endsWith(`-${slug}`) || rawBase === slug
+      ? rawBase
+      : `${rawBase}-${slug}`;
+  return `${nextBase}${brackets}`;
 };
 
 const buildArgv = (
@@ -311,17 +362,14 @@ const buildArgv = (
   }
 
   if (choices.model) {
-    // Cursor carries effort inside the model value, so the two are resolved
-    // together rather than as independent tokens.
+    // Cursor carries effort inside the model value as a hyphenated catalog
+    // slug (`claude-opus-4-8-high`), not `[effort=…]` — that form is rejected
+    // on 2026.09.10-fd3934a. The two dials are resolved together.
     pushFlag(
       argv,
       spec.modelFlag,
       spec.effortModelBracketKey && choices.effort
-        ? withModelBracketOption(
-            choices.model,
-            spec.effortModelBracketKey,
-            choices.effort,
-          )
+        ? withModelEffortSlug(choices.model, choices.effort)
         : choices.model,
     );
   }
@@ -332,8 +380,8 @@ const buildArgv = (
 
   if (choices.effort) {
     if (spec.effortModelBracketKey) {
-      // Already merged into the model value above. With no model selected the
-      // bracket has nothing to attach to, so the effort is dropped rather than
+      // Already merged into the model slug above. With no model selected the
+      // suffix has nothing to attach to, so the effort is dropped rather than
       // invented onto a model the operator did not choose.
     } else if (spec.effortConfigKey) {
       // Codex: -c model_reasoning_effort="low"

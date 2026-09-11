@@ -4,7 +4,8 @@
  * The seat's session id is minted when the node is authored, passed as
  * `--new-session-id`, and resumed by `--resume <id>` — the exact session, not a
  * fork. Effort is not a flag on this harness: it rides in the model value as a
- * bracketed option, so a picker effort only means something with a model.
+ * hyphenated catalog slug (`claude-opus-4-8-high`). A picker effort only
+ * means something with a model. `[effort=…]` is rejected on 2026.09.10.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
 import {
   resolveManagedLaunch,
   withModelBracketOption,
+  withModelEffortSlug,
 } from "../src/shared/managed-terminal-launch";
 import {
   __setSessionExistenceHomeForTest,
@@ -80,39 +82,93 @@ describe("cursor template declares a pin, not a capture", () => {
     expect(isPinSessionHarness("cursor")).toBe(true);
   });
 
-  it("offers only the effort levels the harness vocabulary attests", () => {
-    expect(CURSOR_TEMPLATE.efforts).toEqual(["low", "high"]);
+  it("offers the effort suffixes agent models enumerates", () => {
+    expect(CURSOR_TEMPLATE.probedVersion).toBe("2026.09.10-fd3934a");
+    expect(CURSOR_TEMPLATE.efforts).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "extra-high",
+      "max",
+    ]);
   });
 });
 
-// ── Bracketed effort ───────────────────────────────────────────────────────
+// ── Hyphenated catalog effort ──────────────────────────────────────────────
 
-describe("bracketed model options", () => {
-  it("adds, merges, and replaces without disturbing the rest", () => {
-    expect(withModelBracketOption("claude-opus-4-8", "effort", "high")).toBe(
-      "claude-opus-4-8[effort=high]",
+describe("hyphenated model effort slugs", () => {
+  it("keeps withModelBracketOption available for non-effort brackets", () => {
+    expect(withModelBracketOption("composer-2.5", "fast", "false")).toBe(
+      "composer-2.5[fast=false]",
     );
     expect(
-      withModelBracketOption("claude-opus-4-8[context=1m]", "effort", "high"),
-    ).toBe("claude-opus-4-8[context=1m,effort=high]");
-    expect(
-      withModelBracketOption(
-        "claude-opus-4-8[context=1m,effort=low]",
-        "effort",
-        "high",
-      ),
-    ).toBe("claude-opus-4-8[context=1m,effort=high]");
+      withModelBracketOption("claude-opus-4-8[context=1m]", "fast", "false"),
+    ).toBe("claude-opus-4-8[context=1m,fast=false]");
   });
 
-  it("puts the picker effort on the model, never on a flag", () => {
+  it("hyphenates, replaces a trailing suffix, and keeps other brackets", () => {
+    expect(withModelEffortSlug("claude-opus-4-8", "high")).toBe(
+      "claude-opus-4-8-high",
+    );
+    expect(withModelEffortSlug("claude-opus-4-8-low", "high")).toBe(
+      "claude-opus-4-8-high",
+    );
+    expect(withModelEffortSlug("claude-opus-4-8-high-fast", "low")).toBe(
+      "claude-opus-4-8-low-fast",
+    );
+    expect(withModelEffortSlug("claude-opus-4-8-xhigh", "xhigh")).toBe(
+      "claude-opus-4-8-xhigh",
+    );
+    expect(withModelEffortSlug("composer-2.5[fast=false]", "high")).toBe(
+      "composer-2.5-high[fast=false]",
+    );
+    expect(
+      withModelEffortSlug("claude-opus-4-8[context=1m,effort=low]", "high"),
+    ).toBe("claude-opus-4-8-high[context=1m]");
+  });
+
+  it("puts the picker effort on the catalog slug, never on a flag or bracket", () => {
     const argv = resolveManagedLaunch("cursor", {
       model: "claude-opus-4-8",
       effort: "high",
     }).argv!;
     expect(argv).toContain("--model");
-    expect(argv).toContain("claude-opus-4-8[effort=high]");
+    expect(argv).toContain("claude-opus-4-8-high");
+    expect(argv.join(" ")).not.toContain("[effort=");
     expect(argv).not.toContain("--effort");
     expect(argv).not.toContain("high");
+  });
+
+  it("passes through a working non-effort bracket when no effort is chosen", () => {
+    const argv = resolveManagedLaunch("cursor", {
+      model: "composer-2.5[fast=false]",
+    }).argv!;
+    expect(argv).toContain("composer-2.5[fast=false]");
+    expect(argv.join(" ")).not.toContain("[effort=");
+  });
+
+  it("widens medium, xhigh, and max onto the catalog id", () => {
+    expect(
+      resolveManagedLaunch("cursor", {
+        model: "claude-opus-4-8",
+        effort: "medium",
+      }).argv,
+    ).toContain("claude-opus-4-8-medium");
+    expect(
+      resolveManagedLaunch("cursor", {
+        model: "claude-opus-4-8",
+        effort: "xhigh",
+      }).argv,
+    ).toContain("claude-opus-4-8-xhigh");
+    expect(
+      resolveManagedLaunch("cursor", {
+        model: "claude-opus-4-8",
+        effort: "max",
+      }).argv,
+    ).toContain("claude-opus-4-8-max");
   });
 
   it("drops an effort with no model rather than inventing one", () => {
