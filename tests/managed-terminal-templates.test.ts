@@ -8,6 +8,7 @@ import {
   CODEX_TEMPLATE,
   CURSOR_TEMPLATE,
   DEVIN_TEMPLATE,
+  FX_TEMPLATE,
   GROK_TEMPLATE,
   HERMES_TEMPLATE,
   HARNESS_IDS,
@@ -675,6 +676,28 @@ describe("resolveManagedLaunch argv", () => {
     expect(argv).not.toContain("--permission-mode");
     expect(argv).not.toContain("--dangerously-skip-permissions");
     expect(AMP_TEMPLATE.defaultPermissionMode).toBeUndefined();
+  });
+
+  it("fx: env dials, named --resume, no argv permission flags", () => {
+    expect(FX_TEMPLATE.probedVersion).toBe("0.0.7");
+    expect(FX_TEMPLATE.argvSpec.resumeReinjection).toBe("unprobed");
+    expect(FX_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
+    expect(FX_TEMPLATE.argvSpec.permissionModeFlag).toBeUndefined();
+    expect(FX_TEMPLATE.defaultPermissionMode).toBeUndefined();
+    const launch = resolveManagedLaunch(
+      "fx",
+      {
+        model: "anthropic/claude-opus-5",
+        permissionMode: "ask",
+        resumeId: "AbC_-0123xyz",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual(["fx", "--resume", "AbC_-0123xyz"]);
+    expect(launch.argv).not.toContain("--full-access");
+    expect(launch.argv).not.toContain("--yolo");
+    expect(launch.env?.FX_MODEL).toBe("anthropic/claude-opus-5");
+    expect(launch.env?.FX_PERMISSION_MODE).toBe("ask");
   });
 
   it("hermes: chat --tui -q with profile and model", () => {

@@ -1204,21 +1204,30 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
  * Probed 0.0.6 (2026-08-26) against the installed binary:
  * - No system-prompt or session-instructions flag anywhere on the CLI surface,
  *   so doctrine is Tier B, delivered as the first typed message.
- * - The FIRST harness with no argv dials at all. Model and permission mode are
- *   read from the environment (`FX_MODEL`, `FX_PERMISSION_MODE`, both present
- *   in the shipped binary's symbol table), which is why `modelEnvKey` and
- *   `permissionModeEnvKey` exist. Effort is a provider-profile concern, not a
- *   dial fx exposes — omitted rather than faked.
+ * - Model and permission mode are read from the environment (`FX_MODEL`,
+ *   `FX_PERMISSION_MODE`). Effort is a provider-profile concern, not a dial
+ *   fx exposes — omitted rather than faked.
  * - Interactive `fx` takes no positional prompt (`fx [flags]`); `fx ask` is the
  *   one-shot, non-interactive path and is not what a seat runs.
- * - `fx models --json` enumerates live (`{kind:"models",count:230,ids:[…]}`,
- *   provider-prefixed ids).
  * - Session ids are minted by fx and never printed; `~/.fx/sessions/index.json`
  *   maps each id to its `workspace_root` and `created_at_ms`.
- * - Resume is `--resume <id>`, exact. Everything else fx offers resumes "the
- *   latest workspace session" — `-c`, `--continue`, `-r`, `--resume-last`, and
- *   a BARE `--resume` — which is a seat on whatever ran last. None may ever be
- *   emitted.
+ * - Resume is `--resume <id>`, exact. Never emit bare `--resume`,
+ *   `--resume last`, `-c`, `--continue`, `--resume-last`, or `-r`.
+ *
+ * Re-probed 0.0.7 (2026-09-11) on the installed binary (`fx --version`).
+ * Upstream latest is 0.0.8 (https://github.com/vercel-labs/fx/releases/tag/v0.0.8)
+ * and was not installed here — 0.0.8 spawn / capture was not re-smoked.
+ * - `-r` opens the saved-session picker, not "latest". Never emit it.
+ * - 0.0.8 adds `--full-access` / `--yolo` argv permission dials (official CLI
+ *   docs). Installed 0.0.7 rejects them as unknown subcommands. Vellum Command
+ *   must not emit those flags. The env dial (`FX_PERMISSION_MODE`) stays the
+ *   seat path. No permission default.
+ * - 0.0.8 mints 12-character url-safe session ids; legacy `<ms>-<ns>-<hex>`
+ *   remains valid. `isFxSessionId` accepts both so capture and existence
+ *   proof do not fail-open to a fresh seat after operators upgrade. Live
+ *   0.0.8 `index.json` schema is UNVERIFIED.
+ * - Interactive 0.0.7 still has no `--model` / `--permission-mode` / `--system`.
+ *   `fx ask --system TEXT` is one-shot only. Seats stay on plain `fx`.
  *
  * No permission default: fx's stock `auto` mode runs tool calls that cost the
  * operator money, and picking that for them is not Vellum Command's call.
@@ -1226,7 +1235,7 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
 export const FX_TEMPLATE: ManagedTerminalTemplate = {
   harness: "fx",
   displayName: "fx",
-  probedVersion: "0.0.6",
+  probedVersion: "0.0.7",
   argvSpec: {
     binary: "fx",
     prefix: [],

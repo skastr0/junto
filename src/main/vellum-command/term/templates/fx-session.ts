@@ -10,10 +10,12 @@
  *
  * The index is the authority when it is readable. When it is missing, older
  * than this schema, or unparsable, discovery falls back to the directory names
- * themselves: they lead with the creation timestamp in milliseconds, which is
- * enough to apply the time floor. That fallback cannot check the workspace, so
- * it only answers when exactly one candidate qualifies — an ambiguous machine
- * leaves the seat honestly uncaptured rather than guessing.
+ * themselves. Legacy ids lead with the creation timestamp in milliseconds.
+ * 0.0.8 short tokens do not; that fallback then uses the directory birthtime
+ * (mtime if birthtime is missing) so the time floor still applies. The
+ * fallback cannot check the workspace, so it only answers when exactly one
+ * candidate qualifies — an ambiguous machine leaves the seat honestly
+ * uncaptured rather than guessing.
  *
  * Read-only throughout: one file read and one readdir, no writes into ~/.fx.
  */
@@ -22,17 +24,28 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * `<created_ms>-<created_ns>-<hex>`, e.g.
+ * Legacy `<created_ms>-<created_ns>-<hex>`, e.g.
  * `1787761861883-1787761861883720000-7afaf80c8f5acd35`.
+ * Still minted on 0.0.7 and still valid on 0.0.8.
  */
-const FX_SESSION_ID = /^(\d{13})-\d{15,20}-[0-9a-f]{8,32}$/i;
+const FX_LEGACY_SESSION_ID = /^(\d{13})-\d{15,20}-[0-9a-f]{8,32}$/i;
 
-export const isFxSessionId = (value: string): boolean =>
-  FX_SESSION_ID.test(value.trim());
+/**
+ * 0.0.8 mints 12-character url-safe tokens: 9 random bytes encoded with
+ * `std.base64.url_safe_no_pad` (A-Za-z0-9_-, no padding). Sourced from
+ * vercel-labs/fx v0.0.8 `session_layout.zig`; live 0.0.7 homes still use
+ * the legacy form only.
+ */
+const FX_SHORT_SESSION_ID = /^[A-Za-z0-9_-]{12}$/;
 
-/** Creation time carried by the id itself (ms), or undefined if not an id. */
+export const isFxSessionId = (value: string): boolean => {
+  const id = value.trim();
+  return FX_LEGACY_SESSION_ID.test(id) || FX_SHORT_SESSION_ID.test(id);
+};
+
+/** Creation time carried by a legacy id (ms). Short 0.0.8 tokens have none. */
 export const fxSessionIdCreatedAtMs = (value: string): number | undefined => {
-  const match = FX_SESSION_ID.exec(value.trim());
+  const match = FX_LEGACY_SESSION_ID.exec(value.trim());
   if (!match) return undefined;
   const ms = Number(match[1]);
   return Number.isFinite(ms) ? ms : undefined;
@@ -105,13 +118,18 @@ const readSessionDirs = (root: string): readonly IndexEntry[] => {
   }
   const out: IndexEntry[] = [];
   for (const name of names) {
-    const createdAtMs = fxSessionIdCreatedAtMs(name);
-    if (createdAtMs === undefined) continue;
+    if (!isFxSessionId(name)) continue;
+    let createdAtMs = fxSessionIdCreatedAtMs(name);
     try {
-      if (!statSync(join(root, name)).isDirectory()) continue;
+      const st = statSync(join(root, name));
+      if (!st.isDirectory()) continue;
+      if (createdAtMs === undefined) {
+        createdAtMs = st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs;
+      }
     } catch {
       continue;
     }
+    if (createdAtMs === undefined || !Number.isFinite(createdAtMs)) continue;
     out.push({ id: name, createdAtMs, workspaceRoot: undefined });
   }
   return out;

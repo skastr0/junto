@@ -25,6 +25,8 @@ import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/obser
 const A = "1787761861883-1787761861883720000-7afaf80c8f5acd35";
 const B = "1787763494998-1787763494998649000-97d25f70d04d6c5e";
 const OLD = "1787249073205-1787249073205767000-7094405acf93d7c9";
+// 0.0.8 shape: 12-char url-safe token (session_layout.zig generateSessionId).
+const SHORT = "AbC_-0123xyz";
 const WORKSPACE = "/Users/developer/Projects/vellum";
 const OTHER = "/repo/other";
 
@@ -71,6 +73,17 @@ describe("fx session ids", () => {
     expect(isFxSessionId("index.json")).toBe(false);
     expect(isFxSessionId("1787761861883-nope-7afaf80c")).toBe(false);
     expect(fxSessionIdCreatedAtMs("not-an-id")).toBeUndefined();
+  });
+
+  it("accepts 0.0.8 12-char url-safe tokens without inventing a timestamp", () => {
+    expect(isFxSessionId(SHORT)).toBe(true);
+    expect(isFxSessionId("ef75d8fd94fd")).toBe(true);
+    expect(fxSessionIdCreatedAtMs(SHORT)).toBeUndefined();
+    expect(isFxSessionId("abcdef12345")).toBe(false);
+    expect(isFxSessionId("abcdef1234567")).toBe(false);
+    expect(isFxSessionId("AbC+0123xyzW")).toBe(false);
+    expect(isFxSessionId("last")).toBe(false);
+    expect(isFxSessionId("latest")).toBe(false);
   });
 });
 
@@ -137,6 +150,28 @@ describe("fx session discovery", () => {
       discoverFxSessionId({ cwd: WORKSPACE, spawnedAtMs: 0, home }),
     ).toBeUndefined();
   });
+
+  it("claims a 0.0.8 short id from the index when created_at_ms is present", () => {
+    home = mkdtempSync(join(tmpdir(), "fx-"));
+    seedIndex([{ id: SHORT, ms: 1787761861883, root: WORKSPACE }]);
+    expect(
+      discoverFxSessionId({
+        cwd: WORKSPACE,
+        spawnedAtMs: 1787761861000,
+        home,
+      }),
+    ).toBe(SHORT);
+  });
+
+  it("falls back to a 0.0.8 short id directory when the index is unusable and the seat is unambiguous", () => {
+    home = mkdtempSync(join(tmpdir(), "fx-"));
+    seedIndex([{ id: SHORT, ms: 1787761861883, root: WORKSPACE }], 99);
+    seedDirs([SHORT]);
+    const spawnedAtMs = Date.now();
+    expect(
+      discoverFxSessionId({ cwd: WORKSPACE, spawnedAtMs, home }),
+    ).toBe(SHORT);
+  });
 });
 
 describe("fx models enumeration", () => {
@@ -199,10 +234,12 @@ describe("fx launch shape", () => {
   });
 
   it("claims only what fx actually offers", () => {
+    expect(FX_TEMPLATE.probedVersion).toBe("0.0.7");
     expect(FX_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(FX_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
     expect(FX_TEMPLATE.argvSpec.promptMode).toBe("none");
-    // No argv dials at all — this is the first harness of that shape.
+    // Seat dials stay in the environment. 0.0.8 adds --full-access / --yolo
+    // argv; Vellum Command must not emit them.
     expect(FX_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.effortFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.permissionModeFlag).toBeUndefined();
@@ -210,6 +247,18 @@ describe("fx launch shape", () => {
     // No permission default: fx's stock auto mode spends the operator's money.
     expect(FX_TEMPLATE.defaultPermissionMode).toBeUndefined();
     expect(FX_TEMPLATE.efforts).toEqual([]);
+  });
+
+  it("never emits 0.0.8 --full-access or --yolo argv", () => {
+    const launch = resolveManagedLaunch(
+      "fx",
+      { permissionMode: "full-access", resumeId: SHORT },
+      {},
+    );
+    expect(launch.argv).toEqual(["fx", "--resume", SHORT]);
+    expect(launch.argv).not.toContain("--full-access");
+    expect(launch.argv).not.toContain("--yolo");
+    expect(launch.env?.FX_PERMISSION_MODE).toBe("full-access");
   });
 
   it("scrubs the ambient dials a nested fx seat would inherit", () => {
