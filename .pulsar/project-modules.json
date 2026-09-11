@@ -1,0 +1,15 @@
+{
+  "schema": "pulsar/project-modules/v1",
+  "modules": [
+    {
+      "id": "@skastr0/pulsar-project-module-effect",
+      "kind": "builtin",
+      "enabled": true
+    },
+    {
+      "id": "vellum-command",
+      "kind": "repo-local",
+      "path": ".pulsar/modules/vellum-command.ts"
+    }
+  ]
+}

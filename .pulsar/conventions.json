@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "extracted_at_sha": "73ef41f990c86495107e3ab4fc3059fd7c8013a8",
+  "boundaries": {
+    ".": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-bun",
+        "@effect/platform-node",
+        "@legendapp/state",
+        "@xyflow/react",
+        "@xterm/xterm",
+        "@xterm/addon-fit",
+        "@xterm/addon-serialize",
+        "@xterm/addon-webgl",
+        "@xterm/headless",
+        "@dnd-kit/helpers",
+        "@dnd-kit/react",
+        "@pierre/diffs",
+        "electron",
+        "electron-updater",
+        "lucide-react",
+        "motion",
+        "node-pty",
+        "react",
+        "react-dom",
+        "react-markdown",
+        "remark-gfm",
+        "tar",
+        "thinking-orbs",
+        "ulid"
+      ]
+    },
+    "src/shared": {
+      "visibility": "public-api",
+      "allowed_imports": [
+        "effect"
+      ]
+    },
+    "src/main": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-node",
+        "electron",
+        "electron-updater",
+        "node-pty",
+        "tar",
+        "ulid"
+      ]
+    },
+    "src/renderer": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "react",
+        "react-dom",
+        "react-markdown",
+        "remark-gfm",
+        "lucide-react",
+        "motion",
+        "@xyflow/react",
+        "@legendapp/state",
+        "@xterm/xterm",
+        "@xterm/addon-fit",
+        "@xterm/addon-serialize",
+        "@xterm/addon-webgl",
+        "@dnd-kit/helpers",
+        "@dnd-kit/react",
+        "@pierre/diffs",
+        "thinking-orbs"
+      ]
+    },
+    "src/preload": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "electron"
+      ]
+    },
+    "src/cli": {
+      "visibility": "internal",
+      "allowed_imports": [
+        "effect",
+        "@effect/platform-bun",
+        "@effect/platform-node"
+      ]
+    }
+  },
+  "naming_conventions": {
+    "function": "camelCase",
+    "class": "PascalCase",
+    "interface": "PascalCase",
+    "type": "PascalCase",
+    "const": "camelCase",
+    "enum": "PascalCase"
+  },
+  "architectural_rules": []
+}

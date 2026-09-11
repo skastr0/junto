@@ -1,0 +1,83 @@
+{
+  "id": "vellum-command",
+  "domain": "typescript",
+  "description": "Vellum Command weighting thesis: machine-safety and unfinished production code dominate; Electron process boundaries and Effect composition are first-class; generic size pressure is secondary.",
+  "signal_overrides": {
+    "TS-SL-04": {
+      "weight": 1.8,
+      "config": {
+        "hard_gate_production": true,
+        "top_n_diagnostics": 40,
+        "include_test_stubs": false
+      }
+    },
+    "TS-SEC-01": {
+      "weight": 2,
+      "config": {
+        "top_n_diagnostics": 40
+      }
+    },
+    "TS-SEC-02": {
+      "weight": 1.8,
+      "config": {
+        "top_n_diagnostics": 30
+      }
+    },
+    "TS-SEC-03": {
+      "weight": 2,
+      "config": {
+        "top_n_diagnostics": 20
+      }
+    },
+    "TS-AD-05": {
+      "weight": 1.6
+    },
+    "TS-AD-01": {
+      "weight": 1.5,
+      "config": {
+        "top_n_diagnostics": 30
+      }
+    },
+    "TS-AD-02": {
+      "weight": 1.4
+    },
+    "TS-LD-07": {
+      "weight": 1.3
+    },
+    "TS-LD-09": {
+      "weight": 1.2
+    },
+    "TS-CC-01": {
+      "weight": 1.2
+    },
+    "TS-SL-05": {
+      "weight": 1.3
+    },
+    "TS-SL-03": {
+      "weight": 1.1
+    },
+    "TS-LD-02": {
+      "weight": 0.7,
+      "config": {
+        "max_function_loc": 80,
+        "max_file_loc": 500,
+        "top_n_diagnostics": 20
+      }
+    },
+    "TS-LD-01": {
+      "weight": 0.8
+    },
+    "TS-LD-03": {
+      "weight": 0.7
+    },
+    "TS-SL-01": {
+      "weight": 0.8
+    },
+    "SHARED-02": {
+      "weight": 0.4
+    },
+    "TS-RP-02": {
+      "weight": 0.5
+    }
+  }
+}
