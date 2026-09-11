@@ -7,21 +7,23 @@
  *
  *   ~/.omp/agent/sessions/<encoded-cwd>/<ISO-ts>_<uuidv7>.jsonl
  *
- * The encoding is the part worth stating, because two sources get it wrong.
- * The task proposal said "leading / stripped, /→-, no --…-- wrap", and omp's
- * own `--export` help shows a `--path--` example. Running omp in both kinds of
- * directory settles it:
+ * Installed 18.1.16 `session-paths.ts` names the directory three ways:
  *
  *   /Users/<me>/Projects/vellum  ->  -Projects-vellum
+ *   <os.tmpdir()>/seat           ->  -tmp-seat
  *   /private/tmp/omp-probe       ->  --private-tmp-omp-probe--
  *
- * A cwd under $HOME is home-relative with `/`→`-`; a cwd outside it drops its
- * leading slash, turns the rest into dashes, and is wrapped in `--` … `--`.
+ * Home-relative is `/`→`-` with a leading dash. A cwd under `os.tmpdir()`
+ * is `-tmp-` plus the tmp-relative remainder. Anything else drops its
+ * leading slash, turns `/` into `-`, and wraps in `--` … `--`. This
+ * machine's tmpdir is `/var/folders/…/T`, so the 18.0.9
+ * `/private/tmp/omp-probe` tree stays the abs wrap.
  *
  * Read-only: one readdir of one directory, no writes under ~/.omp.
  */
 
 import { readdirSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** `<ISO-ish timestamp>_<uuid>.jsonl`, e.g. `2026-08-28T09-18-18-179Z_01a047a9-…`. */
@@ -41,27 +43,47 @@ export const isOmpSessionId = (value: string): boolean =>
   );
 
 /** How omp names the directory holding one workspace's sessions. */
-export const encodeOmpWorkspaceDir = (cwd: string, home: string): string => {
+export const encodeOmpWorkspaceDir = (
+  cwd: string,
+  home: string,
+  tmpRoot: string = tmpdir(),
+): string => {
   const path = cwd.replace(/\/+$/, "");
   const root = home.replace(/\/+$/, "");
+  const temp = tmpRoot.replace(/\/+$/, "");
   if (root && (path === root || path.startsWith(`${root}/`))) {
     // Home-relative: the remainder keeps its leading slash, which becomes the
     // leading dash (`/Projects/vellum` -> `-Projects-vellum`).
     return path.slice(root.length).replaceAll("/", "-");
   }
-  // `--` + the path with its leading slash dropped + `--`, which is the shape
-  // omp's own `--export` help shows (`--path--`).
+  if (temp && (path === temp || path.startsWith(`${temp}/`))) {
+    // Tmp-relative: `-tmp` plus the remainder (`/T/seat` -> `-tmp-seat`).
+    return `-tmp${path.slice(temp.length).replaceAll("/", "-")}`;
+  }
+  // `--` + the path with its leading slash dropped + `--`.
   return `--${path.replace(/^\/+/, "").replaceAll("/", "-")}--`;
 };
 
-export const ompSessionsDir = (cwd: string, home: string): string =>
-  join(home, ".omp", "agent", "sessions", encodeOmpWorkspaceDir(cwd, home));
+export const ompSessionsDir = (
+  cwd: string,
+  home: string,
+  tmpRoot: string = tmpdir(),
+): string =>
+  join(
+    home,
+    ".omp",
+    "agent",
+    "sessions",
+    encodeOmpWorkspaceDir(cwd, home, tmpRoot),
+  );
 
 export type OmpDiscoveryInput = {
   readonly cwd: string;
   readonly spawnedAtMs: number;
   readonly home: string;
   readonly graceMs?: number;
+  /** Defaults to `os.tmpdir()`, matching installed omp. */
+  readonly tmpDir?: string;
 };
 
 const DEFAULT_GRACE_MS = 2_000;
@@ -76,7 +98,7 @@ const DEFAULT_GRACE_MS = 2_000;
 export const discoverOmpSessionId = (
   input: OmpDiscoveryInput,
 ): string | undefined => {
-  const dir = ompSessionsDir(input.cwd, input.home);
+  const dir = ompSessionsDir(input.cwd, input.home, input.tmpDir);
   const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
   let names: readonly string[];
   try {

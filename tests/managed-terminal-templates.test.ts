@@ -15,6 +15,7 @@ import {
   KIMI_TEMPLATE,
   MANAGED_TERMINAL_TEMPLATES,
   MUSE_TEMPLATE,
+  OMP_TEMPLATE,
   PI_TEMPLATE,
   PRIME_AGENT_TEMPLATE,
   SPAWN_ENV_SCRUB,
@@ -698,6 +699,48 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.argv).not.toContain("--yolo");
     expect(launch.env?.FX_MODEL).toBe("anthropic/claude-opus-5");
     expect(launch.env?.FX_PERMISSION_MODE).toBe("ask");
+  });
+
+  it("omp: last-write-wins append, thinking, named --resume", () => {
+    expect(OMP_TEMPLATE.probedVersion).toBe("18.1.16");
+    expect(OMP_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
+    expect(OMP_TEMPLATE.injectionSpec.description).not.toMatch(/repeatable/i);
+    expect(OMP_TEMPLATE.efforts).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "auto",
+    ]);
+    const launch = resolveManagedLaunch(
+      "omp",
+      {
+        model: "opus",
+        effort: "high",
+        permissionMode: "write",
+        systemPrompt: "seat doctrine",
+        prompt: "get to work",
+      },
+      bareAmbient,
+    );
+    expect(launch.argv).toEqual([
+      "omp",
+      "--model",
+      "opus",
+      "--thinking",
+      "high",
+      "--approval-mode",
+      "write",
+      "--append-system-prompt",
+      "seat doctrine",
+      "get to work",
+    ]);
+    expect(
+      launch.argv?.filter((token) => token === "--append-system-prompt"),
+    ).toHaveLength(1);
   });
 
   it("hermes: chat --tui -q with profile and model", () => {

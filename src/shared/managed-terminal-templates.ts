@@ -1274,26 +1274,38 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
  * Oh My Pi (binary: `omp`) — Tier A, capture session, OSC title + grid.
  *
  * Probed 18.0.9 (2026-08-28) against the installed binary and one live turn:
- * - `--append-system-prompt <text|file>` exists and is repeatable, so doctrine
- *   rides argv: Tier A, unlike the pi-family harnesses around it.
+ * - `--append-system-prompt <text|file>` exists, so doctrine rides argv:
+ *   Tier A, unlike the pi-family harnesses around it.
  * - `--model` (fuzzy), `--thinking off|minimal|low|medium|high|xhigh|max|auto`,
  *   `--approval-mode always-ask|write|yolo`, positional prompt.
  * - No session pin. Sessions land at
- *   `~/.omp/agent/sessions/<encoded-cwd>/<ISO-ts>_<uuidv7>.jsonl`, and the
- *   encoding is NOT what either the proposal or omp's own `--export` example
- *   says: a cwd under $HOME is home-relative with `/`→`-` (`-Projects-vellum`),
- *   while a cwd outside it is the full path wrapped in dashes
- *   (`--private-tmp-omp-probe--`). Verified by running in both.
+ *   `~/.omp/agent/sessions/<encoded-cwd>/<ISO-ts>_<uuidv7>.jsonl`.
  * - `--resume <id-prefix>` continues the SAME session — proven by resuming a
  *   probe session and watching the one existing file grow rather than a second
  *   appear. So capture→cold-wake links up, and `-c` is never needed.
  * - The TUI renders inline (no alt screen), enables bracketed paste, and its
  *   OSC title is a real state machine (`π >` waiting, `π <braille>` running).
+ *
+ * Re-probed 18.1.16 (2026-09-11) on the installed binary (`omp --version`
+ * prints `omp/18.1.16`):
+ * - `--append-system-prompt` is last-write-wins, not repeatable. Help does
+ *   not say "can be used multiple times" (unlike `--hook`). Installed
+ *   `flag-tables.ts` assigns a single string. Vellum Command already emits
+ *   one flag; doctrine is one joined body, never two argv fragments.
+ * - Session cwd encoding is three-way (installed `session-paths.ts`):
+ *   home-relative `-…` (`-Projects-vellum`), cwd under `os.tmpdir()` is
+ *   `-tmp-…`, anything else is the abs wrap (`--private-tmp-omp-probe--`).
+ *   This machine's tmpdir is `/var/folders/…/T`, so the 18.0.9
+ *   `/private/tmp/omp-probe` tree stays the abs wrap.
+ * - `resumeReinjection: "re-pass"` is the 2026-08 receipt and was not
+ *   re-canaried on 18.1.16 (UNVERIFIED). Source still applies model,
+ *   thinking, approval, and append on resume. `buildArgv` still re-passes
+ *   every template-owned flag.
  */
 export const OMP_TEMPLATE: ManagedTerminalTemplate = {
   harness: "omp",
   displayName: "Oh My Pi",
-  probedVersion: "18.0.9",
+  probedVersion: "18.1.16",
   argvSpec: {
     binary: "omp",
     prefix: [],
@@ -1314,7 +1326,7 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
     tier: "A",
     flags: ["--append-system-prompt"],
     description:
-      "--append-system-prompt appends doctrine to the system prompt at spawn",
+      "--append-system-prompt appends doctrine at spawn (one flag, last-write-wins)",
   },
   capabilityBadges: {
     instructionInjection: "A",

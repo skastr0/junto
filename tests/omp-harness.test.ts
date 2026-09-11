@@ -29,25 +29,50 @@ afterEach(() => {
 });
 
 describe("omp workspace encoding", () => {
-  // Both cases were produced by running omp in the directory and reading back
-  // the name it created — neither the task proposal nor omp's own --export
-  // example describes this correctly.
+  // Home and abs-wrap receipts from the 18.0.9 live run. The tmp scope is
+  // the 18.1.16 installed `session-paths.ts` third case (`-tmp-<rel>`).
+  const TMP = "/var/folders/f5/probe/T";
+
   it("is home-relative under $HOME", () => {
     expect(
-      encodeOmpWorkspaceDir("/Users/me/Projects/vellum", "/Users/me"),
+      encodeOmpWorkspaceDir("/Users/me/Projects/vellum", "/Users/me", TMP),
     ).toBe("-Projects-vellum");
   });
 
-  it("is the dash-wrapped full path outside $HOME", () => {
-    expect(encodeOmpWorkspaceDir("/private/tmp/omp-probe", "/Users/me")).toBe(
-      "--private-tmp-omp-probe--",
+  it("is tmp-relative under os.tmpdir()", () => {
+    expect(encodeOmpWorkspaceDir(`${TMP}/seat`, "/Users/me", TMP)).toBe(
+      "-tmp-seat",
     );
+    expect(encodeOmpWorkspaceDir(`${TMP}/a/b`, "/Users/me", TMP)).toBe(
+      "-tmp-a-b",
+    );
+    expect(encodeOmpWorkspaceDir(TMP, "/Users/me", TMP)).toBe("-tmp");
+  });
+
+  it("is the dash-wrapped full path outside $HOME and tmpdir", () => {
+    // This machine's tmpdir is /var/folders/…/T, so the 18.0.9
+    // /private/tmp/omp-probe tree stays the abs wrap.
+    expect(
+      encodeOmpWorkspaceDir("/private/tmp/omp-probe", "/Users/me", TMP),
+    ).toBe("--private-tmp-omp-probe--");
+  });
+
+  it("encodes /private/tmp as tmp-relative when that is os.tmpdir()", () => {
+    expect(
+      encodeOmpWorkspaceDir("/private/tmp/omp-probe", "/Users/me", "/private/tmp"),
+    ).toBe("-tmp-omp-probe");
   });
 
   it("keeps a trailing slash from changing the answer", () => {
-    expect(encodeOmpWorkspaceDir("/Users/me/Projects/", "/Users/me/")).toBe(
-      "-Projects",
-    );
+    expect(
+      encodeOmpWorkspaceDir("/Users/me/Projects/", "/Users/me/", TMP),
+    ).toBe("-Projects");
+  });
+
+  it("prefers home when a cwd could also sit under tmpdir", () => {
+    expect(
+      encodeOmpWorkspaceDir("/Users/me/Projects/vellum", "/Users/me", "/Users/me"),
+    ).toBe("-Projects-vellum");
   });
 });
 
@@ -64,6 +89,28 @@ describe("omp session discovery", () => {
     expect(
       discoverOmpSessionId({ cwd: "/work/repo", spawnedAtMs: 0, home }),
     ).toBe(ID);
+  });
+
+  it("finds a session whose cwd is under the tmp scope", () => {
+    home = mkdtempSync(join(tmpdir(), "omp-"));
+    const tmpRoot = mkdtempSync(join(tmpdir(), "omp-tmp-"));
+    try {
+      const cwd = join(tmpRoot, "seat");
+      const dir = ompSessionsDir(cwd, home, tmpRoot);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, FILE), "{}\n", "utf8");
+      expect(encodeOmpWorkspaceDir(cwd, home, tmpRoot)).toBe("-tmp-seat");
+      expect(
+        discoverOmpSessionId({
+          cwd,
+          spawnedAtMs: 0,
+          home,
+          tmpDir: tmpRoot,
+        }),
+      ).toBe(ID);
+    } finally {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 
   it("never reaches into another workspace's directory", () => {
@@ -126,6 +173,11 @@ describe("omp launch shape", () => {
       "seat doctrine",
       "get to work",
     ]);
+    // Last-write-wins on 18.1.16: one flag, never two fragments.
+    expect(
+      launch.argv?.filter((token) => token === "--append-system-prompt"),
+    ).toHaveLength(1);
+    expect(OMP_TEMPLATE.injectionSpec.description).not.toMatch(/repeatable/i);
   });
 
   it("re-passes every dial on resume, by exact id", () => {
@@ -148,6 +200,7 @@ describe("omp launch shape", () => {
   });
 
   it("claims Tier A and capture, and offers omp's own thinking levels", () => {
+    expect(OMP_TEMPLATE.probedVersion).toBe("18.1.16");
     expect(OMP_TEMPLATE.injectionSpec.tier).toBe("A");
     expect(OMP_TEMPLATE.injectionSpec.flags).toEqual(["--append-system-prompt"]);
     expect(OMP_TEMPLATE.capabilityBadges.instructionInjection).toBe("A");
