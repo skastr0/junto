@@ -15,6 +15,8 @@ export const LINUX_DESKTOP_RELEASE_SCHEMA =
   "vellum-command/linux-desktop-release/v1";
 export const LINUX_DESKTOP_UPDATE_FEED_PATH = "/linux/x64/alpha.json";
 export const LINUX_DESKTOP_MAX_ARCHIVE_BYTES = 300_000_000;
+export const LINUX_DESKTOP_MAX_EXPANDED_BYTES = 4_000_000_000;
+export const LINUX_DESKTOP_INSTALL_RESERVE_BYTES = 1_073_741_824;
 export const LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES = 1_048_576;
 export const LINUX_DESKTOP_MAX_METADATA_BYTES = 65_536;
 export const LINUX_DESKTOP_CLOCK_SKEW_MS = 5 * 60 * 1_000;

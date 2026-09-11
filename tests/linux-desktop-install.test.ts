@@ -8,7 +8,7 @@ import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
-import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, LinuxDesktopActivationError, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum-command/update/linux-install";
+import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum-command/update/linux-install";
 
 const fault = vi.hoisted(() => ({ syncPath: undefined as string | undefined, syncSuffix: undefined as string | undefined }));
 vi.mock("node:fs/promises", async () => {
@@ -27,6 +27,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   fault.syncPath = undefined;
   fault.syncSuffix = undefined;
+  holdLinuxDesktopInstallReadiness(undefined);
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 const sha256 = (bytes: Buffer | string): string => createHash("sha256").update(bytes).digest("hex");
@@ -117,7 +118,7 @@ describe("rootless Linux desktop installation", () => {
     const input = await fixture();
     await writeFile(input.archivePath, Buffer.alloc(input.bytes.length));
     await expect(stage(input)).rejects.toThrow("checksum");
-    expect(await readdir(join(input.home, ".local/opt/vellum-command-alpha"))).toEqual([]);
+    expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha"))).filter((name) => !name.startsWith("."))).toEqual([]);
     const alias = join(input.root, "alias.tar.gz");
     await symlink(input.archivePath, alias);
     await expect(stageLinuxDesktopRelease({ ...input, archivePath: alias })).rejects.toThrow();
@@ -137,7 +138,7 @@ describe("rootless Linux desktop installation", () => {
   ] as const)("rejects authenticated archives with %s entries", async (_label, bad) => {
     const input = await fixture({ members: (root) => [{ path: `${root}/`, type: "Directory" }, { path: `${root}/vellum-command`, mode: 0o755, body: "safe" }, bad(root)] });
     await expect(stage(input)).rejects.toThrow();
-    expect(await readdir(join(input.home, ".local/opt/vellum-command-alpha"))).toEqual([]);
+    expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha"))).filter((name) => !name.startsWith("."))).toEqual([]);
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -447,5 +448,34 @@ describe("rootless Linux desktop installation", () => {
     fault.syncPath = join(initial.home, ".local/share/applications");
     await expect(activateLinuxDesktopRelease(candidate, { mode: "update", expectedIncumbentExecutablePath: old.executablePath })).rejects.toMatchObject({ activated: false });
     expect(await readFile(active(initial.home), "utf8")).toBe(before);
+  });
+
+  it("keeps the previous generation through activation and retires it after successor readiness", async () => {
+    const initial = await fixture();
+    const old = await stage(initial);
+    await activateLinuxDesktopRelease(old, { mode: "first-install" });
+    const next = await fixture({ ...initial, version: "0.3.1" });
+    const candidate = await stage(next);
+    await activateLinuxDesktopRelease(candidate, { mode: "update", expectedIncumbentExecutablePath: old.executablePath });
+    expect(await readFile(old.executablePath, "utf8")).toContain("exit 0");
+    await markLinuxDesktopInstallReady({ home: initial.home, executablePath: candidate.executablePath });
+    await expect(lstat(old.executablePath)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(candidate.executablePath, "utf8")).toContain("exit 0");
+    expect(await readFile(active(initial.home), "utf8")).toContain(candidate.executablePath);
+  });
+
+  it("does not delete an unproven leftover generation and reports it in Doctor", async () => {
+    const initial = await fixture();
+    const installed = await stage(initial);
+    await activateLinuxDesktopRelease(installed, { mode: "first-install" });
+    const leftover = join(initial.home, ".local/opt/vellum-command-alpha", `0.1.0-${"c".repeat(64)}`);
+    await mkdir(leftover, { mode: 0o700 });
+    await writeFile(join(leftover, "vellum-command"), "foreign leftover\n", { mode: 0o755 });
+    await markLinuxDesktopInstallReady({ home: initial.home, executablePath: installed.executablePath });
+    expect(await readFile(join(leftover, "vellum-command"), "utf8")).toBe("foreign leftover\n");
+    const check = await linuxDesktopInstallStorageDoctor({ home: initial.home, executablePath: installed.executablePath });
+    expect(check?.id).toBe("linux-install-storage");
+    expect(check?.metadata?.legacyGenerationCount).toBe("1");
+    expect(check?.status).toBe("warning");
   });
 });

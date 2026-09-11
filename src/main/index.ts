@@ -1722,6 +1722,11 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     nodeRefOwnerReady = true;
     activatePendingNodeRef();
     rendererWindowAdmissionReady = true;
+    if (process.platform === "linux" && app.isPackaged) {
+      void import("./vellum-command/update/linux-install").then(({ markLinuxDesktopInstallReady }) =>
+        markLinuxDesktopInstallReady({ executablePath: process.execPath }).catch(() => undefined),
+      );
+    }
     if (!headless) createWindow();
   })
     .catch(async (error) => {

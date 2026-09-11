@@ -111,6 +111,12 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "Do not rerun the first-install command to replace an active installation or switch the launcher to an older generation",
     );
     expect(text).toContain(
+      "The managed layout keeps the launcher-selected generation and one live staged candidate",
+    );
+    expect(text).toContain(
+      "Activation itself still does not retire generations or roll back",
+    );
+    expect(text).toContain(
       "Never add `--no-sandbox`, disable AppArmor, weaken global user namespaces, run the app as root or install a setuid helper",
     );
   });

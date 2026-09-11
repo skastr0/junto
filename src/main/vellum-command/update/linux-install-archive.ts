@@ -6,9 +6,13 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
 import { Parser, Unpack, type ReadEntry } from "tar";
+import {
+  LINUX_DESKTOP_MAX_ARCHIVE_BYTES,
+  LINUX_DESKTOP_MAX_EXPANDED_BYTES,
+} from "../../../shared/linux-desktop-release";
 
-const MAX_ARCHIVE_BYTES = 300_000_000;
-const MAX_EXPANDED_BYTES = 4_000_000_000;
+const MAX_ARCHIVE_BYTES = LINUX_DESKTOP_MAX_ARCHIVE_BYTES;
+const MAX_EXPANDED_BYTES = LINUX_DESKTOP_MAX_EXPANDED_BYTES;
 const MAX_FILE_BYTES = 1_000_000_000;
 const MAX_MEMBERS = 100_000;
 const MAX_PATH_BYTES = 1_024;

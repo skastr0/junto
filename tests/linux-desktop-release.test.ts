@@ -6,7 +6,9 @@ import {
   decodeLinuxDesktopReleaseDescriptor,
   decodeLinuxDesktopSignedRelease,
   LINUX_DESKTOP_CLOCK_SKEW_MS,
+  LINUX_DESKTOP_INSTALL_RESERVE_BYTES,
   LINUX_DESKTOP_MAX_ARCHIVE_BYTES,
+  LINUX_DESKTOP_MAX_EXPANDED_BYTES,
   LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES,
   LINUX_DESKTOP_RELEASE_SCHEMA,
   LINUX_DESKTOP_TARGET,
@@ -235,6 +237,8 @@ describe("Linux desktop release wire contract", () => {
         archive: { ...value.archive, bytes: LINUX_DESKTOP_MAX_ARCHIVE_BYTES },
       }).archive.bytes,
     ).toBe(LINUX_DESKTOP_MAX_ARCHIVE_BYTES);
+    expect(LINUX_DESKTOP_MAX_EXPANDED_BYTES).toBe(4_000_000_000);
+    expect(LINUX_DESKTOP_INSTALL_RESERVE_BYTES).toBe(1_073_741_824);
   });
 
   it("orders numeric versions and rejects malformed installed versions", () => {

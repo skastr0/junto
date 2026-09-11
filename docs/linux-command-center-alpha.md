@@ -65,8 +65,11 @@ have no expiry; current key trust still applies. A stale feed can withhold newer
 versions, but the updater admits only a strictly newer version with its exact
 signed bytes.
 
-Alpha installations retain old and staged managed generations. Disk usage can
-grow across releases; automatic generation pruning is not implemented.
+Alpha installations keep the launcher-selected generation and one live staged
+candidate. After the new generation starts, opens product state, and reaches
+readiness, admitted inactive generations are retired. Unproven leftover
+directories are reported, not deleted. Staging refuses when free space is below
+the expansion reserve. First-install commands are not a cleanup mechanism.
 
 The signed descriptor lives at `/linux/x64/<version>/release.json`; the feed is
 `/linux/x64/alpha.json`, and the matching source index is

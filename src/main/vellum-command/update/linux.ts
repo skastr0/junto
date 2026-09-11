@@ -24,6 +24,7 @@ import {
   stageLinuxDesktopRelease,
   assertLinuxDesktopManagedIncumbent,
 } from "./linux-install";
+import { assertLinuxInstallDiskAdmission } from "./linux-install-storage";
 import { assertLinuxDesktopUpdateTarget, readLinuxDesktopTargetObservation } from "./linux-target";
 import type { StagedUpdate, UpdateHostHooks, UpdateProvider, UpdateProviderListener } from "./provider";
 
@@ -106,6 +107,7 @@ export const makeLinuxUpdateProvider = (options: {
       }
       const admitted = dependencies.verifyRelease(envelope, options.currentVersion, true);
       if (admitted.archive.bytes > LINUX_DESKTOP_MAX_ARCHIVE_BYTES) throw new Error("release archive exceeds its byte limit");
+      await assertLinuxInstallDiskAdmission({ path: tmpdir(), archiveBytes: admitted.archive.bytes });
       emit({ _tag: "available", release: { version: admitted.version, releaseDate: admitted.createdAt } });
       phase = "download-failed";
       if (downloadRoot !== undefined) await rm(downloadRoot, { recursive: true, force: true });

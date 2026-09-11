@@ -27,6 +27,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { ObservabilityLoggerLive } from "./vellum-command/observability";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
+import { linuxDesktopInstallStorageDoctor } from "./vellum-command/update/linux-install";
 import { assessSupervisedRuntime } from "@shared/station";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import {
@@ -537,10 +538,14 @@ export const buildDoctorReport = Effect.gen(function* () {
     controlReady: sockOk,
     running,
   });
+  const linuxInstallStorage = process.platform === "linux"
+    ? yield* Effect.promise(() => linuxDesktopInstallStorageDoctor({ executablePath: process.execPath }))
+    : undefined;
   const services: ReadonlyArray<ServiceCheck> = [
     ...serviceResults,
     terminalCheck,
     stationAssessment.check,
+    ...(linuxInstallStorage === undefined ? [] : [linuxInstallStorage]),
   ];
   const recommendations = services
     .filter((service) => service.status !== "ok")

@@ -2,13 +2,32 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants as fsConstants, type Stats } from "node:fs";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { assertVerifiedLinuxDesktopRelease, type VerifiedLinuxDesktopRelease } from "../../../shared/linux-desktop-release-crypto";
 import { compareLinuxDesktopVersions } from "../../../shared/linux-desktop-release";
 import { extractLinuxDesktopArchive } from "./linux-install-archive";
+import {
+  acquireLinuxInstallMutation,
+  admitOwnedLinuxInstallRoot,
+  assertLinuxInstallDiskAdmission,
+  collectLinuxInstallStorage,
+  heldLinuxDesktopInstallReadiness,
+  holdLinuxDesktopInstallReadiness,
+  linuxInstallStorageDoctorCheck,
+  mintLinuxDesktopInstallReadiness,
+  observeLinuxInstallStorage,
+  persistLinuxInstallAllocation,
+  protectLinuxInstallBasename,
+  releaseLinuxInstallMutation,
+  retireLinuxInstallTree,
+  setLiveLinuxInstallCandidate,
+  unprotectLinuxInstallBasename,
+  LINUX_DESKTOP_GENERATION_NAME,
+  type OwnedLinuxInstallRoot,
+} from "./linux-install-storage";
 import { admitPackagedUpdateIdentity } from "./package-update-identity";
 
-const RELEASE_NAME = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[a-f0-9]{64}$/u;
+const RELEASE_NAME = LINUX_DESKTOP_GENERATION_NAME;
 const MANAGED_LAUNCHER = "# Vellum Command managed Linux desktop launcher";
 const STAGED: unique symbol = Symbol("StagedLinuxDesktopRelease");
 
@@ -46,6 +65,7 @@ interface LauncherSnapshot extends FileIdentity {
 interface StagedAuthority {
   readonly home: string;
   readonly root: string;
+  readonly ownedRoot: OwnedLinuxInstallRoot;
   readonly generation: FileIdentity;
   readonly inventory: ReadonlyMap<string, InventoryEntry>;
   readonly incumbent: LauncherSnapshot | undefined;
@@ -57,6 +77,7 @@ const stagedReleases = new WeakMap<StagedLinuxDesktopRelease, StagedAuthority>()
 const identity = (stat: Pick<Stats, "dev" | "ino">): FileIdentity => ({ dev: stat.dev, ino: stat.ino });
 const sameIdentity = (left: FileIdentity, right: FileIdentity): boolean => left.dev === right.dev && left.ino === right.ino;
 const owned = (stat: Stats): boolean => process.getuid === undefined || stat.uid === process.getuid();
+const generationBasename = (path: string): string => basename(path);
 const shellLiteral = (value: string): string => `'${value.replaceAll("'", "'\"'\"'")}'`;
 const requireOrdinaryUser = (): void => {
   if (process.getuid?.() === 0 || process.geteuid?.() === 0) throw new Error("Linux desktop installation must run as an ordinary user without elevation");
@@ -228,11 +249,32 @@ const requireMatchingInventory = async (root: string, expected: ReadonlyMap<stri
   }
 };
 
-/** Cleanup is confined to the exact private attempt minted by this invocation. */
-const removeOwnedAttempt = async (path: string, expected: FileIdentity): Promise<void> => {
-  const stat = await requireOwnedDirectory(path);
-  if (!sameIdentity(stat, expected)) throw new Error("Linux desktop install attempt changed filesystem identity");
-  await rm(path, { recursive: true, force: false });
+const withInstallMutation = async <A>(
+  ownedRoot: OwnedLinuxInstallRoot,
+  use: (lease: Awaited<ReturnType<typeof acquireLinuxInstallMutation>>) => Promise<A>,
+): Promise<A> => {
+  const lease = await acquireLinuxInstallMutation(ownedRoot);
+  try {
+    return await use(lease);
+  } finally {
+    await releaseLinuxInstallMutation(lease);
+  }
+};
+
+const retireOwnedTree = async (
+  ownedRoot: OwnedLinuxInstallRoot,
+  lease: Awaited<ReturnType<typeof acquireLinuxInstallMutation>>,
+  path: string,
+  kind: "generation" | "attempt",
+): Promise<void> => {
+  const tree = await persistLinuxInstallAllocation({
+    root: ownedRoot,
+    lease,
+    path,
+    kind,
+    phase: "allocated",
+  });
+  await retireLinuxInstallTree({ root: ownedRoot, lease, tree });
 };
 
 export const stageLinuxDesktopRelease = async (input: {
@@ -245,44 +287,82 @@ export const stageLinuxDesktopRelease = async (input: {
   const descriptor = input.descriptor;
   const home = await resolveInstallHome(input.home ?? homedir());
   const root = await ensureInstallLayout(home);
+  const ownedRoot = await admitOwnedLinuxInstallRoot({ home, rootPath: root });
   const generation = `${descriptor.version}-${descriptor.archive.sha256}`;
   if (!RELEASE_NAME.test(generation)) throw new Error("Linux desktop generation identity is invalid");
   const incumbent = await readManagedLauncher(home, root);
   await requireManagedDesktop(home);
-  const attempt = await mkdtemp(join(root, ".stage-"));
-  await chmod(attempt, 0o700);
-  const attemptIdentity = identity(await requireOwnedDirectory(attempt));
-  try {
-    const extracted = await extractLinuxDesktopArchive({ archivePath: input.archivePath, attemptRoot: attempt, expected: { version: descriptor.version, bytes: descriptor.archive.bytes, sha256: descriptor.archive.sha256 } });
-    await chmod(extracted, 0o700);
-    await admitPackagedUpdateIdentity({ asarPath: join(extracted, "resources/app.asar"), version: descriptor.version, sourceRevision: descriptor.sourceRevision });
-    const inventory = await inventoryTree(extracted);
-    const executable = inventory.get("vellum-command");
-    if (executable?.kind !== "file" || (executable.mode & 0o111) === 0) throw new Error("Linux desktop executable is not admitted");
-    const generationPath = join(root, generation);
-    const created = await mkdir(generationPath, { mode: 0o700 }).then(() => true).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "EEXIST") return false;
-      throw error;
-    });
-    if (created) {
-      const createdIdentity = identity(await requireOwnedDirectory(generationPath));
-      try {
-        // An exclusively created, inactive generation may be populated without
-        // overwriting an existing directory. Only the launcher selects it.
-        for (const name of await readdir(extracted)) await rename(join(extracted, name), join(generationPath, name));
-        await requireMatchingInventory(generationPath, inventory);
-      } catch (error) {
-        await removeOwnedAttempt(generationPath, createdIdentity);
+  return await withInstallMutation(ownedRoot, async (lease) => {
+    await collectLinuxInstallStorage({
+      root: ownedRoot,
+      lease,
+      activeBasename: incumbent === undefined ? undefined : generationBasename(dirname(incumbent.executablePath)),
+      currentExecutablePath: incumbent?.executablePath,
+    }).catch(() => undefined);
+    await assertLinuxInstallDiskAdmission({ path: root, archiveBytes: descriptor.archive.bytes });
+    const attempt = await mkdtemp(join(root, ".stage-"));
+    await chmod(attempt, 0o700);
+    protectLinuxInstallBasename(ownedRoot, basename(attempt));
+    try {
+      await persistLinuxInstallAllocation({
+        root: ownedRoot,
+        lease,
+        path: attempt,
+        kind: "attempt",
+        phase: "allocated",
+      });
+      const extracted = await extractLinuxDesktopArchive({ archivePath: input.archivePath, attemptRoot: attempt, expected: { version: descriptor.version, bytes: descriptor.archive.bytes, sha256: descriptor.archive.sha256 } });
+      await chmod(extracted, 0o700);
+      await admitPackagedUpdateIdentity({ asarPath: join(extracted, "resources/app.asar"), version: descriptor.version, sourceRevision: descriptor.sourceRevision });
+      const inventory = await inventoryTree(extracted);
+      const executable = inventory.get("vellum-command");
+      if (executable?.kind !== "file" || (executable.mode & 0o111) === 0) throw new Error("Linux desktop executable is not admitted");
+      const generationPath = join(root, generation);
+      const created = await mkdir(generationPath, { mode: 0o700 }).then(() => true).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "EEXIST") return false;
         throw error;
-      }
-    } else await requireMatchingInventory(generationPath, inventory);
-    // Persist both the generation entry and newly created ancestor names before
-    // a durable launcher can select this payload after a power loss.
-    for (const relative of [".local/opt/vellum-command-alpha", ".local/opt", ".local/bin", ".local/share/applications", ".local/share", ".local", ""]) await syncDirectory(join(home, relative));
-    const handle: StagedLinuxDesktopRelease = Object.freeze({ [STAGED]: true as const, executablePath: join(generationPath, "vellum-command"), generationPath, archiveSha256: descriptor.archive.sha256 });
-    stagedReleases.set(handle, { home, root, generation: identity(await requireOwnedDirectory(generationPath)), inventory, incumbent, version: descriptor.version, activated: false });
-    return handle;
-  } finally { await removeOwnedAttempt(attempt, attemptIdentity); }
+      });
+      if (created) {
+        await persistLinuxInstallAllocation({
+          root: ownedRoot,
+          lease,
+          path: generationPath,
+          kind: "generation",
+          phase: "allocated",
+          version: descriptor.version,
+          archiveSha256: descriptor.archive.sha256,
+        });
+        try {
+          // An exclusively created, inactive generation may be populated without
+          // overwriting an existing directory. Only the launcher selects it.
+          for (const name of await readdir(extracted)) await rename(join(extracted, name), join(generationPath, name));
+          await requireMatchingInventory(generationPath, inventory);
+        } catch (error) {
+          await retireOwnedTree(ownedRoot, lease, generationPath, "generation");
+          throw error;
+        }
+      } else await requireMatchingInventory(generationPath, inventory);
+      await persistLinuxInstallAllocation({
+        root: ownedRoot,
+        lease,
+        path: generationPath,
+        kind: "generation",
+        phase: "admitted",
+        version: descriptor.version,
+        archiveSha256: descriptor.archive.sha256,
+      });
+      // Persist both the generation entry and newly created ancestor names before
+      // a durable launcher can select this payload after a power loss.
+      for (const relative of [".local/opt/vellum-command-alpha", ".local/opt", ".local/bin", ".local/share/applications", ".local/share", ".local", ""]) await syncDirectory(join(home, relative));
+      const handle: StagedLinuxDesktopRelease = Object.freeze({ [STAGED]: true as const, executablePath: join(generationPath, "vellum-command"), generationPath, archiveSha256: descriptor.archive.sha256 });
+      stagedReleases.set(handle, { home, root, ownedRoot, generation: identity(await requireOwnedDirectory(generationPath)), inventory, incumbent, version: descriptor.version, activated: false });
+      setLiveLinuxInstallCandidate(ownedRoot, generation);
+      return handle;
+    } finally {
+      unprotectLinuxInstallBasename(ownedRoot, basename(attempt));
+      await retireOwnedTree(ownedRoot, lease, attempt, "attempt").catch(() => undefined);
+    }
+  });
 };
 
 const requireStagedAuthority = (handle: StagedLinuxDesktopRelease): StagedAuthority => {
@@ -359,6 +439,7 @@ export const activateLinuxDesktopRelease = async (handle: StagedLinuxDesktopRele
     else await rename(temporaryLauncher, stableLauncher);
     activated = true;
     authority.activated = true;
+    setLiveLinuxInstallCandidate(authority.ownedRoot, undefined);
     if (options.mode === "first-install") await rm(temporaryLauncher);
     temporaryLauncher = undefined;
     await syncDirectory(dirname(stableLauncher));
@@ -375,3 +456,85 @@ export const activateLinuxDesktopRelease = async (handle: StagedLinuxDesktopRele
     }
   }
 };
+
+const managedGenerationFromLauncher = async (home: string): Promise<{
+  readonly ownedRoot: OwnedLinuxInstallRoot;
+  readonly activeBasename: string | undefined;
+  readonly executablePath: string | undefined;
+} | undefined> => {
+  try {
+    const resolvedHome = await resolveInstallHome(home);
+    const root = join(resolvedHome, ".local/opt/vellum-command-alpha");
+    const ownedRoot = await admitOwnedLinuxInstallRoot({ home: resolvedHome, rootPath: root });
+    const incumbent = await readManagedLauncher(resolvedHome, root).catch(() => undefined);
+    return {
+      ownedRoot,
+      activeBasename: incumbent === undefined ? undefined : generationBasename(dirname(incumbent.executablePath)),
+      executablePath: incumbent?.executablePath,
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+/** Process-local readiness after the selected generation opened product state. */
+export const markLinuxDesktopInstallReady = async (input: {
+  readonly home?: string;
+  readonly executablePath: string;
+}): Promise<void> => {
+  requireOrdinaryUser();
+  const home = await resolveInstallHome(input.home ?? homedir());
+  const root = join(home, ".local/opt/vellum-command-alpha");
+  const ownedRoot = await admitOwnedLinuxInstallRoot({ home, rootPath: root });
+  const incumbent = await readManagedLauncher(home, root);
+  if (incumbent === undefined || incumbent.executablePath !== input.executablePath) {
+    throw new Error("Linux desktop updater requires the exact managed running generation");
+  }
+  const generationPath = dirname(incumbent.executablePath);
+  const ready = mintLinuxDesktopInstallReadiness({
+    executablePath: incumbent.executablePath,
+    generationBasename: generationBasename(generationPath),
+    generationIdentity: identity(await requireOwnedDirectory(generationPath)),
+  });
+  holdLinuxDesktopInstallReadiness(ready);
+  await withInstallMutation(ownedRoot, async (lease) => {
+    await collectLinuxInstallStorage({
+      root: ownedRoot,
+      lease,
+      activeBasename: generationBasename(generationPath),
+      currentExecutablePath: incumbent.executablePath,
+      readiness: ready,
+    });
+  });
+};
+
+export const observeLinuxDesktopInstallStorage = async (input: {
+  readonly home?: string;
+  readonly executablePath?: string;
+} = {}) => {
+  const observed = await managedGenerationFromLauncher(input.home ?? homedir());
+  if (observed === undefined) return undefined;
+  return observeLinuxInstallStorage({
+    root: observed.ownedRoot,
+    activeBasename: observed.activeBasename,
+    currentExecutablePath: input.executablePath ?? observed.executablePath,
+  });
+};
+
+export const linuxDesktopInstallStorageDoctor = async (input: {
+  readonly home?: string;
+  readonly executablePath?: string;
+} = {}) => {
+  try {
+    const observation = await observeLinuxDesktopInstallStorage(input);
+    if (observation === undefined) return undefined;
+    return linuxInstallStorageDoctorCheck(observation);
+  } catch (error) {
+    return linuxInstallStorageDoctorCheck(
+      undefined,
+      error instanceof Error ? error.message : "Linux managed install storage could not be observed.",
+    );
+  }
+};
+
+export { heldLinuxDesktopInstallReadiness, holdLinuxDesktopInstallReadiness };

@@ -60,9 +60,15 @@ Unmanaged source builds and loose extracted copies do not update themselves
 through the managed release lane. Do not rerun the first-install command to
 replace an active installation or switch the launcher to an older generation.
 
-Old and staged managed generations are retained, so disk use can grow across
-alpha releases. There is no automatic generation pruning or documented
-cleanup command. State repair remains forward-only.
+The managed layout keeps the launcher-selected generation and one live staged
+candidate. After the newly selected generation starts and reaches readiness,
+admitted inactive generations are retired through an owner-local quarantine.
+Activation itself still does not retire generations or roll back. Crash-left
+`.stage-*` directories with durable installer provenance are collected
+independently; unproven leftover directories are reported in Doctor and are
+not deleted automatically. Staging refuses when free space is below the next
+expansion plus a 1 GiB reserve. There is no operator cleanup path or
+filesystem rollback. State repair remains forward-only.
 
 ## State custody
 
