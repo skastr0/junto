@@ -40,6 +40,7 @@ import {
   TasksShowArgs,
   TasksUpdateCliArgs,
 } from "../../shared/work-control";
+import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
   FEW_SHOT_CLAIM,
@@ -589,6 +590,7 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   padLookHereSchema,
   padGetSchema,
   padTaggedSchema,
+  ...overseerSchemas,
   ...(BROWSER_ENABLED
     ? [
         browserPagesSchema,
@@ -1085,6 +1087,7 @@ export const allExamples: ReadonlyArray<CommandExample> = [
         },
       ]
     : []),
+  ...overseerExamples,
 ];
 
 export const commandCapabilities: ReadonlyArray<CommandCapability> = [
@@ -1477,4 +1480,5 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
         },
       ]
     : []),
+  ...overseerCapabilities,
 ];

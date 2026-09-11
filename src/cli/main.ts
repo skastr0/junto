@@ -13,6 +13,7 @@ import {
   pingCommand,
   schemaCommand,
 } from "./commands/discovery";
+import { overseerCommand } from "./commands/overseer";
 import { padCommand } from "./commands/pad";
 import { sheetCommand } from "./commands/sheet";
 import {
@@ -77,6 +78,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     boardCommand,
     padCommand,
     sheetCommand,
+    overseerCommand,
     stationOperatorCommand,
     ...(FLEET_UI_ENABLED
       ? [fleetOperatorCommand, qualificationOperatorCommand]

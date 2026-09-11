@@ -9,6 +9,8 @@ import {
   buildNodesCatalogDoc,
   DOC_TOPICS,
 } from "@shared/vellum-docs";
+import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
+import { overseerOfflineCapabilities } from "./overseer";
 import { commandCapabilities } from "../core/discovery";
 import { InputError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
@@ -72,6 +74,23 @@ const docsConceptsCommand = Command.make("concepts", {}, () =>
   ),
 ).pipe(Command.withDescription("Concepts: seats, grants, factory, earned completion, identity"));
 
+const docsOverseerCommand = Command.make("overseer", {}, () =>
+  executeJsonCommand(
+    "docs overseer",
+    Effect.succeed({
+      topic: "overseer",
+      offline: true,
+      daemon_required: false,
+      capabilities: overseerOfflineCapabilities(),
+      content: OVERSEER_SKILL_MARKDOWN,
+    }),
+  ),
+).pipe(
+  Command.withDescription(
+    "Overseer authority, workflows, and exact command surface (offline, no daemon)",
+  ),
+);
+
 const docsContractCommand = Command.make("contract", {}, () =>
   executeJsonCommand(
     "docs contract",
@@ -104,6 +123,14 @@ const docsShowCommand = Command.make(
             return { topic, content: buildNodesCatalogDoc() };
           case "concepts":
             return { topic, content: buildConceptsDoc() };
+          case "overseer":
+            return {
+              topic,
+              offline: true,
+              daemon_required: false,
+              capabilities: overseerOfflineCapabilities(),
+              content: OVERSEER_SKILL_MARKDOWN,
+            };
           case "contract":
             return yield* Effect.fail(
               new InputError({
@@ -131,6 +158,7 @@ export const docsCommand = Command.make("docs").pipe(
     docsNodesCommand,
     docsNodeCommand,
     docsConceptsCommand,
+    docsOverseerCommand,
     docsContractCommand,
     docsShowCommand,
   ]),
