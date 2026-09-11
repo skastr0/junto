@@ -484,6 +484,33 @@ describe("resolveManagedLaunch argv", () => {
     expect(GROK_TEMPLATE.capabilityBadges.requiresGitCwd).toBe(true);
     // Appearance is the operator's harness config, never a spawn flag.
     expect(GROK_TEMPLATE.argvSpec.prefix).toEqual([]);
+    expect(GROK_TEMPLATE.probedVersion).toBe("1.0.25");
+    expect(GROK_TEMPLATE.argvSpec.resumeReinjection).toBe("frozen");
+    expect(GROK_TEMPLATE.efforts).toEqual(["xhigh", "high", "medium", "low"]);
+  });
+
+  it("grok resume drops --rules because 1.0.25 freezes doctrine at create", () => {
+    // Live canary: pin --rules ALPHA, then -r --rules BETA answered ALPHA.
+    const resume = resolveManagedLaunch(
+      "grok",
+      {
+        resumeId: "00000000-0000-4000-8000-00000000a33d",
+        systemPrompt: "BETA_RULES_ONLY",
+        effort: "xhigh",
+      },
+      bareAmbient,
+    );
+    expect(resume.argv).toEqual([
+      "grok",
+      "-r",
+      "00000000-0000-4000-8000-00000000a33d",
+      "--reasoning-effort",
+      "xhigh",
+      "--permission-mode",
+      "default",
+    ]);
+    expect(resume.argv).not.toContain("--rules");
+    expect(resume.argv).not.toContain("BETA_RULES_ONLY");
   });
 
   it("grok prefers --rules when systemPrompt is set without agentFile", () => {
@@ -1095,7 +1122,7 @@ describe("model enumeration (fail-soft)", () => {
 
   it("effortsFor prefers model-carried list then template defaults", () => {
     expect(effortsFor("hermes")).toEqual([]);
-    expect(effortsFor("grok")).toEqual(["high", "medium", "low"]);
+    expect(effortsFor("grok")).toEqual(["xhigh", "high", "medium", "low"]);
     expect(
       effortsFor("codex", {
         id: "gpt-5.6-luna",

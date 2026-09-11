@@ -194,7 +194,7 @@ export type ArgvSpec = {
    * un-briefed.
    *
    * - `re-pass`   — resume argv carrying the injection spec is honored.
-   *   Probed 2026-08: claude, grok, pi, cursor, agy, muse, hermes. Claude
+   *   Probed 2026-08: claude, pi, cursor, agy, muse, hermes. Claude
    *   2.1.268 keeps this class only because `resumeReinjectionArgv` turns
    *   snapshot recording off; without that, a changed append is ignored.
    *   (Hermes also needs `-m` re-passed on every resume or the model silently
@@ -203,9 +203,10 @@ export type ArgvSpec = {
    * - `frozen`    — instructions are fixed at session creation and cannot be
    *   re-passed. Probed 2026-08: codex (re-passed developer instructions do not
    *   apply to an existing thread) and kimi (`--agent-file` cannot combine with
-   *   `--session` / `--continue` at all). Doctrine for these harnesses is
-   *   delivered-at-creation; later generations are re-oriented by the injection
-   *   supervisor's notices instead.
+   *   `--session` / `--continue` at all). Probed 2026-09-11: grok 1.0.25
+   *   (`--rules` on `-r` resume is accepted and ignored). Doctrine for these
+   *   harnesses is delivered-at-creation; later generations are re-oriented
+   *   by the injection supervisor's notices instead.
    * - `unprobed`  — no receipt yet. Treated exactly like `frozen` at the argv
    *   boundary, so an unverified harness never gets a claim it has not earned.
    */
@@ -478,10 +479,28 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
   defaultPermissionMode: "on-request",
 };
 
+/**
+ * Grok — Tier A, session pin.
+ *
+ * Re-probed 1.0.25 (2026-09-11):
+ * - `--rules` is still the Tier-A carrier on create (ALPHA_RULES_ONLY honored).
+ * - `--rules` on `-r` resume is accepted and ignored: pin with ALPHA, then
+ *   `-r <id> --rules BETA` answered ALPHA_RULES_ONLY. `resumeReinjection` is
+ *   therefore `frozen`. `--agent` re-pass on resume was not separately
+ *   canaried (UNVERIFIED).
+ * - Effort vocabulary is `xhigh|high|medium|low` (`grok --reasoning-effort
+ *   invalid`; grok-4.6 `models_cache.json` `reasoning_efforts` includes
+ *   xhigh). The picker uses this flat list: cache rows are objects
+ *   (`id`/`value`), not a string array, so per-model derivation is not wired.
+ * - `requiresGitCwd` stays true. Changelog 1.0.0 skipped the project-directory
+ *   prompt for home / non-project dirs, and headless `-p` in a non-git `/tmp`
+ *   completed a turn, but the TUI positional-prompt swallow was not re-probed
+ *   in a PTY.
+ */
 export const GROK_TEMPLATE: ManagedTerminalTemplate = {
   harness: "grok",
   displayName: "Grok",
-  probedVersion: "0.2.x",
+  probedVersion: "1.0.25",
   argvSpec: {
     binary: "grok",
     // No appearance prefix. `--minimal` used to live here and overrode the
@@ -498,7 +517,7 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
     resumeFlag: "-r",
     systemPromptFlag: "--rules",
     agentFlag: "--agent",
-    resumeReinjection: "re-pass",
+    resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {
@@ -524,7 +543,9 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
       "git cwd",
     ],
   },
-  efforts: ["high", "medium", "low"],
+  // CLI 1.0.25 enumerates xhigh|high|medium|low; grok-4.5 cache still
+  // omits xhigh, but the flag accepts the union on this binary.
+  efforts: ["xhigh", "high", "medium", "low"],
   defaultPermissionMode: "default",
 };
 

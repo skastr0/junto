@@ -59,17 +59,16 @@ afterEach(() => {
 
 // ── The reinjectability ledger ─────────────────────────────────────────────
 
-/** Probe receipts, 2026-08. Anything not listed here is deliberately absent. */
+/** Probe receipts. Anything not listed here is deliberately absent. */
 const RE_PASS: readonly HarnessId[] = [
   "claude",
-  "grok",
   "pi",
   "cursor",
   "agy",
   "muse",
   "hermes",
 ];
-const FROZEN: readonly HarnessId[] = ["codex", "kimi"];
+const FROZEN: readonly HarnessId[] = ["codex", "kimi", "grok"];
 
 describe("per-harness reinjectability matrix", () => {
   it("every template declares its class, and the probed ones match the receipts", () => {
@@ -99,12 +98,12 @@ describe("per-harness reinjectability matrix", () => {
 describe("resume argv per reinjectability class", () => {
   it("a re-pass harness carries the injection flag on resume when asked", () => {
     const argv = resolveManagedLaunch(
-      "grok",
+      "pi",
       { resumeId: "SID", systemPrompt: "DOCTRINE", cwd: "/x" },
     ).argv!;
-    expect(argv).toContain("-r");
+    expect(argv).toContain("--session");
     expect(argv).toContain("SID");
-    expect(argv).toContain("--rules");
+    expect(argv).toContain("--append-system-prompt");
     expect(argv).toContain("DOCTRINE");
   });
 
@@ -151,6 +150,26 @@ describe("resume argv per reinjectability class", () => {
     }).argv!;
     expect(codexResume.slice(0, 3)).toEqual(["codex", "resume", "0199-thread"]);
     expect(codexResume).not.toContain("DOCTRINE");
+
+    // Grok 1.0.25 accepts `--rules` on `-r` and ignores the new text
+    // (ALPHA create, BETA resume answered ALPHA_RULES_ONLY). Emitting
+    // the carrier on resume would claim a re-brief that did not happen.
+    const grokFresh = resolveManagedLaunch("grok", {
+      systemPrompt: "DOCTRINE",
+    }).argv!;
+    const grokResume = resolveManagedLaunch("grok", {
+      resumeId: "SID",
+      systemPrompt: "DOCTRINE",
+      agentFile: "/tmp/vellum-agent.md",
+    }).argv!;
+    expect(grokFresh).toContain("--rules");
+    expect(grokFresh).toContain("DOCTRINE");
+    expect(grokResume).toContain("-r");
+    expect(grokResume).toContain("SID");
+    expect(grokResume).not.toContain("--rules");
+    expect(grokResume).not.toContain("--agent");
+    expect(grokResume).not.toContain("DOCTRINE");
+    expect(grokResume).not.toContain("/tmp/vellum-agent.md");
   });
 
   it("hermes re-passes -m on resume (or the model silently reverts)", () => {
