@@ -59,6 +59,7 @@ import type {
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
+import type { WorkErrorBody } from "@shared/work-control";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
@@ -1514,7 +1515,7 @@ const makeKernelService = (
 export type SchedulerProductionEffectHost = {
   readonly pause: Pick<PauseShape, "stateFor">;
   readonly work: Pick<WorkShape, "workTaskCreate" | "workSystemMailboxNotify">;
-  readonly canvases: Pick<CanvasesShape, "mutate">;
+  readonly canvases: Pick<CanvasesShape, "mutatePortfolio">;
   readonly docs: Map<string, CanvasDoc>;
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   readonly getStationRole: () => "" | "command-center" | "remote";
@@ -1577,15 +1578,39 @@ export const makeSchedulerProductionEffectDeps = (
     try {
       setRuntimeFlag(canvasName, nodeId, flag, enabled);
       await mainAuthoringGate.run("kernel.flag-mirror", async () => {
-        // Recheck after authoring-gate admission, immediately before mutate.
         // Nested under control.overseer is fine: the gate is not a mutex.
-        if (overseer !== undefined && !(await overseer.liveGrant())) {
-          throw new Error("overseer grant revoked");
-        }
+        // mutatePortfolio's callback is the in-transaction commit boundary
+        // after ensureReady/queue wait. commitGrantLive sees current docs there.
         await host.run(
-          host.canvases.mutate(canvasName, (doc) =>
-            applyNodeFlag(doc, nodeId, flag, enabled),
-          ),
+          host.canvases.mutatePortfolio((view) => {
+            if (
+              overseer !== undefined &&
+              !overseer.commitGrantLive(view.documents)
+            ) {
+              const error: WorkErrorBody = {
+                type: "AuthError",
+                message: "overseer grant revoked",
+              };
+              return { ok: false, error };
+            }
+            const current = view.documents.get(canvasName);
+            if (current === undefined) {
+              const error: WorkErrorBody = {
+                type: "UnknownTarget",
+                message: `canvas "${canvasName}" does not exist`,
+              };
+              return { ok: false, error };
+            }
+            const documents = new Map(view.documents);
+            documents.set(
+              canvasName,
+              applyNodeFlag(current, nodeId, flag, enabled),
+            );
+            return {
+              ok: true,
+              mutation: { documents, result: undefined },
+            };
+          }),
         );
       });
       const current = host.docs.get(canvasName);

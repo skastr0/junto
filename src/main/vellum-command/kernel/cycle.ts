@@ -38,7 +38,7 @@ import {
   type PageLoadStatus,
 } from "@shared/scheduler-effects";
 import { isValidCronExpression, nextCronOccurrence } from "@shared/cron-expression";
-import { applySchedulerFire } from "./effects";
+import { applySchedulerFire, type OverseerFireAuthority } from "./effects";
 import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import type { SnapshotState } from "../../../shared/entities";
 import {
@@ -823,7 +823,7 @@ const runManualSchedulerFire = async (input: {
   readonly canvasName: string;
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
-  readonly overseer?: { readonly liveGrant: () => Promise<boolean> };
+  readonly overseer?: OverseerFireAuthority;
 }): Promise<ManualSchedulerFireResult> => {
   const doc = docs.get(input.canvasName);
   if (!doc) {
@@ -883,10 +883,13 @@ const runManualSchedulerFire = async (input: {
       message: "overseer grant revoked",
     };
   }
-  if ((result.failed ?? 0) > 0 && result.applied === 0) {
+  if ((result.failed ?? 0) > 0) {
     return {
       ok: false,
-      message: "Wired scheduler effects failed to apply",
+      message:
+        result.applied > 0
+          ? "Wired scheduler effects failed after a partial apply"
+          : "Wired scheduler effects failed to apply",
     };
   }
   if (result.skipped === "no_effects" || result.applied === 0) {
@@ -925,12 +928,18 @@ export const overseerSchedulerFire = async (input: {
   readonly sourceNodeId: string;
   readonly kind?: "relay" | "cron" | "gauge";
   readonly liveGrant: () => Promise<boolean>;
+  readonly commitGrantLive: (
+    documents: ReadonlyMap<string, CanvasDoc>,
+  ) => boolean;
 }): Promise<ManualSchedulerFireResult> =>
   runManualSchedulerFire({
     canvasName: input.canvasName,
     sourceNodeId: input.sourceNodeId,
     ...(input.kind !== undefined ? { kind: input.kind } : {}),
-    overseer: { liveGrant: input.liveGrant },
+    overseer: {
+      liveGrant: input.liveGrant,
+      commitGrantLive: input.commitGrantLive,
+    },
   });
 
 export const setDocs = (docsMap: Map<string, CanvasDoc>): void => {

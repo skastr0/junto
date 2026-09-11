@@ -80,7 +80,7 @@ describe("main authoring architecture", () => {
     // Product law: set_flag / flagOnUnsatisfied write document ether.flags on CC
     // (same truth as toggleFlag), never ghost runtime-only overrides.
     expect(kernel).toContain('mainAuthoringGate.run("kernel.flag-mirror"');
-    expect(kernel).toContain("canvases.mutate(");
+    expect(kernel).toContain("canvases.mutatePortfolio(");
     expect(kernel).toContain("applyNodeFlag");
     // The phase mirror is gone with the edge field it wrote: phase is derived on
     // every read, so the kernel has no mirror seam to bind and no mirror label.

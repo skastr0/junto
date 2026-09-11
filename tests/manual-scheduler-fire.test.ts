@@ -15,6 +15,16 @@ import {
 } from "../src/main/vellum-command/kernel/effects";
 import { CRON_ENABLED, RELAY_ENABLED } from "../src/shared/features";
 
+const overseerFire = (input: {
+  readonly canvasName: string;
+  readonly sourceNodeId: string;
+  readonly liveGrant: () => Promise<boolean>;
+}) =>
+  overseerSchedulerFire({
+    ...input,
+    commitGrantLive: () => true,
+  });
+
 const board = (): CanvasDoc =>
   ({
     nodes: [
@@ -157,7 +167,7 @@ describe("manualSchedulerFire scope", () => {
       expect(ordinary.message).toMatch(/playing/u);
       expect(enqueues).toEqual([]);
 
-      const overseer = await overseerSchedulerFire({
+      const overseer = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => true,
@@ -168,7 +178,7 @@ describe("manualSchedulerFire scope", () => {
       expect(enqueues.length).toBeGreaterThan(0);
 
       enqueues.length = 0;
-      const revoked = await overseerSchedulerFire({
+      const revoked = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => false,

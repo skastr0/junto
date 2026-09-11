@@ -24,6 +24,13 @@ export type SchedulerFireKind = "cron" | "gauge" | "relay";
 export type OverseerFireAuthority = {
   /** Rechecked at every async effect and cascade hop. Pause does not admit. */
   readonly liveGrant: () => Promise<boolean>;
+  /**
+   * Required in-transaction commit check. mutatePortfolio's callback is
+   * synchronous and sees current docs after ensureReady/queue wait; this
+   * must refuse without awaiting. Native:
+   * `(documents) => !signal.aborted && callerGrantLive(documents, caller)`.
+   */
+  readonly commitGrantLive: (documents: ReadonlyMap<string, CanvasDoc>) => boolean;
 };
 
 export type SchedulerFireEvent = {
@@ -340,6 +347,7 @@ export const applySchedulerFire = async (
       );
       applied += child.applied;
       failed += child.failed ?? 0;
+      if (child.skipped === "revoked") failed += 1;
       cascaded += 1 + (child.cascaded ?? 0);
     }
   }
@@ -347,7 +355,10 @@ export const applySchedulerFire = async (
   if (applied === 0 && cascaded === 0 && bindings.length === 0) {
     return { applied: 0, cascaded: 0, skipped: "no_effects" };
   }
-  return failed > 0 ? { applied, cascaded, failed } : { applied, cascaded };
+  if (failed > 0) {
+    return { applied, cascaded, failed };
+  }
+  return { applied, cascaded };
 };
 
 /** True when a node is a schedule carrier (timer body on cron/timer kinds). */

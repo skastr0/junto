@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { callerGrantLive } from "../src/shared/overseer-authoring";
+import { managedAgentEther } from "./helpers/managed-agent-ether";
+import type { CanvasPortfolioEdit, CanvasPortfolioView } from "../src/main/vellum-command/canvases";
 import {
   __resetKernelMemoryForTest,
   __setAutomationGateForTest,
@@ -51,7 +54,7 @@ const board = (
         y: 0,
         width: 100,
         height: 40,
-        ether: { entity: { kind: "agent", name: "local:a" }, host: "local" },
+        ether: { ...managedAgentEther("local:a"), overseer: true },
       },
     ],
     edges: edges.map((verb) => {
@@ -96,6 +99,49 @@ const workFail = (message: string) =>
     message,
   });
 
+const CALLER = { canvasName: "board", nodeId: "agent1" };
+
+const overseerFire = (input: {
+  readonly canvasName: string;
+  readonly sourceNodeId: string;
+  readonly liveGrant: () => Promise<boolean>;
+  readonly commitGrantLive?: (
+    documents: ReadonlyMap<string, CanvasDoc>,
+  ) => boolean;
+}) =>
+  overseerSchedulerFire({
+    canvasName: input.canvasName,
+    sourceNodeId: input.sourceNodeId,
+    liveGrant: input.liveGrant,
+    commitGrantLive:
+      input.commitGrantLive ??
+      ((documents) => callerGrantLive(documents, CALLER)),
+  });
+
+const commitPortfolio = <A>(
+  docs: Map<string, CanvasDoc>,
+  fn: (view: CanvasPortfolioView) => CanvasPortfolioEdit<A>,
+) => {
+  const view: CanvasPortfolioView = {
+    documents: docs,
+    revisions: new Map(
+      [...docs.keys()].map((name) => [name, "rev-1"] as const),
+    ),
+  };
+  const edit = fn(view);
+  if (!edit.ok) return Effect.fail(edit.error);
+  for (const [name, doc] of edit.mutation.documents) {
+    docs.set(name, doc);
+  }
+  return Effect.succeed({
+    result: edit.mutation.result,
+    affected: [...edit.mutation.documents.keys()].map((name) => ({
+      name,
+      revision: "rev-1",
+    })),
+  });
+};
+
 const wireProduction = (input: {
   readonly playing: boolean;
   readonly stationRole: "" | "command-center" | "remote";
@@ -103,6 +149,10 @@ const wireProduction = (input: {
   readonly enqueues: string[];
   readonly prompts: string[];
   readonly enqueueResult?: "ok" | "fail";
+  readonly hold?: {
+    readonly entered: Deferred.Deferred<void>;
+    readonly gate: Deferred.Deferred<void>;
+  };
 }) => {
   const { canAutomateCanvas, canApplyFlagEffects, effectDeps } =
     makeSchedulerProductionEffectDeps({
@@ -132,14 +182,15 @@ const wireProduction = (input: {
           }),
       },
       canvases: {
-        mutate: (name, fn) =>
-          Effect.sync(() => {
-            const current = input.docs.get(name);
-            if (current === undefined) {
-              throw new Error(`canvas "${name}" missing`);
-            }
-            input.docs.set(name, fn(current));
-          }),
+        mutatePortfolio: (fn) => {
+          const hold = input.hold;
+          if (hold === undefined) return commitPortfolio(input.docs, fn);
+          return Effect.gen(function* () {
+            yield* Deferred.succeed(hold.entered, undefined);
+            yield* Deferred.await(hold.gate);
+            return yield* commitPortfolio(input.docs, fn);
+          });
+        },
       },
       docs: input.docs,
       run: (effect) => Effect.runPromise(effect),
@@ -189,7 +240,7 @@ describe("overseer scheduler production effect deps", () => {
       expect(enqueues).toEqual([]);
       expect(prompts).toEqual([]);
 
-      const overseer = await overseerSchedulerFire({
+      const overseer = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => true,
@@ -224,7 +275,7 @@ describe("overseer scheduler production effect deps", () => {
       expect(docs.get("board")?.nodes.find((n) => n.id === "agent1")?.ether?.flags).toBeUndefined();
 
       const overseer = await mainAuthoringGate.run("control.overseer", () =>
-        overseerSchedulerFire({
+        overseerFire({
           canvasName: "board",
           sourceNodeId: "cron1",
           liveGrant: async () => true,
@@ -249,7 +300,7 @@ describe("overseer scheduler production effect deps", () => {
         enqueues,
         prompts,
       });
-      const first = await overseerSchedulerFire({
+      const first = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => true,
@@ -260,7 +311,7 @@ describe("overseer scheduler production effect deps", () => {
 
       enqueues.length = 0;
       prompts.length = 0;
-      const revoked = await overseerSchedulerFire({
+      const revoked = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => false,
@@ -278,9 +329,92 @@ describe("overseer scheduler production effect deps", () => {
     "grant drop after authoring await refuses the mutation",
     async () => {
       docs = new Map([["board", board(["flags"])]]);
-      // Entry + applyOne + setFlag admit succeed; in-gate recheck (after
-      // authoring-queue await, before mutate) refuses.
-      let remaining = 3;
+      const entered = Effect.runSync(Deferred.make<void>());
+      const gate = Effect.runSync(Deferred.make<void>());
+      let granted = true;
+      wireProduction({
+        playing: false,
+        stationRole: "command-center",
+        docs,
+        enqueues,
+        prompts,
+        hold: { entered, gate },
+      });
+      const pending = overseerFire({
+        canvasName: "board",
+        sourceNodeId: "cron1",
+        liveGrant: async () => granted,
+        commitGrantLive: (documents) =>
+          granted && callerGrantLive(documents, CALLER),
+      });
+      await Effect.runPromise(Deferred.await(entered));
+      granted = false;
+      const agent = docs.get("board")?.nodes.find((n) => n.id === "agent1");
+      if (agent?.ether !== undefined) {
+        const { overseer: _drop, ...ether } = agent.ether;
+        docs.set("board", {
+          ...docs.get("board")!,
+          nodes: docs.get("board")!.nodes.map((node) =>
+            node.id === "agent1" ? { ...node, ether } : node,
+          ),
+        });
+      }
+      await Effect.runPromise(Deferred.succeed(gate, undefined));
+      const result = await pending;
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.message).not.toMatch(/No effect wires/i);
+      expect(
+        docs.get("board")?.nodes.find((n) => n.id === "agent1")?.ether?.flags,
+      ).toBeUndefined();
+    },
+  );
+
+  it.runIf(CRON_ENABLED)(
+    "cascade grant drop is not reported as success",
+    async () => {
+      const chained: CanvasDoc = {
+        ...board(["enqueues"]),
+        nodes: [
+          ...board(["enqueues"]).nodes,
+          {
+            id: "relay1",
+            type: "text",
+            text: "relay",
+            x: 200,
+            y: 0,
+            width: 100,
+            height: 40,
+            ether: { entity: { kind: "relay" }, host: "local" },
+          },
+          {
+            id: "tasks-relay",
+            type: "text",
+            text: "relay tasks",
+            x: 200,
+            y: 100,
+            width: 100,
+            height: 40,
+            ether: { entity: { kind: "task" }, tasks: { items: [] } },
+          },
+        ],
+        edges: [
+          ...board(["enqueues"]).edges,
+          {
+            id: "e-chain",
+            fromNode: "cron1",
+            toNode: "relay1",
+            ether: { verb: "chains" },
+          },
+          {
+            id: "e-relay-enqueues",
+            fromNode: "relay1",
+            toNode: "tasks-relay",
+            ether: { verb: "enqueues" },
+          },
+        ],
+      } as CanvasDoc;
+      docs = new Map([["board", chained]]);
       wireProduction({
         playing: false,
         stationRole: "command-center",
@@ -288,21 +422,14 @@ describe("overseer scheduler production effect deps", () => {
         enqueues,
         prompts,
       });
-      const result = await overseerSchedulerFire({
+      const result = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
-        liveGrant: async () => {
-          if (remaining <= 0) return false;
-          remaining -= 1;
-          return true;
-        },
+        liveGrant: async () => enqueues.length === 0,
       });
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.message).not.toMatch(/No effect wires/i);
-      expect(
-        docs.get("board")?.nodes.find((n) => n.id === "agent1")?.ether?.flags,
-      ).toBeUndefined();
     },
   );
 
@@ -318,7 +445,7 @@ describe("overseer scheduler production effect deps", () => {
         prompts,
         enqueueResult: "fail",
       });
-      const result = await overseerSchedulerFire({
+      const result = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => true,
@@ -342,7 +469,7 @@ describe("overseer scheduler production effect deps", () => {
         enqueues,
         prompts,
       });
-      const result = await overseerSchedulerFire({
+      const result = await overseerFire({
         canvasName: "board",
         sourceNodeId: "cron1",
         liveGrant: async () => true,
