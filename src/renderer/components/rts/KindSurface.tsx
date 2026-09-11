@@ -45,6 +45,8 @@ import {
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
 import { HarnessMark } from "../HarnessMark";
+import { OverseerMark } from "../OverseerMark";
+import { isOverseerSeat } from "../../lib/overseer-set";
 import { WaitingOnSection } from "../WaitingOnSection";
 import { RegionPathsModal } from "../RegionPathsModal";
 import { ChatComposer } from "../chat/ChatComposer";
@@ -73,14 +75,20 @@ function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
       ? node.ether.terminal.harness
       : undefined;
   const managed = harness !== undefined && isHarnessId(harness);
+  const overseer = isOverseerSeat(node);
   return (
-    <div className="rts-kind-id" title={nodeTitle(node)}>
+    <div className="rts-kind-id" title={nodeTitle(node)} data-overseer={overseer ? "true" : undefined}>
       <span className="rts-kind-id__avatar rts-kind-id__avatar--mark" aria-hidden>
         <HarnessMark agent={managed ? harness : undefined} size={22} />
       </span>
       <div className="rts-kind-id__text">
         <div className="rts-kind-id__name">{nodeTitle(node)}</div>
         <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>
+        {overseer ? (
+          <div className="mt-0.5">
+            <OverseerMark size="card" />
+          </div>
+        ) : null}
       </div>
     </div>
   );

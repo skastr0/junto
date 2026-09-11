@@ -65,6 +65,8 @@ import {
 } from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
+import { OverseerMark } from "../OverseerMark";
+import { isOverseerSeat } from "../../lib/overseer-set";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
 import { ActorLedgerPane } from "./ActorLedgerPane";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
@@ -1895,9 +1897,20 @@ export function TerminalSurface({
       ]
         .filter(Boolean)
         .join(" ")}
+      data-overseer={agentSeat && isOverseerSeat(node) ? "true" : undefined}
+      data-testid="native-terminal-surface"
     >
       <OverlayHeader
-        eyebrow={terminalSurfaceEyebrow(hostId)}
+        eyebrow={
+          agentSeat && isOverseerSeat(node) ? (
+            <span className="inline-flex items-center gap-1.5">
+              {terminalSurfaceEyebrow(hostId)}
+              <OverseerMark size="session" />
+            </span>
+          ) : (
+            terminalSurfaceEyebrow(hostId)
+          )
+        }
         title={label}
         status={
           <span className="native-terminal-surface__status inline-flex items-center gap-1.5">

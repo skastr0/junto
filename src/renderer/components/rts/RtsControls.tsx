@@ -74,6 +74,7 @@ import { commitDoc, setBoardSettings } from "../../lib/mutations";
 import { Button } from "../ui";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
+import { OverseerToggleKey } from "./OverseerToggle";
 import "./rts-controls.css";
 import "../node-palette/node-palette-mode-deck.css";
 
@@ -544,11 +545,19 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
               <Terminal size={ICON} />
             </KindKey>
             <AgentReseatControl node={node} />
+            <OverseerToggleKey node={node} />
             {rename}
           </>
         );
       }
-      if (ACP_CHAT_SURFACE_HIDDEN) return rename;
+      if (ACP_CHAT_SURFACE_HIDDEN) {
+        return (
+          <>
+            <OverseerToggleKey node={node} />
+            {rename}
+          </>
+        );
+      }
       return (
         <>
           <KindKey
@@ -558,6 +567,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           >
             <MessageSquareText size={ICON} />
           </KindKey>
+          <OverseerToggleKey node={node} />
           {rename}
         </>
       );

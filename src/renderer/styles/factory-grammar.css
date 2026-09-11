@@ -7,6 +7,27 @@
    - motion identifies activity or transition;
    - decorative craft stays quiet enough to be discovered, never announced. */
 .vellum-node[data-node-kind="agent"] { border-radius: 7px 11px 11px 7px; }
+/* Overseer identity — indigo, never amber (attention) or crimson (blocker).
+   Ordinary agent cards stay unchanged; this only paints granted seats. */
+.overseer-mark {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid;
+  border-radius: 3px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+  user-select: none;
+  pointer-events: none;
+}
+.vellum-node[data-overseer="true"]:not([data-blocked="true"]):not([data-seat-attention="true"]):not([data-attention="fire"]) {
+  outline: 1px solid color-mix(in oklab, var(--color-indigo) 42%, transparent);
+  outline-offset: 1px;
+}
+.native-terminal-surface[data-overseer="true"] {
+  box-shadow: inset 3px 0 0 color-mix(in oklab, var(--color-indigo) 72%, transparent);
+}
 .factory-agent-card:not(:has([data-testid="claimed-task"])) {
   justify-content: center;
 }

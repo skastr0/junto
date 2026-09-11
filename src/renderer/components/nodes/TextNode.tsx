@@ -39,6 +39,8 @@ import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { HarnessMark } from "../HarnessMark";
+import { OverseerMark } from "../OverseerMark";
+import { isOverseerSeat } from "../../lib/overseer-set";
 import { TerminalCard } from "../terminal/TerminalCard";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
@@ -318,11 +320,13 @@ function EntityCard({
   };
 
   const complete = activity.mode === "pulse" && activity.tone === "green";
+  const overseer = kind === "agent" && isOverseerSeat(node);
   return (
     <div
       className="factory-agent-card relative flex h-full w-full flex-col justify-between overflow-hidden"
       data-exit-reason={managed ? exitReason : undefined}
       data-seat-complete={complete ? "true" : undefined}
+      data-overseer={overseer ? "true" : undefined}
     >
       <ExecutionCardHeader
         decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
@@ -350,6 +354,11 @@ function EntityCard({
             : activity
         }
       />
+      {overseer ? (
+        <div className="mt-1">
+          <OverseerMark size="card" />
+        </div>
+      ) : null}
       {context !== undefined && context.length > 0 ? (
         <div
           className="mt-1 truncate text-[10px] tabular-nums"

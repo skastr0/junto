@@ -56,6 +56,7 @@ import {
   useShiftMultiSelectDominance,
 } from "../../lib/multi-select-gesture";
 import { Chip, IconButton, ToolbarPill } from "../ui";
+import { isOverseerSeat } from "../../lib/overseer-set";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
 const FLAG_HUES: Record<EtherFlag, string> = {
@@ -453,6 +454,7 @@ export function NodeShell({
   const harness = node.ether?.terminal?.harness;
   const managedSeat = typeof harness === "string" && isHarnessId(harness);
   const isActorSeat = roleOf(specOf(node)) === "actor" || managedSeat;
+  const overseer = isOverseerSeat(node);
   const seatFacts = seatFactsForNode({
     nodeId: node.id,
     seatEvent,
@@ -561,6 +563,7 @@ export function NodeShell({
       data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
       data-seat-attention={liveSeatAttention ? "true" : undefined}
+      data-overseer={overseer ? "true" : undefined}
       data-occupancy={occupancyAttr}
       data-attention={attention === "idle" && liveSeatAttention ? "fire" : attention}
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}

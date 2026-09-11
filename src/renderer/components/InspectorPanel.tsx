@@ -8,6 +8,8 @@ import { clearSelection, state$ } from "../lib/state";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { HarnessMark } from "./HarnessMark";
+import { OverseerMark } from "./OverseerMark";
+import { isOverseerSeat } from "../lib/overseer-set";
 import { NoteMarkdown } from "../lib/note-markdown";
 import { WaitingOnSection } from "./WaitingOnSection";
 
@@ -37,8 +39,9 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
       ? node.ether.terminal.harness
       : undefined;
   const managed = harness !== undefined && isHarnessId(harness);
+  const overseer = isOverseerSeat(node);
   return (
-    <div className="inspector-section">
+    <div className="inspector-section" data-overseer={overseer ? "true" : undefined}>
       <div className="inspector-section__label">seat</div>
       <div className="mt-2 flex items-center gap-2.5">
         <HarnessMark agent={managed ? harness : undefined} size={28} />
@@ -49,6 +52,11 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
           <div className="mt-0.5 truncate text-[9px]" style={{ color: DIM }}>
             {managed ? harness : "agent seat"}
           </div>
+          {overseer ? (
+            <div className="mt-1">
+              <OverseerMark size="card" />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
