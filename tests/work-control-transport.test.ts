@@ -382,6 +382,26 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
+  it("bounds overseer correlation ids by encoded bytes before any dispatch", async () => {
+    const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => ({
+      ok: true, operation: request.operation, data: {},
+    }));
+    const { server } = await startTestServer({ onOverseer: execute });
+    const request = { token: token(), op: "overseer", args: { operation: "status" } };
+    const acceptedId = "a".repeat(4094); // JSON quotes bring this to 4096 bytes.
+    expect(await call(server.socketPath, { ...request, id: acceptedId })).toMatchObject({
+      ok: false, id: acceptedId, error: { type: "ScopeError" },
+    });
+    for (const id of ["a".repeat(4095), "\0".repeat(683)]) {
+      const refused = await call(server.socketPath, { ...request, id });
+      expect(refused).toMatchObject({
+        ok: false, error: { type: "InputError", details: { path: "id", retryable: false } },
+      });
+      expect(refused).not.toHaveProperty("id");
+    }
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("admits only human-enabled overseers through the paused, no-edge administrative route", async () => {
     const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request, caller) => ({
       ok: true, operation: request.operation, data: { caller },

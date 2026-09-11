@@ -18,6 +18,7 @@ import { isManagedAgentNode } from "@shared/actor-surface";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
+  OVERSEER_MAX_CORRELATION_BYTES,
   OVERSEER_MAX_REQUEST_BYTES,
   type OverseerRequest,
   type OverseerResult,
@@ -2489,6 +2490,14 @@ export const startWorkControlServer = async (
       }
 
       const req = decoded.success;
+      if (req.op === "overseer" && req.id !== undefined &&
+        Buffer.byteLength(JSON.stringify(req.id), "utf8") > OVERSEER_MAX_CORRELATION_BYTES) {
+        // Do not echo the oversized id into another oversized frame.
+        respond(socket, workErr("InputError", "overseer correlation id exceeds its byte limit", {
+          retryable: false, path: "id",
+        }, req.op));
+        return;
+      }
 
       // The work-file token proves owner-local reach; process-bind is the sole
       // caller identity.

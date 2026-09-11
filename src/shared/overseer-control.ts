@@ -39,7 +39,12 @@ import {
  */
 
 export const OVERSEER_MAX_REQUEST_BYTES = 1024 * 1024;
-export const OVERSEER_MAX_RESULT_BYTES = 8 * 1024 * 1024;
+// The Work transport's 8 MiB limit applies to the complete NDJSON response,
+// not only this nested result. Reserve 64 KiB for Work and Station envelopes,
+// their bounded identities, JSON punctuation, and the trailing newline.
+export const OVERSEER_MAX_RESULT_BYTES = 8 * 1024 * 1024 - 64 * 1024;
+/** Maximum JSON-encoded outer Work correlation id on an overseer request. */
+export const OVERSEER_MAX_CORRELATION_BYTES = 4 * 1024;
 export const OVERSEER_MAX_ERROR_BYTES = 4 * 1024;
 
 export const OVERSEER_OPERATION_NAMES = [
@@ -800,6 +805,10 @@ const READ_ONLY_OPERATIONS = new Set<OverseerOperation>(
   OVERSEER_READ_ONLY_OPERATIONS,
 );
 
+export const isOverseerMutation = (
+  operation: OverseerOperation,
+): boolean => !READ_ONLY_OPERATIONS.has(operation);
+
 /** Stable family/verb catalog used by offline CLI discovery. */
 export const OVERSEER_CATALOG: ReadonlyArray<OverseerCatalogEntry> =
   OVERSEER_OPERATION_NAMES.map((operation) => {
@@ -810,6 +819,6 @@ export const OVERSEER_CATALOG: ReadonlyArray<OverseerCatalogEntry> =
       operation,
       family,
       verb,
-      mutation: !READ_ONLY_OPERATIONS.has(operation),
+      mutation: isOverseerMutation(operation),
     };
   });

@@ -2,6 +2,7 @@ import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   OVERSEER_CATALOG,
+  OVERSEER_MAX_CORRELATION_BYTES,
   OVERSEER_MAX_REQUEST_BYTES,
   OVERSEER_MAX_RESULT_BYTES,
   OVERSEER_OPERATION_NAMES,
@@ -11,6 +12,24 @@ import {
   decodeOverseerRequest,
   decodeOverseerResult,
 } from "../src/shared/overseer-control";
+import {
+  WORK_MAX_FRAME_BYTES,
+  WORK_PROTOCOL_VERSION,
+  encodeWorkFrame,
+} from "../src/shared/work-control";
+import {
+  STATION_CONTROL_PROTOCOL,
+} from "../src/shared/station-api-envelope";
+import {
+  STATION_API_PROTOCOL,
+} from "../src/shared/station-api";
+import {
+  STATION_SESSION_PROTOCOL,
+} from "../src/shared/station-session";
+import {
+  STATION_CONTROL_MAX_FRAME_BYTES,
+  encodeStationControlFrame,
+} from "../src/shared/station-ssh-control";
 
 const succeeds = (result: Result.Result<unknown, unknown>): void => {
   expect(Result.isSuccess(result)).toBe(true);
@@ -18,6 +37,21 @@ const succeeds = (result: Result.Result<unknown, unknown>): void => {
 
 const fails = (result: Result.Result<unknown, unknown>): void => {
   expect(Result.isFailure(result)).toBe(true);
+};
+
+const jsonBytes = (value: unknown): number =>
+  Buffer.byteLength(JSON.stringify(value), "utf8");
+
+const maximumResult = () => {
+  const empty = {
+    ok: true as const,
+    operation: "content.materialize" as const,
+    data: "",
+  };
+  return {
+    ...empty,
+    data: "x".repeat(OVERSEER_MAX_RESULT_BYTES - jsonBytes(empty)),
+  };
 };
 
 describe("overseer command contract", () => {
@@ -156,7 +190,7 @@ describe("overseer command contract", () => {
     expect(mutations.get("canvas.screenshot")).toBe(true);
   });
 
-  it("defines strict typed Station result envelopes and transport byte budgets", () => {
+  it("defines strict typed Station result envelopes", () => {
     succeeds(
       decodeOverseerCaller({ canvasName: "work", nodeId: "agent-1" }),
     );
@@ -204,7 +238,70 @@ describe("overseer command contract", () => {
       }),
     );
     expect(OVERSEER_MAX_REQUEST_BYTES).toBe(1024 * 1024);
-    expect(OVERSEER_MAX_RESULT_BYTES).toBe(8 * 1024 * 1024);
+  });
+
+  it("fits a maximum result and escaped correlation id in real transport frame budgets", () => {
+    const result = maximumResult();
+    expect(jsonBytes(result)).toBe(OVERSEER_MAX_RESULT_BYTES);
+
+    // Parent admission applies this bound to JSON.stringify(req.id). A string
+    // of backslashes proves escaping, rather than character count, controls it.
+    const maximumCorrelationId = "\\".repeat(
+      (OVERSEER_MAX_CORRELATION_BYTES - 2) / 2,
+    );
+    expect(jsonBytes(maximumCorrelationId)).toBe(
+      OVERSEER_MAX_CORRELATION_BYTES,
+    );
+    expect(jsonBytes(`${maximumCorrelationId}\\`)).toBeGreaterThan(
+      OVERSEER_MAX_CORRELATION_BYTES,
+    );
+
+    const workWithoutId = encodeWorkFrame({
+      ok: true,
+      op: "overseer",
+      data: result,
+      protocol_version: WORK_PROTOCOL_VERSION,
+    });
+    const workWithMaximumId = encodeWorkFrame({
+      ok: true,
+      op: "overseer",
+      data: result,
+      id: maximumCorrelationId,
+      protocol_version: WORK_PROTOCOL_VERSION,
+    });
+    expect(Buffer.byteLength(workWithoutId, "utf8")).toBeLessThanOrEqual(
+      WORK_MAX_FRAME_BYTES,
+    );
+    expect(Buffer.byteLength(workWithMaximumId, "utf8")).toBeLessThanOrEqual(
+      WORK_MAX_FRAME_BYTES,
+    );
+
+    // This is the closed Station overseer response nested in the existing
+    // control and session envelopes. The Station contract owns the schemas;
+    // this test owns the cross-transport byte-budget invariant.
+    const stationFrame = encodeStationControlFrame({
+      protocol: STATION_SESSION_PROTOCOL,
+      frame: "response",
+      requestId: "r".repeat(64),
+      envelope: {
+        protocol: STATION_CONTROL_PROTOCOL,
+        ok: true,
+        response: {
+          protocol: STATION_API_PROTOCOL,
+          op: "overseer",
+          senderInstallationId: "s".repeat(128),
+          targetInstallationId: "t".repeat(128),
+          caller: {
+            canvasName: "c".repeat(64),
+            nodeId: "n".repeat(256),
+          },
+          result,
+        },
+      },
+    });
+    expect(Buffer.byteLength(stationFrame, "utf8")).toBeLessThanOrEqual(
+      STATION_CONTROL_MAX_FRAME_BYTES,
+    );
   });
 
   it("accepts ContentService-compatible expected identity on bounded ingest", () => {

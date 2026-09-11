@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { resolveVellumCommandHome } from "@shared/vellum-home";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Result } from "effect";
+import {
+  decodeOverseerRequest,
+  isOverseerMutation,
+  type OverseerOperation,
+} from "../../shared/overseer-control";
 import {
   WORK_DEFAULT_TIMEOUT_MS,
   WORK_HOME_ENV,
@@ -50,6 +55,18 @@ const readToken = (tokenPath: string) =>
       }),
   });
 
+const mutatingOverseerOperation = (
+  op: string,
+  args: unknown,
+): OverseerOperation | undefined => {
+  if (op !== "overseer") return undefined;
+  const request = decodeOverseerRequest(args);
+  if (Result.isFailure(request)) return undefined;
+  return isOverseerMutation(request.success.operation)
+    ? request.success.operation
+    : undefined;
+};
+
 const ndjsonCall = (
   socketPath: string,
   token: string,
@@ -59,9 +76,34 @@ const ndjsonCall = (
 ): Effect.Effect<WorkResponseEnvelope, RuntimeDown | WireError> =>
   Effect.callback<WorkResponseEnvelope, RuntimeDown | WireError>((resume) => {
     let settled = false;
+    let requestDispatched = false;
     let buffer = Buffer.alloc(0);
     let socket: Socket | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const mutatingOperation = mutatingOverseerOperation(op, args);
+
+    const transportFailure = (
+      type: string,
+      message: string,
+      details?: unknown,
+    ): WireError => {
+      if (mutatingOperation === undefined || !requestDispatched) {
+        return new WireError({
+          type,
+          message,
+          ...(details !== undefined ? { details } : {}),
+        });
+      }
+      return new WireError({
+        type: "UncertainCompletion",
+        message:
+          `${message}; overseer operation ${mutatingOperation} may have completed`,
+        details: {
+          retryable: false,
+          operation: mutatingOperation,
+        },
+      });
+    };
 
     const settle = (result: Effect.Effect<WorkResponseEnvelope, RuntimeDown | WireError>) => {
       if (settled) return;
@@ -78,11 +120,11 @@ const ndjsonCall = (
     timer = setTimeout(() => {
       settle(
         Effect.fail(
-          new WireError({
-            type: "ProtocolError",
-            message: `request timed out after ${timeoutMs}ms`,
-            details: { retryable: true },
-          }),
+          transportFailure(
+            "ProtocolError",
+            `request timed out after ${timeoutMs}ms`,
+            { retryable: true },
+          ),
         ),
       );
     }, timeoutMs);
@@ -104,12 +146,26 @@ const ndjsonCall = (
 
     socket.on("connect", () => {
       // Identity is process-bind (peer PID). No client-supplied nodeRef.
-      const frame = encodeWorkFrame({
-        token,
-        op,
-        ...(args !== undefined ? { args } : {}),
-      });
-      socket?.write(frame);
+      try {
+        const frame = encodeWorkFrame({
+          token,
+          op,
+          ...(args !== undefined ? { args } : {}),
+        });
+        requestDispatched = true;
+        socket?.write(frame);
+      } catch (error) {
+        settle(
+          Effect.fail(
+            transportFailure(
+              "ProtocolError",
+              error instanceof Error
+                ? error.message
+                : "request could not be encoded or written",
+            ),
+          ),
+        );
+      }
     });
 
     socket.on("data", (chunk: Buffer) => {
@@ -117,10 +173,10 @@ const ndjsonCall = (
       if (buffer.byteLength > WORK_MAX_FRAME_BYTES) {
         settle(
           Effect.fail(
-            new WireError({
-              type: "ProtocolError",
-              message: `response exceeds ${WORK_MAX_FRAME_BYTES} bytes`,
-            }),
+            transportFailure(
+              "ProtocolError",
+              `response exceeds ${WORK_MAX_FRAME_BYTES} bytes`,
+            ),
           ),
         );
         return;
@@ -134,10 +190,10 @@ const ndjsonCall = (
         if (decoded._tag === "Failure") {
           settle(
             Effect.fail(
-              new WireError({
-                type: "ProtocolError",
-                message: "server returned a malformed envelope",
-              }),
+              transportFailure(
+                "ProtocolError",
+                "server returned a malformed envelope",
+              ),
             ),
           );
           return;
@@ -146,16 +202,22 @@ const ndjsonCall = (
       } catch {
         settle(
           Effect.fail(
-            new WireError({
-              type: "ProtocolError",
-              message: "server returned non-JSON",
-            }),
+            transportFailure(
+              "ProtocolError",
+              "server returned non-JSON",
+            ),
           ),
         );
       }
     });
 
     socket.on("error", (error: NodeJS.ErrnoException) => {
+      if (requestDispatched && mutatingOperation !== undefined) {
+        settle(
+          Effect.fail(transportFailure("InternalError", error.message)),
+        );
+        return;
+      }
       if (
         error.code === "ENOENT" ||
         error.code === "ECONNREFUSED" ||
@@ -173,10 +235,7 @@ const ndjsonCall = (
       }
       settle(
         Effect.fail(
-          new WireError({
-            type: "InternalError",
-            message: error.message,
-          }),
+          transportFailure("InternalError", error.message),
         ),
       );
     });
@@ -185,10 +244,10 @@ const ndjsonCall = (
       if (!settled) {
         settle(
           Effect.fail(
-            new WireError({
-              type: "ProtocolError",
-              message: "socket closed before response",
-            }),
+            transportFailure(
+              "ProtocolError",
+              "socket closed before response",
+            ),
           ),
         );
       }
@@ -278,6 +337,3 @@ export const localDoctorChecks = Effect.gen(function* () {
     token_mode_ok: tokenMode === 0o600 || tokenMode === null,
   };
 });
-
-// Keep Schema import warm for future decode helpers
-void Schema;
