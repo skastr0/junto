@@ -90,7 +90,7 @@ const region = { id: "r", type: "group", label: "ops", x: 0, y: 0, width: 500, h
 const docActivity: CanvasDoc = {
   nodes: [
     { ...region },
-    { id: "a1", type: "text", text: "MIRA", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:default" } } },
+    { id: "a1", type: "text", text: "PROFILE-13", x: 10, y: 10, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:default" } } },
     { id: "a2", type: "text", text: "QUIET", x: 10, y: 60, width: 100, height: 40, ether: { entity: { kind: "agent", name: "local:quiet" } } },
     { id: "p1", type: "text", text: "name twin", x: 10, y: 110, width: 100, height: 40, ether: { entity: { kind: "project", name: "local:default" } } },
   ],

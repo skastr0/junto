@@ -84,13 +84,13 @@ describe("task projection schema", () => {
         {
           id: "ag",
           type: "text",
-          text: "mira",
+          text: "profile-13",
           x: 0,
           y: 300,
           width: 100,
           height: 50,
           ether: {
-            entity: { kind: "agent", name: "local:mira" },
+            entity: { kind: "agent", name: "local:profile-13" },
             messages: {
               items: [
                 {

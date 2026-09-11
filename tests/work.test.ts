@@ -64,7 +64,7 @@ const agentNode = (
 ): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
-  text: "mira",
+  text: "profile-13",
   x: 0,
   y: 0,
   width: 200,

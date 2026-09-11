@@ -36,7 +36,7 @@ describe("RollCall ready tier", () => {
     const html = renderToStaticMarkup(
       <RollCall
         rollup={rollup([
-          member("mira", "ready", ["activity:ready"]),
+          member("profile-13", "ready", ["activity:ready"]),
           member("nix", "ready", ["activity:ready"]),
           member("quiet-one", "idle"),
         ])}
@@ -44,7 +44,7 @@ describe("RollCall ready tier", () => {
     );
     expect(html).toContain('data-severity="ready"');
     expect(html).toContain("2 ready");
-    expect(html).toContain("mira, nix");
+    expect(html).toContain("profile-13, nix");
     expect(html).toContain(GREEN);
     expect(html).not.toContain("All quiet");
   });
@@ -54,7 +54,7 @@ describe("RollCall ready tier", () => {
       <RollCall
         rollup={rollup([
           member("busy", "working", ["activity:working"]),
-          member("mira", "ready", ["activity:ready"]),
+          member("profile-13", "ready", ["activity:ready"]),
         ])}
       />,
     );
@@ -66,7 +66,7 @@ describe("RollCall ready tier", () => {
   });
 
   it("a region nobody has to read stays quiet", () => {
-    const html = renderToStaticMarkup(<RollCall rollup={rollup([member("mira", "idle")])} />);
+    const html = renderToStaticMarkup(<RollCall rollup={rollup([member("profile-13", "idle")])} />);
     expect(html).toContain("All quiet");
     expect(html).not.toContain('data-severity="ready"');
   });

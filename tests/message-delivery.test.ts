@@ -29,15 +29,15 @@ const userMsg = (over: Partial<Message> = {}): Message => ({
 const agentNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"][number] => ({
   id: "agent",
   type: "text",
-  text: "mira",
+  text: "profile-13",
   x: 0,
   y: 0,
   width: 200,
   height: 100,
   ether: {
-    entity: { kind: "agent", name: "local:mira" },
+    entity: { kind: "agent", name: "local:profile-13" },
     // Managed terminal is the only agent delivery surface.
-    terminal: { bindingId: "bind-mira", harness: "claude" },
+    terminal: { bindingId: "bind-profile-13", harness: "claude" },
     messages: { items: [...messages] },
   },
 });
@@ -193,7 +193,7 @@ describe("message-delivery pure helpers", () => {
   it("resolves the agent seat; bare agent and raw terminals are unreachable", () => {
     // Agents without ether.terminal.bindingId never fall back to ACP.
     expect(deliveryTargetOf(agentNode())).toEqual({
-      bindingId: "bind-mira",
+      bindingId: "bind-profile-13",
     });
     // Geography holds no inbox — a raw user terminal
     // is a delivery target.
@@ -247,7 +247,7 @@ describe("message-delivery pure helpers", () => {
     const pending = listPendingDeliveries(doc);
     expect(pending.map((p) => p.message.messageId).sort()).toEqual(["p1"]);
     expect(pending.find((p) => p.message.messageId === "p1")?.target).toEqual({
-      bindingId: "bind-mira",
+      bindingId: "bind-profile-13",
     });
   });
 

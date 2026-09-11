@@ -206,13 +206,13 @@ describe("deriveRegionRollups — member severity ladder", () => {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
         node("n", 10, 10, "watch me", { flags: ["attention"] }),
-        agentNode("a", 10, 100, "MIRA", "remote-a:mira"),
+        agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
       ],
       edges: [],
     };
     const [rollup] = deriveRegionRollups({
       doc,
-      agentActivity: activityOf(["remote-a:mira", { permissionPending: true }]),
+      agentActivity: activityOf(["remote-a:profile-13", { permissionPending: true }]),
     });
     expect(rollup?.severity).toBe("attention");
     const flagged = rollup?.members.find((member) => member.nodeId === "n");
@@ -224,12 +224,12 @@ describe("deriveRegionRollups — member severity ladder", () => {
 
   it("session liveness alone does not imply harness work", () => {
     const doc: CanvasDoc = {
-      nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "MIRA", "remote-a:mira")],
+      nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13")],
       edges: [],
     };
     const [rollup] = deriveRegionRollups({
       doc,
-      agentActivity: activityOf(["remote-a:mira", { sessionLive: true }]),
+      agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true }]),
     });
     expect(rollup?.members[0]).toMatchObject({ severity: "idle", reasons: [] });
     expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 0 });
@@ -244,7 +244,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("ready: finished turn nobody has read yet, below working, above parked", () => {
-    const seat = node("seat", 10, 10, "mira", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
+    const seat = node("seat", 10, 10, "profile-13", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
     const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
     const activity: WorkSurfaceActivity = { session: "running", harness: "idle", ready: true, source: "native" };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", activity]]) });
@@ -254,7 +254,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
   });
 
   it("ready never outranks a live harness state on the same seat", () => {
-    const seat = node("seat", 10, 10, "mira", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
+    const seat = node("seat", 10, 10, "profile-13", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
     const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
     const working: WorkSurfaceActivity = { session: "running", harness: "working", ready: true };
     const [rollup] = deriveRegionRollups({ doc, terminalStatusByNodeId: new Map([["seat", working]]) });
@@ -288,7 +288,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        agentNode("a", 10, 10, "MIRA", "remote-a:mira"),
+        agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13"),
       ],
       edges: [],
     };
@@ -300,14 +300,14 @@ describe("deriveRegionRollups — member severity ladder", () => {
     };
     const [rollup] = deriveRegionRollups({
       doc: flagged,
-      agentActivity: activityOf(["remote-a:mira", { sessionLive: true }]),
+      agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true }]),
     });
     const member = rollup?.members[0];
     expect(member?.severity).toBe("blocked");
     // flag + graph seed for the same blocker, then lower-ladder attention flag
     expect(member?.reasons).toEqual([
       "flag:blocker",
-      "seed:blocker flag on MIRA",
+      "seed:blocker flag on PROFILE-13",
       "flag:attention",
     ]);
     expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 , ready: 0 });
@@ -319,7 +319,7 @@ describe("deriveRegionRollups — absent activity inputs", () => {
     nodes: [
       group("r", 0, 0, 500, 500, "ops"),
       projectNode("p", 10, 10, "prism", "prism"),
-      agentNode("a", 10, 100, "MIRA", "remote-a:mira"),
+      agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
       projectNode("q", 10, 200, "quasar", "quasar"),
     ],
     edges: [{ id: "e1", fromNode: "p", toNode: "q" }],
@@ -506,7 +506,7 @@ describe("deriveRegionRollups — member ordering", () => {
         group("r", 0, 0, 800, 800, "ops"),
         node("idle1", 10, 10, "idle one"),
         projectNode("note-project", 10, 100, "prism", "prism"),
-        agentNode("working-agent", 10, 200, "MIRA", "remote-a:mira"),
+        agentNode("working-agent", 10, 200, "PROFILE-13", "remote-a:profile-13"),
         {
           ...blockedSeat,
           ether: { ...blockedSeat.ether, flags: ["blocker" as const] },
@@ -559,12 +559,12 @@ describe("deriveRegionRollups — derivation edges", () => {
 
   it("an agent with a pending permission and a live session is attention, reasons in ladder order", () => {
     const doc: CanvasDoc = {
-      nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "MIRA", "remote-a:mira")],
+      nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13")],
       edges: [],
     };
     const [rollup] = deriveRegionRollups({
       doc,
-      agentActivity: activityOf(["remote-a:mira", { permissionPending: true, sessionLive: true }]),
+      agentActivity: activityOf(["remote-a:profile-13", { permissionPending: true, sessionLive: true }]),
     });
     const agent = rollup?.members[0];
     expect(agent?.severity).toBe("attention");

@@ -21,14 +21,14 @@ const agentDoc = (messages: ReadonlyArray<Message>): CanvasDoc => ({
     {
       id: "agent",
       type: "text",
-      text: "mira",
+      text: "profile-13",
       x: 0,
       y: 0,
       width: 100,
       height: 80,
       ether: {
-        entity: { kind: "agent", name: "local:mira" },
-        terminal: { bindingId: "bind-mira", harness: "claude" },
+        entity: { kind: "agent", name: "local:profile-13" },
+        terminal: { bindingId: "bind-profile-13", harness: "claude" },
         messages: { items: [...messages] },
       },
     },
@@ -179,7 +179,7 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => writes.length === 1);
     expect(writes).toEqual([
       {
-        bindingId: "bind-mira",
+        bindingId: "bind-profile-13",
         text: "[request resolved - request-7] Use the staging key.",
       },
     ]);
@@ -208,9 +208,9 @@ describe("MessageDeliveryService", () => {
     });
     await waitUntil(() => writes.length === 1);
     accepts = true;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(() => writes.length === 2);
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(writes).toHaveLength(2);
   });
@@ -273,7 +273,7 @@ describe("MessageDeliveryService", () => {
     expect(wakes).toEqual([{ canvas: "c", nodeId: "agent" }]);
     expect(calls).toEqual([
       {
-        bindingId: "bind-mira",
+        bindingId: "bind-profile-13",
         text: "[message - user] hello cold seat",
         ready: true,
       },
@@ -366,13 +366,13 @@ describe("MessageDeliveryService", () => {
           {
             id: "agent",
             type: "text",
-            text: "mira",
+            text: "profile-13",
             x: 0,
             y: 0,
             width: 100,
             height: 80,
             ether: {
-              entity: { kind: "agent", name: "local:mira" },
+              entity: { kind: "agent", name: "local:profile-13" },
               messages: { items: [msg] },
             },
           },
@@ -542,7 +542,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => calls.length === 1);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.bindingId).toBe("bind-mira");
+    expect(calls[0]?.bindingId).toBe("bind-profile-13");
     expect(calls[0]?.interruptIfBusy).toBe(true);
     // Factory mail always summarizes — full body never rides the PTY.
     expect(calls[0]?.text).toContain("factory mail");
@@ -580,7 +580,7 @@ describe("MessageDeliveryService", () => {
     expect(afterFirst?.metadata?.deliveredAt).toBe(7);
     expect(afterFirst?.metadata?.readAt).toBeUndefined();
 
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(sendCount).toBe(1);
     expect(
@@ -623,7 +623,7 @@ describe("MessageDeliveryService", () => {
       now: () => 99,
     });
     service.notifyAppended("c", "agent", listed);
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(sends).toBe(0);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "listed-1")).toBe(
@@ -726,7 +726,7 @@ describe("MessageDeliveryService", () => {
 
     // Idle re-drive: receipt only, no second transport hit
     acceptOk = true;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "dup"));
     expect(sendCount).toBe(1);
   });
@@ -748,8 +748,8 @@ describe("MessageDeliveryService", () => {
     service.suspend();
     service.configure({ transport, store });
     service.notifyAppended("c", "agent", msg);
-    service.onTerminalAttached("bind-mira");
-    service.onManagedTerminalIdle("bind-mira");
+    service.onTerminalAttached("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
     service.onResumed();
 
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -788,7 +788,7 @@ describe("MessageDeliveryService", () => {
       },
     });
 
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(() => scanStarted);
     service.suspend();
     releaseNames(["c"]);
@@ -1110,12 +1110,12 @@ describe("MessageDeliveryService", () => {
 
     // Further scans must NOT re-paste (transportAccepted).
     service.onBooted();
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 40));
     expect(sends).toBe(1);
 
     acceptOk = true;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
@@ -1289,7 +1289,7 @@ describe("MessageDeliveryService", () => {
     // — two lookups — then the two matching entries each re-resolve fresh
     // immediately before their own wake. Four, never one per pending item
     // times the two it would have been.
-    service.onTerminalAttached("bind-mira");
+    service.onTerminalAttached("bind-profile-13");
     await waitUntil(() => counts.nodeReads > before);
     await new Promise((r) => setTimeout(r, 30));
     expect(counts.nodeReads - before).toBe(4);
@@ -1337,7 +1337,7 @@ describe("MessageDeliveryService", () => {
 
     removeAfterFilter = true;
     const wakesBefore = wakes.length;
-    service.onTerminalAttached("bind-mira");
+    service.onTerminalAttached("bind-profile-13");
     await new Promise((r) => setTimeout(r, 40));
     // The filter matched on the stale view; the fresh pre-wake read refused.
     expect(filterPasses).toBeGreaterThanOrEqual(2);
@@ -1391,7 +1391,7 @@ describe("MessageDeliveryService", () => {
     // A seat transition is a real state change — the next poll starts over.
     // (The idle re-drive finds a timer already armed, so it changes nothing
     // but the streak; firing that timer is what arms the next one.)
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 20));
     scheduled[scheduled.length - 1]!.fn();
     await waitUntil(() => scheduled.length === seen.length + 1);
@@ -1612,7 +1612,7 @@ describe("MessageDeliveryService", () => {
     await settle();
 
     const after = { ...counts };
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await settle();
     // The receipt landed, so the index holds nothing — no routing lookup, and
     // certainly no second paste.
@@ -1644,13 +1644,13 @@ describe("MessageDeliveryService", () => {
     expect(sends).toBe(0);
 
     // Two more transitions while paused must not evict the queued message.
-    service.onManagedTerminalIdle("bind-mira");
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
     await settle();
     expect(sends).toBe(0);
 
     paused = false;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(() => sends === 1);
   });
 
@@ -1681,11 +1681,11 @@ describe("MessageDeliveryService", () => {
     await settle();
 
     docs.set("c", agentDoc([userMsg("ingress-1", "from the wire")]));
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await settle();
 
     now += MESSAGE_DELIVERY_INDEX_RECONCILE_MS;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(() => writes.length === 1);
     expect(writes[0]).toBe("[message - user] from the wire");
   });
@@ -1710,7 +1710,7 @@ describe("MessageDeliveryService", () => {
     service.onBooted();
     await waitUntil(() => writes.length === 2);
     expect(writes.map((w) => w.bindingId).sort()).toEqual([
-      "bind-mira",
+      "bind-profile-13",
       "bind-term",
     ]);
   });
@@ -1722,14 +1722,14 @@ describe("composer gate and the bounded edge-map claim", () => {
       {
         id: "agent",
         type: "text",
-        text: "mira",
+        text: "profile-13",
         x: 0,
         y: 0,
         width: 100,
         height: 80,
         ether: {
-          entity: { kind: "agent", name: "local:mira" },
-          terminal: { bindingId: "bind-mira", harness: "claude" },
+          entity: { kind: "agent", name: "local:profile-13" },
+          terminal: { bindingId: "bind-profile-13", harness: "claude" },
           messages: { items: [...messages] },
         },
       },
@@ -1796,19 +1796,19 @@ describe("composer gate and the bounded edge-map claim", () => {
     // the draft hold alone must refuse, and refuse without burning the
     // notice's one per-topology transport claim.
     now += 10_000;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 20));
     expect(sent, "held: composer not proven empty").toEqual([]);
 
     // Composer proven empty on screen — the boundary the notice waits on.
     composerEmpty = true;
-    service.onComposerEmpty("bind-mira");
+    service.onComposerEmpty("bind-profile-13");
     await waitUntil(() => sent.length === 1);
     expect(sent[0]).toContain("edge contracts changed");
 
     // At-most-once still holds: further boundaries never re-paste.
-    service.onComposerEmpty("bind-mira");
-    service.onManagedTerminalIdle("bind-mira");
+    service.onComposerEmpty("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 20));
     expect(sent).toHaveLength(1);
     service.suspend();
@@ -1825,14 +1825,14 @@ describe("bounded re-drive marks and the PTY write truth", () => {
       {
         id: "agent",
         type: "text",
-        text: "mira",
+        text: "profile-13",
         x: 0,
         y: 0,
         width: 100,
         height: 80,
         ether: {
-          entity: { kind: "agent", name: "local:mira" },
-          terminal: { bindingId: "bind-mira", harness: "claude" },
+          entity: { kind: "agent", name: "local:profile-13" },
+          terminal: { bindingId: "bind-profile-13", harness: "claude" },
           messages: { items: [...messages] },
         },
       },
@@ -1893,15 +1893,15 @@ describe("bounded re-drive marks and the PTY write truth", () => {
     service.notifyAppended("c", "agent", msg);
     await new Promise((r) => setTimeout(r, 20));
     now += 10_000;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 30));
     expect(sent, "refused without writing — nothing pasted yet").toEqual([]);
 
     // The seat truly settles; the SAME topology must still get its paste.
     driveAccepts = true;
-    service.onComposerEmpty("bind-mira");
+    service.onComposerEmpty("bind-profile-13");
     await waitUntil(() => sent.length === 1);
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 30));
     expect(sent, "delivered exactly once").toHaveLength(1);
     service.suspend();
@@ -1933,12 +1933,12 @@ describe("bounded re-drive marks and the PTY write truth", () => {
     service.notifyAppended("c", "agent", msg);
     await new Promise((r) => setTimeout(r, 20));
     now += 10_000;
-    service.onManagedTerminalIdle("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
     await waitUntil(() => pastes === 1);
 
     // Idle re-drives must NOT re-paste the same un-acked notice.
-    service.onManagedTerminalIdle("bind-mira");
-    service.onComposerEmpty("bind-mira");
+    service.onManagedTerminalIdle("bind-profile-13");
+    service.onComposerEmpty("bind-profile-13");
     await new Promise((r) => setTimeout(r, 30));
     expect(pastes, "the un-acked paste is never re-pasted — the 4x class").toBe(1);
     service.suspend();

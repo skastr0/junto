@@ -88,11 +88,11 @@ describe("identityHints", () => {
       ],
       edges: [],
     });
-    const snapshots = state([entity("remote-a:vega"), entity("studio:mira")]);
-    const hints = identityHints([doc("remote-a:vega"), doc("remote-a:vega"), doc("studio:mira")], snapshots);
+    const snapshots = state([entity("remote-a:vega"), entity("studio:profile-13")]);
+    const hints = identityHints([doc("remote-a:vega"), doc("remote-a:vega"), doc("studio:profile-13")], snapshots);
     expect(hints).toEqual([
       { source: "hermes", key: "remote-a:vega" },
-      { source: "hermes", key: "studio:mira" },
+      { source: "hermes", key: "studio:profile-13" },
     ]);
   });
 
