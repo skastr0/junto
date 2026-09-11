@@ -25,6 +25,7 @@ import {
   state$,
 } from "../lib/state";
 import { kernel$ } from "../lib/kernel-view";
+import { dock$ } from "../lib/dock-state";
 import type { FlowEdge, FlowNode } from "../lib/convert";
 import { createFlowIdentityCache, toFlow } from "../lib/convert";
 import {
@@ -1226,6 +1227,11 @@ function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode 
 function CanvasGraph() {
   const { nodes, edges, onNodesChange, onEdgesChange, interactions, rf } = useCanvasGraph();
   const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
+  // Focus-zone presence (any kind) — the canvas delete/Escape keys must not
+  // act through an open focus surface.
+  const hasFocusSurfaces = use$(() =>
+    dock$.registry.surfaces.get().some((s) => s.zone === "focus"),
+  );
   const fieldTheme = themeFor(use$(themeMode$));
   // While a connection drag is live, every card shows its dots so targets are
   // discoverable mid-gesture.
@@ -1513,7 +1519,14 @@ function CanvasGraph() {
       // Shift+click / Shift+marquee additive multi-select (RF default is Meta/Ctrl).
       multiSelectionKeyCode="Shift"
       zoomOnDoubleClick={false}
-      deleteKeyCode={["Backspace", "Delete"]}
+      deleteKeyCode={
+        // xyflow binds Delete/Backspace at the document level, so the chord
+        // reaches the canvas even while the operator works inside a focus
+        // surface (browser page chrome, note draft chrome). While a focus-zone
+        // surface exists the canvas has no delete key; pinned docks stay out
+        // of this gate.
+        hasFocusSurfaces ? null : ["Backspace", "Delete"]
+      }
       elevateNodesOnSelect={false}
       elevateEdgesOnSelect
       fitView

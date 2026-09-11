@@ -102,6 +102,10 @@ export function WorkFocusShell() {
   const tabs = focusMru.slice(paneCount);
   const activeId = pane0;
   const active = activeId ? surfaceById(registry, activeId) : undefined;
+  // Native-view placement reads this panel's rect every frame it changes; a
+  // presenting browser pane must not inherit the panel entry animation or the
+  // placed view wobbles through the 160ms settle.
+  const onlyBrowser = active?.kind === "browser";
 
   const closeAllFocus = useCallback(() => {
     const surfaces = dock$.registry
@@ -188,7 +192,7 @@ export function WorkFocusShell() {
       onClose={closeAllFocus}
       closeOnEscape={false}
       closeOnBackdrop
-      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}${onlyNotes ? " work-focus-shell__panel--note" : ""}`}
+      panelClassName={`work-focus-shell__panel${onlyChats ? " work-focus-shell__panel--chat" : ""}${onlyTaskCreate ? " work-focus-shell__panel--task-create" : ""}${onlyNotes ? " work-focus-shell__panel--note" : ""}${onlyBrowser ? " work-focus-shell__panel--browser" : ""}`}
     >
       <div className="work-focus-shell">
         {showDockChrome ? (

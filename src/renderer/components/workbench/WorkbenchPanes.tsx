@@ -181,6 +181,11 @@ export function WorkbenchPanes({ zone }: { readonly zone: WorkZone }) {
     // First paint of the zone is not a swap; hidden page / reduced motion skip.
     if (!front || prev === null || prev === front) return;
     if (!surfaceMotionLive$.peek()) return;
+    // A browser pane must not move after layout: the native view is placed
+    // from this pane's measured rect, and a transform would make the bounds
+    // pump chase the settle (visible wobble, offset landing).
+    const frontKind = dock$.registry.peek().surfaces.find((s) => s.id === front)?.kind;
+    if (frontKind === "browser") return;
     const el = paneRefs.current.get(front);
     if (!el) return;
     const controls = animate(

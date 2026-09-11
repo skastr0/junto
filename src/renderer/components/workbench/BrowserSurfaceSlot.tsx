@@ -185,8 +185,18 @@ export function BrowserSurfaceSlot({
   if (!payload) return null;
 
   const pinned = zone === "pinned";
-  const stateLabel = sessionState ? (destroyed ? "session ended" : sessionState) : status;
   const endedStory = ended || destroyed;
+  // Failed opens are not "waiting": the refusal (alert lane) is the truth.
+  const opFailedOpen = opError?.op === "open";
+  const stateLabel = sessionState
+    ? destroyed
+      ? "session ended"
+      : sessionState
+    : endedStory
+      ? "session ended"
+      : opFailedOpen
+        ? "open failed"
+        : status;
   // Operator action failures, placement failures, and the session's own last
   // error share one deduped alert lane, independent of the status line.
   const failedSessionError = sessionState === "failed" ? session?.lastError : undefined;
@@ -197,7 +207,14 @@ export function BrowserSurfaceSlot({
 
   return (
     <section
-      className="dock-slot workbench-surface"
+      className="dock-slot workbench-surface nokey"
+      // Focusable keyboard root: opening the surface parks keyboard focus here
+      // (data-autofocus is the primary-focus convention), and xyflow ignores
+      // every keydown from inside a `.nokey` element — canvas chords must not
+      // act through the page pane. The native webpage itself stays page-owned
+      // (WebContentsView keys never reach this document).
+      tabIndex={0}
+      data-autofocus
       aria-label="Browser page surface"
       aria-hidden={!visible}
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}

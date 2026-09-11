@@ -63,7 +63,7 @@ const FleetOverlay = __VELLUM_COMMAND_FLEET_UI_ENABLED__
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
-import { closeAllWorkbenchSurfaces } from "./lib/dock-state";
+import { closeAllWorkbenchSurfaces, closeFocusModalSurface, dock$ } from "./lib/dock-state";
 import { closeAllTerminalSurfaces } from "./lib/terminal-state";
 import { TooltipLayer } from "./components/TooltipLayer";
 import { DemoCameraBridge } from "./demo/camera-bridge";
@@ -455,6 +455,19 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    /**
+     * The front focus surface owns the keyboard before the canvas does. A
+     * browser page frontmost means Escape dismisses the surface (warm-detach)
+     * and Cmd+Z never edits the doc behind the modal; a PTY keeps Escape
+     * page-owned (xterm consumes it, so this handler rarely fires) and the
+     * canvas keys stay gated by Canvas's focus-surface delete-key rules.
+     */
+    const frontBrowserSurface = (): { readonly id: string } | undefined => {
+      const registry = dock$.registry.peek();
+      const frontId = registry.focusMru[0];
+      const front = registry.surfaces.find((s) => s.id === frontId);
+      return front?.kind === "browser" && front.zone === "focus" ? { id: front.id } : undefined;
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         const target = event.target as HTMLElement | null;
@@ -462,6 +475,14 @@ export function App() {
         if (state$.settingsOpen.peek()) {
           event.preventDefault();
           closeSettings();
+          return;
+        }
+        const front = frontBrowserSurface();
+        if (front) {
+          // Dismiss the page surface, keep the canvas selection intact — the
+          // operator was leaving the page, not deselecting their node.
+          event.preventDefault();
+          closeFocusModalSurface(front.id);
           return;
         }
         if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
@@ -474,6 +495,7 @@ export function App() {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if (frontBrowserSurface()) return;
       event.preventDefault();
       if (event.shiftKey) redo();
       else undo();

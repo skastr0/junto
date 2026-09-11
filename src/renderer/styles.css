@@ -171,6 +171,9 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   from { opacity: 0; transform: translateY(6px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+/* Native-view surfaces: the browser slot's measured rect is the placement
+   truth — the panel must not settle under a moving view. */
+.focus-surface__panel.work-focus-shell__panel--browser { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .focus-surface__panel { animation: none; }
 }
