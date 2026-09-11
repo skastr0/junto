@@ -42,6 +42,8 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "1–9", action: "focus hotbar slot - re-tap (~1s) cycles region members + opens actor model" },
   { keys: "⌘1–9", action: "assign selected node → slot (any node)" },
   { keys: "Space - `", action: "cycle notifications → ready → working (all canvas seats)" },
+  { keys: "Ctrl+Tab", action: "hold to switch focus models — release commits, Esc cancels" },
+  { keys: "⌘] ⌘[", action: "cycle connected actor terminals (same modal)" },
   { keys: "double-click actor", action: "open managed terminal (agent model)" },
 ];
 

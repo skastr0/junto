@@ -32,6 +32,7 @@ import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { installCompletedNotifyTestHook } from "./lib/completed-task-notify";
 import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
+import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
@@ -39,6 +40,7 @@ import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { CommandBarHost } from "./components/command-bar/CommandBar";
+import { FocusSwitcherHud } from "./components/FocusSwitcherHud";
 import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
@@ -438,6 +440,8 @@ export function App() {
   // Cmd+] / Cmd+[ swap the front terminal between connected actors. Capture
   // phase (installed here, checked there) so the chord never reaches xterm.
   useEffect(() => installActorMirrorHotkeys(), []);
+  // Control+Tab cycles focus models without closing the modal.
+  useEffect(() => installFocusSwitcherHotkeys(), []);
 
   // Command bar "Open canvas" action — one-shot request consumed here so the
   // readCanvas + loadDoc flow keeps its single owner in App.
@@ -519,6 +523,7 @@ export function App() {
         </ReactFlowProvider>
         <CanvasChrome />
         <CommandBarHost />
+        <FocusSwitcherHud />
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <RendererErrorBoundary

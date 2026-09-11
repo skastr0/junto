@@ -71,8 +71,8 @@ describe("nodeSurfaceKind", () => {
     expect(nodeSurfaceKind(bareAgent())).toBeNull();
   });
 
-  it("ignores notes and regions", () => {
-    expect(nodeSurfaceKind(note())).toBeNull();
+  it("opens notes and ignores regions", () => {
+    expect(nodeSurfaceKind(note())).toBe("note");
     expect(nodeSurfaceKind(region())).toBeNull();
   });
 
