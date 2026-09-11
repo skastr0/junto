@@ -41,5 +41,4 @@ third-party terms. The [fal API terms](https://fal.ai/legal/api-services) do not
 establish an exception for open-source asset relicensing.
 
 The replacement cues were composed directly in the synthesis script, without
-using the former audio as input. Historical MP3 copies must be excluded from the
-publication history under the open-source transition plan.
+using the former audio as input. Historical MP3 copies are excluded from the published history.

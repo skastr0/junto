@@ -15,7 +15,7 @@ and fail-closed security-sensitive features.
 
 The current runner clones a prepared golden VM and installs a signed rootless
 userland archive. It starts Command Center through its normal desktop and
-checks Station and Fleet readiness without commercial activation. It may reuse
+checks Station and Fleet readiness without any activation step. It may reuse
 an explicitly identified, stopped Command Center installation for repeat runs.
 A golden-image run may retain bounded Station, Work, PTY, and Chromium
 observations, but it must not write a passing Linux release receipt.

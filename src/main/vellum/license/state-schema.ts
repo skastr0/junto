@@ -12,7 +12,7 @@ export const LICENSE_STATE_JSON_MAX_BYTES = 16 * 1_024;
 /**
  * Frozen version-one license representation introduced by state schema v2.
  * It is retained as inert migration evidence; current code never reads or
- * writes this table because those rows did not bind the Dodo seller/product.
+ * writes this table because those rows did not bind the former seller/product entitlement.
  */
 export const LICENSE_STATE_V1_SCHEMA_STATEMENTS = [
   `
