@@ -21,6 +21,7 @@ import {
   aliasesLiveOverseerBinding,
   applyNodeChanges,
   callerGrantLive,
+  callerSeatBinding,
   canvasDeleteRetiresCaller,
   edgeVerbAdmitted,
   findEdge,
@@ -32,6 +33,7 @@ import {
   nodeKindChanged,
   nodeSeatBinding,
   removalIncludesCaller,
+  removalRetiresCallerBinding,
   retiresOccupant,
   stripIncidentEdges,
   verbsForEndpoints,
@@ -190,6 +192,31 @@ const requireGrant = (
     "overseer grant is not live on the calling seat",
   );
 };
+
+const refuseSelfRetirement = (): WorkErrorBody =>
+  fail("AuthError", "overseer cannot retire its own physical binding");
+
+const refuseIfRetiresCaller = (
+  documents: ReadonlyMap<string, CanvasDoc>,
+  caller: OverseerCaller,
+  resources: ReadonlyArray<OverseerDeleteResource>,
+): WorkErrorBody | undefined => {
+  if (removalRetiresCallerBinding(callerSeatBinding(documents, caller), resources)) {
+    return refuseSelfRetirement();
+  }
+  return undefined;
+};
+
+const livePortfolioDocuments = (): Effect.Effect<
+  Map<string, CanvasDoc>,
+  WorkErrorBody,
+  CanvasesService
+> =>
+  Effect.gen(function* () {
+    const canvases = yield* CanvasesService;
+    const live = yield* canvases.liveDocuments().pipe(Effect.mapError(fromCanvasError));
+    return new Map(live.map((row) => [row.canvasName, row.doc] as const));
+  });
 
 const cloneDocs = (
   documents: ReadonlyMap<string, CanvasDoc>,
@@ -436,10 +463,15 @@ const handleDeleteCanvas = (
         fail("AuthError", "overseer cannot delete its own canvas"),
       );
     }
+    const portfolio = yield* livePortfolioDocuments();
+    if (!portfolio.has(name)) portfolio.set(name, current.doc);
+    const nodeIds = new Set(current.doc.nodes.map((node) => node.id));
     const resources = nativeDeleteResourcesOf(
       new Map([[name, current.doc]]),
-      [{ canvasName: name, nodeIds: new Set(current.doc.nodes.map((node) => node.id)) }],
+      [{ canvasName: name, nodeIds }],
     );
+    const retired = refuseIfRetiresCaller(portfolio, caller, resources);
+    if (retired) return yield* Effect.fail(retired);
     return yield* withPreparedDelete(
       resources,
       () =>
@@ -452,12 +484,19 @@ const handleDeleteCanvas = (
             error: fail("AuthError", "overseer cannot delete its own canvas"),
           };
         }
-        if (!view.documents.has(name)) {
+        const liveTarget = view.documents.get(name);
+        if (liveTarget === undefined) {
           return {
             ok: false,
             error: fail("UnknownTarget", `canvas "${name}" does not exist`),
           };
         }
+        const liveResources = nativeDeleteResourcesOf(
+          new Map([[name, liveTarget]]),
+          [{ canvasName: name, nodeIds: new Set(liveTarget.nodes.map((node) => node.id)) }],
+        );
+        const liveRetired = refuseIfRetiresCaller(view.documents, caller, liveResources);
+        if (liveRetired) return { ok: false, error: liveRetired };
         const documents = cloneDocs(view.documents);
         documents.delete(name);
         return { ok: true, documents, result: { name } };
@@ -668,9 +707,13 @@ const handleNodeDelete = (
         fail("AuthError", "overseer cannot delete its own seat"),
       );
     }
+    const portfolio = yield* livePortfolioDocuments();
+    if (!portfolio.has(name)) portfolio.set(name, current.doc);
     const resources = nativeDeleteResourcesOf(new Map([[name, current.doc]]), [
       { canvasName: name, nodeIds: removed },
     ]);
+    const retired = refuseIfRetiresCaller(portfolio, caller, resources);
+    if (retired) return yield* Effect.fail(retired);
     return yield* withPreparedDelete(
       resources,
       () =>
@@ -696,6 +739,11 @@ const handleNodeDelete = (
             error: fail("AuthError", "overseer cannot delete its own seat"),
           };
         }
+        const liveResources = nativeDeleteResourcesOf(new Map([[name, doc]]), [
+          { canvasName: name, nodeIds: removed },
+        ]);
+        const liveRetired = refuseIfRetiresCaller(view.documents, caller, liveResources);
+        if (liveRetired) return { ok: false, error: liveRetired };
         return {
           ok: true,
           documents: putDoc(

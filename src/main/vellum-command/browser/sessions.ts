@@ -2030,17 +2030,54 @@ export class BrowserSessionService {
   /**
    * Live overseer may operate an existing session for a page ref without
    * impersonating the UI sender. Ordinary owner checks stay intact.
+   * First match only — deletion must use `overseerSessionsForRef`.
    */
   overseerSessionForRef(ref: string):
     | { readonly owner: string; readonly sessionId: string }
     | undefined {
+    return this.overseerSessionsForRef(ref)[0];
+  }
+
+  /**
+   * Every current live (owner, session) bound to a page ref. UI and distinct
+   * automation owners are all included. Node id is never a session id.
+   */
+  overseerSessionsForRef(
+    ref: string,
+  ): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> {
+    const live: Array<{ readonly owner: string; readonly sessionId: string }> = [];
+    const seen = new Set<string>();
+    const push = (owner: string, sessionId: string): void => {
+      const key = `${owner}\0${sessionId}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      live.push({ owner, sessionId });
+    };
     for (const [owner, refs] of this.sessionIdByOwnerRef) {
       const sessionId = refs.get(ref);
       if (sessionId === undefined) continue;
       const entry = this.entryForOwner(owner, sessionId);
-      if (entry !== undefined) return { owner, sessionId };
+      if (entry !== undefined) push(owner, sessionId);
     }
-    return undefined;
+    for (const entry of this.sessions.values()) {
+      if (!this.isCurrent(entry) || entry.ref !== ref) continue;
+      push(entry.owner, entry.sessionId);
+    }
+    return live;
+  }
+
+  /**
+   * Drop in-flight opens for a page ref across every owner so a racing open
+   * cannot land after deletion has resolved the live set.
+   */
+  invalidatePendingOpensForRef(ref: string): number {
+    let invalidated = 0;
+    for (const [owner, pendingByRef] of this.pendingOpenByOwnerRef) {
+      if (!pendingByRef.delete(ref)) continue;
+      invalidated += 1;
+      if (pendingByRef.size === 0) this.pendingOpenByOwnerRef.delete(owner);
+    }
+    return invalidated;
   }
 
   overseerSessionOwner(sessionId: string): string | undefined {

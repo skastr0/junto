@@ -27,6 +27,7 @@ import { resolveTerminalBinding } from "@shared/terminal";
 import { isSchedulerNode } from "@shared/scheduler-effects";
 import { GIT_LOG_LIMIT_DEFAULT } from "@shared/git";
 import { resolveNodeHostId } from "@shared/station";
+import type { OverseerDeleteResource } from "@shared/overseer-authoring";
 import { INTERRUPT_BYTE } from "../term/drive";
 import type { ControlLease } from "../term/local-host";
 import { CanvasError } from "../canvases";
@@ -102,10 +103,7 @@ export type ApplicationCaptureResult =
   | { readonly ok: true; readonly png: Uint8Array }
   | { readonly ok: false; readonly unavailable: true; readonly reason: string };
 
-export type OverseerDeleteResource =
-  | { readonly kind: "agent"; readonly agentKey: string }
-  | { readonly kind: "terminal"; readonly bindingId: string; readonly hostId?: string }
-  | { readonly kind: "page"; readonly sessionId: string; readonly owner?: string };
+export type { OverseerDeleteResource };
 
 export type OverseerDeletePrepareResult =
   | {
@@ -466,7 +464,8 @@ const promptSeat = async (
   text: string,
 ): Promise<boolean> => {
   if (ctx.managedDrive !== undefined && ctx.termPlane.router.isLocalHostId(hostId)) {
-    return ctx.managedDrive.writePrompt(bindingId, text);
+    // Non-retaining: a revoked overseer request must not land later via drainOne.
+    return ctx.managedDrive.writePrompt(bindingId, text, { queueIfBusy: false });
   }
   return writeSeat(ctx, bindingId, hostId, text.endsWith("\r") ? text : `${text}\r`);
 };
@@ -899,27 +898,52 @@ const pagesOrDown = (ctx: NativeContext): BrowserSessionService | NativeErr => {
 
 const pageOwner = (): string => OVERSEER_PAGE_OWNER;
 
+const pageRefOf = (
+  canvasName: string,
+  nodeId: string,
+): string | undefined => {
+  try {
+    return formatNodeRef({ canvasName, nodeId });
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveAllLivePageSessions = (
+  pages: BrowserSessionService,
+  canvasName: string,
+  nodeId: string,
+): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> => {
+  const ref = pageRefOf(canvasName, nodeId);
+  if (ref === undefined) return [];
+  if (typeof pages.overseerSessionsForRef === "function") {
+    return [...pages.overseerSessionsForRef(ref)];
+  }
+  const collected: Array<{ readonly owner: string; readonly sessionId: string }> = [];
+  const seen = new Set<string>();
+  const push = (owner: string, sessionId: string): void => {
+    const key = `${owner}\0${sessionId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    collected.push({ owner, sessionId });
+  };
+  if (typeof pages.overseerSessionForRef === "function") {
+    const live = pages.overseerSessionForRef(ref);
+    if (live !== undefined) push(live.owner, live.sessionId);
+  }
+  const overseerId = pages.sessionIdForRefForOwner(pageOwner(), ref);
+  if (overseerId !== undefined) push(pageOwner(), overseerId);
+  const uiId = pages.sessionIdForRef(ref);
+  if (uiId !== undefined) push(BROWSER_UI_SESSION_OWNER, uiId);
+  return collected;
+};
+
 const resolveLivePageSession = (
   pages: BrowserSessionService,
   canvasName: string,
   nodeId: string,
-): { readonly owner: string; readonly sessionId: string } | undefined => {
-  let ref: string;
-  try {
-    ref = formatNodeRef({ canvasName, nodeId });
-  } catch {
-    return undefined;
-  }
-  if (typeof pages.overseerSessionForRef === "function") {
-    const live = pages.overseerSessionForRef(ref);
-    if (live !== undefined) return live;
-  }
-  const overseerId = pages.sessionIdForRefForOwner(pageOwner(), ref);
-  if (overseerId !== undefined) return { owner: pageOwner(), sessionId: overseerId };
-  const uiId = pages.sessionIdForRef(ref);
-  if (uiId !== undefined) return { owner: BROWSER_UI_SESSION_OWNER, sessionId: uiId };
-  return undefined;
-};
+): { readonly owner: string; readonly sessionId: string } | undefined =>
+  resolveAllLivePageSessions(pages, canvasName, nodeId)[0];
 
 const handlePage = async (
   ctx: NativeContext,
@@ -1055,12 +1079,17 @@ const handlePage = async (
     case "page.eval": {
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
-      const result = await pages.evalForOwner(owner, sessionId, String((args as { code: string }).code));
+      const result = await pages.evalForOwner(
+        owner,
+        sessionId,
+        String((args as { code: string }).code),
+        ctx.signal,
+      );
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok(result.data);
     }
     case "page.screenshot": {
-      const result = await pages.screenshotForOwner(owner, sessionId);
+      const result = await pages.screenshotForOwner(owner, sessionId, ctx.signal);
       if (!result.ok) return fail("RuntimeDown", result.message);
       return ok({
         pngBase64: Buffer.from(result.data.png).toString("base64"),
@@ -1279,6 +1308,80 @@ const makeDeleteHooks = (
       const pageStops: Array<{ sessionId: string; stopped: boolean; error?: string }> = [];
 
       try {
+        const pageRuntime = pages.length > 0 ? ctx.pages() : undefined;
+        if (pages.length > 0 && pageRuntime === undefined) {
+          return {
+            ok: false,
+            error: "browser runtime is unavailable on this installation",
+          };
+        }
+        const liveSessions: Array<{ readonly owner: string; readonly sessionId: string }> = [];
+        const seenLive = new Set<string>();
+        if (pageRuntime !== undefined) {
+          for (const page of pages) {
+            const ref = pageRefOf(page.canvasName, page.nodeId);
+            if (ref === undefined) {
+              return {
+                ok: false,
+                error: `page ${page.canvasName}/${page.nodeId} is not a canonical node ref`,
+              };
+            }
+            if (typeof pageRuntime.invalidatePendingOpensForRef === "function") {
+              pageRuntime.invalidatePendingOpensForRef(ref);
+            }
+            for (const live of resolveAllLivePageSessions(
+              pageRuntime,
+              page.canvasName,
+              page.nodeId,
+            )) {
+              const key = `${live.owner}\0${live.sessionId}`;
+              if (seenLive.has(key)) continue;
+              seenLive.add(key);
+              liveSessions.push(live);
+            }
+          }
+          const stopLive = async (
+            sessions: ReadonlyArray<{ readonly owner: string; readonly sessionId: string }>,
+          ): Promise<void> => {
+            for (const live of sessions) {
+              const stopped = await pageRuntime.stopForOwner(live.owner, live.sessionId);
+              if (stopped.ok) {
+                pageStops.push({ sessionId: live.sessionId, stopped: true });
+                continue;
+              }
+              if (stopped.code === "not_found") continue;
+              pageStops.push({
+                sessionId: live.sessionId,
+                stopped: false,
+                error: stopped.message,
+              });
+            }
+          };
+          await stopLive(liveSessions);
+          if (!pageStops.some((stop) => !stop.stopped)) {
+            const leftover: Array<{ readonly owner: string; readonly sessionId: string }> = [];
+            for (const page of pages) {
+              for (const live of resolveAllLivePageSessions(
+                pageRuntime,
+                page.canvasName,
+                page.nodeId,
+              )) {
+                const key = `${live.owner}\0${live.sessionId}`;
+                if (seenLive.has(key)) continue;
+                seenLive.add(key);
+                leftover.push(live);
+              }
+            }
+            await stopLive(leftover);
+          }
+          if (pageStops.some((stop) => !stop.stopped)) {
+            return {
+              ok: true,
+              leaseId: "",
+              pageStops: Object.freeze(pageStops),
+            };
+          }
+        }
         if (terminals.length > 0) {
           const began = await ctx.termPlane.nodeDelete.beginNodeDelete(
             terminals.map((resource) => ({
@@ -1301,23 +1404,12 @@ const makeDeleteHooks = (
           }
           chatLeaseId = began.leaseId;
         }
-        const pageRuntime = ctx.pages();
-        for (const page of pages) {
-          if (pageRuntime === undefined) {
-            pageStops.push({
-              sessionId: page.sessionId,
-              stopped: false,
-              error: "browser runtime is unavailable on this installation",
-            });
-            continue;
-          }
-          const owner = page.owner ?? BROWSER_UI_SESSION_OWNER;
-          const stopped = await pageRuntime.stopForOwner(owner, page.sessionId);
-          pageStops.push(
-            stopped.ok
-              ? { sessionId: page.sessionId, stopped: true }
-              : { sessionId: page.sessionId, stopped: false, error: stopped.message },
-          );
+        if (
+          termLeaseId === undefined &&
+          chatLeaseId === undefined &&
+          pageStops.length === 0
+        ) {
+          return { ok: true, leaseId: "", pageStops: Object.freeze(pageStops) };
         }
       } catch (error) {
         if (termLeaseId !== undefined) {

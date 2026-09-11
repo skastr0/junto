@@ -298,6 +298,53 @@ describe("executeOverseerCanvas", () => {
     await expectOk({ operation: "node.delete", args: { nodeId: created.node.id } });
   });
 
+  it("refuses deleting a granted alias of the caller's physical binding without native prepare", async () => {
+    const canvases = await boot();
+    const other = await runtime!.runPromise(canvases.read("other"));
+    await runtime!.runPromise(
+      canvases.canvasOverseerSet({
+        canvasName: "other",
+        nodeId: "alias",
+        overseer: true,
+        expectedRevision: other.revision,
+      }),
+    );
+    let prepared = 0;
+    setOverseerNativeDeleteHooks({
+      prepareOverseerNodeDelete: async () => {
+        prepared += 1;
+        return { ok: true, leaseId: "lease-alias", pageStops: [] };
+      },
+      finishOverseerNodeDelete: () => ({ ok: true }),
+    });
+    const error = await expectErr(
+      { operation: "node.delete", args: { canvas: "other", nodeId: "alias" } },
+      "AuthError",
+    );
+    expect(error.message).toMatch(/physical binding/u);
+    expect(prepared).toBe(0);
+    const still = await runtime!.runPromise(canvases.read("other"));
+    expect(still.doc.nodes.some((node) => node.id === "alias")).toBe(true);
+  });
+
+  it("refuses deleting a foreign canvas whose node shares the caller's binding", async () => {
+    await boot();
+    let prepared = 0;
+    setOverseerNativeDeleteHooks({
+      prepareOverseerNodeDelete: async () => {
+        prepared += 1;
+        return { ok: true, leaseId: "lease-canvas-alias", pageStops: [] };
+      },
+      finishOverseerNodeDelete: () => ({ ok: true }),
+    });
+    const error = await expectErr(
+      { operation: "canvas.delete", args: { canvas: "other" } },
+      "AuthError",
+    );
+    expect(error.message).toMatch(/physical binding/u);
+    expect(prepared).toBe(0);
+  });
+
   it("refuses grant mint, binding alias, and occupant retirement of self", async () => {
     await boot();
     await expectErr(

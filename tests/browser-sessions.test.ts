@@ -2680,4 +2680,32 @@ describe("BrowserSessionService", () => {
     expect(await service.wipeProfile("../escape"))
       .toMatchObject({ ok: false, code: "invalid" });
   });
+
+  it("lists every live owner for a page ref and never treats node id as a session id", async () => {
+    const { service } = makeDefaultService();
+    const page = target("shared");
+    const ui = await service.open(page);
+    const jobA = await service.openForOwner("job-a", page);
+    const jobB = await service.openForOwner("job-b", page);
+    if (!ui.ok || !jobA.ok || !jobB.ok) throw new Error("open failed");
+    expect(ui.data.sessionId).not.toBe("shared");
+    expect(jobA.data.sessionId).not.toBe(ui.data.sessionId);
+    expect(jobB.data.sessionId).not.toBe(jobA.data.sessionId);
+
+    const live = service.overseerSessionsForRef(page.ref);
+    expect(live).toEqual(expect.arrayContaining([
+      { owner: "vellum-command-ui", sessionId: ui.data.sessionId },
+      { owner: "job-a", sessionId: jobA.data.sessionId },
+      { owner: "job-b", sessionId: jobB.data.sessionId },
+    ]));
+    expect(live).toHaveLength(3);
+    expect(service.overseerSessionForRef(page.ref)?.sessionId).not.toBe("shared");
+
+    await expect(service.stopForOwner("job-a", jobA.data.sessionId))
+      .resolves.toMatchObject({ ok: true });
+    await expect(service.stopForOwner("job-b", jobB.data.sessionId))
+      .resolves.toMatchObject({ ok: true });
+    await expect(service.stop(ui.data.sessionId)).resolves.toMatchObject({ ok: true });
+    expect(service.overseerSessionsForRef(page.ref)).toEqual([]);
+  });
 });

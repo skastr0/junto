@@ -254,6 +254,35 @@ export const canvasDeleteRetiresCaller = (
   targetCanvas: string,
 ): boolean => caller.canvasName === targetCanvas;
 
+/** Physical (host, binding) of the live overseer seat, if it is a managed agent. */
+export const callerSeatBinding = (
+  documents: ReadonlyMap<string, CanvasDoc>,
+  caller: { readonly canvasName: string; readonly nodeId: string },
+): OverseerSeatBinding | undefined => {
+  const doc = documents.get(caller.canvasName);
+  if (doc === undefined) return undefined;
+  const node = findNode(doc, caller.nodeId);
+  return node === undefined ? undefined : nodeSeatBinding(node);
+};
+
+/**
+ * True when the native removal plan would tear down the caller's managed
+ * terminal. Node/canvas id checks are not enough: an alias on another canvas
+ * (or a different node id on the same canvas) can share (host, binding).
+ */
+export const removalRetiresCallerBinding = (
+  callerSeat: OverseerSeatBinding | undefined,
+  resources: ReadonlyArray<OverseerDeleteResource>,
+): boolean => {
+  if (callerSeat === undefined) return false;
+  return resources.some(
+    (resource) =>
+      resource.kind === "terminal" &&
+      resource.bindingId === callerSeat.bindingId &&
+      (resource.hostId ?? "local") === callerSeat.hostId,
+  );
+};
+
 const mergeEtherPatch = (
   current: EtherNodeExtension | undefined,
   patch: OverseerNodeEtherChanges,
@@ -441,8 +470,10 @@ export const nativeDeleteResourcesOf = (
           );
         }
       } else if (kind === "page") {
-        const owner = `${target.canvasName}/${node.id}`;
-        push({ kind: "page", sessionId: node.id, owner }, `page:${owner}`);
+        push(
+          { kind: "page", canvasName: target.canvasName, nodeId: node.id },
+          `page:${target.canvasName}\0${node.id}`,
+        );
       }
     }
   }
@@ -458,6 +489,6 @@ export type OverseerDeleteResource =
     }
   | {
       readonly kind: "page";
-      readonly sessionId: string;
-      readonly owner?: string;
+      readonly canvasName: string;
+      readonly nodeId: string;
     };

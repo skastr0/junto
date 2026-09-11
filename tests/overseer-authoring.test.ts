@@ -5,14 +5,17 @@ import {
   applyNodeChanges,
   applyOverseerFlag,
   callerGrantLive,
+  callerSeatBinding,
   canvasDeleteRetiresCaller,
   edgeVerbAdmitted,
   flowCycleIfInvalid,
+  nativeDeleteResourcesOf,
   nodeGeometry,
   nodeHasOverseerGrant,
   nodeSeatBinding,
   reconcileOverseerGrants,
   removalIncludesCaller,
+  removalRetiresCallerBinding,
   retiresOccupant,
   setBindingOverseer,
 } from "../src/shared/overseer-authoring";
@@ -108,6 +111,52 @@ describe("overseer authoring", () => {
     expect(removalIncludesCaller(caller, "ops", new Set(["overseer"]))).toBe(true);
     expect(canvasDeleteRetiresCaller(caller, "ops")).toBe(true);
     expect(canvasDeleteRetiresCaller(caller, "other")).toBe(false);
+  });
+
+  it("deletion of a physical-binding alias retires the caller even with different node ids", () => {
+    const docs = new Map<string, CanvasDoc>([
+      ["ops", { nodes: [agent("overseer", "bind-1", true)], edges: [] }],
+      ["other", { nodes: [agent("alias", "bind-1"), note("n1")], edges: [] }],
+    ]);
+    const caller = { canvasName: "ops", nodeId: "overseer" };
+    const seat = callerSeatBinding(docs, caller);
+    expect(seat).toEqual({ hostId: "local", bindingId: "bind-1" });
+    expect(removalIncludesCaller(caller, "other", new Set(["alias"]))).toBe(false);
+    expect(canvasDeleteRetiresCaller(caller, "other")).toBe(false);
+
+    const aliasPlan = nativeDeleteResourcesOf(docs, [
+      { canvasName: "other", nodeIds: new Set(["alias"]) },
+    ]);
+    expect(removalRetiresCallerBinding(seat, aliasPlan)).toBe(true);
+
+    const notePlan = nativeDeleteResourcesOf(docs, [
+      { canvasName: "other", nodeIds: new Set(["n1"]) },
+    ]);
+    expect(removalRetiresCallerBinding(seat, notePlan)).toBe(false);
+
+    const sameCanvasWrongId = nativeDeleteResourcesOf(
+      new Map([["ops", { nodes: [agent("overseer", "bind-1", true), agent("twin", "bind-1")], edges: [] }]]),
+      [{ canvasName: "ops", nodeIds: new Set(["twin"]) }],
+    );
+    expect(removalIncludesCaller(caller, "ops", new Set(["twin"]))).toBe(false);
+    expect(removalRetiresCallerBinding(seat, sameCanvasWrongId)).toBe(true);
+  });
+
+  it("page deletion plans carry the document ref, not a fabricated session id", () => {
+    const page: CanvasNode = {
+      id: "p1",
+      type: "link",
+      url: "https://example.com/",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
+    };
+    const docs = new Map<string, CanvasDoc>([["ops", { nodes: [page], edges: [] }]]);
+    expect(nativeDeleteResourcesOf(docs, [{ canvasName: "ops", nodeIds: new Set(["p1"]) }])).toEqual([
+      { kind: "page", canvasName: "ops", nodeId: "p1" },
+    ]);
   });
 
   it("treats agentKey/harness/launch/session changes as occupant retirement", () => {

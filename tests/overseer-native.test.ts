@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Result } from "effect";
 import type { CanvasDoc, CanvasNode, TextNode } from "../src/shared/canvas";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
-import { INTERRUPT_BYTE } from "../src/main/vellum-command/term/drive";
+import {
+  INTERRUPT_BYTE,
+  ManagedTerminalDrive,
+} from "../src/main/vellum-command/term/drive";
 import { TerminalNodeDeleteService } from "../src/main/vellum-command/term/node-delete";
 import { NodeDeleteService } from "../src/main/vellum-command/chat/node-delete";
 import {
@@ -225,7 +228,7 @@ describe("overseer native adapters", () => {
     });
     const result = await run(native, "agent.prompt", { nodeId: "a1", text: "hello" });
     expect(result.ok).toBe(true);
-    expect(writePrompt).toHaveBeenCalledWith("bind-a1", "hello");
+    expect(writePrompt).toHaveBeenCalledWith("bind-a1", "hello", { queueIfBusy: false });
   });
 
   it("interrupts via Ctrl+C on the managed seat when no drive is bound", async () => {
@@ -626,6 +629,97 @@ describe("overseer native adapters", () => {
       error: { type: "Unsupported" },
     });
   });
+
+  it("does not queue a prompt when the target is busy then later idle", async () => {
+    const writes: string[] = [];
+    let idle = false;
+    const drive = new ManagedTerminalDrive({
+      write: (_bindingId, data) => {
+        writes.push(data);
+        return true;
+      },
+      isSeatIdle: () => idle,
+      stallWatch: false,
+      pasteToCrSettleMs: 0,
+    });
+    const native = live([{ name: "factory", doc: board }], { managedDrive: drive });
+    const result = await run(native, "agent.prompt", { nodeId: "a1", text: "queued?" });
+    expect(result.ok).toBe(false);
+    expect(drive.queuedCount("bind-a1")).toBe(0);
+    idle = true;
+    drive.onSeatIdle("bind-a1");
+    await Promise.resolve();
+    expect(writes).toEqual([]);
+  });
+
+  it("passes the invocation AbortSignal into page.eval and page.screenshot", async () => {
+    const evalForOwner = vi.fn(async (
+      _owner: string,
+      _sessionId: string,
+      _code: string,
+      signal?: AbortSignal,
+    ) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+      return { ok: true as const, data: { result: 1 } };
+    });
+    const screenshotForOwner = vi.fn(async (
+      _owner: string,
+      _sessionId: string,
+      signal?: AbortSignal,
+    ) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      return { ok: true as const, data: { png: PNG } };
+    });
+    const pages = {
+      overseerSessionOwner: () => "job-a",
+      evalForOwner,
+      screenshotForOwner,
+    } as unknown as BrowserSessionService;
+    const native = live([{ name: "factory", doc: board }], { pages });
+    const evaluated = await run(native, "page.eval", { sessionId: "sess-1", code: "1" });
+    expect(evaluated.ok).toBe(true);
+    expect(evalForOwner).toHaveBeenCalledWith("job-a", "sess-1", "1", expect.any(AbortSignal));
+    const shot = await run(native, "page.screenshot", { sessionId: "sess-1" });
+    expect(shot.ok).toBe(true);
+    expect(screenshotForOwner).toHaveBeenCalledWith("job-a", "sess-1", expect.any(AbortSignal));
+  });
+
+  it("interrupts an in-flight eval through the session AbortSignal", async () => {
+    let captured: AbortSignal | undefined;
+    let releaseEval!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseEval = resolve;
+    });
+    const evalForOwner = vi.fn(async (
+      _owner: string,
+      _sessionId: string,
+      _code: string,
+      signal?: AbortSignal,
+    ) => {
+      captured = signal;
+      await held;
+      if (signal?.aborted) return { ok: false as const, code: "cancelled" as const, message: "eval cancelled" };
+      return { ok: true as const, data: { result: "late" } };
+    });
+    const pages = {
+      overseerSessionOwner: () => "job-a",
+      evalForOwner,
+    } as unknown as BrowserSessionService;
+    const native = live([{ name: "factory", doc: board }], { pages });
+    const fiber = Effect.runFork(
+      native.executeResult(
+        { canvasName: "factory", nodeId: "overseer-1" },
+        { operation: "page.eval" as never, args: { sessionId: "sess-1", code: "1" } },
+      ),
+    );
+    await vi.waitFor(() => expect(captured).toBeInstanceOf(AbortSignal));
+    const interrupted = Effect.runPromise(Fiber.interrupt(fiber));
+    await vi.waitFor(() => expect(captured?.aborted).toBe(true));
+    releaseEval();
+    await interrupted;
+    expect(evalForOwner).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("overseer deletion fences share TermPlane/ChatService identity", () => {
@@ -677,41 +771,128 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     };
     const native = makeOverseerNativeLive(options);
     const unbound = await native.prepareOverseerNodeDelete([
-      { kind: "page", sessionId: "sess-late" },
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
     ]);
-    expect(unbound.ok).toBe(true);
-    if (!unbound.ok) return;
-    expect(unbound.pageStops).toEqual([
-      {
-        sessionId: "sess-late",
-        stopped: false,
-        error: "browser runtime is unavailable on this installation",
-      },
-    ]);
-    native.finishOverseerNodeDelete(unbound.leaseId, "aborted");
+    expect(unbound.ok).toBe(false);
+    if (unbound.ok) return;
+    expect(unbound.error).toMatch(/browser runtime is unavailable/u);
 
-    pages = { stopForOwner } as unknown as BrowserSessionService;
+    pages = {
+      stopForOwner,
+      overseerSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "sess-late" }],
+      invalidatePendingOpensForRef: vi.fn(),
+    } as unknown as BrowserSessionService;
     const bound = await native.prepareOverseerNodeDelete([
-      { kind: "page", sessionId: "sess-late" },
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
     ]);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
-    expect(stopForOwner).toHaveBeenCalled();
+    expect(stopForOwner).toHaveBeenCalledWith("vellum-command-ui", "sess-late");
     expect(bound.pageStops).toEqual([{ sessionId: "sess-late", stopped: true }]);
   });
 
   it("stops pages through BrowserSessionService and reports partial failure honestly", async () => {
     const stopForOwner = vi.fn(async () => ({ ok: false, code: "failed", message: "view still destroying" }));
-    const pages = { stopForOwner } as unknown as BrowserSessionService;
+    const pages = {
+      stopForOwner,
+      overseerSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
+      invalidatePendingOpensForRef: vi.fn(),
+    } as unknown as BrowserSessionService;
     const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
     const prepared = await native.prepareOverseerNodeDelete([
-      { kind: "page", sessionId: "sess-1" },
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
     ]);
     expect(prepared.ok).toBe(true);
     if (!prepared.ok) return;
     expect(prepared.pageStops).toEqual([
       { sessionId: "sess-1", stopped: false, error: "view still destroying" },
     ]);
-    expect(stopForOwner).toHaveBeenCalled();
+    expect(stopForOwner).toHaveBeenCalledWith("job-a", "sess-1");
+  });
+
+  it("treats an unopened page as no live resource and does not fabricate a session id", async () => {
+    const stopForOwner = vi.fn();
+    const pages = {
+      stopForOwner,
+      overseerSessionsForRef: () => [],
+      invalidatePendingOpensForRef: vi.fn(),
+    } as unknown as BrowserSessionService;
+    const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
+    const prepared = await native.prepareOverseerNodeDelete([
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
+    ]);
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(prepared.leaseId).toBe("");
+    expect(prepared.pageStops).toEqual([]);
+    expect(stopForOwner).not.toHaveBeenCalled();
+  });
+
+  it("stops every live owner for one page ref and does not treat node id as a session id", async () => {
+    const stopped: Array<{ owner: string; sessionId: string }> = [];
+    const pages = {
+      stopForOwner: vi.fn(async (owner: string, sessionId: string) => {
+        stopped.push({ owner, sessionId });
+        return { ok: true as const, data: { sessionId, stopped: true } };
+      }),
+      overseerSessionsForRef: (ref: string) =>
+        ref.includes("p1")
+          ? [
+              { owner: "vellum-command-ui", sessionId: "ui-sess" },
+              { owner: "job-a", sessionId: "auto-a" },
+              { owner: "job-b", sessionId: "auto-b" },
+            ]
+          : [],
+      invalidatePendingOpensForRef: vi.fn(),
+    } as unknown as BrowserSessionService;
+    const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
+    const prepared = await native.prepareOverseerNodeDelete([
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
+    ]);
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(pages.invalidatePendingOpensForRef).toHaveBeenCalled();
+    expect(stopped).toEqual([
+      { owner: "vellum-command-ui", sessionId: "ui-sess" },
+      { owner: "job-a", sessionId: "auto-a" },
+      { owner: "job-b", sessionId: "auto-b" },
+    ]);
+    expect(stopped.every((row) => row.sessionId !== "p1")).toBe(true);
+    expect(prepared.pageStops).toEqual([
+      { sessionId: "ui-sess", stopped: true },
+      { sessionId: "auto-a", stopped: true },
+      { sessionId: "auto-b", stopped: true },
+    ]);
+  });
+
+  it("does not begin agent/terminal teardown when a live page stop fails", async () => {
+    const chats = makeChats();
+    const termPlane = makeTermPlane({ deleteBinding: vi.fn(async () => true) });
+    const pages = {
+      stopForOwner: vi.fn(async () => ({
+        ok: false as const,
+        code: "failed" as const,
+        message: "view still destroying",
+      })),
+      overseerSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
+      invalidatePendingOpensForRef: vi.fn(),
+    } as unknown as BrowserSessionService;
+    const native = live([{ name: "factory", doc: doc([agent("a1"), page("p1")]) }], {
+      chats,
+      termPlane,
+      pages,
+    });
+    const prepared = await native.prepareOverseerNodeDelete([
+      { kind: "page", canvasName: "factory", nodeId: "p1" },
+      { kind: "agent", agentKey: "local:a1" },
+      { kind: "terminal", bindingId: "bind-a1", hostId: "local" },
+    ]);
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(prepared.pageStops).toEqual([
+      { sessionId: "sess-1", stopped: false, error: "view still destroying" },
+    ]);
+    expect(chats.nodeDelete.isLocked("local:a1")).toBe(false);
+    expect(termPlane.nodeDelete.isLocked("bind-a1", "local")).toBe(false);
   });
 });
