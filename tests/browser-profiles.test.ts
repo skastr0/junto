@@ -31,16 +31,16 @@ import {
   type BrowserProfilePendingWipe,
   type BrowserProfileWipeLifecycle,
   type BrowserProfileWipeOutcome,
-} from "../src/main/vellum/browser/profiles";
-import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
+} from "../src/main/vellum-command/browser/profiles";
+import { BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "../src/shared/browser-limits";
 import {
   makeStateEngineLive,
-} from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
+} from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
 
 const FIXED_TIME = "2026-07-17T12:00:00.000Z";
 const MODE_MASK = 0o777;

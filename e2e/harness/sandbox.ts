@@ -21,34 +21,34 @@ import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import {
   CanvasesLive,
   CanvasesService,
-} from "../../src/main/vellum/canvases";
+} from "../../src/main/vellum-command/canvases";
 import {
   makeStateEngineLive,
-} from "../../src/main/vellum/state/engine";
-import { StateEngine } from "../../src/main/vellum/state/service";
+} from "../../src/main/vellum-command/state/engine";
+import { StateEngine } from "../../src/main/vellum-command/state/service";
 import {
   SettingsLive,
   SettingsService,
-} from "../../src/main/vellum/settings/service";
-import { makeHostsRegistry } from "../../src/main/vellum/hosts/registry";
+} from "../../src/main/vellum-command/settings/service";
+import { makeHostsRegistry } from "../../src/main/vellum-command/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/vellum/work/repository";
+} from "../../src/main/vellum-command/work/repository";
 import {
   StationRepository,
   StationRepositoryLive,
-} from "../../src/main/vellum/station/repository";
+} from "../../src/main/vellum-command/station/repository";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../../src/main/vellum/station/fleet-target-repository";
+} from "../../src/main/vellum-command/station/fleet-target-repository";
 import {
   compileActorSeatRegistry,
-} from "../../src/main/vellum/station/actor-seat-compiler";
+} from "../../src/main/vellum-command/station/actor-seat-compiler";
 import {
   IntentFactBasis,
   type ActorRef,

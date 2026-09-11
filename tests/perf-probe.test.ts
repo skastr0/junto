@@ -6,7 +6,7 @@ import {
   summarizePerfBlocks,
   summarizePerfReads,
   type PerfWindowLine,
-} from "../src/main/vellum/observability/perf-probe";
+} from "../src/main/vellum-command/observability/perf-probe";
 
 describe("perf probe gate", () => {
   it("is off unless VELLUM_PERF is exactly 1", () => {

@@ -36,7 +36,7 @@ import {
   makeStationPeerSession,
   type StationPeerSessionOptions,
   type StationSessionFrameTransport,
-} from "../src/main/vellum/station/peer-session";
+} from "../src/main/vellum-command/station/peer-session";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

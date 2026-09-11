@@ -15,43 +15,43 @@ import {
   remoteAppVersion,
   RemoteRuntime,
 } from "./remote-runtime";
-import { evaluateSchemaCompatibility } from "./vellum/state/schema-version-probe";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
-import { resolveControlHome } from "./vellum/control-home";
-import { configurePeerPidHelperRoots } from "./vellum/process-identity";
-import { resolvedSpawnEnv } from "./vellum/adapters/exec";
+import { evaluateSchemaCompatibility } from "./vellum-command/state/schema-version-probe";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
+import { resolveControlHome } from "./vellum-command/control-home";
+import { configurePeerPidHelperRoots } from "./vellum-command/process-identity";
+import { resolvedSpawnEnv } from "./vellum-command/adapters/exec";
 import {
   INSTALL_USER_SERVICE_SWITCH,
   installUserlandLinuxRemoteService,
   resolveReleaseDirectoryFromRemoteBinary,
-} from "./vellum/supervision/install-user-service";
+} from "./vellum-command/supervision/install-user-service";
 import {
   startWorkControlServer,
   publishSystemdGenerationReadiness,
   type WorkControlServer,
-} from "./vellum/work/control";
+} from "./vellum-command/work/control";
 import {
   startStationControlServer,
   type StationControlServer,
-} from "./vellum/station/control-server";
+} from "./vellum-command/station/control-server";
 import {
   startStationRemoteReportPump,
   type StationRemoteReportPump,
-} from "./vellum/station/remote-report-pump";
-import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum/station/peer-authority";
-import { StationApiService } from "./vellum/station/api";
-import { StationRepository } from "./vellum/station/repository";
-import { WorkRepository } from "./vellum/work/repository";
+} from "./vellum-command/station/remote-report-pump";
+import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum-command/station/peer-authority";
+import { StationApiService } from "./vellum-command/station/api";
+import { StationRepository } from "./vellum-command/station/repository";
+import { WorkRepository } from "./vellum-command/work/repository";
 import {
   KernelService,
   type KernelHost,
-} from "./vellum/kernel/service";
-import { HermesPlane } from "./vellum/hermes/plane";
+} from "./vellum-command/kernel/service";
+import { HermesPlane } from "./vellum-command/hermes/plane";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
-import { termPlane } from "./vellum/term/plane";
-import { startTransportJournal } from "./vellum/observability";
-import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
+import { termPlane } from "./vellum-command/term/plane";
+import { startTransportJournal } from "./vellum-command/observability";
+import { configureTerminalRouterLayeredRunner } from "./vellum-command/term/router";
 
 const argvHas = (flag: string): boolean => process.argv.includes(flag);
 

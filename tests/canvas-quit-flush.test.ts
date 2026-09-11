@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 describe("canvas quit durability wiring", () => {
   const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
   const terminationSource = readFileSync(
-    join(import.meta.dirname, "..", "src/main/vellum/process-signal-termination.ts"),
+    join(import.meta.dirname, "..", "src/main/vellum-command/process-signal-termination.ts"),
     "utf8",
   );
   const flushHelper = source.slice(

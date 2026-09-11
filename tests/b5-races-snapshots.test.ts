@@ -2,7 +2,7 @@ import { ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findEntity, findFreshEntity, type SnapshotBundle } from "../src/shared/entities";
 import type { BindingHint } from "../src/shared/ipc";
-import { makeSnapshotsLive, SnapshotsService } from "../src/main/vellum/snapshots";
+import { makeSnapshotsLive, SnapshotsService } from "../src/main/vellum-command/snapshots";
 
 // reentrancy: sequence stamp + in-flight coalescing on hermes-only refresh
 

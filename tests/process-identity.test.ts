@@ -10,7 +10,7 @@ import {
   processAlive,
   readProcessStartKey,
   readUnixPeerPid,
-} from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/process-identity";
 
 const roots: string[] = [];
 

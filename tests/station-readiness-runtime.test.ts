@@ -14,7 +14,7 @@ import {
   stationProjectionContentSha256,
   type StationProjection,
   type StationStatusFacts,
-} from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/repository";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);

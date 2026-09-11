@@ -5,7 +5,7 @@ import { USAGE_ENABLED } from "../src/shared/features";
 describe("usage product gate", () => {
   it.runIf(!USAGE_ENABLED)("omits usage bridges and live polling in the ship profile", () => {
     const preload = readFileSync("src/preload/index.ts", "utf8");
-    const main = readFileSync("src/main/vellum/ipc.ts", "utf8");
+    const main = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
     const app = readFileSync("src/renderer/App.tsx", "utf8");
 
     expect(preload).toContain("...(USAGE_ENABLED ? usageApi : {})");

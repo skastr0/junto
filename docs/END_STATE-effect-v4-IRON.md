@@ -37,10 +37,10 @@ rg -n 'Context\.Tag\b|Context\.GenericTag\b|Effect\.Tag\b|Effect\.Service\b' \
 rg -n 'Effect\.fork\b|Effect\.forkDaemon\b' src/main src/cli --glob '*.ts'  # exit 1
 
 # P3 kernel — no Promise runners in kernel tree
-rg -n 'Effect\.runPromise|Runtime\.runPromise' src/main/vellum/kernel --glob '*.ts'  # exit 1
+rg -n 'Effect\.runPromise|Runtime\.runPromise' src/main/vellum-command/kernel --glob '*.ts'  # exit 1
 
 # P5 program shape — no async factory control plane in kernel
-rg -n 'async \(|= async |: Promise<' src/main/vellum/kernel/service.ts
+rg -n 'async \(|= async |: Promise<' src/main/vellum-command/kernel/service.ts
 # After V4-PROGRAM: factory control path must not be an async runCycle/runClaimTicks chain.
 # Iron definition in V4-PROGRAM task: zero matches for runCycle/runClaimTicks as async functions;
 # cycle is Effect.gen (or equivalent) started via AppRuntime.runFork from boot.

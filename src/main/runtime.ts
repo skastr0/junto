@@ -13,7 +13,7 @@
  * - Never rebuild RootLayer or make() per IPC/handler call.
  * - Domain Effects enter via AppRuntime.runPromise / runFork — bare Effect.runPromise
  *   is empty Context (S0 fitness gate; permanent allowlist is host/post-dispose only).
- * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/vellum/ipc.ts carry zero
+ * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/vellum-command/ipc.ts carry zero
  *   bare Effect.runPromise; only AppRuntime for product domain work.
  * - Sole product store: StateEngine → vellum-command.db. InstallOps (install-ops.db) is
  *   install-local bookkeeping co-composed here so ContentService sees both; it is
@@ -24,7 +24,7 @@
 import { existsSync } from "node:fs";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { ObservabilityLoggerLive } from "./vellum/observability";
+import { ObservabilityLoggerLive } from "./vellum-command/observability";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
 import { assessSupervisedRuntime } from "@shared/station";
@@ -37,76 +37,76 @@ import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { FolderLive, FolderService } from "./services/folder";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
-import { CanvasesLive, CanvasesService } from "./vellum/canvases";
-import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum/hermes/plane";
-import { HermesTransportLive } from "./vellum/hermes/transport";
-import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
-import { termPlane } from "./vellum/term/plane";
+import { CanvasesLive, CanvasesService } from "./vellum-command/canvases";
+import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum-command/hermes/plane";
+import { HermesTransportLive } from "./vellum-command/hermes/transport";
+import { ActorSeatOccupyLive } from "./vellum-command/term/actor-seat-occupy-live";
+import { termPlane } from "./vellum-command/term/plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
-} from "./vellum/term/native-readiness";
-import { KernelLive, KernelService } from "./vellum/kernel/service";
-import { KernelStateRepositoryLive } from "./vellum/kernel/repository";
-import { PausePlaneLive } from "./vellum/pause-plane";
-import { FactoryPauseRepositoryLive } from "./vellum/pause/repository";
-import { SchedulerRepositoryLive } from "./vellum/scheduler/repository";
-import { WorkLive } from "./vellum/work/service";
-import { WorkRepositoryLive } from "./vellum/work/repository";
-import { makeContentServiceLive } from "./vellum/content/service";
-import { InstallOpsLive } from "./vellum/install-ops/engine";
-import { RegionRollupLive, RegionRollupService } from "./vellum/region-rollup";
-import { SettingsLive, SettingsService } from "./vellum/settings/service";
-import { probeSupervisedRuntime } from "./vellum/settings/supervised-probe";
-import { SnapshotsLive, SnapshotsService } from "./vellum/snapshots";
-import { UsageLive } from "./vellum/usage/live";
-import { UsageService } from "./vellum/usage/usage-service";
-import { HostsService, HostsServiceLive } from "./vellum/hosts";
-import { HostRuntimeLive } from "./vellum/hosts/host-runtime";
-import { composeMainFleetCompatibilitySnapshot } from "./vellum/hosts/fleet-compatibility";
-import { SshTransportLive } from "./vellum/ssh";
+} from "./vellum-command/term/native-readiness";
+import { KernelLive, KernelService } from "./vellum-command/kernel/service";
+import { KernelStateRepositoryLive } from "./vellum-command/kernel/repository";
+import { PausePlaneLive } from "./vellum-command/pause-plane";
+import { FactoryPauseRepositoryLive } from "./vellum-command/pause/repository";
+import { SchedulerRepositoryLive } from "./vellum-command/scheduler/repository";
+import { WorkLive } from "./vellum-command/work/service";
+import { WorkRepositoryLive } from "./vellum-command/work/repository";
+import { makeContentServiceLive } from "./vellum-command/content/service";
+import { InstallOpsLive } from "./vellum-command/install-ops/engine";
+import { RegionRollupLive, RegionRollupService } from "./vellum-command/region-rollup";
+import { SettingsLive, SettingsService } from "./vellum-command/settings/service";
+import { probeSupervisedRuntime } from "./vellum-command/settings/supervised-probe";
+import { SnapshotsLive, SnapshotsService } from "./vellum-command/snapshots";
+import { UsageLive } from "./vellum-command/usage/live";
+import { UsageService } from "./vellum-command/usage/usage-service";
+import { HostsService, HostsServiceLive } from "./vellum-command/hosts";
+import { HostRuntimeLive } from "./vellum-command/hosts/host-runtime";
+import { composeMainFleetCompatibilitySnapshot } from "./vellum-command/hosts/fleet-compatibility";
+import { SshTransportLive } from "./vellum-command/ssh";
 import {
   BoxCliLive,
   BoxFleetServiceLive,
   BoxActivityPolicyLive,
   BoxOwnershipRepositoryLive,
   BoxProcessRunnerLive,
-} from "./vellum/box";
-import { primeHostsSnapshot } from "./vellum/hosts/snapshot";
+} from "./vellum-command/box";
+import { primeHostsSnapshot } from "./vellum-command/hosts/snapshot";
 import {
   StationStatusLive,
   StationStatusService,
-} from "./vellum/station-status-store";
+} from "./vellum-command/station-status-store";
 import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
-} from "./vellum/station-readiness";
-import { stationControlReadiness } from "./vellum/station/control-server";
-import { workControlReadiness } from "./vellum/work/control";
-import { StateEngineLive } from "./vellum/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
+} from "./vellum-command/station-readiness";
+import { stationControlReadiness } from "./vellum-command/station/control-server";
+import { workControlReadiness } from "./vellum-command/work/control";
+import { StateEngineLive } from "./vellum-command/state/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
 import {
   StationFleetTargetRepositoryLive,
-} from "./vellum/station/fleet-target-repository";
+} from "./vellum-command/station/fleet-target-repository";
 import {
   StationRepository,
   StationRepositoryLive,
   type StationProjection,
   type StationStatusFacts,
-} from "./vellum/station/repository";
-import { StationApiLive } from "./vellum/station/api";
-import { StationPropagationLive } from "./vellum/station/propagation";
+} from "./vellum-command/station/repository";
+import { StationApiLive } from "./vellum-command/station/api";
+import { StationPropagationLive } from "./vellum-command/station/propagation";
 import {
   OpenSshStationPeerRouteResolverLive,
   StationFleetPropagationLive,
-} from "./vellum/station/fleet-propagation";
+} from "./vellum-command/station/fleet-propagation";
 import {
   OpenSshStationPeerExchangeLive,
-} from "./vellum/station/openssh-peer-exchange";
+} from "./vellum-command/station/openssh-peer-exchange";
 import {
   StationLivePeerRegistryLive,
-} from "./vellum/station/session-registry";
-import { CanvasEntityRepositoryLive } from "./vellum/entities/repository";
+} from "./vellum-command/station/session-registry";
+import { CanvasEntityRepositoryLive } from "./vellum-command/entities/repository";
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
@@ -114,7 +114,7 @@ import {
   linuxX64UpdateFeed,
   makePlatformUpdateProvider,
   makeUpdateServiceLayer,
-} from "./vellum/update";
+} from "./vellum-command/update";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the

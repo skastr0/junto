@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyWorkStatement,
   workStatementSinkParams,
-} from "../src/main/vellum/work/mutation-seam";
+} from "../src/main/vellum-command/work/mutation-seam";
 
 /**
  * What the seam would tell the world about one statement: the sink it names,

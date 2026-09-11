@@ -34,7 +34,7 @@ import {
   type AppProcessDrainResult,
   type AppProcessLease,
   type AppProcessPlane,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 
 const SMOKE_TIMEOUT_MS = 45_000;
 const STARTUP_TIMEOUT_MS = 25_000;

@@ -72,7 +72,7 @@ any number of releases before applying the chain.
 
 The current source/runtime schema is version 22. `CURRENT_STATE_SCHEMA_VERSION`
 and `STATE_SCHEMA_MIGRATIONS` in
-`src/main/vellum/state/migrations.ts` are the sole head and chain authority, so
+`src/main/vellum-command/state/migrations.ts` are the sole head and chain authority, so
 this document does not duplicate the migration table. The public macOS 0.1.14
 package remains historical evidence for schema version 18; it does not define
 the current source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations

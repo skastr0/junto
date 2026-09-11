@@ -6,9 +6,9 @@ import {
   type AcpClientHandlers,
   type JsonRpcId,
   type SpawnFn,
-} from "../src/main/vellum/chat/acp-client";
-import { ChatService } from "../src/main/vellum/chat/service";
-import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+} from "../src/main/vellum-command/chat/acp-client";
+import { ChatService } from "../src/main/vellum-command/chat/service";
+import { buildAcpSpawnTarget, type AcpSpawnTarget } from "../src/main/vellum-command/chat/spawn";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
 // Covers batch b3-chat's timeout/race/kill-escalation contract:

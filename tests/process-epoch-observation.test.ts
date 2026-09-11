@@ -12,8 +12,8 @@ import {
   setProcessEpochReaderForTests,
   type ProcessEpochPsRequest,
   type ProcessEpochRow,
-} from "../src/main/vellum/process-epoch";
-import { resolveSystemPs } from "../src/main/vellum/platform-executables";
+} from "../src/main/vellum-command/process-epoch";
+import { resolveSystemPs } from "../src/main/vellum-command/platform-executables";
 
 const START = "Wed Jul 22 04:36:13 2026";
 const RESTARTED = "Thu Jul 23 11:02:44 2026";

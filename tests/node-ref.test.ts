@@ -11,8 +11,8 @@ import {
 import {
   resolveNodeRef,
   type CanvasNodeReader,
-} from "../src/main/vellum/node-ref-resolver";
-import { CanvasError } from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/node-ref-resolver";
+import { CanvasError } from "../src/main/vellum-command/canvases";
 
 const parsed = (input: string): NodeRef => {
   const result = parseNodeRef(input);

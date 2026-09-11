@@ -8,19 +8,19 @@ import {
   makeStateEngineLive,
   StateEngine,
   type StateEngineError,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   makeUsageCacheLive,
   UsageCache,
-} from "../src/main/vellum/usage/usage-cache";
+} from "../src/main/vellum-command/usage/usage-cache";
 import {
   UsageSources,
   type UsageSource,
-} from "../src/main/vellum/usage/usage-source";
+} from "../src/main/vellum-command/usage/usage-source";
 import {
   UsageService,
   UsageServiceLive,
-} from "../src/main/vellum/usage/usage-service";
+} from "../src/main/vellum-command/usage/usage-service";
 
 type EngineRuntime = ManagedRuntime.ManagedRuntime<
   StateEngine,

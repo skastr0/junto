@@ -6,7 +6,7 @@ describe("index shutdown wiring", () => {
   const source = readFileSync(join(import.meta.dirname, "..", "src/main/index.ts"), "utf8");
 
   it("routes packaged startup through the selected bounded supervisor", () => {
-    expect(source).toContain('import { loadStationSupervisor } from "./vellum/supervision/select";');
+    expect(source).toContain('import { loadStationSupervisor } from "./vellum-command/supervision/select";');
     expect(source).toContain("const supervisor = await loadStationSupervisor();");
     expect(source).toContain("const handoff = await supervisor.requestHandoff();");
     expect(source).not.toContain("kickstartLaunchAgent(");

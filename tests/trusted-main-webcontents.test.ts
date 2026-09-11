@@ -4,7 +4,7 @@ import {
   getTrustedMainWebContents,
   setTrustedMainWebContents,
   trustedRendererIpc,
-} from "../src/main/vellum/trusted-main-webcontents";
+} from "../src/main/vellum-command/trusted-main-webcontents";
 
 const trustedUrl = "http://localhost:5173/";
 

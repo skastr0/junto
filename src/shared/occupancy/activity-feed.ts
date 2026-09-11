@@ -31,7 +31,7 @@ export interface ActivityFeedService {
 }
 
 export class ActivityFeed extends Context.Service<ActivityFeed,
-  ActivityFeedService>()("@vellum/ActivityFeed") {}
+  ActivityFeedService>()("@vellum-command/ActivityFeed") {}
 
 /** Everything vacant — the shippable default before any producer binds. */
 export const nullActivityFeed: ActivityFeedService = {

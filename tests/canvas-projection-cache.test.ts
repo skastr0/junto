@@ -16,17 +16,17 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { CanvasEntityRepositoryLive } from "../src/main/vellum/entities/repository";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { CanvasEntityRepositoryLive } from "../src/main/vellum-command/entities/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
-import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
+} from "../src/main/vellum-command/state/engine";
+import { STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IntentFactBasis } from "../src/shared/work-protocol";

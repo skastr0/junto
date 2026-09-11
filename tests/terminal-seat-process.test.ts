@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
 import {
   makeLocalSeatProcess,
   makeRemoteSeatProcess,
   type OccupySpec,
   type RemoteAgentSeatCommand,
-} from "../src/main/vellum/term/seat-process";
+} from "../src/main/vellum-command/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   occupancyFromSession,
@@ -21,9 +21,9 @@ import {
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
-import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
+} from "../src/main/vellum-command/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
+import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/term/session-existence";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];

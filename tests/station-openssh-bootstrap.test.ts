@@ -24,18 +24,18 @@ import {
   type StationSessionFrame,
   type StationSessionRequestFrame,
 } from "../src/shared/station-session";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
-import { SshEndpoint } from "../src/main/vellum/ssh/domain";
-import { resolveRemotePackagedPlatform } from "../src/main/vellum/ssh/read-commands";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
+import { SshEndpoint } from "../src/main/vellum-command/ssh/domain";
+import { resolveRemotePackagedPlatform } from "../src/main/vellum-command/ssh/read-commands";
 import type {
   ConfirmSshReady,
   SshLease,
   SshTransport,
-} from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/service";
 import {
   OpenSshStationBootstrapError,
   bootstrapOpenSshStationStatus,
-} from "../src/main/vellum/station/openssh-bootstrap";
+} from "../src/main/vellum-command/station/openssh-bootstrap";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

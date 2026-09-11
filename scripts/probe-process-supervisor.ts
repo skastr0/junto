@@ -7,7 +7,7 @@ import {
   type AppProcessPlane,
   type AppProcessSignalReceipt,
   type AppProcessSpawnSpec,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 
 const DEFAULT_MAX_LOG_BYTES = 128 * 1024;
 const DEFAULT_TERM_GRACE_MS = 1_000;
@@ -33,7 +33,7 @@ export type ProbeProcessOutputListener = (
 ) => void;
 
 const ProbeProcessHandleTypeId: unique symbol = Symbol(
-  "@vellum/ProbeProcessHandle",
+  "@vellum-command/ProbeProcessHandle",
 );
 
 /** Opaque observation handle. It carries no child, pid, signal, or lease. */
@@ -102,7 +102,7 @@ export interface ProbeProcessSupervisor {
   readonly isQuiescing: () => boolean;
 }
 
-const ProbeSandboxTypeId: unique symbol = Symbol("@vellum/ProbeSandbox");
+const ProbeSandboxTypeId: unique symbol = Symbol("@vellum-command/ProbeSandbox");
 
 /** A deletion capability bound to one directory created by this module. */
 export interface ProbeSandbox {

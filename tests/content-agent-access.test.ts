@@ -10,8 +10,8 @@ import {
   contentMaterializationPath,
   materializeContentObject,
   taskContentRef,
-} from "../src/main/vellum/content/agent-access";
-import { ingestContentBytes } from "../src/main/vellum/content/store";
+} from "../src/main/vellum-command/content/agent-access";
+import { ingestContentBytes } from "../src/main/vellum-command/content/store";
 
 const ref = Schema.decodeUnknownSync(ContentRef)({
   sha256: "".padStart(64, "a"),

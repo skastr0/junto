@@ -18,19 +18,19 @@ import {
   makeStateEngineLive,
   StateEngine,
   StateEngineError,
-} from "../src/main/vellum/state/engine";
-import { createVerifiedStateBackup } from "../src/main/vellum/state/backup";
+} from "../src/main/vellum-command/state/engine";
+import { createVerifiedStateBackup } from "../src/main/vellum-command/state/backup";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V1_SQL,
-} from "../src/main/vellum/state/schema";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
+} from "../src/main/vellum-command/state/schema";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
 import {
   RETIRED_SOURCE_SCHEMA_SHA256,
   verifyAndStampStateSchema,
-} from "../src/main/vellum/state/schema-identity";
-import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum/usage/state-schema";
+} from "../src/main/vellum-command/state/schema-identity";
+import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum-command/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
     tempRoots.push(root);

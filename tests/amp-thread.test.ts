@@ -3,21 +3,21 @@ import {
   isAmpThreadId,
   parseAmpThreadReceipt,
   provisionAmpThread,
-} from "../src/main/vellum/term/templates/amp-thread";
+} from "../src/main/vellum-command/term/templates/amp-thread";
 import {
   ensureProvisionedSessionId,
   usesProvisionedSession,
-} from "../src/main/vellum/term/amp-seat-thread";
+} from "../src/main/vellum-command/term/amp-seat-thread";
 import {
   launchForManagedSpawn,
   planManagedSpawn,
-} from "../src/main/vellum/term/managed-spawn-plan";
+} from "../src/main/vellum-command/term/managed-spawn-plan";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import { firstCascadeColumn } from "../src/renderer/components/node-palette/agent-launch-model";
-import { harnessBinaryInstalled } from "../src/main/vellum/term/templates/harness-install";
-import { evaluate } from "../src/main/vellum/term/agent-state";
-import { ManagedTerminalDrive } from "../src/main/vellum/term/drive";
-import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
+import { harnessBinaryInstalled } from "../src/main/vellum-command/term/templates/harness-install";
+import { evaluate } from "../src/main/vellum-command/term/agent-state";
+import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive";
+import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 import { AMP_TEMPLATE } from "../src/shared/managed-terminal-templates";
 
 // The receipt shape below is real output from

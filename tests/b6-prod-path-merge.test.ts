@@ -5,7 +5,7 @@ import {
   resolvedSpawnEnv,
   resolvedSpawnEnvSync,
   staticPathDirs,
-} from "../src/main/vellum/adapters/exec";
+} from "../src/main/vellum-command/adapters/exec";
 
 // b6-prod: the spawn plane must resolve user-installed CLIs under a
 // packaged/launchd/Finder launch, where the process inherits launchd's minimal

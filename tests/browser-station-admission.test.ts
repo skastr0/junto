@@ -10,12 +10,12 @@ import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   BROWSER_STATION_ADMISSION_TTL_MS,
   prepareBrowserStationAdmissionAuthority,
-} from "../src/main/vellum/browser/station-admission";
+} from "../src/main/vellum-command/browser/station-admission";
 import {
   stationProjectionContentSha256,
   type StationProjection,
   type StationStatusFacts,
-} from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/repository";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const logicalSequence = Schema.decodeUnknownSync(LogicalSequence);

@@ -23,11 +23,11 @@ import {
   SshOutputLimitError,
   SshTimeoutError,
   SshTransport,
-} from "../src/main/vellum/ssh";
+} from "../src/main/vellum-command/ssh";
 import {
   makeRemoteCommand,
   makeRemoteStdin,
-} from "../src/main/vellum/ssh/domain";
+} from "../src/main/vellum-command/ssh/domain";
 import { formatTransportFailure } from "../src/shared/transport-trace";
 import {
   daemonHandoff,
@@ -35,17 +35,17 @@ import {
   oneShot,
   oneShotWithStdin,
   sharedStream,
-} from "../src/main/vellum/ssh/program";
+} from "../src/main/vellum-command/ssh/program";
 import {
   ProcessSpawner,
   ProcessFailure,
   type ProcessHandle,
-} from "../src/main/vellum/ssh/process-spawner";
+} from "../src/main/vellum-command/ssh/process-spawner";
 import {
   SshTransferExitError,
   SshTransportConfig,
   SshTransportLayer,
-} from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/service";
 
 interface FakeResult {
   readonly stdout?: Uint8Array;

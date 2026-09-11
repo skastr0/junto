@@ -17,10 +17,10 @@ import {
   decodeLinuxRemoteObserve,
   decodeLinuxRemoteRestart,
   linuxObserveToHostPackage,
-} from "../src/main/vellum/hosts/deploy-linux";
-import type { RemoteDeploymentTarget } from "../src/main/vellum/hosts/remote-deployment";
-import { parseSshEndpoint, type SshEndpoint } from "../src/main/vellum/ssh/domain";
-import { compileLinuxUserlandObserveSource } from "../src/main/vellum/ssh/remote-plan";
+} from "../src/main/vellum-command/hosts/deploy-linux";
+import type { RemoteDeploymentTarget } from "../src/main/vellum-command/hosts/remote-deployment";
+import { parseSshEndpoint, type SshEndpoint } from "../src/main/vellum-command/ssh/domain";
+import { compileLinuxUserlandObserveSource } from "../src/main/vellum-command/ssh/remote-plan";
 
 const endpoint = Effect.runSync(parseSshEndpoint("studio-box"));
 

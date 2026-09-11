@@ -5,14 +5,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Context, Effect, ManagedRuntime } from "effect";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
-import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page-target";
+import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/vellum/browser/sessions";
-import { prepareBrowserHostCapabilityAuthority } from "../src/main/vellum/browser/station-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/browser/sessions";
+import { prepareBrowserHostCapabilityAuthority } from "../src/main/vellum-command/browser/station-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 
 const hosts: ReadonlyArray<RemoteHost> = [
   {

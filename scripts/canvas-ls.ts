@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import {
   listCanvasesThroughControl,
   type CanvasControlClientError,
-} from "../src/main/vellum/canvas-control/client";
+} from "../src/main/vellum-command/canvas-control/client";
 
 // Headless agent surface: the running app returns its compiled live projection.
 // This process never opens product state.

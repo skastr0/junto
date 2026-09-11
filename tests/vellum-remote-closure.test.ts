@@ -23,7 +23,7 @@ const FORBIDDEN_RENDERER_IMPORT =
 const REMOTE_ENTRY_FILES: ReadonlyArray<string> = [
   "src/main/remote-runtime.ts",
   "src/main/vellum-remote.ts",
-  "src/main/vellum/supervision/install-user-service.ts",
+  "src/main/vellum-command/supervision/install-user-service.ts",
 ];
 
 describe("vellum-command-remote closure", () => {

@@ -38,7 +38,7 @@ fi
 
 CURRENT="$(
   sed -nE 's/^export const CURRENT_STATE_SCHEMA_VERSION = ([0-9]+);$/\1/p' \
-    "${ROOT}/src/main/vellum/state/migrations.ts" | head -1
+    "${ROOT}/src/main/vellum-command/state/migrations.ts" | head -1
 )"
 if [[ -z "${CURRENT}" ]]; then
   log "could not read CURRENT_STATE_SCHEMA_VERSION; keeping isolated state"

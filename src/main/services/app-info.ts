@@ -7,7 +7,7 @@ import { PRODUCT_NAME } from "@shared/product-name";
 export class AppInfoService extends Context.Service<AppInfoService,
   {
     readonly stationInfo: Effect.Effect<StationInfo>;
-  }>()("@vellum/AppInfoService") {}
+  }>()("@vellum-command/AppInfoService") {}
 
 export const AppInfoLive = Layer.succeed(
   AppInfoService,

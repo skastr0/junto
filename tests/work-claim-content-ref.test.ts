@@ -12,26 +12,26 @@ import { join } from "node:path";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
 import {
   ContentService,
   makeContentServiceLive,
-} from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
+} from "../src/main/vellum-command/station/session-registry";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/settings/service";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",

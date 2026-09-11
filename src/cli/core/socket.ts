@@ -27,7 +27,7 @@ export const resolveWorkHome = (): string => {
  * - Canonical id: `@vellum/cli/WorkSocket` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class WorkSocket extends Context.Service<WorkSocket, WorkSocket>()("@vellum/cli/WorkSocket") {}`
+ *   `class WorkSocket extends Context.Service<WorkSocket, WorkSocket>()("@vellum-command/cli/WorkSocket") {}`
  * - Layer today: WorkSocketLive — V4 rename candidate WorkSocket.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -38,7 +38,7 @@ export class WorkSocket extends Context.Service<WorkSocket,
       args?: unknown,
       timeoutMs?: number,
     ) => Effect.Effect<unknown, RuntimeDown | AuthError | WireError>;
-  }>()("@vellum/cli/WorkSocket") {}
+  }>()("@vellum-command/cli/WorkSocket") {}
 
 const readToken = (tokenPath: string) =>
   Effect.tryPromise({

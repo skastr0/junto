@@ -3,7 +3,7 @@ import {
   HIDDEN_COMPOSITION_HOST_WINDOW_OPTIONS,
   makeBrowserCompositionHost,
   type BrowserCompositionHostWindow,
-} from "../src/main/vellum/browser/composition-host";
+} from "../src/main/vellum-command/browser/composition-host";
 
 const window = (name: string, events: string[]): BrowserCompositionHostWindow & { destroyed: boolean } => {
   const result = {

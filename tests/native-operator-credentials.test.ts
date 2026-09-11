@@ -1,33 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { resolveOpenRouterCredentials } from "../src/main/vellum/usage/openrouter-source";
+import { resolveOpenRouterCredentials } from "../src/main/vellum-command/usage/openrouter-source";
 import {
   resolveSyntheticApiKey,
   makeSyntheticSource,
-} from "../src/main/vellum/usage/synthetic-source";
+} from "../src/main/vellum-command/usage/synthetic-source";
 import {
   resolveKimiCredential,
   detectKimiPresence,
-} from "../src/main/vellum/usage/kimi-source";
+} from "../src/main/vellum-command/usage/kimi-source";
 import {
   resolveDevinCredential,
   detectDevinCredential,
-} from "../src/main/vellum/usage/devin-auth";
+} from "../src/main/vellum-command/usage/devin-auth";
 import {
   resolveGoApiKey,
   makeOpencodeGoSource,
-} from "../src/main/vellum/usage/opencodego-source";
-import { resolveCopilotToken } from "../src/main/vellum/usage/copilot-auth";
+} from "../src/main/vellum-command/usage/opencodego-source";
+import { resolveCopilotToken } from "../src/main/vellum-command/usage/copilot-auth";
 import {
   resolveSessionCookie as resolveOllamaSessionCookie,
   resolveApiKey as resolveOllamaApiKey,
   makeOllamaSource,
-} from "../src/main/vellum/usage/ollama-source";
+} from "../src/main/vellum-command/usage/ollama-source";
 import {
   resolveCursorCredential,
-} from "../src/main/vellum/usage/cursor-auth";
+} from "../src/main/vellum-command/usage/cursor-auth";
 import {
   makeNativeUsageSources,
-} from "../src/main/vellum/usage/native-sources";
+} from "../src/main/vellum-command/usage/native-sources";
 
 // Every configurable usage source resolves credentials in ONE order:
 //   operator settings (Settings > Providers) -> env var -> local files.

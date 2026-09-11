@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { harnessBinaryInstalled } from "../src/main/vellum/term/templates/harness-install";
+import { harnessBinaryInstalled } from "../src/main/vellum-command/term/templates/harness-install";
 
 const scratchDirs: string[] = [];
 

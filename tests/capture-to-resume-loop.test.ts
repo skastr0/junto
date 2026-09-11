@@ -26,7 +26,7 @@ import {
   __setSessionExistenceHomeForTest,
   harnessSessionExists,
   shouldResumeHarnessSession,
-} from "../src/main/vellum/term/session-existence";
+} from "../src/main/vellum-command/term/session-existence";
 import {
   __setCapturedSessionWriterForTest,
   persistCapturedSessionId,
@@ -34,7 +34,7 @@ import {
   scheduleCapturedSessionPersist,
   usesCapturedSession,
   type CapturedSeatSession,
-} from "../src/main/vellum/term/session-capture-persist";
+} from "../src/main/vellum-command/term/session-capture-persist";
 
 const temps: string[] = [];
 

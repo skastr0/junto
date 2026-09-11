@@ -17,7 +17,7 @@ import {
   removeOwnedControlSocketPath,
   rotateControlFileToken,
   type ControlListenerLease,
-} from "../src/main/vellum/control-filesystem";
+} from "../src/main/vellum-command/control-filesystem";
 
 const roots: string[] = [];
 const root = async () => { const path = await mkdtemp(join(tmpdir(), "vellum-control-fs-")); roots.push(path); return path; };

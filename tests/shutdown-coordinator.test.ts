@@ -3,7 +3,7 @@ import {
   createShutdownCoordinator,
   type ShutdownCleanReceipt,
   type ShutdownCoordinatorSteps,
-} from "../src/main/vellum/shutdown-coordinator";
+} from "../src/main/vellum-command/shutdown-coordinator";
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void;

@@ -17,32 +17,32 @@ vi.mock("@shared/release-capabilities", async (importOriginal) => {
   };
 });
 import { defaultSettings } from "../src/shared/settings";
-import { BoxFleetService } from "../src/main/vellum/box";
+import { BoxFleetService } from "../src/main/vellum-command/box";
 import {
   configureRemoteEffect,
   deployRemoteEffect,
   makeHostsOperatorCoordinator,
   makeOperatorCoordinator,
   operatorArtifactSource,
-} from "../src/main/vellum/hosts/operator-coordinator";
+} from "../src/main/vellum-command/hosts/operator-coordinator";
 import {
   appendDeployJobStage,
   beginDeployJob,
   getDeployJob,
-} from "../src/main/vellum/hosts/deploy-job-registry";
+} from "../src/main/vellum-command/hosts/deploy-job-registry";
 import { HOST_RUNTIME_REMEDY_STAGE } from "../src/shared/deploy-job";
-import { HostsService } from "../src/main/vellum/hosts/service";
-import { HostRuntime } from "../src/main/vellum/hosts/host-runtime";
+import { HostsService } from "../src/main/vellum-command/hosts/service";
+import { HostRuntime } from "../src/main/vellum-command/hosts/host-runtime";
 import { AppInfoService } from "../src/main/services/app-info";
-import { SettingsService } from "../src/main/vellum/settings/service";
-import { StationStatusService } from "../src/main/vellum/station-status-store";
-import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
-import { StationRepository } from "../src/main/vellum/station/repository";
+import { SettingsService } from "../src/main/vellum-command/settings/service";
+import { StationStatusService } from "../src/main/vellum-command/station-status-store";
+import { StationFleetTargetRepository } from "../src/main/vellum-command/station/fleet-target-repository";
+import { StationRepository } from "../src/main/vellum-command/station/repository";
 import {
   HOST_OPERATION_ADMISSIONS,
   HostOperationShutdownRefused,
   type HostOperationGate,
-} from "../src/main/vellum/hosts/shutdown";
+} from "../src/main/vellum-command/hosts/shutdown";
 import {
   OPERATOR_PROTOCOL_VERSION,
   type OperatorRequestEnvelope,
@@ -666,7 +666,7 @@ describe("operator deployment coordinator", () => {
   it("does not call leftover Deploy ceremony on the product path", () => {
     const coordinator = readFileSync(
       new URL(
-        "../src/main/vellum/hosts/operator-coordinator.ts",
+        "../src/main/vellum-command/hosts/operator-coordinator.ts",
         import.meta.url,
       ),
       "utf8",

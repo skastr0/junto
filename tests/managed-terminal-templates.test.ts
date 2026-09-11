@@ -35,7 +35,7 @@ import {
   readClaudeModels,
   readGrokModels,
   readHermesModels,
-} from "../src/main/vellum/term/templates/enumerate-models";
+} from "../src/main/vellum-command/term/templates/enumerate-models";
 import {
   HARNESS_KIMI_ENABLED,
   HARNESS_MUSE_ENABLED,

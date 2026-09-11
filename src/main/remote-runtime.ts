@@ -21,54 +21,54 @@
  * Electron IPC. isPackaged is env / release-tree placement — never app.isPackaged.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { ObservabilityLoggerLive } from "./vellum/observability";
+import { ObservabilityLoggerLive } from "./vellum-command/observability";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
-import { CanvasesLive } from "./vellum/canvases";
+import { CanvasesLive } from "./vellum-command/canvases";
 import {
   ChatServiceFromHermesLive,
   HermesPlaneLive,
-} from "./vellum/hermes/plane";
-import { HermesTransportLive } from "./vellum/hermes/transport";
-import { KernelLive } from "./vellum/kernel/service";
-import { KernelStateRepositoryLive } from "./vellum/kernel/repository";
-import { PausePlaneLive } from "./vellum/pause-plane";
-import { FactoryPauseRepositoryLive } from "./vellum/pause/repository";
-import { SchedulerRepositoryLive } from "./vellum/scheduler/repository";
-import { WorkLive } from "./vellum/work/service";
-import { WorkRepositoryLive } from "./vellum/work/repository";
-import { makeContentServiceLive } from "./vellum/content/service";
-import { InstallOpsLive } from "./vellum/install-ops/engine";
-import { RegionRollupLive } from "./vellum/region-rollup";
-import { makeSettingsLive } from "./vellum/settings/service";
-import { SnapshotsLive } from "./vellum/snapshots";
-import { UsageLive } from "./vellum/usage/live";
-import { HostsServiceLive } from "./vellum/hosts";
-import { HostRuntimeLive } from "./vellum/hosts/host-runtime";
-import { SshTransportLive } from "./vellum/ssh";
-import { StationStatusLive } from "./vellum/station-status-store";
-import { StateEngineLive } from "./vellum/state/engine";
-import { StationFleetTargetRepositoryLive } from "./vellum/station/fleet-target-repository";
+} from "./vellum-command/hermes/plane";
+import { HermesTransportLive } from "./vellum-command/hermes/transport";
+import { KernelLive } from "./vellum-command/kernel/service";
+import { KernelStateRepositoryLive } from "./vellum-command/kernel/repository";
+import { PausePlaneLive } from "./vellum-command/pause-plane";
+import { FactoryPauseRepositoryLive } from "./vellum-command/pause/repository";
+import { SchedulerRepositoryLive } from "./vellum-command/scheduler/repository";
+import { WorkLive } from "./vellum-command/work/service";
+import { WorkRepositoryLive } from "./vellum-command/work/repository";
+import { makeContentServiceLive } from "./vellum-command/content/service";
+import { InstallOpsLive } from "./vellum-command/install-ops/engine";
+import { RegionRollupLive } from "./vellum-command/region-rollup";
+import { makeSettingsLive } from "./vellum-command/settings/service";
+import { SnapshotsLive } from "./vellum-command/snapshots";
+import { UsageLive } from "./vellum-command/usage/live";
+import { HostsServiceLive } from "./vellum-command/hosts";
+import { HostRuntimeLive } from "./vellum-command/hosts/host-runtime";
+import { SshTransportLive } from "./vellum-command/ssh";
+import { StationStatusLive } from "./vellum-command/station-status-store";
+import { StateEngineLive } from "./vellum-command/state/engine";
+import { StationFleetTargetRepositoryLive } from "./vellum-command/station/fleet-target-repository";
 import {
   StationRepository,
   StationRepositoryLive,
   type StationProjection,
   type StationStatusFacts,
-} from "./vellum/station/repository";
-import { StationApiLive } from "./vellum/station/api";
-import { StationPropagationLive } from "./vellum/station/propagation";
+} from "./vellum-command/station/repository";
+import { StationApiLive } from "./vellum-command/station/api";
+import { StationPropagationLive } from "./vellum-command/station/propagation";
 import {
   OpenSshStationPeerRouteResolverLive,
   StationFleetPropagationLive,
-} from "./vellum/station/fleet-propagation";
-import { OpenSshStationPeerExchangeLive } from "./vellum/station/openssh-peer-exchange";
-import { StationLivePeerRegistryLive } from "./vellum/station/session-registry";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
-import { ActorSeatOccupyLive } from "./vellum/term/actor-seat-occupy-live";
+} from "./vellum-command/station/fleet-propagation";
+import { OpenSshStationPeerExchangeLive } from "./vellum-command/station/openssh-peer-exchange";
+import { StationLivePeerRegistryLive } from "./vellum-command/station/session-registry";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
+import { ActorSeatOccupyLive } from "./vellum-command/term/actor-seat-occupy-live";
 import {
   resolveCandidateRuntimeRootFromRemoteBinary,
   resolveReleaseDirectoryFromRemoteBinary,
-} from "./vellum/supervision/install-user-service";
+} from "./vellum-command/supervision/install-user-service";
 import { resolve } from "node:path";
 
 // ---------------------------------------------------------------------------

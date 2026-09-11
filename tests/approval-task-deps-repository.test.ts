@@ -9,11 +9,11 @@ import {
   WorkRepositoryLive,
   createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { CanvasDoc, serializeCanvas } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";

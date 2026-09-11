@@ -8,26 +8,26 @@ import {
   CanvasesLive,
   CanvasesService,
   type CanvasAuthorityStoredDocument,
-} from "../src/main/vellum/canvases";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/canvases";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
+import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+} from "../src/main/vellum-command/station/session-registry";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
+} from "../src/main/vellum-command/settings/service";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
+} from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
 import {
   applyMirrorLaw,
   serializeCanvas,
@@ -35,7 +35,7 @@ import {
 } from "../src/shared/canvas";
 import {
   verifyCanvasIntentMaterial,
-} from "../src/main/vellum/canvas-intent-identity";
+} from "../src/main/vellum-command/canvas-intent-identity";
 
 const noteDoc = (text: string): CanvasDoc =>
   applyMirrorLaw({

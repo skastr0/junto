@@ -4,9 +4,9 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { CodexService } from "./services/codex";
 import { FolderService } from "./services/folder";
 import { AppRuntime, buildDoctorReport } from "./runtime";
-import type { BrowserSessionService } from "./vellum/browser/sessions";
-import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum/ipc";
-import { trustedRendererIpc } from "./vellum/trusted-main-webcontents";
+import type { BrowserSessionService } from "./vellum-command/browser/sessions";
+import { registerVellumBrowserIpc, registerVellumIpc } from "./vellum-command/ipc";
+import { trustedRendererIpc } from "./vellum-command/trusted-main-webcontents";
 
 export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): void => {
   registerVellumBrowserIpc(sessions);

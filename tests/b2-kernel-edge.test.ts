@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { EtherWatch } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import { evaluateWatcher, resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
-import { flagShouldToggle } from "../src/main/vellum/kernel/cycle";
+import { evaluateWatcher, resetWatcherMemory } from "../src/main/vellum-command/kernel/evaluate";
+import { flagShouldToggle } from "../src/main/vellum-command/kernel/cycle";
 
 // --- fixtures ----------------------------------------------------------------
 

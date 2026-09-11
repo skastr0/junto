@@ -26,15 +26,15 @@ import {
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
-} from "../src/main/vellum/work/mailbox-receipts";
+} from "../src/main/vellum-command/work/mailbox-receipts";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {

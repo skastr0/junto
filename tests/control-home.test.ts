@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveControlHome,
   usableControlHome,
-} from "../src/main/vellum/control-home";
+} from "../src/main/vellum-command/control-home";
 
 const ELECTRON_HOME = "/Users/operator";
 const USER_DATA = "/tmp/vellum-command-e2e-xyz/user-data";

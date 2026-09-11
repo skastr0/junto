@@ -43,7 +43,7 @@ import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   type StationProtocolSupport,
 } from "../src/shared/station-protocol";
-import { verifyProductionLinuxDeployBundle } from "../src/main/vellum/hosts/linux-release-admission";
+import { verifyProductionLinuxDeployBundle } from "../src/main/vellum-command/hosts/linux-release-admission";
 
 const roots: string[] = [];
 const VERSION = "0.1.0";

@@ -11,8 +11,8 @@ import {
   finishAlreadyConfiguredRemote,
   finishWithConfiguration,
   packageAdmitted,
-} from "../src/main/vellum/hosts/deploy-configured-remote";
-import type { DeployRemoteResult } from "../src/main/vellum/hosts/remote-deployment";
+} from "../src/main/vellum-command/hosts/deploy-configured-remote";
+import type { DeployRemoteResult } from "../src/main/vellum-command/hosts/remote-deployment";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 
@@ -162,7 +162,7 @@ describe("configured remote deploy receipts", () => {
   it("is receipt helpers, not a second Deploy apply loop", () => {
     const configuredRemote = readFileSync(
       new URL(
-        "../src/main/vellum/hosts/deploy-configured-remote.ts",
+        "../src/main/vellum-command/hosts/deploy-configured-remote.ts",
         import.meta.url,
       ),
       "utf8",

@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../src/main/vellum/term/agent-state/runtime";
-import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
+import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
+import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 import {
   armFirstTypedMessage,
   clearFirstTypedMessage,
   resetFirstTypedForTest,
   takeFirstTypedMessage,
-} from "../src/main/vellum/term/first-typed";
+} from "../src/main/vellum-command/term/first-typed";
 
 afterEach(() => {
   resetFirstTypedForTest();

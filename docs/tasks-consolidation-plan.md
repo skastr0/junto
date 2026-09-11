@@ -43,7 +43,7 @@ approval", and the second creation mode.
 
 ## Durable storage
 
-Schema head remains 21 (`src/main/vellum/state/migrations.ts`). This corrective
+Schema head remains 21 (`src/main/vellum-command/state/migrations.ts`). This corrective
 repair does not consume a schema version: fresh upgrades construct the fixed
 version 21, while an existing invalid version-21 database is rewritten before
 normal decode. The next unrelated schema migration remains `21 -> 22`.

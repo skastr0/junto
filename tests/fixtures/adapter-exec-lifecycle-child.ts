@@ -2,21 +2,21 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type * as AdapterExecModule from "../../src/main/vellum/adapters/exec";
-import type * as AppProcessPlaneModule from "../../src/main/vellum/app-process-plane";
-import type * as ProcessEpochModule from "../../src/main/vellum/process-epoch";
+import type * as AdapterExecModule from "../../src/main/vellum-command/adapters/exec";
+import type * as AppProcessPlaneModule from "../../src/main/vellum-command/app-process-plane";
+import type * as ProcessEpochModule from "../../src/main/vellum-command/process-epoch";
 
-const adapterExecModulePath = "../../src/main/vellum/adapters/exec" + ".ts";
+const adapterExecModulePath = "../../src/main/vellum-command/adapters/exec" + ".ts";
 const {
   resolvedSpawnEnv,
   runCli,
   terminateAdapterChildrenOnQuit,
 } = (await import(adapterExecModulePath)) as typeof AdapterExecModule;
-const appProcessPlaneModulePath = "../../src/main/vellum/app-process-plane" + ".ts";
+const appProcessPlaneModulePath = "../../src/main/vellum-command/app-process-plane" + ".ts";
 const { appProcessPlane } = (await import(
   appProcessPlaneModulePath
 )) as typeof AppProcessPlaneModule;
-const processEpochModulePath = "../../src/main/vellum/process-epoch" + ".ts";
+const processEpochModulePath = "../../src/main/vellum-command/process-epoch" + ".ts";
 const { setProcessEpochReaderForTests } = (await import(
   processEpochModulePath
 )) as typeof ProcessEpochModule;

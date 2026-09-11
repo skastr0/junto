@@ -6,16 +6,16 @@ import {
   STATE_SCHEMA_V17_IDENTITY,
   STATE_SCHEMA_V20_IDENTITY,
   CURRENT_STATE_SCHEMA_IDENTITY,
-} from "../src/main/vellum/state/migrations";
+} from "../src/main/vellum-command/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V17_SQL,
   STATE_SCHEMA_V20_SQL,
-} from "../src/main/vellum/state/schema";
+} from "../src/main/vellum-command/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum/state/schema-identity";
+} from "../src/main/vellum-command/state/schema-identity";
 
 describe("pad read cursor migration 17 → 18", () => {
   it("freezes v17 and current identities", () => {

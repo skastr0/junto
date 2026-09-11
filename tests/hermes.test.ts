@@ -4,12 +4,12 @@ import {
   parseProfiles,
   parseVersion,
   type HermesFleetOperations,
-} from "../src/main/vellum/adapters/hermes";
+} from "../src/main/vellum-command/adapters/hermes";
 import {
   defaultRemoteHostsDocument,
   type RemoteHost,
 } from "../src/shared/remote-hosts";
-import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import { setHostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
 
 const TABLE = `
  Profile          Model                        Gateway      Alias        Distribution

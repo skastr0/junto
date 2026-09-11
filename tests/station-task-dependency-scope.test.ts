@@ -28,23 +28,23 @@ import {
 import {
   deriveActorSeatId,
   ProjectedActorSeat,
-} from "../src/main/vellum/station/actor-seat-compiler";
-import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/vellum/station/portfolio";
-import { stationProjectionContentSha256 } from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/actor-seat-compiler";
+import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/vellum-command/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import {
   makeStationWorkAdmission,
   selectStationReportRoutes,
-} from "../src/main/vellum/station/api";
+} from "../src/main/vellum-command/station/api";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   workRecordContentSha256,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 
 const strictDecode = { onExcessProperty: "error" } as const;
 const observedAt = "2026-08-26T18:00:00.000Z";

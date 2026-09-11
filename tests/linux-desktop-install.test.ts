@@ -8,7 +8,7 @@ import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
-import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, LinuxDesktopActivationError, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum/update/linux-install";
+import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, LinuxDesktopActivationError, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum-command/update/linux-install";
 
 const fault = vi.hoisted(() => ({ syncPath: undefined as string | undefined, syncSuffix: undefined as string | undefined }));
 vi.mock("node:fs/promises", async () => {

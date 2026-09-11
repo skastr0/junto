@@ -407,7 +407,7 @@ export const readPackageSchemaFacts = async (
 ): Promise<PackageSchemaFacts> => {
   const migrationsPath = path.join(
     path.resolve(repoRoot),
-    "src/main/vellum/state/migrations.ts",
+    "src/main/vellum-command/state/migrations.ts",
   );
   await requireRegularFile(migrationsPath, "state migration source");
   const body = await readFile(migrationsPath, "utf8");

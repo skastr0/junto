@@ -5,21 +5,21 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseHermesProfileName } from "../src/main/vellum/hermes/domain";
+import { parseHermesProfileName } from "../src/main/vellum-command/hermes/domain";
 import {
   HermesTransport,
   HermesTransportLive,
   resolveHermesRemoteHost,
-} from "../src/main/vellum/hermes/transport";
-import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+} from "../src/main/vellum-command/hermes/transport";
+import { setHostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import {
   parseRemoteUnixSocketPath,
   parseSshEndpoint,
   parseSshRoute,
   SshTransport,
-} from "../src/main/vellum/ssh";
-import { makeRemoteCommand } from "../src/main/vellum/ssh/domain";
+} from "../src/main/vellum-command/ssh";
+import { makeRemoteCommand } from "../src/main/vellum-command/ssh/domain";
 import {
   createSshProgramCompiler,
   daemonHandoff,
@@ -27,12 +27,12 @@ import {
   dedicatedStream,
   oneShot,
   unixForward,
-} from "../src/main/vellum/ssh/program";
+} from "../src/main/vellum-command/ssh/program";
 import {
   ProcessSpawner,
   type ProcessHandle,
-} from "../src/main/vellum/ssh/process-spawner";
-import { SshTransportConfig, SshTransportLayer } from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/process-spawner";
+import { SshTransportConfig, SshTransportLayer } from "../src/main/vellum-command/ssh/service";
 
 const encoder = new TextEncoder();
 const temporaryDirs: string[] = [];

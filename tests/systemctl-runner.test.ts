@@ -5,7 +5,7 @@ import type {
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   SYSTEMCTL_DEADLINE_MS,
   SYSTEMCTL_PATH,
@@ -13,7 +13,7 @@ import {
   createSystemctlRunner,
   systemdUserUnitTarget,
   type VellumSystemdUserUnitTarget,
-} from "../src/main/vellum/supervision/systemctl-runner";
+} from "../src/main/vellum-command/supervision/systemctl-runner";
 
 type RunnerProcessPlane = Pick<
   AppProcessPlane,

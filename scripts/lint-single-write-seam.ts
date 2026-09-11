@@ -19,7 +19,7 @@
  * Rules:
  * 1. A SQLite driver (`node:sqlite`, `bun:sqlite`, `better-sqlite3`) may only
  *    be imported, and a database only constructed, inside the state engine —
- *    `src/main/vellum/state/**`. Anything else is a second opener and must be
+ *    `src/main/vellum-command/state/**`. Anything else is a second opener and must be
  *    an explicitly listed exception carrying a `retire` condition.
  * 2. Mutation SQL (INSERT / UPDATE / DELETE / REPLACE) may only appear in a
  *    file registered as a mutation seam, and only against tables that file
@@ -49,7 +49,7 @@
  *    `test.fixture-seed` is forbidden under `src/` outright.
  *
  * THE SEAM DECISION this gate encodes (rule 2, work plane):
- *   `src/main/vellum/work/repository.ts` IS the work-plane mutation seam. It is
+ *   `src/main/vellum-command/work/repository.ts` IS the work-plane mutation seam. It is
  *   the sole writer of the `work_*` tables and it already funnels every domain
  *   operation through one file. It is registered `debt`, NOT `permanent`,
  *   because it writes materialized projection rows directly rather than
@@ -80,7 +80,7 @@ const SOURCE_ROOT = "src";
 const TOOLING_ROOT = "scripts";
 
 /** The state engine — the one place a database may be opened. */
-const STATE_ENGINE_PREFIX = "src/main/vellum/state/";
+const STATE_ENGINE_PREFIX = "src/main/vellum-command/state/";
 
 /**
  * This gate's own source carries the rule patterns as literals. Excluded by
@@ -98,8 +98,8 @@ const SQLITE_DRIVER_MODULES = new Set([
  * Rule 4 anchors. The runtime seam is only real while the state engine calls
  * it, so the gate reads the wiring rather than trusting it.
  */
-const SEAM_MODULE_REL = "src/main/vellum/work/mutation-seam.ts";
-const STATE_ENGINE_REL = "src/main/vellum/state/engine.ts";
+const SEAM_MODULE_REL = "src/main/vellum-command/work/mutation-seam.ts";
+const STATE_ENGINE_REL = "src/main/vellum-command/state/engine.ts";
 const SEAM_WIRING_CALLS = ["admitWorkStatement(", "beginWorkMutationScope("];
 /** Declared only for tests and fixtures; never admissible under src/. */
 const TEST_ONLY_JOURNAL_FREE_REASON = "test.fixture-seed";

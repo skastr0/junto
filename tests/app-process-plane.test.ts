@@ -18,8 +18,8 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: mocks.spawn,
 }));
 
-vi.mock("../src/main/vellum/process-signal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/vellum/process-signal")>()),
+vi.mock("../src/main/vellum-command/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/vellum-command/process-signal")>()),
   admitChildProcess: mocks.admitChildProcess,
   spawnDetachedProcessGroup: mocks.spawnDetachedProcessGroup,
   signalOwned: mocks.signalOwned,
@@ -27,9 +27,9 @@ vi.mock("../src/main/vellum/process-signal", async (importOriginal) => ({
   releaseOwned: mocks.releaseOwned,
 }));
 
-vi.mock("../src/main/vellum/process-epoch", async (importOriginal) => {
+vi.mock("../src/main/vellum-command/process-epoch", async (importOriginal) => {
   const actual = await importOriginal<
-    typeof import("../src/main/vellum/process-epoch")
+    typeof import("../src/main/vellum-command/process-epoch")
   >();
   return {
     ...actual,
@@ -48,13 +48,13 @@ import {
   TerminalBackendUnavailableError,
   type AppProcessLease,
   type AppTerminalLease,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   setProcessEpochReaderForTests,
   type ProcessGroupObservation,
   type ProcessGroupObservationRefresh,
   type ProcessEpochRow,
-} from "../src/main/vellum/process-epoch";
+} from "../src/main/vellum-command/process-epoch";
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();

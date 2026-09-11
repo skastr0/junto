@@ -20,12 +20,12 @@ import {
   type WorkCommand as WorkCommandValue,
   type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
-import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
-import { stationProjectionContentSha256 } from "../src/main/vellum/station/repository";
+import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
@@ -37,7 +37,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
   type TaskDependencyScopeCapability,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 
 const observedAt = "2026-08-26T18:00:00.000Z";
 const topology: CanvasDoc = {

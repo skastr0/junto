@@ -7,7 +7,7 @@ import {
   createAppProcessPlane,
   type AppProcessLease,
   type AppProcessPlane,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   runBoundedWorkCliCommand,
   WorkCliCommandFailure,

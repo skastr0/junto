@@ -25,7 +25,7 @@ const ALLOWLIST = path.join(ROOT, "scripts/effect-runpromise-allowlist.json");
 const ENTRY_SURFACES = [
   "src/main/index.ts",
   "src/main/ipc.ts",
-  "src/main/vellum/ipc.ts",
+  "src/main/vellum-command/ipc.ts",
   "src/main/vellum-remote.ts",
 ] as const;
 
@@ -89,10 +89,10 @@ describe("effect-runpromise boundary (S0)", () => {
 
     const forbidden = raw.permanent.filter(
       (e) =>
-        e.path.startsWith("src/main/vellum/kernel/") ||
-        e.path === "src/main/vellum/kernel" ||
-        e.path.startsWith("src/main/vellum/work/") ||
-        e.path === "src/main/vellum/work",
+        e.path.startsWith("src/main/vellum-command/kernel/") ||
+        e.path === "src/main/vellum-command/kernel" ||
+        e.path.startsWith("src/main/vellum-command/work/") ||
+        e.path === "src/main/vellum-command/work",
     );
     expect(forbidden).toEqual([]);
   });
@@ -117,13 +117,13 @@ describe("effect-runpromise boundary (S0)", () => {
     // S2: kernel debt entry is gone — zero bare Effect.runPromise in
     // kernel/service.ts. Permanent must still never cover kernel/work.
     expect(
-      raw.debt.some((e) => e.path.startsWith("src/main/vellum/kernel/")),
+      raw.debt.some((e) => e.path.startsWith("src/main/vellum-command/kernel/")),
     ).toBe(false);
     expect(
-      raw.permanent.some((e) => e.path.startsWith("src/main/vellum/kernel/")),
+      raw.permanent.some((e) => e.path.startsWith("src/main/vellum-command/kernel/")),
     ).toBe(false);
     expect(
-      raw.permanent.some((e) => e.path.startsWith("src/main/vellum/work/")),
+      raw.permanent.some((e) => e.path.startsWith("src/main/vellum-command/work/")),
     ).toBe(false);
   });
 
@@ -159,7 +159,7 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     const cc = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8");
     const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8");
     const vellumIpc = readFileSync(
-      path.join(ROOT, "src/main/vellum/ipc.ts"),
+      path.join(ROOT, "src/main/vellum-command/ipc.ts"),
       "utf8",
     );
     const remote = readFileSync(

@@ -11,7 +11,7 @@ blob-report/
 _design_screenshots/
 .local/
 *.digest.txt
-src/main/vellum/plugin-install/payloads/.pack-tmp/
+src/main/vellum-command/plugin-install/payloads/.pack-tmp/
 build/electron-observation.json
 build/electron-observation-high-water.json
 

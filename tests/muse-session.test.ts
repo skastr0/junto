@@ -6,7 +6,7 @@ import {
   captureMuseSessionId,
   isMuseSessionId,
   museSessionsRoot,
-} from "../src/main/vellum/term/templates/muse-session";
+} from "../src/main/vellum-command/term/templates/muse-session";
 import { MUSE_TEMPLATE } from "../src/shared/managed-terminal-templates";
 import { resolveManagedLaunch } from "../src/shared/managed-terminal-launch";
 

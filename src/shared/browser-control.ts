@@ -21,7 +21,7 @@ import {
 } from "./browser-limits";
 
 // Browser control-plane protocol: the wire contract between the Electron-hosted
-// HTTP server (main/vellum/browser/control.ts) and the agent CLI
+// HTTP server (main/vellum-command/browser/control.ts) and the agent CLI
 // (scripts/browser-cli.ts). Pure module — no Node imports — so both ends and
 // tests share one source of truth. Transport is a local Unix domain socket only
 // and every request carries a bearer token; this file only knows shapes,

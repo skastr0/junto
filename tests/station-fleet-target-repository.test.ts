@@ -7,13 +7,13 @@ import {
   makeStationFleetTargetRepositoryLive,
   StationFleetTargetRepository,
   type StationFleetTargetIdentity,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   makeStateEngineLive,
   StateEngine,
   type StateEngineError,
   type StateRow,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import { HostId } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/installation-id";
 

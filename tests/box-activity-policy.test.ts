@@ -6,9 +6,9 @@ import {
   deriveBoxHostActivity,
   makeBoxActivityReconciler,
   type BoxActivitySource,
-} from "../src/main/vellum/box/activity-policy";
-import { BoxId } from "../src/main/vellum/box/domain";
-import { boxHostId, type BoxResource } from "../src/main/vellum/box/repository";
+} from "../src/main/vellum-command/box/activity-policy";
+import { BoxId } from "../src/main/vellum-command/box/domain";
+import { boxHostId, type BoxResource } from "../src/main/vellum-command/box/repository";
 
 const workerSeatId = Schema.decodeUnknownSync(ActorSeatId)(
   `seat_${"a".repeat(64)}`,

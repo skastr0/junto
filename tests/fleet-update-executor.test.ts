@@ -6,7 +6,7 @@ import {
   makeFleetUpdateExecutor,
   type FleetExecutorRemote,
   type FleetUpdateExecutorDeps,
-} from "../src/main/vellum/update/fleet-executor";
+} from "../src/main/vellum-command/update/fleet-executor";
 import type { RemoteUpdateDeployJobFacts } from "../src/shared/remote-update-status";
 
 const remote = (

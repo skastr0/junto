@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import { TerminalRouter } from "../src/main/vellum/term/router";
+import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+import { TerminalRouter } from "../src/main/vellum-command/term/router";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const initialHosts = hostsSnapshot();

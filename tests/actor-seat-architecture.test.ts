@@ -18,7 +18,7 @@ describe("actor seat production architecture", () => {
 
   it("keeps mutable station identity and router glue in the live adapter", () => {
     const live = source(
-      "src/main/vellum/term/actor-seat-occupy-live.ts",
+      "src/main/vellum-command/term/actor-seat-occupy-live.ts",
     );
 
     expect(live).toContain("const station = yield* StationRepository");
@@ -29,11 +29,11 @@ describe("actor seat production architecture", () => {
   });
 
   it("compiles spawn intent before placement and finalizes only on the process host", () => {
-    const ipc = source("src/main/vellum/term/ipc.ts");
-    const ensure = source("src/main/vellum/term/ensure-managed-seat.ts");
-    const process = source("src/main/vellum/term/seat-process.ts");
-    const server = source("src/main/vellum/term/control-server.ts");
-    const host = source("src/main/vellum/term/local-host.ts");
+    const ipc = source("src/main/vellum-command/term/ipc.ts");
+    const ensure = source("src/main/vellum-command/term/ensure-managed-seat.ts");
+    const process = source("src/main/vellum-command/term/seat-process.ts");
+    const server = source("src/main/vellum-command/term/control-server.ts");
+    const host = source("src/main/vellum-command/term/local-host.ts");
     const wire = source("src/shared/term-control.ts");
 
     expect(ipc).toContain("makeManagedSpawnIntent");
@@ -63,8 +63,8 @@ describe("actor seat production architecture", () => {
   });
 
   it("routes every managed wake through ActorSeatOccupy", () => {
-    const ensure = source("src/main/vellum/term/ensure-managed-seat.ts");
-    const kernel = source("src/main/vellum/kernel/service.ts");
+    const ensure = source("src/main/vellum-command/term/ensure-managed-seat.ts");
+    const kernel = source("src/main/vellum-command/kernel/service.ts");
 
     expect(ensure).toContain("actorSeatOccupy.occupy(spec)");
     expect(ensure).not.toContain("termPlane.host.createAgentSeat");

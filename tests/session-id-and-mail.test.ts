@@ -4,13 +4,13 @@ import {
   recordCapturedSessionId,
   getCapturedSessionId,
   resetSessionIdStoreForTest,
-} from "../src/main/vellum/term/session-id-store";
-import { launchForManagedSpawn } from "../src/main/vellum/term/managed-spawn-plan";
+} from "../src/main/vellum-command/term/session-id-store";
+import { launchForManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
-} from "../src/main/vellum/term/drive";
+} from "../src/main/vellum-command/term/drive";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 const originalVellumHome = process.env.VELLUM_COMMAND_HOME;

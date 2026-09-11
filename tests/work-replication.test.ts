@@ -30,13 +30,13 @@ import {
   WorkReplicationError,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { stationProjectionContentSha256 } from "../src/main/vellum/station/repository";
-import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
+} from "../src/main/vellum-command/work/repository";
+import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
+import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,

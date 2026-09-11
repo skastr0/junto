@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createStateRecoveryIpcHandlers,
   type StateRecoveryOperations,
-} from "../src/main/vellum/state/recovery-ipc";
+} from "../src/main/vellum-command/state/recovery-ipc";
 import { decodeStateBackupId } from "../src/shared/state-recovery";
 
 const id = decodeStateBackupId(

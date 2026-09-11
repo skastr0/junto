@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { publishSystemdGenerationReadiness } from "../src/main/vellum/work/control";
+import { publishSystemdGenerationReadiness } from "../src/main/vellum-command/work/control";
 
 const roots: string[] = [];
 const originalInvocationId = process.env.INVOCATION_ID;
@@ -59,7 +59,7 @@ describe("work control systemd readiness", () => {
 
   it("assigns generation publication only to the displayless Remote entry", async () => {
     const workControlSource = await readFile(
-      new URL("../src/main/vellum/work/control.ts", import.meta.url),
+      new URL("../src/main/vellum-command/work/control.ts", import.meta.url),
       "utf8",
     );
     const genericStartup = workControlSource.slice(

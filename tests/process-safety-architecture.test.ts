@@ -336,9 +336,9 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum/process-identity.ts:probe",
-      "src/main/vellum/process-signal.ts:group",
-      "src/main/vellum/process-signal.ts:probe",
+      "src/main/vellum-command/process-identity.ts:probe",
+      "src/main/vellum-command/process-signal.ts:group",
+      "src/main/vellum-command/process-signal.ts:probe",
     ]);
   });
 
@@ -352,28 +352,28 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:child.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:pty.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum/process-signal.ts:forbidden-reference:child.kill",
-      "src/main/vellum/process-signal.ts:rec.child.kill",
-      "src/main/vellum/term/control-server.ts:host.kill",
-      "src/main/vellum/term/ipc.ts:router.kill",
-      "src/main/vellum/term/router.ts:c.kill",
-      "src/main/vellum/term/router.ts:this.local.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:child.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:pty.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/vellum-command/process-signal.ts:forbidden-reference:child.kill",
+      "src/main/vellum-command/process-signal.ts:rec.child.kill",
+      "src/main/vellum-command/term/control-server.ts:host.kill",
+      "src/main/vellum-command/term/ipc.ts:router.kill",
+      "src/main/vellum-command/term/router.ts:c.kill",
+      "src/main/vellum-command/term/router.ts:this.local.kill",
       // Owned child only: codesign/plutil admit timeout.
-      "src/main/vellum/update/admit-mac-app.ts:child.kill",
+      "src/main/vellum-command/update/admit-mac-app.ts:child.kill",
     ]);
   });
 
   it("keeps asynchronous spawn sites on a reviewed lifetime inventory", () => {
     expect(unsafeSpawnReferences).toEqual([
-      "src/main/vellum/app-process-plane.ts:spawn",
+      "src/main/vellum-command/app-process-plane.ts:spawn",
     ]);
 
     const uses = [
@@ -389,20 +389,20 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum/app-process-plane.ts:nodePty.spawn",
-      "src/main/vellum/app-process-plane.ts:spawn",
-      "src/main/vellum/app-process-plane.ts:spawn",
-      "src/main/vellum/process-signal.ts:spawn",
+      "src/main/vellum-command/app-process-plane.ts:nodePty.spawn",
+      "src/main/vellum-command/app-process-plane.ts:spawn",
+      "src/main/vellum-command/app-process-plane.ts:spawn",
+      "src/main/vellum-command/process-signal.ts:spawn",
       // Owned children only: codesign admit, ditto extract.
-      "src/main/vellum/update/admit-mac-app.ts:spawn",
-      "src/main/vellum/update/staging.ts:spawn",
+      "src/main/vellum-command/update/admit-mac-app.ts:spawn",
+      "src/main/vellum-command/update/staging.ts:spawn",
     ]);
 
     // Raw child admission is now centralized in the app process plane. Other
     // modules must route through that plane instead of minting authority
     // beside their own spawn calls.
     for (const name of [
-      "src/main/vellum/app-process-plane.ts",
+      "src/main/vellum-command/app-process-plane.ts",
     ]) {
       const admissions = callSites.filter(
         (site) => site.file === name && site.callee === "admitChildProcess",
@@ -418,7 +418,7 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum/app-process-plane.ts",
+      "src/main/vellum-command/app-process-plane.ts",
     ]);
 
     const detachedTrue = parsedSources
@@ -437,14 +437,14 @@ describe("machine-safety architecture", () => {
       })
       .sort();
     expect(detachedTrue).toEqual([
-      "src/main/vellum/app-process-plane.ts",
-      "src/main/vellum/process-signal.ts",
+      "src/main/vellum-command/app-process-plane.ts",
+      "src/main/vellum-command/process-signal.ts",
     ]);
   });
 
   it("does not expose bypass admission or a second Effect group-kill plane", () => {
     const processSignal = readFileSync(
-      join(root, "src/main/vellum/process-signal.ts"),
+      join(root, "src/main/vellum-command/process-signal.ts"),
       "utf8",
     );
     expect(processSignal).not.toMatch(
@@ -452,7 +452,7 @@ describe("machine-safety architecture", () => {
     );
 
     const forbiddenEffectImports = parsedSources.flatMap(({ file, source }) => {
-      if (!file.startsWith("src/main/vellum/ssh/")) return [];
+      if (!file.startsWith("src/main/vellum-command/ssh/")) return [];
       return source.statements.flatMap((statement) => {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           return [];
@@ -484,7 +484,7 @@ describe("machine-safety architecture", () => {
       "node:path",
     ]);
     const unapprovedSshImports = parsedSources.flatMap(({ file, source }) => {
-      if (!file.startsWith("src/main/vellum/ssh/")) return [];
+      if (!file.startsWith("src/main/vellum-command/ssh/")) return [];
       return source.statements.flatMap((statement) => {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           return [];

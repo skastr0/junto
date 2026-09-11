@@ -8,16 +8,16 @@ import {
   KernelStateCorruptError,
   KernelStateRepository,
   KernelStateRepositoryLive,
-} from "../src/main/vellum/kernel/repository";
+} from "../src/main/vellum-command/kernel/repository";
 import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
   FactoryPauseStateCorruptError,
-} from "../src/main/vellum/pause/repository";
+} from "../src/main/vellum-command/pause/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import type { PulseRecord } from "../src/shared/ipc";
 
 const roots: string[] = [];

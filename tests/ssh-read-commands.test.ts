@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   inspectRemoteCommand,
   SshEndpoint,
-} from "../src/main/vellum/ssh/domain";
+} from "../src/main/vellum-command/ssh/domain";
 import {
   DARWIN_PACKAGED_STATION_EXECUTABLE,
   DARWIN_PACKAGED_APP_EXECUTABLE,
@@ -22,8 +22,8 @@ import {
   remoteVellumStationNegotiation,
   remoteLinuxUserlandVellumStation,
   resolveRemotePackagedPlatform,
-} from "../src/main/vellum/ssh/read-commands";
-import type { SshTransport } from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/read-commands";
+import type { SshTransport } from "../src/main/vellum-command/ssh/service";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
   const result = Effect.runSync(Effect.result(effect));

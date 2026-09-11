@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Fake `hermes` executable for E2E — emulates the stock hermes surface the
-// product actually speaks (see src/main/vellum/hermes/*.ts + adapters/hermes.ts):
+// product actually speaks (see src/main/vellum-command/hermes/*.ts + adapters/hermes.ts):
 //
 //   hermes profile list              (table, non-JSON — parsed by parseProfiles)
 //   hermes version                   ("Hermes Agent vX.Y.Z ..." — parsed by parseVersion)

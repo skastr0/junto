@@ -6,13 +6,13 @@ import {
   createLaunchctlRunner,
   launchAgentTargetForCurrentUser,
   type VellumLaunchAgentTarget,
-} from "../src/main/vellum/settings/launchctl-runner";
+} from "../src/main/vellum-command/settings/launchctl-runner";
 import type {
   AppProcessClose,
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 
 type RunnerProcessPlane = Pick<
   AppProcessPlane,

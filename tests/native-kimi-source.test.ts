@@ -12,7 +12,7 @@ import {
   resolveKimiCredential,
   suppressDuplicateCodeWeekly,
   windowDurationMinutes,
-} from "../src/main/vellum/usage/kimi-source";
+} from "../src/main/vellum-command/usage/kimi-source";
 
 const FETCHED = "2026-08-17T12:00:00.000Z";
 
@@ -294,7 +294,7 @@ describe("redaction", () => {
     process.env.KIMI_AUTH_TOKEN = secret;
     try {
       const { Effect } = await import("effect");
-      const mod = await import("../src/main/vellum/usage/kimi-source");
+      const mod = await import("../src/main/vellum-command/usage/kimi-source");
       const snapshot = await Effect.runPromise(mod.kimiSource.fetch);
       expect(snapshot.ok).toBe(false);
       // The whole serialized envelope - error copy included - stays clean.
@@ -313,7 +313,7 @@ describe("redaction", () => {
     process.env.KIMI_AUTH_TOKEN = secret;
     try {
       const { Effect } = await import("effect");
-      const mod = await import("../src/main/vellum/usage/kimi-source");
+      const mod = await import("../src/main/vellum-command/usage/kimi-source");
       const snapshot = await Effect.runPromise(mod.kimiSource.fetch);
       expect(snapshot.ok).toBe(true);
       expect(JSON.stringify(snapshot)).not.toContain(secret);

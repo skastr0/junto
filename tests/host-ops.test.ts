@@ -23,16 +23,16 @@ import {
   HostConfigure,
   HostOps,
   HostTarget,
-} from "../src/main/vellum/hosts/host-ops";
+} from "../src/main/vellum-command/hosts/host-ops";
 import {
   parseSshEndpoint,
   SshExitError,
-} from "../src/main/vellum/ssh/domain";
+} from "../src/main/vellum-command/ssh/domain";
 import {
   createSshProgramCompiler,
   type OneShotProgram,
-} from "../src/main/vellum/ssh/program";
-import { SshTransport } from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/program";
+import { SshTransport } from "../src/main/vellum-command/ssh/service";
 
 const unusedSsh = {
   warm: () => Effect.fail(new Error("down")),
@@ -236,7 +236,7 @@ const runOps = <A>(
 describe("host-ops layers", () => {
   it("loads a platform layer instead of switching OS in the verb", () => {
     const source = readFileSync(
-      new URL("../src/main/vellum/hosts/host-ops.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-ops.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain("Layer.unwrap");
@@ -587,11 +587,11 @@ describe("host-ops layers", () => {
 
   it("Darwin attach is a term connect; Linux attach is work-control handshake", () => {
     const darwin = readFileSync(
-      new URL("../src/main/vellum/hosts/host-ops-darwin.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-ops-darwin.ts", import.meta.url),
       "utf8",
     );
     const linux = readFileSync(
-      new URL("../src/main/vellum/hosts/host-ops-linux.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-ops-linux.ts", import.meta.url),
       "utf8",
     );
     expect(darwin).toContain("TermControlClient.connect");
@@ -605,7 +605,7 @@ describe("host-ops layers", () => {
     expect(linux).not.toContain("TermControlClient");
     expect(linux).toContain("LINUX_REMOTE_DEPLOY_OFF");
     const ops = readFileSync(
-      new URL("../src/main/vellum/hosts/host-ops.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-ops.ts", import.meta.url),
       "utf8",
     );
     expect(ops).toContain("configureRemoteHost");

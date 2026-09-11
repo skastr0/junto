@@ -30,12 +30,12 @@ import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   configureRemoteHost,
   type ConfigureRemoteOptions,
-} from "../src/main/vellum/hosts/configure-remote";
+} from "../src/main/vellum-command/hosts/configure-remote";
 import type {
   ConfirmSshReady,
   SshLease,
   SshTransport,
-} from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/service";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const commandCenterInstallationId = installationId("cc-installation");

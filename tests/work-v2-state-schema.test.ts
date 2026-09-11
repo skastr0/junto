@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
-import { CANVAS_STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
-import { STATION_STATE_SCHEMA_SQL } from "../src/main/vellum/station/state-schema";
-import { WORK_STATE_SCHEMA_SQL } from "../src/main/vellum/work/state-schema";
+import { CANVAS_STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
+import { STATION_STATE_SCHEMA_SQL } from "../src/main/vellum-command/station/state-schema";
+import { WORK_STATE_SCHEMA_SQL } from "../src/main/vellum-command/work/state-schema";
 
 const databases: DatabaseSync[] = [];
 const observedAt = "2026-07-27T12:00:00.000Z";

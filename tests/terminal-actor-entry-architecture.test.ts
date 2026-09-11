@@ -14,7 +14,7 @@ const IPC_CONTRACT = "src/shared/ipc.ts";
 const RENDERER_ENTRY = "src/renderer/lib/terminal-actions.ts";
 const TERMINAL_SURFACE =
   "src/renderer/components/terminal/TerminalSurface.tsx";
-const MAIN_ENTRY = "src/main/vellum/term/ipc.ts";
+const MAIN_ENTRY = "src/main/vellum-command/term/ipc.ts";
 
 const between = (source: string, start: string, end: string): string => {
   const from = source.indexOf(start);

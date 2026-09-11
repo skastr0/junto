@@ -21,19 +21,19 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import {
   CanvasesLive,
   CanvasesService,
-} from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/canvases";
 import {
   makeStateEngineLive,
   StateEngine,
   type StateRow,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   StationRepository,
   makeStationRepositoryLive,
   stationProjectionContentSha256,
-} from "../src/main/vellum/station/repository";
-import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/station/repository";
+import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
+import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);

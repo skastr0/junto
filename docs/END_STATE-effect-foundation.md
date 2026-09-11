@@ -64,7 +64,7 @@ Read V4 patterns from the Effect repository's migration guides, not from V3 skil
 
 - **permanent** — true host / post-dispose adapters only (today: `update/ipc.ts` finalize after `AppRuntime.dispose`). Each entry needs a reason naming dispose/host.
 - **debt** — known product bare-`runPromise` sites. Counts are a **ratchet** (may only shrink). S2 clears kernel debt; other packs clear their own.
-- **Never permanent:** `src/main/vellum/kernel/**`, `src/main/vellum/work/**` (claim/ContentService empty-Context class of bug).
+- **Never permanent:** `src/main/vellum-command/kernel/**`, `src/main/vellum-command/work/**` (claim/ContentService empty-Context class of bug).
 - New bare `Effect.runPromise` under product globs → lint exit 1 unless allowlist/debt is deliberately updated in review.
 
 Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromise` with warm Context (see § Canonical end state).
@@ -76,7 +76,7 @@ Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromi
 | Command Center runtime | `src/main/runtime.ts` — `AppRuntime = ManagedRuntime.make(RootLayer)` once |
 | Remote runtime | `src/main/remote-runtime.ts` — `RemoteRuntime` once (Node-only) |
 | CC boot / dispose | `src/main/index.ts` — bind `AppRuntime.runPromise`; quit → `AppRuntime.dispose()` |
-| Product IPC | `src/main/ipc.ts`, `src/main/vellum/ipc.ts` — domain Effects via `AppRuntime.runPromise` only |
+| Product IPC | `src/main/ipc.ts`, `src/main/vellum-command/ipc.ts` — domain Effects via `AppRuntime.runPromise` only |
 | Remote boot | `src/main/vellum-remote.ts` — `RemoteRuntime.runPromise` / `dispose` (audit only in S1) |
 
 **Laws (cemented in code comments on the runtime modules):**
@@ -90,8 +90,8 @@ Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromi
 
 | Surface | Law |
 |---|---|
-| `src/main/vellum/kernel/service.ts` | `KernelLive` captures full ambient `Effect.runtime()`; all Promise bridges use `Runtime.runPromise` — zero bare `Effect.runPromise` |
-| `src/main/vellum/work/service.ts` | Hard `yield* ContentService` at WorkLive build (no `serviceOption` soft-miss; missing content fails layer, not claim) |
+| `src/main/vellum-command/kernel/service.ts` | `KernelLive` captures full ambient `Effect.runtime()`; all Promise bridges use `Runtime.runPromise` — zero bare `Effect.runPromise` |
+| `src/main/vellum-command/work/service.ts` | Hard `yield* ContentService` at WorkLive build (no `serviceOption` soft-miss; missing content fails layer, not claim) |
 | S0 debt | `kernel/service.ts` removed from allowlist (count 0) |
 
 **Remaining product bare `Effect.runPromise` (not S2):**
@@ -99,4 +99,4 @@ Preferred product path remains `AppRuntime.runPromise` / `RemoteRuntime.runPromi
 | Path | Debt role |
 |---|---|
 | browser/*, content/inline-media-migration, usage, canvases, settings/ipc, hosts/registry, station/remote-report-pump, term/router, update/service | product/adapter debt — shrink via S0 ratchet when migrated |
-| `src/main/vellum/update/ipc.ts` | permanent: post-`AppRuntime.dispose` finalize only |
+| `src/main/vellum-command/update/ipc.ts` | permanent: post-`AppRuntime.dispose` finalize only |

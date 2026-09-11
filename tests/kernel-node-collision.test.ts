@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
+import { resetWatcherMemory } from "../src/main/vellum-command/kernel/evaluate";
 import {
   __setDocsForTest,
   __setAutomationGateForTest,
@@ -9,7 +9,7 @@ import {
   __setSnapshotsForTest,
   runEvaluationCycle,
   type FlagWriterDeps,
-} from "../src/main/vellum/kernel/cycle";
+} from "../src/main/vellum-command/kernel/cycle";
 
 // sdk-kernel-build fix 5 — JSON Canvas node ids are DOCUMENT-LOCAL: the same id
 // on two canvases is legitimate. The flag-mirror write is now routed by

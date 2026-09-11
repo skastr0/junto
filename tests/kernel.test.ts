@@ -6,7 +6,7 @@ import {
   detectPulses,
   evaluateWatcher,
   resetWatcherMemory,
-} from "../src/main/vellum/kernel/evaluate";
+} from "../src/main/vellum-command/kernel/evaluate";
 
 // --- fixtures ----------------------------------------------------------------
 

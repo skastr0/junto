@@ -7,7 +7,7 @@ import {
   MessageDeliveryService,
   type MessageDeliveryStore,
   type MessageDeliveryTransport,
-} from "../src/main/vellum/work/message-delivery";
+} from "../src/main/vellum-command/work/message-delivery";
 
 const userMsg = (id: string, text = "ping", extra: Partial<Message> = {}): Message => ({
   messageId: id,

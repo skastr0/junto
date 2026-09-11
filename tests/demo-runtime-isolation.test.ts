@@ -67,14 +67,14 @@ describe("demo runtime isolation", () => {
     process.env.VELLUM_COMMAND_STATE_DB = "/tmp/caller-selected-state.db";
 
     const isolation = await import(
-      "../src/main/vellum/demo/runtime-isolation"
+      "../src/main/vellum-command/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
     const { makeStateEngineLive, stateDatabasePath } = await import(
-      "../src/main/vellum/state/engine"
+      "../src/main/vellum-command/state/engine"
     );
     const { StateEngine } = await import(
-      "../src/main/vellum/state/service"
+      "../src/main/vellum-command/state/service"
     );
 
     const databasePath = stateDatabasePath();
@@ -106,7 +106,7 @@ describe("demo runtime isolation", () => {
     process.env.VELLUM_COMMAND_CANVASES_DIR = "/tmp/vellum-demo-sidecars";
 
     const isolation = await import(
-      "../src/main/vellum/demo/runtime-isolation"
+      "../src/main/vellum-command/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
     const databasePath = isolation.demoStateDatabasePath();
@@ -122,7 +122,7 @@ describe("demo runtime isolation", () => {
 
   it("is inert outside demo mode", async () => {
     const isolation = await import(
-      "../src/main/vellum/demo/runtime-isolation"
+      "../src/main/vellum-command/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
 
@@ -136,7 +136,7 @@ describe("demo runtime isolation", () => {
     process.env.VELLUM_COMMAND_STATE_DB = "/tmp/untrusted-second-home.db";
 
     const { stateDatabasePath } = await import(
-      "../src/main/vellum/state/engine"
+      "../src/main/vellum-command/state/engine"
     );
     const { resolveVellumCommandHome } = await import("../src/shared/vellum-home");
 

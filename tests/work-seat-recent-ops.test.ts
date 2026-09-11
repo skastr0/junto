@@ -25,11 +25,11 @@ import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 

@@ -1,6 +1,6 @@
 import { Context, Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeScopedPromiseRunner } from "../src/main/vellum/ssh";
+import { makeScopedPromiseRunner } from "../src/main/vellum-command/ssh";
 
 describe("makeScopedPromiseRunner", () => {
   it("interrupts and finalizes in-flight Promise bridges when the owner closes", async () => {

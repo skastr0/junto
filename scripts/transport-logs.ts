@@ -14,9 +14,9 @@ import {
   filterTransportLog,
   transportLogPath,
 } from "../src/shared/transport-trace";
-import { pullRemoteTransportLog } from "../src/main/vellum/observability/transport-pull";
-import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
-import { SshTransportLive } from "../src/main/vellum/ssh/live";
+import { pullRemoteTransportLog } from "../src/main/vellum-command/observability/transport-pull";
+import { parseSshEndpoint } from "../src/main/vellum-command/ssh/domain";
+import { SshTransportLive } from "../src/main/vellum-command/ssh/live";
 
 const usage = (): never => {
   process.stderr.write(

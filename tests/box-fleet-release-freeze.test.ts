@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
-import { makeBoxFleetService } from "../src/main/vellum/box/service";
+import { makeBoxFleetService } from "../src/main/vellum-command/box/service";
 
 /**
  * Unmocked production freeze: Box fleet mutations never touch the provider CLI.

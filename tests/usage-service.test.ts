@@ -4,9 +4,9 @@ import type { UsageSnapshot, UsageState } from "../src/shared/usage";
 import {
   UsageCache,
   UsageCacheError,
-} from "../src/main/vellum/usage/usage-cache";
-import { UsageSources, type UsageSource } from "../src/main/vellum/usage/usage-source";
-import { UsageService, UsageServiceLive } from "../src/main/vellum/usage/usage-service";
+} from "../src/main/vellum-command/usage/usage-cache";
+import { UsageSources, type UsageSource } from "../src/main/vellum-command/usage/usage-source";
+import { UsageService, UsageServiceLive } from "../src/main/vellum-command/usage/usage-service";
 
 // UsageService mirrors SnapshotsService: closure state, single in-flight
 // fan-out, subscribe, idempotent start. Sources are total (envelope-folded),

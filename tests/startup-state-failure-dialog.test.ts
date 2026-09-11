@@ -6,7 +6,7 @@ import {
   runStartupStateFailureDialog,
   sanitizeTechnicalErrorFragment,
   SUPPORT_EMAIL,
-} from "../src/main/vellum/state/startup-state-failure-dialog";
+} from "../src/main/vellum-command/state/startup-state-failure-dialog";
 import { PRODUCT_NAME } from "../src/shared/product-name";
 
 describe("extractStartupFailureText", () => {

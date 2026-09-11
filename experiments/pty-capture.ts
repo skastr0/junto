@@ -1232,7 +1232,7 @@ function verifyCorpus(root: string, harnesses: readonly string[]): void {
 async function checkFixture(harness: string, scenario: string, glyphArg?: string): Promise<boolean> {
   const fixture = path.join(OUT_ROOT, harness, `${scenario}.jsonl`);
   if (!fs.existsSync(fixture)) { console.error(`fixture not found: ${fixture}`); return false; }
-  const mod = await import(path.join(REPO, "src/main/vellum/term/observer/index.ts"));
+  const mod = await import(path.join(REPO, "src/main/vellum-command/term/observer/index.ts"));
   const { SessionObserver } = mod as { SessionObserver: new (o: { bindingId: string; epoch: string; cols: number; rows: number }) => { feed(d: string, s: bigint): void; snapshot(): Promise<{ text: string; lines: readonly string[]; signals: { title: string; osc9: string; modes: Record<string, unknown> } }>; dispose(): void } };
   const obs = new SessionObserver({ bindingId: "check", epoch: "check", cols: COLS, rows: ROWS });
   const lines = fs.readFileSync(fixture, "utf8").trim().split("\n");

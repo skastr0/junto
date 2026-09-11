@@ -13,22 +13,22 @@ import {
 import {
   CanvasError,
   CanvasesService,
-} from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/canvases";
 import {
   WorkService,
   type WorkServiceShape,
-} from "../src/main/vellum/work/service";
-import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
+} from "../src/main/vellum-command/work/service";
+import { PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
 import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
   type ProcessPrincipal,
-} from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/process-identity";
 import {
   startWorkControlServer,
   type WorkControlServer,
-} from "../src/main/vellum/work/control";
-import { createMainAuthoringGate } from "../src/main/vellum/main-authoring-gate";
+} from "../src/main/vellum-command/work/control";
+import { createMainAuthoringGate } from "../src/main/vellum-command/main-authoring-gate";
 import {
   canvasAuthorityMaterialFixture,
 } from "./helpers/canvas-authority-material";

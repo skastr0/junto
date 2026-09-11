@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { InjectionSupervisor } from "../src/main/vellum/term/injection-supervisor";
+import { InjectionSupervisor } from "../src/main/vellum-command/term/injection-supervisor";
 import { buildBootstrapMarker } from "../src/shared/managed-terminal-injection";
-import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
+import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
 const snap = (over: Partial<ObserverGridSnapshot> = {}): ObserverGridSnapshot => ({

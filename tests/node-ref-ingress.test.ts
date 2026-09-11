@@ -6,7 +6,7 @@ import {
   latestNodeRefUri,
   makeNodeRefIngress,
   type NodeRefIngressTarget,
-} from "../src/main/vellum/node-ref-ingress";
+} from "../src/main/vellum-command/node-ref-ingress";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -149,10 +149,10 @@ describe("owner-memory open-url selection", () => {
   });
 
   it("has no filesystem relay exports, paths, artifacts, or watcher", async () => {
-    const module = await import("../src/main/vellum/node-ref-ingress");
+    const module = await import("../src/main/vellum-command/node-ref-ingress");
     const [ingressSource, indexSource] = await Promise.all([
       readFile(
-        new URL("../src/main/vellum/node-ref-ingress.ts", import.meta.url),
+        new URL("../src/main/vellum-command/node-ref-ingress.ts", import.meta.url),
         "utf8",
       ),
       readFile(new URL("../src/main/index.ts", import.meta.url), "utf8"),

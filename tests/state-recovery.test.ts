@@ -19,11 +19,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   exportStateBackup,
   listStateBackups,
-} from "../src/main/vellum/state/recovery";
+} from "../src/main/vellum-command/state/recovery";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<

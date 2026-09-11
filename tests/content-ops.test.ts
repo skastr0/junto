@@ -14,32 +14,32 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertRestoredContentCoherent,
   verifyContentSnapshotCoherence,
-} from "../src/main/vellum/content/backup";
+} from "../src/main/vellum-command/content/backup";
 import {
   admitContentWrite,
   DEFAULT_CONTENT_DISK_RESERVE_BYTES,
-} from "../src/main/vellum/content/disk-admission";
+} from "../src/main/vellum-command/content/disk-admission";
 import {
   upsertContentTransfer,
-} from "../src/main/vellum/content/manifest";
+} from "../src/main/vellum-command/content/manifest";
 import {
   contentObjectPath,
   contentPartialPath,
   contentStoreRoot,
-} from "../src/main/vellum/content/paths";
-import { createContentService } from "../src/main/vellum/content/service";
+} from "../src/main/vellum-command/content/paths";
+import { createContentService } from "../src/main/vellum-command/content/service";
 import {
   ContentStoreError,
   ensureContentLayout,
-} from "../src/main/vellum/content/store";
+} from "../src/main/vellum-command/content/store";
 import {
   contentTransferPartialId,
   receiveContentTransfer,
-} from "../src/main/vellum/content/transfer-local";
+} from "../src/main/vellum-command/content/transfer-local";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> =

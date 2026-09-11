@@ -3,7 +3,7 @@ import { Result } from "effect";
 import type {
   AppProcessSignalReceipt,
   AppTerminalLease,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,12 +12,12 @@ import {
   resolveLaunch,
   TerminalLaunchError,
   type LocalTerminalProcessAuthority,
-} from "../src/main/vellum/term/local-host";
+} from "../src/main/vellum-command/term/local-host";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+} from "../src/main/vellum-command/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
 import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,
@@ -25,19 +25,19 @@ import {
 import {
   getCapturedSessionId,
   resetSessionIdStoreForTest,
-} from "../src/main/vellum/term/session-id-store";
+} from "../src/main/vellum-command/term/session-id-store";
 import type {
   PrimeAgentDaemonHandle,
   PrimeAgentDaemons,
-} from "../src/main/vellum/term/prime-agent-daemon";
-import { seatStateRuntime } from "../src/main/vellum/term/agent-state";
+} from "../src/main/vellum-command/term/prime-agent-daemon";
+import { seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
 import {
   OBSERVER_UNWATCHED_SCROLLBACK,
   OBSERVER_WATCHED_SCROLLBACK,
   TerminalObserverPlane,
-} from "../src/main/vellum/term/observer";
+} from "../src/main/vellum-command/term/observer";
 import { SeatOccupationFailedError } from "../src/shared/terminal-seat-occupancy";
-import type { PrimeAgentReporterReport } from "../src/main/vellum/term/prime-agent-reporter";
+import type { PrimeAgentReporterReport } from "../src/main/vellum-command/term/prime-agent-reporter";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();

@@ -9,9 +9,9 @@
  * reconcile so serialization, maintenance leases, and receipts hold.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { HostConfigure, HostOps } from "../src/main/vellum/hosts/host-ops";
-import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
-import { SshTransportLive } from "../src/main/vellum/ssh/live";
+import { HostConfigure, HostOps } from "../src/main/vellum-command/hosts/host-ops";
+import { parseSshEndpoint } from "../src/main/vellum-command/ssh/domain";
+import { SshTransportLive } from "../src/main/vellum-command/ssh/live";
 
 const verbs = ["inspect", "attach"] as const;
 type Verb = (typeof verbs)[number];

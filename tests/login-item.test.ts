@@ -6,7 +6,7 @@ import {
   readLoginItemState,
   setLoginItemOpenAtLogin,
   type LoginItemApp,
-} from "../src/main/vellum/login-item";
+} from "../src/main/vellum-command/login-item";
 
 const mockApp = (initial: {
   openAtLogin?: boolean;

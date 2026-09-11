@@ -18,9 +18,9 @@ vi.mock("node:os", async (importOriginal) => {
 vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 
 const stateLive = makeStateEngineLive(
   join(mockCanvasesHome, ".vellum-command", "state", "vellum-command.db"),

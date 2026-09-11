@@ -31,9 +31,9 @@ import {
 import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
-} from "./vellum/adapters/exec";
-import { appProcessPlane } from "./vellum/app-process-plane";
-import { beginBoxProcessShutdown } from "./vellum/box";
+} from "./vellum-command/adapters/exec";
+import { appProcessPlane } from "./vellum-command/app-process-plane";
+import { beginBoxProcessShutdown } from "./vellum-command/box";
 import { AppRuntime } from "./runtime";
 import {
   armMainThreadBudget,
@@ -42,128 +42,128 @@ import {
   recordSystemLog,
   startPerfProbe,
   startTransportJournal,
-} from "./vellum/observability";
-import { releaseDemoRuntimeIsolation } from "./vellum/demo/runtime-isolation";
+} from "./vellum-command/observability";
+import { releaseDemoRuntimeIsolation } from "./vellum-command/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
-import { CanvasesService } from "./vellum/canvases";
-import { resolveControlHome } from "./vellum/control-home";
-import { registerDemoIpcHandlers } from "./vellum/demo/ipc";
+import { CanvasesService } from "./vellum-command/canvases";
+import { resolveControlHome } from "./vellum-command/control-home";
+import { registerDemoIpcHandlers } from "./vellum-command/demo/ipc";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   startBrowserComposition,
   type BrowserComposition,
-} from "./vellum/browser/composition";
-import { makeBrowserCompositionHost } from "./vellum/browser/composition-host";
-import { makeElectronBrowserViewAttachmentTarget } from "./vellum/browser/view-adapter";
-import { makeElectronBrowserReadinessProductPath } from "./vellum/browser/readiness-product-path";
-import { makeBrowserProductPathProbe } from "./vellum/browser/readiness-probe";
-import { installBrowserProductPathProbe } from "./vellum/station-readiness";
-import { findHostById, hostsSnapshot } from "./vellum/hosts/snapshot";
+} from "./vellum-command/browser/composition";
+import { makeBrowserCompositionHost } from "./vellum-command/browser/composition-host";
+import { makeElectronBrowserViewAttachmentTarget } from "./vellum-command/browser/view-adapter";
+import { makeElectronBrowserReadinessProductPath } from "./vellum-command/browser/readiness-product-path";
+import { makeBrowserProductPathProbe } from "./vellum-command/browser/readiness-probe";
+import { installBrowserProductPathProbe } from "./vellum-command/station-readiness";
+import { findHostById, hostsSnapshot } from "./vellum-command/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
 import {
   BROWSER_ENABLED,
   HERMES_INTEGRATION_ENABLED,
 } from "@shared/features";
-import { HermesPlane } from "./vellum/hermes/plane";
-import { termPlane, termPlaneBlocksAppExit } from "./vellum/term/plane";
-import { configureTerminalRouterLayeredRunner } from "./vellum/term/router";
-import { ChatServiceContext } from "./vellum/chat/service";
-import { resolveBrowserPageTarget } from "./vellum/browser/ipc";
-import { startBrowserControlServer, type BrowserControlServer } from "./vellum/browser/control";
+import { HermesPlane } from "./vellum-command/hermes/plane";
+import { termPlane, termPlaneBlocksAppExit } from "./vellum-command/term/plane";
+import { configureTerminalRouterLayeredRunner } from "./vellum-command/term/router";
+import { ChatServiceContext } from "./vellum-command/chat/service";
+import { resolveBrowserPageTarget } from "./vellum-command/browser/ipc";
+import { startBrowserControlServer, type BrowserControlServer } from "./vellum-command/browser/control";
 import {
   startWorkControlServer,
   workControlReadiness,
   type WorkControlServer,
-} from "./vellum/work/control";
+} from "./vellum-command/work/control";
 import {
   startStationControlServer,
   stationControlReadiness,
   type StationControlServer,
-} from "./vellum/station/control-server";
+} from "./vellum-command/station/control-server";
 import {
   startStationRemoteReportPump,
   type StationRemoteReportPump,
-} from "./vellum/station/remote-report-pump";
-import { StationFleetPropagation } from "./vellum/station/fleet-propagation";
-import { StationApiService } from "./vellum/station/api";
-import { StationRepository } from "./vellum/station/repository";
-import { WorkRepository } from "./vellum/work/repository";
-import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum/station/peer-authority";
+} from "./vellum-command/station/remote-report-pump";
+import { StationFleetPropagation } from "./vellum-command/station/fleet-propagation";
+import { StationApiService } from "./vellum-command/station/api";
+import { StationRepository } from "./vellum-command/station/repository";
+import { WorkRepository } from "./vellum-command/work/repository";
+import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum-command/station/peer-authority";
 import {
   startCanvasControlServer,
   type CanvasControlServer,
-} from "./vellum/canvas-control";
-import { KernelService } from "./vellum/kernel/service";
-import { makeEdgeGrantService } from "./vellum/browser/edge-grant";
-import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum/browser/station-admission";
-import { configurePeerPidHelperRoots } from "./vellum/process-identity";
-import { evaluateSchemaCompatibility } from "./vellum/state/schema-version-probe";
-import { runStartupStateFailureDialog } from "./vellum/state/startup-state-failure-dialog";
-import { ensureSchemaCompatibleOrRecover } from "./vellum/update/startup-schema-recovery";
-import { isManagedBrowserWebContents } from "./vellum/browser/web-policy";
+} from "./vellum-command/canvas-control";
+import { KernelService } from "./vellum-command/kernel/service";
+import { makeEdgeGrantService } from "./vellum-command/browser/edge-grant";
+import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum-command/browser/station-admission";
+import { configurePeerPidHelperRoots } from "./vellum-command/process-identity";
+import { evaluateSchemaCompatibility } from "./vellum-command/state/schema-version-probe";
+import { runStartupStateFailureDialog } from "./vellum-command/state/startup-state-failure-dialog";
+import { ensureSchemaCompatibleOrRecover } from "./vellum-command/update/startup-schema-recovery";
+import { isManagedBrowserWebContents } from "./vellum-command/browser/web-policy";
 import {
   canonicalNodeRefUri,
   latestNodeRefUri,
   makeNodeRefIngress,
-} from "./vellum/node-ref-ingress";
+} from "./vellum-command/node-ref-ingress";
 import type { NodeRefKey } from "@shared/node-ref";
-import { resolveNodeRef } from "./vellum/node-ref-resolver";
+import { resolveNodeRef } from "./vellum-command/node-ref-resolver";
 import {
   createQuitPreparationArbiter,
   createSignalQuitState,
   installProcessSignalTermination,
   runNormalQuitPreparation,
-} from "./vellum/process-signal-termination";
+} from "./vellum-command/process-signal-termination";
 import {
   isTrustedMainWebContents,
   setTrustedMainWebContents,
-} from "./vellum/trusted-main-webcontents";
-import { createTrustedRendererNavigation } from "./vellum/trusted-renderer-navigation";
-import { createRendererSurfaceReadiness } from "./vellum/renderer-surface-readiness";
+} from "./vellum-command/trusted-main-webcontents";
+import { createTrustedRendererNavigation } from "./vellum-command/trusted-renderer-navigation";
+import { createRendererSurfaceReadiness } from "./vellum-command/renderer-surface-readiness";
 import {
   createRendererSurfaceRecovery,
   resolveRendererSurfaceTimeoutMs,
-} from "./vellum/renderer-surface-recovery";
+} from "./vellum-command/renderer-surface-recovery";
 import {
   assessLiveWork,
   buildQuitConfirmPrompt,
   hasLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
-} from "./vellum/quit-live-work";
-import { mainAuthoringGate } from "./vellum/main-authoring-gate";
+} from "./vellum-command/quit-live-work";
+import { mainAuthoringGate } from "./vellum-command/main-authoring-gate";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
   registerTrustedRendererScheme,
-} from "./vellum/trusted-renderer-protocol";
+} from "./vellum-command/trusted-renderer-protocol";
 import {
   CONTENT_PROTOCOL_SCHEME_REGISTRATION,
   installContentProtocol,
-} from "./vellum/content/protocol";
-import { ContentService } from "./vellum/content/service";
+} from "./vellum-command/content/protocol";
+import { ContentService } from "./vellum-command/content/service";
 import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
-import { loadStationSupervisor } from "./vellum/supervision/select";
-import { SettingsService } from "./vellum/settings/service";
-import { StateEngine } from "./vellum/state/service";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum/state/migrations";
-import { installUpdateHostHooks } from "./vellum/update";
-import { hostOperationsShutdown } from "./vellum/hosts/shutdown";
-import { makeOperatorCoordinator } from "./vellum/hosts/operator-coordinator";
+import { loadStationSupervisor } from "./vellum-command/supervision/select";
+import { SettingsService } from "./vellum-command/settings/service";
+import { StateEngine } from "./vellum-command/state/service";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
+import { installUpdateHostHooks } from "./vellum-command/update";
+import { hostOperationsShutdown } from "./vellum-command/hosts/shutdown";
+import { makeOperatorCoordinator } from "./vellum-command/hosts/operator-coordinator";
 import {
   operatorControlEnabledFromInitialArgv,
   startOperatorControlServer,
   type OperatorControlServer,
-} from "./vellum/operator-control";
-import { findPackagedSandboxDisablingSwitch } from "./vellum/packaged-sandbox-policy";
+} from "./vellum-command/operator-control";
+import { findPackagedSandboxDisablingSwitch } from "./vellum-command/packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
   e2eFocusIsolationActive,
   e2eMainWindowOptions,
   e2ePresentationFromEnv,
-} from "./vellum/e2e-presentation";
+} from "./vellum-command/e2e-presentation";
 
 // TerminalRouter SSH dials need the process RootLayer; bind AppRuntime once
 // so term/router never imports the Electron runtime graph itself.

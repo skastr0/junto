@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createTrustedRendererNavigation } from "../src/main/vellum/trusted-renderer-navigation";
+import { createTrustedRendererNavigation } from "../src/main/vellum-command/trusted-renderer-navigation";
 
 const trustedUrl = "http://localhost:5173/";
 

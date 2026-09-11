@@ -1,4 +1,4 @@
-// The kernel is now a headless loop in the MAIN process (src/main/vellum/kernel/)
+// The kernel is now a headless loop in the MAIN process (src/main/vellum-command/kernel/)
 // — this module is a pure PROJECTION of it over IPC. Renderer surface for
 // watcher status + execution phase only. Region pulse / arming product is gone.
 

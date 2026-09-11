@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeGrokAuthPayload,
   isGrokCredentialExpired,
-} from "../src/main/vellum/usage/grok-auth";
+} from "../src/main/vellum-command/usage/grok-auth";
 import {
   grpcWebDataFrames,
   grpcWebTrailerFields,
@@ -12,11 +12,11 @@ import {
   parseGrokProxyBilling,
   parseGrokSettingsTier,
   redactSecret,
-} from "../src/main/vellum/usage/grok-billing";
+} from "../src/main/vellum-command/usage/grok-billing";
 import {
   assembleGrokSnapshot,
   grokAuthRejectedError,
-} from "../src/main/vellum/usage/grok-source";
+} from "../src/main/vellum-command/usage/grok-source";
 
 const FETCHED = "2026-08-01T12:00:00.000Z";
 const NOW_MS = Date.parse(FETCHED);

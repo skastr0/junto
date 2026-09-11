@@ -6,12 +6,12 @@
  *
  *   1. CanvasesService.read(canvas)  — the full-world read that every wake,
  *      hydrate, IPC read and work-control call pays for
- *      (src/main/vellum/canvases.ts readWithIntentWitness → readCanvasWorkProjection).
+ *      (src/main/vellum-command/canvases.ts readWithIntentWitness → readCanvasWorkProjection).
  *   2. WorkRepository.readSnapshot(canvas, node) per sink — the exported entry
- *      to loadSnapshot (src/main/vellum/work/repository.ts:2290), with the SQL
+ *      to loadSnapshot (src/main/vellum-command/work/repository.ts:2290), with the SQL
  *      statement count per call.
  *   3. The synchronous read path of one wakeManagedSeat
- *      (src/main/vellum/kernel/service.ts wakeManagedSeatProgram): the full
+ *      (src/main/vellum-command/kernel/service.ts wakeManagedSeatProgram): the full
  *      canvas read + active actor refs + station scope + registry compile that
  *      run before any seat process is touched. Process spawn is deliberately
  *      excluded — it is not main-thread synchronous work.
@@ -20,11 +20,11 @@ import { cpus, loadavg } from "node:os";
 import { Effect } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import type { ActorRef } from "../../src/shared/work-protocol";
-import { CanvasesService } from "../../src/main/vellum/canvases";
-import { activeActorRegistry } from "../../src/main/vellum/kernel/service";
-import { StationRepository } from "../../src/main/vellum/station/repository";
-import { StateEngine } from "../../src/main/vellum/state/service";
-import { WorkRepository } from "../../src/main/vellum/work/repository";
+import { CanvasesService } from "../../src/main/vellum-command/canvases";
+import { activeActorRegistry } from "../../src/main/vellum-command/kernel/service";
+import { StationRepository } from "../../src/main/vellum-command/station/repository";
+import { StateEngine } from "../../src/main/vellum-command/state/service";
+import { WorkRepository } from "../../src/main/vellum-command/work/repository";
 import type { BenchRuntimeHandle, FixtureShape } from "./fixture";
 import { measure, roundTo, summarize, type Summary } from "./harness";
 

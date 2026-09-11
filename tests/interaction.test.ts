@@ -8,7 +8,7 @@ import {
   promptRegionLines,
   scanMarker,
   type InteractionDerived,
-} from "../src/main/vellum/term/observer/interaction";
+} from "../src/main/vellum-command/term/observer/interaction";
 
 const HR = "────────────────";
 

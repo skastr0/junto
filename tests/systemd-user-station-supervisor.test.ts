@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SystemctlRunResult,
   VellumSystemdUserUnitTarget,
-} from "../src/main/vellum/supervision/systemctl-runner";
+} from "../src/main/vellum-command/supervision/systemctl-runner";
 
 const mocks = vi.hoisted(() => ({
   target: Object.freeze({}) as VellumSystemdUserUnitTarget,
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   startVellumSystemdUserUnit: vi.fn(),
 }));
 
-vi.mock("../src/main/vellum/supervision/systemctl-runner", () => ({
+vi.mock("../src/main/vellum-command/supervision/systemctl-runner", () => ({
   VELLUM_COMMAND_SYSTEMD_USER_UNIT: "vellum-command-remote.service",
   systemdUserUnitTarget: mocks.systemdUserUnitTarget,
   showVellumSystemdUserUnit: mocks.showVellumSystemdUserUnit,
@@ -22,7 +22,7 @@ import {
   createSystemdUserStationSupervisor,
   renderUserlandLinuxService,
   USERLAND_LINUX_SERVICE_PATH,
-} from "../src/main/vellum/supervision/systemd-user";
+} from "../src/main/vellum-command/supervision/systemd-user";
 
 const showOutput = (overrides: Partial<Record<
   "LoadState" | "ActiveState" | "SubState" | "MainPID" | "ControlGroup" | "InvocationID",

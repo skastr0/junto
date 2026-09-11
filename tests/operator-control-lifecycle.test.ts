@@ -3,7 +3,7 @@ import { join } from "node:path";
 import {
   OPERATOR_CONTROL_SWITCH,
   operatorControlEnabledFromInitialArgv,
-} from "../src/main/vellum/operator-control";
+} from "../src/main/vellum-command/operator-control";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(

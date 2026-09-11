@@ -26,18 +26,18 @@ import {
   type BrowserProfileStoragePlatform,
   type BrowserProfileStorageSession,
   type BrowserProfileStorageSessionControl,
-} from "../src/main/vellum/browser/profile-storage";
-import { makeBrowserProfileGate, type BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
+} from "../src/main/vellum-command/browser/profile-storage";
+import { makeBrowserProfileGate, type BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
 import {
   makeBrowserProfileService,
   type BrowserProfilePendingWipe,
-} from "../src/main/vellum/browser/profiles";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
+} from "../src/main/vellum-command/browser/profiles";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
 import type {
   BrowserProfileQuiescenceSummary,
   BrowserResult,
-} from "../src/main/vellum/browser/sessions";
+} from "../src/main/vellum-command/browser/sessions";
 
 const WIPE_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_WIPE_ID = "22222222-2222-4222-8222-222222222222";

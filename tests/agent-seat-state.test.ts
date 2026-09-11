@@ -10,8 +10,8 @@ import {
   grokRules,
   hermesRules,
   rulePackFor,
-} from "../src/main/vellum/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
+} from "../src/main/vellum-command/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
 afterEach(() => {

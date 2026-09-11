@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
+import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
 
 const DAEMON_A = 10_100;
 const WORKER_A = 10_101;

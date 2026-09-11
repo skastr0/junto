@@ -6,12 +6,12 @@ import {
   makeUpdateService,
   UpdateService,
   type InstallPlan,
-} from "../src/main/vellum/update/service";
-import type { AuthorizedUpdateCandidate } from "../src/main/vellum/update/domain";
+} from "../src/main/vellum-command/update/service";
+import type { AuthorizedUpdateCandidate } from "../src/main/vellum-command/update/domain";
 import type {
   UpdateProvider,
   UpdateProviderListener,
-} from "../src/main/vellum/update/provider";
+} from "../src/main/vellum-command/update/provider";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -419,7 +419,7 @@ describe("UpdateService", () => {
 });
 
 describe("platform-neutral staged installation", () => {
-  const readyLinux = async (installation: import("../src/main/vellum/update/provider").StagedUpdate, host: import("../src/main/vellum/update/provider").UpdateHostHooks) => {
+  const readyLinux = async (installation: import("../src/main/vellum-command/update/provider").StagedUpdate, host: import("../src/main/vellum-command/update/provider").UpdateHostHooks) => {
     const root = await mkdtemp(join(tmpdir(), "vellum-command-linux-coordinator-"));
     roots.push(root);
     const archivePath = join(root, "release.tar.gz");

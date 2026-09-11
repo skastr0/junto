@@ -28,8 +28,8 @@ import {
   validateLocalBundleProvenance,
   type RemoteDeployScriptTestRuntime,
   watchTarExit,
-} from "../src/main/vellum/hosts/deploy-darwin";
-import { SshTransferExitError } from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/hosts/deploy-darwin";
+import { SshTransferExitError } from "../src/main/vellum-command/ssh/service";
 
 vi.hoisted(() => {
   vi.stubGlobal("__VELLUM_COMMAND_MAC_TEAM_ID__", "EXAMP12345");
@@ -230,7 +230,7 @@ describe("buildRemoteDeployScript", () => {
       "CLI_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-command'",
     );
     const admit = readFileSync(
-      new URL("../src/main/vellum/hosts/deploy-darwin.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/deploy-darwin.ts", import.meta.url),
       "utf8",
     );
     expect(admit).toContain("basename(REMOTE_CLI_EXECUTABLE)");
@@ -291,7 +291,7 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain('"$LAUNCHCTL" enable "$JOB"');
     const copyOps = readFileSync(
       new URL(
-        "../src/main/vellum/hosts/host-ops-darwin.ts",
+        "../src/main/vellum-command/hosts/host-ops-darwin.ts",
         import.meta.url,
       ),
       "utf8",

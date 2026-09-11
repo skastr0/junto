@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
+import { resetWatcherMemory } from "../src/main/vellum-command/kernel/evaluate";
 import {
   __resetKernelMemoryForTest,
   __setAutomationGateForTest,
@@ -13,8 +13,8 @@ import {
   getNextFire,
   getWatchers,
   runEvaluationCycle,
-} from "../src/main/vellum/kernel/cycle";
-import { __setSchedulerEffectDepsForTest } from "../src/main/vellum/kernel/effects";
+} from "../src/main/vellum-command/kernel/cycle";
+import { __setSchedulerEffectDepsForTest } from "../src/main/vellum-command/kernel/effects";
 import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
 import { compileVerb } from "../src/shared/physics";

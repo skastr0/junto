@@ -8,8 +8,8 @@ import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   applyHostRuntime,
   deployResultFromHostOpsCopy,
-} from "../src/main/vellum/hosts/host-runtime";
-import { HostOps } from "../src/main/vellum/hosts/host-ops";
+} from "../src/main/vellum-command/hosts/host-runtime";
+import { HostOps } from "../src/main/vellum-command/hosts/host-ops";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const observedAt = "2026-08-13T21:00:00.000Z";
@@ -168,7 +168,7 @@ const expectRemedyStages = (
 describe("HostRuntime apply over HostOps", () => {
   it("is one apply loop over HostOps, not Darwin or Linux ceremony", () => {
     const runtime = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
     expect(runtime).toContain("applyHostRuntime");
@@ -189,12 +189,12 @@ describe("HostRuntime apply over HostOps", () => {
     expect(runtime).not.toContain('from "./deploy-darwin"');
     expect(() =>
       readFileSync(
-        new URL("../src/main/vellum/hosts/host-runtime-darwin.ts", import.meta.url),
+        new URL("../src/main/vellum-command/hosts/host-runtime-darwin.ts", import.meta.url),
       ),
     ).toThrow();
     expect(() =>
       readFileSync(
-        new URL("../src/main/vellum/hosts/host-runtime-linux.ts", import.meta.url),
+        new URL("../src/main/vellum-command/hosts/host-runtime-linux.ts", import.meta.url),
       ),
     ).toThrow();
   });

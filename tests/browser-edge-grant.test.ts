@@ -9,35 +9,35 @@ import {
   dispatchControlRequest,
   makeControlHandlers,
   rotateControlToken,
-} from "../src/main/vellum/browser/control";
+} from "../src/main/vellum-command/browser/control";
 import {
   makeEdgeGrantService,
   type EdgeGrantService,
-} from "../src/main/vellum/browser/edge-grant";
+} from "../src/main/vellum-command/browser/edge-grant";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/vellum/browser/capabilities";
-import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+} from "../src/main/vellum-command/browser/capabilities";
+import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/vellum/browser/sessions";
+} from "../src/main/vellum-command/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 import {
   makeProcessIdentityMap,
   type PeerPidReader,
   type ProcessIdentityMap,
   type ProcessPrincipal,
-} from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/process-identity";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/vellum/browser/page-target";
-import type { BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/browser/page-target";
+import type { BrowserHostCapabilityAuthority } from "../src/main/vellum-command/browser/host-capability";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 
 const REF_PAGE = "vellum-command://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {

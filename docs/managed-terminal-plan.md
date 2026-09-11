@@ -53,13 +53,13 @@ This is why the plan is short. Most of the factory is built.
 
 | subsystem | state | files |
 |---|---|---|
-| PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/vellum/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
+| PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/vellum-command/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
 | Remote terminals over SSH | **built** | `term/remote/`, and `hermes --profile X -m Y` over `ssh -t` verified working (R1–R3) |
 | Renderer terminal surface (xterm) | **built** | `src/renderer/components/terminal/{TerminalSurface,TerminalCard,TerminalWizard,TerminalInventory}.tsx` |
-| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops include `ping doctor capabilities onboard tasks.create tasks.list tasks.show tasks.rules tasks.check tasks.claim tasks.update msg.list msg.send request.escalate artifact.publish` |
+| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum-command/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops include `ping doctor capabilities onboard tasks.create tasks.list tasks.show tasks.rules tasks.check tasks.claim tasks.update msg.list msg.send request.escalate artifact.publish` |
 | **Station CLI, agent-native** | **built** | `src/cli/` — `vellum-command onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| escalate \| artifact publish \| browser \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum-command` via `bun run cli:build`; browser commands retain their host-local control socket behind the one agent-facing command |
-| **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
-| Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
+| **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum-command/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
+| Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum-command/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
 | Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim contract | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
 | Attention/alert surfaces | **partially built** | `alert-attention.ts`, `alert-queue.ts` exist |
 | vellum prism plugin (7 tools + session-start hook + global rule + skill) | **built, to be pruned** | `packages/vellum-plugin/` |
@@ -77,7 +77,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 **Why:** every drive decision (is the input box idle? is a dialog up? did the title flip to working?) needs the screen, and today the only interpreter of the byte stream lives in the renderer and is disposed on unmount (`TerminalSurface.tsx:207/266`). Autonomous workers run with windows closed — exactly when the interpretation must exist.
 
 - Add `@xterm/headless` (currently absent; only `xterm` + `addon-fit` are present).
-- New `src/main/vellum/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
+- New `src/main/vellum-command/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
 - Register the handlers Vellum Command currently discards (zero OSC/CSI handlers exist in `src/` today):
   - **OSC 0/2** title — the primary fallback state feed across the covered harnesses.
   - **OSC 9** — Claude's `9;4;3`/`9;4;0` working flag, Codex's `]9;<msg>` turn-complete, Grok's `9;4` binary.

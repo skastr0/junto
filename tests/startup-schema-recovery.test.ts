@@ -6,23 +6,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateSchemaCompatibility,
   probeInstalledStateSchema,
-} from "../src/main/vellum/state/schema-version-probe";
+} from "../src/main/vellum-command/state/schema-version-probe";
 import {
   feedVersionUnbricks,
   makeSchemaRecoveryUpdater,
   runStartupSchemaRecovery,
-} from "../src/main/vellum/update/startup-schema-recovery";
+} from "../src/main/vellum-command/update/startup-schema-recovery";
 
-import { linuxX64UpdateFeed } from "../src/main/vellum/update/compiled-config";
+import { linuxX64UpdateFeed } from "../src/main/vellum-command/update/compiled-config";
 import type {
   StagedUpdate,
   UpdateHostHooks,
   UpdateProvider,
   UpdateProviderListener,
-} from "../src/main/vellum/update/provider";
+} from "../src/main/vellum-command/update/provider";
 
 const { makePlatformProvider } = vi.hoisted(() => ({ makePlatformProvider: vi.fn() }));
-vi.mock("../src/main/vellum/update/platform", () => ({
+vi.mock("../src/main/vellum-command/update/platform", () => ({
   makePlatformUpdateProvider: makePlatformProvider,
 }));
 

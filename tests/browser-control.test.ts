@@ -35,25 +35,25 @@ import {
   rotateControlToken,
   tokenMatches,
   type ControlAdmitContext,
-} from "../src/main/vellum/browser/control";
+} from "../src/main/vellum-command/browser/control";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/vellum/browser/page-target";
-import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+} from "../src/main/vellum-command/browser/page-target";
+import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/vellum/browser/sessions";
+} from "../src/main/vellum-command/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/vellum/browser/capabilities";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/browser/capabilities";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 
 const REF = "vellum-command://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {

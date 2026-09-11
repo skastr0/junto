@@ -41,7 +41,7 @@ import {
 import {
   STATION_PEER_ARG,
   STATION_PROTOCOL_NEGOTIATION_ARG,
-} from "../src/main/vellum/station/helper-contract";
+} from "../src/main/vellum-command/station/helper-contract";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -61,22 +61,22 @@ import {
 } from "../src/shared/station-session";
 import {
   StationApiService,
-} from "../src/main/vellum/station/api";
+} from "../src/main/vellum-command/station/api";
 import {
   StationControlReportError,
   startStationControlServer,
   stationControlReadiness,
   type StationControlRequestAdmission,
   type StationControlServer,
-} from "../src/main/vellum/station/control-server";
+} from "../src/main/vellum-command/station/control-server";
 import {
   relayStationControlSession,
   resolveStationControlSocketPath,
-} from "../src/main/vellum/station/control-relay";
+} from "../src/main/vellum-command/station/control-relay";
 import {
   makeOwnerLocalStationControlHandoffAuthority,
   type StationControlLocalHandoffAuthority,
-} from "../src/main/vellum/station/peer-authority";
+} from "../src/main/vellum-command/station/peer-authority";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

@@ -23,7 +23,7 @@ import {
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   assertNoTcpListeners,
   descendantRows,

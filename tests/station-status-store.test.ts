@@ -14,9 +14,9 @@ import {
   makeStationStatusLive,
   StationStatusService,
   StationStatusStoreError,
-} from "../src/main/vellum/station-status-store";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
+} from "../src/main/vellum-command/station-status-store";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
 
 const decodeHostId = Schema.decodeUnknownSync(StationHostId);
 const STUDIO_HOST = decodeHostId("studio");

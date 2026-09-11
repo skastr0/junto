@@ -28,27 +28,27 @@ import { ProjectedIntentFactBasis } from "../src/shared/work-protocol";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
-import { findHostById } from "../src/main/vellum/hosts/snapshot";
+} from "../src/main/vellum-command/settings/service";
+import { findHostById } from "../src/main/vellum-command/hosts/snapshot";
 import {
   compileStationPortfolioBody,
   STATION_PORTFOLIO_PROTOCOL,
-} from "../src/main/vellum/station/portfolio";
+} from "../src/main/vellum-command/station/portfolio";
 import {
   StationRepository,
   makeStationRepositoryLive,
   stationProjectionContentSha256,
-} from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/repository";
 import {
   makeStateEngineLive,
   StateEngine,
   type StateRow,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeProjectionSequence =

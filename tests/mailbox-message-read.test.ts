@@ -10,29 +10,29 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
+} from "../src/main/vellum-command/settings/service";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
-import { mailboxMessageReadId } from "../src/main/vellum/work/mailbox-receipts";
+} from "../src/main/vellum-command/station/session-registry";
+import { mailboxMessageReadId } from "../src/main/vellum-command/work/mailbox-receipts";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+} from "../src/main/vellum-command/work/repository";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
+} from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];

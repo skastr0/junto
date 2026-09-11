@@ -344,7 +344,7 @@ describe("electron-builder fitness", () => {
     ]);
 
     const sshFileSystemLayer = await readFile(
-      new URL("../src/main/vellum/ssh/live.ts", import.meta.url),
+      new URL("../src/main/vellum-command/ssh/live.ts", import.meta.url),
       "utf8",
     );
     expect(sshFileSystemLayer).toContain(

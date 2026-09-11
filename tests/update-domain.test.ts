@@ -12,7 +12,7 @@ import {
   isMintedCandidate,
   mintAuthorizedCandidate,
   remoteRolloutTargetVersion,
-} from "../src/main/vellum/update/domain";
+} from "../src/main/vellum-command/update/domain";
 
 const roots: string[] = [];
 

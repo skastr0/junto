@@ -10,7 +10,7 @@ import {
   requestStillBlocking,
   resetSeatBlocks,
   stopDirectiveFromBlock,
-} from "../src/main/vellum/work/blocked-seat";
+} from "../src/main/vellum-command/work/blocked-seat";
 import { makeStopDirective } from "../src/shared/work-control";
 
 const docWithRequest = (

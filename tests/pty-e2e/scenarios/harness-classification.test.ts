@@ -21,9 +21,9 @@
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SessionObserver } from "../../../src/main/vellum/term/observer";
-import { SeatStateRuntime } from "../../../src/main/vellum/term/agent-state/runtime";
-import { FALLBACK_IDLE } from "../../../src/main/vellum/term/agent-state/engine";
+import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
+import { SeatStateRuntime } from "../../../src/main/vellum-command/term/agent-state/runtime";
+import { FALLBACK_IDLE } from "../../../src/main/vellum-command/term/agent-state/engine";
 import {
   capturePath,
   captureDeclaration,

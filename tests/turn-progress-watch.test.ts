@@ -4,10 +4,10 @@ import {
   TURN_STALLED_REASON,
   TurnProgressWatch,
   progressFingerprint,
-} from "../src/main/vellum/term/agent-state/turn-progress-watch";
-import { SeatStateRuntime } from "../src/main/vellum/term/agent-state/runtime";
-import type { ObserverGridSnapshot } from "../src/main/vellum/term/observer/types";
-import { ManagedTerminalDrive } from "../src/main/vellum/term/drive/managed-terminal-drive";
+} from "../src/main/vellum-command/term/agent-state/turn-progress-watch";
+import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
+import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-terminal-drive";
 
 const snap = (
   bindingId: string,

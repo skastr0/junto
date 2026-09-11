@@ -56,54 +56,54 @@ import {
 import {
   CanvasesLive,
   CanvasesService,
-} from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/canvases";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
+} from "../src/main/vellum-command/settings/service";
 import {
   StationApiLive,
   StationApiService,
-} from "../src/main/vellum/station/api";
+} from "../src/main/vellum-command/station/api";
 import {
   deriveActorSeatId,
-} from "../src/main/vellum/station/actor-seat-compiler";
+} from "../src/main/vellum-command/station/actor-seat-compiler";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   compileStationPortfolioBody,
   decodeStationPortfolioBody,
-} from "../src/main/vellum/station/portfolio";
+} from "../src/main/vellum-command/station/portfolio";
 import {
   bindNegotiatedStationProtocol,
   makeStationPeerSession,
   type StationPeerSession,
   type StationSessionFrameTransport,
-} from "../src/main/vellum/station/peer-session";
+} from "../src/main/vellum-command/station/peer-session";
 import {
   StationPropagation,
   StationPropagationLive,
-} from "../src/main/vellum/station/propagation";
+} from "../src/main/vellum-command/station/propagation";
 import {
   makeStationRepositoryLive,
   StationRepository,
-} from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/repository";
 import {
   StationLivePeerRegistry,
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
+} from "../src/main/vellum-command/station/session-registry";
 import {
   stationControlErrorEnvelope,
-} from "../src/main/vellum/station/dispatcher";
+} from "../src/main/vellum-command/station/dispatcher";
 import {
   makeStateEngineLive,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   WorkLive,
   WorkService,
-} from "../src/main/vellum/work/service";
+} from "../src/main/vellum-command/work/service";
 import {
   createAuthorialTaskDependencyScopeCapability,
   createCurrentProjectedTaskDependencyScopeCapability,
@@ -111,11 +111,11 @@ import {
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
+} from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

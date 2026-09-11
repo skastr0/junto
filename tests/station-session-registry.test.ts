@@ -14,7 +14,7 @@ import { InstallationId } from "../src/shared/installation-id";
 import {
   bindNegotiatedStationProtocol,
   type StationPeerSession,
-} from "../src/main/vellum/station/peer-session";
+} from "../src/main/vellum-command/station/peer-session";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -24,7 +24,7 @@ import {
 import {
   StationLivePeerRegistry,
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
+} from "../src/main/vellum-command/station/session-registry";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

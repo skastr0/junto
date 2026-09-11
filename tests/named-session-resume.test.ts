@@ -17,7 +17,7 @@ import {
   launchArgvUsesResume,
   parseHarnessSessionArgv,
   reclaimOrphanedHarnessArgv,
-} from "../src/main/vellum/term/session-existence";
+} from "../src/main/vellum-command/term/session-existence";
 
 describe("named session resume law", () => {
   it("no template uses an id-less continue flag as resume", () => {

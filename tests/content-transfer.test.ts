@@ -6,12 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   parseContentHelperArgs,
   contentHelperArgv,
-} from "../src/main/vellum/content/helper-contract";
+} from "../src/main/vellum-command/content/helper-contract";
 import {
   contentObjectPath,
   contentPartialPath,
   contentStoreRoot,
-} from "../src/main/vellum/content/paths";
+} from "../src/main/vellum-command/content/paths";
 import {
   contentRefForTransfer,
   contentTransferPartialId,
@@ -20,11 +20,11 @@ import {
   statContentForTransfer,
   parseContentHelperStatus,
   encodeContentHelperStatus,
-} from "../src/main/vellum/content/transfer-local";
+} from "../src/main/vellum-command/content/transfer-local";
 import {
   ContentStoreError,
   ingestContentBytes,
-} from "../src/main/vellum/content/store";
+} from "../src/main/vellum-command/content/store";
 import { lstatSync, existsSync } from "node:fs";
 
 const roots: string[] = [];

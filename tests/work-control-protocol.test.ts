@@ -20,7 +20,7 @@ import {
   scopeDenialToWorkError,
   scopeError,
   visibilityOf,
-} from "../src/main/vellum/work/authz";
+} from "../src/main/vellum-command/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { ScopeDenial } from "../src/shared/physics";
 

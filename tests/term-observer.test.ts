@@ -14,8 +14,8 @@ import {
   isHorizontalRule,
   promptBoxBody,
   sanitizeTitle,
-} from "../src/main/vellum/term/observer";
-import { evaluate } from "../src/main/vellum/term/agent-state";
+} from "../src/main/vellum-command/term/observer";
+import { evaluate } from "../src/main/vellum-command/term/agent-state";
 
 const feedAndWait = async (
   obs: SessionObserver,

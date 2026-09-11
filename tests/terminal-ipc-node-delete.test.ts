@@ -2,8 +2,8 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { CanvasNode } from "../src/shared/canvas";
-import { registerTerminalIpc } from "../src/main/vellum/term/ipc";
-import type { TermPlane } from "../src/main/vellum/term/plane";
+import { registerTerminalIpc } from "../src/main/vellum-command/term/ipc";
+import type { TermPlane } from "../src/main/vellum-command/term/plane";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
 const sender = {

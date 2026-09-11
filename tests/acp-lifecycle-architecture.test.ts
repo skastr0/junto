@@ -6,8 +6,8 @@ const source = (relative: string): string =>
 
 describe("ACP lifecycle architecture", () => {
   it("routes local ACP spawn and signaling only through the central app process plane", () => {
-    const client = source("src/main/vellum/chat/acp-client.ts");
-    const plane = source("src/main/vellum/hermes/plane.ts");
+    const client = source("src/main/vellum-command/chat/acp-client.ts");
+    const plane = source("src/main/vellum-command/hermes/plane.ts");
 
     expect(client).not.toContain("admitChildProcess");
     expect(client).not.toContain("OwnedProcess");
@@ -23,8 +23,8 @@ describe("ACP lifecycle architecture", () => {
   });
 
   it("keeps remote ACP scope-owned and outside the OS signal plane", () => {
-    const client = source("src/main/vellum/chat/acp-client.ts");
-    const plane = source("src/main/vellum/hermes/plane.ts");
+    const client = source("src/main/vellum-command/chat/acp-client.ts");
+    const plane = source("src/main/vellum-command/hermes/plane.ts");
 
     expect(client).toContain('readonly kind: "remote-scope"');
     expect(plane).toContain('kind: "remote-scope"');
@@ -35,7 +35,7 @@ describe("ACP lifecycle architecture", () => {
   });
 
   it("publishes one Hermes shutdown flight and makes its finalizer fail closed", () => {
-    const plane = source("src/main/vellum/hermes/plane.ts");
+    const plane = source("src/main/vellum-command/hermes/plane.ts");
 
     expect(plane).toContain("const shutdown = makeHermesShutdownPort(chat)");
     expect(plane).toContain("finalizeHermesShutdown(shutdown)");

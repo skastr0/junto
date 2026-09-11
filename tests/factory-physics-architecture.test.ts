@@ -44,9 +44,9 @@ describe("factory physics architecture", () => {
     // a role (resolveSpec / roleOf / a NodeSpec Match) and never compare a kind
     // string — that is how the ~12 disagreeing kind lists grew last time.
     const planes = [
-      ...filesUnder("src", "main", "vellum", "work"),
-      ...filesUnder("src", "main", "vellum", "browser"),
-      ...filesUnder("src", "main", "vellum", "kernel"),
+      ...filesUnder("src", "main", "vellum-command", "work"),
+      ...filesUnder("src", "main", "vellum-command", "browser"),
+      ...filesUnder("src", "main", "vellum-command", "kernel"),
     ];
     // Capability planes must not branch on canvas entity.kind for the well-known
     // actor/sink kinds. Work-item `.kind` and open-vocab furniture (e.g. board)
@@ -90,8 +90,8 @@ describe("factory physics architecture", () => {
     ];
     const self = join(root, "tests", "factory-physics-architecture.test.ts");
     const externalVocabularyReaders = new Set([
-      join(root, "src", "main", "vellum", "usage", "devin-source.ts"),
-      join(root, "src", "main", "vellum", "usage", "synthetic-source.ts"),
+      join(root, "src", "main", "vellum-command", "usage", "devin-source.ts"),
+      join(root, "src", "main", "vellum-command", "usage", "synthetic-source.ts"),
     ]);
     const files = [...filesUnder("src"), ...filesUnder("tests")].filter(
       (path) => path !== self && !externalVocabularyReaders.has(path),
@@ -110,7 +110,7 @@ describe("factory physics architecture", () => {
     // Do not encode ban-lists of retired symbols here — standing ruling against
     // mistake-tombstone tests; the positive contract is the gate.
     const kernel = readFileSync(
-      join(root, "src", "main", "vellum", "kernel", "service.ts"),
+      join(root, "src", "main", "vellum-command", "kernel", "service.ts"),
       "utf8",
     );
     const claimPrompt = readFileSync(

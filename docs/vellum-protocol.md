@@ -67,7 +67,7 @@ Station protocol.
 SQLite schema version 1 is the frozen durable baseline. The current
 source/runtime schema is version 22, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and reached through the immutable contiguous chain declared in
-`src/main/vellum/state/migrations.ts`. The public macOS 0.1.14 package remains
+`src/main/vellum-command/state/migrations.ts`. The public macOS 0.1.14 package remains
 historical evidence for schema version 18; it does not define the current
 source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never
 be edited, squashed, renumbered, or reused. The next schema change must append

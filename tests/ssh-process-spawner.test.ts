@@ -2,8 +2,8 @@ import * as Command from "effect/unstable/process/ChildProcess";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
-import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum/ssh/process-spawner";
-import { clearProcessSignalAuditLog, getProcessSignalAuditLog, probeProcessAlive } from "../src/main/vellum/process-signal";
+import { ProcessSpawner, ProcessSpawnerLive } from "../src/main/vellum-command/ssh/process-spawner";
+import { clearProcessSignalAuditLog, getProcessSignalAuditLog, probeProcessAlive } from "../src/main/vellum-command/process-signal";
 
 const SpawnerLive = ProcessSpawnerLive;
 
@@ -84,7 +84,7 @@ describe("ProcessSpawnerLive", () => {
   });
 
   it("uses only the central process lease and keeps errors distinct from terminal witnesses", async () => {
-    const source = await readFile("src/main/vellum/ssh/process-spawner.ts", "utf8");
+    const source = await readFile("src/main/vellum-command/ssh/process-spawner.ts", "utf8");
     expect(source).toContain("appProcessPlane.spawnGroup({");
     expect(source).toMatch(/if \(lease\.io\.pidForDiagnostics === undefined\)/u);
     expect(source).toMatch(/Later errors are diagnostic[\s\S]*must not fabricate an exit\/close witness or cancel TERM→KILL/u);
@@ -121,7 +121,7 @@ describe("ProcessSpawnerLive", () => {
   });
 
   it("forwards StandardCommand identity options through the central spawn spec", async () => {
-    const source = await readFile("src/main/vellum/ssh/process-spawner.ts", "utf8");
+    const source = await readFile("src/main/vellum-command/ssh/process-spawner.ts", "utf8");
     expect(source).toMatch(/cwd: command\.options\.cwd/u);
     expect(source).toMatch(/env: environment/u);
     expect(source).toMatch(/shell: command\.options\.shell/u);

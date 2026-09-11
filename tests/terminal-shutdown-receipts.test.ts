@@ -14,16 +14,16 @@ import { join } from "node:path";
 import type { IDisposable, IPty } from "node-pty";
 import { Effect, Scope } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAppProcessPlane } from "../src/main/vellum/app-process-plane";
-import { setHostsSnapshot, hostsSnapshot } from "../src/main/vellum/hosts/snapshot";
-import { TermControlClient } from "../src/main/vellum/term/control-client";
+import { createAppProcessPlane } from "../src/main/vellum-command/app-process-plane";
+import { setHostsSnapshot, hostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
+import { TermControlClient } from "../src/main/vellum-command/term/control-client";
 import {
   startTermControlServer,
   TermControlStartupError,
-} from "../src/main/vellum/term/control-server";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import { TermPlane, termPlaneBlocksAppExit } from "../src/main/vellum/term/plane";
-import { TerminalRouter } from "../src/main/vellum/term/router";
+} from "../src/main/vellum-command/term/control-server";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+import { TermPlane, termPlaneBlocksAppExit } from "../src/main/vellum-command/term/plane";
+import { TerminalRouter } from "../src/main/vellum-command/term/router";
 import {
   TERM_CONTROL_PROTOCOL,
   termControlSocketPath,

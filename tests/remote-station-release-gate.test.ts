@@ -4,8 +4,8 @@ import {
   STATION_PORTFOLIO_PROTOCOL,
   STATION_PORTFOLIO_PROTOCOL_VERSION,
   decodeStationPortfolioBody,
-} from "../src/main/vellum/station/portfolio";
-import { STATION_READINESS_VERSION } from "../src/main/vellum/station-readiness";
+} from "../src/main/vellum-command/station/portfolio";
+import { STATION_READINESS_VERSION } from "../src/main/vellum-command/station-readiness";
 import { STATION_API_PROTOCOL } from "../src/shared/station-api";
 import { STATION_CONTROL_PROTOCOL } from "../src/shared/station-api-envelope";
 import {
@@ -80,11 +80,11 @@ describe("unreleased Remote Station contract gate", () => {
   it("requires every independent Remote Station version to use the gate", () => {
     const station = source("src/shared/station-protocol.ts");
     const term = source("src/shared/term-control.ts");
-    const portfolio = source("src/main/vellum/station/portfolio.ts");
+    const portfolio = source("src/main/vellum-command/station/portfolio.ts");
     const qualification = source("src/shared/station-qualification.ts");
     const status = source("src/shared/station-status.ts");
     const remoteHosts = source("src/shared/remote-hosts.ts");
-    const readiness = source("src/main/vellum/station-readiness.ts");
+    const readiness = source("src/main/vellum-command/station-readiness.ts");
 
     for (const [path, body] of [
       ["station-protocol.ts", station],

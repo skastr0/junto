@@ -8,8 +8,8 @@ import {
   POLICY_TABLE,
   PTY_WRITE_KINDS,
   decideIntervention,
-} from "../src/main/vellum/term/intervention/policy";
-import type { InteractionContext as InteractionContextT } from "../src/main/vellum/term/intervention/policy";
+} from "../src/main/vellum-command/term/intervention/policy";
+import type { InteractionContext as InteractionContextT } from "../src/main/vellum-command/term/intervention/policy";
 
 /**
  * Typed intervention policy — the mayInject matrix.

@@ -7,17 +7,17 @@ const allowed = new Set([
   "scripts/electron-sqlite-smoke.mjs",
   // Dev-only seed that copies a prod vellum-command.db into an isolated dev tree.
   "scripts/dev-seed-from-prod.ts",
-  "src/main/vellum/state/backup.ts",
-  "src/main/vellum/state/engine.ts",
-  "src/main/vellum/state/migrations.ts",
-  "src/main/vellum/state/recovery.ts",
-  "src/main/vellum/state/schema-identity.ts",
+  "src/main/vellum-command/state/backup.ts",
+  "src/main/vellum-command/state/engine.ts",
+  "src/main/vellum-command/state/migrations.ts",
+  "src/main/vellum-command/state/recovery.ts",
+  "src/main/vellum-command/state/schema-identity.ts",
   // Read-only pre-AppRuntime probe for newer-than-supported schema recovery.
-  "src/main/vellum/state/schema-version-probe.ts",
+  "src/main/vellum-command/state/schema-version-probe.ts",
   // Install-local ledger (install-ops.db) — not product state; separate opener.
-  "src/main/vellum/install-ops/engine.ts",
+  "src/main/vellum-command/install-ops/engine.ts",
   // Read-only external harness receipts; never Vellum Command product state.
-  "src/main/vellum/term/session-existence.ts",
+  "src/main/vellum-command/term/session-existence.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

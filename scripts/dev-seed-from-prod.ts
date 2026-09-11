@@ -14,12 +14,12 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
 import {
   actualStateSchemaSha256,
   expectedStateSchemaIdentity,
-} from "../src/main/vellum/state/schema-identity";
+} from "../src/main/vellum-command/state/schema-identity";
 
 const prodDb = join(homedir(), ".vellum-command", "state", "vellum-command.db");
 const vellumHome =

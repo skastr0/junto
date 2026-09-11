@@ -24,8 +24,8 @@ import {
   harnessSessionExists,
   isHermesSessionId,
   shouldResumeHarnessSession,
-} from "../src/main/vellum/term/session-existence";
-import { launchForManagedSpawn } from "../src/main/vellum/term/managed-spawn-plan";
+} from "../src/main/vellum-command/term/session-existence";
+import { launchForManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];

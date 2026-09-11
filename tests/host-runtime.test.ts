@@ -22,22 +22,22 @@ import {
   HostRuntimeLive,
   observeHostRuntime,
   observeRemoteHost,
-} from "../src/main/vellum/hosts/host-runtime";
-import { HostOps, HostTarget } from "../src/main/vellum/hosts/host-ops";
+} from "../src/main/vellum-command/hosts/host-runtime";
+import { HostOps, HostTarget } from "../src/main/vellum-command/hosts/host-ops";
 import {
   combineHostProcessPlanes,
   readRemoteTextFile,
   workAttachFromTermConnect,
   workAttachFromTokenFile,
-} from "../src/main/vellum/hosts/host-runtime-platform";
-import { HostsService } from "../src/main/vellum/hosts/service";
-import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/hosts/host-runtime-platform";
+import { HostsService } from "../src/main/vellum-command/hosts/service";
+import { StationFleetTargetRepository } from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   parseSshEndpoint,
   SshExitError,
   SshTimeoutError,
-} from "../src/main/vellum/ssh/domain";
-import { SshTransport } from "../src/main/vellum/ssh/service";
+} from "../src/main/vellum-command/ssh/domain";
+import { SshTransport } from "../src/main/vellum-command/ssh/service";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 
 const observation = (
@@ -877,7 +877,7 @@ describe("HostRuntimeLive Linux flag honesty", () => {
 describe("HostRuntime inversion", () => {
   it("Deploy goes through reconcile, not the old ceremony from the coordinator", () => {
     const coordinator = readFileSync(
-      new URL("../src/main/vellum/hosts/operator-coordinator.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/operator-coordinator.ts", import.meta.url),
       "utf8",
     );
     expect(coordinator).toContain("hostRuntime");
@@ -887,7 +887,7 @@ describe("HostRuntime inversion", () => {
     expect(coordinator).not.toContain("deployRemoteHost");
     expect(coordinator).not.toContain("darwinRemoteDeploymentProvider");
     const runtime = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
     expect(runtime).toContain("commandCenterMayPrepareRemote");
@@ -897,7 +897,7 @@ describe("HostRuntime inversion", () => {
     expect(runtime).not.toContain("deployRemoteHost");
     expect(runtime).not.toContain("darwinRemoteDeploymentProvider");
     const service = readFileSync(
-      new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/service.ts", import.meta.url),
       "utf8",
     );
     // The service holds no deploy verb at all; the coordinator is the single
@@ -912,15 +912,15 @@ describe("HostRuntime inversion", () => {
 
   it("keeps Darwin and Linux as HostOps layers, not apply loops", () => {
     const runtime = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
     const darwinOps = readFileSync(
-      new URL("../src/main/vellum/hosts/host-ops-darwin.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-ops-darwin.ts", import.meta.url),
       "utf8",
     );
     const linuxOps = readFileSync(
-      new URL("../src/main/vellum/hosts/host-ops-linux.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-ops-linux.ts", import.meta.url),
       "utf8",
     );
     expect(runtime).toContain("applyHostRuntime");
@@ -942,7 +942,7 @@ describe("HostRuntime inversion", () => {
     expect(linuxOps).not.toContain("TermControlClient");
     expect(linuxOps).toContain("LINUX_REMOTE_DEPLOY_OFF");
     const platform = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime-platform.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-runtime-platform.ts", import.meta.url),
       "utf8",
     );
     expect(platform).toContain("handshakeLinuxWorkControl");
@@ -952,18 +952,18 @@ describe("HostRuntime inversion", () => {
   it("does not keep a shared applyConfiguredRemoteGap act", () => {
     expect(() =>
       readFileSync(
-        new URL("../src/main/vellum/hosts/host-runtime-apply.ts", import.meta.url),
+        new URL("../src/main/vellum-command/hosts/host-runtime-apply.ts", import.meta.url),
       ),
     ).toThrow();
   });
 
   it("does not mint onAdmitted pre-mutation receipts", () => {
     const service = readFileSync(
-      new URL("../src/main/vellum/hosts/service.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/service.ts", import.meta.url),
       "utf8",
     );
     const configured = readFileSync(
-      new URL("../src/main/vellum/hosts/deploy-configured-remote.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/deploy-configured-remote.ts", import.meta.url),
       "utf8",
     );
     expect(service).not.toContain("onAdmitted");

@@ -49,7 +49,7 @@ import { redactLinuxCiLog } from "./linux-ci-evidence";
 import {
   verifyProductionLinuxDeployBundle,
   verifyQualificationLinuxDeployBundle,
-} from "../src/main/vellum/hosts/linux-release-admission";
+} from "../src/main/vellum-command/hosts/linux-release-admission";
 import {
   decodeStationQualification,
   STATION_QUALIFICATION_EVIDENCE_FILE,

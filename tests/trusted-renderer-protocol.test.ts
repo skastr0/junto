@@ -15,8 +15,8 @@ import {
   registerTrustedRendererScheme,
   TRUSTED_RENDERER_SCHEME,
   TRUSTED_RENDERER_URL,
-} from "../src/main/vellum/trusted-renderer-protocol";
-import { setTrustedMainWebContents } from "../src/main/vellum/trusted-main-webcontents";
+} from "../src/main/vellum-command/trusted-renderer-protocol";
+import { setTrustedMainWebContents } from "../src/main/vellum-command/trusted-main-webcontents";
 
 describe("trusted renderer protocol", () => {
   let root = "";

@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
-const MIGRATIONS = join(ROOT, "src/main/vellum/state/migrations.ts");
+const MIGRATIONS = join(ROOT, "src/main/vellum-command/state/migrations.ts");
 
 const out = mkdtempSync(join(tmpdir(), "vellum-schema-identity-"));
 const resultPath = join(out, "identity.json");
@@ -26,11 +26,11 @@ writeFileSync(
   toolTest,
   `import { writeFileSync } from "node:fs";
 import { it } from "vitest";
-import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
+import { STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
-} from "../src/main/vellum/state/migrations";
-import { expectedStateSchemaIdentity } from "../src/main/vellum/state/schema-identity";
+} from "../src/main/vellum-command/state/migrations";
+import { expectedStateSchemaIdentity } from "../src/main/vellum-command/state/schema-identity";
 it("computes the head schema identity", () => {
   writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({
     version: CURRENT_STATE_SCHEMA_VERSION,

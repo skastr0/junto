@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import { inspectRemoteCommand } from "../src/main/vellum/ssh/domain";
-import * as remotePlan from "../src/main/vellum/ssh/remote-plan";
+import { inspectRemoteCommand } from "../src/main/vellum-command/ssh/domain";
+import * as remotePlan from "../src/main/vellum-command/ssh/remote-plan";
 import {
   compileDarwinRemoteDeployScript,
   compileLinuxUserlandDeploy,
@@ -14,7 +14,7 @@ import {
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandDeploySource,
   LINUX_WORK_CONTROL_HANDSHAKE_PYTHON,
-} from "../src/main/vellum/ssh/remote-plan";
+} from "../src/main/vellum-command/ssh/remote-plan";
 import {
   encodeWorkFrame,
   workErr,

@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compiledMacSigningPolicy,
   parseMacSigningPolicy,
-} from "../src/main/vellum/mac-signing-policy";
+} from "../src/main/vellum-command/mac-signing-policy";
 import {
   buildRemoteDeployScript,
   validateLocalBundleProvenance,
-} from "../src/main/vellum/hosts/deploy-darwin";
-import { admitStagedMacApp } from "../src/main/vellum/update/admit-mac-app";
+} from "../src/main/vellum-command/hosts/deploy-darwin";
+import { admitStagedMacApp } from "../src/main/vellum-command/update/admit-mac-app";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

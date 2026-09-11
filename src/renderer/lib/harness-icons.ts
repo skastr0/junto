@@ -257,7 +257,7 @@ const marksImpl: MarksService = {
   hueFor: harnessHue,
 };
 
-export class Marks extends Context.Service<Marks, MarksService>()("@vellum/Marks") {}
+export class Marks extends Context.Service<Marks, MarksService>()("@vellum-command/Marks") {}
 
 export const MarksLive = Layer.succeed(Marks, marksImpl);
 

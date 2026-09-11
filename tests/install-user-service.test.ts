@@ -12,8 +12,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   resolveCandidateRuntimeRootFromRemoteBinary,
   resolveReleaseDirectoryFromRemoteBinary,
-} from "../src/main/vellum/supervision/install-user-service";
-import { renderUserlandLinuxService } from "../src/main/vellum/supervision/systemd-user";
+} from "../src/main/vellum-command/supervision/install-user-service";
+import { renderUserlandLinuxService } from "../src/main/vellum-command/supervision/systemd-user";
 
 const roots: string[] = [];
 

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Socket } from "node:net";
 import {
   admitOperatorPeer,
-} from "../src/main/vellum/operator-control/admission";
-import type { ProcessIdentityMap } from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/operator-control/admission";
+import type { ProcessIdentityMap } from "../src/main/vellum-command/process-identity";
 
 const socket = {} as Socket;
 

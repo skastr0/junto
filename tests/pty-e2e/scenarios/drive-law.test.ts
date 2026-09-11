@@ -1,7 +1,7 @@
 /**
  * Drive-law repro scenarios (D1–D6) against the REAL ManagedTerminalDrive +
  * SeatStateRuntime + SessionObserver in a full loop (wiring mirrors
- * src/main/vellum/ipc.ts: seat working → drive.onTurnStart, idle →
+ * src/main/vellum-command/ipc.ts: seat working → drive.onTurnStart, idle →
  * drive.onSeatIdle; isSeatIdle = runtime.isSeatIdle).
  *
  * The "harness" is the in-process ScriptedTui byte model (scripted-tui.ts),
@@ -22,7 +22,7 @@ import {
   BRACKETED_PASTE_START,
   CR,
   INTERRUPT_BYTE,
-} from "../../../src/main/vellum/term/drive";
+} from "../../../src/main/vellum-command/term/drive";
 import { DriveLoop, ScriptedTui, type DriveLoopOptions } from "../scripted-tui";
 
 const BINDING = "seat-b1";

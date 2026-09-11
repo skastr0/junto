@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   findPackagedSandboxDisablingSwitch,
   PACKAGED_SANDBOX_DISABLING_SWITCHES,
-} from "../src/main/vellum/packaged-sandbox-policy";
+} from "../src/main/vellum-command/packaged-sandbox-policy";
 
 describe("packaged Chromium sandbox policy", () => {
   it.each(PACKAGED_SANDBOX_DISABLING_SWITCHES)(

@@ -17,7 +17,7 @@ parsing at all**.
 
 | power | state in repo | evidence |
 |---|---|---|
-| spawn w/ env+argv control | built | `src/main/vellum/term/local-host.ts:235–257` — argv/cwd/env assembled; env merge at `:241–245` with `TERM`/`COLORTERM` defaults; shell resolved from `process.env.SHELL` at `:216–217`; pre-spawn shell validation in `src/main/vellum/term/shell-policy.ts:33–57` |
+| spawn w/ env+argv control | built | `src/main/vellum-command/term/local-host.ts:235–257` — argv/cwd/env assembled; env merge at `:241–245` with `TERM`/`COLORTERM` defaults; shell resolved from `process.env.SHELL` at `:216–217`; pre-spawn shell validation in `src/main/vellum-command/term/shell-policy.ts:33–57` |
 | read all bytes | built, pass-through only | `local-host.ts:698–713` `observeData()` — bumps `seq`, appends to journal, re-emits an `output` event. Zero inspection of the payload. |
 | replay buffer | built, byte-log not grid | `local-host.ts:200` `MAX_JOURNAL_BYTES = 512 * 1024`; trim loop at `:875–880`. It is a **raw byte ring**, not state. |
 | write bytes | built | resize path at `local-host.ts:526–535` journals + emits alongside the pty resize |
@@ -430,7 +430,7 @@ restart policy. Depends on (a)+(b). The honest hard part is not detection but
 **policy**: restart-on-crash is a machine-safety-adjacent decision (a crash-loop
 is a resource attack on the operator's machine), so it needs a bound and it needs
 to route through the sealed process-signal plane
-(`src/main/vellum/process-signal.ts`) rather than growing its own kill path.
+(`src/main/vellum-command/process-signal.ts`) rather than growing its own kill path.
 
 ### Expensive / taste-bound — do not bundle with the above
 

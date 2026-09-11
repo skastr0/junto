@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { readGitLog, readGitShow, readGitStatus } from "../src/main/vellum/adapters/git";
+import { readGitLog, readGitShow, readGitStatus } from "../src/main/vellum-command/adapters/git";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 

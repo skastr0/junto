@@ -24,7 +24,7 @@ const rendererSources = async (
 describe("settings state architecture", () => {
   it("keeps the canonical repository on the pure StateEngine seam", async () => {
     const source = await readFile(
-      new URL("../src/main/vellum/settings/service.ts", import.meta.url),
+      new URL("../src/main/vellum-command/settings/service.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain('from "../state/service"');
@@ -36,7 +36,7 @@ describe("settings state architecture", () => {
 
   it("has no local file-store migration or fallback path", async () => {
     const source = await readFile(
-      new URL("../src/main/vellum/settings/service.ts", import.meta.url),
+      new URL("../src/main/vellum-command/settings/service.ts", import.meta.url),
       "utf8",
     );
     // Strip comments — prose may say "rename" without a file-store path.
@@ -51,7 +51,7 @@ describe("settings state architecture", () => {
 
   it("stores preferences without creating a second topology authority", async () => {
     const source = await readFile(
-      new URL("../src/main/vellum/settings/state-schema.ts", import.meta.url),
+      new URL("../src/main/vellum-command/settings/state-schema.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain("CREATE TABLE IF NOT EXISTS settings_preferences");
@@ -64,7 +64,7 @@ describe("settings state architecture", () => {
 
   it("joins the aggregate from canonical normalized station state", async () => {
     const source = await readFile(
-      new URL("../src/main/vellum/settings/service.ts", import.meta.url),
+      new URL("../src/main/vellum-command/settings/service.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain("selectStationConfiguration(reader)");
@@ -93,7 +93,7 @@ describe("settings state architecture", () => {
         "utf8",
       ),
       readFile(
-        new URL("../src/main/vellum/settings/service.ts", import.meta.url),
+        new URL("../src/main/vellum-command/settings/service.ts", import.meta.url),
         "utf8",
       ),
     ]);
@@ -114,7 +114,7 @@ describe("settings state architecture", () => {
 
   it("boots the settings fragment in the sole StateEngine schema", async () => {
     const source = await readFile(
-      new URL("../src/main/vellum/state/schema.ts", import.meta.url),
+      new URL("../src/main/vellum-command/state/schema.ts", import.meta.url),
       "utf8",
     );
     expect(source).toContain(

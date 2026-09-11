@@ -8,7 +8,7 @@ import {
   getNextFire,
   isValidTimerInterval,
   __setTimerSchedulerForTest,
-} from "../src/main/vellum/kernel/cycle";
+} from "../src/main/vellum-command/kernel/cycle";
 import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 
 // forge-review sdk-kernel-build fix 3 — an EtherTimer.everyMinutes of 0,

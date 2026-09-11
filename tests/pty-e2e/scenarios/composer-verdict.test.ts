@@ -17,9 +17,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { loadP1Fixture } from "../runner";
-import { SessionObserver } from "../../../src/main/vellum/term/observer";
-import { composerVerdictForHarness } from "../../../src/main/vellum/term/agent-state";
-import type { ComposerVerdict } from "../../../src/main/vellum/term/agent-state";
+import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
+import { composerVerdictForHarness } from "../../../src/main/vellum-command/term/agent-state";
+import type { ComposerVerdict } from "../../../src/main/vellum-command/term/agent-state";
 
 const CHUNK = 64;
 

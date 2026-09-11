@@ -8,12 +8,12 @@ import {
   createCurrentProjectedTaskDependencyScopeCapability,
   createRetainedProjectedTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
-} from "../../src/main/vellum/work/repository";
+} from "../../src/main/vellum-command/work/repository";
 import {
   canvasBodySha256Of,
   intentSha256Of,
-} from "../../src/main/vellum/canvas-intent-identity";
-import type { CanvasAuthorityMaterialSnapshot } from "../../src/main/vellum/canvases";
+} from "../../src/main/vellum-command/canvas-intent-identity";
+import type { CanvasAuthorityMaterialSnapshot } from "../../src/main/vellum-command/canvases";
 
 export const authorialMaterialForTest = (input: {
   readonly generation: string;

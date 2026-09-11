@@ -2,14 +2,14 @@ import { EventEmitter } from "node:events";
 import { Effect, Result, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { CanvasesService, CanvasError } from "../src/main/vellum/canvases";
-import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum/chat/acp-client";
-import { ChatService } from "../src/main/vellum/chat/service";
+import { CanvasesService, CanvasError } from "../src/main/vellum-command/canvases";
+import type { AcpChildLike, JsonRpcId, SpawnFn } from "../src/main/vellum-command/chat/acp-client";
+import { ChatService } from "../src/main/vellum-command/chat/service";
 import {
   makeRegionRollupLive,
   RegionRollupService,
-} from "../src/main/vellum/region-rollup";
-import { SnapshotsService } from "../src/main/vellum/snapshots";
+} from "../src/main/vellum-command/region-rollup";
+import { SnapshotsService } from "../src/main/vellum-command/snapshots";
 import {
   actorRefsForDoc,
   claimedByNode,

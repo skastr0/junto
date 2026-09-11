@@ -20,23 +20,23 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "../../src/shared/canvas";
 import { IntentFactBasis, type ActorRef } from "../../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../../src/main/vellum/canvases";
-import { SettingsLive, SettingsService } from "../../src/main/vellum/settings/service";
-import { StationFleetTargetRepositoryLive } from "../../src/main/vellum/station/fleet-target-repository";
-import { StationRepository, StationRepositoryLive } from "../../src/main/vellum/station/repository";
+import { CanvasesLive, CanvasesService } from "../../src/main/vellum-command/canvases";
+import { SettingsLive, SettingsService } from "../../src/main/vellum-command/settings/service";
+import { StationFleetTargetRepositoryLive } from "../../src/main/vellum-command/station/fleet-target-repository";
+import { StationRepository, StationRepositoryLive } from "../../src/main/vellum-command/station/repository";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/vellum/work/repository";
-import { makeContentServiceLive } from "../../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../../src/main/vellum/install-ops/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../../src/main/vellum/state/migrations";
-import { StateEngine } from "../../src/main/vellum/state/service";
+} from "../../src/main/vellum-command/work/repository";
+import { makeContentServiceLive } from "../../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../../src/main/vellum-command/install-ops/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../../src/main/vellum-command/state/migrations";
+import { StateEngine } from "../../src/main/vellum-command/state/service";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
-} from "../../src/main/vellum/work/mailbox-receipts";
+} from "../../src/main/vellum-command/work/mailbox-receipts";
 import { SqlRecorder, makeInstrumentedStateEngineLive } from "./harness";
 
 export const BENCH_CANVAS_NAME = "factory";

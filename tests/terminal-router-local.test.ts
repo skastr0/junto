@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Scope } from "effect";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
-import { remapRemoteAttach, TerminalRouter } from "../src/main/vellum/term/router";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+import { remapRemoteAttach, TerminalRouter } from "../src/main/vellum-command/term/router";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
-import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+} from "../src/main/vellum-command/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
+import { hostsSnapshot, setHostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];

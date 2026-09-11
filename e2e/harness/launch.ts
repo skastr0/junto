@@ -9,7 +9,7 @@
  *  - throwaway --user-data-dir + HOME per test (sandbox.ts); the app still
  *    resolves its one canonical $HOME/.vellum-command/state/vellum-command.db
  *  - HOME sandboxed to the same temp root + SHELL=/bin/sh, so the adapters'
- *    login-shell PATH probe (src/main/vellum/adapters/exec.ts) cannot
+ *    login-shell PATH probe (src/main/vellum-command/adapters/exec.ts) cannot
  *    resolve the operator's real CLIs
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged

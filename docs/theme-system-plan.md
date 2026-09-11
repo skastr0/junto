@@ -132,7 +132,7 @@ their resting surfaces ≥ 4.5, `accent-fg/ground` ≥ 4.5.
   paint).
 - Settings schema: `SettingsTheme` becomes `"dark" | "bright" | "system"`.
   Landed as a value-level decode mapping (`deep-field → dark` in
-  `src/main/vellum/settings/state-schema.ts`); `SETTINGS_VERSION` stays 1 —
+  `src/main/vellum-command/settings/state-schema.ts`); `SETTINGS_VERSION` stays 1 —
   no stored-document version bump, the next persist rewrites the value.
   `SettingsPanel.tsx` gains the Appearance section (segmented mode control,
   composed from existing ui primitives).

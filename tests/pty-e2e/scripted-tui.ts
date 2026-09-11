@@ -32,11 +32,11 @@ import {
   ManagedTerminalDrive,
   promptStillPending,
   type ManagedTerminalDriveOptions,
-} from "../../src/main/vellum/term/drive";
-import { SeatStateRuntime } from "../../src/main/vellum/term/agent-state/runtime";
-import { SessionObserver } from "../../src/main/vellum/term/observer";
+} from "../../src/main/vellum-command/term/drive";
+import { SeatStateRuntime } from "../../src/main/vellum-command/term/agent-state/runtime";
+import { SessionObserver } from "../../src/main/vellum-command/term/observer";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { DriveAttentionReason } from "../../src/main/vellum/term/drive";
+import type { DriveAttentionReason } from "../../src/main/vellum-command/term/drive";
 
 export type TuiHarness = "claude" | "codex" | "hermes";
 
@@ -567,7 +567,7 @@ export type DriveLoopOptions = {
   readonly epoch?: string;
   readonly harness?: TuiHarness;
   /** Called with every observer snapshot (supervisor wiring mirror). */
-  readonly onSnapshot?: (snap: import("../../src/main/vellum/term/observer/types").ObserverGridSnapshot) => void;
+  readonly onSnapshot?: (snap: import("../../src/main/vellum-command/term/observer/types").ObserverGridSnapshot) => void;
   readonly now: () => number;
   readonly stallTimeoutMs?: number;
   readonly pasteToCrSettleMs?: number;
@@ -585,7 +585,7 @@ export type DriveLoopOptions = {
 };
 
 /**
- * Full production loop (mirrors src/main/vellum/ipc.ts):
+ * Full production loop (mirrors src/main/vellum-command/ipc.ts):
  *   drive.write → tui (byte model) → observer.feed(seq++)
  *   observer snapshots → seatStateRuntime.observe (same path as the global
  *   observer plane subscription)

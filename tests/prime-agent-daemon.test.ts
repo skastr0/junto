@@ -9,17 +9,17 @@ import type {
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   makePrimeAgentDaemons,
   type PrimeAgentDaemonHandle,
   type PrimeAgentDaemonProcessPlane,
   type PrimeAgentDaemonUnexpectedExit,
-} from "../src/main/vellum/term/prime-agent-daemon";
+} from "../src/main/vellum-command/term/prime-agent-daemon";
 import type {
   PrimeAgentReporterRegisterInput,
   PrimeAgentReporterRegistration,
-} from "../src/main/vellum/term/prime-agent-reporter";
+} from "../src/main/vellum-command/term/prime-agent-reporter";
 
 type CommandPlan = Readonly<{
   stdout?: string;

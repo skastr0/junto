@@ -319,10 +319,10 @@ they are not degraded through a compatibility rewrite. Unknown
 | Verb table + compile | `src/shared/physics/verbs.ts` (`VERB_TABLE`, `compileVerb`) |
 | Execution graph (phase from claimed sink state) | `src/shared/execution-graph.ts` |
 | Derived graph / phase | `src/shared/graph.ts` |
-| Work control authz | `src/main/vellum/work/authz.ts` |
-| Control socket + ScopeError | `src/main/vellum/work/control.ts` |
-| Process-bind identity | `src/main/vellum/process-identity.ts` |
-| Kernel watchers / timers | `src/main/vellum/kernel/` |
+| Work control authz | `src/main/vellum-command/work/authz.ts` |
+| Control socket + ScopeError | `src/main/vellum-command/work/control.ts` |
+| Process-bind identity | `src/main/vellum-command/process-identity.ts` |
+| Kernel watchers / timers | `src/main/vellum-command/kernel/` |
 | Machine safety (host seal) | `docs/architecture-machine-safety.md` |
 
 ---

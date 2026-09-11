@@ -79,9 +79,9 @@ describe("Hermes integration product gate", () => {
       });
 
       const preload = readFileSync("src/preload/index.ts", "utf8");
-      const ipc = readFileSync("src/main/vellum/ipc.ts", "utf8");
-      const snapshots = readFileSync("src/main/vellum/snapshots.ts", "utf8");
-      const terminalIpc = readFileSync("src/main/vellum/term/ipc.ts", "utf8");
+      const ipc = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
+      const snapshots = readFileSync("src/main/vellum-command/snapshots.ts", "utf8");
+      const terminalIpc = readFileSync("src/main/vellum-command/term/ipc.ts", "utf8");
       expect(preload).toContain(
         "...(HERMES_INTEGRATION_ENABLED ? hermesIntegrationApi : {})",
       );

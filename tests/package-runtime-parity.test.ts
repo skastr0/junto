@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_IDENTITY } from "../src/main/vellum/state/migrations";
+import { CURRENT_STATE_SCHEMA_IDENTITY } from "../src/main/vellum-command/state/migrations";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -293,13 +293,13 @@ const createSourceRepository = async (
   git(root, ["config", "user.email", "package-test@example.invalid"]);
   git(root, ["config", "user.name", "Package Test"]);
   git(root, ["config", "commit.gpgsign", "false"]);
-  await mkdir(path.join(root, "src/main/vellum/state"), { recursive: true });
+  await mkdir(path.join(root, "src/main/vellum-command/state"), { recursive: true });
   await writeFile(
     path.join(root, "package.json"),
     `${JSON.stringify({ version: appVersion })}\n`,
   );
   await writeFile(
-    path.join(root, "src/main/vellum/state/migrations.ts"),
+    path.join(root, "src/main/vellum-command/state/migrations.ts"),
     [
       `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};`,
       `export const STATE_SCHEMA_V${String(schemaVersion)}_IDENTITY = { actualSchemaSha256: ${JSON.stringify(migrationIdentitySha256)} };`,
@@ -325,7 +325,7 @@ const mutatePackageSourceFacts = async (
   }
   const migrationPath = path.join(
     root,
-    "src/main/vellum/state/migrations.ts",
+    "src/main/vellum-command/state/migrations.ts",
   );
   const body = await readFile(migrationPath, "utf8");
   const substitutions: ReadonlyArray<readonly [string, string]> =

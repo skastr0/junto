@@ -16,7 +16,7 @@ import {
   workControlTokenPath,
 } from "../src/shared/work-control";
 import type { PreambleEvent } from "../src/shared/preamble";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
 import {
   resolveProcessBoundActorRef,
   startWorkControlServer,
@@ -24,40 +24,40 @@ import {
   type WorkControlRuntime,
   type WorkControlServer,
   type WorkControlServerOptions,
-} from "../src/main/vellum/work/control";
-import { mailboxMessageReadId } from "../src/main/vellum/work/mailbox-receipts";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+} from "../src/main/vellum-command/work/control";
+import { mailboxMessageReadId } from "../src/main/vellum-command/work/mailbox-receipts";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 import {
   ContentService,
   makeContentServiceLive,
-} from "../src/main/vellum/content/service";
+} from "../src/main/vellum-command/content/service";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/work/repository";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
+} from "../src/main/vellum-command/station/session-registry";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
-import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
-import { resetSeatBlocks } from "../src/main/vellum/work/blocked-seat";
+} from "../src/main/vellum-command/settings/service";
+import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
+import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
+import { resetSeatBlocks } from "../src/main/vellum-command/work/blocked-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { ContentRef } from "../src/shared/content";
 import {
   createMainAuthoringGate,
   type MainAuthoringGate,
-} from "../src/main/vellum/main-authoring-gate";
+} from "../src/main/vellum-command/main-authoring-gate";
 import {
   actorRefFixture,
 } from "./helpers/actor-ref-fixtures";

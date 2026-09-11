@@ -21,10 +21,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
-import { SessionObserver } from "../../src/main/vellum/term/observer";
-import { SeatStateRuntime } from "../../src/main/vellum/term/agent-state/runtime";
+import { SessionObserver } from "../../src/main/vellum-command/term/observer";
+import { SeatStateRuntime } from "../../src/main/vellum-command/term/agent-state/runtime";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import type { ObserverGridSnapshot } from "../../src/main/vellum/term/observer/types";
+import type { ObserverGridSnapshot } from "../../src/main/vellum-command/term/observer/types";
 
 // ---------------------------------------------------------------------------
 // Corpus / fixture types

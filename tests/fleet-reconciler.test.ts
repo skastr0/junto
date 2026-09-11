@@ -3,7 +3,7 @@ import {
   planFleetRemoteUpdates,
   remotesMayReceiveFeedVersion,
   sequentialAutoDeployHostIds,
-} from "../src/main/vellum/update/fleet-reconciler";
+} from "../src/main/vellum-command/update/fleet-reconciler";
 
 describe("planFleetRemoteUpdates", () => {
   it("requires CC version match and operator toggle for auto-walk", () => {

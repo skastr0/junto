@@ -6,7 +6,7 @@ import type { HarnessId } from "../src/shared/managed-terminal-templates";
 import {
   compileActorSeatRegistry,
   deriveActorSeatId,
-} from "../src/main/vellum/station/actor-seat-compiler";
+} from "../src/main/vellum-command/station/actor-seat-compiler";
 
 const installation = (value: string) =>
   Schema.decodeUnknownSync(InstallationId)(value);

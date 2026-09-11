@@ -91,37 +91,37 @@ vi.mock("node:os", async (importOriginal) => {
 vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 import {
   createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/work/repository";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import {
   StationRepository,
   StationRepositoryLive,
   stationProjectionContentSha256,
-} from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/repository";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
+} from "../src/main/vellum-command/station/session-registry";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
+} from "../src/main/vellum-command/settings/service";
 import {
   compileStationPortfolioBody,
-} from "../src/main/vellum/station/portfolio";
+} from "../src/main/vellum-command/station/portfolio";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
+} from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
 
 const makeWorkRuntime = (databasePath: string) => {
   const installRoot = join(databasePath, "..");

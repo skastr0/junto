@@ -23,24 +23,24 @@ import {
   startBrowserControlServer,
   type BrowserControlRuntime,
   type BrowserControlServer,
-} from "../src/main/vellum/browser/control";
-import type { EdgeGrantService } from "../src/main/vellum/browser/edge-grant";
-import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+} from "../src/main/vellum-command/browser/control";
+import type { EdgeGrantService } from "../src/main/vellum-command/browser/edge-grant";
+import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/vellum/browser/sessions";
-import type { PageTargetResolver } from "../src/main/vellum/browser/page-target";
+} from "../src/main/vellum-command/browser/sessions";
+import type { PageTargetResolver } from "../src/main/vellum-command/browser/page-target";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserAutomationPrincipal,
   type BrowserCapabilityRegistry,
-} from "../src/main/vellum/browser/capabilities";
-import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/browser/capabilities";
+import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";

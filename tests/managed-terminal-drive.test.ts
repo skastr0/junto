@@ -8,12 +8,12 @@ import {
   buildPromptWriteSequence,
   canSendIdleInterrupt,
   encodeBracketedPaste,
-} from "../src/main/vellum/term/drive";
+} from "../src/main/vellum-command/term/drive";
 import {
   makeManagedPulseDeliver,
   scheduleManagedPulseReady,
   subscribeManagedPulseReady,
-} from "../src/main/vellum/term/managed-pulse-bridge";
+} from "../src/main/vellum-command/term/managed-pulse-bridge";
 
 describe("typing recipe", () => {
   it("encodes bracketed paste as one envelope", () => {

@@ -5,12 +5,12 @@ import {
   __setAutomationGateForTest,
   __setDocsForTest,
   manualSchedulerFire,
-} from "../src/main/vellum/kernel/cycle";
+} from "../src/main/vellum-command/kernel/cycle";
 import {
   __setSchedulerEffectDepsForTest,
   applySchedulerFire,
   collectTriggerCascadeTargets,
-} from "../src/main/vellum/kernel/effects";
+} from "../src/main/vellum-command/kernel/effects";
 import { CRON_ENABLED, RELAY_ENABLED } from "../src/shared/features";
 
 const board = (): CanvasDoc =>

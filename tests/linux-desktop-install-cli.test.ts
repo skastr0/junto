@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const seam = vi.hoisted(() => ({
   verify: vi.fn(), stage: vi.fn(), revalidate: vi.fn(), activate: vi.fn(), target: vi.fn(), firstInstall: vi.fn(),
 }));
-vi.mock("../src/main/vellum/update/linux-target", () => ({ assertCurrentLinuxDesktopTarget: seam.target }));
+vi.mock("../src/main/vellum-command/update/linux-target", () => ({ assertCurrentLinuxDesktopTarget: seam.target }));
 vi.mock("../src/shared/linux-desktop-release-files", () => ({ verifyLinuxDesktopReleaseFiles: seam.verify }));
-vi.mock("../src/main/vellum/update/linux-install", () => ({
+vi.mock("../src/main/vellum-command/update/linux-install", () => ({
   stageLinuxDesktopRelease: seam.stage,
   revalidateLinuxDesktopRelease: seam.revalidate,
   activateLinuxDesktopRelease: seam.activate,

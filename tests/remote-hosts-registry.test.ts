@@ -20,16 +20,16 @@ import { ProductPlanesLive } from "../src/main/runtime";
 import {
   HostsService,
   makeHostsService,
-} from "../src/main/vellum/hosts/service";
+} from "../src/main/vellum-command/hosts/service";
 import {
   makeHostsRegistry,
   resetDefaultHostsRegistryForTests,
   type HostsRegistry,
-} from "../src/main/vellum/hosts/registry";
+} from "../src/main/vellum-command/hosts/registry";
 import {
   makeStateEngineLive,
-} from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
+} from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
 import {
   findHostByHermesId,
   findHostById,
@@ -37,10 +37,10 @@ import {
   hostsWithCapability,
   setHostsSnapshot,
   subscribeHostsSnapshot,
-} from "../src/main/vellum/hosts/snapshot";
-import { SshTransport } from "../src/main/vellum/ssh/service";
-import { acpVerboseLogging } from "../src/main/vellum/chat/acp-client";
-import { StationFleetPropagation } from "../src/main/vellum/station/fleet-propagation";
+} from "../src/main/vellum-command/hosts/snapshot";
+import { SshTransport } from "../src/main/vellum-command/ssh/service";
+import { acpVerboseLogging } from "../src/main/vellum-command/chat/acp-client";
+import { StationFleetPropagation } from "../src/main/vellum-command/station/fleet-propagation";
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;

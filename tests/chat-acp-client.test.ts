@@ -6,8 +6,8 @@ import {
   type AcpChildLike,
   type AcpClientHandlers,
   type JsonRpcId,
-} from "../src/main/vellum/chat/acp-client";
-import { buildAcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+} from "../src/main/vellum-command/chat/acp-client";
+import { buildAcpSpawnTarget } from "../src/main/vellum-command/chat/spawn";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 
 const TARGET = buildAcpSpawnTarget("local:default")!;

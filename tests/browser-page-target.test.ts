@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import type { CanvasNodeReader } from "../src/main/vellum/node-ref-resolver";
-import { CanvasError } from "../src/main/vellum/canvases";
-import { makePageTargetResolver } from "../src/main/vellum/browser/page-target";
+import type { CanvasNodeReader } from "../src/main/vellum-command/node-ref-resolver";
+import { CanvasError } from "../src/main/vellum-command/canvases";
+import { makePageTargetResolver } from "../src/main/vellum-command/browser/page-target";
 
 const page = (
   id: string,

@@ -4,11 +4,11 @@ import {
   FactoryPausePersistenceError,
   FactoryPauseRepository,
   type PauseMemberScope,
-} from "../src/main/vellum/pause/repository";
+} from "../src/main/vellum-command/pause/repository";
 import {
   PausePlane,
   PausePlaneLive,
-} from "../src/main/vellum/pause-plane";
+} from "../src/main/vellum-command/pause-plane";
 import {
   PAUSED_CANVAS,
   type CanvasPauseState,

@@ -16,10 +16,10 @@ import {
   ensureLinuxReleaseCache,
   linuxQualificationCandidateBundleRoot,
   linuxRemoteArtifactBundleRoot,
-} from "../src/main/vellum/hosts/linux-release-feed";
+} from "../src/main/vellum-command/hosts/linux-release-feed";
 import {
   makeProductionLinuxArtifactAuthority,
-} from "../src/main/vellum/hosts/deploy-linux";
+} from "../src/main/vellum-command/hosts/deploy-linux";
 
 const homes = new Set<string>();
 

@@ -35,7 +35,7 @@ session; actor delete revokes then terminates **OwnedProcess only**.
 
 | Property | Target | Current | Status | Evidence |
 |----------|--------|---------|--------|----------|
-| Identity source | Unix peer PID (+ ancestor walk) of a main-registered process | Work + browser control call `admitProcessIdentity` → `readUnixPeerPid` + `resolveInTree` | **Met** | `src/main/vellum/process-identity.ts`, `work/control.ts` (~901–923), `browser/edge-grant.ts` `admitSocket` |
+| Identity source | Unix peer PID (+ ancestor walk) of a main-registered process | Work + browser control call `admitProcessIdentity` → `readUnixPeerPid` + `resolveInTree` | **Met** | `src/main/vellum-command/process-identity.ts`, `work/control.ts` (~901–923), `browser/edge-grant.ts` `admitSocket` |
 | Who may bind | Main registers ACP child / native terminal | Chat binds local ACP `childPid`; term binds native PTY | **Met** | `chat/service.ts` `bindLocalProcess`, `term/local-host.ts` |
 | Client nodeRef | Never identity | Token + peer PID only; `VELLUM_COMMAND_NODE_REF` is not an identity claim on control | **Met** | `work/control.ts` comments; `cli/core/socket.ts`; env still named for other tooling, not admit |
 | PID reuse | Start-key epoch rejects recycled PID | `readProcessStartKey` / `lstart` stored at bind; resolve unbinds on mismatch | **Met** | `process-identity.ts` `bind` / `resolveLive` |
@@ -262,16 +262,16 @@ Ordered for Phase 5 exit without a rewrite fantasy.
 
 | Concern | Path |
 |---------|------|
-| Process-bind map + peer PID | `src/main/vellum/process-identity.ts` |
-| Work socket + per-op admit | `src/main/vellum/work/control.ts`, `work/authz.ts`, `work/caller-resolve.ts` |
+| Process-bind map + peer PID | `src/main/vellum-command/process-identity.ts` |
+| Work socket + per-op admit | `src/main/vellum-command/work/control.ts`, `work/authz.ts`, `work/caller-resolve.ts` |
 | Pure physics admit | `src/shared/physics/admit.ts`, `kinds.ts`, `view.ts`, `work-ports.ts` |
-| Browser process-bind + edge-grant | `src/main/vellum/browser/process-bind.ts`, `edge-grant.ts`, `authz.ts` |
-| Browser capability leases | `src/main/vellum/browser/capabilities.ts` |
+| Browser process-bind + edge-grant | `src/main/vellum-command/browser/process-bind.ts`, `edge-grant.ts`, `authz.ts` |
+| Browser capability leases | `src/main/vellum-command/browser/capabilities.ts` |
 | Canvas change → revoke grants | `src/main/index.ts` (`subscribeChanges` → `invalidateCanvas`) |
 | Page/agent delete side effects | `src/renderer/lib/mutations.ts`, `dock-state.ts` |
-| OwnedProcess signals | `src/main/vellum/process-signal.ts`, `app-process-plane.ts` |
+| OwnedProcess signals | `src/main/vellum-command/process-signal.ts`, `app-process-plane.ts` |
 | UI capability chips | `src/renderer/components/InspectorFields.tsx` |
-| Chat bind/unbind | `src/main/vellum/chat/service.ts` |
+| Chat bind/unbind | `src/main/vellum-command/chat/service.ts` |
 
 ---
 

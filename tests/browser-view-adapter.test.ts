@@ -200,8 +200,8 @@ import {
   buildBoundedEvalScript,
   electronViewAdapter,
   makeElectronBrowserViewAttachmentTarget,
-} from "../src/main/vellum/browser/view-adapter";
-import type { BrowserViewEvents } from "../src/main/vellum/browser/sessions";
+} from "../src/main/vellum-command/browser/view-adapter";
+import type { BrowserViewEvents } from "../src/main/vellum-command/browser/sessions";
 
 const navigation = (
   url: string,

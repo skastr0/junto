@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChatService } from "../src/main/vellum/chat/service";
-import type { SpawnFn } from "../src/main/vellum/chat/acp-client";
+import { ChatService } from "../src/main/vellum-command/chat/service";
+import type { SpawnFn } from "../src/main/vellum-command/chat/acp-client";
 import type { ChatEvent } from "../src/shared/ipc";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
-import { setHostsSnapshot } from "../src/main/vellum/hosts/snapshot";
+import { setHostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
 import {
   spawnedLocalAcp,
   type TestLocalAcpChild,

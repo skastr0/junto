@@ -25,20 +25,20 @@ import {
   applyAndValidatePatch,
   decodePatchInput,
   decodeStationTopologyPatch,
-} from "../src/main/vellum/settings/patch";
+} from "../src/main/vellum-command/settings/patch";
 import {
   decodeStoredSettings,
-} from "../src/main/vellum/settings/state-schema";
+} from "../src/main/vellum-command/settings/state-schema";
 import {
   makeSettingsService,
   shouldEnsureDefaultCommandCenter,
   type SettingsServiceApi,
-} from "../src/main/vellum/settings/service";
+} from "../src/main/vellum-command/settings/service";
 import {
   StateEngine,
   type StateOutputValue,
-} from "../src/main/vellum/state/service";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/service";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);

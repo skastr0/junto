@@ -12,8 +12,8 @@ const processMocks = vi.hoisted(() => ({
   releaseOwned: vi.fn(),
 }));
 
-vi.mock("../src/main/vellum/process-signal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/vellum/process-signal")>()),
+vi.mock("../src/main/vellum-command/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/vellum-command/process-signal")>()),
   spawnDetachedProcessGroup: processMocks.spawnDetachedProcessGroup,
   signalOwned: processMocks.signalOwned,
   releaseOwned: processMocks.releaseOwned,
@@ -43,11 +43,11 @@ import { STATION_SESSION_PROTOCOL } from "../src/shared/station-session";
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
-} from "../src/main/vellum/process-epoch";
+} from "../src/main/vellum-command/process-epoch";
 
 class FakeRuntimeChild extends EventEmitter {
   readonly stdin = new PassThrough();

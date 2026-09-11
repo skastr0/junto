@@ -2,7 +2,7 @@
   "$comment": "S0 fitness gate for bare Effect.runPromise under src/main. permanent = true host/post-dispose adapters only. debt = known product debt (ratchet: count may only shrink; never promote kernel/work claim paths to permanent). See docs/END_STATE-effect-foundation.md §S0.",
   "permanent": [
     {
-      "path": "src/main/vellum/update/ipc.ts",
+      "path": "src/main/vellum-command/update/ipc.ts",
       "maxCount": 1,
       "reason": "post AppRuntime.dispose: finalizeInstallAfterQuiesce via bare Effect.runPromise — runtime and UpdateService are already gone"
     }

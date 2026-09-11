@@ -19,8 +19,8 @@ import {
   type StateReader,
   type StateRow,
   type StateWriter,
-} from "../../src/main/vellum/state/service";
-import { makeStateEngineLive } from "../../src/main/vellum/state/engine";
+} from "../../src/main/vellum-command/state/service";
+import { makeStateEngineLive } from "../../src/main/vellum-command/state/engine";
 
 export type RecorderMode = "off" | "frames" | "statements";
 

@@ -35,12 +35,12 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("../src/main/runtime", () => ({ AppRuntime: runtime }));
-vi.mock("../src/main/vellum/browser/ipc", () => ({ registerBrowserIpc: vi.fn() }));
-vi.mock("../src/main/vellum/chat/ipc", () => ({ registerChatIpc: vi.fn() }));
-vi.mock("../src/main/vellum/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
-vi.mock("../src/main/vellum/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
-vi.mock("../src/main/vellum/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
-vi.mock("../src/main/vellum/term/plane", () => ({ termPlane: {} }));
+vi.mock("../src/main/vellum-command/browser/ipc", () => ({ registerBrowserIpc: vi.fn() }));
+vi.mock("../src/main/vellum-command/chat/ipc", () => ({ registerChatIpc: vi.fn() }));
+vi.mock("../src/main/vellum-command/hosts/ipc", () => ({ registerHostsIpc: vi.fn() }));
+vi.mock("../src/main/vellum-command/settings/ipc", () => ({ registerSettingsIpc: vi.fn() }));
+vi.mock("../src/main/vellum-command/term/ipc", () => ({ registerTerminalIpc: vi.fn() }));
+vi.mock("../src/main/vellum-command/term/plane", () => ({ termPlane: {} }));
 
 const handlerFor = (channel: string): InvokeHandler => {
   const handler = electron.handlers.get(channel);
@@ -58,7 +58,7 @@ beforeEach(() => {
 describe("renderer canvas authoring IPC", () => {
   it("resolves only one exact projected actor reference", async () => {
     const { resolveProjectedIpcActorRef } = await import(
-      "../src/main/vellum/ipc"
+      "../src/main/vellum-command/ipc"
     );
     const actor = actorRefFixture("agent", "factory");
     expect(
@@ -83,13 +83,13 @@ describe("renderer canvas authoring IPC", () => {
   });
 
   it("lands the renderer flush through the same handlers while the gate is closing", async () => {
-    const { registerVellumIpc } = await import("../src/main/vellum/ipc");
+    const { registerVellumIpc } = await import("../src/main/vellum-command/ipc");
     const {
       MainAuthoringRefused,
       mainAuthoringGate,
-    } = await import("../src/main/vellum/main-authoring-gate");
+    } = await import("../src/main/vellum-command/main-authoring-gate");
     const { setTrustedMainWebContents, TrustedRendererRefused } = await import(
-      "../src/main/vellum/trusted-main-webcontents"
+      "../src/main/vellum-command/trusted-main-webcontents"
     );
     const trustedSender = {
       id: 71,

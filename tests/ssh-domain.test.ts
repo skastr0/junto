@@ -8,14 +8,14 @@ import {
   remoteUname,
   type OneShotProgram,
   type ScopedStreamProgram,
-} from "../src/main/vellum/ssh";
+} from "../src/main/vellum-command/ssh";
 import {
   makeRemoteCommand,
   makeRemoteStdin,
-} from "../src/main/vellum/ssh/domain";
+} from "../src/main/vellum-command/ssh/domain";
 import {
   oneShot,
-} from "../src/main/vellum/ssh/program";
+} from "../src/main/vellum-command/ssh/program";
 
 describe("SSH domain", () => {
   it("accepts option-safe SSH aliases and rejects option injection", async () => {
@@ -44,7 +44,7 @@ describe("SSH domain", () => {
 
   it("makes free-form destructive sh -c unrepresentable from the product API", async () => {
     // Product surface: fixed hermes executable only — never /bin/sh.
-    type ProductApi = typeof import("../src/main/vellum/ssh");
+    type ProductApi = typeof import("../src/main/vellum-command/ssh");
     type HasGenericMint = "makeRemoteCommand" extends keyof ProductApi ? true : false;
     expectTypeOf<HasGenericMint>().toEqualTypeOf<false>();
 
@@ -105,7 +105,7 @@ describe("SSH domain", () => {
   });
 
   it("does not expose generic remote command or transport-topology constructors", () => {
-    type PublicSsh = typeof import("../src/main/vellum/ssh");
+    type PublicSsh = typeof import("../src/main/vellum-command/ssh");
     type HasGenericCommand = "makeRemoteCommand" extends keyof PublicSsh ? true : false;
     type HasGenericStdin = "makeRemoteStdin" extends keyof PublicSsh ? true : false;
     type HasOneShot = "oneShot" extends keyof PublicSsh ? true : false;

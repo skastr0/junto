@@ -5,22 +5,22 @@ import { join } from "node:path";
 import {
   ManagedTerminalDrive,
   DEFAULT_QUEUE_TIMEOUT_MS,
-} from "../src/main/vellum/term/drive";
-import { isManagedTerminalReady } from "../src/main/vellum/term/drive/readiness";
+} from "../src/main/vellum-command/term/drive";
+import { isManagedTerminalReady } from "../src/main/vellum-command/term/drive/readiness";
 import {
   armFirstTypedMessage,
   peekFirstTypedMessage,
   takeFirstTypedMessage,
   resetFirstTypedForTest,
-} from "../src/main/vellum/term/first-typed";
+} from "../src/main/vellum-command/term/first-typed";
 import {
   nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
   launchForManagedSpawnIntent,
   makeManagedSpawnIntent,
   shouldAvoidSharedHarnessResume,
-} from "../src/main/vellum/term/managed-spawn-plan";
-import { __setSessionExistenceHomeForTest } from "../src/main/vellum/term/session-existence";
+} from "../src/main/vellum-command/term/managed-spawn-plan";
+import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
 import { BROWSER_ENABLED } from "../src/shared/features";

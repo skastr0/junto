@@ -14,34 +14,34 @@ import {
   type ProjectionAdmissionRef,
   type RemoteProjectionAdmission,
   type RemoteProjectionAdmissionPorts,
-} from "../src/main/vellum/term/actor-seat-occupy";
+} from "../src/main/vellum-command/term/actor-seat-occupy";
 import {
   makeLiveProjectionAdmissionPorts,
   projectionAdmissionOutcomeOf,
   type LiveProjectionAdmissionServices,
-} from "../src/main/vellum/term/actor-seat-occupy-live";
-import { compileStationPortfolioBody } from "../src/main/vellum/station/portfolio";
-import type { StationFleetPeerStatus } from "../src/main/vellum/station/fleet-propagation";
+} from "../src/main/vellum-command/term/actor-seat-occupy-live";
+import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
+import type { StationFleetPeerStatus } from "../src/main/vellum-command/station/fleet-propagation";
 import type {
   StationConfigurationRecord,
   StationProjection,
-} from "../src/main/vellum/station/repository";
-import type { StationFleetTarget } from "../src/main/vellum/station/fleet-target-repository";
-import type { DesiredProjection } from "../src/main/vellum/station/propagation";
+} from "../src/main/vellum-command/station/repository";
+import type { StationFleetTarget } from "../src/main/vellum-command/station/fleet-target-repository";
+import type { DesiredProjection } from "../src/main/vellum-command/station/propagation";
 import { Schema } from "effect";
 import { InstallationId } from "../src/shared/installation-id";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { StationFleetPeerUnavailable } from "../src/main/vellum/station/fleet-propagation";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
+import { StationFleetPeerUnavailable } from "../src/main/vellum-command/station/fleet-propagation";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
 import type {
   RemoteSeatProcessClient,
-} from "../src/main/vellum/term/seat-process";
+} from "../src/main/vellum-command/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+} from "../src/main/vellum-command/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const SHA = "b".repeat(64);

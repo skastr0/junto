@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { ChatCloseAllResult } from "../src/main/vellum/chat/service";
+import type { ChatCloseAllResult } from "../src/main/vellum-command/chat/service";
 import {
   finalizeHermesShutdown,
   makeHermesShutdownPort,
   type HermesShutdownPort,
-} from "../src/main/vellum/hermes/plane";
+} from "../src/main/vellum-command/hermes/plane";
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void;

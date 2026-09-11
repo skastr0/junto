@@ -8,7 +8,7 @@ import {
   __setStationScopeForTest,
   getWatchers,
   runEvaluationCycle,
-} from "../src/main/vellum/kernel/cycle";
+} from "../src/main/vellum-command/kernel/cycle";
 
 const stationHostId = "studio";
 const localAgentKey = "studio:agent";

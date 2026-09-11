@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
-import { readCanvasThroughControl } from "../src/main/vellum/canvas-control/client";
+import { readCanvasThroughControl } from "../src/main/vellum-command/canvas-control/client";
 import { formatNodeRef, nodeRefKey, parseNodeRef } from "../src/shared/node-ref";
 
 const usage = `vellum-command node references

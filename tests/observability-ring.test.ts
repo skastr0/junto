@@ -12,8 +12,8 @@ import {
   defaultSettings,
 } from "../src/shared/settings";
 import { Schema, Result } from "effect";
-import { makeObservabilityRing } from "../src/main/vellum/observability/ring";
-import { ObservabilityEffectLogger } from "../src/main/vellum/observability/logger";
+import { makeObservabilityRing } from "../src/main/vellum-command/observability/ring";
+import { ObservabilityEffectLogger } from "../src/main/vellum-command/observability/logger";
 
 const entry = (
   partial: Partial<ObservabilityLogEntry> & Pick<ObservabilityLogEntry, "message">,
@@ -154,7 +154,7 @@ describe("Effect logger sink", () => {
     // Use a private ring by temporarily logging through the logger factory
     // against the singleton — clear first so the suite is isolated.
     const { observabilityRing } = await import(
-      "../src/main/vellum/observability/ring"
+      "../src/main/vellum-command/observability/ring"
     );
     observabilityRing.clear();
 

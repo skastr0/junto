@@ -5,13 +5,13 @@ import { BROWSER_MAX_REF_BYTES } from "../src/shared/browser-limits";
 import {
   browserProfileWipeDialogOptions,
   registerBrowserIpc,
-} from "../src/main/vellum/browser/ipc";
-import type { PageTargetResolver } from "../src/main/vellum/browser/page-target";
+} from "../src/main/vellum-command/browser/ipc";
+import type { PageTargetResolver } from "../src/main/vellum-command/browser/page-target";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/vellum/browser/sessions";
-import type { BrowserProfileServiceApi } from "../src/main/vellum/browser/profiles";
+} from "../src/main/vellum-command/browser/sessions";
+import type { BrowserProfileServiceApi } from "../src/main/vellum-command/browser/profiles";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;

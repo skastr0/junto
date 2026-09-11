@@ -1,10 +1,10 @@
-import type { AppProcessLease } from "../src/main/vellum/app-process-plane";
-import { bindLocalAcpProcessIdentity } from "../src/main/vellum/hermes/plane";
-import { admitOperatorPeer } from "../src/main/vellum/operator-control/admission";
+import type { AppProcessLease } from "../src/main/vellum-command/app-process-plane";
+import { bindLocalAcpProcessIdentity } from "../src/main/vellum-command/hermes/plane";
+import { admitOperatorPeer } from "../src/main/vellum-command/operator-control/admission";
 import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
-} from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/process-identity";
 import type { Socket } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 

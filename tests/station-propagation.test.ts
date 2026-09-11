@@ -22,7 +22,7 @@ import {
 import {
   CanvasError,
   CanvasesService,
-} from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/canvases";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -31,27 +31,27 @@ import {
 } from "../src/shared/station-protocol";
 import {
   StationApiService,
-} from "../src/main/vellum/station/api";
+} from "../src/main/vellum-command/station/api";
 import {
   StationFleetTargetRepository,
   type StationFleetTarget,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import type {
   StationApiResponseFor,
   StationPeerSession,
-} from "../src/main/vellum/station/peer-session";
+} from "../src/main/vellum-command/station/peer-session";
 import {
   bindNegotiatedStationProtocol,
-} from "../src/main/vellum/station/peer-session";
+} from "../src/main/vellum-command/station/peer-session";
 import {
   StationPropagation,
   StationPropagationLive,
   summarizeStationProjectionTopology,
-} from "../src/main/vellum/station/propagation";
+} from "../src/main/vellum-command/station/propagation";
 import {
   StationRepository,
   stationProjectionContentSha256,
-} from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/station/repository";
 import {
   canvasAuthorityMaterialFixture,
 } from "./helpers/canvas-authority-material";

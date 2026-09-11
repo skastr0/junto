@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const recoverySource = new URL(
-  "../src/main/vellum/state/recovery.ts",
+  "../src/main/vellum-command/state/recovery.ts",
   import.meta.url,
 );
 

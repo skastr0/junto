@@ -17,7 +17,7 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import {
   resolveManagedLaunch,
   resolveManagedLaunchPlan,
-} from "../src/main/vellum/term/templates/resolve-launch";
+} from "../src/main/vellum-command/term/templates/resolve-launch";
 
 const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
 

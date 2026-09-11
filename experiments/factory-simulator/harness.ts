@@ -5,28 +5,28 @@ import { delimiter, join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 import { runBoundedWorkCliCommand } from "../../scripts/work-cli-acceptance";
 import { allSchemas } from "../../src/cli/core/discovery";
-import { createAppProcessPlane } from "../../src/main/vellum/app-process-plane";
-import { CanvasesLive, CanvasesService } from "../../src/main/vellum/canvases";
-import { makeContentServiceLive } from "../../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../../src/main/vellum/install-ops/engine";
-import { managedTaskDeliveryId } from "../../src/main/vellum/kernel/service";
-import { PausePlaneAllPlaying } from "../../src/main/vellum/pause-plane";
-import { makeProcessIdentityMap } from "../../src/main/vellum/process-identity";
-import { makeStateEngineLive } from "../../src/main/vellum/state/engine";
-import { StationFleetTargetRepositoryLive } from "../../src/main/vellum/station/fleet-target-repository";
-import { StationRepositoryLive } from "../../src/main/vellum/station/repository";
-import { StationLivePeerRegistryLive } from "../../src/main/vellum/station/session-registry";
-import { ManagedTerminalDrive } from "../../src/main/vellum/term/drive";
+import { createAppProcessPlane } from "../../src/main/vellum-command/app-process-plane";
+import { CanvasesLive, CanvasesService } from "../../src/main/vellum-command/canvases";
+import { makeContentServiceLive } from "../../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../../src/main/vellum-command/install-ops/engine";
+import { managedTaskDeliveryId } from "../../src/main/vellum-command/kernel/service";
+import { PausePlaneAllPlaying } from "../../src/main/vellum-command/pause-plane";
+import { makeProcessIdentityMap } from "../../src/main/vellum-command/process-identity";
+import { makeStateEngineLive } from "../../src/main/vellum-command/state/engine";
+import { StationFleetTargetRepositoryLive } from "../../src/main/vellum-command/station/fleet-target-repository";
+import { StationRepositoryLive } from "../../src/main/vellum-command/station/repository";
+import { StationLivePeerRegistryLive } from "../../src/main/vellum-command/station/session-registry";
+import { ManagedTerminalDrive } from "../../src/main/vellum-command/term/drive";
 import {
   startWorkControlServer,
   type WorkControlServer,
-} from "../../src/main/vellum/work/control";
+} from "../../src/main/vellum-command/work/control";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/vellum/work/repository";
-import { WorkLive, WorkService } from "../../src/main/vellum/work/service";
-import { SettingsLive, SettingsService } from "../../src/main/vellum/settings/service";
+} from "../../src/main/vellum-command/work/repository";
+import { WorkLive, WorkService } from "../../src/main/vellum-command/work/service";
+import { SettingsLive, SettingsService } from "../../src/main/vellum-command/settings/service";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { buildFactoryClaimPrompt } from "../../src/shared/factory-claim-prompt";
 import { selectFactoryClaims } from "../../src/shared/factory-tick";

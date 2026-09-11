@@ -6,8 +6,8 @@ import {
   AGENT_RULES_FILENAME,
   agentRulesDirFor,
   writeAgentRulesDir,
-} from "../src/main/vellum/term/agent-rules-dir";
-import { planManagedSpawn } from "../src/main/vellum/term/managed-spawn-plan";
+} from "../src/main/vellum-command/term/agent-rules-dir";
+import { planManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
 import { AGY_TEMPLATE } from "../src/shared/managed-terminal-templates";
 import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";

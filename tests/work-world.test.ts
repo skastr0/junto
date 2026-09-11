@@ -41,13 +41,13 @@ import {
   readCanvasWorkRevision,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
-import { unjournaledWorkMutation } from "../src/main/vellum/work/mutation-seam";
-import { makeWorkWorld, type WorkWorld } from "../src/main/vellum/work/world";
+} from "../src/main/vellum-command/state/engine";
+import { unjournaledWorkMutation } from "../src/main/vellum-command/work/mutation-seam";
+import { makeWorkWorld, type WorkWorld } from "../src/main/vellum-command/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";

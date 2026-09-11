@@ -11,16 +11,16 @@ import { resolveVellumCommandHome } from "../shared/vellum-home";
 import {
   CONTENT_TRANSFER_COMMAND,
   parseContentHelperArgs,
-} from "../main/vellum/content/helper-contract";
-import { contentStoreRoot } from "../main/vellum/content/paths";
+} from "../main/vellum-command/content/helper-contract";
+import { contentStoreRoot } from "../main/vellum-command/content/paths";
 import {
   contentRefForTransfer,
   encodeContentHelperStatus,
   receiveContentTransfer,
   sendContentTransfer,
   statContentForTransfer,
-} from "../main/vellum/content/transfer-local";
-import { ContentStoreError } from "../main/vellum/content/store";
+} from "../main/vellum-command/content/transfer-local";
+import { ContentStoreError } from "../main/vellum-command/content/store";
 
 export { CONTENT_TRANSFER_COMMAND };
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
-import { resetWatcherMemory } from "../src/main/vellum/kernel/evaluate";
+import { resetWatcherMemory } from "../src/main/vellum-command/kernel/evaluate";
 import {
   __resetKernelMemoryForTest,
   __setAutomationGateForTest,
@@ -15,7 +15,7 @@ import {
   reconcileLiveCanvasMemory,
   runEvaluationCycle,
   setDocs,
-} from "../src/main/vellum/kernel/cycle";
+} from "../src/main/vellum-command/kernel/cycle";
 import { makeInMemoryTimerScheduler } from "./helpers/in-memory-timer-scheduler";
 
 // purgeCanvasMemory / reconcileLiveCanvasMemory: derived watcher/timer state

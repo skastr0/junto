@@ -5,14 +5,14 @@ import type {
   AcpChildLike,
   JsonRpcId,
   SpawnFn,
-} from "../src/main/vellum/chat/acp-client";
-import type { AcpSpawnTarget } from "../src/main/vellum/chat/spawn";
+} from "../src/main/vellum-command/chat/acp-client";
+import type { AcpSpawnTarget } from "../src/main/vellum-command/chat/spawn";
 import {
   ChatService,
   ChatShutdownUncleanError,
   requireCleanChatShutdown,
-} from "../src/main/vellum/chat/service";
-import { NodeDeleteService } from "../src/main/vellum/chat/node-delete";
+} from "../src/main/vellum-command/chat/service";
+import { NodeDeleteService } from "../src/main/vellum-command/chat/node-delete";
 import type { ChatEvent } from "../src/shared/ipc";
 import { spawnedLocalAcp } from "./helpers/acp-child";
 

@@ -16,19 +16,19 @@ describe("Fleet product gate", () => {
   });
 
   it("gates main hosts IPC, fleet start, overlay import, preload, CLI, and remote occupy", () => {
-    const ipc = readFileSync("src/main/vellum/ipc.ts", "utf8");
+    const ipc = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
     const app = readFileSync("src/renderer/App.tsx", "utf8");
     const fleetState = readFileSync("src/renderer/lib/fleet-state.ts", "utf8");
     const preload = readFileSync("src/preload/index.ts", "utf8");
     const cli = readFileSync("src/cli/main.ts", "utf8");
     const coordinator = readFileSync(
-      "src/main/vellum/hosts/operator-coordinator.ts",
+      "src/main/vellum-command/hosts/operator-coordinator.ts",
       "utf8",
     );
-    const router = readFileSync("src/main/vellum/term/router.ts", "utf8");
-    const doctor = readFileSync("src/main/vellum/hosts/doctor.ts", "utf8");
+    const router = readFileSync("src/main/vellum-command/term/router.ts", "utf8");
+    const doctor = readFileSync("src/main/vellum-command/hosts/doctor.ts", "utf8");
     const settings = readFileSync(
-      "src/main/vellum/settings/service.ts",
+      "src/main/vellum-command/settings/service.ts",
       "utf8",
     );
 

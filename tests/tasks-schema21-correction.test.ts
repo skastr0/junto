@@ -9,22 +9,22 @@ import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V21_IDENTITY,
   stateSchemaAdvanceRequired,
-} from "../src/main/vellum/state/migrations";
+} from "../src/main/vellum-command/state/migrations";
 import {
   STATE_SCHEMA_FRAGMENTS,
   STATE_SCHEMA_V20_SQL,
-} from "../src/main/vellum/state/schema";
+} from "../src/main/vellum-command/state/schema";
 import {
   actualStateSchemaSha256,
   verifyAndStampStateSchema,
-} from "../src/main/vellum/state/schema-identity";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
-import { canonicalJson } from "../src/main/vellum/work/canonical-json";
+} from "../src/main/vellum-command/state/schema-identity";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+import { canonicalJson } from "../src/main/vellum-command/work/canonical-json";
 import {
   reconstructCanvasDoc,
   type CanvasPortfolioHeadRow,
-} from "../src/main/vellum/canvas/records";
-import { intentSha256Of } from "../src/main/vellum/canvas-intent-identity";
+} from "../src/main/vellum-command/canvas/records";
+import { intentSha256Of } from "../src/main/vellum-command/canvas-intent-identity";
 import { serializeCanvas } from "@shared/canvas";
 import { WorkRecord } from "@shared/work-protocol";
 

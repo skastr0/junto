@@ -128,14 +128,14 @@ packaged app digest before treating the path as qualified.
 
 | Piece | Path |
 |-------|------|
-| Deploy | `src/main/vellum/hosts/deploy-remote.ts` |
-| Pair/configure | `src/main/vellum/hosts/configure-remote.ts` |
-| Station API | `src/main/vellum/station/api.ts` |
-| Enrollment identity bootstrap | `src/main/vellum/station/openssh-bootstrap.ts` |
-| Persistent OpenSSH peer exchange | `src/main/vellum/station/openssh-peer-exchange.ts` |
-| Fleet session supervisor | `src/main/vellum/station/fleet-propagation.ts` |
-| Station control | `src/main/vellum/station/control-server.ts` |
-| Term control UDS | `src/main/vellum/term/control-*.ts` |
-| Router | `src/main/vellum/term/router.ts` |
+| Deploy | `src/main/vellum-command/hosts/deploy-remote.ts` |
+| Pair/configure | `src/main/vellum-command/hosts/configure-remote.ts` |
+| Station API | `src/main/vellum-command/station/api.ts` |
+| Enrollment identity bootstrap | `src/main/vellum-command/station/openssh-bootstrap.ts` |
+| Persistent OpenSSH peer exchange | `src/main/vellum-command/station/openssh-peer-exchange.ts` |
+| Fleet session supervisor | `src/main/vellum-command/station/fleet-propagation.ts` |
+| Station control | `src/main/vellum-command/station/control-server.ts` |
+| Term control UDS | `src/main/vellum-command/term/control-*.ts` |
+| Router | `src/main/vellum-command/term/router.ts` |
 | IPC | `hostsDeployRemote` in `src/shared/ipc.ts` |
 | UI | Settings → Deploy Remote |

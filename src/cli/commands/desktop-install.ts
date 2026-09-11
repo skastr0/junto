@@ -6,8 +6,8 @@ import {
   revalidateLinuxDesktopRelease,
   activateLinuxDesktopRelease,
   assertLinuxDesktopFirstInstallAvailable,
-} from "../../main/vellum/update/linux-install";
-import { assertCurrentLinuxDesktopTarget } from "../../main/vellum/update/linux-target";
+} from "../../main/vellum-command/update/linux-install";
+import { assertCurrentLinuxDesktopTarget } from "../../main/vellum-command/update/linux-target";
 import { WireError } from "../core/errors";
 import { executeJsonCommand } from "../core/output";
 

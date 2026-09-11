@@ -5,45 +5,45 @@ import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect, Result, Layer, ManagedRuntime } from "effect";
-import { CanvasesLive, CanvasesService } from "../../../src/main/vellum/canvases";
+import { CanvasesLive, CanvasesService } from "../../../src/main/vellum-command/canvases";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../../../src/main/vellum/state/engine";
-import { WorkRepositoryLive } from "../../../src/main/vellum/work/repository";
+} from "../../../src/main/vellum-command/state/engine";
+import { WorkRepositoryLive } from "../../../src/main/vellum-command/work/repository";
 import {
   StationRepository,
   StationRepositoryLive,
-} from "../../../src/main/vellum/station/repository";
+} from "../../../src/main/vellum-command/station/repository";
 import {
   makeStationFleetTargetRepositoryLive,
   StationFleetTargetRepository,
-} from "../../../src/main/vellum/station/fleet-target-repository";
+} from "../../../src/main/vellum-command/station/fleet-target-repository";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserAutomationPrincipal,
   type BrowserCapabilityAuditOutcome,
   type BrowserCapabilityRegistry,
-} from "../../../src/main/vellum/browser/capabilities";
+} from "../../../src/main/vellum-command/browser/capabilities";
 import {
   makeEdgeGrantService,
   type EdgeGrantResult,
   type EdgeGrantService,
-} from "../../../src/main/vellum/browser/edge-grant";
-import { startBrowserControlServer, type BrowserControlServer } from "../../../src/main/vellum/browser/control";
-import { makePageTargetResolver } from "../../../src/main/vellum/browser/page-target";
-import { makeBrowserProfileService } from "../../../src/main/vellum/browser/profiles";
-import { BrowserSessionService } from "../../../src/main/vellum/browser/sessions";
-import { admitBrowserHostCapability } from "../../../src/main/vellum/browser/host-capability";
-import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum/browser/view-adapter";
-import { isManagedBrowserWebContents } from "../../../src/main/vellum/browser/web-policy";
+} from "../../../src/main/vellum-command/browser/edge-grant";
+import { startBrowserControlServer, type BrowserControlServer } from "../../../src/main/vellum-command/browser/control";
+import { makePageTargetResolver } from "../../../src/main/vellum-command/browser/page-target";
+import { makeBrowserProfileService } from "../../../src/main/vellum-command/browser/profiles";
+import { BrowserSessionService } from "../../../src/main/vellum-command/browser/sessions";
+import { admitBrowserHostCapability } from "../../../src/main/vellum-command/browser/host-capability";
+import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum-command/browser/view-adapter";
+import { isManagedBrowserWebContents } from "../../../src/main/vellum-command/browser/web-policy";
 import {
   configurePeerPidHelperRoots,
   makeProcessIdentityMap,
   readParentPid,
   type ProcessPrincipal,
-} from "../../../src/main/vellum/process-identity";
+} from "../../../src/main/vellum-command/process-identity";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 import { decodeCanvasDoc } from "../../../src/shared/canvas";

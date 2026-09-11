@@ -7,39 +7,39 @@ import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONTENT_STATE_SCHEMA_SQL,
-} from "../src/main/vellum/content/state-schema";
+} from "../src/main/vellum-command/content/state-schema";
 import {
   contentIncomingDir,
   contentObjectPath,
   contentStoreRoot,
-} from "../src/main/vellum/content/paths";
+} from "../src/main/vellum-command/content/paths";
 import {
   createContentService,
-} from "../src/main/vellum/content/service";
+} from "../src/main/vellum-command/content/service";
 import {
   ContentManifestError,
   getContentObject,
   listContentRefsForObject,
   recordContentObject,
   recordContentRef,
-} from "../src/main/vellum/content/manifest";
+} from "../src/main/vellum-command/content/manifest";
 import {
   ContentStoreError,
   ensureContentLayout,
   hashContentObjectFile,
   ingestContentBytes,
   verifyContentObjectFile,
-} from "../src/main/vellum/content/store";
+} from "../src/main/vellum-command/content/store";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import type {
   StateBindings,
   StateInputValue,
   StateRow,
   StateWriter,
-} from "../src/main/vellum/state/service";
+} from "../src/main/vellum-command/state/service";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   migrateStateSchema,
@@ -50,18 +50,18 @@ import {
   STATE_SCHEMA_V15_IDENTITY,
   STATE_SCHEMA_V16_IDENTITY,
   CURRENT_STATE_SCHEMA_IDENTITY,
-} from "../src/main/vellum/state/migrations";
+} from "../src/main/vellum-command/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V11_SQL,
   STATE_SCHEMA_V12_SQL,
   STATE_SCHEMA_V13_SQL,
   STATE_SCHEMA_V14_SQL,
-} from "../src/main/vellum/state/schema";
+} from "../src/main/vellum-command/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum/state/schema-identity";
+} from "../src/main/vellum-command/state/schema-identity";
 
 const roots: string[] = [];
 const runtimes: Array<

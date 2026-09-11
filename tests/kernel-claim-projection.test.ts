@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { retainSuccessfulClaimProjection } from "../src/main/vellum/kernel/service";
+import { retainSuccessfulClaimProjection } from "../src/main/vellum-command/kernel/service";
 
 const doc = (text: string): CanvasDoc => ({
   nodes: [

@@ -10,7 +10,7 @@ import {
   STATION_PORTFOLIO_PROTOCOL,
   compileStationPortfolioBody,
   decodeStationPortfolioBody,
-} from "../src/main/vellum/station/portfolio";
+} from "../src/main/vellum-command/station/portfolio";
 
 const installation = (value: string) =>
   Schema.decodeUnknownSync(InstallationId)(value);

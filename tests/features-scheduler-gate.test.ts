@@ -5,12 +5,12 @@ import {
   DEFAULT_NODE_CATALOG_ENTRIES,
   catalogWireLines,
 } from "../src/renderer/components/node-palette/NodeCatalogGrid";
-import { opsForKind } from "../src/main/vellum/work/authz";
+import { opsForKind } from "../src/main/vellum-command/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   __setDocsForTest,
   manualSchedulerFire,
-} from "../src/main/vellum/kernel/cycle";
+} from "../src/main/vellum-command/kernel/cycle";
 
 const catalogIds = (): ReadonlyArray<string> =>
   DEFAULT_NODE_CATALOG_ENTRIES.map((entry) => entry.id);
@@ -27,8 +27,8 @@ describe("scheduler product gates", () => {
       expect(opsForKind("relay")).toEqual([]);
 
       const preload = readFileSync("src/preload/index.ts", "utf8");
-      const main = readFileSync("src/main/vellum/ipc.ts", "utf8");
-      const cycle = readFileSync("src/main/vellum/kernel/cycle.ts", "utf8");
+      const main = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
+      const cycle = readFileSync("src/main/vellum-command/kernel/cycle.ts", "utf8");
       expect(preload).toContain(
         "...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {})",
       );

@@ -16,9 +16,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
-import type { StateEngineShape } from "../src/main/vellum/state/service";
-import { STATE_SCHEMA_SQL } from "../src/main/vellum/state/schema";
+} from "../src/main/vellum-command/state/engine";
+import type { StateEngineShape } from "../src/main/vellum-command/state/service";
+import { STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
 import {
   CANVAS_REVISION_TABLES,
   UNJOURNALED_WORK_REASONS,
@@ -29,7 +29,7 @@ import {
   unjournaledWorkMutation,
   workMutationScopeForTest,
   type WorkPlaneTableRole,
-} from "../src/main/vellum/work/mutation-seam";
+} from "../src/main/vellum-command/work/mutation-seam";
 
 const root = join(tmpdir(), `vellum-command-seam-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -404,9 +404,9 @@ describe("work mutation sink attribution", () => {
 
   it("reads the sink out of every mutation the work plane can emit", () => {
     const sources = [
-      "src/main/vellum/work/repository.ts",
-      "src/main/vellum/work/journal.ts",
-      "src/main/vellum/content/inline-media-migration.ts",
+      "src/main/vellum-command/work/repository.ts",
+      "src/main/vellum-command/work/journal.ts",
+      "src/main/vellum-command/content/inline-media-migration.ts",
     ];
     // The three statements whose target table is computed, and what each can
     // resolve to. Kept in step with scripts/single-write-seam-register.json,

@@ -10,7 +10,7 @@ import {
   redactSecret,
   resolveOpenRouterCredentials,
   type OpenRouterEndpointOutcome,
-} from "../src/main/vellum/usage/openrouter-source";
+} from "../src/main/vellum-command/usage/openrouter-source";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 const KEY = "sk-or-v1-secret-value-do-not-leak";

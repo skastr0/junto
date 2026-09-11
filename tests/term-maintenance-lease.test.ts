@@ -19,18 +19,18 @@ import {
 import {
   type TermControlMaintenanceLease,
   TermControlClient,
-} from "../src/main/vellum/term/control-client";
+} from "../src/main/vellum-command/term/control-client";
 import {
   startTermControlServer,
   type TermControlServer,
-} from "../src/main/vellum/term/control-server";
-import type { LinuxReleaseFenceObservation } from "../src/main/vellum/term/release-fence";
-import { LocalSessionHost } from "../src/main/vellum/term/local-host";
+} from "../src/main/vellum-command/term/control-server";
+import type { LinuxReleaseFenceObservation } from "../src/main/vellum-command/term/release-fence";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum/process-epoch";
+} from "../src/main/vellum-command/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
 import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,

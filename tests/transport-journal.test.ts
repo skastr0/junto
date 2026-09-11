@@ -25,7 +25,7 @@ import {
   appendTransportTrace,
   recordTransportError,
   startTransportJournal,
-} from "../src/main/vellum/observability/transport-journal";
+} from "../src/main/vellum-command/observability/transport-journal";
 import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
 
 const originalHome = process.env.VELLUM_COMMAND_HOME;

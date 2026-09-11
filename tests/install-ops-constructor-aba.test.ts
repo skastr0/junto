@@ -100,11 +100,11 @@ import { DatabaseSync } from "node:sqlite";
 import {
   InstallOpsService,
   makeInstallOpsLive,
-} from "../src/main/vellum/install-ops/engine";
+} from "../src/main/vellum-command/install-ops/engine";
 import {
   INSTALL_OPS_SCHEMA_SQL,
   INSTALL_OPS_SCHEMA_VERSION,
-} from "../src/main/vellum/install-ops/schema";
+} from "../src/main/vellum-command/install-ops/schema";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];

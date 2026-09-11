@@ -8,11 +8,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildLinuxRemotePreflightScript,
-} from "../src/main/vellum/hosts/deploy-linux";
+} from "../src/main/vellum-command/hosts/deploy-linux";
 import {
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandDeploySource,
-} from "../src/main/vellum/ssh/remote-plan";
+} from "../src/main/vellum-command/ssh/remote-plan";
 
 const roots: string[] = [];
 

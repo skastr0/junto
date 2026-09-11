@@ -11,10 +11,10 @@ import {
   StationHostId,
 } from "../src/shared/station-api";
 import { stationControlErr } from "../src/shared/station-api-envelope";
-import { StationControlReportError } from "../src/main/vellum/station/control-server";
+import { StationControlReportError } from "../src/main/vellum-command/station/control-server";
 import {
   startStationRemoteReportPump,
-} from "../src/main/vellum/station/remote-report-pump";
+} from "../src/main/vellum-command/station/remote-report-pump";
 
 const installation = (value: string): InstallationIdValue =>
   Schema.decodeUnknownSync(InstallationId)(value);

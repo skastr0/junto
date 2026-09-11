@@ -5,12 +5,12 @@
  * a separate vellum-command-station executable.
  */
 import type { StationDoor } from "@shared/station-mode";
-import { relayStationControlSession } from "../main/vellum/station/control-relay";
+import { relayStationControlSession } from "../main/vellum-command/station/control-relay";
 import {
   STATION_PEER_ARG,
   STATION_PROTOCOL_NEGOTIATION_ARG,
   STATION_STDIO_COMMAND,
-} from "../main/vellum/station/helper-contract";
+} from "../main/vellum-command/station/helper-contract";
 
 export { STATION_STDIO_COMMAND };
 

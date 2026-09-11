@@ -9,12 +9,12 @@ import {
   BrowserCompositionStartupError,
   makeBrowserShutdownCoordinator,
   startBrowserComposition,
-} from "../src/main/vellum/browser/composition";
-import { makeBrowserCapabilityRegistry } from "../src/main/vellum/browser/capabilities";
-import { makeBrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
-import type { BrowserSessionService } from "../src/main/vellum/browser/sessions";
-import type { BrowserHostCapabilityAuthorityLease } from "../src/main/vellum/browser/station-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/browser/composition";
+import { makeBrowserCapabilityRegistry } from "../src/main/vellum-command/browser/capabilities";
+import { makeBrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
+import type { BrowserSessionService } from "../src/main/vellum-command/browser/sessions";
+import type { BrowserHostCapabilityAuthorityLease } from "../src/main/vellum-command/browser/station-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -69,7 +69,7 @@ describe("browser composition (no ceremony)", () => {
   it("source no longer wires grant delivery / agent product", () => {
     const root = join(import.meta.dirname, "..");
     const composition = readFileSync(
-      join(root, "src/main/vellum/browser/composition.ts"),
+      join(root, "src/main/vellum-command/browser/composition.ts"),
       "utf8",
     );
     const index = readFileSync(join(root, "src/main/index.ts"), "utf8");
@@ -87,11 +87,11 @@ describe("browser composition (no ceremony)", () => {
   it("ceremony modules are gone from the tree", () => {
     const root = join(import.meta.dirname, "..");
     for (const rel of [
-      "src/main/vellum/browser/agent-product.ts",
-      "src/main/vellum/browser/agent-runtime.ts",
-      "src/main/vellum/browser/agent-authority.ts",
-      "src/main/vellum/browser/agent-confirmation.ts",
-      "src/main/vellum/browser/agent-ipc.ts",
+      "src/main/vellum-command/browser/agent-product.ts",
+      "src/main/vellum-command/browser/agent-runtime.ts",
+      "src/main/vellum-command/browser/agent-authority.ts",
+      "src/main/vellum-command/browser/agent-confirmation.ts",
+      "src/main/vellum-command/browser/agent-ipc.ts",
     ]) {
       expect(() => readFileSync(join(root, rel))).toThrow();
     }

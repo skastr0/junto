@@ -21,23 +21,23 @@ vi.mock("@shared/release-capabilities", () => ({
 import {
   BoxOwnershipRepositoryLive,
   type BoxMachineType,
-} from "../src/main/vellum/box";
-import { BoxCli } from "../src/main/vellum/box/cli";
-import { BoxCliCommandError } from "../src/main/vellum/box/domain";
+} from "../src/main/vellum-command/box";
+import { BoxCli } from "../src/main/vellum-command/box/cli";
+import { BoxCliCommandError } from "../src/main/vellum-command/box/domain";
 import {
   BoxOwnershipRepository,
   BoxOwnershipPersistenceError,
-} from "../src/main/vellum/box/repository";
-import { makeBoxFleetService } from "../src/main/vellum/box/service";
-import { BoxFleetAuthorizationError } from "../src/main/vellum/box/service";
-import { makeHostsRegistry } from "../src/main/vellum/hosts/registry";
+} from "../src/main/vellum-command/box/repository";
+import { makeBoxFleetService } from "../src/main/vellum-command/box/service";
+import { BoxFleetAuthorizationError } from "../src/main/vellum-command/box/service";
+import { makeHostsRegistry } from "../src/main/vellum-command/hosts/registry";
 import {
   findHostById,
   setHostsSnapshot,
-} from "../src/main/vellum/hosts/snapshot";
+} from "../src/main/vellum-command/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
 
 const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];

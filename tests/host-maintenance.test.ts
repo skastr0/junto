@@ -39,7 +39,7 @@ const liveMocks = vi.hoisted(() => {
   return state;
 });
 
-vi.mock("../src/main/vellum/term/plane", () => ({
+vi.mock("../src/main/vellum-command/term/plane", () => ({
   termPlane: {
     router: {
       acquireRemoteHostMaintenance: async (hostId: string) => {
@@ -53,7 +53,7 @@ vi.mock("../src/main/vellum/term/plane", () => ({
   },
 }));
 
-vi.mock("../src/main/vellum/term/control-client", () => ({
+vi.mock("../src/main/vellum-command/term/control-client", () => ({
   TermControlClient: {
     connect: async () => {
       liveMocks.events.push("connect");
@@ -80,14 +80,14 @@ import {
   makeLiveHostMaintenanceAuthority,
   withIncumbentMaintenance,
   type HostMaintenanceAcquireInput,
-} from "../src/main/vellum/hosts/maintenance";
-import type { ConfiguredRemoteDeployResult } from "../src/main/vellum/hosts/deploy-configured-remote";
-import { HostRuntime, HostRuntimeLive } from "../src/main/vellum/hosts/host-runtime";
-import { HostsService } from "../src/main/vellum/hosts/service";
-import { SshTransport } from "../src/main/vellum/ssh/service";
-import { SshExitError } from "../src/main/vellum/ssh/domain";
-import { StationFleetTargetRepository } from "../src/main/vellum/station/fleet-target-repository";
-import { parseSshEndpoint } from "../src/main/vellum/ssh/domain";
+} from "../src/main/vellum-command/hosts/maintenance";
+import type { ConfiguredRemoteDeployResult } from "../src/main/vellum-command/hosts/deploy-configured-remote";
+import { HostRuntime, HostRuntimeLive } from "../src/main/vellum-command/hosts/host-runtime";
+import { HostsService } from "../src/main/vellum-command/hosts/service";
+import { SshTransport } from "../src/main/vellum-command/ssh/service";
+import { SshExitError } from "../src/main/vellum-command/ssh/domain";
+import { StationFleetTargetRepository } from "../src/main/vellum-command/station/fleet-target-repository";
+import { parseSshEndpoint } from "../src/main/vellum-command/ssh/domain";
 
 const host: RemoteHost = {
   id: "studio",
@@ -550,7 +550,7 @@ describe("reconcile injects maintenance for an incumbent update", () => {
 
   it("acquires the lease for every installed incumbent, never bare first installs", () => {
     const runtime = readFileSync(
-      new URL("../src/main/vellum/hosts/host-runtime.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
     // needRestart = enrolled update; needConfigure = installed-but-unenrolled

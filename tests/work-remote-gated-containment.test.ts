@@ -7,23 +7,23 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc, Part } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
 import { HostId } from "../src/shared/remote-hosts";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { makeContentServiceLive } from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
-import { makeSettingsLive, SettingsService } from "../src/main/vellum/settings/service";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+import { makeSettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum/station/session-registry";
+} from "../src/main/vellum-command/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+} from "../src/main/vellum-command/work/repository";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const hostId = Schema.decodeUnknownSync(HostId);

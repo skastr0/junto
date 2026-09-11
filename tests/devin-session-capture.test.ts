@@ -9,12 +9,12 @@ import {
   discoverDevinSessionId,
   isDevinSessionSlug,
   readDevinLocks,
-} from "../src/main/vellum/term/devin-session-capture";
+} from "../src/main/vellum-command/term/devin-session-capture";
 import {
   __setSessionExistenceHomeForTest,
   harnessSessionExists,
   isHarnessResumeFailureText,
-} from "../src/main/vellum/term/session-existence";
+} from "../src/main/vellum-command/term/session-existence";
 
 /**
  * Devin prints no session id. It writes `session_locks/<slug>.lock` holding a

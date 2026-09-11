@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IpcMain, WebContents } from "electron";
-import { registerChatIpc } from "../src/main/vellum/chat/ipc";
-import type { ChatService } from "../src/main/vellum/chat/service";
+import { registerChatIpc } from "../src/main/vellum-command/chat/ipc";
+import type { ChatService } from "../src/main/vellum-command/chat/service";
 import { IPC_CHANNELS, type ChatEvent } from "../src/shared/ipc";
 
 describe("chat IPC event delivery", () => {

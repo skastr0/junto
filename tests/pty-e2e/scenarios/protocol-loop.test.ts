@@ -28,14 +28,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { createConnection } from "node:net";
 import {
   BRACKETED_PASTE_START,
-} from "../../../src/main/vellum/term/drive/typing";
+} from "../../../src/main/vellum-command/term/drive/typing";
 import { encodeWorkFrame } from "../../../src/shared/work-control";
 import type { CanvasDoc } from "../../../src/shared/canvas";
 import { ProtoHarness, makeProtoRoot } from "../proto-harness";
-import { startWorkControlServer, type WorkControlServer } from "../../../src/main/vellum/work/control";
-import { createMainAuthoringGate } from "../../../src/main/vellum/main-authoring-gate";
-import { makeProcessIdentityMap } from "../../../src/main/vellum/process-identity";
-import { resetSeatBlocks } from "../../../src/main/vellum/work/blocked-seat";
+import { startWorkControlServer, type WorkControlServer } from "../../../src/main/vellum-command/work/control";
+import { createMainAuthoringGate } from "../../../src/main/vellum-command/main-authoring-gate";
+import { makeProcessIdentityMap } from "../../../src/main/vellum-command/process-identity";
+import { resetSeatBlocks } from "../../../src/main/vellum-command/work/blocked-seat";
 
 // ---------------------------------------------------------------------------
 // Shared doc builders

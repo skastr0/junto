@@ -12,29 +12,29 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Context, ManagedRuntime } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { makeEdgeGrantService } from "../src/main/vellum/browser/edge-grant";
+import { makeEdgeGrantService } from "../src/main/vellum-command/browser/edge-grant";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/vellum/browser/capabilities";
-import { makeBrowserProfileService } from "../src/main/vellum/browser/profiles";
+} from "../src/main/vellum-command/browser/capabilities";
+import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/vellum/browser/sessions";
+} from "../src/main/vellum-command/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/vellum/browser/page-target";
+} from "../src/main/vellum-command/browser/page-target";
 import {
   lostPageTargetsForCaller,
   receiptForHostTeardown,
-} from "../src/main/vellum/browser/edge-revocation";
-import type { ProcessPrincipal } from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/browser/edge-revocation";
+import type { ProcessPrincipal } from "../src/main/vellum-command/process-identity";
 import { isValidControlRequestId } from "../src/shared/browser-control";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 
 const REF_P1 = "vellum-command://canvas/work?node=p1";
 const REF_P2 = "vellum-command://canvas/work?node=p2";

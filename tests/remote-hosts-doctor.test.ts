@@ -22,20 +22,20 @@ import {
 import type {
   StationProtocolObservation,
 } from "../src/shared/station-status";
-import type { CliResult } from "../src/main/vellum/adapters/exec";
+import type { CliResult } from "../src/main/vellum-command/adapters/exec";
 import {
   runRemoteHostsDoctor,
   runRemoteHostsDoctorSnapshot,
   testHostConnection,
   type HostCliRunner,
-} from "../src/main/vellum/hosts/doctor";
-import type { HostsRegistry } from "../src/main/vellum/hosts/registry";
+} from "../src/main/vellum-command/hosts/doctor";
+import type { HostsRegistry } from "../src/main/vellum-command/hosts/registry";
 import {
   StationFleetPeerUnavailable,
   StationFleetPropagation,
   type StationFleetPropagationResult,
-} from "../src/main/vellum/station/fleet-propagation";
-import { OPENSSH_CLIENT_EXECUTABLE } from "../src/main/vellum/ssh/live";
+} from "../src/main/vellum-command/station/fleet-propagation";
+import { OPENSSH_CLIENT_EXECUTABLE } from "../src/main/vellum-command/ssh/live";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const stationHostId = Schema.decodeUnknownSync(StationHostId);
@@ -214,11 +214,11 @@ const fleetWithStatus = (
 describe("remote hosts doctor", () => {
   it("contains no alternate store or SSH executable authority", () => {
     const doctorSource = readFileSync(
-      new URL("../src/main/vellum/hosts/doctor.ts", import.meta.url),
+      new URL("../src/main/vellum-command/hosts/doctor.ts", import.meta.url),
       "utf8",
     );
     const liveSource = readFileSync(
-      new URL("../src/main/vellum/ssh/live.ts", import.meta.url),
+      new URL("../src/main/vellum-command/ssh/live.ts", import.meta.url),
       "utf8",
     );
     expect(doctorSource).not.toMatch(

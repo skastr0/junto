@@ -8,12 +8,12 @@ import {
   isBrowserCallerKind,
   isBrowserCallerNode,
   resolveBrowserCaller,
-} from "../src/main/vellum/browser/authz";
-import { resolveBrowserCallerFromProcess } from "../src/main/vellum/browser/process-bind";
+} from "../src/main/vellum-command/browser/authz";
+import { resolveBrowserCallerFromProcess } from "../src/main/vellum-command/browser/process-bind";
 import {
   makeProcessIdentityMap,
   admitProcessIdentity,
-} from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/process-identity";
 import type { Socket } from "node:net";
 
 const text = (

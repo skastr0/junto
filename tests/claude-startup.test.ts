@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isClaudeCompactNoop,
   isClaudeResumeSummaryChoice,
-} from "../src/main/vellum/term/drive/claude-startup";
+} from "../src/main/vellum-command/term/drive/claude-startup";
 
 describe("Claude managed startup recovery", () => {
   it("recognizes only the long-session summary selector", () => {

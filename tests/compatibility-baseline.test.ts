@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum/state/migrations";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "../src/shared/station-protocol";
 
 describe("compatibility baseline authority", () => {

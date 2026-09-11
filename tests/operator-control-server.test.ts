@@ -14,8 +14,8 @@ import {
   startOperatorControlServer,
   type OperatorControlServer,
   type OperatorControlServerRuntime,
-} from "../src/main/vellum/operator-control";
-import type { ProcessIdentityMap } from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/operator-control";
+import type { ProcessIdentityMap } from "../src/main/vellum-command/process-identity";
 import { Result } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

@@ -25,32 +25,32 @@ import {
   createAppProcessPlane,
   type AppProcessDrainResult,
   type AppProcessPlane,
-} from "../src/main/vellum/app-process-plane";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/app-process-plane";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
 import {
   startWorkControlServer,
   type WorkControlShutdownReceipt,
-} from "../src/main/vellum/work/control";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
+} from "../src/main/vellum-command/work/control";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
+} from "../src/main/vellum-command/work/repository";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum/station/fleet-target-repository";
+} from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum/station/session-registry";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { PausePlaneAllPlaying } from "../src/main/vellum/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/vellum/process-identity";
+} from "../src/main/vellum-command/station/session-registry";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
+import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum/settings/service";
+} from "../src/main/vellum-command/settings/service";
 import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 

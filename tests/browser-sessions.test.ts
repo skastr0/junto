@@ -22,17 +22,17 @@ import {
   clampUtf8Bytes,
   utf8ByteLength,
 } from "../src/shared/browser-limits";
-import type { ResolvedPageTarget } from "../src/main/vellum/browser/page-target";
+import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page-target";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { BrowserHostCapabilityAuthority } from "../src/main/vellum/browser/host-capability";
+import type { BrowserHostCapabilityAuthority } from "../src/main/vellum-command/browser/host-capability";
 import {
   BrowserProfileError,
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
-} from "../src/main/vellum/browser/profiles";
-import { makeStateEngineLive } from "../src/main/vellum/state/engine";
-import { StateEngine } from "../src/main/vellum/state/service";
-import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
+} from "../src/main/vellum-command/browser/profiles";
+import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { StateEngine } from "../src/main/vellum-command/state/service";
+import { BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
 import {
   BrowserOwnerSessionTeardownFailure,
   BrowserSessionService,
@@ -40,7 +40,7 @@ import {
   type BrowserViewEvents,
   type BrowserViewHandle,
   type BrowserViewOptions,
-} from "../src/main/vellum/browser/sessions";
+} from "../src/main/vellum-command/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 describe("warmPoolEvictions (pure)", () => {

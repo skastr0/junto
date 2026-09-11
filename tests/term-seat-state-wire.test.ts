@@ -3,12 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   reviveTermAuthSeatState,
   reviveTermHostEvent,
-} from "../src/main/vellum/term/control-client";
+} from "../src/main/vellum-command/term/control-client";
 import {
   mergeSeatStateSnapshot,
   rememberRemoteSeatState,
   resetRemoteSeatState,
-} from "../src/main/vellum/term/remote-seat-state";
+} from "../src/main/vellum-command/term/remote-seat-state";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import { sessionActorMatches } from "../src/shared/terminal";
 
@@ -94,7 +94,7 @@ describe("term seat-state Command Center snapshot", () => {
 
 describe("term seat-state placement wiring", () => {
   it("TermPlane starts the spawn-host evaluator and stops only on plane shutdown", () => {
-    const plane = readFileSync("src/main/vellum/term/plane.ts", "utf8");
+    const plane = readFileSync("src/main/vellum-command/term/plane.ts", "utf8");
     const startAt = plane.indexOf("start = async");
     const shutdownAt = plane.indexOf("beginShutdown(reason");
     expect(startAt).toBeGreaterThan(-1);
@@ -105,8 +105,8 @@ describe("term seat-state placement wiring", () => {
   });
 
   it("caches hop-delivered events and hydrates the Command Center snapshot", () => {
-    const termIpc = readFileSync("src/main/vellum/term/ipc.ts", "utf8");
-    const ipc = readFileSync("src/main/vellum/ipc.ts", "utf8");
+    const termIpc = readFileSync("src/main/vellum-command/term/ipc.ts", "utf8");
+    const ipc = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
     expect(termIpc).toContain("rememberRemoteSeatState(payload.event)");
     expect(termIpc).toContain(
       "gate?.broadcast(IPC_CHANNELS.agentSeatStateChanged, payload.event)",
@@ -118,8 +118,8 @@ describe("term seat-state placement wiring", () => {
   });
 
   it("fans Mini seat-state to authed clients and validates on the hop", () => {
-    const server = readFileSync("src/main/vellum/term/control-server.ts", "utf8");
-    const client = readFileSync("src/main/vellum/term/control-client.ts", "utf8");
+    const server = readFileSync("src/main/vellum-command/term/control-server.ts", "utf8");
+    const client = readFileSync("src/main/vellum-command/term/control-client.ts", "utf8");
     expect(server).toContain("stopSeatState = seatStateRuntime.subscribe");
     expect(server).toContain("type: \"seat-state\"");
     expect(server).toContain("writeEvent(payload, authedClients)");
@@ -137,9 +137,9 @@ describe("term seat-state placement wiring", () => {
   });
 
   it("keeps the router as a client directory, not an actor occupy service", () => {
-    const router = readFileSync("src/main/vellum/term/router.ts", "utf8");
-    const server = readFileSync("src/main/vellum/term/control-server.ts", "utf8");
-    const host = readFileSync("src/main/vellum/term/local-host.ts", "utf8");
+    const router = readFileSync("src/main/vellum-command/term/router.ts", "utf8");
+    const server = readFileSync("src/main/vellum-command/term/control-server.ts", "utf8");
+    const host = readFileSync("src/main/vellum-command/term/local-host.ts", "utf8");
     expect(router).toContain("async clientForOccupy(hostId: string)");
     expect(router).not.toContain("makeActorSeatOccupy");
     expect(router).not.toContain('from "./actor-seat-occupy"');

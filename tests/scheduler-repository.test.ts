@@ -7,11 +7,11 @@ import {
   makeSchedulerRepositoryLive,
   SchedulerRepository,
   SchedulerStateCorruptError,
-} from "../src/main/vellum/scheduler/repository";
+} from "../src/main/vellum-command/scheduler/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];

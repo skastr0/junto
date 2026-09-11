@@ -31,12 +31,12 @@ import {
   termControlSocketPath,
   termControlTokenPath,
 } from "../src/shared/term-control";
-import type { LocalHostEvent } from "../src/main/vellum/term/local-host";
-import { TermControlClient } from "../src/main/vellum/term/control-client";
+import type { LocalHostEvent } from "../src/main/vellum-command/term/local-host";
+import { TermControlClient } from "../src/main/vellum-command/term/control-client";
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/vellum/app-process-plane";
+} from "../src/main/vellum-command/app-process-plane";
 import {
   finalizePackagedRuntimeSandbox,
   observeSpawnedRuntimeLease,

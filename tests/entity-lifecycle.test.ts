@@ -16,30 +16,30 @@ import {
 import {
   CanvasEntityRepository,
   CanvasEntityRepositoryLive,
-} from "../src/main/vellum/entities/repository";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
+} from "../src/main/vellum-command/entities/repository";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V5_IDENTITY,
   STATE_SCHEMA_V6_IDENTITY,
   STATE_SCHEMA_V7_IDENTITY,
   STATE_SCHEMA_V8_IDENTITY,
-} from "../src/main/vellum/state/migrations";
+} from "../src/main/vellum-command/state/migrations";
 import {
   STATE_SCHEMA_V5_SQL,
   STATE_SCHEMA_V6_SQL,
   STATE_SCHEMA_V7_SQL,
   STATE_SCHEMA_V8_SQL,
-} from "../src/main/vellum/state/schema";
+} from "../src/main/vellum-command/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum/state/schema-identity";
-import { WorkRepositoryLive } from "../src/main/vellum/work/repository";
+} from "../src/main/vellum-command/state/schema-identity";
+import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];

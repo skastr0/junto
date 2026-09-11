@@ -13,8 +13,8 @@ import {
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum/state/engine";
-import { reconstructCanvasDoc } from "../src/main/vellum/canvas/records";
+} from "../src/main/vellum-command/state/engine";
+import { reconstructCanvasDoc } from "../src/main/vellum-command/canvas/records";
 
 describe("E2E SQLite fixture seeding", () => {
   it("keeps work out of authorial canvas rows and starts active work by ActorRef", async () => {

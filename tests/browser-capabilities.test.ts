@@ -17,8 +17,8 @@ import {
   type BrowserCapabilityTarget,
   type BrowserCapabilityTerminationNotice,
   type BrowserCapabilityUseTarget,
-} from "../src/main/vellum/browser/capabilities";
-import { BrowserProfileGate } from "../src/main/vellum/browser/profile-gate";
+} from "../src/main/vellum-command/browser/capabilities";
+import { BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
 
 const REF_ONE = "vellum-command://canvas/work?node=n1";
 const REF_TWO = "vellum-command://canvas/work?node=n2";

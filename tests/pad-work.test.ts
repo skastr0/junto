@@ -13,29 +13,29 @@ import {
   emptyPad,
   type PadPatch as PadPatchValue,
 } from "../src/shared/pad";
-import { admitWorkTarget } from "../src/main/vellum/work/authz";
+import { admitWorkTarget } from "../src/main/vellum-command/work/authz";
 import {
   addedPadMentions,
   inboundActorNodeIds,
   padAuthorRuleError,
-} from "../src/main/vellum/work/pad-rules";
+} from "../src/main/vellum-command/work/pad-rules";
 import { projectPadTagged } from "../src/cli/core/pad";
 import { strokePath } from "../src/shared/pad-geom";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum/work/repository";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum/state/engine";
+} from "../src/main/vellum-command/work/repository";
+import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
 import { InstallationId } from "../src/shared/installation-id";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum/canvases";
-import { WorkLive, WorkService } from "../src/main/vellum/work/service";
-import { makeContentServiceLive } from "../src/main/vellum/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/vellum/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum/station/session-registry";
-import { SettingsLive, SettingsService } from "../src/main/vellum/settings/service";
+import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
+import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
+import { SettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
 import {
   canvasAuthorityMaterialFixture,
   seedCanvasAuthority,

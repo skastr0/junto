@@ -16,10 +16,10 @@ import {
   contentObjectUrl,
   parseContentObjectUrl,
 } from "../src/shared/content-url";
-import { createContentProtocolHandler } from "../src/main/vellum/content/protocol";
-import { parseByteRangeHeader } from "../src/main/vellum/content/range";
-import { contentObjectPath, contentStoreRoot } from "../src/main/vellum/content/paths";
-import { ensureContentLayout } from "../src/main/vellum/content/store";
+import { createContentProtocolHandler } from "../src/main/vellum-command/content/protocol";
+import { parseByteRangeHeader } from "../src/main/vellum-command/content/range";
+import { contentObjectPath, contentStoreRoot } from "../src/main/vellum-command/content/paths";
+import { ensureContentLayout } from "../src/main/vellum-command/content/store";
 
 const sha256Of = (bytes: Buffer | string): string =>
   createHash("sha256").update(bytes).digest("hex");
@@ -233,7 +233,7 @@ describe("content protocol handler", () => {
 describe("content protocol scheme privileges", () => {
   it("enables CORS for the content scheme (cross-origin renderer)", async () => {
     const { CONTENT_PROTOCOL_SCHEME_REGISTRATION } = await import(
-      "../src/main/vellum/content/protocol"
+      "../src/main/vellum-command/content/protocol"
     );
     expect(CONTENT_PROTOCOL_SCHEME_REGISTRATION.privileges.corsEnabled).toBe(
       true,

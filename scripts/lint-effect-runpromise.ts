@@ -30,8 +30,8 @@ const CALL_PATTERN = /Effect\.runPromise\b/;
 
 /** Paths that must never appear under permanent (S2 territory). */
 const FORBIDDEN_PERMANENT_PREFIXES = [
-  "src/main/vellum/kernel/",
-  "src/main/vellum/work/",
+  "src/main/vellum-command/kernel/",
+  "src/main/vellum-command/work/",
 ] as const;
 
 type AllowEntry = {
