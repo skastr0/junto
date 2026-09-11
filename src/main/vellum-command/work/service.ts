@@ -3081,14 +3081,37 @@ export const WorkLive = Layer.effect(
               stationContext,
               readCanvas(canvas),
             ]);
-            yield* requireLocalActor(
-              read,
-              publishedBy,
-              nodeId,
-              "artifact.publish",
-              context,
-              admin,
-            );
+            if (admin === undefined) {
+              yield* requireLocalActor(
+                read,
+                publishedBy,
+                nodeId,
+                "artifact.publish",
+                context,
+              );
+            } else {
+              const live = yield* requireLiveOverseer(admin);
+              if (!sameActor(live, publishedBy)) {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message: "overseer admin actor does not match the publishing seat",
+                });
+              }
+              const sink = admitOverseerWorkTarget(
+                read.doc,
+                nodeId,
+                "artifact.publish",
+              );
+              if (Result.isFailure(sink)) {
+                return yield* new WorkServiceError({
+                  code:
+                    sink.failure.type === "UnknownTarget"
+                      ? "node_not_found"
+                      : "invalid",
+                  message: sink.failure.message,
+                });
+              }
+            }
             const policy = yield* runPolicy(() =>
               workArtifactPublish(
                 read.doc,
@@ -3108,15 +3131,38 @@ export const WorkLive = Layer.effect(
             ).pipe(
               Effect.map((parts) => ({ ...policy.artifact, parts })),
             );
-            const outcome = yield* local(
-              repository.publishArtifact({
-                sink: sinkRef(canvas, nodeId),
-                basis: intentBasis(context, read.intentWitness),
-                artifact: materializedArtifact,
-                publishedBy,
-              }),
-              admin,
-            );
+            const origin = yield* readCanvas(publishedBy.canvasName);
+            const publisherNode = yield* requireNode(origin.doc, publishedBy.nodeId);
+            const publisherHome = yield* homeForNode(publisherNode, context);
+            const action = {
+              operation: "artifact.publish" as const,
+              artifact: materializedArtifact,
+              publishedBy,
+            };
+            const outcome =
+              publisherHome === context.localInstallationId
+                ? yield* local(
+                  repository.publishArtifact({
+                    sink: sinkRef(canvas, nodeId),
+                    basis: intentBasis(context, read.intentWitness),
+                    artifact: materializedArtifact,
+                    publishedBy,
+                  }),
+                  admin,
+                )
+                : yield* enqueue(
+                  context,
+                  publisherHome,
+                  workItem(
+                    "artifact",
+                    materializedArtifact.artifactId,
+                    canvas,
+                    nodeId,
+                  ),
+                  action,
+                  materializedArtifact,
+                  admin,
+                );
             return yield* complete(canvas, outcome);
           }),
         ),

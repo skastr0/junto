@@ -558,18 +558,6 @@ export const executeOverseerWork = (
     if (op === "artifact.publish") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      if (canvas !== actor.canvasName) {
-        return yield* failBody({
-          type: "InputError",
-          message:
-            "artifact.publish keeps publishedBy on the origin canvas; it cannot rewrite ActorRef.canvasName onto another canvas",
-          details: {
-            caller: actor.nodeId,
-            target: canvas,
-            retryable: false,
-          },
-        });
-      }
       yield* requireTarget(read.doc, target, "artifact.publish");
       const artifact: Artifact = {
         artifactId: args.artifactId?.trim() || ulid(),

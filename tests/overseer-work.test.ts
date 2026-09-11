@@ -20,7 +20,12 @@ import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
 import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
+import {
+  StationFleetTargetRepository,
+  StationFleetTargetRepositoryLive,
+} from "../src/main/vellum-command/station/fleet-target-repository";
+import { InstallationId } from "../src/shared/installation-id";
+import { HostId } from "../src/shared/remote-hosts";
 import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
 import { makeSettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
 import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
@@ -413,7 +418,7 @@ describe("executeOverseerWork", () => {
     expect(published).toMatchObject({ disposition: "applied" });
   });
 
-  it("refuses cross-canvas artifact publish rather than rewriting origin canvasName", async () => {
+  it("publishes artifacts onto another canvas with original publishedBy provenance", async () => {
     const canvases = await writeFactory("origin-xart");
     await grantOverseer("origin-xart", "boss", true);
     await runtime.runPromise(
@@ -423,7 +428,7 @@ describe("executeOverseerWork", () => {
       }),
     );
     const { actor } = await actorOn("origin-xart", "boss");
-    const result = await run(
+    const published = await run(
       executeOverseerWork(
         { canvasName: "origin-xart", nodeId: "boss" },
         {
@@ -435,12 +440,67 @@ describe("executeOverseerWork", () => {
           },
         },
         overseerWorkAdmin(actor),
-      ).pipe(Effect.result),
+      ),
     );
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.type).toBe("InputError");
-    }
+    expect(published).toMatchObject({ disposition: "applied" });
+    expect(actor.canvasName).toBe("origin-xart");
+    expect((published as { readonly artifactId: string }).artifactId.length).toBeGreaterThan(0);
+  });
+
+  it("queues artifact.publish to a Remote publisher home from Command Center", async () => {
+    const remoteHost = Schema.decodeUnknownSync(HostId)("remote-overseer");
+    const remoteInstallation = Schema.decodeUnknownSync(InstallationId)(
+      "remote-overseer-installation",
+    );
+    const fleet = await runtime.runPromise(StationFleetTargetRepository);
+    await runtime.runPromise(
+      fleet.bind(
+        { hostId: remoteHost, stationInstallationId: remoteInstallation },
+        "2026-09-11T00:00:00.000Z",
+      ),
+    );
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(
+      canvases.write("remote-origin", {
+        nodes: [
+          {
+            ...agentNode("boss"),
+            ether: {
+              ...agentNode("boss").ether,
+              host: remoteHost,
+            },
+          },
+          agentNode("worker"),
+          taskNode(),
+          padNode(),
+        ],
+        edges: [],
+      }),
+    );
+    await grantOverseer("remote-origin", "boss", true);
+    await runtime.runPromise(
+      canvases.write("cc-arts", {
+        nodes: [artifactsNode()],
+        edges: [],
+      }),
+    );
+    const { actor } = await actorOn("remote-origin", "boss");
+    expect(actor.canvasName).toBe("remote-origin");
+    const published = await run(
+      executeOverseerWork(
+        { canvasName: "remote-origin", nodeId: "boss" },
+        {
+          operation: "artifact.publish",
+          args: {
+            canvas: "cc-arts",
+            target: "arts",
+            parts: [{ kind: "text", text: "remote proof" }],
+          },
+        },
+        overseerWorkAdmin(actor),
+      ),
+    );
+    expect(published).toMatchObject({ disposition: "queued" });
   });
 
   it("claims for an explicit assignee distinct from the overseer admin", async () => {
