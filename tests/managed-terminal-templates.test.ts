@@ -10,6 +10,7 @@ import {
   HERMES_TEMPLATE,
   HARNESS_IDS,
   MANAGED_TERMINAL_TEMPLATES,
+  PI_TEMPLATE,
   PRIME_AGENT_TEMPLATE,
   SPAWN_ENV_SCRUB,
   SPAWN_ENV_SCRUB_PREFIXES,
@@ -683,6 +684,17 @@ describe("resolveManagedLaunch argv", () => {
     expect(off.argv).not.toContain("--yolo");
   });
   it("pi: model, thinking effort, session pin, append-system-prompt, positional prompt", () => {
+    expect(PI_TEMPLATE.probedVersion).toBe("0.85.1");
+    expect(PI_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
+    expect(PI_TEMPLATE.efforts).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
     const launch = resolveManagedLaunch(
       "pi",
       {

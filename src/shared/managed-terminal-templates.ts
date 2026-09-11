@@ -630,11 +630,19 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
  * `--session <path|partial-id>` (NOT -r, which opens a picker);
  * --append-system-prompt repeatable; --tools/--exclude-tools allowlists;
  * no per-command permission mode (--approve gates project-local trust only).
+ *
+ * Re-probed 0.85.1 (2026-09-11): every template-owned spawn flag still
+ * exists on `pi --help` and official usage.md. Changelog 0.84.0–0.85.1
+ * is additive TUI, theme, and observer surface (`--tui-mode`, `--use-theme`,
+ * `/thinking`, `ui_prompt_start` / `ui_prompt_end`); none rename or remove
+ * `--model`, `--thinking`, `--session-id`, `--session`, or
+ * `--append-system-prompt`. `resumeReinjection: "re-pass"` is the 2026-08
+ * receipt and was not re-canaried on 0.85.1 (UNVERIFIED).
  */
 export const PI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "pi",
   displayName: "Pi",
-  probedVersion: "0.83.0",
+  probedVersion: "0.85.1",
   argvSpec: {
     binary: "pi",
     prefix: [],
