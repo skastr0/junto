@@ -354,7 +354,7 @@ export const artifactPublishSchema: CommandSchemaContract = {
   command: "artifact publish",
   schema_id: "artifact.publish.input/v2",
   description:
-    "Publish an artifact; raw parts may use path and optional task provenance names the exact task sink and id.",
+    "Publish an artifact; parts pass ContentRefs or legacy raw bytesBase64 (local file paths are rejected — ingest content first) and optional task provenance names the exact task sink and id.",
   schema: ArtifactPublishCliArgs,
   accepts_batch: true,
   input_modes: inputModes,
