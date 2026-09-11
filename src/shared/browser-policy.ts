@@ -226,3 +226,23 @@ export const classifyBrowserTarget = (input: string): BrowserTargetDecision => {
 
 export const isAllowedBrowserTarget = (input: string): boolean =>
   classifyBrowserTarget(input).allowed;
+
+/** Operator-facing refusal for a disallowed page target, with recovery guidance. */
+export const describeBrowserTargetRejection = (
+  reason: BrowserTargetRejection,
+): string => {
+  switch (reason) {
+    case "invalid_url":
+      return "This page URL could not be parsed.";
+    case "scheme":
+      return "Only http and https page URLs are allowed.";
+    case "credentials":
+      return "Page URLs with embedded usernames or passwords are not allowed.";
+    case "ambiguous_host":
+      return "This page URL has an ambiguous or malformed host.";
+    case "local_host":
+      return "Local and internal hostnames are not allowed. Use a public URL, then close this surface and update the page URL or profile.";
+    case "non_public_ip":
+      return "Private and non-public IP addresses are not allowed. Use a public URL, then close this surface and update the page URL or profile.";
+  }
+};

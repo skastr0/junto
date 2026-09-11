@@ -144,7 +144,7 @@ describe("renderer graph mutations", () => {
     browser$.sessionByRef.set({});
     dock$.registry.set(initialWorkbenchState());
     dock$.chatById.set({});
-    dock$.stopErrorByRef.set({});
+    dock$.opErrorByRef.set({});
     state$.settings.station.hostId.set("local");
     state$.settings.station.role.set("");
     clearGraphFilters();
@@ -251,7 +251,10 @@ describe("renderer graph mutations", () => {
     await waitFor(() => expect(browserStop).toHaveBeenCalledWith("page-session"));
     expect(state$.doc.peek().nodes.map((node) => node.id)).toEqual(["page"]);
     expect(state$.error.peek()).toBe("Stop Page failed; the page node was not deleted.");
-    expect(dock$.stopErrorByRef[ref].peek()).toBe("physical teardown not acknowledged");
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "stop",
+      message: "physical teardown not acknowledged",
+    });
   });
 
   it("deletes a kill-session page node only after Stop Page succeeds", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Globe, Pin, SquareX } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -7,7 +7,7 @@ import { browser$ } from "../../lib/browser-state";
 import { openDockBrowser, stopDockBrowser } from "../../lib/dock-state";
 import { hostOf } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
-import { KILL_ARM_MS } from "../../lib/terminal-kill-ux";
+import { useTwoClickArm } from "../../lib/two-click-arm";
 import { HUE } from "../../lib/theme";
 import { IconButton } from "../ui";
 
@@ -16,8 +16,6 @@ import { IconButton } from "../ui";
  * does the same). Stop is two-click arm. Never on the card body.
  */
 export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
-  const [armed, setArmed] = useState(false);
-  const armTimer = useRef<number | null>(null);
   const browser = node.ether?.browser;
   const url = node.type === "link" ? node.url : "";
   const canvasName = use$(state$.canvasName);
@@ -29,12 +27,9 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
     }
   }, [canvasName, node.id]);
   const session = use$(browser$.sessionByRef[pageRef ?? ""]);
-
-  useEffect(() => {
-    return () => {
-      if (armTimer.current !== null) window.clearTimeout(armTimer.current);
-    };
-  }, []);
+  const { armed, arm } = useTwoClickArm(() => {
+    if (pageRef) void stopDockBrowser(pageRef);
+  });
 
   if (!browser || !pageRef) return null;
 
@@ -49,28 +44,6 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
       },
       zone,
     );
-  };
-
-  const disarm = () => {
-    if (armTimer.current !== null) {
-      window.clearTimeout(armTimer.current);
-      armTimer.current = null;
-    }
-    setArmed(false);
-  };
-
-  const fireStop = () => {
-    if (!armed) {
-      if (armTimer.current !== null) window.clearTimeout(armTimer.current);
-      setArmed(true);
-      armTimer.current = window.setTimeout(() => {
-        armTimer.current = null;
-        setArmed(false);
-      }, KILL_ARM_MS);
-      return;
-    }
-    disarm();
-    void stopDockBrowser(pageRef);
   };
 
   return (
@@ -110,7 +83,7 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
         onPointerDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          fireStop();
+          arm();
         }}
       >
         <SquareX size={14} />

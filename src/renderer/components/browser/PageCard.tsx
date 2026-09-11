@@ -32,12 +32,20 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
     }
   }, [canvasName, node.id]);
   const session = use$(browser$.sessionByRef[pageRef ?? ""]);
-  const stopError = use$(dock$.stopErrorByRef[pageRef ?? ""]);
+  const opError = use$(dock$.opErrorByRef[pageRef ?? ""]);
   const docked = use$(() => {
     if (!pageRef) return false;
     return dock$.registry.surfaces.get().some((s) => s.kind === "browser" && s.id === pageRef);
   });
-  const attaching = docked && !session?.attached;
+  const sessionState = session?.state;
+  // A wave means real attach work is possible: terminal session states and a
+  // reported operator failure beat the in-flight attach indicator.
+  const attaching =
+    docked &&
+    !session?.attached &&
+    sessionState !== "destroyed" &&
+    sessionState !== "failed" &&
+    !opError;
 
   useEffect(() => {
     subscribeBrowserSessionEvents();
@@ -52,7 +60,7 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
     return <div className="text-xs text-faint">page unbound</div>;
   }
 
-  const state = session?.state ?? "idle";
+  const state = sessionState ?? "idle";
   const warm =
     state === "loading" ||
     state === "ready" ||
@@ -60,9 +68,11 @@ export function PageCard({ node }: { readonly node: CanvasNode }) {
     state === "detached";
   const pageTitle = session?.title;
   const host = hostOf(url);
-  const activity = browserActivity({ state, attaching });
+  const activity = browserActivity({ state, attaching, opFailed: Boolean(opError) });
   const displayTitle = warm && pageTitle ? pageTitle : host;
-  const err = stopError ?? (state === "failed" ? session?.lastError : undefined);
+  // Operator action failures outrank a session's own last error — the
+  // operator can act on the first, the second is context.
+  const err = opError?.message ?? (state === "failed" ? session?.lastError : undefined);
 
   return (
     <div className="flex h-full w-full flex-col justify-between overflow-hidden">

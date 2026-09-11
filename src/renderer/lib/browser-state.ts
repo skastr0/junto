@@ -51,7 +51,21 @@ const retireBrowserSessionId = (ref: string, sessionId: string): void => {
 export const cacheBrowserSession = (session: BrowserSessionInfo | null | undefined): boolean => {
   if (!isUsableBrowserSession(session)) return false;
   const currentSessionId = browserSessionIdForRef(session.ref);
+  if (session.state === "destroyed" && currentSessionId !== session.sessionId) {
+    // A destroyed notification may update the already-current handle but never
+    // establish or replace one: a late destroy for a cleared or replaced
+    // session must not resurrect a phantom runtime.
+    return false;
+  }
   if (currentSessionId === session.sessionId) {
+    // Destroyed is terminal, mirroring the shared reducer: a late nonterminal
+    // push for the same handle cannot revive it.
+    if (
+      session.state !== "destroyed" &&
+      browser$.sessionByRef[session.ref].peek()?.state === "destroyed"
+    ) {
+      return false;
+    }
     browser$.sessionByRef[session.ref].set(session);
     return true;
   }

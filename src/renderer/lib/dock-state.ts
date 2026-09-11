@@ -1,6 +1,11 @@
 import { observable, observe } from "@legendapp/state";
 import type { CanvasNode, EtherBrowser } from "@shared/canvas";
-import type { VellumCommandBrowserApi } from "@shared/ipc";
+import type {
+  BrowserOpResult,
+  BrowserSessionInfo,
+  VellumCommandBrowserApi,
+} from "@shared/ipc";
+import { classifyBrowserTarget, describeBrowserTargetRejection } from "@shared/browser-policy";
 import {
   browser$,
   browserSessionIdForRef,
@@ -63,6 +68,17 @@ export interface DockNotePayload {
   readonly savedText: string;
 }
 
+/** Which operator-initiated page operation failed. */
+export type BrowserSurfaceOp = "open" | "stop" | "close";
+
+export interface BrowserOpError {
+  readonly op: BrowserSurfaceOp;
+  readonly message: string;
+}
+
+/** Bounds that park a native page view (hidden) without destroying it. */
+export const BROWSER_ZERO_BOUNDS = { x: 0, y: 0, width: 0, height: 0 } as const;
+
 const TERMINAL_SURFACE_PREFIX = "terminal:";
 const CHAT_SURFACE_PREFIX = "chat:";
 const TASK_CREATE_SURFACE_PREFIX = "task-create:";
@@ -97,19 +113,50 @@ export const dock$ = observable({
   taskCreateById: {} as Record<string, DockTaskCreatePayload>,
   /** note:<nodeId> -> focus-safe Note editor draft and durability baseline. */
   noteById: {} as Record<string, DockNotePayload>,
-  /** Explicit Stop Page failures stay visible until retry/open succeeds. */
-  stopErrorByRef: {} as Record<string, string>,
-  configHydrated: false,
+  /** Operator-visible page operation failure (open/stop/close) per ref. */
+  opErrorByRef: {} as Record<string, BrowserOpError>,
 });
 
 type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
 
 const api = (): BrowserApi | undefined => getVellumCommandApi() as BrowserApi | undefined;
 
+/**
+ * Detach a warm session over IPC after its surface closed. The result is bound
+ * to the captured handle: a stale or failed close must never disturb a
+ * reopened replacement, and a failed detach still needs its native view
+ * parked and its failure visible on the page card.
+ */
 const detachCurrentSession = (ref: string): void => {
   const sessionId = browserSessionIdForRef(ref);
   if (!sessionId) return;
-  void api()?.browserClose?.(sessionId).catch(() => undefined);
+  const a = api();
+  if (!a?.browserClose) return;
+  a.browserClose(sessionId)
+    .then((result: BrowserOpResult<BrowserSessionInfo>) => {
+      if (browserSessionIdForRef(ref) !== sessionId) return;
+      if (result.ok) return;
+      if (result.code === "not_found") {
+        // The handle is gone; drop the stale cache entry only when it is
+        // still the observed one.
+        clearBrowserSessionIfUnchanged(ref, sessionId);
+        return;
+      }
+      // The native view may still be composited with no surface left to hide
+      // it: best-effort park, and keep the failure discoverable on the card.
+      void a.browserSetBounds?.(sessionId, { ...BROWSER_ZERO_BOUNDS }).catch(() => undefined);
+      dock$.opErrorByRef[ref].set({
+        op: "close",
+        message: result.message ?? "The page could not be detached.",
+      });
+    })
+    .catch(() => {
+      if (browserSessionIdForRef(ref) !== sessionId) return;
+      dock$.opErrorByRef[ref].set({
+        op: "close",
+        message: "The page could not be detached.",
+      });
+    });
 };
 
 const clearStoppedSurface = (ref: string, observedSessionId: string | undefined): boolean => {
@@ -130,16 +177,6 @@ const forceClearStoppedSurface = (ref: string): void => {
   browser$.sessionByRef[ref].delete();
   dock$.registry.set(closeSurface(dock$.registry.peek(), ref).state);
   dock$.browserByRef[ref].delete();
-};
-
-/**
- * One-shot hydrate marker. maxVisibleSurfaces is not a UI admission cap
- * (tabs + keep-alive); warm session limits still live in main.
- */
-export const hydrateDockConfig = async (): Promise<void> => {
-  if (dock$.configHydrated.peek()) return;
-  dock$.configHydrated.set(true);
-  void api()?.browserSurfaceConfig?.().catch(() => undefined);
 };
 
 /**
@@ -291,7 +328,9 @@ export const reconcileDockFromLiveSessions = async (): Promise<void> => {
 
 /**
  * Open (or re-focus) a page browser surface in the **focus** zone by default.
- * Slot appears immediately; warm session opens/reuses over IPC.
+ * Slot appears immediately; warm session opens/reuses over IPC. A failed open
+ * surfaces its refusal on the slot header and page card instead of waiting
+ * silently for a session that will never arrive.
  */
 export const openDockBrowser = async (
   ref: string,
@@ -299,22 +338,59 @@ export const openDockBrowser = async (
   zone: WorkZone = "focus",
 ): Promise<void> => {
   if (!isCanonicalBrowserRef(ref)) return;
-  dock$.stopErrorByRef[ref].delete();
-  await hydrateDockConfig();
+  // Attempt ownership: only the newest open for this ref may report or clear
+  // its outcome, so a slow rejected open cannot overwrite a newer success.
+  const attempt = ++openAttemptSeq;
+  openAttemptByRef.set(ref, attempt);
+  dock$.opErrorByRef[ref].delete();
   dock$.browserByRef[ref].set(payload);
   applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }, zone));
+  // Fast, authoritative-mirror refusal for disallowed targets: main enforces
+  // the same policy, but the operator should not wait on an IPC round trip to
+  // learn a URL can never open.
+  const decision = classifyBrowserTarget(payload.url);
+  if (!decision.allowed) {
+    dock$.opErrorByRef[ref].set({
+      op: "open",
+      message: describeBrowserTargetRejection(decision.reason),
+    });
+    return;
+  }
   const a = api();
   if (!a?.browserOpen) return;
   const observedSessionId = browserSessionIdForRef(ref);
+  let result: BrowserOpResult<BrowserSessionInfo>;
   try {
-    const result = await a.browserOpen({ ref });
-    if (result.ok && result.data?.ref === ref) {
-      cacheBrowserSessionIfUnchanged(result.data, observedSessionId);
-    }
+    result = await a.browserOpen({ ref });
   } catch {
-    // Session push events (or their absence) carry the failure state.
+    // A thrown IPC call is opaque to the operator; the generic outcome is the
+    // honest report (main's operator-facing refusals arrive as not-ok results).
+    result = { ok: false, code: "failed" };
   }
+  if (openAttemptByRef.get(ref) !== attempt) return;
+  // A newer runtime (later open or session push) supersedes this attempt's
+  // failure: reporting it would mark a live page failed.
+  const currentSessionId = browserSessionIdForRef(ref);
+  if (currentSessionId && currentSessionId !== observedSessionId) return;
+  if (result.ok && isUsableBrowserSession(result.data) && result.data.ref === ref) {
+    cacheBrowserSessionIfUnchanged(result.data, observedSessionId);
+    return;
+  }
+  dock$.opErrorByRef[ref].set({
+    op: "open",
+    message: result.ok
+      ? "The page session did not open correctly; try again."
+      : result.code === "not_found"
+        ? // Main phrases this with an internal session handle; the operator
+          // needs the outcome, not the id.
+          "The page session ended before it could attach; try again."
+        : result.message ?? "The page could not be opened.",
+  });
 };
+
+// Monotonic open-attempt tokens per ref (module bookkeeping, not UI state).
+let openAttemptSeq = 0;
+const openAttemptByRef = new Map<string, number>();
 
 /** Detach a browser surface (UI first). Session and cookies survive. */
 export const closeDockBrowser = (ref: string): void => {
@@ -446,12 +522,16 @@ export const closeFocusModalSurface = (id: string): void => {
  * blocked by historical nodes from a build that had the flag on.
  */
 export const stopDockBrowser = async (ref: string): Promise<boolean> => {
-  dock$.stopErrorByRef[ref].delete();
+  dock$.opErrorByRef[ref].delete();
   const a = api();
   if (!a?.browserStop) {
     forceClearStoppedSurface(ref);
     return true;
   }
+  const stopFailure = (message: string): boolean => {
+    dock$.opErrorByRef[ref].set({ op: "stop", message });
+    return false;
+  };
   let sessionId = browserSessionIdForRef(ref);
   if (!sessionId) {
     if (!a.browserSessionList) {
@@ -463,8 +543,7 @@ export const stopDockBrowser = async (ref: string): Promise<boolean> => {
     try {
       const listed = await a.browserSessionList();
       if (!listed.ok || !listed.data) {
-        dock$.stopErrorByRef[ref].set(listed.message ?? "Could not verify whether this page is still running.");
-        return false;
+        return stopFailure(listed.message ?? "Could not verify whether this page is still running.");
       }
       const live = listed.data.find(
         (candidate) => isUsableBrowserSession(candidate) && candidate.ref === ref,
@@ -478,40 +557,43 @@ export const stopDockBrowser = async (ref: string): Promise<boolean> => {
         return true;
       }
     } catch {
-      dock$.stopErrorByRef[ref].set("Could not verify whether this page is still running.");
-      return false;
+      return stopFailure("Could not verify whether this page is still running.");
     }
   }
   try {
     const result = await a.browserStop(sessionId);
     if (result.ok) {
       if (clearStoppedSurface(ref, sessionId)) return true;
-      dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
-      return false;
+      return stopFailure("Page runtime changed while stopping; retry Stop Page.");
     }
-    if (result.code === "not_found" && a.browserSessionList) {
+    if (result.code === "not_found") {
+      if (!a.browserSessionList) {
+        // No way to reconcile; the handle is authoritatively gone.
+        if (clearStoppedSurface(ref, sessionId)) return true;
+        return stopFailure("Page runtime changed while stopping; retry Stop Page.");
+      }
       const listed = await a.browserSessionList();
-      if (listed.ok && listed.data) {
-        const live = listed.data.find(
-          (candidate) => isUsableBrowserSession(candidate) && candidate.ref === ref,
-        );
-        if (!live) {
-          if (clearStoppedSurface(ref, sessionId)) return true;
-          dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
-          return false;
-        }
-        if (live.sessionId !== sessionId) {
-          cacheBrowserSessionIfUnchanged(live, sessionId);
-          dock$.stopErrorByRef[ref].set("Page runtime changed while stopping; retry Stop Page.");
-          return false;
-        }
+      if (!listed.ok || !listed.data) {
+        // The stop report contradicts itself; do not show the operator an
+        // internal session handle — ask for a retry instead.
+        return stopFailure("Could not verify whether this page is still running.");
+      }
+      const live = listed.data.find(
+        (candidate) => isUsableBrowserSession(candidate) && candidate.ref === ref,
+      );
+      if (!live) {
+        if (clearStoppedSurface(ref, sessionId)) return true;
+        return stopFailure("Page runtime changed while stopping; retry Stop Page.");
+      }
+      if (live.sessionId !== sessionId) {
+        cacheBrowserSessionIfUnchanged(live, sessionId);
+        return stopFailure("Page runtime changed while stopping; retry Stop Page.");
       }
     }
-    dock$.stopErrorByRef[ref].set(result.message ?? "Stop Page failed.");
+    return stopFailure(result.message ?? "Stop Page failed.");
   } catch {
-    dock$.stopErrorByRef[ref].set("Stop Page failed.");
+    return stopFailure("Stop Page failed.");
   }
-  return false;
 };
 
 export const dockSurfaces = (): ReadonlyArray<WorkSurface> => dock$.registry.peek().surfaces;

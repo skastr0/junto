@@ -204,6 +204,7 @@ interface MockVellum {
   browserStop: ReturnType<typeof vi.fn>;
   browserSurfaceConfig?: ReturnType<typeof vi.fn>;
   browserSessionList?: ReturnType<typeof vi.fn>;
+  browserSetBounds?: ReturnType<typeof vi.fn>;
 }
 
 const refOf = (nodeId: string, canvasName = "portfolio"): string =>
@@ -272,8 +273,7 @@ function resetDock(): void {
   dock$.chatById.set({});
   dock$.taskCreateById.set({});
   dock$.noteById.set({});
-  dock$.stopErrorByRef.set({});
-  dock$.configHydrated.set(false);
+  dock$.opErrorByRef.set({});
   browser$.sessionByRef.set({});
   terminal$.openByNodeId.set({});
   terminal$.preferredZoneByNodeId.set({});
@@ -450,9 +450,9 @@ describe("dock-state", () => {
   it("opens many browsers without detaching earlier ones (tabs replace eviction)", async () => {
     const mock = installMockVellum();
     const refs = [refOf("n1"), refOf("n2"), refOf("n3")];
-    await openDockBrowser(refs[0]!, payloadOf("n1", "https://a.example", "A"));
-    await openDockBrowser(refs[1]!, payloadOf("n2", "https://b.example", "B"));
-    await openDockBrowser(refs[2]!, payloadOf("n3", "https://c.example", "C"));
+    await openDockBrowser(refs[0]!, payloadOf("n1", "https://a.example.com", "A"));
+    await openDockBrowser(refs[1]!, payloadOf("n2", "https://b.example.com", "B"));
+    await openDockBrowser(refs[2]!, payloadOf("n3", "https://c.example.com", "C"));
     expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual(refs);
     expect(mock.browserClose).not.toHaveBeenCalled();
   });
@@ -460,7 +460,7 @@ describe("dock-state", () => {
   it("closeDockBrowser removes UI without an identity fallback when no handle exists", () => {
     const mock = installMockVellum();
     const ref = refOf("ghost");
-    dock$.browserByRef[ref].set(payloadOf("ghost", "https://ghost.example", "Ghost"));
+    dock$.browserByRef[ref].set(payloadOf("ghost", "https://ghost.example.com", "Ghost"));
     dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
     closeDockBrowser(ref);
     expect(dock$.registry.peek().surfaces).toEqual([]);
@@ -478,7 +478,7 @@ describe("dock-state", () => {
         .mockResolvedValueOnce({ ok: true, data: oldSession })
         .mockResolvedValueOnce({ ok: true, data: newSession }),
     });
-    const payload = payloadOf("n1", "https://a.example", "A");
+    const payload = payloadOf("n1", "https://a.example.com", "A");
     await openDockBrowser(ref, payload);
     await openDockBrowser(ref, payload);
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("new-handle");
@@ -490,7 +490,7 @@ describe("dock-state", () => {
   it("Stop Page destroys the exact current handle and clears UI state without detaching", async () => {
     const mock = installMockVellum();
     const ref = refOf("stop-page");
-    await openDockBrowser(ref, payloadOf("stop-page", "https://stop.example", "Stop"));
+    await openDockBrowser(ref, payloadOf("stop-page", "https://stop.example.com", "Stop"));
 
     await stopDockBrowser(ref);
 
@@ -509,7 +509,7 @@ describe("dock-state", () => {
     });
     const mock = installMockVellum({ browserStop: vi.fn(() => pendingStop) });
     const ref = refOf("stop-race");
-    await openDockBrowser(ref, payloadOf("stop-race", "https://stop.example", "Stop"));
+    await openDockBrowser(ref, payloadOf("stop-race", "https://stop.example.com", "Stop"));
 
     const stopping = stopDockBrowser(ref);
     for (let i = 0; i < 20 && !mock.browserStop.mock.calls.length; i++) {
@@ -525,9 +525,10 @@ describe("dock-state", () => {
     expect(dock$.registry.peek().surfaces).toEqual([
       { id: ref, kind: "browser", zone: "focus" },
     ]);
-    expect(dock$.stopErrorByRef[ref].peek()).toBe(
-      "Page runtime changed while stopping; retry Stop Page.",
-    );
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "stop",
+      message: "Page runtime changed while stopping; retry Stop Page.",
+    });
   });
 
   it("Stop Page fails closed and keeps the surface discoverable when main rejects it", async () => {
@@ -539,7 +540,7 @@ describe("dock-state", () => {
       })),
     });
     const ref = refOf("stop-failed");
-    await openDockBrowser(ref, payloadOf("stop-failed", "https://stop.example", "Stop"));
+    await openDockBrowser(ref, payloadOf("stop-failed", "https://stop.example.com", "Stop"));
 
     await stopDockBrowser(ref);
 
@@ -548,7 +549,10 @@ describe("dock-state", () => {
       { id: ref, kind: "browser", zone: "focus" },
     ]);
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("session-1");
-    expect(dock$.stopErrorByRef[ref].peek()).toBe("physical teardown not acknowledged");
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "stop",
+      message: "physical teardown not acknowledged",
+    });
   });
 
   it("treats authoritative session-list absence as already stopped", async () => {
@@ -556,7 +560,7 @@ describe("dock-state", () => {
       browserSessionList: vi.fn(async () => ({ ok: true, data: [] })),
     });
     const ref = refOf("already-stopped");
-    dock$.browserByRef[ref].set(payloadOf("already-stopped", "https://stop.example", "Stop"));
+    dock$.browserByRef[ref].set(payloadOf("already-stopped", "https://stop.example.com", "Stop"));
     dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
 
     await expect(stopDockBrowser(ref)).resolves.toBe(true);
@@ -573,7 +577,7 @@ describe("dock-state", () => {
       vellumCommand: {},
     };
     const ref = refOf("flag-off");
-    dock$.browserByRef[ref].set(payloadOf("flag-off", "https://stop.example", "Stop"));
+    dock$.browserByRef[ref].set(payloadOf("flag-off", "https://stop.example.com", "Stop"));
     dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
     cacheBrowserSession(baseSession(ref, "flag-off", "ghost-handle"));
 
@@ -582,7 +586,7 @@ describe("dock-state", () => {
     expect(dock$.registry.peek().surfaces).toEqual([]);
     expect(dock$.browserByRef[ref].peek()).toBeUndefined();
     expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
-    expect(dock$.stopErrorByRef[ref].peek()).toBeUndefined();
+    expect(dock$.opErrorByRef[ref].peek()).toBeUndefined();
   });
 
   it("clears a stale cached handle when Stop Page returns not_found and the session list proves absence", async () => {
@@ -595,7 +599,7 @@ describe("dock-state", () => {
       browserSessionList: vi.fn(async () => ({ ok: true, data: [] })),
     });
     const ref = refOf("stale-stopped");
-    dock$.browserByRef[ref].set(payloadOf("stale-stopped", "https://stop.example", "Stop"));
+    dock$.browserByRef[ref].set(payloadOf("stale-stopped", "https://stop.example.com", "Stop"));
     dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
     cacheBrowserSession(baseSession(ref, "stale-stopped", "stale-handle"));
 
@@ -618,7 +622,7 @@ describe("dock-state", () => {
       })),
       browserSessionList: vi.fn(async () => ({ ok: true, data: [replacement] })),
     });
-    dock$.browserByRef[ref].set(payloadOf("replaced-runtime", "https://stop.example", "Stop"));
+    dock$.browserByRef[ref].set(payloadOf("replaced-runtime", "https://stop.example.com", "Stop"));
     dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
     cacheBrowserSession(baseSession(ref, "replaced-runtime", "stale-handle"));
 
@@ -630,9 +634,10 @@ describe("dock-state", () => {
     expect(dock$.registry.peek().surfaces).toEqual([
       { id: ref, kind: "browser", zone: "focus" },
     ]);
-    expect(dock$.stopErrorByRef[ref].peek()).toBe(
-      "Page runtime changed while stopping; retry Stop Page.",
-    );
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "stop",
+      message: "Page runtime changed while stopping; retry Stop Page.",
+    });
   });
 
   it("does not let a stale open response replace a newer pushed handle", async () => {
@@ -644,10 +649,9 @@ describe("dock-state", () => {
       resolveOpen = resolve;
     });
     const mock = installMockVellum({ browserOpen: vi.fn(() => pendingOpen) });
-    dock$.configHydrated.set(true);
     const opening = openDockBrowser(
       ref,
-      payloadOf("n-stale-open", "https://a.example", "A"),
+      payloadOf("n-stale-open", "https://a.example.com", "A"),
     );
     for (let i = 0; i < 20 && !mock.browserOpen.mock.calls.length; i++) {
       await Promise.resolve();
@@ -659,9 +663,188 @@ describe("dock-state", () => {
     expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("new-push");
   });
 
+  it("reports a failed open on the surface instead of waiting silently", async () => {
+    const ref = refOf("open-failed");
+    installMockVellum({
+      browserOpen: vi.fn(async () => ({
+        ok: false,
+        code: "resource_exhausted",
+        message: "stop pages or automation to free capacity",
+      })),
+    });
+
+    await openDockBrowser(ref, payloadOf("open-failed", "https://a.example.com", "A"));
+
+    // The slot still exists (the operator can see and close it), and the
+    // refusal is visible instead of an endless "waiting for session…".
+    expect(dock$.registry.peek().surfaces).toEqual([
+      { id: ref, kind: "browser", zone: "focus" },
+    ]);
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "open",
+      message: "stop pages or automation to free capacity",
+    });
+  });
+
+  it("reports a thrown open as an operator-facing failure", async () => {
+    const ref = refOf("open-threw");
+    installMockVellum({
+      browserOpen: vi.fn(async () => {
+        throw new Error("Object has been destroyed");
+      }),
+    });
+
+    await openDockBrowser(ref, payloadOf("open-threw", "https://a.example.com", "A"));
+
+    // The thrown internals stay internal; the outcome is what is reported.
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "open",
+      message: "The page could not be opened.",
+    });
+  });
+
+  it("refuses a disallowed target before any IPC round trip", async () => {
+    const mock = installMockVellum();
+    const ref = refOf("open-local");
+
+    await openDockBrowser(ref, payloadOf("open-local", "http://localhost:5173", "Local"));
+
+    expect(mock.browserOpen).not.toHaveBeenCalled();
+    expect(dock$.opErrorByRef[ref].peek()?.op).toBe("open");
+    expect(dock$.opErrorByRef[ref].peek()?.message).toContain("Local and internal hostnames");
+  });
+
+  it("a stale open failure cannot mark a newer runtime failed", async () => {
+    const ref = refOf("stale-failure");
+    let resolveOpen: ((result: BrowserOpResult<BrowserSessionInfo>) => void) | undefined;
+    const pendingOpen = new Promise<BrowserOpResult<BrowserSessionInfo>>((resolve) => {
+      resolveOpen = resolve;
+    });
+    const mock = installMockVellum({ browserOpen: vi.fn(() => pendingOpen) });
+    const opening = openDockBrowser(ref, payloadOf("stale-failure", "https://a.example.com", "A"));
+    for (let i = 0; i < 20 && !mock.browserOpen.mock.calls.length; i++) {
+      await Promise.resolve();
+    }
+    // A newer open attempt wins while the first is still in flight.
+    cacheBrowserSession(baseSession(ref, "stale-failure", "newer-handle", { state: "ready" }));
+    resolveOpen?.({ ok: false, code: "failed", message: "navigation cancelled" });
+    await opening;
+    expect(dock$.opErrorByRef[ref].peek()).toBeUndefined();
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("newer-handle");
+  });
+
+  it("a malformed ok open result is a visible failure, not a silent cache skip", async () => {
+    const ref = refOf("malformed-open");
+    installMockVellum({
+      browserOpen: vi.fn(async () => ({
+        ok: true,
+        data: { ...baseSession(refOf("other"), "other", "other-handle") },
+      })),
+    });
+
+    await openDockBrowser(ref, payloadOf("malformed-open", "https://a.example.com", "A"));
+
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({
+      op: "open",
+      message: "The page session did not open correctly; try again.",
+    });
+  });
+
+  it("a later open success clears a reported open failure", async () => {
+    const ref = refOf("open-retry");
+    const mock = installMockVellum({
+      browserOpen: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, code: "failed", message: "no" })
+        .mockResolvedValueOnce({ ok: true, data: baseSession(ref, "open-retry", "retry-handle") }),
+    });
+    await openDockBrowser(ref, payloadOf("open-retry", "https://a.example.com", "A"));
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({ op: "open", message: "no" });
+
+    await openDockBrowser(ref, payloadOf("open-retry", "https://a.example.com", "A"));
+    expect(mock.browserOpen).toHaveBeenCalledTimes(2);
+    expect(dock$.opErrorByRef[ref].peek()).toBeUndefined();
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("retry-handle");
+  });
+
+  it("cacheBrowserSession never lets a late destroy establish or revive a handle", () => {
+    const ref = refOf("destroy-rules");
+    // Destroy for an unknown ref: must not create an entry.
+    expect(
+      cacheBrowserSession(baseSession(ref, "destroy-rules", "gone", { state: "destroyed" })),
+    ).toBe(false);
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+
+    // Live handle, then destroy, then a late nonterminal push for the same
+    // handle: destroyed is terminal and cannot be revived.
+    cacheBrowserSession(baseSession(ref, "destroy-rules", "live", { state: "ready" }));
+    cacheBrowserSession(baseSession(ref, "destroy-rules", "live", { state: "destroyed" }));
+    expect(browser$.sessionByRef[ref].peek()?.state).toBe("destroyed");
+    expect(
+      cacheBrowserSession(baseSession(ref, "destroy-rules", "live", { state: "ready" })),
+    ).toBe(false);
+    expect(browser$.sessionByRef[ref].peek()?.state).toBe("destroyed");
+  });
+
+  it("a failed detach reports close failure and parks the native view", async () => {
+    const ref = refOf("close-failed");
+    const mock = installMockVellum({
+      browserClose: vi.fn(async () => ({
+        ok: false,
+        code: "failed",
+        message: "detach refused",
+      })),
+      browserSetBounds: vi.fn(async () => ({
+        ok: true,
+        data: baseSession(ref, "close-failed", "warm-handle"),
+      })),
+    });
+    dock$.browserByRef[ref].set(payloadOf("close-failed", "https://a.example.com", "A"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "close-failed", "warm-handle", { state: "ready" }));
+
+    closeDockBrowser(ref);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(browser$.sessionByRef[ref].peek()?.sessionId).toBe("warm-handle");
+    expect(dock$.opErrorByRef[ref].peek()).toEqual({ op: "close", message: "detach refused" });
+    expect(mock.browserSetBounds).toHaveBeenCalledWith("warm-handle", {
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+    });
+  });
+
+  it("a not_found detach clears the stale handle instead of reporting an error", async () => {
+    const ref = refOf("close-stale");
+    const mock = installMockVellum({
+      browserClose: vi.fn(async () => ({
+        ok: false,
+        code: "not_found",
+        message: "no session for warm-handle",
+      })),
+    });
+    dock$.browserByRef[ref].set(payloadOf("close-stale", "https://a.example.com", "A"));
+    dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
+    cacheBrowserSession(baseSession(ref, "close-stale", "warm-handle", { state: "ready" }));
+
+    closeDockBrowser(ref);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(dock$.registry.peek().surfaces).toEqual([]);
+    expect(browser$.sessionByRef[ref].peek()).toBeUndefined();
+    expect(dock$.opErrorByRef[ref].peek()).toBeUndefined();
+    expect(mock.browserClose).toHaveBeenCalledWith("warm-handle");
+  });
+
   it("degrades quietly when window.vellumCommand is absent", async () => {
     const ref = refOf("n1");
-    await expect(openDockBrowser(ref, payloadOf("n1", "https://a.example", "A", "p"))).resolves.toBeUndefined();
+    await expect(openDockBrowser(ref, payloadOf("n1", "https://a.example.com", "A", "p"))).resolves.toBeUndefined();
     expect(() => closeDockBrowser(ref)).not.toThrow();
   });
 

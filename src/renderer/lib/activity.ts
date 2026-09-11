@@ -268,19 +268,16 @@ export type BrowserSessionState =
  * - failed → crimson wave
  * - cold → silent static
  * Live “who is automating” needs owner + op projection on BrowserSessionInfo.
+ * Terminal and failed states beat an in-flight attach: a destroyed or failed
+ * session must never keep waving cyan “attaching”.
  */
 export function browserActivity(input: {
   readonly state?: BrowserSessionState | null;
   readonly attaching?: boolean;
+  /** An operator open/stop/close operation failed — crimson beat, not work. */
+  readonly opFailed?: boolean;
 }): ActivitySpec {
-  if (input.attaching || input.state === "loading") {
-    return {
-      mode: "wave",
-      tone: SEVERITY_TONE.working,
-      label: input.attaching ? "attaching" : "loading",
-    };
-  }
-  if (input.state === "failed") {
+  if (input.opFailed || input.state === "failed") {
     return {
       mode: "wave",
       tone: SEVERITY_TONE.blocked,
@@ -288,12 +285,19 @@ export function browserActivity(input: {
       label: "failed",
     };
   }
+  if (input.state === "destroyed") {
+    return { mode: "static", tone: SEVERITY_TONE.idle, label: "stopped" };
+  }
+  if (input.attaching || input.state === "loading") {
+    return {
+      mode: "wave",
+      tone: SEVERITY_TONE.working,
+      label: input.attaching ? "attaching" : "loading",
+    };
+  }
   // ready = surface open; detached = warm session without panel — both "running".
   if (input.state === "ready" || input.state === "detached") {
     return { mode: "pulse", tone: "green", label: "live" };
-  }
-  if (input.state === "destroyed") {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "stopped" };
   }
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
 }
