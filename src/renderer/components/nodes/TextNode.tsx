@@ -420,6 +420,12 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   useEffect(() => {
     if (!isEditTarget) return;
     setDraft(text);
+    // Artifacts shelf has no authorial name — node.text mirrors artifact
+    // names — so it consumes the edit intent without opening rename/edit.
+    if (entityKind === "artifacts") {
+      state$.editNodeId.set("");
+      return;
+    }
     if (isLabel) setEditing(true);
     else if (isFreeNote) openNoteSurface(node);
     // Seat/shell/sink cards: rename first line (not full note textarea).
@@ -441,6 +447,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     managedTerminal,
     isWorkSurface,
     isLabel,
+    entityKind,
     text,
   ]);
 
@@ -683,11 +690,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               onRenameDone={() => setRenaming(false)}
             />
           ) : entityKind === "artifacts" ? (
-            <ArtifactsCard
-              node={node}
-              renaming={renaming}
-              onRenameDone={() => setRenaming(false)}
-            />
+            <ArtifactsCard node={node} />
           ) : entityKind === "board" ? (
             <BoardCard
               node={node}

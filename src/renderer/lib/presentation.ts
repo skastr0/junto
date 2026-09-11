@@ -42,6 +42,9 @@ export const nodeTypeLabel = (node: CanvasNode): string => {
 };
 
 export const nodeTitle = (node: CanvasNode): string => {
+  // Artifacts shelf has no authorial name — node.text mirrors artifact names
+  // and shifts on rename/archive/delete — so its title stays the kind label.
+  if (node.ether?.entity?.kind === "artifacts") return "artifacts";
   if (node.type === "text") return node.text.split("\n")[0]?.replace(/^#+\s*/, "") || "untitled";
   if (node.type === "file") return node.file.split("/").filter(Boolean).pop() ?? node.file;
   if (node.type === "link") {

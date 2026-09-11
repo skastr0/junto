@@ -831,7 +831,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             <CmdKey label="Focus" onClick={() => state$.focusNodeId.set(nodeId)}>
               <Crosshair size={ICON} />
             </CmdKey>
-            {entityKind !== "agent" ? (
+            {entityKind !== "agent" && entityKind !== "artifacts" ? (
               <CmdKey label="Edit" onClick={() => state$.editNodeId.set(nodeId)}>
                 <Pencil size={ICON} />
               </CmdKey>

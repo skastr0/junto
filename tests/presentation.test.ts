@@ -48,4 +48,20 @@ describe("canvas presentation", () => {
     expect(searchText(node)).toContain("attention");
     expect(searchText(node)).toContain("parked");
   });
+
+  it("keeps the artifacts shelf title stable while node.text mirrors artifact names", () => {
+    // The shelf has no authorial name: node.text mirrors the first artifact
+    // name and shifts on rename/archive/delete. Title stays the kind label.
+    const node: CanvasNode = {
+      ...base,
+      type: "text",
+      text: "release proof",
+      ether: {
+        entity: { kind: "artifacts" },
+        artifacts: { items: [] },
+      },
+    };
+
+    expect(nodeTitle(node)).toBe("artifacts");
+  });
 });

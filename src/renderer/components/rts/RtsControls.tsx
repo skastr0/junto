@@ -607,22 +607,13 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
       );
     case "artifacts":
       return (
-        <>
-          <KindKey
-            label="Open artifacts"
-            title="Open artifacts"
-            onClick={() => openWorkDetail(node.id)}
-          >
-            <Package size={ICON} />
-          </KindKey>
-          <KindKey
-            label="Rename"
-            title="Rename"
-            onClick={() => state$.editNodeId.set(node.id)}
-          >
-            <Pencil size={ICON} />
-          </KindKey>
-        </>
+        <KindKey
+          label="Open artifacts"
+          title="Open artifacts"
+          onClick={() => openWorkDetail(node.id)}
+        >
+          <Package size={ICON} />
+        </KindKey>
       );
     case "board":
       return (

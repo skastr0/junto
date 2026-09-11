@@ -370,14 +370,7 @@ export function BoardCard({
   );
 }
 
-export function ArtifactsCard({
-  node,
-  renaming = false,
-  onRequestRename,
-  onRenameDone,
-}: {
-  readonly node: CanvasNode;
-} & SinkRenameProps) {
+export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
   const items = (node.ether?.artifacts?.items ?? []).filter(
     (item) => item.metadata?.archived !== true,
   );
@@ -386,10 +379,10 @@ export function ArtifactsCard({
       <SinkGlanceHead
         node={node}
         fallback="artifacts"
+        // The shelf has no authorial name; node.text mirrors artifact names
+        // (offline glance), so the head stays a stable kind label.
+        displayLabel="artifacts"
         decal={<Package size={15} />}
-        renaming={renaming}
-        onRequestRename={onRequestRename}
-        onRenameDone={onRenameDone}
         trailing={
           <span className="text-[9px] tabular-nums" style={{ color: DIM }}>
             {items.length}
