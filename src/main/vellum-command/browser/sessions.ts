@@ -1084,11 +1084,11 @@ export class BrowserSessionService {
 
   private settleNavigationWaiters(
     entry: SessionEntry,
-    sessionId: string,
+    filter: (waiter: NavigationWaiter) => boolean,
     result: BrowserResult<BrowserSessionInfo>,
   ): void {
     for (const waiter of [...entry.navigationWaiters]) {
-      if (waiter.sessionId !== sessionId) continue;
+      if (!filter(waiter)) continue;
       entry.navigationWaiters.delete(waiter);
       if (waiter.signal !== undefined && waiter.abortListener !== undefined) {
         waiter.signal.removeEventListener("abort", waiter.abortListener);
@@ -1140,7 +1140,7 @@ export class BrowserSessionService {
     this.reduceCurrent(entry, boundedEvent);
     this.settleNavigationWaiters(
       entry,
-      sessionId,
+      (waiter) => waiter.sessionId === sessionId,
       boundedEvent.type === "load_fail"
         ? err("failed", boundedEvent.message)
         : { ok: true, data: this.info(entry) },
@@ -1196,6 +1196,14 @@ export class BrowserSessionService {
     if (!this.isCurrent(entry)) return err("not_found", `no session for ${entry.sessionId}`);
     const minted = this.mintSessionId();
     if (!minted.ok) return minted;
+    // Superseded generations can never complete: their exact handle stops
+    // existing here. Settle their waiters now so retained UI/automation
+    // navigations cannot hang the quit drain on a replaced load.
+    this.settleNavigationWaiters(
+      entry,
+      (waiter) => waiter.sessionId !== minted.data,
+      err("cancelled", "superseded by a newer navigation"),
+    );
     this.sessions.delete(entry.sessionId);
     entry.sessionId = minted.data;
     entry.currentUrl = exactBrowserUrl(url);
@@ -1572,7 +1580,7 @@ export class BrowserSessionService {
     if (this.sessions.size >= maxWarmSessions) {
       return err(
         "resource_exhausted",
-        `warm browser session capacity reached (${maxWarmSessions}); detach a surface before opening another page`,
+        `warm browser session capacity reached (${maxWarmSessions}); stop pages or automation to free capacity`,
       );
     }
 
@@ -1778,10 +1786,18 @@ export class BrowserSessionService {
     const entry = this.entryForOwner(BROWSER_UI_SESSION_OWNER, sessionId);
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     entry.lastActiveAt = this.now();
+    // A zero-bounds push from a surface that is gone (Close already detached
+    // the session, then the slot cleanup echoed park) must never resurrect
+    // logical attachment: Close owns detach, and only a real rect remounts.
+    const parking = bounds.width < 1 || bounds.height < 1;
     try {
       if (!entry.attached) {
-        entry.attached = true;
+        if (parking) return { ok: true, data: this.info(entry) };
         entry.view.attach(bounds);
+        // Commit attachment only after the fallible adapter seam accepted it,
+        // so a failed attach cannot leave `attached` claiming a view that
+        // never composited.
+        entry.attached = true;
         this.reduceCurrent(entry, { type: "reattach" });
         this.emit(entry);
       } else {
@@ -1803,8 +1819,10 @@ export class BrowserSessionService {
     if (entry === undefined) return err("not_found", `no session for ${sessionId}`);
     try {
       if (entry.attached) {
-        entry.attached = false;
         entry.view.detach();
+        // Commit detachment only after the fallible adapter seam accepted it;
+        // a failed detach must keep reporting the session as still attached.
+        entry.attached = false;
       }
       entry.lastActiveAt = this.now();
       this.reduceCurrent(entry, { type: "detach" });
@@ -2260,7 +2278,7 @@ export class BrowserSessionService {
       if (current !== entry || entry.navigationInFlight !== sessionId) {
         this.settleNavigationWaiters(
           entry,
-          sessionId,
+          (waiter) => waiter.sessionId === sessionId,
           current === entry
             ? entry.machine.state === "failed"
               ? err("failed", entry.machine.lastError ?? "navigation failed")
@@ -2547,7 +2565,10 @@ export class BrowserSessionService {
     }
     this.settleNavigationWaiters(
       entry,
-      sessionId,
+      // The entry is dying: every remaining waiter, including any whose
+      // generation was rotated away earlier, must settle now or the quit
+      // drain waits on a completion that can never happen.
+      () => true,
       err(failure?.code ?? "not_found", failure?.message ?? `no session for ${sessionId}`),
     );
     try {
@@ -2626,7 +2647,6 @@ export class BrowserSessionService {
       try {
         const operation = entry.activeOperation;
         if (operation !== undefined) {
-          const operationSessionId = operation.sessionId;
           this.releaseOperation(
             entry,
             operation,
@@ -2636,7 +2656,8 @@ export class BrowserSessionService {
           if (operation.kind === "navigation") {
             this.settleNavigationWaiters(
               entry,
-              operationSessionId,
+              // The entry is being torn down for quit; no waiter can complete.
+              () => true,
               err("cancelled", "navigation cancelled during quit"),
             );
           }
@@ -2785,7 +2806,6 @@ export class BrowserSessionService {
       try {
         const operation = entry.activeOperation;
         if (operation !== undefined) {
-          const operationSessionId = operation.sessionId;
           this.releaseOperation(
             entry,
             operation,
@@ -2795,7 +2815,8 @@ export class BrowserSessionService {
           if (operation.kind === "navigation") {
             this.settleNavigationWaiters(
               entry,
-              operationSessionId,
+              // The entry is being torn down for quit; no waiter can complete.
+              () => true,
               err("cancelled", "navigation cancelled during quit"),
             );
           }

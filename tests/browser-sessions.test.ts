@@ -1605,6 +1605,148 @@ describe("BrowserSessionService", () => {
     expect(service.stateForOwner("job-b", sibling.data.sessionId)).toMatchObject({ ok: true });
   });
 
+  it("settles a superseded navigation waiter when a page navigation rotates the generation", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.openForOwner("job-rotate", target("rotate"));
+    if (!opened.ok) throw new Error("open failed");
+    const firstId = opened.data.sessionId;
+
+    const superseded = service.awaitNavigationTerminalForOwner("job-rotate", firstId);
+    views[0]?.events.onNavigationStart({
+      url: "https://rotated.example.com/",
+      isSameDocument: false,
+    });
+
+    await expect(superseded).resolves.toMatchObject({
+      ok: false,
+      code: "cancelled",
+      message: "superseded by a newer navigation",
+    });
+
+    const listed = service.listForOwner("job-rotate");
+    if (!listed.ok || listed.data.length !== 1) throw new Error("session lost after rotation");
+    const replacement = listed.data[0]?.sessionId;
+    if (replacement === undefined || replacement === firstId) {
+      throw new Error("generation did not rotate");
+    }
+    const terminal = service.awaitNavigationTerminalForOwner("job-rotate", replacement);
+    views[0]?.events.onLoadOk(replacement, "rotated ok");
+    await expect(terminal).resolves.toMatchObject({
+      ok: true,
+      data: { title: "rotated ok" },
+    });
+  });
+
+  it("settles every retained navigation waiter when the session is destroyed", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.openForOwner("job-drain", target("drain"));
+    if (!opened.ok) throw new Error("open failed");
+
+    const rotated = service.awaitNavigationTerminalForOwner(
+      "job-drain",
+      opened.data.sessionId,
+    );
+    views[0]?.events.onNavigationStart({
+      url: "https://drained.example.com/",
+      isSameDocument: false,
+    });
+    await expect(rotated).resolves.toMatchObject({ ok: false, code: "cancelled" });
+
+    const listed = service.listForOwner("job-drain");
+    if (!listed.ok || listed.data.length !== 1) throw new Error("session lost after rotation");
+    const currentId = listed.data[0]?.sessionId;
+    if (currentId === undefined) throw new Error("no current session");
+    const terminal = service.awaitNavigationTerminalForOwner("job-drain", currentId);
+
+    expect(service.destroyOwnerSessions("job-drain", "grant revoked")).toBe(1);
+    await expect(terminal).resolves.toMatchObject({
+      ok: false,
+      code: "cancelled",
+      message: "grant revoked",
+    });
+  });
+
+  it("never reattaches a detached session for a zero-bounds park echo", async () => {
+    const { service, views } = makeDefaultService();
+    const opened = await service.open(target("park"));
+    if (!opened.ok) throw new Error("open failed");
+    const attached = await service.setBounds(opened.data.sessionId, bounds);
+    expect(attached).toMatchObject({ ok: true, data: { attached: true } });
+    const closed = await service.close(opened.data.sessionId);
+    if (!closed.ok) throw new Error("close failed");
+    expect(closed.data.attached).toBe(false);
+    const attachCalls = () =>
+      views[0]?.calls.filter((call) => call === "attach").length ?? 0;
+
+    const echo = await service.setBounds(opened.data.sessionId, {
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+    });
+    expect(echo).toMatchObject({ ok: true, data: { attached: false } });
+    expect(attachCalls()).toBe(1);
+
+    const remount = await service.setBounds(opened.data.sessionId, bounds);
+    expect(remount).toMatchObject({ ok: true, data: { attached: true } });
+    expect(attachCalls()).toBe(2);
+  });
+
+  it("leaves attachment unclaimed when the adapter rejects the attach", async () => {
+    const { adapter: spyAdapter } = makeSpyAdapter();
+    let failAttach = true;
+    const adapter: BrowserViewAdapter = (partition, events, options) => {
+      const handle = spyAdapter(partition, events, options);
+      return {
+        ...handle,
+        attach: () => {
+          if (failAttach) throw new Error("attach refused");
+          handle.attach(bounds);
+        },
+      };
+    };
+    const { service } = makeService(adapter);
+    const opened = await service.open(target("attach-fail"));
+    if (!opened.ok) throw new Error("open failed");
+
+    const refused = await service.setBounds(opened.data.sessionId, bounds);
+    expect(refused).toMatchObject({ ok: false, code: "failed", message: "attach refused" });
+    const state = service.state(opened.data.sessionId);
+    expect(state.ok && state.data.attached).toBe(false);
+
+    failAttach = false;
+    const retried = await service.setBounds(opened.data.sessionId, bounds);
+    expect(retried).toMatchObject({ ok: true, data: { attached: true } });
+  });
+
+  it("keeps a session attached when the adapter refuses detach", async () => {
+    const { adapter: spyAdapter } = makeSpyAdapter();
+    let refuseDetach = true;
+    const adapter: BrowserViewAdapter = (partition, events, options) => {
+      const handle = spyAdapter(partition, events, options);
+      return {
+        ...handle,
+        detach: () => {
+          if (refuseDetach) throw new Error("detach refused");
+          handle.detach();
+        },
+      };
+    };
+    const { service } = makeService(adapter);
+    const opened = await service.open(target("detach-fail"));
+    if (!opened.ok) throw new Error("open failed");
+    await service.setBounds(opened.data.sessionId, bounds);
+
+    const refused = await service.close(opened.data.sessionId);
+    expect(refused).toMatchObject({ ok: false, code: "failed", message: "detach refused" });
+    const state = service.state(opened.data.sessionId);
+    expect(state.ok && state.data.attached).toBe(true);
+
+    refuseDetach = false;
+    const retried = await service.close(opened.data.sessionId);
+    expect(retried).toMatchObject({ ok: true, data: { attached: false } });
+  });
+
   it("invalidates only the matching pending profile within one owner", async () => {
     const base = makeProfileService();
     await Effect.runPromise(base.ensureDefaults);
