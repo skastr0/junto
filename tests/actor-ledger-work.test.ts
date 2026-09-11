@@ -208,6 +208,54 @@ describe("raisedTaskRowsForSeat", () => {
     expect(raisedTaskRowsForSeat(emptyDoc, actor.seatId)).toEqual([]);
     expect(raisedTaskRowsForSeat(docOf([]), actor.seatId)).toEqual([]);
   });
+
+  it("inherits approval from the sink contract when the task has no stamp", () => {
+    const inherited = docOf([
+      sinkNode("tasks", {
+        entity: { kind: "task" },
+        tasks: {
+          contract: { incoming: { admission: "approval" } },
+          items: [task("01G", "submitted", actor, "Needs inherited approval")],
+        },
+      }),
+    ]);
+    expect(raisedTaskRowsForSeat(inherited, actor.seatId)).toEqual([
+      {
+        taskId: "01G",
+        sinkNodeId: "tasks",
+        state: "submitted",
+        title: "Needs inherited approval",
+        awaitingApproval: true,
+        dependsOnCount: 0,
+        hasFinishCriteria: false,
+      },
+    ]);
+  });
+
+  it("keeps a stamped auto task claimable on an auto-floor board", () => {
+    const autoFloor = docOf([
+      sinkNode("tasks", {
+        entity: { kind: "task" },
+        tasks: {
+          contract: { incoming: { admission: "auto" } },
+          items: [
+            task("01H", "submitted", actor, "Already auto", { admission: "auto" }),
+          ],
+        },
+      }),
+    ]);
+    expect(raisedTaskRowsForSeat(autoFloor, actor.seatId)).toEqual([
+      {
+        taskId: "01H",
+        sinkNodeId: "tasks",
+        state: "submitted",
+        title: "Already auto",
+        awaitingApproval: false,
+        dependsOnCount: 0,
+        hasFinishCriteria: false,
+      },
+    ]);
+  });
 });
 
 describe("requestRowsForSeat", () => {

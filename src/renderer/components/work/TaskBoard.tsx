@@ -81,9 +81,11 @@ import {
 } from "@shared/work-model";
 import { currentTaskOwner } from "@shared/task-owner";
 import {
+  admissionLaneHint,
   incomingGlance,
   groupOutgoingVisits,
   hasPendingWait,
+  taskNeedsApproval,
   taskPathLaneCopy,
   taskPathShape,
   type OutgoingGroupKind,
@@ -491,6 +493,7 @@ function TaskLane({
   headerAction,
   emptyText,
   markFor,
+  needsApprovalFor,
   allTasks,
   searchActive,
   activeLane,
@@ -522,8 +525,9 @@ function TaskLane({
   readonly headerAction?: ReactNode;
   /** Teaching copy for an empty column. */
   readonly emptyText?: string;
-  /** Incoming only: the task's admission mark. */
+  /** Queue and Incoming: the task's admission mark. */
   readonly markFor?: (task: WorkTask) => ReactNode;
+  readonly needsApprovalFor?: (task: WorkTask) => boolean;
   readonly allTasks: ReadonlyArray<WorkTask>;
   readonly searchActive: boolean;
   readonly activeLane: LaneId | null;
@@ -575,6 +579,7 @@ function TaskLane({
         lanes={lanes}
         index={index}
         mark={markFor?.(task)}
+        needsApproval={needsApprovalFor?.(task) ?? false}
         pending={pendingTaskId === task.id}
         editing={editingTaskId === task.id}
         selected={selectedTaskId === task.id}
@@ -734,6 +739,7 @@ function TaskActionsMenu({
   lane,
   lanes,
   pending,
+  needsApproval,
   onEdit,
   onMove,
   onApprove,
@@ -742,6 +748,7 @@ function TaskActionsMenu({
   readonly lane: LaneDefinition;
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
+  readonly needsApproval: boolean;
   readonly onEdit: (task: WorkTask) => void;
   readonly onMove: (task: WorkTask, state: TaskState) => void;
   readonly onApprove: (task: WorkTask) => void;
@@ -760,8 +767,6 @@ function TaskActionsMenu({
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
     task.finishCriteria?.git !== undefined;
-  const approvalTask =
-    task.state === "submitted" && task.admission === "approval";
   const terminalActions = (
     [
       ["completed", "Complete task"],
@@ -818,7 +823,7 @@ function TaskActionsMenu({
         onClick={(event) => event.stopPropagation()}
         onToggle={(event) => setOpen(event.currentTarget.matches(":popover-open"))}
       >
-        {approvalTask ? (
+        {needsApproval ? (
           <button
             type="button"
             role="menuitem"
@@ -828,12 +833,12 @@ function TaskActionsMenu({
             Approve
           </button>
         ) : null}
-        {!approvalTask ? (
+        {!needsApproval ? (
           <button type="button" role="menuitem" onClick={() => commit(() => onEdit(task))}>
             Edit title
           </button>
         ) : null}
-        {!approvalTask
+        {!needsApproval
           ? availableMoves.map((target) => (
               <button
                 key={target.id}
@@ -852,10 +857,10 @@ function TaskActionsMenu({
               </button>
             ))
           : null}
-        {!approvalTask && terminalActions.length > 0 ? (
+        {!needsApproval && terminalActions.length > 0 ? (
           <div className="task-board-card__menu-separator" aria-hidden />
         ) : null}
-        {!approvalTask
+        {!needsApproval
           ? terminalActions.map(([state, label]) => (
               <button
                 key={state}
@@ -884,6 +889,7 @@ function TaskCard({
   lanes,
   index,
   mark,
+  needsApproval,
   pending,
   editing,
   selected,
@@ -903,8 +909,9 @@ function TaskCard({
   readonly lane: LaneDefinition;
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly index: number;
-  /** Incoming admission mark, rendered beside the state chip. */
+  /** Queue and Incoming admission mark, rendered beside the state chip. */
   readonly mark?: ReactNode;
+  readonly needsApproval: boolean;
   readonly pending: boolean;
   readonly editing: boolean;
   readonly selected: boolean;
@@ -920,8 +927,6 @@ function TaskCard({
   readonly onSaveEdit: (task: WorkTask, brief: string) => void;
 }) {
   const [draft, setDraft] = useState(() => taskBrief(task));
-  const approvalTask =
-    task.state === "submitted" && task.admission === "approval";
   const sortable = useSortable<TaskDragData>({
     id: task.id,
     index,
@@ -929,7 +934,7 @@ function TaskCard({
     type: "task",
     accept: "task",
     data: { kind: "task", taskId: task.id, laneId: lane.id },
-    disabled: TERMINAL_STATES.has(task.state) || approvalTask || pending,
+    disabled: TERMINAL_STATES.has(task.state) || needsApproval || pending,
     transition: {
       duration: 180,
       easing: "cubic-bezier(0.22, 1, 0.36, 1)",
@@ -967,7 +972,7 @@ function TaskCard({
         .join(" ")}
       data-state={task.state}
       data-draggable={
-        TERMINAL_STATES.has(task.state) || approvalTask || pending
+        TERMINAL_STATES.has(task.state) || needsApproval || pending
           ? "false"
           : "true"
       }
@@ -1093,6 +1098,7 @@ function TaskCard({
             lane={lane}
             lanes={lanes}
             pending={pending}
+            needsApproval={needsApproval}
             onEdit={onEdit}
             onMove={onMove}
             onApprove={onApprove}
@@ -1785,6 +1791,7 @@ function TaskDetailPanel({
   lanes,
   pending,
   claimantRetired,
+  needsApproval,
   ownerLabel,
   seatName,
   nodeName,
@@ -1803,6 +1810,7 @@ function TaskDetailPanel({
   readonly lanes: ReadonlyArray<LaneDefinition>;
   readonly pending: boolean;
   readonly claimantRetired: boolean;
+  readonly needsApproval: boolean;
   readonly ownerLabel?: string;
   readonly seatName: (seatId: string) => string | undefined;
   readonly nodeName: (nodeId: string) => string | undefined;
@@ -1829,8 +1837,6 @@ function TaskDetailPanel({
   const contentMedia = taskContentParts(task);
   const attentionRequired =
     task.state === "input-required" || task.state === "auth-required";
-  const approvalTask =
-    task.state === "submitted" && task.admission === "approval";
   const requestContext = latestText(task);
   const hardFinishGate =
     task.finishCriteria?.artifacts !== undefined ||
@@ -1841,7 +1847,7 @@ function TaskDetailPanel({
     task.metadata.rejectedTimes > 0
       ? task.metadata.rejectedTimes
       : undefined;
-  const transitionOptions = approvalTask
+  const transitionOptions = needsApproval
     ? []
     : [
         ...lanes.flatMap((lane) =>
@@ -1886,7 +1892,7 @@ function TaskDetailPanel({
                 Stalled
               </Chip>
             ) : null}
-            {approvalTask && onApprove ? (
+            {needsApproval && onApprove ? (
               <Button
                 size="xs"
                 variant="primary"
@@ -1899,7 +1905,7 @@ function TaskDetailPanel({
                 Approve
               </Button>
             ) : null}
-            {!approvalTask && canTransitionTaskState(task.state, "archived") ? (
+            {!needsApproval && canTransitionTaskState(task.state, "archived") ? (
               <Button
                 size="xs"
                 variant="danger"
@@ -1912,7 +1918,7 @@ function TaskDetailPanel({
                 Delete from board
               </Button>
             ) : null}
-            {!approvalTask &&
+            {!needsApproval &&
             task.state !== "completed" &&
             claim &&
             canTransitionTaskState(task.state, "submitted") ? (
@@ -2439,17 +2445,17 @@ export function TaskBoard({
     [doc, node.id],
   );
 
-  // Wait countdowns tick only while some task is still waiting.
-  const incomingTasks = tasksByLane.incoming;
+  // Wait countdowns tick only while some Queue or Incoming task is still waiting.
+  const holdLaneTasks = shape.hasIncoming ? tasksByLane.incoming : tasksByLane.queue;
   useEffect(() => {
-    if (!shape.hasIncoming || !hasPendingWait(incomingTasks, Date.now())) return;
+    if (!hasPendingWait(holdLaneTasks, Date.now())) return;
     const timer = window.setInterval(() => {
       const next = Date.now();
       setNowMs(next);
-      if (!hasPendingWait(incomingTasks, next)) window.clearInterval(timer);
+      if (!hasPendingWait(holdLaneTasks, next)) window.clearInterval(timer);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [incomingTasks, shape.hasIncoming]);
+  }, [holdLaneTasks]);
 
   const createTask = async (
     title: string,
@@ -2651,6 +2657,8 @@ export function TaskBoard({
       />
     );
   };
+  const needsApprovalFor = (task: WorkTask): boolean =>
+    taskNeedsApproval(task, boardSettings, nowMs);
 
   /**
    * Operator completion at a board: the rule answers ride in the completion
@@ -3136,7 +3144,19 @@ export function TaskBoard({
             {shownLanes.map((lane) => (
               <TaskLane
                 key={lane.id}
-                lane={lane}
+                lane={
+                  lane.id === "queue" || lane.id === "incoming"
+                    ? {
+                        ...lane,
+                        hint: admissionLaneHint(
+                          tasksByLane[lane.id],
+                          boardSettings,
+                          nowMs,
+                          lane.hint,
+                        ),
+                      }
+                    : lane
+                }
                 lanes={boardLanes}
                 tasks={tasksByLane[lane.id]}
                 groups={lane.id === "outgoing" ? outgoingGroups : undefined}
@@ -3172,7 +3192,12 @@ export function TaskBoard({
                       ? laneCopy.outgoingEmpty
                       : undefined
                 }
-                markFor={lane.id === "incoming" ? approvalMarkFor : undefined}
+                markFor={
+                  lane.id === "queue" || lane.id === "incoming"
+                    ? approvalMarkFor
+                    : undefined
+                }
+                needsApprovalFor={needsApprovalFor}
                 allTasks={scopeTasks}
                 searchActive={Boolean(query.trim())}
                 activeLane={activeLane}
@@ -3209,6 +3234,7 @@ export function TaskBoard({
               nodeId={node.id}
               lanes={boardLanes}
               pending={pendingTaskId === selectedTask.id}
+              needsApproval={needsApprovalFor(selectedTask)}
               claimantRetired={isTaskClaimantRetired(
                 selectedTask.state,
                 claimedByOf(selectedTask),

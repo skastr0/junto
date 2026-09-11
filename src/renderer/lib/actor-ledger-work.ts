@@ -7,6 +7,7 @@ import type {
   TaskState,
 } from "@shared/work-model";
 import type { ActorRef } from "@shared/work-protocol";
+import { taskAdmissionState } from "@shared/rules";
 import { taskBrief, isAttentionTaskState } from "@shared/task";
 import { isArtifactArchived } from "@shared/work";
 import { claimedTaskForActorNode } from "./claimed-task";
@@ -154,6 +155,7 @@ export const raisedTaskRowsForSeat = (
 ): ReadonlyArray<RaisedTaskRow> => {
   const rows: RaisedTaskRow[] = [];
   for (const node of doc.nodes) {
+    const contract = node.ether?.tasks?.contract;
     for (const task of node.ether?.tasks?.items ?? []) {
       if (task.raisedBy?.seatId !== seatId) continue;
       const title = taskTitle(task, "Untitled task");
@@ -166,7 +168,8 @@ export const raisedTaskRowsForSeat = (
         state: task.state,
         title,
         awaitingApproval:
-          task.state === "submitted" && task.admission === "approval",
+          task.state === "submitted" &&
+          taskAdmissionState(task, contract, Date.now()) === "approval",
         ...(task.reason !== undefined ? { reason: task.reason } : {}),
         ...(details !== undefined ? { details } : {}),
         dependsOnCount: task.dependsOn?.length ?? 0,

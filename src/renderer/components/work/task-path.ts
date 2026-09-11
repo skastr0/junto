@@ -61,11 +61,38 @@ export const formatWaitCountdown = (waitUntil: string | undefined, nowMs: number
 
 export type IncomingGlance = { readonly admission: TaskAdmissionState; readonly countdown?: string; readonly promotable: boolean };
 
-/** Admission glance for a submitted task in the Incoming column. */
+/** Admission glance for a submitted task in Queue or Incoming. */
 export const incomingGlance = (task: Task, contract: TasksContract | undefined, nowMs: number): IncomingGlance => {
   const admission = taskAdmissionState(task, contract, nowMs);
   const countdown = formatWaitCountdown(task.waitUntil, nowMs);
   return { admission, ...(countdown !== undefined ? { countdown } : {}), promotable: admission === "approval" };
+};
+
+/** True when a submitted task is still gated on operator approval. */
+export const taskNeedsApproval = (
+  task: Task,
+  contract: TasksContract | undefined,
+  nowMs: number,
+): boolean => task.state === "submitted" && incomingGlance(task, contract, nowMs).promotable;
+
+/**
+ * Queue/Incoming column hint from live admission of submitted tasks in that
+ * lane. Approval wins over wait; otherwise keep the lane's ready copy.
+ */
+export const admissionLaneHint = (
+  tasks: ReadonlyArray<Task>,
+  contract: TasksContract | undefined,
+  nowMs: number,
+  readyHint: string,
+): string => {
+  let waiting = false;
+  for (const task of tasks) {
+    if (task.state !== "submitted") continue;
+    const { admission } = incomingGlance(task, contract, nowMs);
+    if (admission === "approval") return "Waiting for approval";
+    if (admission === "waiting") waiting = true;
+  }
+  return waiting ? "Waiting to start" : readyHint;
 };
 
 /** True while any task still waits — the column ticks its clock only then. */

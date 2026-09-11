@@ -8,6 +8,8 @@ import {
   hasPendingWait,
   incomingGlance,
   localVisit,
+  admissionLaneHint,
+  taskNeedsApproval,
   taskPathLaneCopy,
   taskPathShape,
 } from "../src/renderer/components/work/task-path";
@@ -150,11 +152,35 @@ describe("incomingGlance", () => {
     expect(glance.promotable).toBe(false);
   });
 
-  it("marks an approval task promotable", () => {
+  it("inherits approval from the board floor when the task has no stamp", () => {
     const contract = { incoming: { admission: "approval" as const } };
     const pending = incomingGlance(task("t2"), contract, NOW);
     expect(pending.admission).toBe("approval");
     expect(pending.promotable).toBe(true);
+    expect(taskNeedsApproval(task("t2"), contract, NOW)).toBe(true);
+  });
+
+  it("holds a stamped auto task in waiting until waitUntil", () => {
+    const glance = incomingGlance(
+      task("t2b", {
+        admission: "auto",
+        waitUntil: new Date(NOW + 45_000).toISOString(),
+      }),
+      undefined,
+      NOW,
+    );
+    expect(glance.admission).toBe("waiting");
+    expect(glance.promotable).toBe(false);
+    expect(
+      taskNeedsApproval(
+        task("t2b", {
+          admission: "auto",
+          waitUntil: new Date(NOW + 45_000).toISOString(),
+        }),
+        undefined,
+        NOW,
+      ),
+    ).toBe(false);
   });
 
   it("never offers promotion on a Me board", () => {
@@ -169,6 +195,47 @@ describe("incomingGlance", () => {
 
   it("reports claimable on a plain board", () => {
     expect(incomingGlance(task("t4"), undefined, NOW).admission).toBe("claimable");
+  });
+});
+
+describe("admissionLaneHint", () => {
+  const ready = "Ready to claim";
+  const incoming = "Tasks from earlier boards, waiting here";
+
+  it("says waiting for approval when any submitted task is gated", () => {
+    const contract = { incoming: { admission: "approval" as const } };
+    expect(admissionLaneHint([task("a")], contract, NOW, ready)).toBe(
+      "Waiting for approval",
+    );
+    expect(admissionLaneHint([task("a")], contract, NOW, incoming)).toBe(
+      "Waiting for approval",
+    );
+  });
+
+  it("says waiting to start when a wait is still running", () => {
+    const held = task("a", {
+      admission: "auto",
+      waitUntil: new Date(NOW + 8_000).toISOString(),
+    });
+    expect(admissionLaneHint([held], undefined, NOW, ready)).toBe(
+      "Waiting to start",
+    );
+  });
+
+  it("keeps the ready copy when nothing is held", () => {
+    expect(admissionLaneHint([task("a")], undefined, NOW, ready)).toBe(ready);
+    expect(admissionLaneHint([], undefined, NOW, incoming)).toBe(incoming);
+  });
+
+  it("prefers approval over a concurrent wait", () => {
+    const held = task("wait", {
+      admission: "auto",
+      waitUntil: new Date(NOW + 8_000).toISOString(),
+    });
+    const gated = task("gate", { admission: "approval" });
+    expect(admissionLaneHint([held, gated], undefined, NOW, ready)).toBe(
+      "Waiting for approval",
+    );
   });
 });
 

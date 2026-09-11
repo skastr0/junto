@@ -6,8 +6,8 @@ import {
 } from "../src/renderer/components/work/task-create-admission";
 
 describe("task creation admission", () => {
-  it("defaults to approval unless the board floor is Me", () => {
-    expect(defaultTaskAdmission("auto")).toBe("approval");
+  it("inherits Who starts it from the board floor", () => {
+    expect(defaultTaskAdmission("auto")).toBe("auto");
     expect(defaultTaskAdmission("approval")).toBe("approval");
     expect(defaultTaskAdmission("operator")).toBe("operator");
   });

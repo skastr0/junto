@@ -16,9 +16,8 @@ export const TASK_ADMISSION_CHOICES: ReadonlyArray<{
 export const admissionFloorOutcome = (floor: TaskAdmission): string =>
   admissionOutcome(floor);
 
-/** Creation defaults to operator approval, unless the board floor is stricter. */
-export const defaultTaskAdmission = (floor: TaskAdmission): TaskAdmission =>
-  floor === "operator" ? "operator" : "approval";
+/** Creation inherits Who starts it from the board floor (Immediate / Approval / Me). */
+export const defaultTaskAdmission = (floor: TaskAdmission): TaskAdmission => floor;
 
 export const taskAdmissionChoices = (floor: TaskAdmission) =>
   TASK_ADMISSION_CHOICES.map((choice) => ({
