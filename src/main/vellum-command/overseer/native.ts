@@ -922,6 +922,16 @@ const resolveAllLivePageSessions = (
   return [...pages.overseerSessionsForRef(ref)];
 };
 
+const resolveDeletePageSessions = (
+  pages: BrowserSessionService,
+  canvasName: string,
+  nodeId: string,
+): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> => {
+  const ref = pageRefOf(canvasName, nodeId);
+  if (ref === undefined) return [];
+  return [...pages.overseerDeleteSessionsForRef(ref)];
+};
+
 const resolveLivePageSession = (
   pages: BrowserSessionService,
   canvasName: string,
@@ -1322,7 +1332,7 @@ const makeDeleteHooks = (
             }
             pageRuntime.beginOverseerPageDelete(ref, leaseId);
             pageRefs.push(ref);
-            for (const live of resolveAllLivePageSessions(
+            for (const live of resolveDeletePageSessions(
               pageRuntime,
               page.canvasName,
               page.nodeId,
@@ -1354,7 +1364,7 @@ const makeDeleteHooks = (
           if (!pageStops.some((stop) => !stop.stopped)) {
             const leftover: Array<{ readonly owner: string; readonly sessionId: string }> = [];
             for (const page of pages) {
-              for (const live of resolveAllLivePageSessions(
+              for (const live of resolveDeletePageSessions(
                 pageRuntime,
                 page.canvasName,
                 page.nodeId,

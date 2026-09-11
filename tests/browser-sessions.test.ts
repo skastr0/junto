@@ -2757,4 +2757,81 @@ describe("BrowserSessionService", () => {
     expect(service.overseerSessionsForRef(deleted.ref)).toEqual([]);
     expect(service.stateForOwner("job-b", sibling.data.sessionId)).toMatchObject({ ok: true });
   });
+
+  it("keeps unacknowledged stops visible to deletion discovery until whenDestroyed settles", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
+      makeProfileService(),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+    );
+    const page = target("unacked");
+    const opened = await service.openForOwner("job-a", page);
+    if (!opened.ok) throw new Error("open failed");
+
+    const first = service.stopForOwner("job-a", opened.data.sessionId);
+    await vi.waitFor(() => expect(service.overseerSessionsForRef(page.ref)).toEqual([]));
+    expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([
+      { owner: "job-a", sessionId: opened.data.sessionId },
+    ]);
+
+    const concurrent = service.stopForOwner("job-a", opened.data.sessionId);
+    let firstSettled = false;
+    let concurrentSettled = false;
+    void first.then(() => {
+      firstSettled = true;
+    });
+    void concurrent.then(() => {
+      concurrentSettled = true;
+    });
+    await Promise.resolve();
+    expect(firstSettled).toBe(false);
+    expect(concurrentSettled).toBe(false);
+
+    views[0]?.resolveDestroyed();
+    await expect(first).resolves.toMatchObject({ ok: true, data: { alreadyStopped: false } });
+    await expect(concurrent).resolves.toMatchObject({ ok: true, data: { alreadyStopped: true } });
+    expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([]);
+    expect(service.overseerSessionsForRef(page.ref)).toEqual([]);
+  });
+
+  it("does not treat a timed-out stop as deletion success until the destruction receipt", async () => {
+    const { adapter, views } = makeSpyAdapter(false);
+    const service = new BrowserSessionService(
+      adapter,
+      LOCAL_BROWSER_TEST_AUTHORITY,
+      makeProfileService(),
+      () => ++clock,
+      () => `session-${++idCounter}`,
+      undefined,
+      undefined,
+      5,
+    );
+    const page = target("timeout-delete");
+    const opened = await service.openForOwner("job-a", page);
+    if (!opened.ok) throw new Error("open failed");
+
+    expect(await service.stopForOwner("job-a", opened.data.sessionId)).toMatchObject({
+      ok: false,
+      code: "timeout",
+    });
+    expect(service.overseerSessionsForRef(page.ref)).toEqual([]);
+    expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([
+      { owner: "job-a", sessionId: opened.data.sessionId },
+    ]);
+
+    const retry = service.stopForOwner("job-a", opened.data.sessionId);
+    let retrySettled = false;
+    void retry.then(() => {
+      retrySettled = true;
+    });
+    await Promise.resolve();
+    expect(retrySettled).toBe(false);
+
+    views[0]?.resolveDestroyed();
+    await expect(retry).resolves.toMatchObject({ ok: true, data: { alreadyStopped: true } });
+    expect(service.overseerDeleteSessionsForRef(page.ref)).toEqual([]);
+  });
 });

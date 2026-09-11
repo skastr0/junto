@@ -791,6 +791,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     pages = {
       stopForOwner,
       overseerSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "sess-late" }],
+      overseerDeleteSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "sess-late" }],
       beginOverseerPageDelete: vi.fn(),
       finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
@@ -808,6 +809,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     const pages = {
       stopForOwner,
       overseerSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
+      overseerDeleteSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
       beginOverseerPageDelete: vi.fn(),
       finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
@@ -828,6 +830,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     const pages = {
       stopForOwner,
       overseerSessionsForRef: () => [],
+      overseerDeleteSessionsForRef: () => [],
       beginOverseerPageDelete: vi.fn(),
       finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
@@ -853,6 +856,14 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
         return { ok: true as const, data: { sessionId, stopped: true } };
       }),
       overseerSessionsForRef: (ref: string) =>
+        ref.includes("p1")
+          ? [
+              { owner: "vellum-command-ui", sessionId: "ui-sess" },
+              { owner: "job-a", sessionId: "auto-a" },
+              { owner: "job-b", sessionId: "auto-b" },
+            ]
+          : [],
+      overseerDeleteSessionsForRef: (ref: string) =>
         ref.includes("p1")
           ? [
               { owner: "vellum-command-ui", sessionId: "ui-sess" },
@@ -893,6 +904,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
         message: "view still destroying",
       })),
       overseerSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
+      overseerDeleteSessionsForRef: () => [{ owner: "job-a", sessionId: "sess-1" }],
       beginOverseerPageDelete: vi.fn(),
       finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
@@ -1005,5 +1017,143 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
 
     await runtime.dispose();
     await rm(root, { recursive: true, force: true });
+  });
+
+  const withRealPages = async (
+    timeoutMs: number,
+    body: (input: {
+      readonly pages: BrowserSessionService;
+      readonly native: ReturnType<typeof live>;
+      readonly opened: { readonly sessionId: string; readonly ref: string };
+      readonly resolveDestroyed: () => void;
+      readonly destroyCalls: () => number;
+    }) => Promise<void>,
+  ): Promise<void> => {
+    const root = await mkdtemp(join(tmpdir(), "vellum-overseer-page-receipt-"));
+    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "vellum-command.db")));
+    try {
+      const state = await runtime.runPromise(StateEngine);
+      const profiles = makeBrowserProfileService(state, root);
+      await Effect.runPromise(profiles.ensureDefaults);
+      let resolveDestroyed!: () => void;
+      const destroyedPromise = new Promise<void>((resolve) => {
+        resolveDestroyed = resolve;
+      });
+      let destroyCalls = 0;
+      const adapter: BrowserViewAdapter = () => ({
+        loadUrl: async () => {},
+        attach: () => {},
+        setBounds: () => {},
+        detach: () => {},
+        destroy: () => {
+          destroyCalls += 1;
+        },
+        whenDestroyed: () => destroyedPromise,
+      });
+      const pages = new BrowserSessionService(
+        adapter,
+        LOCAL_BROWSER_TEST_AUTHORITY,
+        profiles,
+        () => Date.now(),
+        (() => {
+          let n = 0;
+          return () => `session-${++n}`;
+        })(),
+        undefined,
+        undefined,
+        timeoutMs,
+      );
+      pages.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
+      const opened = await pages.openForOwner("job-a", {
+        ref: "vellum-command://canvas/factory?node=p1",
+        nodeId: "p1",
+        url: "https://p1.example.com",
+        hostId: "local",
+        profile: "personal",
+      });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      const native = live([{ name: "factory", doc: doc([page("p1")]) }], { pages });
+      await body({
+        pages,
+        native,
+        opened: { sessionId: opened.data.sessionId, ref: opened.data.ref },
+        resolveDestroyed,
+        destroyCalls: () => destroyCalls,
+      });
+    } finally {
+      await runtime.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  };
+
+  it("holds concurrent page delete prepare until whenDestroyed settles", async () => {
+    await withRealPages(5_000, async ({ pages, native, opened, resolveDestroyed, destroyCalls }) => {
+      const first = native.prepareOverseerNodeDelete([
+        { kind: "page", canvasName: "factory", nodeId: "p1" },
+      ]);
+      await vi.waitFor(() => expect(pages.overseerSessionsForRef(opened.ref)).toEqual([]));
+      expect(pages.overseerDeleteSessionsForRef(opened.ref)).toEqual([
+        { owner: "job-a", sessionId: opened.sessionId },
+      ]);
+      const concurrent = native.prepareOverseerNodeDelete([
+        { kind: "page", canvasName: "factory", nodeId: "p1" },
+      ]);
+      let concurrentSettled = false;
+      void concurrent.then(() => {
+        concurrentSettled = true;
+      });
+      await Promise.resolve();
+      expect(concurrentSettled).toBe(false);
+      resolveDestroyed();
+      const firstResult = await first;
+      const concurrentResult = await concurrent;
+      expect(firstResult.ok).toBe(true);
+      expect(concurrentResult.ok).toBe(true);
+      if (!firstResult.ok || !concurrentResult.ok) return;
+      expect(firstResult.pageStops).toEqual([{ sessionId: opened.sessionId, stopped: true }]);
+      expect(concurrentResult.pageStops[0]?.sessionId).toBe(opened.sessionId);
+      expect(pages.overseerDeleteSessionsForRef(opened.ref)).toEqual([]);
+      expect(destroyCalls()).toBe(1);
+      native.finishOverseerNodeDelete(firstResult.leaseId, "committed");
+      native.finishOverseerNodeDelete(concurrentResult.leaseId, "aborted");
+    });
+  });
+
+  it("retries a timed-out page delete until the destruction receipt, never claiming empty success", async () => {
+    await withRealPages(20, async ({ pages, native, opened, resolveDestroyed, destroyCalls }) => {
+      const timed = await native.prepareOverseerNodeDelete([
+        { kind: "page", canvasName: "factory", nodeId: "p1" },
+      ]);
+      expect(timed.ok).toBe(true);
+      if (!timed.ok) return;
+      expect(timed.pageStops[0]?.sessionId).toBe(opened.sessionId);
+      expect(timed.pageStops[0]?.stopped).toBe(false);
+      expect(timed.pageStops[0]?.error).toMatch(/did not terminate/u);
+      expect(pages.overseerSessionsForRef(opened.ref)).toEqual([]);
+      expect(pages.overseerDeleteSessionsForRef(opened.ref)).toEqual([
+        { owner: "job-a", sessionId: opened.sessionId },
+      ]);
+      expect(destroyCalls()).toBe(1);
+      native.finishOverseerNodeDelete(timed.leaseId, "aborted");
+
+      const retry = native.prepareOverseerNodeDelete([
+        { kind: "page", canvasName: "factory", nodeId: "p1" },
+      ]);
+      let retrySettled = false;
+      void retry.then(() => {
+        retrySettled = true;
+      });
+      await Promise.resolve();
+      expect(retrySettled).toBe(false);
+      resolveDestroyed();
+      const retried = await retry;
+      expect(retried.ok).toBe(true);
+      if (!retried.ok) return;
+      expect(retried.pageStops).toEqual([{ sessionId: opened.sessionId, stopped: true }]);
+      expect(pages.overseerDeleteSessionsForRef(opened.ref)).toEqual([]);
+      expect(destroyCalls()).toBe(1);
+      native.finishOverseerNodeDelete(retried.leaseId, "committed");
+    });
   });
 });

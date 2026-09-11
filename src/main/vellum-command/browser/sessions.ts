@@ -2122,6 +2122,33 @@ export class BrowserSessionService {
   }
 
   /**
+   * Deletion discovery: live sessions plus pending or unacknowledged stops
+   * for this exact page ref. List/get stay live-only via overseerSessionsForRef.
+   * Callers must wait on stopForOwner — never treat an unacknowledged
+   * teardown as absence.
+   */
+  overseerDeleteSessionsForRef(
+    ref: string,
+  ): ReadonlyArray<{ readonly owner: string; readonly sessionId: string }> {
+    const discovered = [...this.overseerSessionsForRef(ref)];
+    const seen = new Set(discovered.map((row) => `${row.owner}\0${row.sessionId}`));
+    const push = (owner: string, sessionId: string): void => {
+      const key = `${owner}\0${sessionId}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      discovered.push({ owner, sessionId });
+    };
+    const consider = (record: BrowserStopRecord): void => {
+      if (record.receipt.ref !== ref) return;
+      if (record.lastResult?.ok === true) return;
+      push(record.owner, record.receipt.sessionId);
+    };
+    for (const record of this.pendingStops.values()) consider(record);
+    for (const record of this.stoppedSessions.values()) consider(record);
+    return discovered;
+  }
+
+  /**
    * Fence a page ref from prepare through finish. Bumps the ref generation and
    * aborts in-flight opens so they cannot create/navigate after deletion.
    * Sibling refs and owners stay live.
