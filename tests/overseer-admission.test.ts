@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { Result, Schema } from "effect";
+import { describe, expect, it, vi } from "vitest";
+import { Effect, Layer, Result, Schema } from "effect";
 import type { CanvasReadResult } from "../src/shared/ipc";
 import { InstallationId } from "../src/shared/installation-id";
+import { CommandCenterConfiguration } from "../src/shared/station-api";
+import { CanvasesService, type CanvasChangeDetail } from "../src/main/vellum-command/canvases";
+import { StationRepository } from "../src/main/vellum-command/station/repository";
 import { deriveActorSeatId } from "../src/main/vellum-command/station/actor-seat-compiler";
-import { resolveOverseerActor } from "../src/main/vellum-command/overseer/admission";
+import { resolveOverseerActor, watchOverseerRevocation } from "../src/main/vellum-command/overseer/admission";
 
 const local = Schema.decodeUnknownSync(InstallationId)("cc-test");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-test");
@@ -62,6 +65,65 @@ describe("overseer installation admission", () => {
       [{ ...caller, seatId: deriveActorSeatId(remote, "replacement-binding") }],
     ]) {
       expect(Result.isFailure(resolveOverseerActor(caller, { ...read, actorRefs }, remote))).toBe(true);
+    }
+  });
+
+  it("rechecks Work invalidations without revoking, but latches rapid off/on authorial changes", async () => {
+    const read = fixture();
+    let listener: ((name: string, detail?: CanvasChangeDetail) => void) | undefined;
+    let reads = 0;
+    let settled = false;
+    const layers = Layer.mergeAll(
+      Layer.mock(CanvasesService, {
+        start: () => {},
+        read: () => Effect.sync(() => { reads++; return read; }),
+        subscribeChanges: (callback) => {
+          listener = callback;
+          return () => { listener = undefined; };
+        },
+        announceInstalledProjection: () => {},
+      }),
+      Layer.mock(StationRepository, {
+        installationId: Effect.succeed(local),
+        configuration: Effect.succeed({
+          configuredAt: "2026-09-11T00:00:00Z",
+          configuration: Schema.decodeUnknownSync(CommandCenterConfiguration)({
+            role: "command-center", hostId: "local", supervisedPreferred: false,
+          }),
+        }),
+      }),
+    );
+    const abort = new AbortController();
+    const watching = Effect.runPromise(
+      watchOverseerRevocation(caller, read.actorRefs[0]!, remote).pipe(
+        Effect.result,
+        Effect.provide(layers),
+      ),
+      { signal: abort.signal },
+    ).then((result) => { settled = true; return result; });
+    try {
+      await vi.waitFor(() => expect(reads).toBe(1));
+      listener!(caller.canvasName);
+      await vi.waitFor(() => expect(reads).toBe(2));
+      expect(settled).toBe(false);
+      listener!(caller.canvasName, { previous: read.doc, next: read.doc });
+      await vi.waitFor(() => expect(reads).toBe(3));
+      expect(settled).toBe(false);
+      const revoked = {
+        ...read.doc,
+        nodes: read.doc.nodes.map((node) => ({
+          ...node, ether: { ...node.ether, overseer: false },
+        })),
+      };
+      // The next live read already sees the restored grant. The commit event
+      // must still cancel the command that held the old grant.
+      listener!(caller.canvasName, { previous: read.doc, next: revoked });
+      listener?.(caller.canvasName, { previous: revoked, next: read.doc });
+      expect(await watching).toMatchObject({ _tag: "Failure", failure: { type: "ScopeError" } });
+      expect(listener).toBeUndefined();
+    } finally {
+      abort.abort();
+      await watching.catch(() => {});
     }
   });
 });

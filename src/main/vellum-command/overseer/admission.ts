@@ -92,14 +92,15 @@ export const watchOverseerRevocation = (
     let revoked = false;
     yield* Effect.acquireRelease(
       Effect.sync(() => canvases.subscribeChanges((name, detail) => {
-        if (name === caller.canvasName) {
-          const next = detail?.next?.nodes.find((node) => node.id === caller.nodeId);
-          const previous = detail?.previous?.nodes.find((node) => node.id === caller.nodeId);
+        if (name === caller.canvasName && detail !== undefined) {
+          const next = detail.next?.nodes.find((node) => node.id === caller.nodeId);
+          const previous = detail.previous?.nodes.find((node) => node.id === caller.nodeId);
           // Latch revocation: a fast off/on sequence must not revive an
-          // in-flight command. Projection replacement without a detailed
-          // authorial diff also invalidates this command's previous grant.
+          // in-flight command. Work invalidations carry no authorial diff;
+          // they trigger a live recheck rather than revoking the grant.
           if (next === undefined || !isManagedAgentNode(next) ||
             next.ether.overseer !== true || previous === undefined ||
+            previous.ether?.entity?.name !== next.ether.entity.name ||
             previous.ether?.terminal?.bindingId !== next.ether.terminal.bindingId ||
             resolveNodeHostId(previous) !== resolveNodeHostId(next)) revoked = true;
         }
