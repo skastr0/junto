@@ -81,11 +81,27 @@ interface ArchiveMember {
   readonly mode: number;
 }
 
+const rejectEmbeddedNuls = (bytes: string): void => {
+  const firstNul = bytes.indexOf("\0");
+  if (firstNul === -1) return;
+  const pax = /^\d+ /u.test(bytes) || bytes.includes("\n");
+  if (pax || firstNul !== bytes.length - 1) {
+    throw new Error("Linux desktop archive contains an embedded NUL in archive metadata");
+  }
+};
+
 const inspectArchive = async (snapshotPath: string, root: string): Promise<ReadonlyMap<string, ArchiveMember>> => {
   const members = new Map<string, ArchiveMember>();
   let expandedBytes = 0;
   const parser = new Parser({ strict: true, maxMetaEntrySize: 4096 });
   parser.on("ignoredEntry", () => parser.abort(new Error("Linux desktop archive contains an unsupported member")));
+  parser.on("meta", (meta: string) => {
+    try {
+      rejectEmbeddedNuls(meta);
+    } catch (error) {
+      parser.abort(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
   parser.on("entry", (entry: ReadEntry) => {
     try {
       let name = entry.path;

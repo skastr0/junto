@@ -4,34 +4,29 @@
  *
  * After notarize-app.sh staples the .app and re-zips, the pre-staple
  * `.zip.blockmap` and `latest-mac.yml` still describe the old archive bytes.
- * This helper rebuilds both from the final zip using app-builder's blockmap
- * tool (same codec electron-builder uses).
+ * This helper rebuilds both from the final zip using app-builder-lib's TypeScript
+ * blockmap generator (same codec electron-builder uses).
  *
  * Writes ONLY to the staged output paths — never mutates release/ in place.
  *
  *   node scripts/refresh-mac-updater-metadata.mjs \
  *     --zip /path/to/final.zip \
  *     --blockmap-out /stage/final.zip.blockmap \
- *     [--yml-in /path/to/latest-mac.yml --yml-out /stage/latest-mac.yml] \
- *     [--app-builder /path/to/app-builder]
+ *     [--yml-in /path/to/latest-mac.yml --yml-out /stage/latest-mac.yml]
  *
  * stdout: JSON { size, sha512, blockmapOut, ymlUpdated, ymlOut?, matchedUrls }
  */
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
-const scriptDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(scriptDir, "..");
 
 function usage(exitCode = 0) {
   process.stderr.write(
-    "usage: refresh-mac-updater-metadata.mjs --zip PATH --blockmap-out PATH [--yml-in PATH --yml-out PATH] [--app-builder PATH]\n",
+    "usage: refresh-mac-updater-metadata.mjs --zip PATH --blockmap-out PATH [--yml-in PATH --yml-out PATH]\n",
   );
   process.exit(exitCode);
 }
@@ -90,32 +85,6 @@ function isZipUpdateUrl(url, candidates) {
   return false;
 }
 
-function resolveAppBuilder(explicit) {
-  if (explicit) {
-    assertAbsoluteNonEmpty("app-builder", explicit);
-    if (!existsSync(explicit)) fail(`app-builder not found: ${explicit}`);
-    return explicit;
-  }
-  try {
-    const mod = require("app-builder-bin");
-    const path = mod.appBuilderPath || mod;
-    if (typeof path === "string" && existsSync(path)) return path;
-  } catch {
-    // fall through
-  }
-  const arch = process.arch === "arm64" ? "arm64" : "amd64";
-  const candidates = [
-    join(repoRoot, "node_modules/app-builder-bin/mac/app-builder"),
-    join(repoRoot, `node_modules/app-builder-bin/mac/app-builder_${arch}`),
-    join(repoRoot, "node_modules/app-builder-bin/mac/app-builder_arm64"),
-    join(repoRoot, "node_modules/app-builder-bin/mac/app-builder_amd64"),
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  fail("could not resolve app-builder binary (install electron-builder deps)");
-}
-
 function hashFileSha512Base64(file) {
   return new Promise((resolveHash, reject) => {
     const hash = createHash("sha512");
@@ -128,27 +97,14 @@ function hashFileSha512Base64(file) {
   });
 }
 
-function runBlockmap(appBuilder, zipPath, blockmapOut) {
-  const result = spawnSync(
-    appBuilder,
-    ["blockmap", "--input", zipPath, "--output", blockmapOut],
-    { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-  );
-  if (result.status !== 0) {
-    fail(
-      `app-builder blockmap failed (exit ${result.status}): ${result.stderr || result.stdout || ""}`.trim(),
-    );
+async function runBlockmap(zipPath, blockmapOut) {
+  const { buildBlockMap } = require("app-builder-lib/out/targets/blockmap/blockmap");
+  if (typeof buildBlockMap !== "function") {
+    fail("app-builder-lib buildBlockMap is unavailable");
   }
-  const raw = (result.stdout || "").trim();
-  if (!raw) fail("app-builder blockmap produced empty stdout");
-  let info;
-  try {
-    info = JSON.parse(raw);
-  } catch (e) {
-    fail(`app-builder blockmap stdout is not JSON: ${raw.slice(0, 200)}`);
-  }
-  if (typeof info.size !== "number" || typeof info.sha512 !== "string" || !info.sha512) {
-    fail("app-builder blockmap JSON missing size/sha512");
+  const info = await buildBlockMap(zipPath, "gzip", blockmapOut);
+  if (info == null || typeof info.size !== "number" || typeof info.sha512 !== "string" || !info.sha512) {
+    fail("buildBlockMap result missing size/sha512");
   }
   if (!existsSync(blockmapOut)) fail(`blockmap output missing: ${blockmapOut}`);
   return info;
@@ -220,7 +176,7 @@ async function main() {
   const blockmapOut = args["blockmap-out"];
   const ymlIn = args["yml-in"];
   const ymlOut = args["yml-out"];
-  const appBuilderArg = args["app-builder"];
+  if (args["app-builder"] !== undefined) fail("app-builder is no longer a supported option");
 
   if (!zipPath || !blockmapOut) usage(1);
   assertAbsoluteNonEmpty("zip", zipPath);
@@ -236,13 +192,12 @@ async function main() {
     if (!existsSync(ymlIn)) fail(`yml-in not found: ${ymlIn}`);
   }
 
-  const appBuilder = resolveAppBuilder(appBuilderArg);
-  const info = runBlockmap(appBuilder, zipPath, blockmapOut);
+  const info = await runBlockmap(zipPath, blockmapOut);
 
   // Defense in depth: recompute sha512 from the zip and require agreement.
   const independentSha = await hashFileSha512Base64(zipPath);
   if (independentSha !== info.sha512) {
-    fail("app-builder sha512 disagrees with independent zip hash");
+    fail("blockmap sha512 disagrees with independent zip hash");
   }
 
   let ymlUpdated = false;
@@ -261,7 +216,6 @@ async function main() {
       ymlUpdated,
       ymlOut: ymlUpdated ? ymlOut : null,
       matchedUrls,
-      appBuilder,
     })}\n`,
   );
 }

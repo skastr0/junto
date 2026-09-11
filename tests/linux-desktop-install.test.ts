@@ -173,6 +173,84 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(join(candidate.generationPath, "resources", filename), "utf8")).toBe("long filename payload");
   });
 
+  const pad512 = (bytes: Buffer): Buffer => Buffer.concat([bytes, Buffer.alloc((512 - bytes.length % 512) % 512)]);
+  const rawHeader = (path: string, size: number, type: string, mode = 0o644): Buffer => {
+    const header = new Header({ path, type: type as Header["type"], mode, size, uid: 1000, gid: 1000, mtime: new Date(0) });
+    const block = Buffer.alloc(512);
+    header.encode(block);
+    return block;
+  };
+  const paxRecord = (key: string, value: string): Buffer => {
+    const kv = ` ${key}=${value}\n`;
+    let digits = String(Buffer.byteLength(kv) + 1).length;
+    for (;;) {
+      const total = Buffer.byteLength(String(digits) + kv) + digits;
+      if (String(total).length === digits) return Buffer.from(`${total}${kv}`);
+      digits = String(total).length;
+    }
+  };
+
+  it("rejects PAX metadata that embeds a NUL in the path", async () => {
+    const location = await makeRoot();
+    const version = "0.3.0";
+    const rootName = `vellum-command-runtime-${version}-linux-x64`;
+    const pax = paxRecord("path", `${rootName}/visible.txt\0hidden.txt`);
+    const body = Buffer.from("payload");
+    const archive = gzipSync(Buffer.concat([
+      rawHeader("PaxHeader/poc", pax.length, "ExtendedHeader"),
+      pad512(pax),
+      rawHeader(`${rootName}/visible.txt`, body.length, "File"),
+      pad512(body),
+      Buffer.alloc(1024),
+    ]));
+    const archivePath = join(location.root, `${version}-${sha256(archive)}.tar.gz`);
+    await writeFile(archivePath, archive);
+    await expect(stageLinuxDesktopRelease({ archivePath, descriptor: authenticate(version, archive), home: location.home })).rejects.toThrow(/NUL|unsafe|unsupported/u);
+    expect(await readdir(join(location.home, ".local/opt/vellum-command-alpha")).catch(() => [])).toEqual([]);
+  });
+
+  it("rejects a numeric PAX path that would crash unpack", async () => {
+    const location = await makeRoot();
+    const version = "0.3.0";
+    const rootName = `vellum-command-runtime-${version}-linux-x64`;
+    const pax = paxRecord("path", "12345");
+    const archive = gzipSync(Buffer.concat([
+      rawHeader("PaxHeader/poc", pax.length, "ExtendedHeader"),
+      pad512(pax),
+      rawHeader(`${rootName}/placeholder`, 0, "Directory", 0o755),
+      Buffer.alloc(1024),
+    ]));
+    const archivePath = join(location.root, `${version}-${sha256(archive)}.tar.gz`);
+    await writeFile(archivePath, archive);
+    await expect(stageLinuxDesktopRelease({ archivePath, descriptor: authenticate(version, archive), home: location.home })).rejects.toThrow();
+    await expect(lstat(active(location.home))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects oversized PAX metadata instead of falling back to the ordinary header name", async () => {
+    const location = await makeRoot();
+    const version = "0.3.0";
+    const rootName = `vellum-command-runtime-${version}-linux-x64`;
+    const pax = paxRecord("path", `${rootName}/${"a".repeat(5000)}`);
+    const archive = gzipSync(Buffer.concat([
+      rawHeader("PaxHeader/poc", pax.length, "ExtendedHeader"),
+      pad512(pax),
+      rawHeader(`${rootName}/placeholder`, 0, "File"),
+      Buffer.alloc(1024),
+    ]));
+    const archivePath = join(location.root, `${version}-${sha256(archive)}.tar.gz`);
+    await writeFile(archivePath, archive);
+    await expect(stageLinuxDesktopRelease({ archivePath, descriptor: authenticate(version, archive), home: location.home })).rejects.toThrow(/unsupported|meta|unsafe/u);
+  });
+
+  it("rejects a truncated gzip after authentication", async () => {
+    const input = await fixture();
+    const truncated = input.bytes.subarray(0, Math.max(16, Math.floor(input.bytes.length / 2)));
+    await writeFile(input.archivePath, truncated);
+    const descriptor = authenticate("0.3.0", truncated);
+    await expect(stageLinuxDesktopRelease({ archivePath: input.archivePath, descriptor, home: input.home })).rejects.toThrow();
+    expect(await readdir(join(input.home, ".local/opt/vellum-command-alpha")).catch(() => [])).toEqual([]);
+  });
+
   it("first install refuses an existing managed launcher, while update preserves the previous generation", async () => {
     const initial = await fixture();
     const old = await stage(initial);
