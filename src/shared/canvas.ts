@@ -337,6 +337,8 @@ export type EtherTimer = typeof EtherTimer.Type;
 
 export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalKey(EtherEntity),
+  /** Human-granted administrative authority for an executable agent seat. */
+  overseer: Schema.optionalKey(Schema.Boolean),
   flags: Schema.optionalKey(Schema.Array(EtherFlag)),
   region: Schema.optionalKey(EtherRegion),
   watch: Schema.optionalKey(EtherWatch),
