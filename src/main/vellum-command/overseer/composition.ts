@@ -4,7 +4,6 @@
  * Wires executeOverseer through the process-bind work socket and the
  * CC-opened Remote Station session. Does not own admission or dispatch routing.
  */
-import { AsyncLocalStorage } from "node:async_hooks";
 import { Effect, Result } from "effect";
 import type { CanvasDoc, TextNode } from "@shared/canvas";
 import type { HarnessId } from "@shared/managed-terminal-templates";
@@ -209,21 +208,18 @@ export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "in
   },
 });
 
-export const createGrantSourceStore = (
-  fallback?: InstallationId,
-): {
-  readonly liveSource: () => InstallationId | undefined;
-  readonly runWithSource: <A>(
-    source: InstallationId | undefined,
-    work: () => A,
-  ) => A;
-} => {
-  const storage = new AsyncLocalStorage<InstallationId | undefined>();
-  return {
-    liveSource: () => storage.getStore() ?? fallback,
-    runWithSource: (source, work) => storage.run(source, work),
-  };
-};
+/**
+ * Immutable per-dispatch grant identity. Effect fibers can resume off the
+ * originating async context, so process-global / ALS stores are not enough.
+ */
+export const createDispatchGrant = (
+  run: OverseerRunPromise,
+  sourceInstallationId: InstallationId | undefined,
+): ((caller: OverseerCaller) => Promise<boolean>) =>
+  (caller) =>
+    run(admitOverseer(caller, sourceInstallationId))
+      .then(() => true)
+      .catch(() => false);
 
 export const runOverseerProgram = <A, E>(
   run: OverseerRunPromise,
@@ -260,14 +256,8 @@ export const composeOverseer = async (input: {
   const pagesHolder: { current: BrowserSessionService | undefined } = {
     current: input.pages,
   };
-  const grantSource = createGrantSourceStore(input.sourceInstallationId);
   let stationForward: OverseerRuntime["forward"] | undefined;
-
-  const liveGrant = (caller: OverseerCaller): Promise<boolean> =>
-    input
-      .run(admitOverseer(caller, grantSource.liveSource()))
-      .then(() => true)
-      .catch(() => false);
+  const liveGrant = createDispatchGrant(input.run, input.sourceInstallationId);
 
   const commitReseatHook = async (
     payload: AgentReseatCommitInput,
@@ -299,7 +289,10 @@ export const composeOverseer = async (input: {
     captureApplicationPage: input.captureApplicationPage,
     liveOverseerGrant: liveGrant,
     listCanvasDocuments: () => listCanvasDocuments(input.run),
-    actorSeatOccupy,
+    occupySeat: (spec, signal) =>
+      input
+        .run(actorSeatOccupy.occupy(spec), { signal })
+        .then(() => true, () => false),
     managedDrive: lateBoundDrive(),
     commitAgentReseat: commitReseatHook,
     applySchedulerConfigure: applySchedulerHook,
@@ -368,30 +361,50 @@ export const composeOverseer = async (input: {
         },
       });
     }
-    return grantSource.runWithSource(sourceInstallationId, () =>
-      mainAuthoringGate.run(overseerAuthoringLabel, () =>
-        runOverseerProgram(
-          input.run,
-          executeOverseer(caller, request, runtime, sourceInstallationId),
-          signal,
-        ).catch((error): OverseerResult => {
-          if (signal.aborted) {
-            return {
-              ok: false,
-              operation: request.operation,
-              error: { type: "RuntimeDown", message: "overseer command aborted" },
-            };
-          }
+    const dispatchGrant = createDispatchGrant(input.run, sourceInstallationId);
+    return mainAuthoringGate.run(overseerAuthoringLabel, () =>
+      runOverseerProgram(
+        input.run,
+        executeOverseer(caller, request, {
+          native: (nativeCaller, nativeRequest) =>
+            makeOverseerNativeLive({
+              termPlane,
+              chats,
+              get pages() {
+                return pagesHolder.current;
+              },
+              captureApplicationPage: input.captureApplicationPage,
+              liveOverseerGrant: dispatchGrant,
+              listCanvasDocuments: () => listCanvasDocuments(input.run),
+              occupySeat: (spec, occupySignal) =>
+                input
+                  .run(actorSeatOccupy.occupy(spec), { signal: occupySignal })
+                  .then(() => true, () => false),
+              managedDrive: lateBoundDrive(),
+              commitAgentReseat: commitReseatHook,
+              applySchedulerConfigure: applySchedulerHook,
+              stationScope: () => scope,
+            }).execute(nativeCaller, nativeRequest),
+          forward: runtime.forward,
+        }, sourceInstallationId),
+        signal,
+      ).catch((error): OverseerResult => {
+        if (signal.aborted) {
           return {
             ok: false,
             operation: request.operation,
-            error: {
-              type: "InternalError",
-              message: asWorkError(error).message,
-            },
+            error: { type: "RuntimeDown", message: "overseer command aborted" },
           };
-        }),
-      ),
+        }
+        return {
+          ok: false,
+          operation: request.operation,
+          error: {
+            type: "InternalError",
+            message: asWorkError(error).message,
+          },
+        };
+      }),
     );
   };
 
