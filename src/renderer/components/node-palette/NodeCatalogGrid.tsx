@@ -24,6 +24,7 @@ import {
   CRON_ENABLED,
   RELAY_ENABLED,
 } from "@shared/features";
+import { fuzzyMatch } from "../../lib/fuzzy-match";
 import { HUE } from "../../lib/theme";
 
 export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
@@ -233,12 +234,19 @@ export type NodeCatalogGridProps = {
   readonly className?: string;
 };
 
-const matchesQuery = (entry: NodeCatalogEntry, query: string): boolean => {
-  const normalized = query.trim().toLocaleLowerCase();
-  if (!normalized) return true;
-  return [entry.label, entry.subtitle, entry.purpose, entry.category]
-    .some((value) => value.toLocaleLowerCase().includes(normalized));
+/** Identity fields rank fuzzily; prose (subtitle, purpose) is substring-only. */
+export const catalogMatchesQuery = (
+  entry: NodeCatalogEntry,
+  query: string,
+): boolean => {
+  if (!query.trim()) return true;
+  return fuzzyMatch(query, {
+    identity: [entry.label, entry.id, entry.category],
+    metadata: [entry.subtitle, entry.purpose],
+  }) !== null;
 };
+
+const matchesQuery = catalogMatchesQuery;
 
 export function NodeCatalogGrid({
   query = "",
@@ -297,7 +305,10 @@ export function NodeCatalogGrid({
           {activeEntry && detailId ? <CatalogDetail entry={activeEntry} id={detailId} /> : null}
         </>
       ) : (
-        <div className="node-deck-catalog__empty border border-dashed border-stroke px-4 py-10 text-center font-mono text-[11px] text-dim">
+        <div
+          className="node-deck-catalog__empty border border-dashed border-stroke px-4 py-10 text-center font-mono text-[11px] text-dim"
+          role="status"
+        >
           No catalog entries match this view.
         </div>
       )}

@@ -19,6 +19,11 @@ import type {
 } from "@shared/ipc";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import {
+  typeaheadAccept,
+  typeaheadIndex,
+  type TypeaheadBuffer,
+} from "../../lib/typeahead";
+import {
   firstCascadeColumn,
   type AgentConfigurationChoices,
 } from "./agent-launch-model";
@@ -44,6 +49,8 @@ const VIEWPORT_PAD = 8;
  * the cascade under the pointer (right → left jump).
  */
 const MAX_CASCADE_COLUMNS = 3;
+
+const DEFAULTS_LABEL = "Use harness defaults";
 
 const cascadeWidth = (columnCount: number): number =>
   columnCount * MENU_WIDTH + Math.max(0, columnCount - 1) * MENU_GAP;
@@ -93,11 +100,16 @@ const positionFor = (
 const menuitemsIn = (column: Element): HTMLButtonElement[] =>
   Array.from(column.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
 
+const focusItem = (item: HTMLButtonElement | undefined): boolean => {
+  if (!item) return false;
+  item.focus();
+  item.scrollIntoView({ block: "nearest" });
+  return true;
+};
+
 const focusFirstInColumn = (column: Element | null | undefined): boolean => {
   const first = column ? menuitemsIn(column)[0] : undefined;
-  if (!first) return false;
-  first.focus();
-  return true;
+  return focusItem(first);
 };
 
 const focusExpandedOrFirst = (column: Element | null | undefined): boolean => {
@@ -105,12 +117,17 @@ const focusExpandedOrFirst = (column: Element | null | undefined): boolean => {
   const expanded = column.querySelector<HTMLButtonElement>(
     '[role="menuitem"][aria-expanded="true"]',
   );
-  if (expanded) {
-    expanded.focus();
-    return true;
-  }
+  if (expanded) return focusItem(expanded);
   return focusFirstInColumn(column);
 };
+
+const isPrintableKey = (event: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}): boolean =>
+  event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey;
 
 function LoadingRows() {
   return (
@@ -161,20 +178,26 @@ function CascadeItem({
   expanded,
   onEnter,
   onSelect,
+  skipExpandRef,
 }: {
   readonly label: string;
   readonly expanded?: boolean;
   readonly onEnter?: () => void;
   readonly onSelect: () => void;
+  readonly skipExpandRef: { current: boolean };
 }) {
   return (
     <button
       type="button"
       role="menuitem"
+      tabIndex={-1}
       aria-haspopup={expanded === undefined ? undefined : "menu"}
       aria-expanded={expanded}
       onMouseEnter={onEnter}
-      onFocus={onEnter}
+      onFocus={() => {
+        if (skipExpandRef.current) return;
+        onEnter?.();
+      }}
       onClick={onSelect}
     >
       <span>{label}</span>
@@ -193,6 +216,7 @@ export function AgentCascadeMenu({
   focusOnOpen = false,
   /** Leave the cascade (ArrowLeft / Escape from the first column) — parent restores palette focus. */
   onExit,
+  onTabExit,
 }: {
   readonly harness: HarnessId;
   readonly anchor: HTMLElement;
@@ -201,11 +225,16 @@ export function AgentCascadeMenu({
   readonly onPointerLeave: () => void;
   readonly focusOnOpen?: boolean;
   readonly onExit?: () => void;
+  readonly onTabExit?: (delta: 1 | -1) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef(focusOnOpen);
   /** ArrowRight may open a column that does not exist until the next render. */
   const pendingEnterStepRef = useRef<CascadeStep | null>(null);
+  const typeaheadRef = useRef<TypeaheadBuffer>({ text: "", at: 0 });
+  const typeaheadStepRef = useRef<CascadeStep | null>(null);
+  /** Retreat focus must not re-open the child column via onFocus. */
+  const skipExpandOnFocusRef = useRef(false);
   const [models, setModels] = useState<readonly ManagedTerminalModelOption[] | null>(null);
   const [profiles, setProfiles] = useState<readonly ManagedTerminalProfileOption[] | null>(
     harness === "hermes" ? null : [],
@@ -220,6 +249,11 @@ export function AgentCascadeMenu({
     sideRef.current = side;
     return positionFor(anchor, side);
   });
+
+  const resetTypeahead = (): void => {
+    typeaheadRef.current = { text: "", at: 0 };
+    typeaheadStepRef.current = null;
+  };
 
   useEffect(() => {
     pendingFocusRef.current = focusOnOpen;
@@ -315,13 +349,18 @@ export function AgentCascadeMenu({
 
   // Keyboard entry waits for the first column to finish loading, then focuses
   // the first menuitem. Pointer hover leaves focus on the palette filter.
+  // Late enumeration must not steal focus that has already left the anchor.
   useEffect(() => {
     if (!pendingFocusRef.current || firstColumnIsLoading) return;
+    if (document.activeElement !== anchor) {
+      pendingFocusRef.current = false;
+      return;
+    }
     const focused = focusFirstInColumn(
       rootRef.current?.querySelector(".agent-cascade__items"),
     );
     if (focused) pendingFocusRef.current = false;
-  }, [firstColumnIsLoading, profileChoices, modelChoices, focusOnOpen]);
+  }, [anchor, firstColumnIsLoading, profileChoices, modelChoices, focusOnOpen]);
 
   const columnByStep = (step: CascadeStep): Element | null =>
     rootRef.current?.querySelector(`.agent-cascade__items[data-cascade-step="${step}"]`) ??
@@ -331,6 +370,12 @@ export function AgentCascadeMenu({
   useLayoutEffect(() => {
     const step = pendingEnterStepRef.current;
     if (!step) return;
+    const root = rootRef.current;
+    const active = document.activeElement;
+    if (!root || !(active instanceof Node) || !root.contains(active)) {
+      pendingEnterStepRef.current = null;
+      return;
+    }
     if (focusFirstInColumn(columnByStep(step))) {
       pendingEnterStepRef.current = null;
     }
@@ -342,10 +387,24 @@ export function AgentCascadeMenu({
   };
 
   const exitCascade = (): void => {
+    resetTypeahead();
     onExit?.();
   };
 
   const onCascadeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const composing = event.nativeEvent.isComposing || event.key === "Process";
+    if (composing) return;
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      resetTypeahead();
+      pendingEnterStepRef.current = null;
+      pendingFocusRef.current = false;
+      onTabExit?.(event.shiftKey ? -1 : 1);
+      return;
+    }
+
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const column = target.closest(".agent-cascade__items");
@@ -355,10 +414,18 @@ export function AgentCascadeMenu({
     const index = items.indexOf(target as HTMLButtonElement);
     if (index < 0) return;
 
+    const columnStep = stepOf(column);
+    if (typeaheadStepRef.current !== columnStep) {
+      typeaheadRef.current = { text: "", at: 0 };
+      typeaheadStepRef.current = columnStep;
+    }
+
     const focusAt = (next: number): void => {
       event.preventDefault();
       event.stopPropagation();
-      items[next]?.focus();
+      resetTypeahead();
+      typeaheadStepRef.current = columnStep;
+      focusItem(items[next]);
     };
 
     // Horizontal arrows follow visual layout: when the cascade mirrors to the
@@ -367,17 +434,40 @@ export function AgentCascadeMenu({
     const enterKey = cascadeEnterKey(side);
     const retreatKey = cascadeRetreatKey(side);
 
+    const focusParentColumn = (parentStep: CascadeStep, label?: string): void => {
+      skipExpandOnFocusRef.current = true;
+      requestAnimationFrame(() => {
+        const parent = columnByStep(parentStep);
+        const parentItems = parent ? menuitemsIn(parent) : [];
+        const match = label
+          ? parentItems.find((item) => item.textContent?.trim() === label)
+          : undefined;
+        focusItem(match) || focusExpandedOrFirst(parent);
+        skipExpandOnFocusRef.current = false;
+      });
+    };
+
     const enterDeeper = (): void => {
       const item = items[index];
       if (!item || item.getAttribute("aria-haspopup") !== "menu") return;
       event.preventDefault();
       event.stopPropagation();
-      // Focus already expanded the branch via onFocus; enter the next column
-      // once React paints it (pendingEnterStepRef + layout effect).
+      resetTypeahead();
       const step = stepOf(column);
       const nextStep: CascadeStep | null =
         step === "profile" ? "model" : step === "model" ? "effort" : null;
       if (!nextStep) return;
+      const label = item.textContent?.trim() ?? "";
+      if (step === "profile") {
+        const profile = profileChoices.find((choice) => choice.name === label);
+        if (profile) {
+          setActiveProfile(profile);
+          setActiveModel(null);
+        }
+      } else if (step === "model") {
+        const model = modelChoices.find((choice) => choice.label === label);
+        if (model) setActiveModel(model);
+      }
       pendingEnterStepRef.current = nextStep;
       if (focusFirstInColumn(columnByStep(nextStep))) {
         pendingEnterStepRef.current = null;
@@ -387,14 +477,18 @@ export function AgentCascadeMenu({
     const retreat = (): void => {
       event.preventDefault();
       event.stopPropagation();
+      resetTypeahead();
       const step = stepOf(column);
       if (step === "effort") {
-        requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("model")));
+        const label = activeModel?.label;
+        setActiveModel(null);
+        focusParentColumn("model", label);
         return;
       }
       if (step === "model" && harness === "hermes") {
+        const label = activeProfile?.name;
         setActiveModel(null);
-        requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("profile")));
+        focusParentColumn("profile", label);
         return;
       }
       exitCascade();
@@ -426,31 +520,51 @@ export function AgentCascadeMenu({
         return;
       }
       case "Escape": {
-        event.preventDefault();
-        event.stopPropagation();
-        const step = stepOf(column);
-        if (step === "effort") {
-          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("model")));
-          return;
-        }
-        if (step === "model" && harness === "hermes" && activeProfile) {
-          setActiveModel(null);
-          requestAnimationFrame(() => focusExpandedOrFirst(columnByStep("profile")));
-          return;
-        }
-        exitCascade();
+        retreat();
         return;
       }
       case "Enter":
       case " ": {
-        // Enter/Space commit the focused leaf, or the defaults on an expandable
-        // row (same as click). ArrowRight is the path into sub-columns.
+        // Native button activation commits the focused leaf, or the defaults
+        // on an expandable row (same as click). Stop bubbling so the deck
+        // does not treat this as a search-bridge Enter.
+        event.stopPropagation();
+        resetTypeahead();
         return;
       }
-      default:
-        return;
+      default: {
+        if (!isPrintableKey(event) || event.key === " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        typeaheadRef.current = typeaheadAccept(
+          typeaheadRef.current,
+          event.key,
+          Date.now(),
+        );
+        typeaheadStepRef.current = columnStep;
+        const labels = items.map((item) => item.textContent?.trim() ?? "");
+        const next = typeaheadIndex(
+          labels,
+          typeaheadRef.current.text,
+          index,
+        );
+        if (next === null) return;
+        focusItem(items[next]);
+      }
     }
   };
+
+  const defaultsItem = (
+    <CascadeItem
+      label={DEFAULTS_LABEL}
+      skipExpandRef={skipExpandOnFocusRef}
+      onEnter={() => {
+        setActiveProfile(null);
+        setActiveModel(null);
+      }}
+      onSelect={() => configure({ harness })}
+    />
+  );
 
   return createPortal(
     <div
@@ -462,7 +576,17 @@ export function AgentCascadeMenu({
       onMouseLeave={onPointerLeave}
       // Keyboard handoff: focus entering a menuitem must cancel the palette's
       // blur→close timer the same way pointerenter does.
-      onFocusCapture={onPointerEnter}
+      onFocusCapture={(event) => {
+        onPointerEnter();
+        const column = event.target instanceof Element
+          ? event.target.closest(".agent-cascade__items")
+          : null;
+        const step = column instanceof Element ? stepOf(column) : null;
+        if (step !== typeaheadStepRef.current) {
+          typeaheadRef.current = { text: "", at: 0 };
+          typeaheadStepRef.current = step;
+        }
+      }}
       onKeyDown={onCascadeKeyDown}
     >
       <MenuColumn
@@ -479,55 +603,67 @@ export function AgentCascadeMenu({
         {firstColumnIsLoading ? (
           <LoadingRows />
         ) : usesModes ? (
-          templateModes.map((mode) => (
-            <CascadeItem
-              key={mode}
-              label={mode}
-              onSelect={() => configure({ harness, mode })}
-            />
-          ))
+          <>
+            {templateModes.map((mode) => (
+              <CascadeItem
+                key={mode}
+                label={mode}
+                skipExpandRef={skipExpandOnFocusRef}
+                onSelect={() => configure({ harness, mode })}
+              />
+            ))}
+            {defaultsItem}
+          </>
         ) : harness === "hermes" ? (
-          profileChoices.map((profile) => {
-            // Chevron only when a model column can open (loading or non-empty).
-            const canExpandModels =
-              models === null || modelChoices.length > 0;
-            return (
-              <CascadeItem
-                key={profile.name}
-                label={profile.name}
-                expanded={
-                  canExpandModels ? activeProfile?.name === profile.name : undefined
-                }
-                onEnter={() => {
-                  setActiveProfile(profile);
-                  setActiveModel(null);
-                }}
-                onSelect={() =>
-                  configure({
-                    harness,
-                    profile: profile.name,
-                    ...(profile.model ? { model: profile.model } : {}),
-                  })
-                }
-              />
-            );
-          })
+          <>
+            {profileChoices.map((profile) => {
+              // Chevron only when a model column can open (loading or non-empty).
+              const canExpandModels =
+                models === null || modelChoices.length > 0;
+              return (
+                <CascadeItem
+                  key={profile.name}
+                  label={profile.name}
+                  skipExpandRef={skipExpandOnFocusRef}
+                  expanded={
+                    canExpandModels ? activeProfile?.name === profile.name : undefined
+                  }
+                  onEnter={() => {
+                    setActiveProfile(profile);
+                    setActiveModel(null);
+                  }}
+                  onSelect={() =>
+                    configure({
+                      harness,
+                      profile: profile.name,
+                      ...(profile.model ? { model: profile.model } : {}),
+                    })
+                  }
+                />
+              );
+            })}
+            {defaultsItem}
+          </>
         ) : (
-          modelChoices.map((model) => {
-            const hasEfforts =
-              (model.efforts?.length ?? 0) > 0 ||
-              enumeratedEfforts.length > 0 ||
-              templateFor(harness).efforts.length > 0;
-            return (
-              <CascadeItem
-                key={model.id}
-                label={model.label}
-                expanded={hasEfforts ? activeModel?.id === model.id : undefined}
-                onEnter={() => setActiveModel(model)}
-                onSelect={() => configure({ harness, model: model.id })}
-              />
-            );
-          })
+          <>
+            {modelChoices.map((model) => {
+              const hasEfforts =
+                (model.efforts?.length ?? 0) > 0 ||
+                enumeratedEfforts.length > 0 ||
+                templateFor(harness).efforts.length > 0;
+              return (
+                <CascadeItem
+                  key={model.id}
+                  label={model.label}
+                  skipExpandRef={skipExpandOnFocusRef}
+                  expanded={hasEfforts ? activeModel?.id === model.id : undefined}
+                  onEnter={() => setActiveModel(model)}
+                  onSelect={() => configure({ harness, model: model.id })}
+                />
+              );
+            })}
+            {defaultsItem}
+          </>
         )}
       </MenuColumn>
 
@@ -549,6 +685,7 @@ export function AgentCascadeMenu({
                 <CascadeItem
                   key={model.id}
                   label={model.label}
+                  skipExpandRef={skipExpandOnFocusRef}
                   expanded={hasEfforts ? activeModel?.id === model.id : undefined}
                   onEnter={() => setActiveModel(model)}
                   onSelect={() =>
@@ -575,6 +712,7 @@ export function AgentCascadeMenu({
             <CascadeItem
               key={effort}
               label={effort}
+              skipExpandRef={skipExpandOnFocusRef}
               onSelect={() =>
                 configure({
                   harness,

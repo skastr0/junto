@@ -1,10 +1,41 @@
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import type { GroupNode } from "../../src/shared/canvas";
+import type { HarnessId } from "../../src/shared/managed-terminal-templates";
+import type { ClaudeModelCacheEntry } from "../harness/agent-harness-fixture";
 import { canvasDoc } from "../harness/sandbox";
 import { expect, launchVellum, test } from "../harness/launch";
 
 const REPO_ROOT = process.cwd();
+
+const SEEDED_HARNESSES = ["claude", "codex", "grok"] as const satisfies readonly HarnessId[];
+
+const CLAUDE_MODELS: readonly ClaudeModelCacheEntry[] = [
+  { value: "claude-opus-4-6", label: "Opus 4.6" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { value: "claude-haiku-4-5", label: "Haiku 4.5" },
+  { value: "claude-opus-4-5", label: "Opus 4.5" },
+  { value: "claude-sonnet-4-5", label: "Sonnet 4.5" },
+  { value: "claude-opus-4-1", label: "Opus 4.1" },
+  { value: "claude-sonnet-4", label: "Sonnet 4" },
+  { value: "claude-haiku-3-5", label: "Haiku 3.5" },
+  { value: "claude-opus-3", label: "Opus 3" },
+  { value: "claude-sonnet-3-7", label: "Sonnet 3.7" },
+  { value: "claude-haiku-3", label: "Haiku 3" },
+  { value: "claude-opus-4-0", label: "Opus 4.0" },
+  { value: "claude-sonnet-3-5", label: "Sonnet 3.5" },
+  { value: "claude-opus-4-7", label: "Opus 4.7" },
+  { value: "claude-zephyr-1", label: "Zephyr 1" },
+];
+
+const seededLaunch = (
+  extras: Parameters<typeof launchVellum>[0] = {},
+) =>
+  launchVellum({
+    seedHarnessInstalls: SEEDED_HARNESSES,
+    claudeModelCache: CLAUDE_MODELS,
+    ...extras,
+  });
 
 const containingRegion: GroupNode = {
   id: "launch-region",
@@ -58,7 +89,7 @@ const openFolderPicker = async (
 };
 
 test("Mode Deck exposes the searchable catalog and keeps launch context dense at the foot of the agent pane", async () => {
-  const vellumCommand = await launchVellum();
+  const vellumCommand = await seededLaunch();
 
   try {
     const { page } = vellumCommand;
@@ -91,10 +122,10 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       name: "Launch context",
     });
     const agentRows = [
-      agentPane.getByRole("button", { name: "Add Claude Code agent" }),
-      agentPane.getByRole("button", { name: "Add Codex agent" }),
-      agentPane.getByRole("button", { name: "Add Grok agent" }),
-      agentPane.getByRole("button", { name: "Add Hermes agent" }),
+      agentPane.getByRole("button", { name: "Claude Code", exact: true }),
+      agentPane.getByRole("button", { name: "Codex", exact: true }),
+      agentPane.getByRole("button", { name: "Grok", exact: true }),
+      agentPane.getByRole("button", { name: "Hermes", exact: true }),
     ];
 
     await expect(launchContext.getByLabel("Agent host")).toBeVisible();
@@ -142,12 +173,12 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
 });
 
 test("model and effort choices remain visually attached to the active agent row", async () => {
-  const vellumCommand = await launchVellum();
+  const vellumCommand = await seededLaunch();
 
   try {
     const { page } = vellumCommand;
     const deck = await openModeDeck(page);
-    const agent = deck.getByRole("button", { name: "Add Claude Code agent" });
+    const agent = deck.getByRole("button", { name: "Claude Code", exact: true });
     await agent.hover();
 
     const models = page.getByRole("menu", { name: "Claude Code models" });
@@ -208,7 +239,7 @@ test("model and effort choices remain visually attached to the active agent row"
 });
 
 test("starting-folder modal reuses live directory browsing and can save a containing-region default", async () => {
-  const vellumCommand = await launchVellum({
+  const vellumCommand = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([containingRegion]) },
   });
 
@@ -244,7 +275,7 @@ test("starting-folder modal reuses live directory browsing and can save a contai
 });
 
 test("region-default promotion fails closed with actionable guidance outside a region", async () => {
-  const vellumCommand = await launchVellum({
+  const vellumCommand = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
@@ -266,7 +297,7 @@ test("region-default promotion fails closed with actionable guidance outside a r
 });
 
 test("one agent-row click creates exactly one configured agent without a legacy location step", async () => {
-  const vellumCommand = await launchVellum({
+  const vellumCommand = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
@@ -289,7 +320,7 @@ test("one agent-row click creates exactly one configured agent without a legacy 
 
     const canvasNodes = page.locator(".react-flow__node");
     const before = await canvasNodes.count();
-    await deck.getByRole("button", { name: "Add Claude Code agent" }).click();
+    await deck.getByRole("button", { name: "Claude Code", exact: true }).click();
 
     await expect(deck).toHaveCount(0);
     await expect(canvasNodes).toHaveCount(before + 1);
@@ -320,7 +351,7 @@ test("one agent-row click creates exactly one configured agent without a legacy 
 });
 
 test("node detail rail preserves navigation while explaining primary and secondary connections", async () => {
-  const vellumCommand = await launchVellum();
+  const vellumCommand = await seededLaunch();
 
   try {
     const { page } = vellumCommand;
@@ -373,6 +404,299 @@ test("node detail rail preserves navigation while explaining primary and seconda
     const wires = taskDetail.locator(".node-deck-catalog__wires");
     await expect(wires).toBeVisible();
     await expect(wires.locator("img")).toHaveCount(0);
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+const searchBox = (page: Page) =>
+  page.getByRole("searchbox", { name: "Search nodes and agents" });
+
+const agentSeats = async (page: Page) =>
+  page.evaluate(async () => {
+    const canvases = await window.vellumCommand!.listCanvases();
+    const name = canvases[0]?.name;
+    if (!name) return [];
+    const read = await window.vellumCommand!.readCanvas(name);
+    return read.doc.nodes
+      .filter((node) => node.ether?.entity?.kind === "agent")
+      .map((node) => {
+        const argv = node.ether?.terminal?.launch?.argv ?? [];
+        const modelAt = argv.indexOf("--model");
+        const effortAt = argv.indexOf("--effort");
+        return {
+          harness: node.ether?.terminal?.harness,
+          model: modelAt >= 0 ? argv[modelAt + 1] : undefined,
+          effort: effortAt >= 0 ? argv[effortAt + 1] : undefined,
+        };
+      });
+  });
+
+const waitForClaudeModels = async (page: Page): Promise<Locator> => {
+  const models = page.getByRole("menu", { name: "Claude Code models" });
+  await expect(models.getByRole("menuitem", { name: "Opus 4.6", exact: true }))
+    .toBeVisible();
+  return models;
+};
+
+const cascadeEnterKey = async (menu: Locator): Promise<"ArrowRight" | "ArrowLeft"> => {
+  const direction = await menu.evaluate((element) => {
+    const root = element.closest(".agent-cascade");
+    return root ? getComputedStyle(root).flexDirection : "row";
+  });
+  return direction === "row-reverse" ? "ArrowLeft" : "ArrowRight";
+};
+
+test("fuzzy agent search ranks installed harnesses and reports an honest miss", async () => {
+  const vellumCommand = await seededLaunch();
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
+    await expect(claude).toBeVisible();
+
+    const search = searchBox(page);
+    for (const query of ["cc", "claudec", "code claude"]) {
+      await search.fill(query);
+      await expect(claude).toBeVisible();
+      const first = deck.locator(".agent-harness-pick__item").first();
+      await expect(first).toHaveAttribute("aria-label", "Claude Code");
+    }
+
+    await search.fill("zzzz-not-an-agent");
+    await expect(deck.locator(".agent-harness-pick__empty")).toContainText(
+      'No agents match "zzzz-not-an-agent".',
+    );
+    await expect(deck).not.toContainText(
+      "No installed agent CLIs found on this machine.",
+    );
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("changing the search closes the cascade without resurrecting it on clear", async () => {
+  const vellumCommand = await seededLaunch();
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
+    await claude.hover();
+    await waitForClaudeModels(page);
+
+    const search = searchBox(page);
+    await search.fill("codex");
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+    await expect(claude).toHaveCount(0);
+
+    await search.hover();
+    await search.fill("");
+    await expect(claude).toBeVisible();
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("search Down and Enter browse results without creating nodes", async () => {
+  const vellumCommand = await seededLaunch({
+    seedCanvases: { portfolio: canvasDoc([]) },
+  });
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const canvasNodes = page.locator(".react-flow__node");
+    const before = await canvasNodes.count();
+    const search = searchBox(page);
+
+    await search.press("ArrowDown");
+    await expect(
+      deck.getByRole("button", { name: "Claude Code", exact: true }),
+    ).toBeFocused();
+    await expect(canvasNodes).toHaveCount(before);
+
+    await search.focus();
+    await search.fill("shell");
+    await search.press("Enter");
+    await expect(deck.locator(".node-deck-catalog__card").first()).toBeFocused();
+    await expect(canvasNodes).toHaveCount(before);
+
+    await search.focus();
+    await search.fill("zzzz-not-an-agent");
+    await search.press("ArrowDown");
+    await expect(search).toBeFocused();
+    await expect(canvasNodes).toHaveCount(before);
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("harness keyboard activation opens choices and Escape dismisses one layer at a time", async () => {
+  const vellumCommand = await seededLaunch();
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const search = searchBox(page);
+    await search.press("ArrowDown");
+    const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
+    await expect(claude).toBeFocused();
+
+    await page.keyboard.press("ArrowDown");
+    await expect(deck.getByRole("button", { name: "Codex", exact: true })).toBeFocused();
+    await page.keyboard.press("c");
+    await expect(claude).toBeFocused();
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+
+    await page.keyboard.press("Enter");
+    const models = await waitForClaudeModels(page);
+    await expect(models.getByRole("menuitem").first()).toBeFocused();
+    await expect(deck).toBeVisible();
+
+    const enterKey = await cascadeEnterKey(models);
+    await page.keyboard.press(enterKey);
+    const efforts = page.getByRole("menu", { name: /effort$/ });
+    await expect(efforts).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(efforts).toHaveCount(0);
+    await expect(models.getByRole("menuitem").first()).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+    await expect(claude).toBeFocused();
+    await page.waitForTimeout(400);
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+
+    await page.keyboard.press(" ");
+    await waitForClaudeModels(page);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+    await expect(claude).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Add canvas item" })).toHaveCount(0);
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("Tab and Shift-Tab leave the cascade relative to its harness anchor", async () => {
+  const vellumCommand = await seededLaunch();
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
+    await claude.focus();
+    await page.keyboard.press("Enter");
+    await waitForClaudeModels(page);
+
+    await page.keyboard.press("Tab");
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+    await expect(deck.getByRole("button", { name: "Codex", exact: true })).toBeFocused();
+
+    await claude.focus();
+    await page.keyboard.press("Enter");
+    await waitForClaudeModels(page);
+    await page.keyboard.press("Shift+Tab");
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+    await expect(deck.getByRole("tab", { name: "Canvas", exact: true })).toBeFocused();
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("Escape dismisses a hover preview without changing search focus or query", async () => {
+  const vellumCommand = await seededLaunch();
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const search = searchBox(page);
+    await search.fill("claude");
+    await expect(search).toBeFocused();
+
+    await deck.getByRole("button", { name: "Claude Code", exact: true }).hover();
+    await waitForClaudeModels(page);
+    await expect(search).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".agent-cascade")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Add canvas item" })).toBeVisible();
+    await expect(search).toBeFocused();
+    await expect(search).toHaveValue("claude");
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("column type-ahead scrolls to an offscreen model and selects its effort", async () => {
+  const vellumCommand = await seededLaunch({
+    seedCanvases: { portfolio: canvasDoc([]) },
+  });
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    await searchBox(page).press("ArrowDown");
+    await page.keyboard.press("Enter");
+    const models = await waitForClaudeModels(page);
+
+    await page.keyboard.type("zephyr");
+    const zephyr = models.getByRole("menuitem", { name: "Zephyr 1", exact: true });
+    await expect(zephyr).toBeFocused();
+    await expect.poll(async () =>
+      zephyr.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const root = element.closest(".agent-cascade__items");
+        if (!root) return false;
+        const bounds = root.getBoundingClientRect();
+        return rect.bottom > bounds.top && rect.top < bounds.bottom;
+      }),
+    ).toBe(true);
+
+    const enterKey = await cascadeEnterKey(models);
+    await page.keyboard.press(enterKey);
+    const efforts = page.getByRole("menu", { name: "Zephyr 1 effort" });
+    await expect(efforts).toBeVisible();
+    await page.keyboard.type("high");
+    await expect(efforts.getByRole("menuitem", { name: "high", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect.poll(async () => agentSeats(page)).toEqual([
+      { harness: "claude", model: "claude-zephyr-1", effort: "high" },
+    ]);
+  } finally {
+    await vellumCommand.close();
+  }
+});
+
+test("Use harness defaults creates one Kimi agent when no models are available", async () => {
+  const vellumCommand = await seededLaunch({
+    seedCanvases: { portfolio: canvasDoc([]) },
+    seedHarnessInstalls: [...SEEDED_HARNESSES, "kimi"],
+  });
+
+  try {
+    const { page } = vellumCommand;
+    const deck = await openModeDeck(page);
+    const kimi = deck.getByRole("button", { name: "Kimi Code", exact: true });
+    await expect(kimi).toBeVisible();
+    await kimi.focus();
+    await page.keyboard.press("Enter");
+
+    const menu = page.getByRole("menu", { name: "Kimi Code models" });
+    await expect(menu.getByRole("status", { name: "Loading options" })).toHaveCount(0);
+    await expect(menu.getByRole("menuitem")).toHaveCount(1);
+    await expect(menu.getByRole("menuitem", { name: "Use harness defaults" })).toBeVisible();
+    await menu.getByRole("menuitem", { name: "Use harness defaults" }).press("Enter");
+
+    await expect.poll(async () => agentSeats(page)).toEqual([
+      { harness: "kimi", model: undefined, effort: undefined },
+    ]);
   } finally {
     await vellumCommand.close();
   }

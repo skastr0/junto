@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { ArrowRight, Search } from "lucide-react";
 import {
   AgentLaunchContext,
@@ -10,7 +17,10 @@ import {
   type AgentConfigurationChoices,
 } from "./agent-launch-model";
 import { state$ } from "../../lib/state";
-import { AgentHarnessPick } from "./AgentHarnessPick";
+import {
+  AgentHarnessPick,
+  type CascadeDismiss,
+} from "./AgentHarnessPick";
 import {
   NodeCatalogGrid,
   type NodeCatalogCategory,
@@ -85,10 +95,48 @@ export function NodePaletteModeDeck({
     defaultAgentLaunchContext,
   );
   const inputRef = useRef<HTMLInputElement>(null);
+  const deckRef = useRef<HTMLElement>(null);
+  const cascadeDismissRef = useRef<CascadeDismiss | null>(null);
+  const hintId = useId();
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const focusFirstResult = (): void => {
+    const deck = deckRef.current;
+    if (!deck) return;
+    const candidates = deck.querySelectorAll<HTMLElement>(
+      ".agent-harness-pick__item, .node-deck-catalog__card",
+    );
+    for (const candidate of candidates) {
+      if (candidate.getClientRects().length === 0) continue;
+      candidate.focus();
+      return;
+    }
+  };
+
+  const onSearchKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ): void => {
+    if (event.nativeEvent.isComposing || event.key === "Process") return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.key === "Escape") {
+      if (cascadeDismissRef.current?.()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      cascadeDismissRef.current?.();
+      focusFirstResult();
+    }
+  };
 
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
     const withDefaults = withHarnessSettingsDefaults(
@@ -102,7 +150,12 @@ export function NodePaletteModeDeck({
   }, [actions, agentPosition, launchContext]);
 
   return (
-    <section className="node-deck" aria-label="Add canvas item" onWheel={(event) => event.stopPropagation()}>
+    <section
+      ref={deckRef}
+      className="node-deck"
+      aria-label="Add canvas item"
+      onWheel={(event) => event.stopPropagation()}
+    >
       <div className="node-deck__search-row">
         <Search size={15} aria-hidden />
         <input
@@ -110,9 +163,14 @@ export function NodePaletteModeDeck({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={onSearchKeyDown}
           placeholder="Search nodes and agents…"
           aria-label="Search nodes and agents"
+          aria-describedby={hintId}
         />
+        <span id={hintId} className="sr-only">
+          Press Down or Enter to browse results. Activation is a second step.
+        </span>
       </div>
       <div className="node-deck__tabs" role="tablist" aria-label="Node categories">
         {CATEGORIES.map((tab) => (
@@ -134,6 +192,7 @@ export function NodePaletteModeDeck({
             query={query}
             listLabel="Agents"
             onConfigure={configureAgent}
+            cascadeDismissRef={cascadeDismissRef}
           />
           <section
             className="node-deck__agent-wiring"

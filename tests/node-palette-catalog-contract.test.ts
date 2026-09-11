@@ -3,6 +3,7 @@ import {
   DEFAULT_NODE_CATALOG_ENTRIES,
   NODE_CATALOG_CATEGORY_ACCENT,
   NO_WIRES_COPY,
+  catalogMatchesQuery,
   catalogWireLines,
 } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
@@ -78,5 +79,29 @@ describe("node palette catalog contract", () => {
   it.each(["terminal"])("keeps %s hands-on with no wires", (id) => {
     expect(catalogWireLines(id)).toEqual([]);
     expect(NO_WIRES_COPY[id]).toBe("No wires — open it and work by hand.");
+  });
+});
+
+describe("catalog query matching", () => {
+  it("matches identity fuzzily without reordering the catalog", () => {
+    expect(catalogMatchesQuery(entry("terminal"), "termnl")).toBe(true);
+    expect(catalogMatchesQuery(entry("tasks"), "tsk")).toBe(true);
+    const visible = DEFAULT_NODE_CATALOG_ENTRIES.filter((candidate) =>
+      catalogMatchesQuery(candidate, "t"),
+    );
+    const original = DEFAULT_NODE_CATALOG_ENTRIES.filter((candidate) =>
+      visible.some((row) => row.id === candidate.id),
+    );
+    expect(visible.map((row) => row.id)).toEqual(original.map((row) => row.id));
+  });
+
+  it("matches prose by contiguous substring only", () => {
+    expect(catalogMatchesQuery(entry("tasks"), "work queue")).toBe(true);
+    expect(catalogMatchesQuery(entry("tasks"), "wrkqu")).toBe(false);
+  });
+
+  it("requires every token and allows mixed identity plus prose", () => {
+    expect(catalogMatchesQuery(entry("tasks"), "tasks queue")).toBe(true);
+    expect(catalogMatchesQuery(entry("tasks"), "tasks missing")).toBe(false);
   });
 });

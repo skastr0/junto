@@ -26,8 +26,15 @@ import { tmpdir } from "node:os";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
+import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
+import {
+  seedClaudeModelCache,
+  seededHarnessBinDir,
+  seedInstalledHarnesses,
+  type ClaudeModelCacheEntry,
+} from "./agent-harness-fixture";
 import {
   createSandbox,
   destroySandbox,
@@ -89,6 +96,13 @@ export interface LaunchOptions {
    * before boot — the same durable seam UsageCache paints at startup.
    */
   readonly seedUsage?: UsageState;
+  /**
+   * Plant no-op harness CLIs under the sandbox home so the install probe
+   * lists them. PATH puts this bin ahead of e2e/fakes/bin.
+   */
+  readonly seedHarnessInstalls?: readonly HarnessId[];
+  /** Write `~/.claude.json` additionalModelOptionsCache before boot. */
+  readonly claudeModelCache?: readonly ClaudeModelCacheEntry[];
   readonly extraEnv?: Readonly<Record<string, string>>;
   /**
    * Extra Chromium switches. The operator runs on a scaled Retina display;
@@ -438,6 +452,12 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     if (options.seedUsage !== undefined) {
       await writeFixtureUsageState(sandbox, options.seedUsage);
     }
+    if (options.seedHarnessInstalls !== undefined) {
+      await seedInstalledHarnesses(sandbox, options.seedHarnessInstalls);
+    }
+    if (options.claudeModelCache !== undefined) {
+      await seedClaudeModelCache(sandbox, options.claudeModelCache);
+    }
 
     server = await startRendererServer(RENDERER_DIR);
 
@@ -478,7 +498,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       // one of the isolation invariants at the top of this file, not a
       // per-spec choice. `extraEnv.PATH` (if a spec ever sets it) still wins —
       // it's applied after.
-      PATH: `${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}`,
+      PATH: `${seededHarnessBinDir(sandbox)}:${FAKES_BIN_DIR}:${SYSTEM_PATH_FLOOR}`,
       ...options.extraEnv,
     };
 
