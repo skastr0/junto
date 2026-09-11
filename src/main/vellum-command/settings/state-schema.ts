@@ -19,6 +19,7 @@ import {
   sanitizeFleetConsent,
   type Settings,
 } from "@shared/settings";
+import { persistableProviders } from "../credentials/redact";
 
 /**
  * Settings owns preferences only. Station topology is normalized separately
@@ -108,7 +109,7 @@ export const preferencesFromSettings = (
   fleet: settings.fleet,
   harnesses: settings.harnesses ?? defaultHarnesses(),
   terminal: settings.terminal ?? defaultTerminal(),
-  providers: settings.providers ?? defaultProviders(),
+  providers: persistableProviders(settings.providers),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the

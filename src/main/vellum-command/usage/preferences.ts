@@ -30,11 +30,9 @@ export const UsagePreferencesLive = Layer.effect(
   UsagePreferences,
   Effect.gen(function* () {
     const settings = yield* SettingsService;
-    const initial = yield* Effect.result(settings.get);
+    const initial = yield* Effect.result(settings.resolveProviders);
     let current: ProvidersSettings =
-      Result.isSuccess(initial) ? (initial.success.providers ?? { enabledSources: [] }) : {
-        enabledSources: [],
-      };
+      Result.isSuccess(initial) ? initial.success : { enabledSources: [] };
     const enabledListeners = new Set<
       (enabled: ReadonlySet<string>) => void
     >();
@@ -42,10 +40,11 @@ export const UsagePreferencesLive = Layer.effect(
     const enabledSources = (): ReadonlySet<string> =>
       new Set(current.enabledSources ?? []);
     const hermesHostSnapshots = (): boolean => current.hermesHostSnapshots === true;
-    const unsubscribe = settings.subscribe((next) => {
+    const unsubscribe = settings.subscribe(() => {
       const before = (current.enabledSources ?? []).join("\0");
       const beforeHermesHost = current.hermesHostSnapshots === true;
-      current = next.providers ?? {};
+      const next = Effect.runSync(settings.resolveProviders);
+      current = next;
       if ((current.enabledSources ?? []).join("\0") !== before) {
         const enabled = enabledSources();
         for (const listener of enabledListeners) listener(enabled);

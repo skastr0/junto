@@ -95,14 +95,14 @@ and the product rename itself has no startup data-copy step. The separately
 ruled Tasks vocabulary consolidation below is the sole startup data rewrite.
 
 **SQLite evolution law:** version 1 is the frozen durable baseline. The current
-source/runtime schema is version 21, selected by `CURRENT_STATE_SCHEMA_VERSION`
+source/runtime schema is version 22, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and reached through the immutable contiguous steps declared in `migrations.ts`.
 The public macOS 0.1.14 package remains historical evidence for schema version
 18; it does not define the current source/runtime head. The frozen `18 → 19`,
 and `19 → 20` migrations must never be edited, squashed, renumbered, or reused.
 The original Tasks-bearing `20 → 21` result was invalid and is replaced by the
 corrected version-21 definition below.
-The next schema change must append `21 → 22`.
+The next schema change must append `22 → 23`.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
 schema edit must increment the current version, append an atomic `N → N+1`

@@ -16,6 +16,7 @@ import {
 import { join } from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import type { StateBackupReceipt } from "./service";
+import { stripProviderSecretsFromPreferencesBody } from "../credentials/redact";
 
 const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
@@ -320,6 +321,42 @@ const assertBackupWitness = (
 };
 
 /**
+ * Strip provider secrets from a VACUUM INTO copy, then compact the file so
+ * the published backup does not retain the plaintext pages. Pending files
+ * are never retained evidence and are deleted on the next open.
+ */
+const redactProviderSecretsInBackup = (path: string): void => {
+  const database = new DatabaseSync(path, {
+    open: true,
+    readOnly: false,
+    allowExtension: false,
+    enableForeignKeyConstraints: true,
+    enableDoubleQuotedStringLiterals: false,
+    allowBareNamedParameters: false,
+    allowUnknownNamedParameters: false,
+  });
+  try {
+    const table = database.prepare(
+      `SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = 'settings_preferences'`,
+    ).get();
+    if (table === undefined) return;
+    const row = database.prepare(
+      `SELECT body FROM settings_preferences WHERE singleton = 1`,
+    ).get() as { readonly body: SQLOutputValue } | undefined;
+    if (row === undefined) return;
+    const body = String(row.body);
+    const redacted = stripProviderSecretsFromPreferencesBody(body);
+    if (redacted === body) return;
+    database.prepare(
+      `UPDATE settings_preferences SET body = ? WHERE singleton = 1`,
+    ).run(redacted);
+    database.exec("VACUUM");
+  } finally {
+    database.close();
+  }
+};
+
+/**
  * Mint a retained, owner-only SQLite snapshot and prove that a separate
  * read-only connection sees the same durable schema witness and row totals.
  * This runs before a live schema-advance transaction; it never mutates the
@@ -361,9 +398,14 @@ export const createVerifiedStateBackup = (
   if (!created.isFile() || created.isSymbolicLink()) {
     throw new Error(`state backup is not a regular file: ${pendingPath}`);
   }
+  redactProviderSecretsInBackup(pendingPath);
+  const compacted = lstatSync(pendingPath);
+  if (!compacted.isFile() || compacted.isSymbolicLink()) {
+    throw new Error(`state backup is not a regular file: ${pendingPath}`);
+  }
   const identity = {
-    device: created.dev,
-    inode: created.ino,
+    device: compacted.dev,
+    inode: compacted.ino,
   };
   let backup: DatabaseSync | undefined;
   let published = false;

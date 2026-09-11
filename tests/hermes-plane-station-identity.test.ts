@@ -59,6 +59,7 @@ describe("HermesPlane station identity hydration", () => {
       patch: () => Effect.succeed(published),
       setStationTopology: () => Effect.succeed(published),
       reset: () => Effect.succeed(published),
+      resolveProviders: Effect.succeed({}),
       subscribe: (listener) => {
         listeners.add(listener);
         return () => listeners.delete(listener);

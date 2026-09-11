@@ -23,6 +23,8 @@ import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "./usage";
 //
 // Invariants:
 // - Never store secrets here (full document is IPC-broadcast to all windows).
+//   Provider secret values live in the OS-adjacent credential vault; this
+//   document only carries MASKED_SECRET / non-secret metadata.
 // - BrowserPrefs (maxVisible/maxWarm) is the sole durable SoT for those limits;
 //   BrowserProfileService keeps profile identity/dirs/wipe only.
 // - Kernel arming has normalized runtime-state rows — not a preference.

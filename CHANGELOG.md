@@ -5,6 +5,8 @@
 - Stop treating pad shape and ink colors as HTML or CSS. Render only
   hex/`none` paint, serialize SVG with escaped attributes, and drop
   `script-src 'unsafe-inline'` from the renderer CSP.
+- Store operator provider credentials outside SQLite and omit them from
+  newly minted state backups. Historical backups remain immutable.
 - Make project-owned source available under Apache-2.0, with source-build
   instructions and third-party notices.
 - Remove purchases, activation, and commercial access checks from desktop and
