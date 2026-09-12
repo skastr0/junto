@@ -413,33 +413,6 @@ export const cleanupVellumHarness = async (
   }
 };
 
-// First-run gate (src/renderer/components/StationRoleGate.tsx): a fresh
-// sandboxed userData dir has no persisted station.role, so the modal always
-// appears. Every scenario needs the canvas interactable, so the harness
-// clears it once per launch rather than every spec repeating the same dance.
-const dismissStationRoleGate = async (page: Page): Promise<void> => {
-  const gate = page.getByRole("dialog", { name: "Set up this machine" });
-  try {
-    await gate.waitFor({ state: "visible", timeout: 20_000 });
-  } catch {
-    return; // no gate this run — fine.
-  }
-  try {
-    await gate
-      .getByRole("button", { name: /Set up as Command Center/ })
-      .first()
-      .click({ timeout: 5_000 });
-  } catch (error) {
-    // Role state can settle between the visibility observation and the click.
-    // A gate that already closed reached the same desired state; only surface
-    // the click failure while the dialog is still present.
-    if (await gate.isHidden()) return;
-    throw error;
-  }
-  await gate.waitFor({ state: "hidden", timeout: 20_000 });
-};
-
-
 export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumHandle> => {
   const sandbox = await createSandbox();
   let server: RendererServer | undefined;
@@ -570,8 +543,6 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
         await page.reload();
       }
     }
-
-    await dismissStationRoleGate(page);
 
     // Native confirm dialogs (honest-quit live-work gate, browser-automation
     // grant) cannot be clicked under focus isolation — auto-accept them
