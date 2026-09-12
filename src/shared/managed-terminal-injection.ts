@@ -492,11 +492,10 @@ export const buildOrientNotice = (seatRef?: string): string =>
   [
     "Your seat's factory CLI: `vellum-command onboard`.",
     seatRef ? `Seat: \`${seatRef}\`.` : "",
-    "Run it before anything else — it returns your seat, region, connected targets with grants.",
-    "If the CLI is unavailable in your shell, tell the operator.",
+    "Run it before anything else — it returns your seat, region, and grants.",
   ]
     .filter((l) => l.length > 0)
-    .join("\n");
+    .join(" ");
 
 // ── Builders ───────────────────────────────────────────────────────────────
 
@@ -756,10 +755,17 @@ export const buildBootstrapMarker = (bindingId: string): string =>
   `${BOOTSTRAP_MARKER_PREFIX}${fnv1a64Hex(bindingId)}]`;
 
 /**
- * Marker line first, then a blank line, then the text. The marker is always
- * on its own line at position 0.
+ * Prefix the payload with the seat marker. A one-line body stays one line
+ * (`[vc-…] body`) so ink TUIs do not collapse the notice into a
+ * `[Pasted text #N]` chip. Multiline bodies keep the marker on the first
+ * line — never a blank separator that forces an extra chip line.
  */
 export const appendBootstrapMarker = (
   text: string,
   bindingId: string,
-): string => [buildBootstrapMarker(bindingId), "", text].join("\n");
+): string => {
+  const marker = buildBootstrapMarker(bindingId);
+  const body = text.trim();
+  if (!body.includes("\n")) return `${marker} ${body}`;
+  return `${marker}\n${body}`;
+};
