@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Read the operator's authored board title on every projection — canvas card,
+  node titles, digest, SVG export, and region rollups — instead of a constant
+  kind name, while dash-prefixed topic lines still never leak into titles.
+- Settle request resolution idempotently: resolving an already-resolved request
+  returns the settled state instead of an error banner, and every raising
+  actor ref learns the answer, not just one.
+- Fix credential-vault retention corrupting the settings row: patching any
+  preference while plaintext secrets await vault migration no longer makes the
+  next read fail with a corrupt-settings error.
+- Give the artifacts glance an honest empty state ("quiet") like the other
+  sinks instead of rendering nothing.
+- Make the remote deploy's installed-generation check portable to mawk
+  (POSIX awk has no regex interval expressions), so Linux observe no longer
+  reports every install absent.
+
 - Authenticate Linux desktop first install with an independently obtained
   bootstrap or reviewed source checkout. Do not extract or execute the
   candidate archive's bundled CLI. Incumbent signed updates are unchanged.
