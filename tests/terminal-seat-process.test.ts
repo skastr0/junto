@@ -25,9 +25,31 @@ import {
 import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
 import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/term/session-existence";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
+
+/**
+ * Every host here proves seat-process selection, never shutdown timing, so
+ * each host defaults to short graces: a stubborn synthetic fake
+ * (exitOnSignal: false) must not pay the production TERM/KILL/late windows in
+ * afterEach cleanup. Shutdown-deadline proofs set their own explicit graces
+ * and live in their own files.
+ */
+const hostWith = (
+  fake: FakeTerminalProcessAuthority,
+  options: ConstructorParameters<typeof LocalSessionHost>[1] = {},
+): LocalSessionHost => {
+  const host = new LocalSessionHost(fake.authority, {
+    killGraceMs: 5,
+    shutdownGraceMs: 5,
+    lateExitGraceMs: 5,
+    ...options,
+  });
+  hosts.push(host);
+  return host;
+};
 
 const actorSpec = (bindingId: string, hostId?: string): OccupySpec => ({
   bindingId,
@@ -100,8 +122,7 @@ describe("local TerminalSeatProcess", () => {
       pid: 42_600,
       exitOnSignal: false,
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
     const createAgentSeat = vi.spyOn(host, "createAgentSeat");
     const seats = makeLocalSeatProcess(host);
     const occupy = vacantCommand("seat-p", "local");
@@ -169,8 +190,7 @@ describe("local TerminalSeatProcess", () => {
       pid: 42_601,
       exitOnSignal: false,
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
     const seats = makeLocalSeatProcess(host);
     const geography = host.create({
       bindingId: "seat-g",
@@ -223,8 +243,7 @@ describe("local TerminalSeatProcess", () => {
       pid: 42_650,
       exitOnSignal: "SIGTERM",
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
     const seats = makeLocalSeatProcess(host);
 
     const failure = await Effect.runPromise(
@@ -274,8 +293,7 @@ describe("local TerminalSeatProcess", () => {
           exitOnSignal: false,
         };
       });
-      const host = new LocalSessionHost(fake.authority);
-      hosts.push(host);
+      const host = hostWith(fake);
       const createAgentSeat = vi.spyOn(host, "createAgentSeat");
       const seats = makeLocalSeatProcess(host);
 
