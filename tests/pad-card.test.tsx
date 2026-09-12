@@ -6,12 +6,13 @@ import { PadSvg } from "../src/renderer/components/pad/PadSvg";
 import type { TextNode } from "../src/shared/canvas";
 import {
   applyPatch,
+  applyPatches,
   emptyPad,
   PadPatch,
   type PadError,
   type Pad as PadValue,
 } from "../src/shared/pad";
-import { padSvgPalette } from "../src/shared/pad-project";
+import { padSvgPalette, padToSvg } from "../src/shared/pad-project";
 
 const padNode = (over: Partial<TextNode> = {}): TextNode => ({
   id: "pad-1",
@@ -79,5 +80,79 @@ describe("PadSvg", () => {
     expect(html).not.toContain("<image");
     expect(html).toContain(`fill="${padSvgPalette("dark").fill}"`);
     expect(html).not.toContain(fill);
+  });
+
+  it("matches padToSvg layer tags and paint for both themes", () => {
+    const decode = Schema.decodeUnknownSync(PadPatch);
+    const result = applyPatches(emptyPad(), [
+      decode({
+        op: "upsert",
+        layer: "shape",
+        shape: {
+          id: "box1",
+          type: "box",
+          x: 8,
+          y: 32,
+          w: 40,
+          h: 20,
+          z: 0,
+          text: "inbox",
+          status: "active",
+          fill: "#445566",
+        },
+      }),
+      decode({
+        op: "upsert",
+        layer: "shape",
+        shape: {
+          id: "ell1",
+          type: "ellipse",
+          x: 80,
+          y: 32,
+          w: 20,
+          h: 20,
+          z: 1,
+          status: "done",
+        },
+      }),
+      decode({
+        op: "upsert",
+        layer: "ink",
+        ink: {
+          id: "k1",
+          z: 0,
+          color: "#abcdef",
+          width: 2,
+          points: [
+            { x: 8, y: 70 },
+            { x: 24, y: 80 },
+          ],
+        },
+      }),
+      decode({
+        op: "pin.upsert",
+        pin: { id: "p1", x: 20, y: 40, mentions: [] },
+      }),
+    ]);
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isFailure(result)) throw new Error(result.failure.message);
+    const pad = result.success;
+    for (const theme of ["dark", "bright"] as const) {
+      const html = renderToStaticMarkup(<PadSvg pad={pad} theme={theme} />);
+      const svg = padToSvg(pad, theme);
+      expect(html).toContain("<ellipse");
+      expect(svg).toContain("<ellipse");
+      expect(html).toContain('fill="#445566"');
+      expect(svg).toContain('fill="#445566"');
+      expect(html).toContain('stroke="#abcdef"');
+      expect(svg).toContain('stroke="#abcdef"');
+      expect(html).toContain(">inbox<");
+      expect(svg).toContain(">inbox<");
+      expect(html).toContain("<circle");
+      expect(svg).toContain("<circle");
+      const pal = padSvgPalette(theme);
+      expect(html).toContain(`stroke="${pal.green}"`);
+      expect(svg).toContain(`stroke="${pal.green}"`);
+    }
   });
 });

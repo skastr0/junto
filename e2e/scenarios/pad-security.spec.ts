@@ -45,11 +45,26 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
       async () =>
         page.evaluate(() => {
           const api = window.vellumCommand;
-          return typeof api?.workPadPatch === "function";
+          return (
+            typeof api?.workPadPatch === "function" &&
+            typeof api.workPadRead === "function"
+          );
         }),
       { timeout: 30_000 },
     )
     .toBe(true);
+};
+
+const assertSafeThumb = async (page: import("@playwright/test").Page) => {
+  const thumb = page.getByTestId("pad-card-thumb");
+  await expect(thumb).toBeVisible({ timeout: 15_000 });
+  await expect(thumb.locator("svg")).toBeVisible();
+  await expect(thumb.getByText("safe")).toBeVisible();
+  await expect(thumb.locator("image")).toHaveCount(0);
+  await expect(thumb.locator("script")).toHaveCount(0);
+  expect(await thumb.locator("[onerror]").count()).toBe(0);
+  expect(await thumb.locator("[onload]").count()).toBe(0);
+  expect(await thumb.locator("rect").count()).toBeGreaterThan(1);
 };
 
 test("hostile pad fill stays data and never executes in the card thumb", async ({
@@ -88,15 +103,7 @@ test("hostile pad fill stays data and never executes in the card thumb", async (
   if (!patched.ok) return;
   expect(patched.data.pad.shapes[0]?.fill).toBe(XSS_FILL);
 
-  const thumb = page.getByTestId("pad-card-thumb");
-  await expect(thumb).toBeVisible({ timeout: 15_000 });
-  await expect(thumb.locator("svg")).toBeVisible();
-  await expect(thumb.locator("image")).toHaveCount(0);
-  await expect(thumb.locator("script")).toHaveCount(0);
-  expect(await thumb.locator("[onerror]").count()).toBe(0);
-  expect(await thumb.locator("[onload]").count()).toBe(0);
-  expect(await thumb.locator("rect").count()).toBeGreaterThan(0);
-
+  await assertSafeThumb(page);
   const pwned = await page.evaluate(() => (window as unknown as { pwned?: number }).pwned ?? 0);
   expect(pwned).toBe(0);
 
@@ -110,7 +117,21 @@ test("hostile pad fill stays data and never executes in the card thumb", async (
   await page.reload();
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);
-  await expect(page.getByTestId("pad-card-thumb")).toBeVisible({ timeout: 15_000 });
-  const after = await page.evaluate(() => (window as unknown as { pwned?: number }).pwned ?? 0);
-  expect(after).toBe(0);
+  await page.evaluate(() => {
+    (window as unknown as { pwned: number }).pwned = 0;
+  });
+  await assertSafeThumb(page);
+
+  const after = await page.evaluate(async ([canvas, id, fill]) => {
+    const read = await window.vellumCommand!.workPadRead(canvas, id);
+    return {
+      pwned: (window as unknown as { pwned?: number }).pwned ?? 0,
+      ok: read.ok,
+      fill: read.ok ? read.data.pad.shapes.find((shape) => shape.id === "xss-box")?.fill : undefined,
+      expected: fill,
+    };
+  }, [CANVAS, PAD_ID, XSS_FILL] as const);
+  expect(after.ok).toBe(true);
+  expect(after.fill).toBe(XSS_FILL);
+  expect(after.pwned).toBe(0);
 });

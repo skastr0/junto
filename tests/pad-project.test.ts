@@ -1,3 +1,4 @@
+import { DOMParser } from "@xmldom/xmldom";
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -439,11 +440,26 @@ describe("padToSvg paint safety", () => {
   it("does not create extra elements when the svg is parsed as markup", () => {
     const pad = shapeWith("box", "fill", XSS_BREAKOUT);
     const svg = padToSvg(pad, "dark");
-    expect(svg.match(/<rect\b/g)?.length).toBeGreaterThan(0);
-    expect(svg.match(/<image\b/g) ?? []).toHaveLength(0);
-    expect(svg.match(/<script\b/g) ?? []).toHaveLength(0);
-    expect(svg).not.toMatch(/\son(?:error|load)="/i);
-    expect(svg).not.toContain("</rect><image");
+    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    expect(doc.getElementsByTagName("parsererror")).toHaveLength(0);
+    expect(doc.getElementsByTagName("image")).toHaveLength(0);
+    expect(doc.getElementsByTagName("script")).toHaveLength(0);
+    expect(doc.getElementsByTagName("rect").length).toBeGreaterThan(0);
+    const attr = (el: { getAttribute(name: string): string | null } | null, name: string) =>
+      el?.getAttribute(name) || null;
+    const withHandler = doc.getElementsByTagName("*");
+    for (let i = 0; i < withHandler.length; i += 1) {
+      const el = withHandler.item(i);
+      expect(attr(el, "onerror")).toBeNull();
+      expect(attr(el, "onload")).toBeNull();
+    }
+
+    const control = `<svg xmlns="http://www.w3.org/2000/svg"><rect fill=""></rect><image href="x-invalid:" onerror="window.pwned=42"></image></svg>`;
+    const controlDoc = new DOMParser().parseFromString(control, "image/svg+xml");
+    expect(controlDoc.getElementsByTagName("image")).toHaveLength(1);
+    expect(controlDoc.getElementsByTagName("image")[0]?.getAttribute("onerror")).toBe(
+      "window.pwned=42",
+    );
   });
 
   it("keeps look-here svg equally safe", () => {

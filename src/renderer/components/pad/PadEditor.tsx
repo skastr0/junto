@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -51,8 +52,8 @@ import {
   padShapeFill,
   padShapeStroke,
   padSvgPalette,
+  type PadSvgPalette,
 } from "@shared/pad-project";
-import type { ThemeMode } from "@shared/theme";
 import { themeMode$ } from "../../lib/theme-mode";
 import { fileToClipboardImage } from "../../lib/clipboard-image";
 import { putClipboardImage, putImagesFromDataTransfer } from "../../lib/image-content";
@@ -194,13 +195,12 @@ const PRE_APPLY_CODES = new Set([
 const ShapeEl = ({
   shape,
   selected,
-  theme,
+  pal,
 }: {
   readonly shape: PadShape;
   readonly selected: boolean;
-  readonly theme: ThemeMode;
+  readonly pal: PadSvgPalette;
 }) => {
-  const pal = padSvgPalette(theme);
   const fill = padShapeFill(shape, pal);
   const stroke = padShapeStroke(shape, pal);
   const common = {
@@ -352,6 +352,7 @@ export function PadEditor({
   const padRef = useRef(pad);
   padRef.current = pad;
   const theme = use$(themeMode$);
+  const pal = useMemo(() => padSvgPalette(theme), [theme]);
   const inkColor = defaultInkColor(theme);
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName) || "";
@@ -1217,7 +1218,7 @@ export function PadEditor({
                   <ShapeEl
                     shape={shape}
                     selected={shape.id === selectedId}
-                    theme={theme}
+                    pal={pal}
                   />
                   {shape.text ? (
                     <text
@@ -1245,7 +1246,7 @@ export function PadEditor({
                   stroke={
                     ink.id === selectedId
                       ? "var(--color-amber)"
-                      : padInkStroke(ink.color, padSvgPalette(theme))
+                      : padInkStroke(ink.color, pal)
                   }
                   strokeWidth={ink.id === selectedId ? ink.width + 1 : ink.width}
                   strokeLinecap="round"
