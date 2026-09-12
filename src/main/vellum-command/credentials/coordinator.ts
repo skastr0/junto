@@ -43,7 +43,12 @@ export const resolveProviderSecrets = (
   }
   for (const leftover of historicalProviderSecrets(settings.providers)) {
     const { provider, field } = parseProviderCredentialSlot(leftover.slot);
-    if (resolved[provider]?.[field] !== undefined) continue;
+    if (
+      (resolved[provider] as Record<string, string> | undefined)?.[field] !==
+      undefined
+    ) {
+      continue;
+    }
     put(provider, field, leftover.value);
   }
   const organizationId = settings.providers?.devin?.organizationId;

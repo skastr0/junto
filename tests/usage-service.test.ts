@@ -248,6 +248,8 @@ describe("UsageService", () => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      hermesHostSnapshots: () => false,
+      subscribeHermesHostSnapshots: () => () => undefined,
     });
     const setEnabled = (ids: ReadonlyArray<string>) => {
       enabled = new Set(ids);
