@@ -3,6 +3,7 @@ import {
   BROWSER_DNS_POLICY_TIMEOUT_MS,
   BROWSER_EGRESS_CONNECT_TIMEOUT_MS,
   BROWSER_EGRESS_HAPPY_EYEBALLS_DELAY_MS,
+  BROWSER_MAX_EGRESS_HAPPY_EYEBALLS_INFLIGHT,
   BROWSER_MAX_PENDING_DNS_HOSTS,
   BROWSER_MAX_URL_BYTES,
   isUtf8WithinLimit,
@@ -227,11 +228,20 @@ const delay = (ms: number, signal: AbortSignal): Promise<void> =>
     );
   });
 
+/**
+ * Synchronous permission check consulted before every dial attempt. Returning
+ * false must stop further attempts for this connect; the caller owns charging
+ * each dialing or connected socket against its budget. The callback must be
+ * pure (no reservation side effect) so a skipped dial cannot leak a charge.
+ */
+export type EgressDialBudget = () => boolean;
+
 export const connectApprovedEndpoints = async (
   endpoints: ReadonlyArray<ApprovedEgressEndpoint>,
   port: number,
   dial: DialApprovedEndpoint,
   parentSignal?: AbortSignal,
+  budget?: EgressDialBudget,
 ): Promise<EgressSocket> => {
   if (endpoints.length === 0) throw new Error("no approved egress endpoint");
   const controller = new AbortController();
@@ -246,13 +256,20 @@ export const connectApprovedEndpoints = async (
 
   let winner: EgressSocket | undefined;
   let firstError: unknown;
-  const inflight: EgressSocket[] = [];
+  let budgetRefused = false;
+  const resolved: EgressSocket[] = [];
+  const active = new Set<Promise<void>>();
 
   const attempt = async (endpoint: ApprovedEgressEndpoint): Promise<void> => {
-    if (controller.signal.aborted || winner !== undefined) return;
+    if (winner !== undefined || controller.signal.aborted) return;
+    if (budget !== undefined && !budget()) {
+      budgetRefused = true;
+      firstError ??= new Error("egress socket budget exhausted");
+      return;
+    }
     try {
       const socket = await dial(endpoint, port, controller.signal);
-      inflight.push(socket);
+      resolved.push(socket);
       if (winner !== undefined || controller.signal.aborted || socket.destroyed) {
         socket.destroy();
         return;
@@ -269,23 +286,43 @@ export const connectApprovedEndpoints = async (
     }
   };
 
+  const launch = (endpoint: ApprovedEgressEndpoint): void => {
+    const flight = attempt(endpoint);
+    active.add(flight);
+    void flight.then(() => {
+      active.delete(flight);
+    });
+  };
+
   try {
-    const pending: Promise<void>[] = [];
     for (const [index, endpoint] of ordered.entries()) {
-      if (winner !== undefined || controller.signal.aborted) break;
-      const flight = attempt(endpoint);
-      pending.push(flight);
-      if (index < ordered.length - 1 && winner === undefined) {
-        await Promise.race([flight, delay(BROWSER_EGRESS_HAPPY_EYEBALLS_DELAY_MS, controller.signal)]);
+      if (winner !== undefined || controller.signal.aborted || budgetRefused) break;
+      if (index > 0 && active.size > 0) {
+        // Happy Eyeballs stagger: give the previous attempt a head start
+        // before opening the next family or address.
+        await Promise.race([
+          ...active,
+          delay(BROWSER_EGRESS_HAPPY_EYEBALLS_DELAY_MS, controller.signal),
+        ]);
       }
-    }
-    await Promise.allSettled(pending);
-    if (winner !== undefined) {
-      for (const socket of inflight) {
-        if (socket !== winner) socket.destroy();
+      // Bound concurrent dials instead of accumulating one attempt per
+      // candidate answer: a many-address batch must not fan out into dozens
+      // of simultaneous outbound sockets.
+      while (
+        active.size >= BROWSER_MAX_EGRESS_HAPPY_EYEBALLS_INFLIGHT &&
+        winner === undefined &&
+        !controller.signal.aborted
+      ) {
+        await Promise.race([...active]);
       }
-      return winner;
+      if (winner !== undefined || controller.signal.aborted || budgetRefused) break;
+      launch(endpoint);
     }
+    await Promise.allSettled(active);
+    for (const socket of resolved) {
+      if (socket !== winner) socket.destroy();
+    }
+    if (winner !== undefined) return winner;
     throw firstError instanceof Error ? firstError : new Error("egress connect failed");
   } finally {
     clearTimeout(timer);

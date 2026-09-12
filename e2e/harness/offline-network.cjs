@@ -10,8 +10,12 @@ const net = require("node:net");
 const { syncBuiltinESMExports } = require("node:module");
 const { app } = require("electron");
 
-// Production no longer installs --no-proxy-server. This harness still owns a
-// rejecting loopback proxy to simulate an unavailable external network.
+// Production no longer installs --no-proxy-server, and src/main/index.ts
+// strips inherited proxy switches from the live command line. This module's
+// global marker exempts the offline harness from that strip: launch.ts
+// deliberately configures a rejecting loopback proxy for the whole process
+// (including defaultSession and native net.fetch), and no managed browser
+// partition exists in offline scenarios.
 
 const loopback = (host) =>
   host === undefined ||

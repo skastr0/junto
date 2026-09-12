@@ -174,6 +174,32 @@ configureTerminalRouterLayeredRunner((effect) =>
   AppRuntime.runPromise(effect as never),
 );
 
+// A launcher (or wrapper script) can hand this process inherited proxy
+// switches, and Chromium re-applies them over Session proxy preferences on
+// every NetworkContext creation (ApplyProxyModeFromCommandLine). An inherited
+// --no-proxy-server or --proxy-server would therefore restamp a managed
+// browser partition to DIRECT, or to an uncontrolled proxy, right after
+// preparePartition's session.setProxy() pinned the owned CONNECT proxy.
+// Remove the switches from the live command line before any Session can
+// exist, and never re-add no-proxy-server here: trusted/default traffic is
+// pinned DIRECT after ready instead. The sole exemption is the E2E offline
+// harness (e2e/harness/launch.ts preloads e2e/harness/offline-network.cjs
+// with -r before this module), which deliberately owns Chromium proxying for
+// the whole offline-simulation process through a rejecting loopback proxy;
+// no managed partition exists in that mode. Anything else supplying these
+// switches is stripped: a process that genuinely needs them could equally
+// pass -r and own the main process, so the exemption adds no bypass.
+if (
+  (globalThis as typeof globalThis & { __vellumCommandOfflineHarness?: boolean })
+    .__vellumCommandOfflineHarness !== true
+) {
+  app.commandLine.removeSwitch("no-proxy-server");
+  app.commandLine.removeSwitch("proxy-server");
+  app.commandLine.removeSwitch("proxy-bypass-list");
+  app.commandLine.removeSwitch("proxy-pac-url");
+  app.commandLine.removeSwitch("proxy-auto-detect");
+}
+
 // Managed browser partitions use an app-owned CONNECT proxy. Do not install
 // process-wide proxy-server / no-proxy-server switches: they restamp Session
 // prefs on NetworkContext create and would either force DIRECT or inherit a
