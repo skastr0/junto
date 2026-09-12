@@ -185,6 +185,47 @@ describe("MessageDeliveryService", () => {
     ]);
   });
 
+  it("nudges EVERY matching actor ref when one request resolves", async () => {
+    // The work service resolves a request whose claiming seat maps to several
+    // actor node refs: each ref gets its own nudge (pendingRequestResponses
+    // is keyed by canvas::actorNodeId::request::requestId), never a
+    // length-1 drop.
+    const store = makeStore({ c: twoAgentDoc() });
+    const writes: Array<{ bindingId: string; text: string }> = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (bindingId, text) => {
+          writes.push({ bindingId, text });
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent",
+      requestId: "request-multi",
+      response: "ok",
+    });
+    service.notifyRequestResolved({
+      canvas: "c",
+      actorNodeId: "agent-2",
+      requestId: "request-multi",
+      response: "ok",
+    });
+
+    await waitUntil(() => writes.length === 2);
+    expect([...writes].sort((a, b) => a.bindingId.localeCompare(b.bindingId))).toEqual([
+      { bindingId: "bind-nova", text: "[request resolved - request-multi] ok" },
+      {
+        bindingId: "bind-profile-13",
+        text: "[request resolved - request-multi] ok",
+      },
+    ]);
+  });
+
   it("retries a refused request response when the seat becomes idle", async () => {
     const store = makeStore({ c: agentDoc([]) });
     let accepts = false;

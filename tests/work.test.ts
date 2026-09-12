@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   workArtifactPublish,
   workMessageAppend,
@@ -91,8 +91,12 @@ vi.mock("node:os", async (importOriginal) => {
 vi.mock("@shared/canvas", () => import("../src/shared/canvas"));
 vi.mock("@shared/seed", () => import("../src/shared/seed"));
 
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import {
+  CanvasesLive,
+  CanvasesService,
+} from "../src/main/vellum-command/canvases";
 import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+import { messageDelivery } from "../src/main/vellum-command/work/message-delivery";
 import {
   createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
@@ -1881,5 +1885,204 @@ describe("WorkService — task path", () => {
       work.workRulingsList(name, "v2")
     );
     expect(rulings.regions[0]?.rulings[0]?.id).toBe("ruling-1");
+  });
+});
+
+describe("WorkService — request resolve nudge and duplicate settle", () => {
+  const waitUntil = async (
+    pred: () => boolean | Promise<boolean>,
+    timeoutMs = 2_000,
+  ): Promise<void> => {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (await pred()) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("waitUntil timed out");
+  };
+
+  // Structural reads only — the request-response routing path never pays for
+  // the work projection.
+  const deliveryStore = (canvasName: string) => ({
+    listCanvasNames: async () => [canvasName],
+    readDoc: async (name: string) =>
+      name === canvasName
+        ? (await workRuntime.runPromise(canvases.read(name))).doc
+        : undefined,
+    readNodeStructure: async (name: string, nodeId: string) => {
+      if (name !== canvasName) return undefined;
+      const { doc } = await workRuntime.runPromise(canvases.read(name));
+      const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+      return node === undefined ? undefined : { node, structure: doc };
+    },
+    hasAcceptedMessageDelivery: async () => false,
+    hasAcceptedMessageRead: async () => false,
+    acceptMessageDelivery: async () => true,
+    acceptMessageRead: async () => true,
+  });
+
+  const raiseFromSender = async (name: string) => {
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [emptyRequestsNode("req"), agentNode("sender")],
+        edges: [
+          {
+            id: "edge-raise",
+            fromNode: "sender",
+            toNode: "req",
+            ether: { verb: "escalates" },
+          },
+        ],
+      })
+    );
+    const authorial = await workRuntime.runPromise(canvases.read(name));
+    const actor = authorial.actorRefs.find(
+      (candidate) => candidate.nodeId === "sender"
+    );
+    if (actor === undefined) throw new Error("missing actor ref for sender");
+    return actor;
+  };
+
+  afterEach(() => {
+    messageDelivery.resetForTest();
+  });
+
+  it("nudges the raising actor seat when its request resolves", async () => {
+    const name = "work-resolve-nudge";
+    const actor = await raiseFromSender(name);
+
+    const writes: Array<{ bindingId: string; text: string }> = [];
+    messageDelivery.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (bindingId, text) => {
+          writes.push({ bindingId, text });
+          return true;
+        },
+      },
+      store: deliveryStore(name),
+    });
+
+    const created = await workRuntime.runPromise(
+      work.workRequestCreate(
+        name,
+        "req",
+        "approve the lane",
+        undefined,
+        actor,
+        "cannot ship without sign-off"
+      )
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const resolved = await workRuntime.runPromise(
+      work.workRequestResolve(name, "req", created.data.id, "approved", "completed")
+    );
+    expect(resolved.ok).toBe(true);
+
+    await waitUntil(() => writes.length === 1);
+    expect(writes).toEqual([
+      {
+        bindingId: "binding-sender",
+        text: `[request resolved - ${created.data.id}] approved`,
+      },
+    ]);
+  });
+
+  it("logs loudly instead of silently dropping when no live actor ref matches the claiming seat", async () => {
+    const name = "work-resolve-nudge-zero";
+    const actor = await raiseFromSender(name);
+
+    const writes: Array<{ bindingId: string; text: string }> = [];
+    messageDelivery.configure({
+      transport: {
+        sendManagedTerminalPrompt: async (bindingId, text) => {
+          writes.push({ bindingId, text });
+          return true;
+        },
+      },
+      store: deliveryStore(name),
+    });
+
+    const created = await workRuntime.runPromise(
+      work.workRequestCreate(
+        name,
+        "req",
+        "approve the lane",
+        undefined,
+        actor,
+        "cannot ship without sign-off"
+      )
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    // The raising seat leaves the canvas before the answer lands: no live
+    // actor ref matches claimedBy, so there is nobody to nudge — but the
+    // resolve must still apply and say so, never drop in silence.
+    await workRuntime.runPromise(
+      canvases.write(name, {
+        nodes: [emptyRequestsNode("req")],
+        edges: [],
+      })
+    );
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const resolved = await workRuntime.runPromise(
+        work.workRequestResolve(name, "req", created.data.id, "approved", "completed")
+      );
+      expect(resolved.ok).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(writes).toHaveLength(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("no live actor ref")
+      );
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(created.data.id));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("absorbs a stale second resolve of an already-resolved request", async () => {
+    const name = "work-resolve-twice";
+    const actor = await raiseFromSender(name);
+
+    const created = await workRuntime.runPromise(
+      work.workRequestCreate(
+        name,
+        "req",
+        "approve the lane",
+        undefined,
+        actor,
+        "cannot ship without sign-off"
+      )
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const first = await workRuntime.runPromise(
+      work.workRequestResolve(name, "req", created.data.id, "approved", "completed")
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    // The second surface (RequestInbox overlay or actor ledger) still holds
+    // the pre-resolve view: its duplicate resolve must settle with the
+    // current doc (surfaces refresh via applyWorkCanvasWrite), not error.
+    const second = await workRuntime.runPromise(
+      work.workRequestResolve(name, "req", created.data.id, "rejected", "completed")
+    );
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.message).toContain("already resolved");
+    expect(second.data.state).toBe("completed");
+
+    // Genuine failures stay errors.
+    const missing = await workRuntime.runPromise(
+      work.workRequestResolve(name, "req", "no-such-request", "approved", "completed")
+    );
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe("task_not_found");
   });
 });

@@ -110,7 +110,7 @@ import { WorkErrorDetails } from "@shared/work-control";
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/graph";
 import { taskCommentRecipient } from "@shared/task-owner";
-import { makeUserMessage } from "@shared/task";
+import { makeUserMessage, isTerminalTaskState } from "@shared/task";
 import type { Ruling } from "@shared/work-model";
 import { operatorActorRef } from "@shared/work-reference";
 import type {
@@ -3050,6 +3050,19 @@ export const WorkLive = Layer.effect(
             ]);
             const before = nodeById(read.doc, nodeId)?.ether?.requests?.items
               .find((task) => task.id === taskId);
+            if (before !== undefined && isTerminalTaskState(before.state)) {
+              // Already resolved — a stale second surface (RequestInbox
+              // overlay or actor ledger) may still offer Send while its doc
+              // write is in flight. Absorb the duplicate as an idempotent
+              // settle: the current doc is truth and the surfaces refresh
+              // from it via applyWorkCanvasWrite, so no error banner.
+              return yield* complete(canvas, {
+                value: before,
+                disposition: "applied",
+                message:
+                  `request "${taskId}" is already resolved (${before.state})`,
+              });
+            }
             const policy = yield* runPolicy(() =>
               workRequestResolve(
                 read.doc,
@@ -3104,13 +3117,24 @@ export const WorkLive = Layer.effect(
                   actor.canvasName === canvas &&
                   actor.seatId === before.claimedBy,
               );
-              if (raisers.length === 1) {
-                messageDelivery.notifyRequestResolved({
-                  canvas,
-                  actorNodeId: raisers[0]!.nodeId,
-                  requestId: taskId,
-                  response: policy.task.response!,
-                });
+              if (raisers.length === 0) {
+                // Never a silent drop: the raising agent must learn its
+                // escalation was answered. If no live actor ref matches the
+                // claiming seat (node deleted / moved off canvas), say so.
+                console.warn(
+                  `[work] request "${taskId}" resolved but no live actor ref ` +
+                    `on canvas "${canvas}" matches seat "${before.claimedBy}" — ` +
+                    "resolved-response nudge not delivered",
+                );
+              } else {
+                for (const raiser of raisers) {
+                  messageDelivery.notifyRequestResolved({
+                    canvas,
+                    actorNodeId: raiser.nodeId,
+                    requestId: taskId,
+                    response: policy.task.response!,
+                  });
+                }
               }
             }
             return completed;

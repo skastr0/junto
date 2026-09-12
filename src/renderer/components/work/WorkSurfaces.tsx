@@ -17,6 +17,7 @@ import {
 import { needsHuman, sinkGlance, taskScanCounts } from "@shared/attention";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
 import { requestsNodeName } from "@shared/requests-node-identity";
+import { boardNodeName } from "@shared/board-node-identity";
 import { openTaskCreateSurface } from "../../lib/dock-state";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { FocusSurface } from "../FocusSurface";
@@ -353,6 +354,7 @@ export function BoardCard({
       <SinkGlanceHead
         node={node}
         fallback="board"
+        displayLabel={boardNodeName(node)}
         decal={<MessageSquareText size={15} />}
         renaming={renaming}
         onRequestRename={onRequestRename}
@@ -412,6 +414,11 @@ export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
             {item.name?.trim() || item.artifactId}
           </div>
         ))}
+        {items.length === 0 ? (
+          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
+            quiet
+          </div>
+        ) : null}
       </div>
     </div>
   );

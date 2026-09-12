@@ -1,5 +1,6 @@
 import type { CanvasNode } from "@shared/canvas";
 import { requestsNodeName } from "@shared/requests-node-identity";
+import { boardNodeName } from "@shared/board-node-identity";
 
 // Shared by LinkNode.tsx and PageCard.tsx — the host to show for a link/page
 // card. Falls back to a naive scheme-strip rather than the raw url (unlike
@@ -50,6 +51,9 @@ export const nodeTitle = (node: CanvasNode): string => {
     // Requests identity is authored (ether.requests.name), not the mechanical
     // mirror's first line — the mirror is rewritten on every work op.
     if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
+    // Board identity is the kind name: the mirror is dash-prefixed topic
+    // titles, never a title ("- alpha" must not leak into node titles).
+    if (node.ether?.entity?.kind === "board") return boardNodeName(node);
     return node.text.split("\n")[0]?.replace(/^#+\s*/, "") || "untitled";
   }
   if (node.type === "file") return node.file.split("/").filter(Boolean).pop() ?? node.file;

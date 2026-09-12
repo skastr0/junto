@@ -11,6 +11,7 @@ import {
 import { groupMembers, isGroup } from "./graph";
 import { resolveSpec } from "./physics";
 import { requestsNodeName } from "./requests-node-identity";
+import { boardNodeName } from "./board-node-identity";
 import type { WorkSurfaceActivity } from "./terminal";
 
 // Region severity rollups: the operational tier of the bottom-bar information
@@ -155,6 +156,9 @@ const titleOf = (node: CanvasNode): string => {
   // Requests identity is authored (ether.requests.name), not the mirror's
   // first line — see requests-node-identity.ts.
   if (node.ether?.entity?.kind === "requests") return requestsNodeName(node);
+  // Board identity is the kind name — the mirror is dash-prefixed topic
+  // titles, never a title (see board-node-identity.ts).
+  if (node.ether?.entity?.kind === "board") return boardNodeName(node);
   switch (node.type) {
     case "text":
       return (node.text.split("\n")[0] ?? "").trim();
