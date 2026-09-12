@@ -187,7 +187,7 @@ present=0
 for dest in "$ROOT"/*; do
   [ -d "$dest" ] && [ ! -L "$dest" ] || continue
   name=$(/usr/bin/basename "$dest")
-  printf '%s\n' "$name" | /usr/bin/awk -F- 'NF == 2 && $1 ~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ && $2 ~ /^[0-9a-f]{64}$/ { ok=1 } END { exit ok ? 0 : 1 }' || continue
+  printf '%s\n' "$name" | /usr/bin/awk -F- 'NF == 2 && $1 ~ /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/ && length($2) == 64 && $2 ~ /^[0-9a-f]+$/ { ok=1 } END { exit ok ? 0 : 1 }' || continue
   remote="$dest/resources/bin/vellum-command-remote"
   launch="$dest/resources/systemd/vellum-command-remote-launch"
   if [ -x "$remote" ] && [ -x "$launch" ] && [ ! -L "$remote" ] && [ ! -L "$launch" ]; then
