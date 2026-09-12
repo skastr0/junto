@@ -839,8 +839,13 @@ describe("browser profile storage lifecycle", () => {
     const layout = await createLayout();
     const harness = makeHarness(layout);
     const { lifecycle, pending } = await preparePending(layout, harness);
+    // Substitute a directory that was allocated while the target still lived,
+    // so its inode provably differs (a rmdir+mkdir here can recycle the
+    // original inode and birthtime and look identical to the revalidation).
+    const decoy = join(dirname(layout.storagePath), "decoy-storage-swap");
+    await mkdir(decoy, { mode: 0o700 });
     await rmdir(layout.storagePath);
-    await mkdir(layout.storagePath, { mode: 0o700 });
+    await rename(decoy, layout.storagePath);
     harness.calls.length = 0;
 
     await expectStorageError(lifecycle.executeLive(pending), "path_changed");
@@ -1286,9 +1291,15 @@ describe("browser profile storage lifecycle", () => {
     const lifecycle = lifecycleFor(harness, {
       fileSystem: {
         rename: async (from, to) => {
+          // Swap in a directory that was allocated while the target still
+          // lived: its inode is provably different, so the substitution is
+          // detectable on every filesystem (a rmdir+mkdir here can recycle
+          // the original inode — and its birthtime — and pass as identical).
+          const decoy = join(dirname(from), "decoy-substitution");
+          await mkdir(decoy, { mode: 0o700 });
           await rename(from, to);
           await rmdir(to);
-          await mkdir(to, { mode: 0o700 });
+          await rename(decoy, to);
         },
       },
     });

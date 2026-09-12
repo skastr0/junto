@@ -231,6 +231,7 @@ export const startOperatorControlServer = async (
   const send = (
     socket: Socket,
     response: OperatorResponseEnvelope,
+    retireReadableHalf = true,
   ): Promise<void> => {
     const existing = responses.get(socket);
     if (existing !== undefined) return existing;
@@ -256,12 +257,37 @@ export const startOperatorControlServer = async (
       socket.end(frame, () => {
         // One request, one response. Retire the readable half after the frame
         // is flushed so allowHalfOpen cannot retain a peer indefinitely.
-        if (!socket.destroyed) socket.destroy();
+        // Refusal paths pass false: the peer may still be writing its request
+        // frame, and destroying with unread bytes resets the connection
+        // instead of delivering the typed refusal (client sees ECONNRESET).
+        if (retireReadableHalf && !socket.destroyed) socket.destroy();
       });
     } catch {
       socket.destroy();
     }
     return closed;
+  };
+
+  /**
+   * Refuse a connection that was denied before its request was fully read.
+   * The refusal frame is ended normally, incoming bytes are wiped as they
+   * arrive (never resetting a peer that is mid-write), the socket retires
+   * when the peer closes, and a bounded timeout covers peers that never do.
+   */
+  const refusePeer = (
+    socket: Socket,
+    response: OperatorErrorResponse,
+  ): void => {
+    socket.on("data", (chunk: Buffer) => {
+      chunk.fill(0);
+    });
+    socket.on("end", () => {
+      if (!socket.destroyed) socket.destroy();
+    });
+    socket.setTimeout(requestTimeoutMs, () => {
+      if (!socket.destroyed) socket.destroy();
+    });
+    void send(socket, response, false);
   };
 
   // The CLI half-closes its write side after one frame. Keep the server's
@@ -291,7 +317,7 @@ export const startOperatorControlServer = async (
     socket.on("error", () => undefined);
 
     if (shuttingDown || atCapacity) {
-      void send(
+      refusePeer(
         socket,
         operatorError(
           "runtime_down",
@@ -305,7 +331,7 @@ export const startOperatorControlServer = async (
 
     const admission = admitOperatorPeer(socket, runtime.admission);
     if (!admission.ok) {
-      void send(
+      refusePeer(
         socket,
         operatorError("forbidden", "operator control peer is not admitted"),
       );

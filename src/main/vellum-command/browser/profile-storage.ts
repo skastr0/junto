@@ -132,7 +132,12 @@ export interface BrowserProfileStorageFileSystem {
   readonly rmdir: (path: string) => Promise<void>;
   readonly syncDirectory: (
     path: string,
-    expected: { readonly dev: number; readonly ino: number; readonly uid: number },
+    expected: {
+      readonly dev: number;
+      readonly ino: number;
+      readonly uid: number;
+      readonly birthtimeMs: number;
+    },
   ) => Promise<void>;
   readonly unlink: (path: string) => Promise<void>;
 }
@@ -220,6 +225,14 @@ interface DirectoryIdentity {
   readonly dev: number;
   readonly ino: number;
   readonly uid: number;
+  /**
+   * Inode numbers can be recycled by the filesystem (overlayfs, inode reuse
+   * after rmdir+mkdir), which would let a substituted directory pass a
+   * (dev, ino, uid) check. Birthtime is the inode creation time: immutable
+   * across rename and entry churn, and always different for a recreated
+   * directory.
+   */
+  readonly birthtimeMs: number;
 }
 
 interface RootIdentities {
@@ -278,7 +291,12 @@ const DEFAULT_FILE_SYSTEM: BrowserProfileStorageFileSystem = Object.freeze({
   rmdir,
   syncDirectory: async (
     path: string,
-    expected: { readonly dev: number; readonly ino: number; readonly uid: number },
+    expected: {
+      readonly dev: number;
+      readonly ino: number;
+      readonly uid: number;
+      readonly birthtimeMs: number;
+    },
   ) => {
     const handle = await open(
       path,
@@ -290,7 +308,8 @@ const DEFAULT_FILE_SYSTEM: BrowserProfileStorageFileSystem = Object.freeze({
         !info.isDirectory() ||
         info.dev !== expected.dev ||
         info.ino !== expected.ino ||
-        info.uid !== expected.uid
+        info.uid !== expected.uid ||
+        info.birthtimeMs !== expected.birthtimeMs
       ) {
         throw new Error("directory identity changed");
       }
@@ -331,13 +350,15 @@ const sameIdentity = (left: DirectoryIdentity, right: DirectoryIdentity): boolea
   left.path === right.path &&
   left.dev === right.dev &&
   left.ino === right.ino &&
-  left.uid === right.uid;
+  left.uid === right.uid &&
+  left.birthtimeMs === right.birthtimeMs;
 
 const identityFromStats = (path: string, info: Stats): DirectoryIdentity => ({
   path,
   dev: info.dev,
   ino: info.ino,
   uid: info.uid,
+  birthtimeMs: info.birthtimeMs,
 });
 
 const storageError = (
@@ -790,7 +811,8 @@ class BrowserProfileStorageLifecycleImpl implements BrowserProfileStorageLifecyc
       renamed === undefined ||
       storage.target.dev !== renamed.dev ||
       storage.target.ino !== renamed.ino ||
-      storage.target.uid !== renamed.uid
+      storage.target.uid !== renamed.uid ||
+      storage.target.birthtimeMs !== renamed.birthtimeMs
     ) {
       throw storageError("quarantine", "path_changed", false);
     }
@@ -998,7 +1020,8 @@ class BrowserProfileStorageLifecycleImpl implements BrowserProfileStorageLifecyc
       !after.isDirectory() ||
       before.dev !== after.dev ||
       before.ino !== after.ino ||
-      before.uid !== after.uid
+      before.uid !== after.uid ||
+      before.birthtimeMs !== after.birthtimeMs
     ) {
       throw storageError(stage, "path_changed", false);
     }

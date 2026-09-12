@@ -562,13 +562,21 @@ cat "$PLIST"`,
     const launchAgents = join(sandbox, "Library", "LaunchAgents");
     mkdirSync(launchAgents, { recursive: true });
     const plist = join(launchAgents, "skastr0.vellumcommand.plist");
+    const program = join(
+      sandbox,
+      "Applications",
+      "Vellum Command.app",
+      "Contents",
+      "MacOS",
+      "Vellum Command",
+    );
     writeFileSync(
       plist,
       `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>Label</key><string>skastr0.vellumcommand</string>
 <key>ProgramArguments</key><array>
-<string>${join(sandbox, "Applications", "Vellum Command.app", "Contents", "MacOS", "Vellum Command")}</string>
+<string>${program}</string>
 <string>--foreign</string>
 </array>
 </dict></plist>`,
@@ -576,6 +584,16 @@ cat "$PLIST"`,
     const result = runPaths(
       sandbox,
       `set -euo pipefail
+# PlistBuddy is macOS-only; answer the fixed LaunchAgent queries so the
+# extra-argument refusal itself is what rejects the otherwise matching plist.
+function /usr/libexec/PlistBuddy() {
+  case "\${2:-}" in
+    "Print :Label") printf '%s\\n' "skastr0.vellumcommand" ;;
+    "Print :ProgramArguments:0") printf '%s\\n' "${program}" ;;
+    "Print :ProgramArguments:1") printf '%s\\n' "--foreign" ;;
+    *) exit 1 ;;
+  esac
+}
 source "$1"
 assert_installer_path_capabilities
 PLIST_ID="$(path_identity "$PLIST")"

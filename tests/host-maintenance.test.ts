@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { Context, Effect, Layer } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@shared/release-capabilities", async (importOriginal) => {
   const actual = await importOriginal<
@@ -459,6 +459,19 @@ describe("live maintenance acquisition body", () => {
 });
 
 describe("reconcile injects maintenance for an incumbent update", () => {
+  const hostPlatform = process.platform;
+
+  beforeEach(() => {
+    // A Darwin Remote is only admitted when the Command Center itself runs on
+    // macOS (local .app source). This Linux test sandbox stubs the platform so
+    // the reconcile flow reaches the maintenance authority under test.
+    Object.defineProperty(process, "platform", { value: "darwin" });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, "platform", { value: hostPlatform });
+  });
+
   it("refuses the update typed and leaves the incumbent untouched", async () => {
     let runs = 0;
     const acquire = vi.fn((_input: HostMaintenanceAcquireInput) =>
