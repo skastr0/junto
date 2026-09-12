@@ -14,6 +14,17 @@ if [[ ! -x "$playwright" ]]; then
 fi
 
 cd "$repo_root"
+
+# Spec selection: `--all` runs the full regression suite; explicit spec paths
+# run those specs; no arguments defaults to the startup smoke spec so an
+# unqualified invocation never sweeps every scenario.
+if [[ "${1:-}" == "--all" ]]; then
+  shift
+elif [[ $# -eq 0 ]]; then
+  printf 'vellum-command: no spec paths given — running startup smoke (e2e/scenarios/free-startup.spec.ts). Pass spec paths, or use --all for the full suite.\n' >&2
+  set -- e2e/scenarios/free-startup.spec.ts
+fi
+
 command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
 if [[ "$(uname -s)" == "Linux" ]] && vellum_use_available_desktop; then

@@ -48,7 +48,7 @@ import {
 import { startRendererServer, type RendererServer } from "./renderer-server";
 
 // Scripts always invoke playwright from the repo root (package.json
-// "test:e2e"/"test:e2e:fast"); resolving from cwd avoids ESM __dirname
+// "test:e2e:full"/"test:e2e:fast"); resolving from cwd avoids ESM __dirname
 // ambiguity under the project's "type": "module".
 const REPO_ROOT = process.cwd();
 // Electron 43 resolves and, on a fresh install, downloads its platform binary

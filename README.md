@@ -141,7 +141,10 @@ See [the security doctrine](docs/security-doctrine.md),
 
 ```sh
 bun run verify             # lints, typecheck, tests, ship-profile checks, compile
-bun run test:e2e           # experimental-profile GUI regression suite
+bun run test:e2e           # all-on GUI smoke: startup spec only
+bun run test:e2e:fast <spec>  # targeted GUI spec against an existing build
+bun run test:e2e:audit     # design-audit capture (explicit tool, not routine)
+bun run test:e2e:full      # full GUI regression suite (all specs; not routine)
 ```
 
 E2E uses an existing desktop session on Linux and can fall back to Xvfb in headless

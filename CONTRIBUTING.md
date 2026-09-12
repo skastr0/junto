@@ -27,7 +27,9 @@ Keep changes focused and run:
 bun run verify
 ```
 
-Run relevant GUI checks when behavior changes. Do not include generated captures,
+Run targeted GUI checks when behavior changes (`bun run test:e2e:fast <spec>`;
+`bun run test:e2e:audit` for design review). The full regression
+(`bun run test:e2e:full`) is not routine. Do not include generated captures,
 local state, credentials, private endpoints, or scanner output in the patch.
 
 ## Security and support

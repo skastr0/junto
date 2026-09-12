@@ -40,8 +40,9 @@
     "test:features:all-on": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on vitest run",
     "test:sqlite:electron": "ELECTRON_RUN_AS_NODE=1 electron scripts/electron-sqlite-smoke.mjs",
     "doctor": "react-doctor --no-telemetry src/renderer",
-    "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh",
+    "test:e2e": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",
     "test:e2e:fast": "scripts/run-e2e.sh",
+    "test:e2e:full": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh --all",
     "test:e2e:perf": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/canvas-interaction-perf.spec.ts",
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",
     "test:browser:crash-recovery": "bun scripts/browser-electron-renderer-crash-recovery-probe.ts",
@@ -86,6 +87,7 @@
     "remote:build": "bun scripts/build-vellum-remote.ts",
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "test:e2e:startup": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",
+    "test:e2e:audit": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/design-audit.spec.ts",
     "audit:dependencies": "bun scripts/audit-dependencies.ts"
   },
   "dependencies": {
