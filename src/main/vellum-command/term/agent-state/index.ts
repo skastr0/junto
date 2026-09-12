@@ -24,7 +24,11 @@ export type {
 } from "./types";
 
 export { evaluate, FALLBACK_IDLE, type EvaluateOptions } from "./engine";
-export { composerVerdictFor, composerVerdictForHarness } from "./composer";
+export {
+  admitUngroundedFirstTypedComposer,
+  composerVerdictFor,
+  composerVerdictForHarness,
+} from "./composer";
 export {
   SeatStateMachine,
   SEAT_DEBOUNCE,

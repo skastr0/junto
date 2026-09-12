@@ -43,3 +43,21 @@ export const composerVerdictForHarness = (
   if (!isHarnessId(harness)) return null;
   return composerVerdictFor(snapshot, rulePackFor(harness));
 };
+
+/**
+ * Amp / Muse / Kimi / Hermes / omp have no grounded composer probes, so the
+ * live verdict is always null and the drive refuses (`composer-unreadable`).
+ * Tier B firstTyped is the only doctrine path on those seats — admit a
+ * one-shot empty while the arm is live. Packs that already declare probes
+ * stay fail-closed: null still means unreadable.
+ */
+export const admitUngroundedFirstTypedComposer = (
+  verdict: ComposerVerdict,
+  pack: SeatRulePack | undefined,
+  firstTypedArmed: boolean,
+): ComposerVerdict => {
+  if (verdict !== null) return verdict;
+  if (!firstTypedArmed || pack === undefined) return null;
+  if ((pack.composer?.length ?? 0) > 0) return null;
+  return "empty";
+};

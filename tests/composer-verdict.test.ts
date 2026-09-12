@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  admitUngroundedFirstTypedComposer,
   composerVerdictFor,
   composerVerdictForHarness,
   rulePackFor,
@@ -229,6 +230,24 @@ describe("fail-closed defaults", () => {
 
   it("an empty screen yields null for a probed harness", () => {
     expect(composerVerdictForHarness(snap({ lines: [] }), "claude")).toBe(null);
+  });
+
+  it("ungrounded firstTyped admits a one-shot empty; probed packs stay closed", () => {
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
+    ).toBe("empty");
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
+    ).toBe("empty");
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), false),
+    ).toBe(null);
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("claude"), true),
+    ).toBe(null);
+    expect(
+      admitUngroundedFirstTypedComposer("draft", rulePackFor("amp"), true),
+    ).toBe("draft");
   });
 });
 
