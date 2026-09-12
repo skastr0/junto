@@ -1,8 +1,14 @@
 import { randomBytes } from "node:crypto";
-import { connect as connectTcp, createServer, type Server, type Socket } from "node:net";
 import {
-  BROWSER_EGRESS_HEADER_MAX_BYTES,
-  BROWSER_EGRESS_PRECONNECT_BUFFER_BYTES,
+  createServer as createHttpServer,
+  request as createUpstreamRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type OutgoingHttpHeaders,
+  type ServerResponse,
+} from "node:http";
+import { connect as connectTcp, type Socket } from "node:net";
+import {
   BROWSER_MAX_EGRESS_PENDING_CONNECTS,
   BROWSER_MAX_EGRESS_SOCKETS,
 } from "@shared/browser-limits";
@@ -14,6 +20,7 @@ import {
   createBoundedHostResolver,
   type ApprovedEgressEndpoint,
   type DialApprovedEndpoint,
+  type EgressDialBudget,
   type EgressSocket,
   type ResolveEgressHost,
 } from "./egress-policy";
@@ -65,22 +72,9 @@ const decodeBasic = (header: string | undefined): { username: string; password: 
   }
 };
 
-const headerValue = (headers: Map<string, string>, name: string): string | undefined =>
-  headers.get(name.toLowerCase());
-
-const parseHeaders = (raw: string): Map<string, string> | undefined => {
-  const headers = new Map<string, string>();
-  const lines = raw.split("\r\n");
-  for (const line of lines) {
-    if (line.length === 0) continue;
-    const separator = line.indexOf(":");
-    if (separator < 1) return undefined;
-    const name = line.slice(0, separator).trim().toLowerCase();
-    const value = line.slice(separator + 1).trim();
-    if (name.length === 0) return undefined;
-    headers.set(name, value);
-  }
-  return headers;
+const headerString = (headers: IncomingHttpHeaders, name: string): string | undefined => {
+  const value = headers[name];
+  return typeof value === "string" ? value : undefined;
 };
 
 const parseConnectAuthority = (
@@ -135,6 +129,47 @@ const defaultDial: DialApprovedEndpoint = (endpoint, port, signal) =>
     });
   });
 
+const requestTargetPath = (parsed: URL): string => {
+  const path = `${parsed.pathname}${parsed.search}`;
+  return path === "" ? "/" : path;
+};
+
+/**
+ * Request headers for the origin: hop-by-hop and proxy headers never leave the
+ * proxy, and the Host header is the absolute-form URL authority. When the
+ * client sent a chunked body the parsed stream is decoded, so any stale
+ * content-length framing is dropped and node:http re-frames the body itself.
+ */
+const forwardRequestHeaders = (
+  headers: IncomingHttpHeaders,
+  hostAuthority: string,
+): OutgoingHttpHeaders => {
+  const connectionTokens = new Set(
+    headerString(headers, "connection")
+      ?.split(",")
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean) ?? [],
+  );
+  const chunked = headers["transfer-encoding"] !== undefined;
+  const forwarded: OutgoingHttpHeaders = { Host: hostAuthority };
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === "host" || HOP_BY_HOP.has(lower) || connectionTokens.has(lower)) continue;
+    if (lower === "content-length" && chunked) continue;
+    forwarded[name] = value;
+  }
+  return forwarded;
+};
+
+const forwardResponseHeaders = (headers: IncomingHttpHeaders): OutgoingHttpHeaders => {
+  const forwarded: OutgoingHttpHeaders = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (HOP_BY_HOP.has(name.toLowerCase())) continue;
+    forwarded[name] = value;
+  }
+  return forwarded;
+};
+
 export const startBrowserEgressProxy = (
   options: BrowserEgressProxyOptions,
 ): Promise<BrowserEgressProxyHandle> =>
@@ -147,18 +182,54 @@ export const startBrowserEgressProxy = (
     const resolveHost = createBoundedHostResolver(options.resolveHost);
     const dial = options.dial ?? defaultDial;
     const clients = new Set<Socket>();
-    const upstreams = new Set<Socket>();
+    const upstreams = new Set<EgressSocket>();
+    let inflightDials = 0;
     let pendingConnects = 0;
     let closed = false;
 
-    const authenticate = (headers: Map<string, string>): boolean => {
-      const decoded = decodeBasic(headerValue(headers, "proxy-authorization"));
+    const authenticate = (headers: IncomingHttpHeaders): boolean => {
+      const decoded = decodeBasic(headerString(headers, "proxy-authorization"));
       return (
         decoded !== undefined &&
         decoded.username === credentials.username &&
         decoded.password === credentials.password
       );
     };
+
+    // Outbound socket budget: every dialing or connected upstream socket is
+    // charged from the moment it exists until it closes.
+    const canChargeUpstream = (): boolean =>
+      !closed && upstreams.size + inflightDials < BROWSER_MAX_EGRESS_SOCKETS;
+
+    const trackUpstream = (socket: EgressSocket): void => {
+      if (socket.destroyed) return;
+      upstreams.add(socket);
+      const release = (): void => {
+        upstreams.delete(socket);
+      };
+      if (typeof (socket as Socket).once === "function") {
+        (socket as Socket).once("close", release);
+        (socket as Socket).once("error", () => {
+          if (!socket.destroyed) socket.destroy();
+        });
+      }
+    };
+
+    // Dial wrapper: refuses when the egress budget is exhausted and charges
+    // the attempt from dial start until the returned socket closes.
+    const chargedDial: DialApprovedEndpoint = async (endpoint, port, signal) => {
+      if (!canChargeUpstream()) throw new Error("egress socket budget exhausted");
+      inflightDials += 1;
+      try {
+        const socket = await dial(endpoint, port, signal);
+        trackUpstream(socket);
+        return socket;
+      } finally {
+        inflightDials -= 1;
+      }
+    };
+
+    const denyDialBudget: EgressDialBudget = () => canChargeUpstream();
 
     const challenge = (client: Socket): void => {
       writeHead(client, 407, [
@@ -178,8 +249,7 @@ export const startBrowserEgressProxy = (
     };
 
     const pipe = (client: Socket, upstream: Socket): void => {
-      upstreams.add(upstream);
-      ignoreReset(client);
+      trackUpstream(upstream);
       ignoreReset(upstream);
       const drop = (): void => {
         upstreams.delete(upstream);
@@ -192,9 +262,15 @@ export const startBrowserEgressProxy = (
       upstream.pipe(client);
     };
 
+    // Test-only exact-origin grant path (127.0.0.1:<ephemeral> fixtures).
     const connectGranted = (host: string, port: number): Promise<Socket> =>
       new Promise((resolveConnect, rejectConnect) => {
+        if (!canChargeUpstream()) {
+          rejectConnect(new Error("egress socket budget exhausted"));
+          return;
+        }
         const socket = connectTcp({ host, port, family: 4 });
+        trackUpstream(socket);
         socket.once("error", rejectConnect);
         socket.once("connect", () => resolveConnect(socket));
       });
@@ -209,21 +285,33 @@ export const startBrowserEgressProxy = (
           ? [decision.endpoint]
           : ((await resolveHost(decision.hostname)) ?? []);
       if (endpoints.length === 0) throw new Error("dns");
-      return (await connectApprovedEndpoints(endpoints, decision.port, dial, signal)) as Socket;
+      return (await connectApprovedEndpoints(
+        endpoints,
+        decision.port,
+        chargedDial,
+        signal,
+        denyDialBudget,
+      )) as Socket;
     };
 
-    const handleConnect = async (
+    // Admission gate for a logical destination connect, shared by CONNECT and
+    // plain HTTP so both paths are bounded before DNS or dialing begins.
+    const admitDestination = (): boolean =>
+      !closed &&
+      pendingConnects < BROWSER_MAX_EGRESS_PENDING_CONNECTS &&
+      upstreams.size + inflightDials < BROWSER_MAX_EGRESS_SOCKETS;
+
+    const handleTunnel = async (
       client: Socket,
-      target: string,
-      headers: Map<string, string>,
-      rest: Buffer,
+      request: IncomingMessage,
+      head: Buffer,
     ): Promise<void> => {
-      const authority = parseConnectAuthority(target);
+      const authority = parseConnectAuthority(request.url ?? "");
       if (authority === undefined) {
         deny(client);
         return;
       }
-      if (headerValue(headers, "proxy-connection") === "upgrade") {
+      if (headerString(request.headers, "proxy-connection")?.toLowerCase() === "upgrade") {
         deny(client);
         return;
       }
@@ -232,11 +320,7 @@ export const startBrowserEgressProxy = (
         deny(client);
         return;
       }
-      if (clients.size + pendingConnects > BROWSER_MAX_EGRESS_SOCKETS) {
-        deny(client);
-        return;
-      }
-      if (pendingConnects >= BROWSER_MAX_EGRESS_PENDING_CONNECTS) {
+      if (!admitDestination()) {
         deny(client);
         return;
       }
@@ -250,7 +334,7 @@ export const startBrowserEgressProxy = (
           return;
         }
         writeHead(client, 200);
-        if (rest.byteLength > 0) upstream.write(rest);
+        if (head.byteLength > 0) upstream.write(head);
         pipe(client, upstream);
       } catch {
         if (!client.destroyed) deny(client);
@@ -259,71 +343,150 @@ export const startBrowserEgressProxy = (
       }
     };
 
-    const handleHttp = async (
-      client: Socket,
-      method: string,
-      target: string,
-      version: string,
-      headers: Map<string, string>,
-      rest: Buffer,
+    const respondUnavailable = (
+      res: ServerResponse,
+      status: number,
+      proxyAuthenticate?: string,
+    ): void => {
+      if (res.destroyed || res.writableEnded) return;
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      const headers: OutgoingHttpHeaders = { Connection: "close" };
+      if (proxyAuthenticate !== undefined) headers["Proxy-Authenticate"] = proxyAuthenticate;
+      res.writeHead(status, headers);
+      res.end();
+    };
+
+    const forwardRequest = (
+      request: IncomingMessage,
+      res: ServerResponse,
+      parsed: URL,
+      port: number,
+      upstream: Socket,
+    ): void => {
+      const upstreamRequest = createUpstreamRequest({
+        host: parsed.hostname,
+        port,
+        method: request.method,
+        path: requestTargetPath(parsed),
+        headers: forwardRequestHeaders(request.headers, parsed.host),
+        createConnection: (_options, callback) => {
+          callback(null, upstream);
+          return upstream;
+        },
+      });
+      upstreamRequest.on("socket", (socket) => {
+        socket.setNoDelay(true);
+      });
+      request.on("error", () => {
+        upstreamRequest.destroy();
+        if (!res.writableEnded) res.destroy();
+      });
+      res.on("error", () => {
+        upstreamRequest.destroy();
+      });
+      upstreamRequest.on("error", () => {
+        if (res.writableEnded || res.destroyed) return;
+        if (res.headersSent) {
+          res.destroy();
+          return;
+        }
+        respondUnavailable(res, 502);
+      });
+      upstreamRequest.on("response", (upstreamResponse) => {
+        upstreamResponse.on("error", () => {
+          upstreamRequest.destroy();
+          if (!res.writableEnded) res.destroy();
+        });
+        if (res.destroyed || res.writableEnded) {
+          upstreamResponse.destroy();
+          return;
+        }
+        res.writeHead(
+          upstreamResponse.statusCode ?? 502,
+          forwardResponseHeaders(upstreamResponse.headers),
+        );
+        res.on("finish", () => {
+          if (!upstream.destroyed) upstream.destroy();
+        });
+        upstreamResponse.pipe(res);
+      });
+      // The parsed request body streams (and re-frames) only after the
+      // upstream dial completed; nothing is consumed from the socket before
+      // that, so bytes that arrive during DNS/connect are buffered, not lost.
+      request.pipe(upstreamRequest);
+    };
+
+    const handleProxyRequest = async (
+      request: IncomingMessage,
+      res: ServerResponse,
     ): Promise<void> => {
-      if (method === "CONNECT-UDP") {
-        deny(client);
+      const method = (request.method ?? "").toUpperCase();
+      // Tunnelling and MASQUE methods must never take the plain-HTTP
+      // forwarding path; CONNECT is handled by the dedicated listener.
+      if (method === "CONNECT" || method === "CONNECT-UDP") {
+        respondUnavailable(res, 403);
+        return;
+      }
+      if (!authenticate(request.headers)) {
+        respondUnavailable(res, 407, `Basic realm="${credentials.realm}"`);
         return;
       }
       let parsed: URL;
       try {
-        parsed = new URL(target);
+        parsed = new URL(request.url ?? "");
       } catch {
-        deny(client);
+        respondUnavailable(res, 403);
         return;
       }
       if (parsed.protocol !== "http:") {
-        deny(client);
+        respondUnavailable(res, 403);
         return;
       }
-      const hostHeader = headerValue(headers, "host");
+      const hostHeader = request.headers.host;
       if (hostHeader !== undefined) {
-        const expected = parsed.host;
-        if (hostHeader.toLowerCase() !== expected.toLowerCase()) {
-          deny(client);
+        if (typeof hostHeader !== "string" || hostHeader.trim().toLowerCase() !== parsed.host.toLowerCase()) {
+          respondUnavailable(res, 403);
           return;
         }
       }
       const decision = classifyEgressHttpUrl(parsed.href, options.grant);
       if (decision.kind === "deny") {
-        deny(client);
+        respondUnavailable(res, 403);
+        return;
+      }
+      if (!admitDestination()) {
+        respondUnavailable(res, 403);
         return;
       }
       pendingConnects += 1;
       const controller = new AbortController();
-      client.once("close", () => controller.abort());
+      res.once("close", () => controller.abort());
       try {
         const upstream = await connectDestination(decision, controller.signal);
-        if (client.destroyed || closed) {
+        if (closed || request.destroyed || res.destroyed) {
           upstream.destroy();
           return;
         }
-        const path = `${parsed.pathname}${parsed.search}`;
-        const forwarded: string[] = [`${method} ${path === "" ? "/" : path} ${version}`];
-        forwarded.push(`Host: ${parsed.host}`);
-        for (const [name, value] of headers) {
-          if (HOP_BY_HOP.has(name) || name === "host") continue;
-          forwarded.push(`${name}: ${value}`);
-        }
-        forwarded.push("");
-        upstream.write(`${forwarded.join("\r\n")}\r\n`);
-        if (rest.byteLength > 0) upstream.write(rest);
-        pipe(client, upstream);
+        forwardRequest(request, res, parsed, decision.port, upstream);
       } catch {
-        if (!client.destroyed) deny(client);
+        respondUnavailable(res, 403);
       } finally {
         pendingConnects -= 1;
       }
     };
 
-    const onClient = (client: Socket): void => {
-      client.on("error", () => client.destroy());
+    const server = createHttpServer((request, res) => {
+      void handleProxyRequest(request, res).catch(() => {
+        if (res.writableEnded || res.destroyed) return;
+        if (res.headersSent) res.destroy();
+        else respondUnavailable(res, 403);
+      });
+    });
+    server.on("connection", (client: Socket) => {
+      ignoreReset(client);
       if (closed) {
         client.destroy();
         return;
@@ -334,53 +497,19 @@ export const startBrowserEgressProxy = (
       }
       clients.add(client);
       client.once("close", () => clients.delete(client));
-      client.once("error", () => client.destroy());
-
-      let buffer = Buffer.alloc(0);
-      const onData = (chunk: Buffer): void => {
-        buffer = Buffer.concat([buffer, chunk]);
-        if (buffer.byteLength > BROWSER_EGRESS_HEADER_MAX_BYTES + BROWSER_EGRESS_PRECONNECT_BUFFER_BYTES) {
-          client.destroy();
-          return;
-        }
-        const separator = buffer.indexOf("\r\n\r\n");
-        if (separator < 0) {
-          if (buffer.byteLength > BROWSER_EGRESS_HEADER_MAX_BYTES) client.destroy();
-          return;
-        }
-        const head = buffer.subarray(0, separator).toString("latin1");
-        const rest = buffer.subarray(separator + 4);
-        if (rest.byteLength > BROWSER_EGRESS_PRECONNECT_BUFFER_BYTES) {
-          client.destroy();
-          return;
-        }
-        client.off("data", onData);
-        const [requestLine, ...headerLines] = head.split("\r\n");
-        const parts = requestLine?.split(" ") ?? [];
-        if (parts.length < 3) {
-          deny(client);
-          return;
-        }
-        const [method = "", target = "", version = ""] = parts;
-        const headers = parseHeaders(headerLines.join("\r\n"));
-        if (headers === undefined) {
-          deny(client);
-          return;
-        }
-        if (!authenticate(headers)) {
-          challenge(client);
-          return;
-        }
-        if (method.toUpperCase() === "CONNECT") {
-          void handleConnect(client, target, headers, rest);
-          return;
-        }
-        void handleHttp(client, method, target, version, headers, rest);
-      };
-      client.on("data", onData);
-    };
-
-    const server: Server = createServer({ allowHalfOpen: false }, onClient);
+    });
+    server.on("connect", (request, clientSocket, head) => {
+      const client = clientSocket as Socket;
+      if (!authenticate(request.headers)) {
+        challenge(client);
+        return;
+      }
+      void handleTunnel(client, request, head);
+    });
+    server.on("upgrade", (request, clientSocket) => {
+      // Upgrades bypass per-request proxy authentication; fail closed.
+      deny(clientSocket as Socket);
+    });
     server.once("error", reject);
     server.listen({ host: "127.0.0.1", port: 0, exclusive: true }, () => {
       const address = server.address();

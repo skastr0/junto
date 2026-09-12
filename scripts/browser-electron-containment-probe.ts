@@ -481,13 +481,24 @@ const assertTrustedDirectManagedProxy = (audit: ProbeAudit): void => {
       `trusted default session must stay DIRECT (${audit.defaultProxyResolution})`,
     );
   }
-  if (
-    audit.profileProxyResolution === "DIRECT" ||
-    audit.profileProxyResolution.length === 0 ||
-    !/PROXY 127\.0\.0\.1:\d+/u.test(audit.profileProxyResolution)
-  ) {
+  // The managed partition must resolve to exactly the owned loopback CONNECT
+  // proxy: every entry a PROXY 127.0.0.1 hop on a non-privileged port, and no
+  // DIRECT alternative. A bare `PROXY 127.0.0.1:\d+` would also accept the
+  // inherited `--proxy-server=http://127.0.0.1:9` restamp (port 9), and
+  // `PROXY ...;DIRECT` would let the partition bypass the owned proxy.
+  const entries = audit.profileProxyResolution
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const ownedProxyEntries = entries.filter((entry) => {
+    const match = /^PROXY 127\.0\.0\.1:(\d+)$/u.exec(entry);
+    if (match === null) return false;
+    const port = Number(match[1]);
+    return Number.isInteger(port) && port >= 1024 && port <= 65535;
+  });
+  if (ownedProxyEntries.length !== entries.length || entries.length === 0) {
     throw new Error(
-      `managed browser partition must use the owned loopback proxy (${audit.profileProxyResolution})`,
+      `managed browser partition must resolve only to the owned loopback proxy on a non-privileged port, with no DIRECT alternative (${audit.profileProxyResolution})`,
     );
   }
 };
@@ -568,7 +579,12 @@ const launchDedicatedElectron = (
     command: electronPath,
     args: [
       electronArguments[0]!,
-      "--proxy-server=http://127.0.0.1:9",
+      // No process-wide --proxy-server here: an inherited switch restamps
+      // every Session's proxy config on NetworkContext creation and would
+      // fight the managed partition's owned proxy. The contract is instead:
+      // defaultSession resolves DIRECT and the managed partition resolves
+      // exactly its owned endpoint (assertTrustedDirectManagedProxy), with
+      // the fixture stripping any launcher-inherited proxy switches early.
       ...electronArguments.slice(1),
     ],
     cwd: repoRoot,

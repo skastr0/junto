@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { BROWSER_MAX_PENDING_DNS_HOSTS } from "../src/shared/browser-limits";
+import {
+  BROWSER_MAX_EGRESS_HAPPY_EYEBALLS_INFLIGHT,
+  BROWSER_MAX_PENDING_DNS_HOSTS,
+} from "../src/shared/browser-limits";
 import { makeBrowserTestOnlyExactOriginGrant } from "../src/main/vellum-command/browser/web-policy";
 import {
   approveResolvedEndpoints,
@@ -127,5 +130,84 @@ describe("browser egress destination policy", () => {
         destroy: () => undefined,
       })),
     ).rejects.toThrow(/peer address mismatch/);
+  });
+
+  it("bounds concurrent happy-eyeballs dials instead of fanning out every answer", async () => {
+    const endpoints: ApprovedEgressEndpoint[] = [
+      { address: "2606:4700:4700::1111", family: "ipv6" },
+      { address: "2606:4700:4700::2222", family: "ipv6" },
+      { address: "93.184.216.34", family: "ipv4" },
+      { address: "1.2.3.4", family: "ipv4" },
+      { address: "5.6.7.8", family: "ipv4" },
+      { address: "9.10.11.12", family: "ipv4" },
+    ];
+    let liveDials = 0;
+    let peakDials = 0;
+    let dialCalls = 0;
+    await expect(
+      connectApprovedEndpoints(endpoints, 80, async () => {
+        dialCalls += 1;
+        liveDials += 1;
+        peakDials = Math.max(peakDials, liveDials);
+        try {
+          // Slow enough that the Happy Eyeballs stagger opens the next
+          // attempt while this one is still in flight.
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          throw new Error("dial refused");
+        } finally {
+          liveDials -= 1;
+        }
+      }),
+    ).rejects.toThrow(/dial refused/);
+    expect(dialCalls).toBe(endpoints.length);
+    expect(peakDials).toBe(BROWSER_MAX_EGRESS_HAPPY_EYEBALLS_INFLIGHT);
+  });
+
+  it("refuses to dial when the socket budget withholds permission", async () => {
+    const endpoints: ApprovedEgressEndpoint[] = [
+      { address: "93.184.216.34", family: "ipv4" },
+      { address: "1.2.3.4", family: "ipv4" },
+    ];
+    let dialCalls = 0;
+    await expect(
+      connectApprovedEndpoints(
+        endpoints,
+        80,
+        async () => {
+          dialCalls += 1;
+          return { remoteAddress: "93.184.216.34", destroyed: false, destroy: () => undefined };
+        },
+        undefined,
+        () => false,
+      ),
+    ).rejects.toThrow(/budget/);
+    expect(dialCalls).toBe(0);
+  });
+
+  it("keeps an already-won socket when the budget refuses further dials", async () => {
+    const endpoints: ApprovedEgressEndpoint[] = [
+      { address: "93.184.216.34", family: "ipv4" },
+      { address: "1.2.3.4", family: "ipv4" },
+      { address: "5.6.7.8", family: "ipv4" },
+    ];
+    const winner: EgressSocket = {
+      remoteAddress: "93.184.216.34",
+      destroyed: false,
+      destroy: () => undefined,
+    };
+    let dialCalls = 0;
+    let permits = 1;
+    const connected = await connectApprovedEndpoints(
+      endpoints,
+      80,
+      async () => {
+        dialCalls += 1;
+        return winner;
+      },
+      undefined,
+      () => permits-- > 0,
+    );
+    expect(connected).toBe(winner);
+    expect(dialCalls).toBe(1);
   });
 });

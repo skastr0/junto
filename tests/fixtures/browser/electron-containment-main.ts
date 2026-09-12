@@ -53,6 +53,20 @@ import { partitionNameForProfile } from "../../../src/shared/browser";
 import { decodeCanvasDoc } from "../../../src/shared/canvas";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
+// Chromium re-applies proxy command-line switches over Session proxy
+// preferences on every NetworkContext creation, so an inherited
+// --no-proxy-server / --proxy-server would restamp the managed partition
+// (DIRECT, or an uncontrolled proxy) right after
+// ensureManagedBrowserPartitionNetwork pins the owned CONNECT proxy. Strip
+// the inherited switches before any Session can exist, exactly like
+// src/main/index.ts does. Never re-add no-proxy-server instead: the
+// whenReady setup below pins defaultSession DIRECT through setProxy.
+app.commandLine.removeSwitch("no-proxy-server");
+app.commandLine.removeSwitch("proxy-server");
+app.commandLine.removeSwitch("proxy-bypass-list");
+app.commandLine.removeSwitch("proxy-pac-url");
+app.commandLine.removeSwitch("proxy-auto-detect");
+
 const requiredArgument = (name: string): string => {
   const prefix = `--${name}=`;
   const values = process.argv

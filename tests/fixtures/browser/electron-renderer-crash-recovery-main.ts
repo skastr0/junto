@@ -16,6 +16,18 @@ import type { ResolvedPageTarget } from "../../../src/main/vellum-command/browse
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
+// Chromium re-applies proxy command-line switches over Session proxy
+// preferences on every NetworkContext creation, so an inherited
+// --no-proxy-server / --proxy-server would restamp a managed browser
+// partition (DIRECT, or an uncontrolled proxy) after its owned CONNECT proxy
+// is pinned. Strip the inherited switches before any Session can exist,
+// exactly like src/main/index.ts does. Never re-add no-proxy-server instead.
+app.commandLine.removeSwitch("no-proxy-server");
+app.commandLine.removeSwitch("proxy-server");
+app.commandLine.removeSwitch("proxy-bypass-list");
+app.commandLine.removeSwitch("proxy-pac-url");
+app.commandLine.removeSwitch("proxy-auto-detect");
+
 const requiredArgument = (name: string): string => {
   const prefix = `--${name}=`;
   const values = process.argv
