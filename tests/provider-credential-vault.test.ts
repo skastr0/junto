@@ -39,6 +39,7 @@ describe("provider credential vault", () => {
     );
     expect(patched.providers?.openrouter?.apiKey).toBe(MASKED_SECRET);
     expect(await run(service.resolveProviders)).toEqual({
+      enabledSources: [],
       openrouter: { apiKey: SECRET },
     });
 
@@ -69,7 +70,9 @@ describe("provider credential vault", () => {
       service.patch({ providers: { openrouter: { apiKey: "" } } }),
     );
     expect(cleared.providers?.openrouter).toBeUndefined();
-    expect(await run(service.resolveProviders)).toEqual({});
+    expect(await run(service.resolveProviders)).toEqual({
+      enabledSources: [],
+    });
 
     await runtime.dispose();
   });
@@ -142,6 +145,7 @@ describe("provider credential vault", () => {
     );
     expect(liveBody.includes(SECRET)).toBe(true);
     expect(await run(service.resolveProviders)).toEqual({
+      enabledSources: [],
       openrouter: { apiKey: SECRET },
     });
     const refused = await run(

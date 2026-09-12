@@ -304,6 +304,7 @@ describe("providers settings service persistence", () => {
       );
       expect(patched.providers?.openrouter?.apiKey).toBe(MASKED_SECRET);
       expect(await run(harness.service.resolveProviders)).toEqual({
+        enabledSources: [],
         openrouter: { apiKey: SECRET },
       });
 
@@ -322,7 +323,9 @@ describe("providers settings service persistence", () => {
         harness.service.patch({ providers: { openrouter: { apiKey: "" } } }),
       );
       expect(cleared.providers?.openrouter).toBeUndefined();
-      expect(await run(harness.service.resolveProviders)).toEqual({});
+      expect(await run(harness.service.resolveProviders)).toEqual({
+        enabledSources: [],
+      });
       await harness.close();
     } finally {
       if (active) {

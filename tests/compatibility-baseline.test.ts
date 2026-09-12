@@ -9,6 +9,6 @@ describe("compatibility baseline authority", () => {
       compatibleFrom: 1,
       warnBelow: 1,
     });
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(21);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
   });
 });

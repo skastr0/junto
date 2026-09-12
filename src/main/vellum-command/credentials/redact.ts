@@ -1,6 +1,7 @@
 import {
   PROVIDER_SECTION_KEYS,
   PROVIDER_SECRET_FIELDS,
+  type ProviderSectionKey,
   type ProvidersSettings,
 } from "@shared/settings";
 import { historicalProviderSecrets } from "./slots";
@@ -87,16 +88,24 @@ export const retainUnmigratedProviderSecrets = (
 ): ProvidersSettings => {
   const leftovers = historicalProviderSecrets(stored);
   if (leftovers.length === 0) return next;
-  const merged: Record<string, Record<string, string>> = {};
-  for (const [provider, section] of Object.entries(next)) {
-    merged[provider] = { ...(section as Record<string, string>) };
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    // Only provider sections merge field-by-field. Non-section keys
+    // (enabledSources, hermesHostSnapshots) pass through verbatim: spreading
+    // the enabledSources array into a plain object wrote an invalid row that
+    // failed closed on the next decode.
+    if (!PROVIDER_SECTION_KEYS.includes(key as ProviderSectionKey)) {
+      merged[key] = value;
+      continue;
+    }
+    merged[key] = { ...(value as Record<string, string>) };
   }
   for (const leftover of leftovers) {
     if (migratedSlots.has(leftover.slot)) continue;
     const slash = leftover.slot.indexOf("/");
     const provider = leftover.slot.slice(0, slash);
     const field = leftover.slot.slice(slash + 1);
-    const section = merged[provider] ?? {};
+    const section = (merged[provider] as Record<string, string>) ?? {};
     section[field] = leftover.value;
     merged[provider] = section;
   }
