@@ -30,6 +30,7 @@ import {
   CR,
   INTERRUPT_BYTE,
   ManagedTerminalDrive,
+  promptHasPasteChip,
   promptStillPending,
   type ManagedTerminalDriveOptions,
 } from "../../src/main/vellum-command/term/drive";
@@ -38,7 +39,7 @@ import { SessionObserver } from "../../src/main/vellum-command/term/observer";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
 import type { DriveAttentionReason } from "../../src/main/vellum-command/term/drive";
 
-export type TuiHarness = "claude" | "codex" | "hermes";
+export type TuiHarness = "claude" | "codex" | "hermes" | "grok";
 
 export type TimerHandle = { cancel(): void };
 
@@ -130,6 +131,8 @@ export class ScriptedTui {
   /** CRs received while the current chip is visible (chip needs 2nd CR). */
   private chipCrCount = 0;
   private chipCounter = 0;
+  /** Grok history footer after a multiline paste (`[Pasted:Nlines]`). */
+  private grokPasteFooter: string | null = null;
   private exitArmedAt: number | null = null;
   private title = "✳ Claude Code";
   private osc9 = "4;0;";
@@ -157,6 +160,7 @@ export class ScriptedTui {
     this.rows = options.rows ?? 24;
     if (this.harness === "codex") this.title = "Codex";
     if (this.harness === "hermes") this.title = "✓ gpt-5.4-mini \u00b7 proj";
+    if (this.harness === "grok") this.title = "vellum - grok";
   }
 
   /** Internal truth: is an unsubmitted chip currently held? */
@@ -201,8 +205,12 @@ export class ScriptedTui {
     this.send(
       `\x1b[?2004h` +
         this.repaintBytes(
-          this.harness === "codex" ? "Codex" : "✳ Claude Code",
-          "4;0;",
+          this.harness === "codex"
+            ? "Codex"
+            : this.harness === "grok"
+              ? "vellum - grok"
+              : "✳ Claude Code",
+          this.harness === "grok" ? "4;0;0" : "4;0;",
           this.idleScreen(["❯ "]),
         ),
     );
@@ -358,10 +366,14 @@ export class ScriptedTui {
       this.repaintIdle();
       return;
     }
-    if (this.harness === "codex") {
-      // C2: paste renders into the composer; separate CR submits.
+    if (this.harness === "codex" || this.harness === "grok") {
+      // C2 / G2: paste renders into the composer; separate CR submits.
+      // Grok also paints a history footer `[Pasted:Nlines]` — not composer chip.
       this.composer = lines;
       this.chip = null;
+      if (this.harness === "grok" && lines.length > 1) {
+        this.grokPasteFooter = `[Pasted:${lines.length}lines]`;
+      }
       this.repaintIdle();
       return;
     }
@@ -392,7 +404,7 @@ export class ScriptedTui {
       this.submit();
       return;
     }
-    if (this.harness === "codex") {
+    if (this.harness === "codex" || this.harness === "grok") {
       if (this.composer.length === 0) return;
       this.submit();
       return;
@@ -442,10 +454,17 @@ export class ScriptedTui {
         this.title =
           this.harness === "hermes"
             ? "⏳ gpt-5.4-mini \u00b7 proj"
-            : frame % 2 === 1
-              ? "⠂ Claude Code"
-              : "⠐ Claude Code";
-        this.osc9 = this.harness === "hermes" ? "" : "4;3;";
+            : this.harness === "grok"
+              ? "thinking"
+              : frame % 2 === 1
+                ? "⠂ Claude Code"
+                : "⠐ Claude Code";
+        this.osc9 =
+          this.harness === "hermes"
+            ? ""
+            : this.harness === "grok"
+              ? "4;1;-1"
+              : "4;3;";
         this.send(this.repaintBytes(this.title, this.osc9, this.workingScreen()));
         if (frame < this.workingFrames) {
           this.deliverWorkingFrame(frame + 1, 1_000);
@@ -499,8 +518,13 @@ export class ScriptedTui {
       : this.composer.length > 0
         ? this.composer.map((line, i) => (i === 0 ? `❯ ${line}` : `  ${line}`))
         : ["❯ "];
-    this.title = this.harness === "codex" ? "Codex" : "✳ Claude Code";
-    this.osc9 = "4;0;";
+    this.title =
+      this.harness === "codex"
+        ? "Codex"
+        : this.harness === "grok"
+          ? "vellum - grok"
+          : "✳ Claude Code";
+    this.osc9 = this.harness === "grok" ? "4;0;0" : "4;0;";
     this.repaintWithComposer(composer);
   }
 
@@ -514,6 +538,18 @@ private idleScreen(composer: readonly string[]): string[] {
         ...composer,
         RULE,
         "ready │ gpt 5.4 mini │ 1s │ voice off │ 1 session",
+      ];
+    }
+    if (this.harness === "grok") {
+      // Live Grok: history footer `[Pasted:Nlines]` sits under the box.
+      // That is not `[Pasted text` composer chrome.
+      return [
+        ...HISTORY.slice(0, 14),
+        RULE,
+        ...composer,
+        RULE,
+        ...(this.grokPasteFooter !== null ? [this.grokPasteFooter] : []),
+        "ctrl+.:shortcuts",
       ];
     }
     return [...HISTORY.slice(0, 20), RULE, ...composer, RULE, FOOTER];
@@ -580,6 +616,12 @@ export type DriveLoopOptions = {
     ManagedTerminalDriveOptions,
     "write" | "isSeatIdle" | "onAttention" | "now"
   >;
+  /**
+   * model (default): pendingText uses TUI chip/phase truth.
+   * snapshot: pendingText + pasteChip are observer-grid only — the
+   * production ipc.ts shape. Needed to prove Codex/Grok false chip-CR.
+   */
+  readonly pendingEvidence?: "model" | "snapshot";
   readonly cols?: number;
   readonly rows?: number;
 };
@@ -662,10 +704,13 @@ export class DriveLoop {
       pendingText: (bindingId) => {
         const text = this.lastPromptText.get(bindingId);
         if (text === undefined) return false;
-        // The model's internal composer truth: a held chip IS our "[Pasted"
-        // text, even when a false-working repaint hides it from the observer
-        // grid (R1 receipt: empty composer + braille title) — the same truth
-        // production sees as the chip literal on the real screen.
+        const snap = this.observer.snapshotNow();
+        if (options.pendingEvidence === "snapshot") {
+          return promptStillPending(snap, text);
+        }
+        // The model's internal composer truth: a held chip IS our "[Pasted
+        // text" chip, even when a false-working repaint hides it from the
+        // observer grid (R1 receipt: empty composer + braille title).
         if (this.tui.chipPending()) return true;
         // A non-idle phase means the model already consumed the composer: a
         // chip still on the stale grid is a repaint delay (D3 ackDelay), not
@@ -673,7 +718,13 @@ export class DriveLoop {
         if (this.tui.getPhase() !== "idle") return false;
         // Harnesses that render the payload inline (codex) have no chip:
         // scan the observer grid's prompt region for our text.
-        return promptStillPending(this.observer.snapshotNow(), text);
+        return promptStillPending(snap, text);
+      },
+      pasteChip: (bindingId) => {
+        if (options.pendingEvidence === "snapshot") {
+          return promptHasPasteChip(this.observer.snapshotNow());
+        }
+        return this.tui.chipPending();
       },
       now: this.now,
       stallTimeoutMs: options.stallTimeoutMs,

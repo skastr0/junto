@@ -35,6 +35,13 @@
  *   DRV-4  D20  mid-sequence write failure leaks the paste chip (no clear).
  *   DRV-6  E2   hermes chip never collapses on a 2nd CR (real capture); hermes
  *                is fallback-idle today → drive never pastes (documentation).
+ *   DRV-7       Grok `[Pasted:Nlines]` footer is not composer chip chrome
+ *                (no recipe CR2). Codex payload-head leftover is the same
+ *                class — D8 is the drive proof.
+ *   DRV-8       Amp/Muse have no composer probes; firstTyped admits empty;
+ *                mail (firstTypedArmed false) stays null.
+ *   DRV-9       Grok history footer is not a chip-submit CR — drive proof is
+ *                D9 in drive-law.test.ts (not duplicated).
  *   POL-2  D26  false working→idle flips count as turns → fake escalation.
  *   POL-3  D26  scanMarker is chip-blind: `[Pasted text #N]` ≠ marker →
  *                "consumed" while our text sits unsubmitted in the box.
@@ -46,6 +53,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
 import { SeatStateRuntime } from "../../../src/main/vellum-command/term/agent-state/runtime";
+import {
+  admitUngroundedFirstTypedComposer,
+  composerVerdictFor,
+  rulePackFor,
+} from "../../../src/main/vellum-command/term/agent-state";
 import {
   SeatStateMachine,
   SEAT_DEBOUNCE,
@@ -72,6 +84,10 @@ import {
   BRACKETED_PASTE_START,
   CR,
   INTERRUPT_BYTE,
+  ManagedTerminalDrive,
+  encodeBracketedPaste,
+  promptHasPasteChip,
+  promptStillPending,
 } from "../../../src/main/vellum-command/term/drive";
 import {
   assertChunkEquality,
@@ -534,7 +550,7 @@ describe("GAP-DRV-6: hermes chips never collapse on a 2nd CR (real E2 receipts)"
     expect(loop.runtime.getState(BINDING)).toBe("idle");
     expect(loop.runtime.isSeatIdle(BINDING)).toBe(false);
 
-    const p = loop.drive.writePrompt(BINDING, "one\ntwo\nthree");
+    const p = loop.drive.writePrompt(BINDING, "one line");
     await advance(900);
     await flush();
     await expect(p).resolves.toBe(false);
@@ -546,7 +562,156 @@ describe("GAP-DRV-6: hermes chips never collapse on a 2nd CR (real E2 receipts)"
     expect(loop.attention.map((a) => a.reason)).toEqual(["queue-timeout"]);
     loop.dispose();
   });
+
+  it("GAP-DRV-6c: hermes multiline is refused at the write boundary — zero writes, attention", async () => {
+    const { loop, flush } = setup({
+      harness: "hermes",
+      drive: {
+        queueTimeoutMs: 800,
+        harnessFor: () => "hermes",
+      },
+    });
+    await flush();
+    const p = loop.drive.writePrompt(BINDING, "one\ntwo\nthree");
+    await flush();
+    await expect(p).resolves.toBe(false);
+    expect(loop.writes).toEqual([]);
+    expect(loop.tui.chipPending()).toBe(false);
+    expect(loop.attention.map((a) => a.reason)).toEqual(["multiline-refused"]);
+    loop.dispose();
+  });
 });
+
+// ---------------------------------------------------------------------------
+// DRV-7 — Grok `[Pasted:Nlines]` footer is not a composer chip
+// ---------------------------------------------------------------------------
+
+describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", () => {
+  it("GAP-DRV-7a: observer bytes with [Pasted:40lines] → promptHasPasteChip false, no recipe CR2", async () => {
+    // Grok-shaped idle: history, then the history-footer chip Grok paints
+    // after a multiline paste (`[Pasted:40lines]`), then the › composer.
+    // Real SessionObserver — same read side as production pasteChip.
+    const obs = new SessionObserver({
+      bindingId: BINDING,
+      epoch: "e1",
+      cols: 80,
+      rows: 16,
+    });
+    try {
+      let seq = 0n;
+      const feed = async (data: string) => {
+        seq += 1n;
+        obs.feed(data, seq);
+        await obs.snapshot();
+      };
+      await feed(
+        "\x1b[?2004h\x1b]0;grok\x07\x1b[H\x1b[2J" +
+          "old turn\r\n" +
+          "› \r\n" +
+          "[Pasted:40lines]\r\n",
+      );
+      const snap = await obs.snapshot();
+      expect(snap.lines.some((l) => l.includes("[Pasted:40lines]"))).toBe(true);
+      expect(snap.lines.some((l) => l.includes("[Pasted text"))).toBe(false);
+      expect(promptHasPasteChip(snap)).toBe(false);
+      expect(promptStillPending(snap, "one\ntwo")).toBe(false);
+
+      const writes: string[] = [];
+      const drive = new ManagedTerminalDrive({
+        write: (_id, data) => {
+          writes.push(data);
+          return true;
+        },
+        isSeatIdle: () => true,
+        stallWatch: false,
+        pasteToCrSettleMs: 0,
+        pendingText: () => promptStillPending(obs.snapshotNow(), "one\ntwo"),
+        pasteChip: () => promptHasPasteChip(obs.snapshotNow()),
+      });
+      await expect(drive.writePrompt(BINDING, "one\ntwo")).resolves.toBe(true);
+      expect(writes).toEqual([encodeBracketedPaste("one\ntwo"), CR]);
+      drive.resetForTest();
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  it("GAP-DRV-7b: Codex payload-head leftover is not a chip (D8 is the drive proof)", async () => {
+    // No-rules Codex composer still showing the payload after CR1. That is
+    // pendingText, not [Pasted text chrome — the drive must not queue CR2.
+    // D8 (drive-law.test.ts) is the full-loop proof; this is the predicate.
+    const obs = new SessionObserver({
+      bindingId: BINDING,
+      epoch: "e1",
+      cols: 80,
+      rows: 16,
+    });
+    try {
+      let seq = 0n;
+      const feed = async (data: string) => {
+        seq += 1n;
+        obs.feed(data, seq);
+        await obs.snapshot();
+      };
+      // No-rules prompt region is the last non-empty line. Leave the payload
+      // head there — pendingText, not [Pasted text chrome.
+      await feed("\x1b[?2004h\x1b]0;Codex\x07\x1b[H\x1b[2Jsession\r\n› one\r\n");
+      const snap = await obs.snapshot();
+      expect(snap.lines.some((l) => l.includes("one"))).toBe(true);
+      expect(promptHasPasteChip(snap)).toBe(false);
+      expect(promptStillPending(snap, "one\ntwo")).toBe(true);
+    } finally {
+      obs.dispose();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DRV-8 — Amp/Muse ungrounded composer: firstTyped empty, mail stays null
+// ---------------------------------------------------------------------------
+
+describe("GAP-DRV-8: Amp/Muse ungrounded composer admits firstTyped only", () => {
+  it("GAP-DRV-8: Amp and Muse packs have no composer probes", () => {
+    expect(rulePackFor("amp").composer ?? []).toEqual([]);
+    expect(rulePackFor("muse").composer ?? []).toEqual([]);
+  });
+
+  it("GAP-DRV-8: admitUngroundedFirstTypedComposer(null, pack, true) is empty", () => {
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
+    ).toBe("empty");
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
+    ).toBe("empty");
+  });
+
+  it("GAP-DRV-8: mail path stays null when firstTypedArmed is false", async () => {
+    // Live grid through a real observer: Amp-shaped settled title, no
+    // composer probes → verdict null. Mail (firstTypedArmed false) stays
+    // refuse; it must not inherit the firstTyped one-shot empty.
+    const obs = new SessionObserver({
+      bindingId: BINDING,
+      epoch: "e1",
+      cols: 80,
+      rows: 16,
+    });
+    try {
+      obs.feed("\x1b]0;Ready response - amp - ~/Projects/vellum\x07", 1n);
+      const snap = await obs.snapshot();
+      const amp = rulePackFor("amp");
+      const muse = rulePackFor("muse");
+      expect(composerVerdictFor(snap, amp)).toBe(null);
+      expect(composerVerdictFor(snap, muse)).toBe(null);
+      expect(admitUngroundedFirstTypedComposer(null, amp, false)).toBe(null);
+      expect(admitUngroundedFirstTypedComposer(null, muse, false)).toBe(null);
+    } finally {
+      obs.dispose();
+    }
+  });
+});
+
+// GAP-DRV-9: Grok `[Pasted:Nlines]` footer chip-submit is D9 in
+// tests/pty-e2e/scenarios/drive-law.test.ts — not duplicated here.
 
 // ---------------------------------------------------------------------------
 // OBS-7 — renderer needsLook must not ride false working→idle flips
