@@ -25,6 +25,7 @@ const makeRouter = (
       pid: undefined,
       exitOnSignal: false,
     })).authority,
+    { killGraceMs: 5, shutdownGraceMs: 5, lateExitGraceMs: 5 },
   );
   const router = new TerminalRouter(local, runtime);
   localHosts.push(local);
@@ -302,7 +303,11 @@ describe("TerminalRouter host maintenance", () => {
       pid: undefined,
       exitOnSignal: false,
     }));
-    const local = new LocalSessionHost(fakeProcesses.authority);
+    const local = new LocalSessionHost(fakeProcesses.authority, {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     const router = new TerminalRouter(local);
     localHosts.push(local);
     routers.push(router);

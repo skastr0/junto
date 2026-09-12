@@ -21,6 +21,7 @@ const emptyDoc: CanvasDoc = { nodes: [], edges: [] };
 
 describe("prepareCanvasRemoval vs pending save", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     writeCanvas.mockClear();
     writeCanvas.mockImplementation(async () => ({ revision: "next" }));
     state$.canvasName.set("doomed");
@@ -31,9 +32,9 @@ describe("prepareCanvasRemoval vs pending save", () => {
   });
 
   afterEach(async () => {
-    // Drain any leftover timer from scheduleSave so it cannot leak into next test.
     await prepareCanvasRemoval("doomed");
     clearAbandonedCanvas("doomed");
+    vi.useRealTimers();
   });
 
   it("cancels a debounced save so delete is not resurrected by writeCanvas", async () => {
@@ -43,8 +44,7 @@ describe("prepareCanvasRemoval vs pending save", () => {
     await prepareCanvasRemoval("doomed");
     expect(state$.saveState.peek()).toBe("saved");
 
-    // Let the original 500ms timer elapse if it were still armed.
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await vi.advanceTimersByTimeAsync(600);
     expect(writeCanvas).not.toHaveBeenCalled();
   });
 
@@ -59,22 +59,20 @@ describe("prepareCanvasRemoval vs pending save", () => {
     });
 
     scheduleSave();
-    // Force the timer to fire immediately by advancing... scheduleSave uses 500ms.
-    await new Promise((resolve) => setTimeout(resolve, 520));
+    await vi.advanceTimersByTimeAsync(520);
     expect(writeCanvas).toHaveBeenCalledTimes(1);
 
     const removal = prepareCanvasRemoval("doomed");
     release();
     await removal;
 
-    // A subsequent scheduleSave must not write the abandoned name.
     scheduleSave();
-    await new Promise((resolve) => setTimeout(resolve, 520));
+    await vi.advanceTimersByTimeAsync(520);
     expect(writeCanvas).toHaveBeenCalledTimes(1);
 
     clearAbandonedCanvas("doomed");
     scheduleSave();
-    await new Promise((resolve) => setTimeout(resolve, 520));
+    await vi.advanceTimersByTimeAsync(520);
     expect(writeCanvas).toHaveBeenCalledTimes(2);
   });
 });
