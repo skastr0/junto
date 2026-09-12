@@ -61,6 +61,7 @@ import { registerGitIpc } from "./git/ipc";
 import {
   GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
+  promptHasPasteChip,
   promptStillPending,
 } from "./term/drive";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
@@ -69,7 +70,12 @@ import {
   isClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
-import { seatStateRuntime } from "./term/agent-state";
+import {
+  admitUngroundedFirstTypedComposer,
+  rulePackFor,
+  seatStateRuntime,
+} from "./term/agent-state";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
 import { homedir } from "node:os";
 import {
@@ -1331,10 +1337,30 @@ export const registerVellumIpc = (): void => {
           if (!snap) return false;
           return promptStillPending(snap, text);
         },
+        // Chip-submit CR is chrome-only. Payload-head leftovers (Codex) and
+        // Grok `[Pasted:Nlines]` footers must not queue a second turn.
+        pasteChip: (bindingId) => {
+          const snap = terminalObserverPlane.snapshot(bindingId);
+          return snap !== undefined && promptHasPasteChip(snap);
+        },
         // Screen truth: typing is authorized only while the harness's
         // composer probes prove an EMPTY input box on the live grid.
-        composerVerdict: (bindingId) =>
-          seatStateRuntime.composerVerdict(bindingId),
+        composerVerdict: (bindingId) => {
+          const raw = seatStateRuntime.composerVerdict(bindingId);
+          const harness =
+            seatStateRuntime.machine.getSlot(bindingId)?.harness;
+          const pack =
+            harness !== undefined && isHarnessId(harness)
+              ? rulePackFor(harness)
+              : undefined;
+          return admitUngroundedFirstTypedComposer(
+            raw,
+            pack,
+            peekFirstTypedMessage(bindingId) !== undefined,
+          );
+        },
+        harnessFor: (bindingId) =>
+          seatStateRuntime.machine.getSlot(bindingId)?.harness,
       });
       bindManagedTerminalDriveForOverseer(managedDrive);
       // The composer went visibly empty (operator submitted or cleared, or a
@@ -1599,6 +1625,10 @@ export const registerVellumIpc = (): void => {
           ) {
             firstTypedInFlight.add(event.bindingId);
             void writeManagedPrompt(event.bindingId, first, {
+              // Weak-chrome harnesses never publish working. Skip the stall
+              // watch, but still send a chip-submit CR when `[Pasted text`
+              // chrome is visible, then settle and clearFailedSubmit if the
+              // chip is still sitting in an idle composer.
               awaitTurnStart: false,
             })
               .then((ok) => {
