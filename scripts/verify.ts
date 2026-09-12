@@ -62,6 +62,8 @@ await allMustPass([
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
 
+// Typecheck and the live audit share no filesystem with Vitest. electron-vite
+// must not run beside tests: both download Electron and write under out/.
 await allMustPass([
   { name: "typecheck", cmd: ["tsc", "--noEmit"] },
   { name: "audit:dependencies", cmd: ["bun", "scripts/audit-dependencies.ts"] },
@@ -70,6 +72,9 @@ await allMustPass([
     cmd: ["vitest", "run", `--maxWorkers=${vitestWorkers}`],
     env: { VELLUM_COMMAND_TEST_FEATURE_PROFILE: "all-on" },
   },
+]);
+
+await allMustPass([
   {
     name: "test:features:ship",
     cmd: [
@@ -88,5 +93,8 @@ await allMustPass([
     ],
     env: { VELLUM_COMMAND_TEST_FEATURE_PROFILE: "ship" },
   },
+]);
+
+await allMustPass([
   { name: "electron-vite build", cmd: ["electron-vite", "build"] },
 ]);
