@@ -29,6 +29,7 @@ build/electron-observation-high-water.json
 .vercel/
 .wrangler/
 *.tsbuildinfo
+.tsbuildinfo
 
 # design-sync build artifacts (tooling removed, outputs stay local)
 .ds-sync/

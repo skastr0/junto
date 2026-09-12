@@ -15,6 +15,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
     "jsx": "react-jsx",
     "types": ["node", "bun", "vite/client", "vitest/globals"],
     "baseUrl": ".",
