@@ -1,15 +1,14 @@
 import type { CanvasNode } from "./canvas";
+import { boardTitleFromText } from "./task";
 
 /**
- * One Board-node identity projection for every product surface. The node text
- * is a mechanical mirror (dash-prefixed recent topic titles, rewritten on
- * every work op — see mirrorBoardText), so display never reads it.
- *
- * EtherBoard carries no authored identity field today (topics + unread only,
- * see src/shared/work-model.ts), so the kind name is the only stable
- * identity — never the mirror's "- topic title" dash lines. If an authored
- * name field ever lands on EtherBoard, read it here first, like
- * requestsNodeName reads ether.requests.name.
+ * One Board-node identity projection for every product surface. EtherBoard
+ * carries no authored name field (topics + unread only, see
+ * src/shared/work-model.ts); the node text's first line is the authored
+ * identity instead — mirrorBoardText keeps it as the title with dash-prefixed
+ * topic lines only beneath it, and mergeBoardNodeText preserves the local
+ * first line across work writes. boardTitleFromText trims it and falls back
+ * to the kind name when empty.
  */
-export const boardNodeName = (_node: CanvasNode | undefined): string =>
-  "board";
+export const boardNodeName = (node: CanvasNode | undefined): string =>
+  boardTitleFromText(node?.type === "text" ? node.text : "");

@@ -85,11 +85,11 @@ describe("ArtifactsCard", () => {
 });
 
 describe("BoardCard", () => {
-  it("titles the card by kind, never the mirror's dash lines", () => {
+  it("titles the card by the authored first line, never a dash line", () => {
     const html = renderToStaticMarkup(
       <BoardCard
         node={textNode({
-          text: mirrorBoardText([
+          text: mirrorBoardText("Fleet announcements", [
             { title: "alpha" },
             { title: "beta" },
           ]),
@@ -110,16 +110,21 @@ describe("BoardCard", () => {
         })}
       />,
     );
-    // The work-plane mirror ("- alpha\n- beta") must not leak into the title.
-    expect(html).toContain(">board</div>");
+    // The authored title is the mirror's first line; dash topic lines stay in
+    // the glance rows and never leak into the title.
+    expect(html).toContain(">Fleet announcements</div>");
     expect(html).not.toContain("- alpha");
     // The glance rows still list the topics.
     expect(html).toContain("alpha");
   });
 
-  it("keeps the kind title when the board is empty", () => {
+  it("keeps the kind title when the board is untitled", () => {
     const html = renderToStaticMarkup(
-      <BoardCard node={textNode({ text: "board" })} />,
+      <BoardCard
+        node={textNode({
+          text: mirrorBoardText("", [{ title: "alpha" }]),
+        })}
+      />,
     );
     expect(html).toContain(">board</div>");
     expect(html).toContain("quiet");

@@ -41,15 +41,18 @@ const boardNode = (id: string, text: string): TextNode => ({
 });
 
 describe("boardNodeName", () => {
-  it("is the kind name — never the mirror's dash lines", () => {
+  it("is the mirror's authored first line — topic lines never leak", () => {
     const node = boardNode(
       "board-1",
-      mirrorBoardText([{ title: "alpha" }, { title: "beta" }]),
+      mirrorBoardText("Fleet announcements", [
+        { title: "alpha" },
+        { title: "beta" },
+      ]),
     );
-    expect(boardNodeName(node)).toBe("board");
+    expect(boardNodeName(node)).toBe("Fleet announcements");
   });
 
-  it("stays the kind name for absent or bare nodes", () => {
+  it("is the kind name for absent, empty, or untitled nodes", () => {
     expect(boardNodeName(undefined)).toBe("board");
     expect(
       boardNodeName({
@@ -57,31 +60,47 @@ describe("boardNodeName", () => {
         ether: { entity: { kind: "board" } },
       }),
     ).toBe("board");
+    expect(
+      boardNodeName(boardNode("board-3", mirrorBoardText("", [{ title: "alpha" }]))),
+    ).toBe("board");
   });
 });
 
 describe("board node identity agreement across surfaces", () => {
-  // Stale mechanical mirror as node.text (what the work plane writes): every
-  // surface must read the kind name, never the mirror's first dash line.
-  const node = boardNode("board-1", "- alpha\n- beta");
+  // The titled board's mirror as work writes it: authored first line, dash
+  // topic lines beneath. Every surface must read the authored title, never a
+  // dash line — and an untitled board must read the kind name everywhere.
+  const node = boardNode(
+    "board-1",
+    mirrorBoardText("Fleet announcements", [{ title: "alpha" }, { title: "beta" }]),
+  );
+  const untitled = boardNode(
+    "board-2",
+    mirrorBoardText("", [{ title: "alpha" }]),
+  );
 
-  it("presentation.nodeTitle uses the kind name", () => {
-    expect(nodeTitle(node)).toBe("board");
+  it("presentation.nodeTitle uses the authored title", () => {
+    expect(nodeTitle(node)).toBe("Fleet announcements");
+    expect(nodeTitle(untitled)).toBe("board");
   });
 
-  it("svg node title uses the kind name", () => {
+  it("svg node title uses the authored title", () => {
     const svg = renderCanvasSvg({ nodes: [node], edges: [] });
-    expect(svg).toContain(">board</text>");
+    expect(svg).toContain(">Fleet announcements</text>");
     expect(svg).not.toContain("- alpha");
+    const untitledSvg = renderCanvasSvg({ nodes: [untitled], edges: [] });
+    expect(untitledSvg).toContain(">board</text>");
   });
 
-  it("digest entities name the board by kind", () => {
+  it("digest entities name the board by its authored title", () => {
     const digest = digestCanvas({ nodes: [node], edges: [] });
-    expect(digest).toContain("board :: board");
+    expect(digest).toContain("Fleet announcements :: board");
     expect(digest).not.toContain("- alpha");
+    const untitledDigest = digestCanvas({ nodes: [untitled], edges: [] });
+    expect(untitledDigest).toContain("board :: board");
   });
 
-  it("region rollup member labels use the kind name", () => {
+  it("region rollup member labels use the authored title", () => {
     const doc: CanvasDoc = {
       nodes: [
         {
@@ -103,6 +122,8 @@ describe("board node identity agreement across surfaces", () => {
       canvasName: context.canvasName,
       resolveActorRef: context.resolveActorRef,
     });
-    expect(rollup?.members.map((member) => member.label)).toEqual(["board"]);
+    expect(rollup?.members.map((member) => member.label)).toEqual([
+      "Fleet announcements",
+    ]);
   });
 });
