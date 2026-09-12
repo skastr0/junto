@@ -34,8 +34,25 @@ export const DEFAULT_PROMPT_STALL_MS = 5_000;
  * submits — the operator sees `[Pasted text #N +k lines]` stuck forever.
  * Verified Claude window was 0–150ms; 40ms is inside the safe band and
  * far under Grok's 1.5s post-spawn gate.
+ *
+ * A newline in the payload is the chip trigger. The write recipe for those
+ * bodies is paste → settle → CR → (if still pending and idle) CR. The
+ * second CR is part of the recipe, not a 5s stall recovery.
  */
 export const PASTE_TO_CR_SETTLE_MS = 80;
+
+/** Ink TUIs collapse a bracketed paste into a chip when the body has a newline. */
+export const payloadMayChip = (text: string): boolean => text.includes("\n");
+
+/**
+ * Hermes (E2 / GAP-DRV-6): a multiline paste chips immediately and never
+ * collapses on any CR — only Ctrl+C clears it. The drive must refuse that
+ * body before a write, not try the Claude/Devin 2-CR recipe.
+ */
+export const hermesRefusesMultilinePaste = (
+  harness: string | undefined,
+  text: string,
+): boolean => harness === "hermes" && payloadMayChip(text);
 
 /** Wrap text in a bracketed-paste envelope (single write payload). */
 export const encodeBracketedPaste = (text: string): string =>

@@ -15,10 +15,15 @@ import {
   INTERRUPT_BYTE,
   MIN_IDLE_INTERRUPT_GAP_MS,
   PASTE_TO_CR_SETTLE_MS,
+  hermesRefusesMultilinePaste,
+  payloadMayChip,
 } from "./typing";
 
 /** Returns true when the managed seat may accept a typed prompt. */
 export type SeatIdleLookup = (bindingId: string) => boolean;
+
+/** Harness id for a binding — used at the paste boundary (Hermes multiline refuse). */
+export type SeatHarnessLookup = (bindingId: string) => string | undefined;
 
 /**
  * Write raw bytes to a managed terminal PTY.
@@ -35,7 +40,8 @@ export type DriveAttentionReason =
   | "write-failed"
   | "not-ready"
   | "composer-unreadable"
-  | "queue-timeout";
+  | "queue-timeout"
+  | "multiline-refused";
 
 /** Default max wait for a mid-turn queued prompt before resolving false. */
 export const DEFAULT_QUEUE_TIMEOUT_MS = 30_000;
@@ -164,8 +170,17 @@ export type ManagedTerminalDriveOptions = {
   readonly pasteToCrSettleMs?: number;
   /** Evidence-gated acknowledgement (see PromptPendingLookup). */
   readonly pendingText?: PromptPendingLookup;
+  /**
+   * Composer paste-chip chrome only (`[Pasted text`). Chip-submit CR reads
+   * this when set so Codex payload-head leftovers and Grok `[Pasted:Nlines]`
+   * footers cannot queue a second turn. Absent → fall back to pendingText
+   * (unit tests that only wire pending).
+   */
+  readonly pasteChip?: PromptPendingLookup;
   /** Composer typing gate (see ComposerVerdictLookup). */
   readonly composerVerdict?: ComposerVerdictLookup;
+  /** Binding → harness id. Absent lookup = no Hermes multiline refuse. */
+  readonly harnessFor?: SeatHarnessLookup;
 };
 
 export class ManagedTerminalDrive {
@@ -180,7 +195,9 @@ export class ManagedTerminalDrive {
   private readonly stallWatch: boolean;
   private readonly pasteToCrSettleMs: number;
   private readonly pendingText: PromptPendingLookup | undefined;
+  private readonly pasteChip: PromptPendingLookup | undefined;
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
+  private readonly harnessFor: SeatHarnessLookup | undefined;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
@@ -216,7 +233,18 @@ export class ManagedTerminalDrive {
     this.stallWatch = options.stallWatch ?? true;
     this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
     this.pendingText = options.pendingText;
+    this.pasteChip = options.pasteChip;
     this.composerVerdict = options.composerVerdict;
+    this.harnessFor = options.harnessFor;
+  }
+
+  /** Hermes never receives a multiline paste — chip never collapses on CR. */
+  private refuseHermesMultiline(bindingId: string, text: string): boolean {
+    if (!hermesRefusesMultilinePaste(this.harnessFor?.(bindingId), text)) {
+      return false;
+    }
+    this.onAttention?.(bindingId, "multiline-refused");
+    return true;
   }
 
   /**
@@ -314,6 +342,9 @@ export class ManagedTerminalDrive {
     const ready = opts.ready ?? true;
     const queueIfBusy = opts.queueIfBusy ?? true;
     const awaitTurnStart = opts.awaitTurnStart ?? this.stallWatch;
+    if (this.refuseHermesMultiline(bindingId, text)) {
+      return false;
+    }
     if (!ready) {
       this.onAttention?.(bindingId, "not-ready");
       return false;
@@ -670,6 +701,18 @@ export class ManagedTerminalDrive {
         }
         return false;
       }
+      // Multiline paste chips on Claude/Devin. The second CR is the submit,
+      // not a 5s stall recovery — send it as soon as the composer still
+      // holds our text and the seat is idle.
+      const sentChipCr = await this.writeChipSubmitCrIfNeeded(
+        bindingId,
+        text,
+        generation,
+        bindingGeneration,
+      );
+      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        return false;
+      }
       if (awaitTurnStart) {
         // Observer delivery can race the CR writer's promise resolution.
         // Preserve a turn-start seen anywhere during the physical sequence.
@@ -702,37 +745,70 @@ export class ManagedTerminalDrive {
         if (this.pendingText && !this.pendingText(bindingId)) {
           return true;
         }
-        // Paste chip without submit: one extra CR (Claude/Devin collapse
-        // multi-line paste into a chip that needs a second Enter).
-        if (!(await this.writeSubmitCr(bindingId, generation, bindingGeneration))) {
-          await this.clearFailedSubmit(bindingId, generation, bindingGeneration);
-          return false;
-        }
-        if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
+        // No composer chip: first CR was the submit (Codex/Grok). A leftover
+        // payload head on a stale idle grid must not recovery-CR or clear.
+        if (this.pasteChip && !this.pasteChip(bindingId)) {
           return true;
         }
-        const startedRetry = await this.awaitTurnStart(
-          bindingId,
-          text,
-          generation,
-          bindingGeneration,
-        );
-        if (startedRetry) return true;
-        // FIRED-LAW (retry path): the retry CR submitted and our text left
-        // the composer — the ack is just late. Fired = delivered.
-        if (this.pendingText && !this.pendingText(bindingId)) {
-          return true;
+        // Evidence was late: the chip CR never fired. One recovery CR, and
+        // only while the seat is still idle — never into a working turn.
+        if (!sentChipCr && this.isSeatIdle(bindingId) && this.chipVisible(bindingId)) {
+          if (
+            !(await this.writeSubmitCr(bindingId, generation, bindingGeneration))
+          ) {
+            await this.clearFailedSubmit(
+              bindingId,
+              generation,
+              bindingGeneration,
+            );
+            return false;
+          }
+          if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
+            return true;
+          }
+          const startedRetry = await this.awaitTurnStart(
+            bindingId,
+            text,
+            generation,
+            bindingGeneration,
+          );
+          if (startedRetry) return true;
+          if (this.pendingText && !this.pendingText(bindingId)) {
+            return true;
+          }
         }
         // Law: never leave Vellum Command-authored text as a stuck paste chip.
         await this.clearFailedSubmit(bindingId, generation, bindingGeneration);
         return false;
       }
-      // awaitTurnStart false is forbidden for product pastes that can chip —
-      // callers must opt into proof or accept clear-on-fail via stallWatch.
+      // awaitTurnStart false (firstTyped): never receipt a chip. The
+      // observer snapshot on this tick still shows the text we just
+      // pasted — wait after the recipe CR before deciding. Multiline
+      // chips can paint one frame late: two settles, not one, so a
+      // clean first look cannot receipt a chip that arrives on the
+      // next paint. Same-tick Ctrl+C would interrupt a submit that
+      // has not painted yet (and raise prompt-stalled on doctrine).
+      const firstTypedSettles = payloadMayChip(text) ? 2 : 1;
+      if (this.pendingText && this.pasteToCrSettleMs > 0) {
+        for (let i = 0; i < firstTypedSettles; i += 1) {
+          if (!(await this.settle(bindingId, generation, bindingGeneration))) {
+            return false;
+          }
+        }
+      }
       if (this.pendingText && this.pendingText(bindingId)) {
-        // Evidence: the paste chip/text still sits in the composer. Never
-        // receipt it — the caller (firstTyped doctrine) keeps its arm and
-        // the next attempt re-checks current evidence.
+        // Snapshot-only leftover (Codex payload head / Grok footer) is not a
+        // stuck chip — receipt the firstTyped write; never Ctrl+C.
+        if (this.pasteChip && !this.pasteChip(bindingId)) {
+          return true;
+        }
+        if (this.isSeatIdle(bindingId)) {
+          await this.clearFailedSubmit(
+            bindingId,
+            generation,
+            bindingGeneration,
+          );
+        }
         return false;
       }
       return true;
@@ -795,6 +871,10 @@ export class ManagedTerminalDrive {
     if (!this.isSeatIdle(bindingId)) {
       return false;
     }
+    // Second line: a queued drain must not sneak a Hermes chip through.
+    if (this.refuseHermesMultiline(bindingId, text)) {
+      return false;
+    }
     const [paste, cr] = buildPromptWriteSequence(text);
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
@@ -818,6 +898,69 @@ export class ManagedTerminalDrive {
     }
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeFn(bindingId, cr)))) return false;
+    return this.activeBinding(bindingId, generation, bindingGeneration);
+  }
+
+  /**
+   * Chip-submit CR: the recipe step ink TUIs need after a multiline paste.
+   * Sends immediately when evidence already shows our text in an idle
+   * composer; otherwise waits one settle for the observer to paint.
+   * Returns true only when a CR was written.
+   */
+  private async writeChipSubmitCrIfNeeded(
+    bindingId: string,
+    text: string,
+    generation: number,
+    bindingGeneration: number,
+  ): Promise<boolean> {
+    if (!payloadMayChip(text)) return false;
+    if (!this.pasteChip && !this.pendingText) return false;
+    if (
+      await this.tryChipSubmitCr(bindingId, generation, bindingGeneration)
+    ) {
+      return true;
+    }
+    if (this.pasteToCrSettleMs > 0) {
+      if (
+        !(await this.settle(bindingId, generation, bindingGeneration))
+      ) {
+        return false;
+      }
+      return this.tryChipSubmitCr(bindingId, generation, bindingGeneration);
+    }
+    return false;
+  }
+
+  private async tryChipSubmitCr(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+  ): Promise<boolean> {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
+    if (!this.isSeatIdle(bindingId)) return false;
+    if (!this.chipVisible(bindingId)) return false;
+    return this.writeSubmitCr(bindingId, generation, bindingGeneration);
+  }
+
+  /** Chip chrome, or pendingText when the production pasteChip lookup is absent. */
+  private chipVisible(bindingId: string): boolean {
+    if (this.pasteChip) return this.pasteChip(bindingId);
+    return this.pendingText?.(bindingId) === true;
+  }
+
+  private async settle(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+  ): Promise<boolean> {
+    if (this.pasteToCrSettleMs > 0) {
+      await new Promise<void>((r) => {
+        const t = setTimeout(r, this.pasteToCrSettleMs);
+        t.unref?.();
+      });
+    }
     return this.activeBinding(bindingId, generation, bindingGeneration);
   }
 

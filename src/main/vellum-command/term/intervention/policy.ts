@@ -218,9 +218,10 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   // or a modal all win).
   //
   // The old objection to this write was the stuck `[Pasted text #N]` chip.
-  // That is now handled where it belongs, in the drive: paste and CR are
-  // separate writes with a settle between them, and prompt-pending evidence
-  // refuses to receipt a turn whose text never left the composer.
+  // That is now handled where it belongs, in the drive: multiline paste is
+  // paste → CR → evidence CR (the chip-submit), notices stay one line, and
+  // prompt-pending evidence refuses to receipt a turn whose text never left
+  // the composer.
   if (
     turn === "ended" &&
     awareness === "unproven" &&

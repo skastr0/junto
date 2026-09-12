@@ -15,10 +15,9 @@
  * while a chip is still pending.
  */
 
-import { promptRegionLines } from "../observer/interaction";
+import { PASTE_CHIP_TEXT, promptRegionLines } from "../observer/interaction";
 
-/** Claude/Devin collapse multi-line paste into a `[Pasted text #N]` chip. */
-const PASTE_CHIP_LITERAL = "[Pasted";
+export { PASTE_CHIP_TEXT };
 
 /** Max chars of the payload head that count as evidence on screen. */
 const PAYLOAD_HEAD_MAX = 64;
@@ -33,9 +32,23 @@ const payloadHead = (text: string): string => {
 };
 
 /**
+ * True when the prompt region shows Claude/Devin paste-chip chrome.
+ * Grok `[Pasted:Nlines]` footers and Codex payload-head leftovers are not
+ * chips — those must not request a second CR.
+ */
+export const promptHasPasteChip = (snapshot: {
+  readonly lines: readonly string[];
+}): boolean => {
+  for (const line of promptRegionLines(snapshot.lines)) {
+    if (line.includes(PASTE_CHIP_TEXT)) return true;
+  }
+  return false;
+};
+
+/**
  * True when the prompt region of `snapshot` still holds text we pasted:
- * the harness chip literal (`[Pasted`), the injection marker token, or the
- * payload head. Pure: no I/O, no clocks.
+ * the harness chip literal (`[Pasted text`), the injection marker token, or
+ * the payload head. Pure: no I/O, no clocks.
  */
 export const promptStillPending = (
   snapshot: { readonly lines: readonly string[] },
@@ -47,7 +60,7 @@ export const promptStillPending = (
     ? markerToken
     : undefined;
   for (const line of promptRegionLines(snapshot.lines)) {
-    if (line.includes(PASTE_CHIP_LITERAL)) return true;
+    if (line.includes(PASTE_CHIP_TEXT)) return true;
     if (marker !== undefined && line.includes(marker)) return true;
     if (head.length > 0 && line.includes(head)) return true;
   }

@@ -67,12 +67,11 @@ const PROMPT_GLYPH = /^\s*❯(?:\s+|$)/u;
 const ANY_PROMPT_GLYPH = /^\s*(?:❯|›)(?:\s+|$)/u;
 
 /**
- * Harness paste-chip literal. Claude and Devin collapse a multi-line
- * bracketed paste into an opaque `[Pasted text #N +k lines]` chip in the
- * composer that needs a second CR to submit. While the chip is on screen our
- * text is STILL pending in the prompt box — never "consumed".
+ * Claude/Devin composer chip. Must stay the full `[Pasted text` prefix —
+ * Grok's history footer uses `[Pasted:Nlines]`, which is not a pending
+ * composer chip. Shared with prompt-evidence so the prefix cannot drift.
  */
-const PASTE_CHIP_LITERAL = "[Pasted";
+export const PASTE_CHIP_TEXT = "[Pasted text";
 
 /**
  * No-rules grids (Codex never draws ─── rules): our bracketed paste renders
@@ -132,7 +131,7 @@ export const scanMarker = (
   if (markerToken.length === 0) return hadDelivered ? "cleared" : "none";
   const promptRegion = promptRegionLines(lines);
   for (const line of promptRegion) {
-    if (line.includes(markerToken) || line.includes(PASTE_CHIP_LITERAL)) {
+    if (line.includes(markerToken) || line.includes(PASTE_CHIP_TEXT)) {
       return "prompt";
     }
   }

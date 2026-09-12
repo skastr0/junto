@@ -8,6 +8,8 @@ import {
   buildPromptWriteSequence,
   canSendIdleInterrupt,
   encodeBracketedPaste,
+  hermesRefusesMultilinePaste,
+  payloadMayChip,
 } from "../src/main/vellum-command/term/drive";
 import {
   makeManagedPulseDeliver,
@@ -30,6 +32,19 @@ describe("typing recipe", () => {
     expect(paste + cr).not.toBe(paste); // two distinct ops
     // Joining would be the Codex trap — sequence keeps them separate.
     expect(buildPromptWriteSequence("x")).toHaveLength(2);
+  });
+
+  it("a newline is the chip trigger; one-liners never chip", () => {
+    expect(payloadMayChip("hello")).toBe(false);
+    expect(payloadMayChip("one\ntwo")).toBe(true);
+    expect(payloadMayChip("hello\n")).toBe(true);
+  });
+
+  it("hermes refuses a multiline body and admits a one-liner", () => {
+    expect(hermesRefusesMultilinePaste("hermes", "one\ntwo")).toBe(true);
+    expect(hermesRefusesMultilinePaste("hermes", "hello")).toBe(false);
+    expect(hermesRefusesMultilinePaste("claude", "one\ntwo")).toBe(false);
+    expect(hermesRefusesMultilinePaste(undefined, "one\ntwo")).toBe(false);
   });
 
   it("idle interrupt spacing rejects sub-1s gaps", () => {
@@ -83,6 +98,132 @@ describe("ManagedTerminalDrive", () => {
     ]);
     expect(writes[0]!.data).not.toContain(CR);
     expect(writes[1]!.data).toBe("\r");
+  });
+
+  it("chip-submit CR ignores payload-head pendingText when pasteChip is false", async () => {
+    const local: Array<{ bindingId: string; data: string }> = [];
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        local.push({ bindingId, data });
+        return true;
+      },
+      pendingText: () => true,
+      pasteChip: () => false,
+    });
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(true);
+    expect(local.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("one\ntwo"),
+      CR,
+    ]);
+  });
+
+  it("multiline paste sends an immediate chip-submit CR while idle and pending", async () => {
+    let pending = false;
+    const local: Array<{ bindingId: string; data: string }> = [];
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        local.push({ bindingId, data });
+        if (data.startsWith(BRACKETED_PASTE_START)) pending = true;
+        if (data === CR && local.filter((w) => w.data === CR).length >= 2) {
+          pending = false;
+        }
+        return true;
+      },
+      pendingText: () => pending,
+    });
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(true);
+    expect(local.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("one\ntwo"),
+      CR,
+      CR,
+    ]);
+  });
+
+  it("hermes refuses a multiline paste at the write boundary — zero writes, attention", async () => {
+    const attention: string[] = [];
+    drive = makeDrive({
+      harnessFor: () => "hermes",
+      onAttention: (_id, reason) => attention.push(reason),
+    });
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(false);
+    expect(writes).toEqual([]);
+    expect(attention).toEqual(["multiline-refused"]);
+  });
+
+  it("hermes still accepts a one-line paste", async () => {
+    drive = makeDrive({ harnessFor: () => "hermes" });
+    await expect(drive.writePrompt("b1", "do work")).resolves.toBe(true);
+    expect(writes).toEqual([
+      { bindingId: "b1", data: encodeBracketedPaste("do work") },
+      { bindingId: "b1", data: CR },
+    ]);
+  });
+
+  it("firstTyped waits a second settle so a late chip is not receipted", async () => {
+    vi.useFakeTimers();
+    let chip = false;
+    const local: Array<{ bindingId: string; data: string }> = [];
+    drive = makeDrive({
+      stallWatch: false,
+      pasteToCrSettleMs: 40,
+      write: (bindingId, data) => {
+        local.push({ bindingId, data });
+        if (data.startsWith(BRACKETED_PASTE_START)) {
+          // After recipe CR + chip-CR settle (80ms), before firstTyped settle 2.
+          setTimeout(() => {
+            chip = true;
+          }, 90);
+        }
+        if (data === INTERRUPT_BYTE) chip = false;
+        return true;
+      },
+      pendingText: () => chip,
+      pasteChip: () => chip,
+    });
+    const p = drive.writePrompt("b1", "one\ntwo", { awaitTurnStart: false });
+    await vi.advanceTimersByTimeAsync(40); // paste settle + CR
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(40); // chip-CR settle — still no chrome
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(40); // firstTyped settle 1 — chip still late
+    await flushMicrotasks();
+    let settled = false;
+    void p.then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(40); // firstTyped settle 2 — chip painted
+    await expect(p).resolves.toBe(false);
+    expect(local.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("one\ntwo"),
+      CR,
+      INTERRUPT_BYTE,
+    ]);
+    vi.useRealTimers();
+  }, 15_000);
+
+  it("firstTyped does not receipt a stuck multiline chip — clears and returns false", async () => {
+    let pending = false;
+    const local: Array<{ bindingId: string; data: string }> = [];
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        local.push({ bindingId, data });
+        if (data.startsWith(BRACKETED_PASTE_START)) pending = true;
+        if (data === INTERRUPT_BYTE) pending = false;
+        return true;
+      },
+      pendingText: () => pending,
+    });
+    await expect(
+      drive.writePrompt("b1", "one\ntwo", { awaitTurnStart: false }),
+    ).resolves.toBe(false);
+    expect(local.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("one\ntwo"),
+      CR,
+      CR,
+      INTERRUPT_BYTE,
+    ]);
   });
 
   it("idle gate queues when busy and drains one on idle transition", async () => {
@@ -330,7 +471,7 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("stall: no turn-start → false + attention; one CR retry then refuse", async () => {
+  it("stall: no turn-start and no chip chrome → false + clear, no retry CR", async () => {
     vi.useFakeTimers();
     const attention: string[] = [];
     drive = makeDrive({
@@ -347,27 +488,41 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(2); // paste + CR
     expect(settled).toBe(false);
 
-    // First stall window → second CR retry → second stall window.
-    await vi.advanceTimersByTimeAsync(5_000);
-    await flushMicrotasks(4);
-    expect(writes).toHaveLength(3); // + retry CR
+    // Recovery CR is chip-chrome only. No pasteChip / pendingText → clear.
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toBe(false);
-    // Law-aligned: the second stall ends the episode with ONE idle Ctrl+C
-    // clear (product law — never leave a paste chip) and its attention fire;
-    // the single-clear invariant is covered by the pty-e2e D6 scenarios.
-    expect(attention).toEqual([
-      "prompt-stalled",
-      "prompt-stalled",
-      "prompt-stalled",
-    ]);
+    expect(attention).toEqual(["prompt-stalled", "prompt-stalled"]);
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("stalled") },
-      { bindingId: "b1", data: CR },
       { bindingId: "b1", data: CR },
       { bindingId: "b1", data: INTERRUPT_BYTE },
     ]);
 
+    vi.useRealTimers();
+  });
+
+  it("stall: late chip chrome still gets one recovery CR", async () => {
+    vi.useFakeTimers();
+    let chip = false;
+    const attention: string[] = [];
+    drive = makeDrive({
+      stallWatch: true,
+      stallTimeoutMs: 5_000,
+      pendingText: () => true,
+      pasteChip: () => chip,
+      onAttention: (_id, reason) => attention.push(reason),
+    });
+    const result = drive.writePrompt("b1", "one\ntwo");
+    await flushMicrotasks();
+    expect(writes).toHaveLength(2); // paste + CR, no recipe chip CR yet
+    chip = true;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushMicrotasks(4);
+    expect(writes).toHaveLength(3); // recovery CR
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(result).resolves.toBe(false);
+    expect(writes.at(-1)).toMatchObject({ data: INTERRUPT_BYTE });
+    expect(attention.length).toBeGreaterThan(0);
     vi.useRealTimers();
   });
 
@@ -463,13 +618,10 @@ describe("ManagedTerminalDrive", () => {
       expect(writes).toHaveLength(2);
 
       await vi.advanceTimersByTimeAsync(5_000);
-      await flushMicrotasks(4);
-      expect(writes).toHaveLength(3); // CR retry after first stall
-      await vi.advanceTimersByTimeAsync(5_000);
       await expect(accepted).resolves.toBe(false);
-      // Law-aligned: one idle Ctrl+C clear after the stalled episode.
-      expect(writes).toHaveLength(4);
-      expect(writes[3]).toMatchObject({ data: INTERRUPT_BYTE });
+      // No chip chrome → no recovery CR; one idle Ctrl+C clear.
+      expect(writes).toHaveLength(3);
+      expect(writes[2]).toMatchObject({ data: INTERRUPT_BYTE });
     } finally {
       vi.useRealTimers();
     }

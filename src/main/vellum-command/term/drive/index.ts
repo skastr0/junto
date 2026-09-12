@@ -8,6 +8,8 @@ export {
   buildPromptWriteSequence,
   canSendIdleInterrupt,
   encodeBracketedPaste,
+  hermesRefusesMultilinePaste,
+  payloadMayChip,
 } from "./typing";
 
 export {
@@ -20,9 +22,14 @@ export {
   type ManagedTerminalDriveOptions,
   type ComposerVerdictLookup,
   type PromptPendingLookup,
+  type SeatHarnessLookup,
   type SeatIdleLookup,
   type TerminalWriter,
   type WritePromptOptions,
 } from "./managed-terminal-drive";
 
-export { promptStillPending } from "./prompt-evidence";
+export {
+  PASTE_CHIP_TEXT,
+  promptHasPasteChip,
+  promptStillPending,
+} from "./prompt-evidence";
