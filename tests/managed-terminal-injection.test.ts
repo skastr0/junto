@@ -328,6 +328,20 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
     expect(argv).not.toContain("--append-system-prompt");
   });
 
+  it("amp and fx firstTyped a one-line onboard pointer, not the full doctrine", () => {
+    for (const harness of ["amp", "fx"] as const) {
+      const { firstTypedMessage } = resolveManagedLaunchPlan(
+        harness,
+        { injection: connectedCtx },
+        bareAmbient,
+      );
+      expect(firstTypedMessage).toBeTruthy();
+      expect(firstTypedMessage).not.toContain("\n");
+      expect(firstTypedMessage).toContain("vellum-command onboard");
+      expect(firstTypedMessage).not.toContain("# Vellum Command");
+    }
+  });
+
   if (BROWSER_ENABLED) {
     it("page edge compiles the browser slot", () => {
       const text = buildInjectionText({

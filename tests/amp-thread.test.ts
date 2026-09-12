@@ -402,6 +402,8 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
     expect(fresh?.injection.tier).toBe("B");
     expect(fresh?.injection.inject).toBe(true);
     expect(fresh?.firstTypedMessage?.length ?? 0).toBeGreaterThan(0);
+    expect(fresh?.firstTypedMessage).not.toContain("\n");
+    expect(fresh?.firstTypedMessage).toContain("vellum-command onboard");
   });
 });
 

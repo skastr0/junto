@@ -12,6 +12,7 @@ import type { EtherTerminalLaunch } from "./canvas";
 import {
   type InjectionContext,
   type ManagedInjectionPlan,
+  buildOrientNotice,
   planManagedInjection,
 } from "./managed-terminal-injection";
 import {
@@ -551,6 +552,19 @@ const applyInjectionChoices = (
           inject: true,
           tier: plan.tier,
           // No firstTyped — body rides argv and auto-submits at spawn.
+        },
+      };
+    }
+    // promptMode none (Amp, fx): never firstTyped-paste the full doctrine.
+    // Those TUIs have no argv prompt slot; a multiline paste is the chip
+    // hole. One-line onboard pointer — live map is `vellum-command onboard`.
+    if (body && mode === "none") {
+      return {
+        choices,
+        plan: {
+          inject: true,
+          tier: plan.tier,
+          firstTypedMessage: buildOrientNotice(choices.injection.seatRef),
         },
       };
     }
