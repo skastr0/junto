@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { LiveAttention, LiveSnapshot, LiveStartInput, LiveStartResult } from "@shared/overseer-live";
-import type { OverseerHostAssignment, OverseerHostRequest } from "@shared/overseer-host-control";
+import { OVERSEER_HOST_OPERATIONS, type OverseerHostAssignment, type OverseerHostRequest } from "@shared/overseer-host-control";
 import { isOverseerMutation, type OverseerRequest, type OverseerResult } from "@shared/overseer-control";
 import { formatNodeRef } from "@shared/node-ref";
 import { liveSettings, liveCallLimitSeconds, LIVE_INITIAL_BILLING_SECONDS, LIVE_VOICE_USD_PER_MINUTE } from "@shared/settings";
@@ -70,8 +70,10 @@ interface Session {
   transcript: LiveSnapshot["transcript"];
   startupEvents: unknown[];
   semanticContext?: LiveSemanticContext;
+  conversation?: readonly unknown[];
   message?: string;
 }
+const pocOperations = new Set<string>(OVERSEER_HOST_OPERATIONS);
 const identityEqual = (left: OverseerHostIdentity, right: OverseerHostIdentity | undefined): boolean =>
   right !== undefined && left.canvasName === right.canvasName && left.nodeId === right.nodeId &&
   left.bindingId === right.bindingId && left.peerPid === right.peerPid && left.processGeneration === right.processGeneration;
@@ -336,11 +338,11 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
           publish();
         },
       });
+      session.voice = voice;
       await verifyIdentity(session);
       if (session !== current || session.epoch !== epoch || abort.signal.aborted) {
         await voice.close(); throw new Error("Live connection was replaced during startup");
       }
-      session.voice = voice;
       await run(repository.updateSessionBackend(session.id, { providerSessionId: voice.sessionId }));
       return { sessionId: session.id, connectionEpoch: epoch, answerSdp: voice.answerSdp, snapshot: snapshot() };
     } catch (error) {
@@ -353,10 +355,12 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     if (session.epoch !== epoch || session.connection !== "connecting" || !session.voice) return;
     await verifyIdentity(session);
     await session.voice.ready;
+    await verifyIdentity(session);
     session.connection = "ready";
     const events = session.startupEvents;
     session.startupEvents = [];
     const context = await capturedContext(session.attention);
+    requireAuthority(session);
     updateContext(session, context);
     for (const event of events) await handleProviderEvent(session, epoch, event);
     publish();
@@ -418,7 +422,8 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
         throw new Error("Controller control intent is no longer current");
       }
       if (request.type === "steer") {
-        await steerRequest(session, request.targetRequestId, request.text, session.attention);
+        await steerRequest(session, request.targetRequestId, request.text,
+          origin.record.capturedContext.operatorAttention as unknown as LiveAttention);
       } else if (request.type === "cancel-request") {
         await cancelRequest(session, request.targetRequestId);
       } else {
@@ -447,6 +452,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
         const encoded = JSON.stringify(event.conversation);
         if (Buffer.byteLength(encoded, "utf8") <= 200_000) {
           active.conversation = event.conversation;
+          if (event.type === "completed") session.conversation = event.conversation;
           await journalEvent(session, "backend.conversation", { conversation: event.conversation }, active.record.requestId);
         }
       }
@@ -479,7 +485,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       model: session.backendModel, apiKey: providers.openai.apiKey, instructions: backendInstructions,
       context: JSON.stringify({ request: next.record.text, capturedContext: next.record.capturedContext,
         sessionRequests: [...session.requests.values()].slice(-20).map(({ record }) => ({ requestId: record.requestId, text: record.text, intentRevision: record.intentRevision, status: record.status })) }),
-      operationIds, ...(next.conversation ? { conversation: next.conversation } : {}),
+      operationIds, ...((next.conversation ?? session.conversation) ? { conversation: next.conversation ?? session.conversation } : {}),
       ...(next.expectedRevision ? { expectedRevision: next.expectedRevision } : {}), maxSteps: 24 };
   };
   const waitForWork = (signal: AbortSignal): Promise<void> => new Promise((resolve) => {
@@ -499,6 +505,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
   };
   const validateOperation = async (request: OverseerRequest, identity: OverseerHostIdentity): Promise<OverseerLiveExecutionConstraint> => {
     await initialization;
+    if (!pocOperations.has(request.operation)) throw new Error("This Live proof of concept supports canvas editing and inspection only.");
     const session = current;
     const controlled = controlledGenerations.has(identity.processGeneration);
     if (!request.live && !(controlled && isOverseerMutation(request.operation))) return { assertCurrent: () => {} };
@@ -516,11 +523,13 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     active.usedOperationIds.add(live.operationId);
     const args = object(request.args);
     const canvasName = typeof args.canvas === "string" ? args.canvas : session.identity.canvasName;
-    const refs = typeof args.nodeId === "string" ? [formatNodeRef({ canvasName, nodeId: args.nodeId })] :
-      (Array.isArray(args.edits) ? args.edits.flatMap((edit: unknown) => {
-        const item = object(edit);
-        return typeof item.nodeId === "string" ? [formatNodeRef({ canvasName, nodeId: item.nodeId })] : [];
-      }) : []);
+    const targets = [args, ...(Array.isArray(args.operations) ? args.operations.map(object) : [])];
+    const refs = [...new Set(targets.flatMap((item) => {
+      const edge = object(item.edge);
+      return [item.nodeId, object(item.node).id, edge.fromNode, edge.toNode]
+        .filter((nodeId): nodeId is string => typeof nodeId === "string")
+        .map((nodeId) => formatNodeRef({ canvasName, nodeId }));
+    }))];
     const mutation = isOverseerMutation(request.operation);
     const targetBasis = active.targetRevisions.get(canvasName);
     let expectedRevision = targetBasis?.revision;
@@ -626,6 +635,11 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       const context = await capturedContext(session.attention);
       updateContext(session, context);
     }),
+    refreshContext: () => serial(async () => {
+      const session = current;
+      if (!session || session.connection !== "ready") return;
+      updateContext(session, await capturedContext(session.attention));
+    }),
     liveCancel: (sessionId: string, requestId: string) => {
       const session = requireSession(sessionId);
       session.requests.get(requestId)?.abort.abort();
@@ -642,6 +656,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     subscribe: (listener: (snapshot: LiveSnapshot) => void): (() => void) => { listeners.add(listener); return () => listeners.delete(listener); },
     dispose: async (): Promise<void> => {
       if (disposed) return;
+      disposed = true;
       clearInterval(tick);
       clearTimeout(notifyTimer);
       const session = current;
@@ -652,7 +667,6 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
         session.detachAuthority();
         await closeVoice(session, "Vellum Command runtime stopped.");
       }
-      disposed = true;
       for (const wakeup of [...wakeups]) wakeup();
       await queue;
       await run(repository.recoverInterrupted());

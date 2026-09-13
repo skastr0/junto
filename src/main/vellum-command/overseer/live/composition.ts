@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { isManagedAgentNode } from "@shared/actor-surface";
 import { serializeCanvas } from "@shared/canvas";
-import type { LiveAttention } from "@shared/overseer-live";
 import { resolveNodeHostId } from "@shared/station";
 import { CanvasesService } from "../../canvases";
 import { canvasBodySha256Of } from "../../canvas-intent-identity";
@@ -25,7 +24,6 @@ export const composeOverseerLive = async (run: LiveRun) => {
   }));
   const processMap = getProcessIdentityMap();
   const revisions = new Map<string, string>();
-  let latestAttention: LiveAttention | undefined;
   const resolveOccupant = async (canvasName: string, nodeId: string): Promise<OverseerHostIdentity | undefined> => {
     try {
       const authority = await run(admitOverseer({ canvasName, nodeId }));
@@ -56,7 +54,6 @@ export const composeOverseerLive = async (run: LiveRun) => {
     contextProvider: async (attention) => {
       const read = await run(canvases.read(attention.canvasName, "overseer.canvas"));
       revisions.set(read.name, read.revision);
-      latestAttention = structuredClone(attention);
       return buildLiveContext(read, attention);
     },
     targetRevision: (name) => revisions.get(name),
@@ -82,13 +79,10 @@ export const composeOverseerLive = async (run: LiveRun) => {
   let refresh: ReturnType<typeof setTimeout> | undefined;
   const unsubscribe = canvases.subscribeChanges((name, detail) => {
     if (detail) revisions.set(name, detail.next ? canvasBodySha256Of(serializeCanvas(detail.next)) : "deleted");
-    if (latestAttention?.canvasName !== name || refresh !== undefined) return;
+    if (refresh !== undefined) return;
     refresh = setTimeout(() => {
       refresh = undefined;
-      const attention = latestAttention;
-      if (!attention) return;
-      void service.liveSnapshot().then((snapshot) => snapshot.sessionId && snapshot.connection === "ready"
-        ? service.liveAttention(snapshot.sessionId, attention) : undefined).catch(() => undefined);
+      void service.refreshContext().catch(() => undefined);
     }, 250);
   });
   try { await service.liveSnapshot(); } catch (error) { unsubscribe(); await service.dispose(); throw error; }
