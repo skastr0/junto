@@ -368,6 +368,65 @@
           "reason": "rewriteJsonColumn runs the same canonicalizing UPDATE against the four JSON-bearing tables the converter is authorized to repair."
         }
       ]
+    },
+    {
+      "path": "src/main/vellum-command/credentials/bindings.ts",
+      "kind": "permanent",
+      "tables": [
+        "openai_credential_bindings",
+        "provider_credential_bindings"
+      ],
+      "dynamicTableSites": [
+        {
+          "statement": "INSERT",
+          "expression": "${tableForSlot(binding.slot)}",
+          "resolvesTo": [
+            "openai_credential_bindings",
+            "provider_credential_bindings"
+          ],
+          "reason": "tableForSlot selects openai_credential_bindings only for openai/apiKey and provider_credential_bindings for every other admitted provider slot; both destinations are fixed literals."
+        },
+        {
+          "statement": "UPDATE",
+          "expression": "${table}",
+          "resolvesTo": [
+            "openai_credential_bindings",
+            "provider_credential_bindings"
+          ],
+          "reason": "setBindingLifecycle iterates only the two literals in BINDING_TABLES to change the referenced credential lifecycle."
+        },
+        {
+          "statement": "DELETE",
+          "expression": "${table}",
+          "resolvesTo": [
+            "openai_credential_bindings",
+            "provider_credential_bindings"
+          ],
+          "reason": "deleteBinding iterates only the two literals in BINDING_TABLES to remove the referenced credential binding."
+        }
+      ],
+      "reason": "Sole writer of provider credential binding metadata. The credential coordinator supplies a StateWriter from the existing SettingsService transaction; secret material stays in the credential store, never these rows."
+    },
+    {
+      "path": "src/main/vellum-command/overseer/live/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "overseer_live_events",
+        "overseer_live_operations",
+        "overseer_live_requests",
+        "overseer_live_sessions"
+      ],
+      "reason": "Sole Live session/request/operation persistence seam. Writes use the existing StateEngine transaction or a StateWriter supplied by the owning mutation transaction for its correlated receipt. Events append here; current session, request, and operation rows are materialized here. No canvas or Work table is written by this file.",
+      "retire": "Retain this event append seam; remove its materialized-row writes when Live session, request, and operation state is derived from its event journal in the resident world."
+    },
+    {
+      "path": "src/main/vellum-command/state/backup.ts",
+      "kind": "debt",
+      "tables": [
+        "settings_preferences"
+      ],
+      "reason": "The already-registered backup opener strips inline provider secrets only from the private pending VACUUM INTO copy before publishing and verifying the backup. The UPDATE never targets the live product database; SettingsService remains the sole live preferences writer.",
+      "retire": "Remove this backup-copy UPDATE once every supported input schema guarantees that settings_preferences contains no inline provider secrets, so newly minted backups need no redaction."
     }
   ],
   "sharedTableExceptions": [
@@ -566,6 +625,15 @@
       ],
       "reason": "The corrective converter rewrites retired action_json task payloads in place and rehashes the command events; journal.ts remains the runtime append seam.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
+    },
+    {
+      "table": "settings_preferences",
+      "owner": "src/main/vellum-command/settings/service.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum-command/state/backup.ts"
+      ],
+      "reason": "SettingsService owns the live product row. backup.ts writes the same table name only in its private pending backup copy to remove inline provider secrets before publication; it never rewrites the source database.",
+      "retire": "Remove the backup-copy writer and this table-name exception once every supported input schema guarantees preferences contain no inline provider secrets."
     }
   ],
   "decodeBoundaries": [
@@ -1101,6 +1169,37 @@
         "codec"
       ],
       "reason": "Defines the frozen Station protocol 1 wire codec; every schema decode here is a wire-boundary decode by construction."
+    },
+    {
+      "path": "src/main/vellum-command/overseer/live/ipc.ts",
+      "kinds": [
+        "operator",
+        "wire"
+      ],
+      "reason": "Decodes trusted-renderer IPC ingress for operator-authored Live session start, selection, corrections, and lifecycle controls. Provider-event routing also validates the cross-process session id and voice epoch here."
+    },
+    {
+      "path": "src/main/vellum-command/overseer/live/repository.ts",
+      "kinds": [
+        "row",
+        "mint"
+      ],
+      "reason": "Reconstructs retained Live context, transcript references, arguments, outcomes, and event details from JSON columns. The same object decoder also validates the locally assembled JSON object before canonical serialization and argument hashing.",
+      "retire": "Decode retained values once during hydration into typed resident Live state, and construct bounded JSON argument objects at ingress so local serialization does not repeat object validation."
+    },
+    {
+      "path": "src/overseer-host/session.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the external Responses API result and its function-call items before the native controller can dispatch any provider-produced tool call."
+    },
+    {
+      "path": "src/shared/overseer-host-control.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the closed native Overseer request and assignment decoders used at the authenticated process-bound Work control socket boundary."
     }
   ],
   "journalFreeMutations": [
