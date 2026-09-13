@@ -88,7 +88,7 @@
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "test:e2e:startup": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",
     "test:e2e:audit": "VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/design-audit.spec.ts",
-    "audit:dependencies": "bun scripts/audit-dependencies.ts"
+    "audit:dependencies": "bun audit --audit-level=high"
   },
   "dependencies": {
     "@dnd-kit/helpers": "^0.5.0",

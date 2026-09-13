@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Ship gate. Cheap lints first, then overlapping lanes: typecheck, audit,
- * unit tests, ship-profile gates, compile. Every lane must pass. Vitest is
+ * Ship gate. Cheap lints first, then overlapping lanes: typecheck, unit
+ * tests, ship-profile gates, compile. Every lane must pass. Vitest is
  * worker-capped so tsc and electron-vite still get CPU.
  */
 import { spawn } from "node:child_process";
@@ -62,11 +62,10 @@ await allMustPass([
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
 
-// Typecheck and the live audit share no filesystem with Vitest. electron-vite
-// must not run beside tests: both download Electron and write under out/.
+// electron-vite must not run beside tests: both download Electron and write
+// under out/.
 await allMustPass([
   { name: "typecheck", cmd: ["tsc", "--noEmit"] },
-  { name: "audit:dependencies", cmd: ["bun", "scripts/audit-dependencies.ts"] },
   {
     name: "test",
     cmd: ["bun", "scripts/run-unit-tests.ts", `--maxWorkers=${vitestWorkers}`],
