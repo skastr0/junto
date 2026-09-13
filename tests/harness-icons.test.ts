@@ -178,7 +178,8 @@ describe("harnessGlyphFor", () => {
     // Single-path provider art on its native grid.
     expect(GLYPHS.claude.viewBox).toBe("0 0 248 248");
     expect(GLYPHS.openai.viewBox).toBe("0 0 24 24");
-    expect(GLYPHS.codex.viewBox).toBe("0 0 14 14");
+    expect(GLYPHS.codex.viewBox).toBe("0 0 24 24");
+    expect(GLYPHS.codex.d).toEqual(PROVIDER_MARKS.openai.paths);
     expect(GLYPHS.windsurf.viewBox).toBe("0 0 1024 1024");
   });
 });
