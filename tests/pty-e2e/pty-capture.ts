@@ -24,13 +24,16 @@
  *   bun tests/pty-e2e/pty-capture.ts check <harness> <scenario> [--glyph <glyph>]
  *
  * CONFIG ISOLATION: spawns run with HOME and the XDG dirs pointed at a fresh
- * per-harness dir under /tmp/vellum-capture-home, so harnesses cannot load the
- * operator's instruction files, skills, prompts, hooks, MCP servers, or
- * extension config into a checked-in recording. A harness whose credentials
- * only live under the real home simply fails closed — the session is recorded
- * blocked rather than silently reading operator config. PTY_CAPTURE_OPERATOR_HOME=1
- * restores the old behavior explicitly (with a warning) for cases where that
- * tradeoff is intended.
+ * per-harness dir under /tmp/vellum-capture-home, and each harness's
+ * config-dir env overrides (CLAUDE_CONFIG_DIR, CODEX_HOME,
+ * PI_CODING_AGENT_DIR, PI_CODING_AGENT_SESSION_DIR) are pinned inside it —
+ * pi resolves PI_CODING_AGENT_DIR BEFORE HOME, so without the pin an
+ * inherited override would still load the operator's instruction files,
+ * skills, prompts, and extensions into a checked-in recording. A harness
+ * whose credentials only live under the real home simply fails closed — the
+ * session is recorded blocked rather than silently reading operator config.
+ * PTY_CAPTURE_OPERATOR_HOME=1 restores the old behavior explicitly (with a
+ * warning) for cases where that tradeoff is intended.
  *
  * NOTE ON BUN: the mission asked for `bun`; node-pty 1.1.0's native addon
  * delivers data on a native worker thread and Bun's event loop never wakes
@@ -91,7 +94,12 @@ export type HarnessDef = {
   readonly displayName: string;
   /** argv built at spawn time (cwd may be needed for trust pre-seeding). */
   readonly argv: (cwd: string, sessionId: string) => string[];
-  /** extra env, computed against the session's isolated capture home. */
+  /**
+   * extra env, computed against the session's isolated capture home. Applied
+   * only when the capture home is isolated — under PTY_CAPTURE_OPERATOR_HOME
+   * the parent env is inherited as-is, so these pins must restate each
+   * harness's own default config layout relative to the given home.
+   */
   readonly env?: (isolatedHome: string) => Record<string, string>;
   /** cwd prep (e.g. grok needs a git work tree). */
   readonly prep?: (cwd: string) => void;
@@ -110,7 +118,7 @@ export type HarnessDef = {
   readonly freshSpawnPerScenario?: boolean;
 };
 
-const HARNESSES: readonly HarnessDef[] = [
+export const HARNESSES: readonly HarnessDef[] = [
   {
     name: "claude", displayName: "Claude Code",
     argv: (cwd, sid) => ["--setting-sources", "local", "--no-chrome", "--model", "haiku",
@@ -161,7 +169,15 @@ const HARNESSES: readonly HarnessDef[] = [
     // ("0.0%/400k (auto)") marks a ready composer.
     promptGlyphs: ["0.0%/400k (auto)", "\u276f", ">"],
     exitRecipe: ["\u0003", "\u0004", "/exit\r"],
-    note: "--approve gates project-trust selector",
+    // pi resolves PI_CODING_AGENT_DIR before HOME and honors
+    // PI_CODING_AGENT_SESSION_DIR for session storage — pin both inside the
+    // capture home or an inherited override still reaches the operator's
+    // agent config despite the isolated HOME.
+    env: (home) => ({
+      PI_CODING_AGENT_DIR: path.join(home, ".pi", "agent"),
+      PI_CODING_AGENT_SESSION_DIR: path.join(home, ".pi", "agent", "sessions"),
+    }),
+    note: "--approve gates project-trust selector; PI_CODING_AGENT_* pinned to the capture home",
   },
   {
     name: "prime-agent", displayName: "Prime Agent",
@@ -380,6 +396,42 @@ export function tailText(bytes: Buffer, n = 4000): string {
 // ── capture session ─────────────────────────────────────────────────────────
 type RawEvent = { t: number; buf: Buffer };
 
+/**
+ * Spawn env for a capture session: the parent env minus ENV_SCRUB, with HOME
+ * and the XDG dirs repointed at the session's capture home. Per-harness
+ * config-dir overrides (HarnessDef.env — e.g. PI_CODING_AGENT_DIR, which pi
+ * resolves BEFORE homedir()) are pinned inside the capture home too, or an
+ * inherited override would still reach the operator's agent config despite
+ * the isolated HOME. A harness needing credentials that exist only under the
+ * real home fails closed (the block detector records it). Under
+ * PTY_CAPTURE_OPERATOR_HOME=1 nothing is repointed or pinned — the parent env
+ * is inherited as-is.
+ */
+export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Record<string, string> {
+  const e: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined || ENV_SCRUB.includes(k)) continue;
+    e[k] = v;
+  }
+  const operatorHome = process.env.PTY_CAPTURE_OPERATOR_HOME === "1";
+  if (operatorHome) {
+    console.warn(`[${def.name}] WARNING: PTY_CAPTURE_OPERATOR_HOME=1 — harness sees the real HOME; operator config may enter the recording`);
+  } else {
+    e.HOME = home;
+    e.USERPROFILE = home;
+    e.XDG_CONFIG_HOME = path.join(home, ".config");
+    e.XDG_DATA_HOME = path.join(home, ".local", "share");
+    e.XDG_CACHE_HOME = path.join(home, ".cache");
+    e.XDG_STATE_HOME = path.join(home, ".local", "state");
+    Object.assign(e, def.env?.(home) ?? {});
+  }
+  e.PWD = cwd;
+  delete e.OLDPWD;
+  e.TERM = "xterm-256color";
+  e.LANG = e.LANG ?? "en_US.UTF-8";
+  return e;
+}
+
 class Session {
   readonly name: string;
   readonly def: HarnessDef;
@@ -404,35 +456,7 @@ class Session {
   }
 
   private env(): Record<string, string> {
-    const e: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v === undefined || ENV_SCRUB.includes(k)) continue;
-      e[k] = v;
-    }
-    // Point HOME + XDG dirs at a fresh capture home so the harness cannot
-    // load the operator's instruction files, skills, prompts, hooks, MCP
-    // servers, or extension config into a recording. A harness that needs
-    // credentials which only exist under the real home fails closed (the
-    // block detector records it) instead of silently reading them.
-    // PTY_CAPTURE_OPERATOR_HOME=1 opts back into the real home explicitly.
-    const operatorHome = process.env.PTY_CAPTURE_OPERATOR_HOME === "1";
-    if (operatorHome) {
-      console.warn(`[${this.name}] WARNING: PTY_CAPTURE_OPERATOR_HOME=1 — harness sees the real HOME; operator config may enter the recording`);
-    } else {
-      e.HOME = this.home;
-      e.USERPROFILE = this.home;
-      e.XDG_CONFIG_HOME = path.join(this.home, ".config");
-      e.XDG_DATA_HOME = path.join(this.home, ".local", "share");
-      e.XDG_CACHE_HOME = path.join(this.home, ".cache");
-      e.XDG_STATE_HOME = path.join(this.home, ".local", "state");
-    }
-    e.PWD = this.cwd;
-    delete e.OLDPWD;
-    e.TERM = "xterm-256color";
-    e.LANG = e.LANG ?? "en_US.UTF-8";
-    const activeHome = operatorHome ? HOME : this.home;
-    Object.assign(e, this.def.env?.(activeHome) ?? {});
-    return e;
+    return buildSpawnEnv(this.def, this.cwd, this.home);
   }
 
   spawn(): void {
@@ -1374,4 +1398,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Importable for verification (e.g. buildSpawnEnv under a synthetic env);
+// main() runs only on direct invocation.
+const invokedAs = process.argv[1] ? fs.realpathSync(process.argv[1]) : "";
+if (invokedAs === fs.realpathSync(fileURLToPath(import.meta.url))) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

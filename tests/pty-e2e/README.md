@@ -52,11 +52,14 @@ claim: the scrub gate certifies the placeholder classes it checks, and the
 manifests record what was neutralized by hand.
 
 The recorder (`pty-capture.ts`, beside this README) runs each harness under an
-isolated HOME (`/tmp/vellum-capture-home/<harness>`) so future captures do not
-reload the operator's instruction/skill/extension configuration. Harnesses
-whose credentials only exist under the real home fail closed and record
-`blocked` rather than reading operator config; `PTY_CAPTURE_OPERATOR_HOME=1`
-opts back in explicitly.
+isolated HOME (`/tmp/vellum-capture-home/<harness>`) and pins per-harness
+config-dir env overrides (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
+`PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`) inside it — pi resolves
+`PI_CODING_AGENT_DIR` before HOME, so an inherited override alone would still
+load operator config. Harnesses whose credentials only exist under the real
+home fail closed and record `blocked` rather than reading operator config;
+`PTY_CAPTURE_OPERATOR_HOME=1` opts back in explicitly (parent env inherited
+as-is, no pins).
 
 ## Add a repro (checklist)
 
