@@ -24,6 +24,7 @@ const ISOLATE_HINTS = [
   /StateEngineLive/,
   /vi\.stubEnv\(/,
   /vi\.stubGlobal\(/,
+  /from ["'].*renderer\/lib\/(state|mutations|dock-state)/,
 ] as const;
 
 const walk = (directory: string): string[] =>
@@ -39,9 +40,6 @@ const walk = (directory: string): string[] =>
 const isolate = (path: string, source: string): boolean => {
   const rel = relative(TESTS, path);
   if (rel.startsWith("pty-e2e/")) return true;
-  // Live UDS / session pumps share process-local registries; reuse leaks.
-  if (rel === "station-remote-report-pump.test.ts") return true;
-  if (rel === "operator-control-server.test.ts") return true;
   return ISOLATE_HINTS.some((hint) => hint.test(source));
 };
 
