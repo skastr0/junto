@@ -5,6 +5,7 @@
  *   VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * A plain ship-profile build hides those surfaces and fails this spec.
+ * The isolated live scenario needs only VELLUM_COMMAND_LIVE_OVERSEER=1.
  * The screenshots are the artifact; assertions only prove a surface appeared.
  */
 import { mkdir, mkdtemp } from "node:fs/promises";
@@ -43,13 +44,12 @@ const liveAuditSnapshot: LiveSnapshot = {
   connectionEpoch: 1, connection: "connecting", authority: "active", controller: "working",
   elapsedSeconds: 83, voiceCostUsd: 83 / 60 * 0.05, limitSeconds: 900,
   transcript: [
-    { id: "you-1", speaker: "operator", text: "Ask the API worker to investigate the authentication failures. Put the task next to it." },
-    { id: "overseer-1", speaker: "overseer", text: "The investigation task is beside the API worker. It has accepted the work and is checking the configuration." },
+    { id: "you-1", speaker: "operator", text: "Move the selected note beside you and create a release checklist note." },
+    { id: "overseer-1", speaker: "overseer", text: "The selected note is beside me. I’m adding the release checklist note." },
   ],
-  requests: [{ requestId: "request-1", intentRevision: 1, text: "Investigate the API authentication failures", status: "executing" }],
+  requests: [{ requestId: "request-1", intentRevision: 1, text: "Move the selected note and add a release checklist", status: "executing" }],
   actions: [
-    { id: "action-1", requestId: "request-1", label: "Create investigation task", status: "committed", targetRefs: ["live-audit/auth-task"] },
-    { id: "action-2", requestId: "request-1", label: "Dispatch to API worker", status: "accepted", targetRefs: ["live-audit/api-worker"] },
+    { id: "action-1", requestId: "request-1", label: "Move selected note", status: "committed", targetRefs: ["live-audit/release-note"] },
   ],
 };
 
@@ -61,7 +61,7 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     offline: true,
     seedCanvases: { "live-audit": canvasDoc([
       seat,
-      agentTextNode({ id: "api-worker", key: "local:api", label: "API worker", x: 420, y: 60 }),
+      textNode("release-note", "Release notes", 420, 60),
     ]) },
   });
   try {
@@ -116,6 +116,14 @@ test("capture live conversation with isolated provider and media fixtures", asyn
       }
       Object.defineProperty(window, "RTCPeerConnection", { configurable: true, value: AuditPeer });
     });
+    await page.getByRole("button", { name: "Open settings" }).click();
+    await page.locator(".settings-nav__item", { hasText: "Providers" }).click();
+    const liveSettingsForm = page.getByRole("form", { name: "GPT-Live settings" });
+    await expect(liveSettingsForm).toBeVisible();
+    await expect(liveSettingsForm.getByLabel("OpenAI API key", { exact: true })).toBeVisible();
+    await expect(liveSettingsForm.getByLabel("Live backend model")).toHaveValue("audit-backend");
+    await shot(page, "27-live-provider-settings");
+    await page.keyboard.press("Escape");
     const seatNode = page.locator('.react-flow__node[data-id="live-overseer"]');
     await seatNode.click();
     await page.getByTestId("rts-overseer").click();
@@ -133,17 +141,17 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     await expect(panel.getByText("Microphone muted", { exact: true })).toBeVisible();
     await expect(panel.getByText("Taking action", { exact: true })).toBeVisible();
     await panel.getByRole("button", { name: "Correct request" }).click();
-    await panel.getByRole("textbox", { name: "Correction for this request" }).fill("Keep the task beside the worker; investigate staging only.");
+    await panel.getByRole("textbox", { name: "Correction for this request" }).fill("Keep the selected note where it is; only add the checklist.");
     await shot(page, "30-live-correction-muted");
     await page.evaluate(() => window.vellumCommand!.settingsPatch({ appearance: { theme: "bright" } }));
     await shot(page, "31-live-bright");
     await page.evaluate(() => window.vellumCommand!.settingsPatch({ appearance: { theme: "dark" } }));
     await panel.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(panel.getByText("Keep the task beside the worker; investigate staging only.", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Keep the selected note where it is; only add the checklist.", { exact: true })).toBeVisible();
     await expect(panel.getByRole("textbox", { name: "Correction for this request" })).not.toBeVisible();
     await panel.getByRole("button", { name: "Return to canvas, keep call" }).click();
     await expect(panel).not.toBeVisible();
-    await page.locator('.react-flow__node[data-id="api-worker"]').click();
+    await page.locator('.react-flow__node[data-id="release-note"]').click();
     const rail = page.getByRole("complementary", { name: "Live conversation controls" });
     await expect(rail).toBeVisible();
     await shot(page, "32-live-canvas-rail");
