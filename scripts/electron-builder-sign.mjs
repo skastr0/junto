@@ -37,7 +37,7 @@ const validatePolicies = (runtimePolicy, packagePolicy) => {
     Object.keys(runtimePolicy.profiles).sort().join(",") !== "jit,none" ||
     Object.keys(runtimePolicy.profiles.none).length !== 0 ||
     JSON.stringify(runtimePolicy.profiles.jit) !==
-      JSON.stringify({ "com.apple.security.cs.allow-jit": true })
+      JSON.stringify({ "com.apple.security.cs.allow-jit": true, "com.apple.security.device.audio-input": true })
   ) {
     throw new Error("macOS signing policy must expose only the none and JIT profiles");
   }

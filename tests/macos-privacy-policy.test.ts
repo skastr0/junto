@@ -10,12 +10,12 @@ import { decodeStoredSettings } from "../src/main/vellum-command/settings/state-
 const read = (path: string): string => readFileSync(path, "utf8");
 
 describe("macOS privacy policy", () => {
-  it("ships only the Electron JIT entitlement and no inherited grants", () => {
+  it("ships Electron JIT/audio entitlements and no inherited CLI grants", () => {
     const app = read("build/entitlements.mac.plist");
     const inherited = read("build/entitlements.mac.inherit.plist");
     const keys = [...app.matchAll(/<key>([^<]+)<\/key>/gu)].map((match) => match[1]);
 
-    expect(keys).toEqual(["com.apple.security.cs.allow-jit"]);
+    expect(keys).toEqual(["com.apple.security.cs.allow-jit", "com.apple.security.device.audio-input"]);
     expect(app).not.toContain("com.apple.security.app-sandbox");
     expect(inherited).toContain("<dict/>");
   });
@@ -34,7 +34,7 @@ describe("macOS privacy policy", () => {
       read("scripts/app-paths.sh"),
     ].join("\n");
 
-    expect(packaging).not.toMatch(/NS[A-Z][A-Za-z]+UsageDescription/u);
+    expect([...packaging.matchAll(/NS[A-Z][A-Za-z]+UsageDescription/gu)].map(([key]) => key)).toEqual(["NSMicrophoneUsageDescription"]);
     expect(runtime).not.toMatch(
       /askForMediaAccess|requestMediaAccess|desktopCapturer|systemPreferences\.getMediaAccessStatus/u,
     );

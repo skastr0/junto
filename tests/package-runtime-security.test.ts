@@ -102,7 +102,7 @@ describe("macOS packaged runtime policy", () => {
     ).toMatchObject({ identifier: "node-pty", profile: "none" });
     expect(MACOS_RUNTIME_POLICY.profiles).toEqual({
       none: {},
-      jit: { "com.apple.security.cs.allow-jit": true },
+      jit: { "com.apple.security.cs.allow-jit": true, "com.apple.security.device.audio-input": true },
     });
   });
 
@@ -111,7 +111,7 @@ describe("macOS packaged runtime policy", () => {
     (
       (expanded.profiles as Record<string, unknown>).jit as Record<string, unknown>
     )["com.apple.security.cs.disable-library-validation"] = true;
-    expect(() => validateMacOSRuntimePolicy(expanded)).toThrow(/only empty and allow-jit/u);
+    expect(() => validateMacOSRuntimePolicy(expanded)).toThrow(/only empty and Electron JIT\/audio/u);
 
     const cliJit = structuredClone(rawRuntimePolicy);
     const cli = cliJit.machO.find(
@@ -144,7 +144,7 @@ describe("macOS packaged runtime policy", () => {
   it("accepts only exact entitlement keys and true values", () => {
     expect(() => validateEntitlementProfile({}, "none")).not.toThrow();
     expect(() =>
-      validateEntitlementProfile({ "com.apple.security.cs.allow-jit": true }, "jit"),
+      validateEntitlementProfile({ "com.apple.security.cs.allow-jit": true, "com.apple.security.device.audio-input": true }, "jit"),
     ).not.toThrow();
     expect(() =>
       validateEntitlementProfile(
@@ -153,8 +153,9 @@ describe("macOS packaged runtime policy", () => {
       ),
     ).toThrow(/keys mismatch/u);
     expect(() =>
-      validateEntitlementProfile({ "com.apple.security.cs.allow-jit": false }, "jit"),
+      validateEntitlementProfile({ "com.apple.security.cs.allow-jit": false, "com.apple.security.device.audio-input": true }, "jit"),
     ).toThrow(/wrong value/u);
+    expect(() => validateEntitlementProfile({ "com.apple.security.device.audio-input": true }, "none")).toThrow(/keys mismatch/u);
   });
 
   it("recognizes every thin and fat Mach-O byte order without classifying text", () => {
@@ -377,7 +378,13 @@ describe("electron-builder role-specific signing", () => {
       readFile(new URL("../scripts/audit-linux-package.ts", import.meta.url), "utf8"),
     ]);
     expect(jitPlist).toContain("com.apple.security.cs.allow-jit");
+    expect(jitPlist).toContain("com.apple.security.device.audio-input");
     expect(emptyPlist).toContain("<dict/>");
+    const plistGrants = (plist: string) => Object.fromEntries(
+      [...plist.matchAll(/<key>([^<]+)<\/key>\s*<true\s*\/>/gu)].map(([, key]) => [key, true]),
+    );
+    expect(plistGrants(jitPlist)).toEqual(MACOS_RUNTIME_POLICY.profiles.jit);
+    expect(plistGrants(emptyPlist)).toEqual(MACOS_RUNTIME_POLICY.profiles.none);
     for (const forbidden of [
       "com.apple.security.cs.allow-unsigned-executable-memory",
       "com.apple.security.cs.disable-library-validation",

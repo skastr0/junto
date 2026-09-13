@@ -1,6 +1,6 @@
 # macOS privacy and filesystem access
 
-Last audited: 2026-09-11.
+Last audited: 2026-09-12.
 
 Vellum Command is a developer workstation, not a file indexer. It does not
 scan the whole home folder, Photos library, Music library, Downloads,
@@ -13,14 +13,20 @@ that action. Narrow startup metadata/network exceptions are listed below.
 
 - The signed app uses Hardened Runtime. That protects code execution; it is
   not macOS App Sandbox and does not grant privacy access.
-- The app entitlement file contains only
-  `com.apple.security.cs.allow-jit`, required by Electron's JavaScript engine.
-  Inherited helper entitlements are empty.
-- The package has no macOS privacy usage-description keys and the runtime has
-  no camera, microphone, screen capture, location, contacts, calendar,
+- The Electron signing profile contains `com.apple.security.cs.allow-jit`,
+  required by Electron's JavaScript engine, and
+  `com.apple.security.device.audio-input` for Live conversations. The custom
+  signer assigns this profile only to its existing Electron roles. The CLI
+  and native libraries keep the empty profile and inherited plist.
+- The package declares only `NSMicrophoneUsageDescription`. Live conversations
+  are behind `VELLUM_COMMAND_LIVE_OVERSEER`, off in the shipping profile.
+  Microphone access begins only when the operator starts a call in an enabled
+  build, and its tracks stop when the call ends. The runtime has no camera,
+  screen capture, location, contacts, calendar,
   reminders, Photos, media-library, Bluetooth, Accessibility, Input
   Monitoring, Apple Events, or Full Disk Access request API.
-- The trusted renderer may write the clipboard only. Third-party browser
+- The trusted renderer may write the clipboard and, in Live-enabled builds,
+  request audio-only microphone access. Third-party browser
   pages are denied media, display capture, devices, downloads, filesystem
   access, popups, and every ambient Chromium permission.
 
@@ -34,6 +40,7 @@ as the same trust decision as opening Terminal.app in that directory.
 | Surface | Trigger | Filesystem or system scope | Retention and limits |
 |---|---|---|---|
 | Product state | App start | `~/.vellum-command` only | Durable app state, content, sockets, and logs |
+| Live conversation | Starting a call in a Live-enabled build | Microphone audio sent to OpenAI; selected canvas context and transcript sent to the controller | Audio is not recorded locally; transcript, requests, and operation receipts remain in product state; microphone tracks stop on call end |
 | Spawn PATH | App start | Inherited `PATH`, optional operator tool directories, and fixed executable directories such as `~/.local/bin` and `~/.kimi-code/bin` | No login shell and no shell startup files are executed |
 | Supervisor status | Packaged app start | Current-user launchd job metadata | No content-library access and no permission prompt |
 | Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; Hermes host snapshots poll every minute when separately enabled; revocation clears the row immediately and stops future polls |

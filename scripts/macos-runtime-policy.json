@@ -3,7 +3,8 @@
   "profiles": {
     "none": {},
     "jit": {
-      "com.apple.security.cs.allow-jit": true
+      "com.apple.security.cs.allow-jit": true,
+      "com.apple.security.device.audio-input": true
     }
   },
   "machO": [

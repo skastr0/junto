@@ -249,11 +249,12 @@ export const validateMacOSRuntimePolicy = (
   }
   if (
     !exactRecordKeys(value.profiles.none, []) ||
-    !exactRecordKeys(value.profiles.jit, ["com.apple.security.cs.allow-jit"]) ||
-    value.profiles.jit["com.apple.security.cs.allow-jit"] !== true
+    !exactRecordKeys(value.profiles.jit, ["com.apple.security.cs.allow-jit", "com.apple.security.device.audio-input"]) ||
+    value.profiles.jit["com.apple.security.cs.allow-jit"] !== true ||
+    value.profiles.jit["com.apple.security.device.audio-input"] !== true
   ) {
     throw new Error(
-      "macOS runtime policy must expose only empty and allow-jit profiles",
+      "macOS runtime policy must expose only empty and Electron JIT/audio profiles",
     );
   }
   if (value.machO.length !== 24) {
