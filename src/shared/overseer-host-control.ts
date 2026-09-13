@@ -1,4 +1,15 @@
 import { Schema } from "effect";
+import type { OverseerOperation } from "./overseer-control";
+
+/** POC scope shared by the backend catalog and main's operation admission. */
+export const OVERSEER_HOST_OPERATIONS = [
+  "canvas.list", "canvas.read", "canvas.digest", "canvas.batch",
+  "node.get", "node.create", "node.configure", "node.move", "node.resize",
+  "edge.verbs", "edge.connect", "edge.configure", "edge.disconnect",
+  "tasks.list", "tasks.show",
+  "agent.list", "agent.get", "agent.output",
+  "board.list", "board.tags", "pad.digest", "artifact.list", "artifact.get",
+] as const satisfies ReadonlyArray<OverseerOperation>;
 
 const Id = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(256)));
 const Revision = Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)));

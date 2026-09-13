@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OverseerHostEvent, OverseerHostRun } from "../src/shared/overseer-host-control";
-import { runOverseerTurn } from "../src/overseer-host/session";
-import { overseerHostTools } from "../src/overseer-host/tools";
+import { requestBackendResponse, runOverseerTurn } from "../src/overseer-host/session";
+import { decodeHostTool, overseerHostTools } from "../src/overseer-host/tools";
 import { earlyDispatchFromArgv } from "../src/cli/early-dispatch";
 
 const assignment = (): OverseerHostRun => ({
@@ -19,6 +19,32 @@ describe("native Overseer host", () => {
     const tools = overseerHostTools();
     expect(tools.some((tool) => tool.name === "canvas__batch")).toBe(true);
     expect(tools.every((tool) => tool.parameters.type === "object")).toBe(true);
+    expect(tools.find((tool) => tool.name === "canvas__list")?.parameters).toEqual({ type: "object", properties: {}, additionalProperties: false });
+  });
+
+  it("does not expose worker dispatch or task mutations in the POC", () => {
+    for (const name of ["agent__start", "agent__prompt", "agent__interrupt", "tasks__create", "tasks__describe", "tasks__update"]) {
+      expect(overseerHostTools().some((tool) => tool.name === name)).toBe(false);
+      expect(() => decodeHostTool(name, "{}")).toThrow("outside the controller catalog");
+    }
+  });
+
+  it("uses a fresh canvas read revision for the follow-up edit", async () => {
+    const events: OverseerHostEvent[] = [];
+    const respond = vi.fn()
+      .mockResolvedValueOnce(call("canvas__read", {}))
+      .mockResolvedValueOnce(call("node__move", { nodeId: "task", x: 10, y: 20 }))
+      .mockResolvedValueOnce({ status: "completed", output: [] });
+    const tool = vi.fn()
+      .mockResolvedValueOnce({ ok: true, operation: "canvas.read", data: { revision: "fresh-revision" } })
+      .mockResolvedValueOnce({ ok: true, operation: "node.move", data: {} });
+    const conversation = [{ role: "user", content: "Earlier request" }, { role: "assistant", content: "Earlier answer" }];
+    await runOverseerTurn({ ...assignment(), conversation }, {
+      respond, tool, event: async (event) => { events.push(event); }, control: vi.fn(),
+    }, new AbortController().signal);
+    expect(respond.mock.calls[0]?.[0].input.slice(0, 2)).toEqual(conversation);
+    expect(tool.mock.calls[1]?.[0]).toMatchObject({ live: { expectedRevision: "fresh-revision", operationId: "op-main-2" } });
+    expect(events.at(-1)?.type).toBe("completed");
   });
 
   it("correlates tools with main-minted IDs and preserves reasoning/output receipts between Responses calls", async () => {
@@ -55,11 +81,21 @@ describe("native Overseer host", () => {
   it("does not replay a tool whose transport failed after dispatch", async () => {
     const events: OverseerHostEvent[] = [];
     const tool = vi.fn().mockRejectedValue(new Error("UncertainCompletion"));
-    const respond = vi.fn().mockResolvedValue(call("agent__prompt", { nodeId: "worker", text: "Investigate" }));
+    const respond = vi.fn().mockResolvedValue(call("node__move", { nodeId: "task", x: 1, y: 2 }));
     await runOverseerTurn(assignment(), { respond, tool, control: vi.fn(), event: async (event) => { events.push(event); } }, new AbortController().signal);
     expect(tool).toHaveBeenCalledTimes(1);
     expect(respond).toHaveBeenCalledTimes(1);
     expect(events.at(-1)?.type).toBe("failed");
+  });
+
+  it("reports provider failure once without retrying or invoking tools", async () => {
+    const events: OverseerHostEvent[] = [];
+    const respond = vi.fn().mockRejectedValue(new Error("The controller API returned HTTP 429."));
+    const tool = vi.fn();
+    await runOverseerTurn(assignment(), { respond, tool, control: vi.fn(), event: async (event) => { events.push(event); } }, new AbortController().signal);
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(tool).not.toHaveBeenCalled();
+    expect(events.at(-1)).toMatchObject({ type: "failed", message: "The controller API returned HTTP 429." });
   });
 
   it("fences a cancellation that arrives before a model tool result", async () => {
@@ -81,5 +117,42 @@ describe("native Overseer host", () => {
     await runOverseerTurn(assignment(), { respond, tool: vi.fn(), control, event: async () => {} }, new AbortController().signal);
     expect(control.mock.calls[0]?.[0]).toEqual({ type: "steer", sessionId: "session", requestId: "request", intentRevision: 1,
       targetRequestId: "prior", text: "Use the other worker" });
+  });
+});
+
+describe("controller HTTP response", () => {
+  const waitingFetch = () => vi.fn((_url: string, init: RequestInit): Promise<Response> => new Promise((_resolve, reject) => {
+    const signal = init.signal!;
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  }));
+
+  it("bounds a stalled provider request with a deadline", async () => {
+    const fetch = waitingFetch();
+    await expect(requestBackendResponse({}, "test", new AbortController().signal, { fetch, timeoutMs: 10 })).rejects.toThrow("timed out");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts an in-flight provider request on cancellation", async () => {
+    const fetch = waitingFetch();
+    const controller = new AbortController();
+    const pending = requestBackendResponse({}, "test", controller.signal, { fetch });
+    controller.abort(new Error("Request cancelled"));
+    await expect(pending).rejects.toThrow("Request cancelled");
+  });
+
+  it("does not send a request that was already cancelled", async () => {
+    const fetch = waitingFetch();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(requestBackendResponse({}, "test", controller.signal, { fetch })).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns a completed JSON response and fails on an HTTP error", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "completed", output: [] })))
+      .mockResolvedValueOnce(new Response("private provider detail", { status: 401 }));
+    await expect(requestBackendResponse({}, "test", new AbortController().signal, { fetch })).resolves.toEqual({ status: "completed", output: [] });
+    await expect(requestBackendResponse({}, "test", new AbortController().signal, { fetch })).rejects.toThrow("HTTP 401");
   });
 });

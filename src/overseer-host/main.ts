@@ -14,7 +14,6 @@ export const runOverseerHost = async (_args: readonly string[]): Promise<void> =
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   const active = new Map<string, { run: OverseerHostRun; controller: AbortController; done: Promise<void> }>();
-  let sessionId: string | undefined;
   const call = (op: "overseer" | "overseer.live", args: unknown, signal = shutdown.signal) =>
     runtime.runPromise(Effect.flatMap(WorkSocket, (socket) => socket.call(op, args, 25_000)), { signal });
   const report = (run: OverseerHostRun, event: OverseerHostEvent) =>
@@ -23,7 +22,9 @@ export const runOverseerHost = async (_args: readonly string[]): Promise<void> =
   title("idle");
   try {
     while (!shutdown.signal.aborted) {
-      const result = await call("overseer.live", { type: "next", ...(sessionId === undefined ? {} : { sessionId }) });
+      // Main selects the active session from this process-bound occupant. A
+      // previous call's session ID must not strand this host after replacement.
+      const result = await call("overseer.live", { type: "next" });
       const decoded = decodeOverseerHostAssignment(result);
       if (Result.isFailure(decoded)) throw new Error("main returned a malformed controller assignment");
       const assignment = decoded.success;
@@ -37,12 +38,11 @@ export const runOverseerHost = async (_args: readonly string[]): Promise<void> =
         continue;
       }
       // Only a revision of this request replaces its previous interpretation.
-      // Independent worker requests remain live while a correction is interpreted.
+      // Independent requests remain live while a correction is interpreted.
       const previous = active.get(assignment.requestId);
       previous?.controller.abort();
       if (previous !== undefined) await previous.done;
       if (active.size >= 4) throw new Error("main exceeded the controller's four concurrent request limit");
-      sessionId = assignment.sessionId;
       const controller = new AbortController();
       const onShutdown = () => controller.abort();
       shutdown.signal.addEventListener("abort", onShutdown, { once: true });
