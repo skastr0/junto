@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { CanvasReadResult } from "../src/shared/ipc";
-import type { CanvasNode } from "../src/shared/canvas";
+import type { TextNode } from "../src/shared/canvas";
 import type { Task, TaskState } from "../src/shared/work-model";
 import {
   buildLiveContext,
@@ -18,7 +18,7 @@ const task = (id = "investigation", state: TaskState = "working"): Task => ({
   ...(state === "submitted" ? {} : { claimedBy: actor }),
   history: [{ messageId: "brief", role: "user", parts: [{ kind: "text", text: "Investigate authentication failures\nFull history should stay private" }] }],
 });
-const node = (id: string): CanvasNode => ({ id, type: "text", text: id, x: 10, y: 20, width: 200, height: 100 });
+const node = (id: string): TextNode => ({ id, type: "text", text: id, x: 10, y: 20, width: 200, height: 100 });
 const fixture = (state: TaskState = "working", workRevision = "1"): CanvasReadResult => ({
   name: "factory", revision: "authorial-revision", workRevision, actorRefs: [],
   doc: {
