@@ -5,6 +5,7 @@
  * CC-opened Remote Station session. Does not own admission or dispatch routing.
  */
 import { Effect, Result } from "effect";
+import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "./live/execution";
 import type { CanvasDoc, TextNode } from "@shared/canvas";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -70,6 +71,7 @@ export type OverseerComposition = {
     request: OverseerRequest,
     caller: OverseerCaller,
     signal: AbortSignal,
+    live?: OverseerLiveExecutionConstraint,
   ) => Promise<OverseerResult>;
   readonly bindPages: (pages: BrowserSessionService | undefined) => void;
   readonly bindStationForward: (input: {
@@ -216,10 +218,11 @@ export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "in
 export const createDispatchGrant = (
   run: <A, E>(effect: Effect.Effect<A, E, CanvasesService | StationRepository>) => Promise<A>,
   sourceInstallationId: InstallationId | undefined,
+  live?: OverseerLiveExecutionConstraint,
 ): ((caller: OverseerCaller) => Promise<boolean>) =>
   (caller) =>
     run(admitOverseer(caller, sourceInstallationId))
-      .then(() => true)
+      .then(() => { live?.assertCurrent(); return true; })
       .catch(() => false);
 
 export const runOverseerProgram = <A, E>(
@@ -387,6 +390,7 @@ export const composeOverseer = async (input: {
     caller: OverseerCaller,
     sourceInstallationId: InstallationId | undefined,
     signal: AbortSignal,
+    live?: OverseerLiveExecutionConstraint,
   ): Promise<OverseerResult> => {
     if (!accepting) {
       return Promise.resolve({
@@ -398,7 +402,7 @@ export const composeOverseer = async (input: {
         },
       });
     }
-    const dispatchGrant = createDispatchGrant(input.run, sourceInstallationId);
+    const dispatchGrant = createDispatchGrant(input.run, sourceInstallationId, live);
     return mainAuthoringGate.run(overseerAuthoringLabel, () =>
       runOverseerProgram(
         input.run,
@@ -413,18 +417,33 @@ export const composeOverseer = async (input: {
               captureApplicationPage: input.captureApplicationPage,
               liveOverseerGrant: dispatchGrant,
               listCanvasDocuments: () => listCanvasDocuments(input.run),
-              occupySeat: (spec, occupySignal) =>
-                input
-                  .run(actorSeatOccupy.occupy(spec), { signal: occupySignal })
-                  .then(() => true, () => false),
+              occupySeat: async (spec, occupySignal) => {
+                if (!await dispatchGrant(caller)) return false;
+                const effect = actorSeatOccupy.occupy(spec);
+                return input.run(live === undefined ? effect :
+                  Effect.provideService(effect, OverseerLiveExecution, live), { signal: occupySignal })
+                  .then(() => true, () => false);
+              },
               managedDrive: lateBoundDrive(),
-              commitAgentReseat: commitReseatHook,
-              applySchedulerConfigure: applySchedulerHook,
+              commitAgentReseat: (payload, commitSignal) => {
+                const mapped = reseatCanvasArgs(payload);
+                if ("ok" in mapped) return Promise.resolve(mapped);
+                const effect = commitAgentReseat(mapped.caller, mapped.args, mapped.next);
+                return runCanvasHook(input.run, live === undefined ? effect :
+                  Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
+              },
+              applySchedulerConfigure: (payload, commitSignal) => {
+                const mapped = schedulerCanvasArgs(payload);
+                const effect = applySchedulerConfigure(mapped.caller, mapped.args);
+                return runCanvasHook(input.run, live === undefined ? effect :
+                  Effect.provideService(effect, OverseerLiveExecution, live), commitSignal);
+              },
               stationScope: () => scope,
             }).execute(nativeCaller, nativeRequest),
           forward: runtime.forward,
-        }, sourceInstallationId),
-        signal,
+        }, sourceInstallationId).pipe((effect) => live === undefined ? effect :
+          Effect.provideService(effect, OverseerLiveExecution, live)),
+        live?.signal === undefined ? signal : AbortSignal.any([signal, live.signal]),
       ).catch((error): OverseerResult => {
         if (signal.aborted) {
           return {
@@ -449,8 +468,9 @@ export const composeOverseer = async (input: {
     request: OverseerRequest,
     caller: OverseerCaller,
     signal: AbortSignal,
+    live?: OverseerLiveExecutionConstraint,
   ): Promise<OverseerResult> =>
-    executeInAuthoringGate(request, caller, undefined, signal);
+    executeInAuthoringGate(request, caller, undefined, signal, live);
 
   let disposeRemote = (): void => undefined;
   if (input.registerRemoteHandler) {

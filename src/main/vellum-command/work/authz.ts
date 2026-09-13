@@ -268,6 +268,7 @@ export const admitOverseerWorkTarget = (
 /** Ops that require a connected edge to the target (mutations + full reads). */
 export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
   switch (op) {
+    case "overseer.live":
     case "overseer":
       // Administrative envelope, not a grant. Parent dispatches before the
       // ordinary work-op switch; this case keeps the exhaustive switch honest.

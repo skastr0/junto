@@ -369,6 +369,16 @@ ipcRenderer.on(IPC_CHANNELS.rendererSurfaceChallenge, (_event, candidate: unknow
 });
 
 const vellumApi: VellumCommandApi = {
+  liveStart: (input) => invoke(IPC_CHANNELS.liveStart, IPC_TIMEOUT_MS, input),
+  liveEnd: (id) => invoke(IPC_CHANNELS.liveEnd, IPC_TIMEOUT_MS, id),
+  liveSnapshot: () => invoke(IPC_CHANNELS.liveSnapshot, IPC_TIMEOUT_MS),
+  liveReady: (id, epoch) => invoke(IPC_CHANNELS.liveReady, IPC_TIMEOUT_MS, id, epoch),
+  liveProviderEvent: (id, epoch, event) => invoke(IPC_CHANNELS.liveProviderEvent, IPC_TIMEOUT_MS, id, epoch, event),
+  liveAttention: (id, attention) => invoke(IPC_CHANNELS.liveAttention, IPC_TIMEOUT_MS, id, attention),
+  liveCancel: (id, request) => invoke(IPC_CHANNELS.liveCancel, IPC_TIMEOUT_MS, id, request),
+  liveSteer: (id, request, text, attention) => invoke(IPC_CHANNELS.liveSteer, IPC_TIMEOUT_MS, id, request, text, attention),
+  liveStopActions: (id) => invoke(IPC_CHANNELS.liveStopActions, IPC_TIMEOUT_MS, id),
+  onLiveChanged: (callback) => subscribe(IPC_CHANNELS.liveChanged, callback),
   platform: process.platform,
   updateGetState: () =>
     invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),

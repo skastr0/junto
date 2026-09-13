@@ -68,6 +68,7 @@ describe("managed-terminal templates (data)", () => {
     "amp",
     "fx",
     "omp",
+    "vellum-overseer",
   ] as const;
 
   it("exports exactly the managed harnesses", () => {
@@ -1514,5 +1515,4 @@ describe("model enumeration (fail-soft)", () => {
     ]);
   });
 });
-
 

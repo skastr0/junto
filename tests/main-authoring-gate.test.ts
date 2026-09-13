@@ -164,6 +164,7 @@ describe("work-control main authoring classification", () => {
       onboard: "read",
       preamble: "read",
       overseer: "authorial",
+      "overseer.live": "read",
       "tasks.list": "read",
       "tasks.create": "authorial",
       "tasks.claim": "authorial",

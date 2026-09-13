@@ -80,6 +80,8 @@ import {
   composeOverseer,
   type OverseerComposition,
 } from "./vellum-command/overseer/composition";
+import { composeOverseerLive } from "./vellum-command/overseer/live/composition";
+import { registerOverseerLiveIpc } from "./vellum-command/overseer/live/ipc";
 import {
   startStationControlServer,
   stationControlReadiness,
@@ -350,6 +352,9 @@ let browserControl: BrowserControlServer | undefined;
 let uninstallBrowserReadinessProbe: (() => void) | undefined;
 let workControl: WorkControlServer | undefined;
 let overseerComposition: OverseerComposition | undefined;
+let overseerLive: Awaited<ReturnType<typeof composeOverseerLive>> | undefined;
+let overseerLiveShutdown: Promise<void> | undefined;
+let unregisterOverseerLiveIpc: (() => void) | undefined;
 let stationControl: StationControlServer | undefined;
 let stationRemoteReportPump: StationRemoteReportPump | undefined;
 let canvasControl: CanvasControlServer | undefined;
@@ -933,6 +938,14 @@ const createWindow = () => {
   });
   mainWindow.webContents.on("did-stop-loading", rendererNavigation.didStopLoading);
   mainWindow.webContents.on("render-process-gone", rendererNavigation.documentLost);
+  const endLostLiveMedia = (): void => {
+    const service = overseerLive;
+    if (!service) return;
+    void service.liveSnapshot().then((snapshot) => snapshot.sessionId !== null
+      ? service.liveEnd(snapshot.sessionId) : undefined).catch(() => undefined);
+  };
+  mainWindow.webContents.on("render-process-gone", endLostLiveMedia);
+  mainWindow.webContents.on("destroyed", endLostLiveMedia);
   mainWindow.webContents.on("preload-error", rendererNavigation.documentLost);
 
   let disconnectNodeRefSink = (): void => undefined;
@@ -1477,6 +1490,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         }),
         registerRemoteHandler: true,
       });
+      overseerLive = await composeOverseerLive(AppRuntime.runPromise);
+      unregisterOverseerLiveIpc = registerOverseerLiveIpc(overseerLive);
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
@@ -1490,6 +1505,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           window.webContents.send(IPC_CHANNELS.preamble, event);
         },
         onOverseer: overseerComposition.onOverseer,
+        onOverseerLive: overseerLive.onHost,
+        validateOverseerLive: overseerLive.validateOperation,
       });
       if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {
@@ -1825,6 +1842,9 @@ const beginShutdownAdmission = (reason: string): void => {
   beginStationFleetPropagationShutdown();
 
   operatorControl?.beginShutdown();
+  unregisterOverseerLiveIpc?.();
+  unregisterOverseerLiveIpc = undefined;
+  overseerLiveShutdown ??= overseerLive?.dispose();
   overseerComposition?.dispose();
   overseerComposition = undefined;
   workControl?.beginShutdown();
@@ -2093,6 +2113,7 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 };
 
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
+  await overseerLiveShutdown;
   await requireCleanOperatorControlShutdown();
   await requireCleanTermPlaneShutdown(reason);
   await requireCleanCanvasControlShutdown();

@@ -18,11 +18,18 @@ import { isManagedAgentNode } from "@shared/actor-surface";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
+  isOverseerMutation,
   OVERSEER_MAX_CORRELATION_BYTES,
   OVERSEER_MAX_REQUEST_BYTES,
   type OverseerRequest,
   type OverseerResult,
 } from "@shared/overseer-control";
+import {
+  decodeOverseerHostRequest,
+  type OverseerHostAssignment,
+  type OverseerHostRequest,
+} from "@shared/overseer-host-control";
+import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
 import type { BoardAuthor, Task } from "@shared/work-model";
 import {
@@ -2081,7 +2088,18 @@ export interface WorkControlServerOptions {
     request: OverseerRequest,
     caller: Pick<WorkCaller, "canvasName" | "nodeId">,
     signal: AbortSignal,
+    live?: OverseerLiveExecutionConstraint,
   ) => Promise<OverseerResult>;
+  /** Private controller protocol, reached only by the admitted native harness occupant. */
+  readonly onOverseerLive?: (
+    request: OverseerHostRequest,
+    identity: OverseerHostIdentity,
+    signal: AbortSignal,
+  ) => Promise<OverseerHostAssignment>;
+  readonly validateOverseerLive?: (
+    request: OverseerRequest,
+    identity: OverseerHostIdentity,
+  ) => Promise<OverseerLiveExecutionConstraint>;
 }
 
 export interface WorkControlRuntime {
@@ -2642,6 +2660,41 @@ export const startWorkControlServer = async (
             workHome,
             occupant,
           };
+          const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
+            callerResolved.caller.node.ether.terminal.harness === "vellum-overseer";
+          const controllerIdentity = (): OverseerHostIdentity | undefined => {
+            const node = callerResolved.caller.node;
+            if (!nativeController || !isManagedAgentNode(node)) return undefined;
+            // This protocol belongs to the actual managed host, not arbitrary
+            // descendants which happen to inherit its ordinary Work identity.
+            const binding = processMap.snapshot().find((entry) =>
+              entry.pid === admission.peerPid && samePrincipalAnchors(entry.principal, admission.principal));
+            if (binding === undefined) return undefined;
+            return {
+              canvasName: caller.canvasName, nodeId: caller.nodeId,
+              bindingId: node.ether.terminal.bindingId, peerPid: admission.peerPid,
+              processGeneration: `${binding.pid}:${binding.startKey}`,
+            };
+          };
+          if (req.op === "overseer.live") {
+            const identity = controllerIdentity();
+            if (identity === undefined) return Result.fail<WorkErrorBody>({
+              type: "AuthError", message: "the Live controller protocol requires the current native Overseer process",
+            });
+            const decoded = decodeOverseerHostRequest(req.args);
+            if (Result.isFailure(decoded)) return Result.fail<WorkErrorBody>({
+              type: "InputError", message: decoded.failure.message,
+            });
+            if (options.onOverseerLive === undefined) return Result.fail<WorkErrorBody>({
+              type: "RuntimeDown", message: "Live conversations are unavailable in this runtime",
+            });
+            return yield* Effect.tryPromise({
+              try: (signal) => options.onOverseerLive!(decoded.success, identity, signal),
+              catch: (error): WorkErrorBody => ({
+                type: "RuntimeDown", message: error instanceof Error ? error.message : "Live controller connection failed",
+              }),
+            }).pipe(Effect.result);
+          }
           // Administrative commands do not enter the ordinary factory
           // paused/blocked or edge-scoped dispatcher. Identity and delegation
           // remain mandatory, including on a configured Remote projection.
@@ -2682,13 +2735,44 @@ export const startWorkControlServer = async (
                 details: { retryable: false },
               });
             }
-            return yield* awaitOverseerPromise(
+            let live: OverseerLiveExecutionConstraint | undefined;
+            if (nativeController || decoded.success.live !== undefined) {
+              const identity = controllerIdentity();
+              if (identity === undefined || options.validateOverseerLive === undefined ||
+                (isOverseerMutation(decoded.success.operation) && decoded.success.live === undefined)) {
+                return Result.fail<WorkErrorBody>({ type: "AuthError", message: "native Overseer mutations require a current correlated Live request" });
+              }
+              if (decoded.success.live !== undefined) {
+                const validated = yield* Effect.tryPromise({
+                  try: () => options.validateOverseerLive!(decoded.success, identity),
+                  catch: (error): WorkErrorBody => ({ type: "AuthError", message: error instanceof Error ? error.message : "Live request is no longer current" }),
+                }).pipe(Effect.result);
+                if (Result.isFailure(validated)) return validated;
+                live = validated.success;
+              }
+            }
+            const result = yield* awaitOverseerPromise(
               (signal) =>
-                execute(decoded.success, {
+                {
+                  live?.assertCurrent();
+                  return execute(decoded.success, {
                   canvasName: caller.canvasName,
                   nodeId: caller.nodeId,
-                }, signal),
+                  }, signal, live);
+                },
             ).pipe(Effect.result);
+            if (live?.settle !== undefined && Result.isSuccess(result)) {
+              yield* Effect.tryPromise({
+                try: () => live!.settle!(result.success as OverseerResult),
+                catch: (error): WorkErrorBody => ({ type: "InternalError", message: error instanceof Error ? error.message : "Live receipt could not be recorded" }),
+              }).pipe(Effect.result);
+            }
+            return result;
+          }
+          if (nativeController && !["ping", "doctor", "capabilities", "onboard"].includes(req.op)) {
+            return Result.fail<WorkErrorBody>({
+              type: "AuthError", message: "native Overseer mutations must use correlated overseer tools",
+            });
           }
           return yield* dispatchOp(
             req.op,

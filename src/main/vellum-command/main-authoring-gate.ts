@@ -85,6 +85,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   // The envelope can carry authoring or native effects. Close the complete
   // administrative ingress during shutdown, independently of factory pause.
   overseer: "authorial",
+  "overseer.live": "read",
   "tasks.list": "read",
   "tasks.create": "authorial",
   "tasks.claim": "authorial",

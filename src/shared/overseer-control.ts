@@ -17,6 +17,7 @@ import { ContentIdentity, ContentRef } from "./content";
 import { HarnessId } from "./managed-terminal-templates";
 import { PadPatch } from "./pad";
 import { Verb } from "./physics/verbs";
+import { OverseerLiveCorrelation } from "./overseer-host-control";
 import { EtherSheet } from "./sheet";
 import {
   CompletionEvidence,
@@ -155,6 +156,7 @@ export type OverseerOperation = typeof OverseerOperation.Type;
 export const OverseerRequest = Schema.Struct({
   operation: OverseerOperation,
   args: Schema.optionalKey(Schema.Unknown),
+  live: Schema.optionalKey(OverseerLiveCorrelation),
 });
 export type OverseerRequest = typeof OverseerRequest.Type;
 

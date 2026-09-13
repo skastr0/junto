@@ -54,6 +54,7 @@ import type {
 } from "./state-recovery";
 import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
+import type { OverseerLiveApi } from "./overseer-live";
 import type { HostDeployJobSnapshot } from "./deploy-job";
 import type {
   ObservabilityLogEntry,
@@ -68,6 +69,16 @@ export type {
 } from "./observability";
 
 export const IPC_CHANNELS = {
+  liveStart: "vellum-command:live-start",
+  liveEnd: "vellum-command:live-end",
+  liveSnapshot: "vellum-command:live-snapshot",
+  liveReady: "vellum-command:live-ready",
+  liveProviderEvent: "vellum-command:live-provider-event",
+  liveAttention: "vellum-command:live-attention",
+  liveCancel: "vellum-command:live-cancel",
+  liveSteer: "vellum-command:live-steer",
+  liveStopActions: "vellum-command:live-stop-actions",
+  liveChanged: "vellum-command:live-changed",
   doctor: "chassis:doctor",
   probeCodex: "chassis:probe-codex",
   listCanvases: "vellum-command:list-canvases",
@@ -575,7 +586,7 @@ export interface VellumCommandHermesIntegrationApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
-export interface VellumCommandApi extends UpdateApi {
+export interface VellumCommandApi extends UpdateApi, OverseerLiveApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */

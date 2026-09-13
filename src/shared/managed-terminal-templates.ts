@@ -39,6 +39,7 @@ export const HarnessId = Schema.Literals([
   "amp",
   "fx",
   "omp",
+  "vellum-overseer",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -1342,6 +1343,29 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"],
 };
 
+/** App-owned structured controller. Its tool calls still enter the process-bound Work socket. */
+export const VELLUM_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
+  harness: "vellum-overseer",
+  displayName: "Vellum Command Overseer",
+  argvSpec: {
+    binary: "vellum-command",
+    prefix: ["overseer-host"],
+    promptMode: "none",
+    modelFlag: "--model",
+    systemPromptFlag: "--instructions",
+    resumeReinjection: "re-pass",
+  },
+  envSpec: SHARED_ENV_SPEC,
+  injectionSpec: { tier: "A", flags: ["--instructions"], description: "App-owned structured run instructions" },
+  capabilityBadges: {
+    instructionInjection: "A", hooks: false, effortAtSpawn: false,
+    sessionId: "unavailable", remote: false, requiresGitCwd: false,
+    stateFeed: "correlated run events", attentionSource: "structured run events",
+    labels: ["live conversation", "correlated tools", "cancellation"],
+  },
+  efforts: [],
+};
+
 export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   Record<HarnessId, ManagedTerminalTemplate>
 > = {
@@ -1359,6 +1383,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   amp: AMP_TEMPLATE,
   fx: FX_TEMPLATE,
   omp: OMP_TEMPLATE,
+  "vellum-overseer": VELLUM_OVERSEER_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

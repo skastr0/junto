@@ -7,7 +7,7 @@ import type { Port, SinkKind } from "./schema";
 
 export type TargetWorkOpName = Exclude<
   WorkOpName,
-  "ping" | "doctor" | "capabilities" | "onboard" | "preamble" | "overseer"
+  "ping" | "doctor" | "capabilities" | "onboard" | "preamble" | "overseer" | "overseer.live"
 >;
 
 /**

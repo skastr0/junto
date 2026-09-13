@@ -11,6 +11,7 @@ import {
 import { STATION_STDIO_COMMAND } from "./station-stdio";
 
 export type EarlyDispatch =
+  | { readonly kind: "overseer-host"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "browser"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "station-stdio"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "content-transfer"; readonly args: ReadonlyArray<string> }
@@ -25,6 +26,7 @@ export const earlyDispatchFromArgv = (
   argv: ReadonlyArray<string>,
 ): EarlyDispatch => {
   const user = argv.slice(2);
+  if (user[0] === "overseer-host") return { kind: "overseer-host", args: user.slice(1) };
   if (user[0] === "browser") {
     return { kind: "browser", args: user.slice(1) };
   }

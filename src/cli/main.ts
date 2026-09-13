@@ -38,6 +38,7 @@ import { runContentTransfer } from "./content-transfer";
 import { runStationStdio } from "./station-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import { BROWSER_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
+import { runOverseerHost } from "../overseer-host/main";
 
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
 const browserCliAvailable =
@@ -112,7 +113,9 @@ if (import.meta.main) {
   // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum-command",
   // ...args]. V4 runWith takes user args only — never the full argv.
   const dispatch = earlyDispatchFromArgv(Bun.argv);
-  if (dispatch.kind === "browser") {
+  if (dispatch.kind === "overseer-host") {
+    await runOverseerHost(dispatch.args);
+  } else if (dispatch.kind === "browser") {
     if (!browserCliAvailable) {
       process.stderr.write("vellum-command browser: disabled in this build\n");
       process.exitCode = 2;

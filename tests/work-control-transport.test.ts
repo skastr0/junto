@@ -293,6 +293,8 @@ const startTestServer = async (options: {
   readonly runtime?: WorkControlRuntime;
   readonly onPreamble?: (event: PreambleEvent) => void;
   readonly onOverseer?: WorkControlServerOptions["onOverseer"];
+  readonly onOverseerLive?: WorkControlServerOptions["onOverseerLive"];
+  readonly validateOverseerLive?: WorkControlServerOptions["validateOverseerLive"];
   readonly processMap?: ProcessIdentityMap;
   readonly decorateRun?: (
     base: WorkControlServerOptions["run"],
@@ -336,6 +338,8 @@ const startTestServer = async (options: {
     authoringGate,
     onPreamble: options.onPreamble,
     onOverseer: options.onOverseer,
+    onOverseerLive: options.onOverseerLive,
+    validateOverseerLive: options.validateOverseerLive,
   }, options.runtime);
   servers.push(server);
   return { server, authoringGate, processMap };
@@ -387,6 +391,40 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
+  it("binds the private Live protocol to the native occupant and fences uncorrelated or stale mutations", async () => {
+    const assertCurrent = vi.fn();
+    const validate = vi.fn<NonNullable<WorkControlServerOptions["validateOverseerLive"]>>(async () => ({ assertCurrent }));
+    const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
+    const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => ({ ok: true, operation: request.operation, data: {} }));
+    const { server, processMap } = await startTestServer({ onOverseer: execute, onOverseerLive: bridge, validateOverseerLive: validate });
+    const request = { token: token(), op: "overseer.live", args: { type: "next" } };
+    expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "AuthError" } });
+    expect(bridge).not.toHaveBeenCalled();
+    const runtime = runtimes.at(-1)!;
+    const canvases = await runtime.runPromise(CanvasesService);
+    await runtime.runPromise(canvases.mutate("work-cli", (doc) => ({ ...doc, nodes: doc.nodes.map((node) => node.id !== "agent" ? node : ({
+      ...node, ether: { ...node.ether, terminal: { ...node.ether!.terminal!, harness: "vellum-overseer" } },
+    })) })));
+    const read = await runtime.runPromise(canvases.read("work-cli"));
+    await runtime.runPromise(canvases.canvasOverseerSet({ canvasName: "work-cli", nodeId: "agent", overseer: true, expectedRevision: read.revision }));
+    expect(await call(server.socketPath, request)).toMatchObject({ ok: true, data: { type: "idle" } });
+    expect(bridge.mock.calls[0]?.[1]).toMatchObject({ canvasName: "work-cli", nodeId: "agent", bindingId: "bind-agent", peerPid: TEST_PEER_PID,
+      processGeneration: `${TEST_PEER_PID}:${processMap.snapshot()[0]!.startKey}` });
+    const mutation = { token: token(), op: "overseer", args: { operation: "node.move", args: { nodeId: "tasks", x: 1, y: 2 } } };
+    expect(await call(server.socketPath, mutation)).toMatchObject({ ok: false, error: { type: "AuthError" } });
+    for (const op of ["tasks.create", "content.materialize", "pad.read"]) {
+      expect(await call(server.socketPath, { token: token(), op, args: {} })).toMatchObject({ ok: false, error: { type: "AuthError" } });
+    }
+    expect(execute).not.toHaveBeenCalled();
+    const correlated = { ...mutation, args: { ...mutation.args, live: { sessionId: "s", requestId: "r", intentRevision: 1, operationId: "op" } } };
+    expect(await call(server.socketPath, correlated)).toMatchObject({ ok: true, data: { ok: true } });
+    expect(assertCurrent).toHaveBeenCalledTimes(1);
+    assertCurrent.mockImplementation(() => { throw new Error("request superseded"); });
+    expect(await call(server.socketPath, correlated)).toMatchObject({ ok: false });
+    expect(execute).toHaveBeenCalledTimes(1);
+    processMap.unbind(TEST_PEER_PID);
+    expect(await call(server.socketPath, request)).toMatchObject({ ok: false, error: { type: "AuthError" } });
+  });
   it("bounds overseer correlation ids by encoded bytes before any dispatch", async () => {
     const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => ({
       ok: true, operation: request.operation, data: {},
