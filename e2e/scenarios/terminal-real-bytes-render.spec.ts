@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 
 const REPO = process.cwd();
 const REPLAY_DIR = "/tmp/vellum-real-bytes";
@@ -94,7 +95,7 @@ for (const { harness, scenario } of CASES) {
     const surface = page.locator(".native-terminal-surface");
     await expect(surface).toBeVisible({ timeout: 30_000 });
     await expect.poll(async () => (await geomOf(page)) !== undefined, { timeout: 30_000 }).toBe(true);
-    await page.waitForTimeout(2_000);
+    await waitForTerminalPaint(page);
 
     const geom = (await geomOf(page))!;
 
@@ -102,7 +103,7 @@ for (const { harness, scenario } of CASES) {
     await surface.locator(".xterm-screen").click();
     await page.keyboard.type(`cat ${raw}`);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(6_000);
+    await waitForTerminalPaint(page, 12);
 
     const onScreen = await renderedRows(page);
     await page.screenshot({ path: `/tmp/vellum-real-bytes-${harness}-${scenario}.png` });
@@ -156,10 +157,9 @@ for (const { harness, scenario } of CASES) {
     for (let cycle = 1; cycle <= 3; cycle += 1) {
       await surface.getByRole("button", { name: "Close" }).click();
       await expect(surface).toBeHidden({ timeout: 15_000 });
-      await page.waitForTimeout(500);
       await node.dblclick();
       await expect(surface).toBeVisible({ timeout: 30_000 });
-      await page.waitForTimeout(3_000);
+      await waitForTerminalPaint(page);
 
       const restored = (await renderedRows(page)).join("\n");
       await page.screenshot({ path: `/tmp/vellum-reopen-${harness}-${cycle}.png` });

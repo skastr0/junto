@@ -10,15 +10,12 @@ const net = require("node:net");
 const { syncBuiltinESMExports } = require("node:module");
 const { app } = require("electron");
 
-// Production deliberately bypasses inherited proxies. This harness owns a
-// rejecting loopback proxy solely to simulate an unavailable external network;
-// retain it for this process without changing production's direct-network rule.
-const appendSwitch = app.commandLine.appendSwitch.bind(app.commandLine);
-app.commandLine.appendSwitch = (name, value) => {
-  if (name === "no-proxy-server") return;
-  if (value === undefined) appendSwitch(name);
-  else appendSwitch(name, value);
-};
+// Production no longer installs --no-proxy-server, and src/main/index.ts
+// strips inherited proxy switches from the live command line. This module's
+// global marker exempts the offline harness from that strip: launch.ts
+// deliberately configures a rejecting loopback proxy for the whole process
+// (including defaultSession and native net.fetch), and no managed browser
+// partition exists in offline scenarios.
 
 const loopback = (host) =>
   host === undefined ||

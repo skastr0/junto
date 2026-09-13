@@ -11,16 +11,11 @@ import {
   type BrowserTargetRejection,
 } from "@shared/browser-policy";
 import {
-  BROWSER_DNS_POLICY_TIMEOUT_MS,
-  BROWSER_MAX_PENDING_DNS_HOSTS,
   BROWSER_MAX_URL_BYTES,
   isUtf8WithinLimit,
 } from "@shared/browser-limits";
 
-type NetworkDecision =
-  | { readonly kind: "allow" }
-  | { readonly kind: "resolve"; readonly hostname: string }
-  | { readonly kind: "deny" };
+type NetworkDecision = { readonly kind: "allow" } | { readonly kind: "deny" };
 
 const exactOriginGrant = Symbol("vellum.browser.test-only-exact-origin");
 
@@ -61,6 +56,10 @@ export const makeBrowserTestOnlyExactOriginGrant = (
   }
   return Object.freeze({ [exactOriginGrant]: parsed.origin });
 };
+
+export const browserTestOnlyExactOrigin = (
+  grant: BrowserTestOnlyExactOriginGrant,
+): string => grant[exactOriginGrant];
 
 export const isAllowedByBrowserTestOnlyExactOriginGrant = (
   url: string,
@@ -173,16 +172,11 @@ const networkDecision = (
   const target = classifyBrowserTarget(browserUrl);
   if (!target.allowed) return { kind: "deny" };
   const literalScope = classifyIpAddress(stripIpv6Brackets(target.hostname));
-  return literalScope === "public"
-    ? { kind: "allow" }
-    : literalScope === "non_public"
-      ? { kind: "deny" }
-      : { kind: "resolve", hostname: target.hostname };
+  return literalScope === "non_public" ? { kind: "deny" } : { kind: "allow" };
 };
 
 interface PartitionPolicyState {
   readonly session: Session;
-  readonly pendingResolutions: Map<string, Promise<boolean>>;
   readonly onBeforeRequest: (
     details: OnBeforeRequestListenerDetails,
     callback: (response: { readonly cancel?: boolean }) => void,
@@ -217,56 +211,6 @@ const managedBrowserContents = new WeakSet<WebContents>();
 export const isManagedBrowserWebContents = (webContents: WebContents): boolean =>
   managedBrowserContents.has(webContents);
 
-const resolvePublicHostname = (
-  state: PartitionPolicyState,
-  hostname: string,
-): Promise<boolean> => {
-  const existing = state.pendingResolutions.get(hostname);
-  if (existing !== undefined) return existing;
-  if (state.pendingResolutions.size >= BROWSER_MAX_PENDING_DNS_HOSTS) {
-    return Promise.resolve(false);
-  }
-
-  let resolveBounded!: (allowed: boolean) => void;
-  const bounded = new Promise<boolean>((resolve) => {
-    resolveBounded = resolve;
-  });
-  state.pendingResolutions.set(hostname, bounded);
-
-  let settled = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const settle = (allowed: boolean): void => {
-    if (settled) return;
-    settled = true;
-    if (timer !== undefined) clearTimeout(timer);
-    if (state.pendingResolutions.get(hostname) === bounded) {
-      state.pendingResolutions.delete(hostname);
-    }
-    resolveBounded(allowed);
-  };
-  timer = setTimeout(() => settle(false), BROWSER_DNS_POLICY_TIMEOUT_MS);
-
-  try {
-    const lookup = state.session.resolveHost(hostname, {
-      cacheUsage: "allowed",
-      secureDnsPolicy: "allow",
-    });
-    void lookup.then(
-      ({ endpoints }) =>
-        settle(
-          endpoints.length > 0 &&
-            endpoints.every(
-              (endpoint) => classifyIpAddress(endpoint.address) === "public",
-            ),
-        ),
-      () => settle(false),
-    );
-  } catch {
-    settle(false);
-  }
-  return bounded;
-};
-
 const installPartitionPolicy = (
   session: Session,
   testOnlyGrant?: BrowserTestOnlyExactOriginGrant,
@@ -279,18 +223,10 @@ const installPartitionPolicy = (
     callback,
   ) => {
     const decision = networkDecision(details.url, details.resourceType, testOnlyGrant);
-    if (decision.kind !== "resolve") {
-      callback({ cancel: decision.kind === "deny" });
-      return;
-    }
-    void resolvePublicHostname(state, decision.hostname).then(
-      (allowed) => callback({ cancel: !allowed }),
-      () => callback({ cancel: true }),
-    );
+    callback({ cancel: decision.kind === "deny" });
   };
   state = {
     session,
-    pendingResolutions: new Map<string, Promise<boolean>>(),
     onBeforeRequest,
     onWillDownload: (event: Event): void => event.preventDefault(),
     onFileSystemAccessRestricted: (
@@ -434,7 +370,7 @@ export const installBrowserWebPolicy = (
   };
 
   webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  webContents.setWebRTCIPHandlingPolicy("default_public_interface_only");
+  webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   webContents.on("will-attach-webview", prevent);
   webContents.on("will-frame-navigate", denyFrameNavigation);
   webContents.on("will-redirect", denyRedirect);

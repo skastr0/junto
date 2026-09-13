@@ -20,6 +20,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e geometry truth";
 const BINDING_ID = "e2e-geom-binding-1";
@@ -160,7 +161,7 @@ test("reopening a session with scrollback renders it intact", async ({ vellumCom
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });
   await expect.poll(async () => (await renderedGeom(page)) !== undefined, { timeout: 30_000 }).toBe(true);
-  await page.waitForTimeout(2_000);
+  await waitForTerminalPaint(page);
 
   // Fill the session: numbered rows, every third one long enough to WRAP, so
   // the snapshot carries hard-wrapped lines (the shape that misrenders when a
@@ -173,7 +174,6 @@ test("reopening a session with scrollback renders it intact", async ({ vellumCom
   await expect
     .poll(async () => (await rowTexts(page)).some((t) => t.includes("M0120")), { timeout: 60_000 })
     .toBe(true);
-  await page.waitForTimeout(2_000);
 
   const beforeClose = integrityViolations(await rowTexts(page));
   expect(beforeClose, `BEFORE CLOSE:\n${beforeClose.join("\n")}`).toEqual([]);
@@ -183,11 +183,10 @@ test("reopening a session with scrollback renders it intact", async ({ vellumCom
   for (let cycle = 1; cycle <= 3; cycle += 1) {
     await surface.getByRole("button", { name: "Close" }).click();
     await expect(surface).toBeHidden({ timeout: 15_000 });
-    await page.waitForTimeout(500);
 
     await node.dblclick();
     await expect(surface).toBeVisible({ timeout: 30_000 });
-    await page.waitForTimeout(3_000);
+    await waitForTerminalPaint(page);
 
     for (const problem of integrityViolations(await rowTexts(page))) {
       found.push(`reopen ${cycle}: ${problem}`);
@@ -215,8 +214,7 @@ test("the size the child process sees matches the size xterm renders", async ({
   await expect
     .poll(async () => (await renderedGeom(page)) !== undefined, { timeout: 30_000 })
     .toBe(true);
-  // The surface re-fits on timers after attach; let those land.
-  await page.waitForTimeout(3_000);
+  await waitForTerminalPaint(page);
 
   const mismatches: string[] = [];
 
@@ -239,11 +237,11 @@ test("the size the child process sees matches the size xterm renders", async ({
   // Resize the window: the operator drags panes and toggles the dock constantly.
   const original = page.viewportSize() ?? { width: 1440, height: 900 };
   await page.setViewportSize({ width: original.width - 240, height: original.height - 160 });
-  await page.waitForTimeout(3_000);
+  await waitForTerminalPaint(page);
   await compare("after shrinking the window", "G2");
 
   await page.setViewportSize(original);
-  await page.waitForTimeout(3_000);
+  await waitForTerminalPaint(page);
   await compare("after restoring the window", "G3");
 
   expect(

@@ -86,7 +86,17 @@ const hostWith = (
   fake: FakeTerminalProcessAuthority,
   options: ConstructorParameters<typeof LocalSessionHost>[1] = {},
 ): LocalSessionHost => {
-  const host = new LocalSessionHost(fake.authority, options);
+  // Most tests here prove occupancy, replay, capture, and receipt ordering —
+  // not shutdown timing. Stubborn synthetic fakes (exitOnSignal: false) must
+  // not pay the production TERM/KILL/late windows in afterEach cleanup, so
+  // the helper defaults to short graces. Shutdown/refusal/escalation proofs
+  // pass their own explicit graces, which override these defaults.
+  const host = new LocalSessionHost(fake.authority, {
+    killGraceMs: 5,
+    shutdownGraceMs: 5,
+    lateExitGraceMs: 5,
+    ...options,
+  });
   hosts.push(host);
   return host;
 };

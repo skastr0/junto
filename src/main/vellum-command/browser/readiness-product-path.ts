@@ -265,7 +265,7 @@ export const makeElectronBrowserReadinessProductPath = (
         return closePageFlight;
       };
       try {
-        view = dependencies.viewAdapter(partition, readinessEvents(), { exactTopLevelOrigin: origin });
+        view = await dependencies.viewAdapter(partition, readinessEvents(), { exactTopLevelOrigin: origin });
         view.attach({ x: 0, y: 0, width: 1, height: 1 });
         run.closePage = closePage;
         abortPage = () => {

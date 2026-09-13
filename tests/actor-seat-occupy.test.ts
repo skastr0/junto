@@ -24,9 +24,31 @@ import {
 } from "../src/main/vellum-command/process-identity";
 import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
+
+/**
+ * Every host here proves occupancy selection, never shutdown timing, so each
+ * host defaults to short graces: a stubborn synthetic fake (exitOnSignal:
+ * false) must not pay the production TERM/KILL/late windows in afterEach
+ * cleanup. Shutdown-deadline proofs set their own explicit graces and live in
+ * their own files.
+ */
+const hostWith = (
+  fake: FakeTerminalProcessAuthority,
+  options: ConstructorParameters<typeof LocalSessionHost>[1] = {},
+): LocalSessionHost => {
+  const host = new LocalSessionHost(fake.authority, {
+    killGraceMs: 5,
+    shutdownGraceMs: 5,
+    lateExitGraceMs: 5,
+    ...options,
+  });
+  hosts.push(host);
+  return host;
+};
 
 /** These tests exercise process selection, not the projection barrier. */
 const passThroughAdmission = () => Effect.void;
@@ -94,8 +116,7 @@ describe("ActorSeatOccupy", () => {
       pid: 42_700,
       exitOnSignal: false,
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
     const createAgentSeat = vi.spyOn(host, "createAgentSeat");
     const create = vi.spyOn(host, "create");
     const clientForOccupy = vi.fn(async (): Promise<RemoteSeatProcessClient> => {
@@ -144,8 +165,7 @@ describe("ActorSeatOccupy", () => {
       pid: 42_701,
       exitOnSignal: false,
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
 
     let remoteLive: TerminalSessionSummary | undefined;
     const remoteClient: RemoteSeatProcessClient = {
@@ -196,10 +216,7 @@ describe("ActorSeatOccupy", () => {
   });
 
   it("activates a Remote actor on the second call without spawning again", async () => {
-    const host = new LocalSessionHost(
-      makeFakeTerminalProcessAuthority().authority,
-    );
-    hosts.push(host);
+    const host = hostWith(makeFakeTerminalProcessAuthority());
     let live: TerminalSessionSummary | undefined;
     const createAgentSeat = vi.fn(async (_command: RemoteAgentSeatCommand) => {
       live = remoteSummary({
@@ -240,10 +257,7 @@ describe("ActorSeatOccupy", () => {
   });
 
   it("refuses occupied Remote geography with a typed identity conflict", async () => {
-    const host = new LocalSessionHost(
-      makeFakeTerminalProcessAuthority().authority,
-    );
-    hosts.push(host);
+    const host = hostWith(makeFakeTerminalProcessAuthority());
     const live = remoteSummary({
       bindingId: "seat-geo",
       epoch: "epoch-geo",
@@ -356,8 +370,7 @@ describe("occupy convergence liveness", () => {
       pid: 42_710,
       exitOnSignal: false,
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
     const how = makeLocalSeatProcess(host);
     const spec = actorSpec("seat-local-dying");
 

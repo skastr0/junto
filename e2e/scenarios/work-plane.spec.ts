@@ -7,7 +7,7 @@
  *
  * Isolation: throwaway HOME (harness/launch.ts), so the app's canonical
  * $HOME/.vellum-command/state/vellum-command.db remains hermetic without a database override.
- * Run: `bun run test:e2e` (builds) or `bun run test:e2e:fast` (uses out/).
+ * Run: `bun run test:e2e:full` (builds) or `bun run test:e2e:fast e2e/scenarios/work-plane.spec.ts` (uses out/).
  */
 import type { Task } from "../../src/shared/canvas";
 import type { WorkOpResult } from "../../src/shared/ipc";

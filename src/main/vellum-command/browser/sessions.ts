@@ -105,7 +105,7 @@ export type BrowserViewAdapter = (
   partition: string,
   events: BrowserViewEvents,
   options?: BrowserViewOptions,
-) => BrowserViewHandle;
+) => BrowserViewHandle | Promise<BrowserViewHandle>;
 
 export type BrowserTargetAdmission = (url: string) => boolean;
 
@@ -587,6 +587,7 @@ export class BrowserSessionService {
   private uiShutdownClosedAt: number | undefined;
   private uiShutdownDrainFlight: Promise<BrowserUiShutdownDrainReceipt> | undefined;
   private teardownWitnessFailures = 0;
+  private pendingViewCreations = 0;
   private sink: ((session: BrowserSessionInfo) => void) | undefined;
   private readonly sessionListeners = new Set<
     (session: BrowserSessionInfo) => void
@@ -1577,7 +1578,7 @@ export class BrowserSessionService {
     )) {
       this.destroySession(sessionId);
     }
-    if (this.sessions.size >= maxWarmSessions) {
+    if (this.sessions.size + this.pendingViewCreations >= maxWarmSessions) {
       return err(
         "resource_exhausted",
         `warm browser session capacity reached (${maxWarmSessions}); stop pages or automation to free capacity`,
@@ -1604,8 +1605,9 @@ export class BrowserSessionService {
       navigationWaiters: new Set(),
     };
 
+    this.pendingViewCreations += 1;
     try {
-      entry.view = this.adapter(
+      entry.view = await this.adapter(
         partition,
         {
           onNavigationStart: (event) => this.navigationStarted(entry, event),
@@ -1662,6 +1664,8 @@ export class BrowserSessionService {
         }
       }
       return err("failed", error instanceof Error ? error.message : String(error));
+    } finally {
+      this.pendingViewCreations = Math.max(0, this.pendingViewCreations - 1);
     }
     if (!this.isCurrent(entry) || entry.owner !== owner) {
       return err("not_found", `no session for ${entry.sessionId}`);

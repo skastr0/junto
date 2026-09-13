@@ -37,7 +37,11 @@ import { makeBrowserProfileService } from "../../../src/main/vellum-command/brow
 import { BrowserSessionService } from "../../../src/main/vellum-command/browser/sessions";
 import { admitBrowserHostCapability } from "../../../src/main/vellum-command/browser/host-capability";
 import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum-command/browser/view-adapter";
-import { isManagedBrowserWebContents } from "../../../src/main/vellum-command/browser/web-policy";
+import { installBrowserEgressProxyAuth, ensureManagedBrowserPartitionNetwork } from "../../../src/main/vellum-command/browser/partition-network";
+import {
+  isManagedBrowserWebContents,
+  makeBrowserTestOnlyExactOriginGrant,
+} from "../../../src/main/vellum-command/browser/web-policy";
 import {
   configurePeerPidHelperRoots,
   makeProcessIdentityMap,
@@ -49,7 +53,19 @@ import { partitionNameForProfile } from "../../../src/shared/browser";
 import { decodeCanvasDoc } from "../../../src/shared/canvas";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 
-app.commandLine.appendSwitch("no-proxy-server");
+// Chromium re-applies proxy command-line switches over Session proxy
+// preferences on every NetworkContext creation, so an inherited
+// --no-proxy-server / --proxy-server would restamp the managed partition
+// (DIRECT, or an uncontrolled proxy) right after
+// ensureManagedBrowserPartitionNetwork pins the owned CONNECT proxy. Strip
+// the inherited switches before any Session can exist, exactly like
+// src/main/index.ts does. Never re-add no-proxy-server instead: the
+// whenReady setup below pins defaultSession DIRECT through setProxy.
+app.commandLine.removeSwitch("no-proxy-server");
+app.commandLine.removeSwitch("proxy-server");
+app.commandLine.removeSwitch("proxy-bypass-list");
+app.commandLine.removeSwitch("proxy-pac-url");
+app.commandLine.removeSwitch("proxy-auto-detect");
 
 const requiredArgument = (name: string): string => {
   const prefix = `--${name}=`;
@@ -579,10 +595,20 @@ shutdownRequestWatcher.on("error", (error) => {
 void access(shutdownRequestPath).then(exitAfterFixtureShutdown, () => undefined);
 
 void app.whenReady().then(async () => {
+  installBrowserEgressProxyAuth(app);
+  await app.setProxy({ mode: "direct" });
+  await session.defaultSession.setProxy({ mode: "direct" });
+  const personalPartition = partitionNameForProfile("personal");
+  const personalSession = session.fromPartition(personalPartition);
+  await ensureManagedBrowserPartitionNetwork(
+    personalSession,
+    personalPartition,
+    makeBrowserTestOnlyExactOriginGrant(exactOrigin),
+  );
   const proxyProbeUrl = "https://vellum-direct-network-probe.invalid/";
   [audit.defaultProxyResolution, audit.profileProxyResolution] = await Promise.all([
     session.defaultSession.resolveProxy(proxyProbeUrl),
-    session.fromPartition(partitionNameForProfile("personal")).resolveProxy(proxyProbeUrl),
+    personalSession.resolveProxy(proxyProbeUrl),
   ]);
   await mkdir(downloadPath, { recursive: true });
   audit.baselineWebContents = webContents.getAllWebContents().length;

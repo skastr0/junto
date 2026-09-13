@@ -13,6 +13,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e wrap divergence";
 const BINDING_ID = "e2e-wrap-1";
@@ -54,7 +55,7 @@ test("output written across a reopen is not wrapped at a stale width", async ({ 
   await node.dblclick();
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(3_000);
+  await waitForTerminalPaint(page);
 
   // A continuous emitter of fixed-width 100-char lines. It keeps writing while
   // the surface is closed and reopened, so some of its output lands inside the
@@ -64,7 +65,7 @@ test("output written across a reopen is not wrapped at a stale width", async ({ 
     "i=1; while [ $i -le 4000 ]; do printf 'W%04d' $i; j=6; while [ $j -lt 130 ]; do printf '='; j=$((j+1)); done; printf '\\n'; done",
   );
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(1_500);
+  await waitForTerminalPaint(page, 4);
 
   // Close, resize the window while the emitter keeps running (nothing tells the
   // PTY while no surface is attached), then reopen into the race.
@@ -73,12 +74,11 @@ test("output written across a reopen is not wrapped at a stale width", async ({ 
     await expect(surface).toBeHidden({ timeout: 15_000 });
     const base = page.viewportSize() ?? { width: 1440, height: 900 };
     await page.setViewportSize({ width: base.width - 200, height: base.height - 120 });
-    await page.waitForTimeout(700);
     await node.dblclick();
     await expect(surface).toBeVisible({ timeout: 30_000 });
-    await page.waitForTimeout(2_500);
+    await waitForTerminalPaint(page);
     await page.setViewportSize(base);
-    await page.waitForTimeout(2_500);
+    await waitForTerminalPaint(page);
   }
 
   const diverged = logs.filter(

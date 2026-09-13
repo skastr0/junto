@@ -13,6 +13,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e dpr grid";
 const LAUNCH = {
@@ -37,7 +38,7 @@ test("rows sit on an exact grid at a fractional device scale factor", async ({ v
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.dblclick();
   await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(4_000);
+  await waitForTerminalPaint(page, 20);
 
   const report = await page.evaluate(() => {
     const rows = Array.from(

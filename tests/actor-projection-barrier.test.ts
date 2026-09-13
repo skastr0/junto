@@ -43,6 +43,7 @@ import {
 } from "../src/main/vellum-command/process-identity";
 import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const SHA = "b".repeat(64);
 
@@ -205,6 +206,25 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
   const hosts: LocalSessionHost[] = [];
   const syntheticEpochs = new Map<number, string>();
 
+  /**
+   * Barrier tests prove admission, never shutdown timing. Stubborn synthetic
+   * fakes (exitOnSignal: false) must not pay the production TERM/KILL/late
+   * windows in afterEach cleanup.
+   */
+  const hostWith = (
+    fake: FakeTerminalProcessAuthority,
+    options: ConstructorParameters<typeof LocalSessionHost>[1] = {},
+  ): LocalSessionHost => {
+    const host = new LocalSessionHost(fake.authority, {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+      ...options,
+    });
+    hosts.push(host);
+    return host;
+  };
+
   const actorSpec = (bindingId: string, hostId?: string): ActorOccupySpec => ({
     bindingId,
     harness: "grok",
@@ -241,10 +261,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
   });
 
   it("never opens the Remote transport while the barrier is pending", async () => {
-    const host = new LocalSessionHost(
-      makeFakeTerminalProcessAuthority().authority,
-    );
-    hosts.push(host);
+    const host = hostWith(makeFakeTerminalProcessAuthority());
     const clientForOccupy = vi.fn(
       async (): Promise<RemoteSeatProcessClient> => {
         throw new Error("barrier must decide before any Remote transport");
@@ -278,10 +295,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
   });
 
   it("proceeds to Remote occupation after the barrier admits", async () => {
-    const host = new LocalSessionHost(
-      makeFakeTerminalProcessAuthority().authority,
-    );
-    hosts.push(host);
+    const host = hostWith(makeFakeTerminalProcessAuthority());
     let live: TerminalSessionSummary | undefined;
     const remoteClient: RemoteSeatProcessClient = {
       get: async () => live,
@@ -338,8 +352,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
       pid: 42_800,
       exitOnSignal: false,
     }));
-    const host = new LocalSessionHost(fake.authority);
-    hosts.push(host);
+    const host = hostWith(fake);
     const admission = vi.fn(() => Effect.void);
     const when = makeActorSeatOccupy({
       local: host,
