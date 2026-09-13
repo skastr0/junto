@@ -4,6 +4,7 @@ import {
   OVERSEER_CATALOG,
   OVERSEER_MAX_CORRELATION_BYTES,
   OVERSEER_MAX_REQUEST_BYTES,
+  OVERSEER_MAX_BATCH_OPERATIONS,
   OVERSEER_MAX_RESULT_BYTES,
   OVERSEER_OPERATION_NAMES,
   OverseerArgsSchemas,
@@ -81,6 +82,29 @@ describe("overseer command contract", () => {
         caller: { canvasName: "work", nodeId: "agent-1" },
       }),
     );
+  });
+
+  it("accepts only bounded single-canvas structural batches", () => {
+    const move = { operation: "node.move", nodeId: "n1", x: 10, y: 20 };
+    succeeds(decodeOverseerArgs("canvas.batch", {
+      canvas: "work",
+      expectedRevision: "revision",
+      operations: [move],
+    }));
+    fails(decodeOverseerArgs("canvas.batch", { operations: [] }));
+    fails(decodeOverseerArgs("canvas.batch", {
+      operations: Array.from({ length: OVERSEER_MAX_BATCH_OPERATIONS + 1 }, () => move),
+    }));
+    for (const step of [
+      { ...move, canvas: "other" },
+      { operation: "node.delete", nodeId: "n1" },
+      { operation: "canvas.batch", operations: [move] },
+      { operation: "agent.start", nodeId: "n1" },
+      { operation: "node.configure", nodeId: "n1", changes: { ether: { overseer: true } } },
+      { operation: "node.configure", nodeId: "n1", changes: { apiKey: "secret" } },
+    ]) {
+      fails(decodeOverseerArgs("canvas.batch", { operations: [step] }));
+    }
   });
 
   it("accepts a strict CanvasNode-shaped draft without an id", () => {

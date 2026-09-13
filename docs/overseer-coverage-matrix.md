@@ -1,6 +1,6 @@
 # Overseer command acceptance matrix
 
-Status: inventory of the frozen 97-op contract against integrated handlers
+Status: inventory of the 98-op contract against integrated handlers
 and owning suites. Native/composition lifecycle fixes and cross-canvas
 artifact publisher-home routing are integrated. Coverage below distinguishes
 executed behavior from catalog coverage; it does not claim every operation
@@ -61,7 +61,7 @@ replay.
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
 
-## Wire operations (97)
+## Wire operations (98)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -69,6 +69,7 @@ replay.
 | `canvas.list` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts; tests/overseer-dispatch.test.ts |
 | `canvas.read` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `canvas.create` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts; tests/overseer-dispatch.test.ts |
+| `canvas.batch` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts; tests/overseer-control.test.ts; one validated single-canvas commit |
 | `canvas.delete` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `canvas.digest` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `canvas.render` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |

@@ -34,7 +34,9 @@ vellum-command overseer <family> <verb> [json | @file | -]
 vellum-command overseer status
 \`\`\`
 
-Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit input for empty-arg operations (\`{}\`). Canvas may be omitted when the caller's canvas is unambiguous; main fills it. Do not batch unless a future catalog says so.
+Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit input for empty-arg operations (\`{}\`). Canvas may be omitted when the caller's canvas is unambiguous; main fills it.
+
+\`canvas.batch\` accepts 1–100 structural \`operations\` on one canvas: \`node.create\`, \`node.configure\`, \`node.move\`, \`edge.connect\`, \`edge.configure\`, and \`edge.disconnect\`. Each step has its operation plus the usual fields, without a nested args object or canvas. Assign IDs to new nodes when later steps reference them. The complete graph is validated and committed once. Supply \`expectedRevision\` from \`canvas.read\` to reject stale edits. Native identity/configuration changes, resource deletion, grants, credentials, nested batches, and worker execution are excluded.
 
 Success (stdout): \`{ok:true, command, data}\` — \`data\` is the inner operation payload.
 Failure (stderr, exit 1): \`{ok:false, command, error:{type,message,details?}}\`.
@@ -77,7 +79,7 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 3. Copy an example: \`vellum-command overseer examples show node.create\`
 4. Run under the live granted agent process (not a random shell).
 5. Prefer \`overseer status\` first. If the socket is down: launch Vellum Command, then \`vellum-command doctor\`.
-6. Mutate with expected canvas/node ids from list/read. Structural batches are a main concern; this CLI sends one operation per invocation.
+6. Mutate with expected canvas/node ids from list/read. Use \`overseer canvas batch\` for a coherent structural edit; task creation and worker actions use their own operations.
 7. On \`Forbidden\` / \`Unsupported\`, stop. Do not retry as the operator.
 
 ## Authority (exact)

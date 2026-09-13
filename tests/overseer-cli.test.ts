@@ -235,7 +235,7 @@ describe("overseer source CLI offline", () => {
       data: { schemas: Array<{ command_id: string; operation: string }> };
     };
     expect(listedData.data.schemas.map((schema) => schema.operation)).toEqual(
-      expect.arrayContaining(["status", "canvas.create", "agent.reseat", "page.eval"]),
+      expect.arrayContaining(["status", "canvas.create", "canvas.batch", "agent.reseat", "page.eval"]),
     );
 
     const shown = await runCli(["overseer", "schema", "show", "canvas.create"]);

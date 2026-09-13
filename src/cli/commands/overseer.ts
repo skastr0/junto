@@ -420,6 +420,17 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
 
 export const overseerExamples: ReadonlyArray<CommandExample> = [
   {
+    command_id: commandIdFor("canvas.batch"),
+    command: "overseer canvas batch",
+    name: "create and connect in one commit",
+    description: "Single-canvas structural edits, validated and committed together. Read the canvas first for expectedRevision.",
+    args: ["overseer", "canvas", "batch"],
+    input: { operations: [
+      { operation: "node.create", node: { id: "backlog", type: "text", text: "Backlog", x: 400, y: 0, width: 260, height: 120, ether: { entity: { kind: "task" } } } },
+      { operation: "edge.connect", edge: { fromNode: "worker", toNode: "backlog", verb: "contributes" } },
+    ] },
+  },
+  {
     command_id: commandIdFor("status"),
     command: "overseer status",
     name: "read live grant",

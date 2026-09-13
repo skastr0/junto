@@ -13,6 +13,7 @@ const FROZEN_OPERATIONS = [
   "canvas.list",
   "canvas.read",
   "canvas.create",
+  "canvas.batch",
   "canvas.delete",
   "canvas.digest",
   "canvas.render",
@@ -161,7 +162,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(97);
+    expect(FROZEN_OPERATIONS).toHaveLength(98);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("canvasOverseerSet");
     expect(matrix).toContain("tests/overseer-admission.test.ts");

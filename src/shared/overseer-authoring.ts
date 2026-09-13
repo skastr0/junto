@@ -2,13 +2,21 @@
  * Pure overseer canvas authoring: seat identity, grant preservation, and
  * self-preservation. Main owns transactions; this module does not touch SQLite.
  */
-import type {
-  CanvasDoc,
-  CanvasEdge,
-  CanvasNode,
-  EtherNodeExtension,
+import { Result } from "effect";
+import {
+  decodeCanvasDoc,
+  type CanvasDoc,
+  type CanvasEdge,
+  type CanvasNode,
+  type EtherNodeExtension,
 } from "./canvas";
-import type { OverseerNodeChanges, OverseerNodeEtherChanges } from "./overseer-control";
+import type {
+  OverseerCanvasBatchStep,
+  OverseerEdgeChanges,
+  OverseerErrorBody,
+  OverseerNodeChanges,
+  OverseerNodeEtherChanges,
+} from "./overseer-control";
 import { validateFlowDag } from "./flow-graph";
 import { verbsForPair, type Verb } from "./physics/verbs";
 
@@ -415,6 +423,163 @@ export const edgeVerbAdmitted = (
 export const flowCycleIfInvalid = (doc: CanvasDoc): string | undefined => {
   const cycle = validateFlowDag(doc);
   return cycle?.message;
+};
+
+/** Share the exact edge patch semantics between individual and batch authoring. */
+export const applyEdgeChanges = (
+  edge: CanvasEdge,
+  changes: OverseerEdgeChanges,
+): CanvasEdge => {
+  let next = changes.verb === undefined
+    ? edge
+    : { ...edge, ether: { verb: changes.verb } };
+  const fields = ["fromSide", "fromEnd", "toSide", "toEnd", "color", "label"] as const;
+  for (const key of fields) {
+    if (!Object.prototype.hasOwnProperty.call(changes, key)) continue;
+    const value = changes[key];
+    next = value === null || value === undefined
+      ? withoutKey(next, key) as CanvasEdge
+      : { ...next, [key]: value };
+  }
+  return next;
+};
+
+const schedulerChainCycle = (doc: CanvasDoc): boolean => {
+  const indegrees = new Map<string, number>();
+  const outgoing = new Map<string, string[]>();
+  for (const edge of doc.edges) {
+    if (edge.ether?.verb !== "chains") continue;
+    indegrees.set(edge.fromNode, indegrees.get(edge.fromNode) ?? 0);
+    indegrees.set(edge.toNode, (indegrees.get(edge.toNode) ?? 0) + 1);
+    const targets = outgoing.get(edge.fromNode) ?? [];
+    targets.push(edge.toNode);
+    outgoing.set(edge.fromNode, targets);
+  }
+  const ready = [...indegrees].filter(([, degree]) => degree === 0).map(([id]) => id);
+  for (let index = 0; index < ready.length; index += 1) {
+    for (const target of outgoing.get(ready[index]!) ?? []) {
+      const degree = indegrees.get(target)! - 1;
+      indegrees.set(target, degree);
+      if (degree === 0) ready.push(target);
+    }
+  }
+  return ready.length !== indegrees.size;
+};
+
+export type OverseerCanvasBatchResult = {
+  readonly canvas: string;
+  readonly results: ReadonlyArray<
+    | { readonly operation: "node.create" | "node.configure" | "node.move"; readonly nodeId: string }
+    | { readonly operation: "edge.connect" | "edge.configure" | "edge.disconnect"; readonly edgeId: string }
+  >;
+};
+
+/**
+ * Build a prospective single-canvas document without effects. The caller checks
+ * live authority/revision and commits this result in its one owner transaction.
+ */
+export const applyCanvasBatch = (
+  documents: ReadonlyMap<string, CanvasDoc>,
+  canvas: string,
+  operations: ReadonlyArray<OverseerCanvasBatchStep>,
+  mintId: (kind: "node" | "edge") => string,
+):
+  | { readonly ok: true; readonly doc: CanvasDoc; readonly result: OverseerCanvasBatchResult }
+  | { readonly ok: false; readonly error: OverseerErrorBody } => {
+  const reject = (type: OverseerErrorBody["type"], message: string) =>
+    ({ ok: false as const, error: { type, message } });
+  const current = documents.get(canvas);
+  if (current === undefined) return reject("NotFound", `canvas "${canvas}" does not exist`);
+  const nodes = new Map(current.nodes.map((node) => [node.id, node]));
+  const edges = new Map(current.edges.map((edge) => [edge.id, edge]));
+  const results: Array<OverseerCanvasBatchResult["results"][number]> = [];
+  for (const step of operations) {
+    switch (step.operation) {
+      case "node.create": {
+        const { ether, ...draft } = step.node;
+        const node: CanvasNode = {
+          ...draft,
+          id: draft.id ?? mintId("node"),
+          ...(ether === undefined ? {} : { ether: {
+            ...ether,
+            ...(ether.tasks === undefined ? {} : { tasks: { ...ether.tasks, items: [] } }),
+          } }),
+        };
+        if (nodes.has(node.id)) return reject("InvalidArguments", `node "${node.id}" already exists`);
+        nodes.set(node.id, node);
+        results.push({ operation: step.operation, nodeId: node.id });
+        break;
+      }
+      case "node.configure":
+      case "node.move": {
+        const node = nodes.get(step.nodeId);
+        if (node === undefined) return reject("NotFound", `node "${step.nodeId}" was not found`);
+        nodes.set(node.id, step.operation === "node.configure"
+          ? applyNodeChanges(node, step.changes)
+          : nodeGeometry(node, step));
+        results.push({ operation: step.operation, nodeId: node.id });
+        break;
+      }
+      case "edge.connect": {
+        const { verb, ...draft } = step.edge;
+        const edge: CanvasEdge = { ...draft, id: draft.id ?? mintId("edge"), ether: { verb } };
+        if (edges.has(edge.id)) return reject("InvalidArguments", `edge "${edge.id}" already exists`);
+        edges.set(edge.id, edge);
+        results.push({ operation: step.operation, edgeId: edge.id });
+        break;
+      }
+      case "edge.configure":
+      case "edge.disconnect": {
+        const edge = edges.get(step.edgeId);
+        if (edge === undefined) return reject("NotFound", `edge "${step.edgeId}" was not found`);
+        if (step.operation === "edge.disconnect") edges.delete(edge.id);
+        else edges.set(edge.id, applyEdgeChanges(edge, step.changes));
+        results.push({ operation: step.operation, edgeId: edge.id });
+        break;
+      }
+    }
+  }
+
+  const previousNodes = new Map(current.nodes.map((node) => [node.id, node]));
+  for (const node of nodes.values()) {
+    const previous = previousNodes.get(node.id);
+    if (previous === undefined) {
+      if (nodeHasOverseerGrant(node) || aliasesLiveOverseerBinding(documents, node)) {
+        return reject("Forbidden", "canvas.batch cannot mint or inherit overseer authority");
+      }
+      continue;
+    }
+    const priorKind = previous.ether?.entity?.kind;
+    const native = priorKind === "agent" || priorKind === "terminal" || priorKind === "page";
+    if (native && (
+      retiresOccupant(previous, node) ||
+      JSON.stringify(previous.ether?.terminal) !== JSON.stringify(node.ether?.terminal) ||
+      JSON.stringify(previous.ether?.browser) !== JSON.stringify(node.ether?.browser)
+    )) {
+      return reject("Forbidden", `canvas.batch cannot change native identity or configuration of "${node.id}"`);
+    }
+    if (!native && aliasesLiveOverseerBinding(documents, node)) {
+      return reject("Forbidden", "canvas.batch cannot inherit overseer authority");
+    }
+  }
+
+  const proposed: CanvasDoc = { ...current, nodes: [...nodes.values()], edges: [...edges.values()] };
+  for (const edge of proposed.edges) {
+    const fromNode = nodes.get(edge.fromNode);
+    const toNode = nodes.get(edge.toNode);
+    if (fromNode === undefined || toNode === undefined) {
+      return reject("NotFound", `edge "${edge.id}" endpoints were not found`);
+    }
+    if (edge.ether?.verb === undefined || !edgeVerbAdmitted(fromNode, toNode, edge.ether.verb)) {
+      return reject("InvalidArguments", `edge "${edge.id}" has no legal verb for its endpoints`);
+    }
+  }
+  const cycle = flowCycleIfInvalid(proposed);
+  if (cycle !== undefined) return reject("InvalidArguments", cycle);
+  if (schedulerChainCycle(proposed)) return reject("InvalidArguments", "scheduler chains must not contain a cycle");
+  const decoded = decodeCanvasDoc(proposed);
+  if (Result.isFailure(decoded)) return reject("InvalidArguments", decoded.failure.message);
+  return { ok: true, doc: decoded.success, result: { canvas, results } };
 };
 
 export const stripIncidentEdges = (

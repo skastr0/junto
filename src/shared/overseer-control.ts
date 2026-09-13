@@ -39,6 +39,7 @@ import {
  */
 
 export const OVERSEER_MAX_REQUEST_BYTES = 1024 * 1024;
+export const OVERSEER_MAX_BATCH_OPERATIONS = 100;
 // The Work transport's 8 MiB limit applies to the complete NDJSON response,
 // not only this nested result. Reserve 64 KiB for Work and Station envelopes,
 // their bounded identities, JSON punctuation, and the trailing newline.
@@ -52,6 +53,7 @@ export const OVERSEER_OPERATION_NAMES = [
   "canvas.list",
   "canvas.read",
   "canvas.create",
+  "canvas.batch",
   "canvas.delete",
   "canvas.digest",
   "canvas.render",
@@ -345,6 +347,34 @@ export const OverseerEdgeChanges = Schema.Struct({
 });
 export type OverseerEdgeChanges = typeof OverseerEdgeChanges.Type;
 
+/** Closed structural edits only: no native actions, grants, deletes, or nested RPC. */
+export const OverseerCanvasBatchStep = Schema.Union([
+  Schema.Struct({ operation: Schema.Literal("node.create"), node: OverseerNodeDraft }),
+  Schema.Struct({
+    operation: Schema.Literal("node.configure"),
+    nodeId: Id,
+    changes: OverseerNodeChanges,
+  }),
+  Schema.Struct({ operation: Schema.Literal("node.move"), nodeId: Id, x: Finite, y: Finite }),
+  Schema.Struct({ operation: Schema.Literal("edge.connect"), edge: OverseerEdgeDraft }),
+  Schema.Struct({
+    operation: Schema.Literal("edge.configure"),
+    edgeId: Id,
+    changes: OverseerEdgeChanges,
+  }),
+  Schema.Struct({ operation: Schema.Literal("edge.disconnect"), edgeId: Id }),
+]);
+export type OverseerCanvasBatchStep = typeof OverseerCanvasBatchStep.Type;
+
+export const OverseerCanvasBatch = Schema.Struct({
+  ...CanvasOptional,
+  expectedRevision: Schema.optionalKey(Id),
+  operations: Schema.Array(OverseerCanvasBatchStep).pipe(
+    Schema.check(Schema.isMinLength(1)),
+    Schema.check(Schema.isMaxLength(OVERSEER_MAX_BATCH_OPERATIONS)),
+  ),
+});
+
 // Work plane ---------------------------------------------------------------
 
 const TaskIdentity = Schema.Struct({
@@ -626,6 +656,7 @@ export const OverseerArgsSchemas = {
   "canvas.list": EmptyArgs,
   "canvas.read": Schema.Struct(CanvasOptional),
   "canvas.create": Schema.Struct(CanvasRequired),
+  "canvas.batch": OverseerCanvasBatch,
   "canvas.delete": Schema.Struct(CanvasRequired),
   "canvas.digest": Schema.Struct(CanvasOptional),
   "canvas.render": Schema.Struct(CanvasOptional),

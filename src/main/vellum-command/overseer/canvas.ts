@@ -19,6 +19,8 @@ import {
 } from "@shared/overseer-control";
 import {
   aliasesLiveOverseerBinding,
+  applyCanvasBatch,
+  applyEdgeChanges,
   applyNodeChanges,
   callerGrantLive,
   callerSeatBinding,
@@ -54,6 +56,7 @@ const CANVAS_OPS = new Set<OverseerOperation>([
   "canvas.list",
   "canvas.read",
   "canvas.create",
+  "canvas.batch",
   "canvas.delete",
   "canvas.digest",
   "canvas.render",
@@ -438,6 +441,32 @@ const handleCreateCanvas = (
       ok: true,
       documents: putDoc(cloneDocs(view.documents), name, doc),
       result: { name, doc },
+    };
+  });
+
+const handleCanvasBatch = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"canvas.batch">,
+): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+  executeOnPortfolio((view) => {
+    const revoked = requireGrant(view, caller);
+    if (revoked) return { ok: false, error: revoked };
+    const name = targetCanvas(caller, args.canvas);
+    if (!view.documents.has(name)) {
+      return { ok: false, error: fail("UnknownTarget", `canvas "${name}" does not exist`) };
+    }
+    if (args.expectedRevision !== undefined && view.revisions.get(name) !== args.expectedRevision) {
+      return {
+        ok: false,
+        error: fail("ClaimConflict", `canvas "${name}" revision conflict; read the current canvas before editing`),
+      };
+    }
+    const batch = applyCanvasBatch(view.documents, name, args.operations, (kind) => `${kind}-${ulid()}`);
+    if (!batch.ok) return { ok: false, error: fromOverseerError(batch.error) };
+    return {
+      ok: true,
+      documents: putDoc(cloneDocs(view.documents), name, batch.doc),
+      result: batch.result,
     };
   });
 
@@ -893,7 +922,6 @@ const handleEdgeConfigure = (
       };
     }
     const changes = args.changes;
-    let nextEdge: CanvasEdge = existing;
     if (changes.verb !== undefined) {
       const fromNode = findNode(current, existing.fromNode);
       const toNode = findNode(current, existing.toNode);
@@ -906,27 +934,8 @@ const handleEdgeConfigure = (
           ),
         };
       }
-      nextEdge = { ...nextEdge, ether: { verb: changes.verb } };
     }
-    const assignNullable = <K extends keyof CanvasEdge>(
-      key: K,
-      present: boolean,
-      value: CanvasEdge[K] | null | undefined,
-    ): void => {
-      if (!present) return;
-      if (value === null || value === undefined) {
-        const { [key]: _removed, ...rest } = nextEdge;
-        nextEdge = rest as CanvasEdge;
-        return;
-      }
-      nextEdge = { ...nextEdge, [key]: value };
-    };
-    assignNullable("fromSide", Object.prototype.hasOwnProperty.call(changes, "fromSide"), changes.fromSide);
-    assignNullable("fromEnd", Object.prototype.hasOwnProperty.call(changes, "fromEnd"), changes.fromEnd);
-    assignNullable("toSide", Object.prototype.hasOwnProperty.call(changes, "toSide"), changes.toSide);
-    assignNullable("toEnd", Object.prototype.hasOwnProperty.call(changes, "toEnd"), changes.toEnd);
-    assignNullable("color", Object.prototype.hasOwnProperty.call(changes, "color"), changes.color);
-    assignNullable("label", Object.prototype.hasOwnProperty.call(changes, "label"), changes.label);
+    const nextEdge = applyEdgeChanges(existing, changes);
     const edges = current.edges.map((edge) =>
       edge.id === args.edgeId ? nextEdge : edge,
     );
@@ -1030,6 +1039,8 @@ const dispatch = (
         caller,
         decoded.success as OverseerArgsFor<"canvas.create">,
       );
+    case "canvas.batch":
+      return handleCanvasBatch(caller, decoded.success as OverseerArgsFor<"canvas.batch">);
     case "canvas.delete":
       return handleDeleteCanvas(
         caller,

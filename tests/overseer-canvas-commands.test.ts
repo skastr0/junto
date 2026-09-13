@@ -426,6 +426,143 @@ describe("executeOverseerCanvas", () => {
     expect(verbs.verbs).toContain("messages");
   });
 
+  it("commits a complete structural batch with one canvas notification", async () => {
+    const canvases = await boot();
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    const foreign = await runtime!.runPromise(canvases.read("other"));
+    const changes: string[] = [];
+    const unsubscribe = canvases.subscribeChanges((name) => changes.push(name));
+    const result = await expectOk({
+      operation: "canvas.batch",
+      args: {
+        expectedRevision: before.revision,
+        operations: [
+          { operation: "node.create", node: task("t3", 600) },
+          { operation: "node.configure", nodeId: "n1", changes: { text: "batched" } },
+          { operation: "node.move", nodeId: "t3", x: 640, y: 220 },
+          { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "t3", verb: "contributes" } },
+          { operation: "edge.configure", edgeId: "e3", changes: { verb: "manages" } },
+        ],
+      },
+    });
+    unsubscribe();
+    expect(result).toMatchObject({ canvas: "ops", results: [
+      { operation: "node.create", nodeId: "t3" },
+      { operation: "node.configure", nodeId: "n1" },
+      { operation: "node.move", nodeId: "t3" },
+      { operation: "edge.connect", edgeId: "e3" },
+      { operation: "edge.configure", edgeId: "e3" },
+    ] });
+    expect(changes).toEqual(["ops"]);
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.revision).not.toBe(before.revision);
+    expect(after.doc.nodes.find((node) => node.id === "t3")).toMatchObject({ x: 640, y: 220 });
+    expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ text: "batched" });
+    expect(after.doc.edges.find((edge) => edge.id === "e3")).toMatchObject({ ether: { verb: "manages" } });
+    expect((await runtime!.runPromise(canvases.read("other"))).revision).toBe(foreign.revision);
+  });
+
+  it("validates the final graph so a batch can reverse a task path atomically", async () => {
+    const canvases = await boot();
+    await expectOk({ operation: "edge.connect", args: {
+      edge: { id: "forward", fromNode: "t1", toNode: "t2", verb: "feeds" },
+    } });
+    await expectOk({ operation: "canvas.batch", args: { operations: [
+      { operation: "edge.connect", edge: { id: "reverse", fromNode: "t2", toNode: "t1", verb: "feeds" } },
+      { operation: "edge.disconnect", edgeId: "forward" },
+    ] } });
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.doc.edges.map((edge) => edge.id)).toEqual(["reverse"]);
+  });
+
+  it("leaves every node and revision unchanged when the final batch graph is invalid", async () => {
+    const canvases = await boot();
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    for (const operations of [
+      [
+        { operation: "node.create", node: task("t3", 600) },
+        { operation: "edge.connect", edge: { fromNode: "n1", toNode: "t3", verb: "messages" } },
+      ],
+      [
+        { operation: "node.move", nodeId: "n1", x: 999, y: 999 },
+        { operation: "edge.connect", edge: { fromNode: "t1", toNode: "t2", verb: "feeds" } },
+        { operation: "edge.connect", edge: { fromNode: "t2", toNode: "t1", verb: "feeds" } },
+      ],
+    ]) {
+      await expectErr({ operation: "canvas.batch", args: { operations } }, "InputError");
+      const after = await runtime!.runPromise(canvases.read("ops"));
+      expect(after.revision).toBe(before.revision);
+      expect(after.doc).toEqual(before.doc);
+    }
+  });
+
+  it("refuses batch native identity changes and new aliases of live overseer bindings", async () => {
+    const canvases = await boot();
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    for (const operation of [
+      { operation: "node.configure", nodeId: "peer", changes: { ether: { terminal: { bindingId: "replacement", harness: "amp" } } } },
+      { operation: "node.configure", nodeId: "overseer", changes: { ether: { host: "remote" } } },
+      { operation: "node.create", node: agent("clone", "bind-overseer") },
+    ]) {
+      await expectErr({ operation: "canvas.batch", args: { operations: [
+        { operation: "node.move", nodeId: "n1", x: 999, y: 999 }, operation,
+      ] } }, "AuthError");
+      expect((await runtime!.runPromise(canvases.read("ops"))).revision).toBe(before.revision);
+    }
+  });
+
+  it("rejects stale batch revisions and revoked grants at the write transaction", async () => {
+    const canvases = await boot();
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    await expectOk({ operation: "node.move", args: { nodeId: "n1", x: 450, y: 0 } });
+    const request: OverseerRequest = { operation: "canvas.batch", args: {
+      expectedRevision: before.revision,
+      operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }],
+    } };
+    await expectErr(request, "ClaimConflict");
+    const current = await runtime!.runPromise(canvases.read("ops"));
+    await runtime!.runPromise(canvases.canvasOverseerSet({
+      canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: current.revision,
+    }));
+    await expectErr(request, "AuthError");
+    expect((await runtime!.runPromise(canvases.read("ops"))).doc.nodes.find((node) => node.id === "n1"))
+      .toMatchObject({ x: 450, y: 0 });
+  });
+
+  it("rechecks batch authority after preflight and before authoring", async () => {
+    const canvases = await boot();
+    const current = await runtime!.runPromise(canvases.read("ops"));
+    const originalMutate = canvases.mutatePortfolio.bind(canvases);
+    const wrapped = {
+      ...canvases,
+      mutatePortfolio: ((fn) => Effect.gen(function* () {
+        yield* canvases.canvasOverseerSet({
+          canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: current.revision,
+        });
+        return yield* originalMutate(fn);
+      })) as typeof canvases.mutatePortfolio,
+    };
+    const result = await runtime!.runPromise(Effect.result(executeOverseerCanvas(CALLER, {
+      operation: "canvas.batch",
+      args: { operations: [{ operation: "node.move", nodeId: "n1", x: 999, y: 999 }] },
+    }).pipe(Effect.provideService(CanvasesService, wrapped))));
+    expect(Result.isFailure(result) && result.failure.type).toBe("AuthError");
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ x: 300, y: 0 });
+  });
+
+  it("refuses scheduler cycles and leaves their draft nodes uncommitted", async () => {
+    const canvases = await boot();
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    await expectErr({ operation: "canvas.batch", args: { operations: [
+      { operation: "node.create", node: { ...task("relay-a", 0), ether: { entity: { kind: "relay" } } } },
+      { operation: "node.create", node: { ...task("relay-b", 300), ether: { entity: { kind: "relay" } } } },
+      { operation: "edge.connect", edge: { fromNode: "relay-a", toNode: "relay-b", verb: "chains" } },
+      { operation: "edge.connect", edge: { fromNode: "relay-b", toNode: "relay-a", verb: "chains" } },
+    ] } }, "InputError");
+    expect((await runtime!.runPromise(canvases.read("ops"))).revision).toBe(before.revision);
+  });
+
   it("reads and configures authored sheets", async () => {
     await boot();
     const read = (await expectOk({
