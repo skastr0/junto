@@ -31,7 +31,7 @@ describe("Live native mutation fences", () => {
     const native = makeOverseerNativeLive({
       termPlane: { router: { isLocalHostId: () => true } } as unknown as TermPlane,
       chats: {} as ChatService,
-      captureApplicationPage: async () => ({ ok: false, reason: "not used" }),
+      captureApplicationPage: async () => ({ ok: false, unavailable: true, reason: "not used" }),
       liveOverseerGrant: async () => true,
       listCanvasDocuments: async () => [{ name: "factory", doc }],
       occupySeat: async () => false,

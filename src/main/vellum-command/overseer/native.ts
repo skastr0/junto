@@ -468,7 +468,10 @@ const promptSeat = async (
 ): Promise<boolean> => {
   if (ctx.managedDrive !== undefined && ctx.termPlane.router.isLocalHostId(hostId)) {
     // Non-retaining: a revoked overseer request must not land later via drainOne.
-    return ctx.managedDrive.writePrompt(bindingId, text, { queueIfBusy: false });
+    return ctx.managedDrive.writePrompt(bindingId, text, {
+      queueIfBusy: false,
+      signal: ctx.signal,
+    });
   }
   return writeSeat(ctx, bindingId, hostId, text.endsWith("\r") ? text : `${text}\r`);
 };

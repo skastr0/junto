@@ -239,7 +239,10 @@ describe("overseer native adapters", () => {
     });
     const result = await run(native, "agent.prompt", { nodeId: "a1", text: "hello" });
     expect(result.ok).toBe(true);
-    expect(writePrompt).toHaveBeenCalledWith("bind-a1", "hello", { queueIfBusy: false });
+    expect(writePrompt).toHaveBeenCalledWith("bind-a1", "hello", {
+      queueIfBusy: false,
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it("interrupts via Ctrl+C on the managed seat when no drive is bound", async () => {

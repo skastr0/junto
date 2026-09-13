@@ -93,6 +93,8 @@ export type ComposerVerdictLookup = (
 ) => "empty" | "draft" | null;
 
 export type WritePromptOptions = {
+  /** Cancel this request before any later paste, submit, or recovery write. */
+  readonly signal?: AbortSignal;
   /**
    * Positive UI readiness (not a quiet-gap). When false, abort to attention
    * without writing — Hermes install window swallows Ctrl+C and kills the session.
@@ -134,6 +136,7 @@ export const GROK_MIN_POST_SPAWN_MS = 1_500;
 
 type QueuedPrompt = {
   readonly text: string;
+  readonly signal: AbortSignal | undefined;
   readonly awaitTurnStart: boolean;
   readonly resolve: (ok: boolean) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
@@ -142,6 +145,7 @@ type QueuedPrompt = {
 type PendingTurn = {
   readonly generation: number;
   readonly bindingGeneration: number;
+  readonly signal: AbortSignal | undefined;
   readonly text: string;
   readonly resolve: (ok: boolean) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
@@ -315,8 +319,10 @@ export class ManagedTerminalDrive {
     bindingId: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): boolean {
     return (
+      !signal?.aborted &&
       this.active(generation) &&
       (this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration
     );
@@ -336,7 +342,8 @@ export class ManagedTerminalDrive {
   ): Promise<boolean> {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    const signal = opts.signal;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     const ready = opts.ready ?? true;
@@ -363,7 +370,7 @@ export class ManagedTerminalDrive {
         const t = setTimeout(r, waitMs);
         t.unref?.();
       });
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
       this.readyAfter.delete(bindingId);
@@ -376,7 +383,7 @@ export class ManagedTerminalDrive {
       } catch {
         safe = false;
       }
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
       if (!safe) {
@@ -408,7 +415,7 @@ export class ManagedTerminalDrive {
         const interruption = this.mailInterrupts.get(bindingId);
         if (interruption !== undefined) {
           const interrupted = await interruption;
-          if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+          if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             return false;
           }
           if (!interrupted) {
@@ -419,7 +426,7 @@ export class ManagedTerminalDrive {
           }
         }
       }
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
       // The interrupt can make the seat idle before its observer event is
@@ -432,30 +439,28 @@ export class ManagedTerminalDrive {
           generation,
           bindingGeneration,
           awaitTurnStart,
+          signal,
         );
       }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
       return new Promise<boolean>((resolve) => {
-        if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
           resolve(false);
           return;
         }
         const entry: QueuedPrompt = {
           text,
+          signal,
           awaitTurnStart,
           resolve: (ok) => {
             if (entry.timer !== undefined) clearTimeout(entry.timer);
             entry.timer = undefined;
+            signal?.removeEventListener("abort", cancel);
             resolve(ok);
           },
           timer: undefined,
         };
-        entry.timer = setTimeout(() => {
-          entry.timer = undefined;
-          if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
-            resolve(false);
-            return;
-          }
+        const cancel = () => {
           // Drop this entry from the queue if still waiting.
           const q = this.queues.get(bindingId);
           if (q) {
@@ -466,13 +471,19 @@ export class ManagedTerminalDrive {
               else this.queues.set(bindingId, q);
             }
           }
-          this.onAttention?.(bindingId, "queue-timeout");
-          resolve(false);
+          entry.resolve(false);
+        };
+        entry.timer = setTimeout(() => {
+          if (this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+            this.onAttention?.(bindingId, "queue-timeout");
+          }
+          cancel();
         }, timeoutMs);
         entry.timer.unref?.();
         const q = this.queues.get(bindingId) ?? [];
         q.push(entry);
         this.queues.set(bindingId, q);
+        signal?.addEventListener("abort", cancel, { once: true });
       });
     }
 
@@ -482,6 +493,7 @@ export class ManagedTerminalDrive {
       generation,
       bindingGeneration,
       awaitTurnStart,
+      signal,
     );
   }
 
@@ -636,6 +648,7 @@ export class ManagedTerminalDrive {
       generation,
       bindingGeneration,
       next.awaitTurnStart,
+      next.signal,
     );
     next.resolve(ok);
   }
@@ -646,8 +659,9 @@ export class ManagedTerminalDrive {
     generation: number,
     bindingGeneration: number,
     awaitTurnStart: boolean = this.stallWatch,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     // Re-check idle immediately before paste — observer can flip to dialog
@@ -682,8 +696,9 @@ export class ManagedTerminalDrive {
         text,
         generation,
         bindingGeneration,
+        signal,
       );
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
       if (!ok) {
@@ -695,6 +710,7 @@ export class ManagedTerminalDrive {
             bindingId,
             generation,
             bindingGeneration,
+            signal,
           );
         } else {
           this.onAttention?.(bindingId, "write-failed");
@@ -709,8 +725,9 @@ export class ManagedTerminalDrive {
         text,
         generation,
         bindingGeneration,
+        signal,
       );
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
       if (awaitTurnStart) {
@@ -730,9 +747,10 @@ export class ManagedTerminalDrive {
           text,
           generation,
           bindingGeneration,
+          signal,
         );
         if (started) return true;
-        if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
           return false;
         }
         // FIRED-LAW (live duplicate fix): the stall window closed without a
@@ -754,12 +772,13 @@ export class ManagedTerminalDrive {
         // only while the seat is still idle — never into a working turn.
         if (!sentChipCr && this.isSeatIdle(bindingId) && this.chipVisible(bindingId)) {
           if (
-            !(await this.writeSubmitCr(bindingId, generation, bindingGeneration))
+            !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal))
           ) {
             await this.clearFailedSubmit(
               bindingId,
               generation,
               bindingGeneration,
+              signal,
             );
             return false;
           }
@@ -771,6 +790,7 @@ export class ManagedTerminalDrive {
             text,
             generation,
             bindingGeneration,
+            signal,
           );
           if (startedRetry) return true;
           if (this.pendingText && !this.pendingText(bindingId)) {
@@ -778,7 +798,7 @@ export class ManagedTerminalDrive {
           }
         }
         // Law: never leave Vellum Command-authored text as a stuck paste chip.
-        await this.clearFailedSubmit(bindingId, generation, bindingGeneration);
+        await this.clearFailedSubmit(bindingId, generation, bindingGeneration, signal);
         return false;
       }
       // awaitTurnStart false (firstTyped): never receipt a chip. The
@@ -791,7 +811,7 @@ export class ManagedTerminalDrive {
       const firstTypedSettles = payloadMayChip(text) ? 2 : 1;
       if (this.pendingText && this.pasteToCrSettleMs > 0) {
         for (let i = 0; i < firstTypedSettles; i += 1) {
-          if (!(await this.settle(bindingId, generation, bindingGeneration))) {
+          if (!(await this.settle(bindingId, generation, bindingGeneration, signal))) {
             return false;
           }
         }
@@ -807,6 +827,7 @@ export class ManagedTerminalDrive {
             bindingId,
             generation,
             bindingGeneration,
+            signal,
           );
         }
         return false;
@@ -827,8 +848,9 @@ export class ManagedTerminalDrive {
     bindingId: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<void> {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return;
     if (this.pendingText && !this.pendingText(bindingId)) {
       // Evidence: our text already left the composer (the submit landed and
       // only the working repaint is late — D3's ackDelay case). Writing an
@@ -863,8 +885,9 @@ export class ManagedTerminalDrive {
     text: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     // Final idle gate at the paste boundary (no durable receipt if refused).
@@ -879,7 +902,7 @@ export class ManagedTerminalDrive {
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
     this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     // Let paste-end settle before CR — racing ESC[201~ leaves Claude/Devin
@@ -889,7 +912,7 @@ export class ManagedTerminalDrive {
         const t = setTimeout(r, this.pasteToCrSettleMs);
         t.unref?.();
       });
-      if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
       if (!this.isSeatIdle(bindingId)) {
@@ -898,7 +921,7 @@ export class ManagedTerminalDrive {
     }
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeFn(bindingId, cr)))) return false;
-    return this.activeBinding(bindingId, generation, bindingGeneration);
+    return this.activeBinding(bindingId, generation, bindingGeneration, signal);
   }
 
   /**
@@ -912,21 +935,22 @@ export class ManagedTerminalDrive {
     text: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
     if (!payloadMayChip(text)) return false;
     if (!this.pasteChip && !this.pendingText) return false;
     if (
-      await this.tryChipSubmitCr(bindingId, generation, bindingGeneration)
+      await this.tryChipSubmitCr(bindingId, generation, bindingGeneration, signal)
     ) {
       return true;
     }
     if (this.pasteToCrSettleMs > 0) {
       if (
-        !(await this.settle(bindingId, generation, bindingGeneration))
+        !(await this.settle(bindingId, generation, bindingGeneration, signal))
       ) {
         return false;
       }
-      return this.tryChipSubmitCr(bindingId, generation, bindingGeneration);
+      return this.tryChipSubmitCr(bindingId, generation, bindingGeneration, signal);
     }
     return false;
   }
@@ -935,13 +959,14 @@ export class ManagedTerminalDrive {
     bindingId: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     if (!this.isSeatIdle(bindingId)) return false;
     if (!this.chipVisible(bindingId)) return false;
-    return this.writeSubmitCr(bindingId, generation, bindingGeneration);
+    return this.writeSubmitCr(bindingId, generation, bindingGeneration, signal);
   }
 
   /** Chip chrome, or pendingText when the production pasteChip lookup is absent. */
@@ -954,6 +979,7 @@ export class ManagedTerminalDrive {
     bindingId: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
     if (this.pasteToCrSettleMs > 0) {
       await new Promise<void>((r) => {
@@ -961,7 +987,7 @@ export class ManagedTerminalDrive {
         t.unref?.();
       });
     }
-    return this.activeBinding(bindingId, generation, bindingGeneration);
+    return this.activeBinding(bindingId, generation, bindingGeneration, signal);
   }
 
   /** One extra CR when the first paste+CR did not produce turn-start. */
@@ -969,8 +995,9 @@ export class ManagedTerminalDrive {
     bindingId: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     return Boolean(await Promise.resolve(this.writeFn(bindingId, CR)));
@@ -981,31 +1008,42 @@ export class ManagedTerminalDrive {
     text: string,
     generation: number,
     bindingGeneration: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return Promise.resolve(false);
     }
     return new Promise<boolean>((resolve) => {
+      const cancel = () => {
+        if (this.pendingTurns.get(bindingId) === pending) {
+          this.resolvePendingTurn(bindingId, false);
+        }
+      };
       const pending: PendingTurn = {
         generation,
         bindingGeneration,
+        signal,
         text,
-        resolve,
+        resolve: (ok) => {
+          signal?.removeEventListener("abort", cancel);
+          resolve(ok);
+        },
         timer: undefined,
       };
       pending.timer = setTimeout(() => {
         if (this.pendingTurns.get(bindingId) !== pending) return;
         this.pendingTurns.delete(bindingId);
         pending.timer = undefined;
-        if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
-          resolve(false);
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+          pending.resolve(false);
           return;
         }
         this.onAttention?.(bindingId, "prompt-stalled");
-        resolve(false);
+        pending.resolve(false);
       }, this.stallTimeoutMs);
       pending.timer.unref?.();
       this.pendingTurns.set(bindingId, pending);
+      signal?.addEventListener("abort", cancel, { once: true });
     });
   }
 
@@ -1021,6 +1059,7 @@ export class ManagedTerminalDrive {
           bindingId,
           pending.generation,
           pending.bindingGeneration,
+          pending.signal,
         ),
     );
   }

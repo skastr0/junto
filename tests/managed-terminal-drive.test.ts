@@ -88,6 +88,56 @@ describe("ManagedTerminalDrive", () => {
     vi.useRealTimers();
   });
 
+  it("refuses an already cancelled prompt without touching the worker", async () => {
+    drive = makeDrive();
+    const controller = new AbortController();
+    controller.abort();
+    expect(await drive.writePrompt("b1", "obsolete", { signal: controller.signal })).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("does not submit or clear a prompt cancelled while its paste is in flight", async () => {
+    let releasePaste!: (ok: boolean) => void;
+    const paste = new Promise<boolean>((resolve) => { releasePaste = resolve; });
+    drive = makeDrive({
+      write: (bindingId, data) => { writes.push({ bindingId, data }); return paste; },
+      pendingText: () => true,
+    });
+    const controller = new AbortController();
+    const result = drive.writePrompt("b1", "obsolete", { signal: controller.signal });
+    expect(writes).toEqual([{ bindingId: "b1", data: encodeBracketedPaste("obsolete") }]);
+    controller.abort();
+    releasePaste(true);
+    expect(await result).toBe(false);
+    expect(writes).toHaveLength(1);
+  });
+
+  it("drops a cancelled queued prompt before the worker becomes idle", async () => {
+    idle = false;
+    drive = makeDrive();
+    const controller = new AbortController();
+    const result = drive.writePrompt("b1", "obsolete", { signal: controller.signal });
+    expect(drive.queuedCount("b1")).toBe(1);
+    controller.abort();
+    expect(await result).toBe(false);
+    expect(drive.queuedCount("b1")).toBe(0);
+    idle = true;
+    drive.onSeatIdle("b1");
+    await flushMicrotasks();
+    expect(writes).toEqual([]);
+  });
+
+  it("ends a cancelled acknowledgement wait without a recovery write", async () => {
+    drive = makeDrive({ stallWatch: true, stallTimeoutMs: 10_000, pendingText: () => true });
+    const controller = new AbortController();
+    const result = drive.writePrompt("b1", "obsolete", { signal: controller.signal });
+    await flushMicrotasks(10);
+    expect(writes.map(({ data }) => data)).toEqual([encodeBracketedPaste("obsolete"), CR]);
+    controller.abort();
+    expect(await result).toBe(false);
+    expect(writes).toHaveLength(2);
+  });
+
   it("writePrompt issues paste then separate CR", async () => {
     drive = makeDrive();
     const ok = await drive.writePrompt("b1", "do work");
