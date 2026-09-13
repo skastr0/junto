@@ -108,7 +108,11 @@ describe("term control UDS", () => {
     const home = mkdtempSync(join(tmpdir(), "vt-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
 
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -183,7 +187,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vt-occ-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -237,7 +245,11 @@ describe("term control UDS", () => {
   it("rejects bad token", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtb-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -256,7 +268,11 @@ describe("term control UDS", () => {
   it("isLive is false after the socket closes", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtl-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -276,7 +292,11 @@ describe("term control UDS", () => {
   it("caps accepted peers before frame admission and recovers after close", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtc-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => { await host.shutdownAll("test"); });
     const server = await startTermControlServer(host, { home, maxActiveClients: 1 });
     cleanups.push(() => server.close());
@@ -294,7 +314,11 @@ describe("term control UDS", () => {
   it("boundedly drains an active client when the control server closes", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtcl-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -320,7 +344,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vtl-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -348,7 +376,11 @@ describe("term control UDS", () => {
   it("connect then subscribe still sees the current working seat", async () => {
     const home = mkdtempSync(join(tmpdir(), "vtss-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -396,7 +428,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vtcf-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -454,7 +490,11 @@ describe("term control UDS", () => {
     }));
     const home = mkdtempSync(join(tmpdir(), "vtcas-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -512,7 +552,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(identities);
     const home = mkdtempSync(join(tmpdir(), "vtcas-adopt-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -571,7 +615,11 @@ describe("term control UDS", () => {
     }));
     const home = mkdtempSync(join(tmpdir(), "vta-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -683,7 +731,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vtgeo-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -714,7 +766,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vtcas-intent-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });
@@ -786,7 +842,11 @@ describe("term control UDS", () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
     const home = mkdtempSync(join(tmpdir(), "vtcasx-"));
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
-    const host = new LocalSessionHost(fakeAuthority());
+    const host = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     cleanups.push(async () => {
       await host.shutdownAll("test");
     });

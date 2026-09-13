@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint, waitForTerminalText } from "../harness/term-ready";
 
 const REPO = process.cwd();
 const REPLAY_DIR = "/tmp/vellum-real-bytes";
@@ -137,7 +138,7 @@ test("the same scroll position renders the same before and after scrolling", asy
   await node.dblclick();
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(2_000);
+  await waitForTerminalPaint(page);
 
   // Real harness bytes, plus enough plain scrollback to have somewhere to
   // scroll to.
@@ -151,7 +152,7 @@ test("the same scroll position renders the same before and after scrolling", asy
     `i=1; while [ $i -le 400 ]; do printf 'R%04d ------------------------------\\n' $i; i=$((i+1)); done`,
   );
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(8_000);
+  await waitForTerminalText(page, "R0400", 30_000);
 
   // Scroll up a fixed distance and record what that position renders on FIRST
   // paint, keyed by the line number at the top of the viewport.

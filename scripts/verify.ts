@@ -69,7 +69,7 @@ await allMustPass([
   { name: "audit:dependencies", cmd: ["bun", "scripts/audit-dependencies.ts"] },
   {
     name: "test",
-    cmd: ["vitest", "run", `--maxWorkers=${vitestWorkers}`],
+    cmd: ["bun", "scripts/run-unit-tests.ts", `--maxWorkers=${vitestWorkers}`],
     env: { VELLUM_COMMAND_TEST_FEATURE_PROFILE: "all-on" },
   },
 ]);

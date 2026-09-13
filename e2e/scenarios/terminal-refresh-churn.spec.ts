@@ -16,6 +16,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e refresh churn";
 const BINDING_ID = "e2e-churn-1";
@@ -71,7 +72,7 @@ test("rows survive forced repaints and resizes during live output", async ({ vel
   await node.dblclick();
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(2_500);
+  await waitForTerminalPaint(page);
 
   // Stream slowly and continuously, with an in-place redrawn status line —
   // the shape every harness paints (write a line, then rewrite the line below
@@ -97,7 +98,7 @@ test("rows survive forced repaints and resizes during live output", async ({ vel
     }
   }
   await page.setViewportSize(base);
-  await page.waitForTimeout(3_000);
+  await waitForTerminalPaint(page);
 
   await page.screenshot({ path: "/tmp/vellum-churn-final.png" });
   for (const problem of violations(await rowTexts(page))) {

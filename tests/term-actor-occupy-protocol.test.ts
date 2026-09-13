@@ -75,7 +75,11 @@ const startPair = async () => {
     output: "ready\r\n",
     exitOnSignal: "SIGTERM",
   }));
-  const host = new LocalSessionHost(fake.authority);
+  const host = new LocalSessionHost(fake.authority, {
+    killGraceMs: 5,
+    shutdownGraceMs: 5,
+    lateExitGraceMs: 5,
+  });
   cleanups.push(async () => {
     await host.shutdownAll("test");
   });

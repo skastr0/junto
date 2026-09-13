@@ -22,7 +22,6 @@ import { lstat, readdir, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import type { CanvasDoc } from "../../src/shared/canvas";
@@ -189,10 +188,12 @@ const socketExists = async (socketPath: string): Promise<boolean> =>
     },
   );
 
-const findDemoRuntimeDatabase = async (): Promise<string | undefined> => {
+const findDemoRuntimeDatabase = async (
+  searchRoot: string,
+): Promise<string | undefined> => {
   let entries;
   try {
-    entries = await readdir(tmpdir(), { withFileTypes: true });
+    entries = await readdir(searchRoot, { withFileTypes: true });
   } catch {
     return undefined;
   }
@@ -203,7 +204,7 @@ const findDemoRuntimeDatabase = async (): Promise<string | undefined> => {
           entry.isDirectory() && entry.name.startsWith("vellum-command-demo-runtime-"),
       )
       .map(async (entry) => {
-        const full = join(tmpdir(), entry.name);
+        const full = join(searchRoot, entry.name);
         const info = await stat(full).catch(() => undefined);
         return { full, mtimeMs: info?.mtimeMs ?? 0 };
       }),
@@ -463,6 +464,12 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     const env: Record<string, string> = {
       ...inherited,
       HOME: sandbox.homeDir,
+      // Demo isolation mints vellum-command-demo-runtime-* under os.tmpdir().
+      // Pin TMPDIR to this launch's sandbox so two workers cannot seed each
+      // other's newest demo database. The demo file is SQLite, not a UDS.
+      TMPDIR: sandbox.root,
+      TMP: sandbox.root,
+      TEMP: sandbox.root,
       SHELL: "/bin/sh",
       VELLUM_COMMAND_CANVASES_DIR: sandbox.canvasesDir,
       VELLUM_COMMAND_E2E: "1",
@@ -526,10 +533,10 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     if (options.demo === true) {
       const seeds = Object.entries(options.seedCanvases ?? {});
       if (seeds.length > 0) {
-        const demoDatabase = await findDemoRuntimeDatabase();
+        const demoDatabase = await findDemoRuntimeDatabase(sandbox.root);
         if (demoDatabase === undefined) {
           throw new Error(
-            "demo-mode seed: the app's ephemeral demo database was not found under os.tmpdir()",
+            "demo-mode seed: the app's ephemeral demo database was not found under the sandbox temp root",
           );
         }
         for (const [name, doc] of seeds) {

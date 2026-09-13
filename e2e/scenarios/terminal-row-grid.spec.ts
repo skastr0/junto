@@ -1,5 +1,6 @@
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 const LABEL = "e2e rowdrift";
 const LAUNCH = { kind: "command" as const, argv: ["/bin/sh","-c","i=1; while [ $i -le 200 ]; do printf 'D%04d ----------\\r\\n' $i; i=$((i+1)); done; exec sleep 3600"] };
 test.use({ vellumOptions: { seedCanvases: { drift: canvasDoc([terminalTextNode({ id:"t1", bindingId:"e2e-drift-1", label:LABEL, launch:LAUNCH })]) } } });
@@ -9,7 +10,7 @@ test("row elements sit on an exact grid", async ({ vellumCommand }) => {
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.dblclick();
   await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(4000);
+  await waitForTerminalPaint(page, 20);
   const report = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".native-terminal-surface .xterm-rows > *"));
     const tops = rows.map(r => r.getBoundingClientRect().top);

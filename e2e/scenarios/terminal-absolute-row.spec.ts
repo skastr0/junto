@@ -15,6 +15,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint, waitForTerminalText } from "../harness/term-ready";
 
 const LABEL = "e2e absolute row";
 const BINDING_ID = "e2e-absrow-1";
@@ -45,7 +46,7 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ v
   await node.dblclick();
   const surface = page.locator(".native-terminal-surface");
   await expect(surface).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(3_000);
+  await waitForTerminalPaint(page);
 
   // Emit filler, then park a STATUS marker at the row the PTY claims is last —
   // re-reading the size each iteration, exactly as a TUI does on SIGWINCH.
@@ -56,7 +57,7 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ v
       "i=$((i+1)); done",
   );
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(2_000);
+  await waitForTerminalText(page, "STATUS-ROW-", 15_000);
 
   // Reopen + resize: the window the divergence lives in.
   for (let cycle = 0; cycle < 3; cycle += 1) {
@@ -64,14 +65,13 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ v
     await expect(surface).toBeHidden({ timeout: 15_000 });
     const base = page.viewportSize() ?? { width: 1440, height: 900 };
     await page.setViewportSize({ width: base.width - 200, height: base.height - 160 });
-    await page.waitForTimeout(700);
     await node.dblclick();
     await expect(surface).toBeVisible({ timeout: 30_000 });
-    await page.waitForTimeout(2_500);
+    await waitForTerminalPaint(page);
     await page.setViewportSize(base);
-    await page.waitForTimeout(2_500);
+    await waitForTerminalPaint(page);
   }
-  await page.waitForTimeout(3_000);
+  await waitForTerminalText(page, "STATUS-ROW-", 15_000);
 
   const rows = await rowTexts(page);
   const statusAt = rows.map((t, i) => ({ t, i })).filter((r) => r.t.includes("STATUS-ROW-"));

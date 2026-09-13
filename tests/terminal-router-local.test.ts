@@ -46,7 +46,11 @@ const fakeAuthority = (pid = 55_010) => {
 describe("TerminalRouter local path", () => {
   it("create/get/list/attach/write/kill stay on LocalSessionHost for local hostId", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
-    const local = new LocalSessionHost(fakeAuthority());
+    const local = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     hosts.push(local);
     const router = new TerminalRouter(local);
 
@@ -85,7 +89,11 @@ describe("TerminalRouter local path", () => {
   });
 
   it("only absent, empty, and an explicit local registry host are local", () => {
-    const local = new LocalSessionHost(fakeAuthority());
+    const local = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     hosts.push(local);
     const router = new TerminalRouter(local);
     expect(router.isLocalHostId("local")).toBe(true);
@@ -96,7 +104,11 @@ describe("TerminalRouter local path", () => {
 
   it("unknown nonempty host IDs cannot acquire local terminal authority", async () => {
     setProcessIdentityMapForTests(makeProcessIdentityMap());
-    const local = new LocalSessionHost(fakeAuthority());
+    const local = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     hosts.push(local);
     const router = new TerminalRouter(local);
     const lease = { leaseId: "lease", bindingId: "unknown", epoch: "1", mode: "control" as const };
@@ -117,7 +129,11 @@ describe("TerminalRouter local path", () => {
   });
 
   it("revokes a cached remote lease when its host endpoint changes", async () => {
-    const local = new LocalSessionHost(fakeAuthority());
+    const local = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
@@ -142,7 +158,11 @@ describe("TerminalRouter local path", () => {
   });
 
   it("waits for superseded endpoint dials before remote shutdown returns", async () => {
-    const local = new LocalSessionHost(fakeAuthority());
+    const local = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     hosts.push(local);
     const router = new TerminalRouter(local);
     setHostsSnapshot([
@@ -190,7 +210,11 @@ describe("TerminalRouter local path", () => {
   });
 
   it("shutdownAllLocal does not require remotes", async () => {
-    const local = new LocalSessionHost(fakeAuthority());
+    const local = new LocalSessionHost(fakeAuthority(), {
+      killGraceMs: 5,
+      shutdownGraceMs: 5,
+      lateExitGraceMs: 5,
+    });
     hosts.push(local);
     const router = new TerminalRouter(local);
     await router.create({ bindingId: "q1", hostId: "local" });

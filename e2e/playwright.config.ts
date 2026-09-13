@@ -6,7 +6,7 @@ import { defineConfig } from "@playwright/test";
 // binary — never `bun x playwright`.
 export default defineConfig({
   testDir: "./scenarios",
-  workers: 1,
+  workers: 2,
   reporter: [["list"]],
   timeout: 90_000,
   use: {

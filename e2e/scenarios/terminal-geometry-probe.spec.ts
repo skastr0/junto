@@ -17,6 +17,7 @@
  */
 import { canvasDoc, terminalTextNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
+import { waitForTerminalPaint } from "../harness/term-ready";
 
 const LABEL = "e2e geom probe";
 const BINDING_ID = "e2e-geom-probe-1";
@@ -60,22 +61,21 @@ test("xterm measures against a laid-out box, and the painted screen matches the 
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.dblclick();
   await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
-  // Let the SETTLE_FITS_MS ladder finish so we judge the settled state, not a
-  // transient mid-layout sample.
-  await page.waitForTimeout(4_000);
+  // SETTLE_FITS_MS ladder is [0,50,160,320,600] — wait for a painted surface
+  // rather than a 4s guess at the last rung.
+  await waitForTerminalPaint(page);
 
   // Exercise the paths the operator actually uses: window resize, and a
   // close/reopen (a fresh open() against a pane that is being re-mounted).
   const size = page.viewportSize() ?? { width: 1440, height: 900 };
   await page.setViewportSize({ width: size.width - 220, height: size.height - 140 });
-  await page.waitForTimeout(2_000);
+  await waitForTerminalPaint(page);
   await page.setViewportSize(size);
-  await page.waitForTimeout(2_000);
+  await waitForTerminalPaint(page);
   await page.locator(".native-terminal-surface").getByRole("button", { name: "Close" }).click();
-  await page.waitForTimeout(800);
   await node.dblclick();
   await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(4_000);
+  await waitForTerminalPaint(page);
 
   const opens = logs.filter((l) => l.event === "open");
   const resizes = logs.filter((l) => l.event === "resize");
