@@ -8,6 +8,11 @@
  */
 
 import {
+  OPERATOR_INPUT_LATCH_MS,
+  OperatorInterlock,
+  seatOperatorInterlock,
+} from "./operator-interlock";
+import {
   buildPromptWriteSequence,
   canSendIdleInterrupt,
   CR,
@@ -41,7 +46,8 @@ export type DriveAttentionReason =
   | "not-ready"
   | "composer-unreadable"
   | "queue-timeout"
-  | "multiline-refused";
+  | "multiline-refused"
+  | "operator-active";
 
 /** Default max wait for a mid-turn queued prompt before resolving false. */
 export const DEFAULT_QUEUE_TIMEOUT_MS = 30_000;
@@ -185,6 +191,14 @@ export type ManagedTerminalDriveOptions = {
   readonly composerVerdict?: ComposerVerdictLookup;
   /** Binding → harness id. Absent lookup = no Hermes multiline refuse. */
   readonly harnessFor?: SeatHarnessLookup;
+  /**
+   * Operator-input interlock shared with the PTY write boundary. Latches
+   * block admission while operator keystrokes are too fresh for the screen
+   * to prove a draft; holds park operator bytes for the physical paste→CR
+   * unit so they can never interleave inside the envelope. Defaults to the
+   * process singleton; tests inject an isolated instance.
+   */
+  readonly operatorInput?: OperatorInterlock;
 };
 
 export class ManagedTerminalDrive {
@@ -202,6 +216,7 @@ export class ManagedTerminalDrive {
   private readonly pasteChip: PromptPendingLookup | undefined;
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
   private readonly harnessFor: SeatHarnessLookup | undefined;
+  private readonly interlock: OperatorInterlock;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   private readonly writing = new Set<string>();
@@ -240,6 +255,7 @@ export class ManagedTerminalDrive {
     this.pasteChip = options.pasteChip;
     this.composerVerdict = options.composerVerdict;
     this.harnessFor = options.harnessFor;
+    this.interlock = options.operatorInput ?? seatOperatorInterlock;
   }
 
   /** Hermes never receives a multiline paste — chip never collapses on CR. */
@@ -253,15 +269,18 @@ export class ManagedTerminalDrive {
 
   /**
    * True while a factory write must wait: the agent is mid-turn, a write is
-   * already in flight, a turn is pending acknowledgement, or — the operator
-   * case this gate exists for — the screen does not prove an empty composer.
+   * already in flight, a turn is pending acknowledgement, the screen does
+   * not prove an empty composer — or operator input arrived too recently for
+   * the screen to prove anything at all. The interlock latches cover the
+   * observer's blind window between keystroke and repaint.
    */
   private mustWait(bindingId: string): boolean {
     return (
       !this.isSeatIdle(bindingId) ||
       this.writing.has(bindingId) ||
       this.pendingTurns.has(bindingId) ||
-      this.composerBlocked(bindingId)
+      this.composerBlocked(bindingId) ||
+      this.interlock.gateActive(bindingId)
     );
   }
 
@@ -293,6 +312,7 @@ export class ManagedTerminalDrive {
       bindingId,
       (this.bindingGenerations.get(bindingId) ?? 0) + 1,
     );
+    this.interlock.dropBinding(bindingId);
     this.clearBindingTransientState(bindingId);
   }
 
@@ -398,8 +418,10 @@ export class ManagedTerminalDrive {
         opts.interruptIfBusy &&
         !this.isSeatIdle(bindingId) &&
         // Ctrl+C mid-turn also wipes whatever the operator has typed, so it
-        // needs the same proven-empty composer as a paste.
+        // needs the same proven-empty composer as a paste — and a latch-free
+        // input path, for the keystroke the screen has not painted yet.
         !this.composerBlocked(bindingId) &&
+        !this.interlock.inputActive(bindingId) &&
         !this.mailInterrupts.has(bindingId)
       ) {
         // Reserve the coalescing slot before awaiting the physical write so
@@ -410,7 +432,8 @@ export class ManagedTerminalDrive {
       if (
         opts.interruptIfBusy &&
         !this.isSeatIdle(bindingId) &&
-        !this.composerBlocked(bindingId)
+        !this.composerBlocked(bindingId) &&
+        !this.interlock.inputActive(bindingId)
       ) {
         const interruption = this.mailInterrupts.get(bindingId);
         if (interruption !== undefined) {
@@ -507,6 +530,11 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
     }
+    // A Ctrl+C can never land inside a live submission span — it would
+    // interleave into the paste envelope exactly like operator bytes.
+    if (this.interlock.holding(bindingId)) {
+      return false;
+    }
     const idle = this.isSeatIdle(bindingId);
     const now = this.now();
     if (
@@ -595,6 +623,7 @@ export class ManagedTerminalDrive {
     this.readyAfter.clear();
     this.mailInterrupts.clear();
     this.bindingGenerations.clear();
+    this.interlock.clearAll();
   }
 
   private clearBindingTransientState(bindingId: string): void {
@@ -636,7 +665,20 @@ export class ManagedTerminalDrive {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) return;
-    if (this.mustWait(bindingId)) return;
+    if (this.mustWait(bindingId)) {
+      // Latch-only blocks never get a screen event to re-fire the drain —
+      // re-arm once the interlock goes quiet so a fresh keystroke cannot
+      // strand a queued prompt until queue-timeout.
+      if (
+        (this.queues.get(bindingId)?.length ?? 0) > 0 &&
+        this.interlock.gateActive(bindingId)
+      ) {
+        void this.interlock.waitQuiet(bindingId).then(() => {
+          void this.drainOne(bindingId);
+        });
+      }
+      return;
+    }
     const q = this.queues.get(bindingId);
     if (!q || q.length === 0) return;
     const next = q.shift()!;
@@ -689,152 +731,263 @@ export class ManagedTerminalDrive {
         );
         return false;
       }
-      const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
-      const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
-      const ok = await this.writePasteAndCr(
-        bindingId,
-        text,
-        generation,
-        bindingGeneration,
-        signal,
-      );
-      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return false;
-      }
-      if (!ok) {
-        if (this.pendingText && this.pendingText(bindingId)) {
-          // The paste landed (chip/payload visible) but a later write in the
-          // sequence was refused: clear the chip this sequence created so the
-          // operator never sees a stuck `[Pasted text #N]` (DRV-4 law).
-          await this.clearFailedSubmit(
-            bindingId,
-            generation,
-            bindingGeneration,
-            signal,
-          );
-        } else {
-          this.onAttention?.(bindingId, "write-failed");
-        }
-        return false;
-      }
-      // Multiline paste chips on Claude/Devin. The second CR is the submit,
-      // not a 5s stall recovery — send it as soon as the composer still
-      // holds our text and the seat is idle.
-      const sentChipCr = await this.writeChipSubmitCrIfNeeded(
-        bindingId,
-        text,
-        generation,
-        bindingGeneration,
-        signal,
-      );
-      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return false;
-      }
-      if (awaitTurnStart) {
-        // Observer delivery can race the CR writer's promise resolution.
-        // Preserve a turn-start seen anywhere during the physical sequence.
-        if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
-          return true;
-        }
-        if (
-          text === "/compact" &&
-          (this.compactNoopCounts.get(bindingId) ?? 0) !== compactNoopCount
-        ) {
-          return true;
-        }
-        const started = await this.awaitTurnStart(
+      // The screen gates above can only see what has painted. Operator
+      // keystrokes younger than the repaint live only in the interlock
+      // latches — wait out the blind window rather than paste onto a draft
+      // the grid has not shown us yet. Synchronous fast path when no latch
+      // is active: the write boundary stays tick-free for callers that
+      // assert the paste landed before yielding.
+      if (
+        this.interlock.gateActive(bindingId) &&
+        !(await this.awaitOperatorQuiet(
           bindingId,
-          text,
           generation,
           bindingGeneration,
           signal,
-        );
-        if (started) return true;
-        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-          return false;
-        }
-        // FIRED-LAW (live duplicate fix): the stall window closed without a
-        // turn-start ack, but our text has already LEFT the composer — the
-        // paste submitted and only the working repaint is late. That is
-        // "Fired" per the product law: resolve TRUE, never clear, never
-        // attention, never false. Resolving false here is what made the
-        // delivery layer re-paste the same message on every idle (the live
-        // 4x duplicate report).
-        if (this.pendingText && !this.pendingText(bindingId)) {
-          return true;
-        }
-        // No composer chip: first CR was the submit (Codex/Grok). A leftover
-        // payload head on a stale idle grid must not recovery-CR or clear.
-        if (this.pasteChip && !this.pasteChip(bindingId)) {
-          return true;
-        }
-        // Evidence was late: the chip CR never fired. One recovery CR, and
-        // only while the seat is still idle — never into a working turn.
-        if (!sentChipCr && this.isSeatIdle(bindingId) && this.chipVisible(bindingId)) {
-          if (
-            !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal))
-          ) {
-            await this.clearFailedSubmit(
-              bindingId,
-              generation,
-              bindingGeneration,
-              signal,
-            );
-            return false;
-          }
-          if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
-            return true;
-          }
-          const startedRetry = await this.awaitTurnStart(
+        ))
+      ) {
+        return false;
+      }
+      const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
+      const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
+      // The physical unit (gates → paste → settle → CR → chip CR → firstTyped
+      // evidence settles → any in-sequence clear) runs under one interlock
+      // hold. Operator bytes arriving mid-span park and replay only after
+      // the span resolves, so they can never interleave inside the paste
+      // envelope or land between paste-end and CR — the modal-focus race.
+      const physical = await this.withOperatorHold(
+        bindingId,
+        async (): Promise<
+          | { readonly kind: "inactive" }
+          | { readonly kind: "failed" }
+          | { readonly kind: "done"; readonly ok: boolean }
+          | { readonly kind: "written"; readonly sentChipCr: boolean }
+        > => {
+          const ok = await this.writePasteAndCr(
             bindingId,
             text,
             generation,
             bindingGeneration,
             signal,
           );
-          if (startedRetry) return true;
-          if (this.pendingText && !this.pendingText(bindingId)) {
-            return true;
+          if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+            return { kind: "inactive" };
           }
-        }
-        // Law: never leave Vellum Command-authored text as a stuck paste chip.
-        await this.clearFailedSubmit(bindingId, generation, bindingGeneration, signal);
+          if (!ok) {
+            if (this.pendingText && this.pendingText(bindingId)) {
+              // The paste landed (chip/payload visible) but a later write in
+              // the sequence was refused: clear the chip this sequence
+              // created so the operator never sees a stuck `[Pasted text
+              // #N]` (DRV-4 law). Still inside the hold — parked operator
+              // bytes replay after the clear, onto the clean composer.
+              await this.clearFailedSubmit(
+                bindingId,
+                generation,
+                bindingGeneration,
+                signal,
+              );
+            } else {
+              this.onAttention?.(bindingId, "write-failed");
+            }
+            return { kind: "failed" };
+          }
+          // Multiline paste chips on Claude/Devin. The second CR is the
+          // submit, not a 5s stall recovery — send it as soon as the
+          // composer still holds our text and the seat is idle.
+          const sentChipCr = await this.writeChipSubmitCrIfNeeded(
+            bindingId,
+            text,
+            generation,
+            bindingGeneration,
+            signal,
+          );
+          if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+            return { kind: "inactive" };
+          }
+          if (awaitTurnStart) {
+            return { kind: "written", sentChipCr };
+          }
+          // awaitTurnStart false (firstTyped): never receipt a chip. The
+          // observer snapshot on this tick still shows the text we just
+          // pasted — wait after the recipe CR before deciding. Multiline
+          // chips can paint one frame late: two settles, not one, so a
+          // clean first look cannot receipt a chip that arrives on the
+          // next paint. Same-tick Ctrl+C would interrupt a submit that
+          // has not painted yet (and raise prompt-stalled on doctrine).
+          const firstTypedSettles = payloadMayChip(text) ? 2 : 1;
+          if (this.pendingText && this.pasteToCrSettleMs > 0) {
+            for (let i = 0; i < firstTypedSettles; i += 1) {
+              if (!(await this.settle(bindingId, generation, bindingGeneration, signal))) {
+                return { kind: "inactive" };
+              }
+            }
+          }
+          if (this.pendingText && this.pendingText(bindingId)) {
+            // Snapshot-only leftover (Codex payload head / Grok footer) is
+            // not a stuck chip — receipt the firstTyped write; never Ctrl+C.
+            if (this.pasteChip && !this.pasteChip(bindingId)) {
+              return { kind: "done", ok: true };
+            }
+            if (this.isSeatIdle(bindingId)) {
+              await this.clearFailedSubmit(
+                bindingId,
+                generation,
+                bindingGeneration,
+                signal,
+              );
+            }
+            return { kind: "done", ok: false };
+          }
+          return { kind: "done", ok: true };
+        },
+      );
+      if (physical.kind === "inactive" || physical.kind === "failed") {
         return false;
       }
-      // awaitTurnStart false (firstTyped): never receipt a chip. The
-      // observer snapshot on this tick still shows the text we just
-      // pasted — wait after the recipe CR before deciding. Multiline
-      // chips can paint one frame late: two settles, not one, so a
-      // clean first look cannot receipt a chip that arrives on the
-      // next paint. Same-tick Ctrl+C would interrupt a submit that
-      // has not painted yet (and raise prompt-stalled on doctrine).
-      const firstTypedSettles = payloadMayChip(text) ? 2 : 1;
-      if (this.pendingText && this.pasteToCrSettleMs > 0) {
-        for (let i = 0; i < firstTypedSettles; i += 1) {
-          if (!(await this.settle(bindingId, generation, bindingGeneration, signal))) {
-            return false;
-          }
-        }
+      if (physical.kind === "done") {
+        return physical.ok;
       }
-      if (this.pendingText && this.pendingText(bindingId)) {
-        // Snapshot-only leftover (Codex payload head / Grok footer) is not a
-        // stuck chip — receipt the firstTyped write; never Ctrl+C.
-        if (this.pasteChip && !this.pasteChip(bindingId)) {
-          return true;
-        }
-        if (this.isSeatIdle(bindingId)) {
+      const sentChipCr = physical.sentChipCr;
+      // awaitTurnStart — observer delivery can race the CR writer's promise
+      // resolution. Preserve a turn-start seen anywhere during the physical
+      // sequence. The hold is released: the seat is submitting or working,
+      // and operator input must flow normally through the stall watch.
+      if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
+        return true;
+      }
+      if (
+        text === "/compact" &&
+        (this.compactNoopCounts.get(bindingId) ?? 0) !== compactNoopCount
+      ) {
+        return true;
+      }
+      const started = await this.awaitTurnStart(
+        bindingId,
+        text,
+        generation,
+        bindingGeneration,
+        signal,
+      );
+      if (started) return true;
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+        return false;
+      }
+      // FIRED-LAW (live duplicate fix): the stall window closed without a
+      // turn-start ack, but our text has already LEFT the composer — the
+      // paste submitted and only the working repaint is late. That is
+      // "Fired" per the product law: resolve TRUE, never clear, never
+      // attention, never false. Resolving false here is what made the
+      // delivery layer re-paste the same message on every idle (the live
+      // 4x duplicate report).
+      if (this.pendingText && !this.pendingText(bindingId)) {
+        return true;
+      }
+      // No composer chip: first CR was the submit (Codex/Grok). A leftover
+      // payload head on a stale idle grid must not recovery-CR or clear.
+      if (this.pasteChip && !this.pasteChip(bindingId)) {
+        return true;
+      }
+      // Evidence was late: the chip CR never fired. One recovery CR, and
+      // only while the seat is still idle and the operator is not live at
+      // the composer — a CR over fresh keystrokes would submit our chip
+      // plus their draft as one message. Never into a working turn.
+      if (
+        !sentChipCr &&
+        this.isSeatIdle(bindingId) &&
+        this.chipVisible(bindingId) &&
+        !this.interlock.inputActive(bindingId)
+      ) {
+        if (
+          !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal))
+        ) {
           await this.clearFailedSubmit(
             bindingId,
             generation,
             bindingGeneration,
             signal,
           );
+          return false;
         }
-        return false;
+        if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
+          return true;
+        }
+        const startedRetry = await this.awaitTurnStart(
+          bindingId,
+          text,
+          generation,
+          bindingGeneration,
+          signal,
+        );
+        if (startedRetry) return true;
+        if (this.pendingText && !this.pendingText(bindingId)) {
+          return true;
+        }
       }
-      return true;
+      // Law: never leave Vellum Command-authored text as a stuck paste chip.
+      await this.clearFailedSubmit(bindingId, generation, bindingGeneration, signal);
+      return false;
     } finally {
       this.writing.delete(bindingId);
+    }
+  }
+
+  /**
+   * Bounded wait for the operator latches to go quiet. Runs between the
+   * screen gates and the paste boundary so a keystroke younger than the
+   * repaint cannot race admission. A painted draft refuses through the
+   * ordinary composer gate mid-wait; sustained activity refuses as
+   * operator-active — queueing callers re-park from their own retry.
+   */
+  private async awaitOperatorQuiet(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const wait = this.interlock.quietInMs(bindingId);
+      if (wait <= 0) return true;
+      await new Promise<void>((r) => {
+        const t = setTimeout(
+          r,
+          Math.min(wait, Math.max(1, this.pasteToCrSettleMs)),
+        );
+        t.unref?.();
+      });
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+        return false;
+      }
+      if (this.composerBlocked(bindingId)) {
+        this.onAttention?.(
+          bindingId,
+          this.composerVerdict?.(bindingId) === "draft"
+            ? "not-ready"
+            : "composer-unreadable",
+        );
+        return false;
+      }
+    }
+    if (this.interlock.gateActive(bindingId)) {
+      this.onAttention?.(bindingId, "operator-active");
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Run `fn` inside an operator-input hold: parked writes replay in order at
+   * the outermost end. Depth-tracked, so recovery writes nested inside the
+   * submission span share it instead of flushing early.
+   */
+  private async withOperatorHold<T>(
+    bindingId: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    this.interlock.beginHold(bindingId);
+    try {
+      return await fn();
+    } finally {
+      this.interlock.endHold(bindingId);
     }
   }
 
@@ -851,6 +1004,16 @@ export class ManagedTerminalDrive {
     signal?: AbortSignal,
   ): Promise<void> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return;
+    // A live operator draft: an idle Ctrl+C wipes THEIR sentence along with
+    // our chip. Bytes parked inside our own hold are not in the composer
+    // yet — that case stays clearable.
+    if (
+      !this.interlock.holding(bindingId) &&
+      this.interlock.inputActive(bindingId)
+    ) {
+      this.onAttention?.(bindingId, "operator-active");
+      return;
+    }
     if (this.pendingText && !this.pendingText(bindingId)) {
       // Evidence: our text already left the composer (the submit landed and
       // only the working repaint is late — D3's ackDelay case). Writing an
@@ -871,8 +1034,11 @@ export class ManagedTerminalDrive {
       this.onAttention?.(bindingId, "prompt-stalled");
       return;
     }
-    const ok = await Promise.resolve(
-      this.writeFn(bindingId, INTERRUPT_BYTE),
+    // The check→write gap holds operator input so a keystroke arriving
+    // mid-clear cannot be wiped by its own Ctrl+C — it replays onto the
+    // cleared composer.
+    const ok = await this.withOperatorHold(bindingId, () =>
+      Promise.resolve(this.writeFn(bindingId, INTERRUPT_BYTE)),
     );
     if (ok) {
       this.lastIdleInterruptAt.set(bindingId, now);
@@ -1000,7 +1166,11 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
-    return Boolean(await Promise.resolve(this.writeFn(bindingId, CR)));
+    // Single atomic write under the hold: a keystroke in the evidence→CR
+    // gap parks instead of becoming draft text our CR would submit.
+    return this.withOperatorHold(bindingId, async () =>
+      Boolean(await Promise.resolve(this.writeFn(bindingId, CR))),
+    );
   }
 
   private awaitTurnStart(

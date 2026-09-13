@@ -99,6 +99,10 @@ import {
   type PrimeAgentDaemonHandle,
   type PrimeAgentDaemons,
 } from "./prime-agent-daemon";
+import {
+  OperatorInterlock,
+  seatOperatorInterlock,
+} from "./drive/operator-interlock";
 
 /**
  * What a terminal generation *is*. Decided by the caller from the node's
@@ -391,6 +395,13 @@ export type LocalSessionHostOptions = {
    * the integration for isolated tests without ever launching a real CLI.
    */
   readonly primeDaemons?: PrimeAgentDaemons | null;
+  /**
+   * Operator-input interlock shared with the managed-terminal drive.
+   * Production defaults to the process singleton so the drive sees every
+   * operator keystroke and resize at the write boundary; isolated test hosts
+   * get a fresh instance unless one is injected.
+   */
+  readonly operatorInterlock?: OperatorInterlock;
 };
 
 type AllExitedWaiter = {
@@ -706,6 +717,7 @@ export class LocalSessionHost extends EventEmitter {
    */
   private readonly surfaceLeases = new Map<string, string>();
   private readonly primeDaemons: PrimeAgentDaemons | undefined;
+  private readonly operatorInterlock: OperatorInterlock;
   private primeDaemonsShutdownState:
     | "idle"
     | "pending"
@@ -731,6 +743,11 @@ export class LocalSessionHost extends EventEmitter {
         ? primeAgentDaemons
         : undefined
       : options.primeDaemons ?? undefined;
+    this.operatorInterlock =
+      options.operatorInterlock ??
+      (processAuthority === appProcessPlane
+        ? seatOperatorInterlock
+        : new OperatorInterlock());
   }
 
   /** Open a geography terminal. A shell — it can hold no harness. */
@@ -1390,10 +1407,26 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   write(lease: ControlLease, data: string): boolean {
+    // Zero-latency operator evidence: the drive's admission gate must see a
+    // keystroke before the screen could possibly repaint it. Stamped even on
+    // refused writes — operator presence is the signal, not delivery.
+    this.operatorInterlock.noteInput(lease.bindingId);
     const rec = this.sessions.get(lease.bindingId);
     if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;
     if (lease.epoch !== rec.epoch) return false;
+    // A managed submission span holds the write path: park these bytes and
+    // let the outermost span end replay them — a keystroke can never land
+    // inside a paste envelope or between paste-end and the submit CR.
+    if (
+      this.operatorInterlock.holdWrite(lease.bindingId, {
+        replay: () => {
+          this.write(lease, data);
+        },
+      })
+    ) {
+      return true;
+    }
     return this.writeRecord(rec, data);
   }
 
@@ -1475,6 +1508,8 @@ export class LocalSessionHost extends EventEmitter {
   }
 
   resize(lease: ControlLease, cols: number, rows: number): boolean {
+    // A resize repaints the grid — automated typing must not begin mid-churn.
+    this.operatorInterlock.noteResize(lease.bindingId);
     const rec = this.sessions.get(lease.bindingId);
     if (!rec || rec.killed || !rec.lease || !sessionPhaseAllowsWrite(rec.phase)) return false;
     if (lease.mode !== "control" || rec.controlLeaseId !== lease.leaseId) return false;

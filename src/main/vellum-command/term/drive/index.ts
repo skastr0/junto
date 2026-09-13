@@ -33,3 +33,11 @@ export {
   promptHasPasteChip,
   promptStillPending,
 } from "./prompt-evidence";
+
+export {
+  OPERATOR_INPUT_LATCH_MS,
+  OPERATOR_RESIZE_LATCH_MS,
+  OperatorInterlock,
+  seatOperatorInterlock,
+  type HeldOperatorWrite,
+} from "./operator-interlock";

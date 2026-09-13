@@ -31,6 +31,7 @@ import type {
   PrimeAgentDaemons,
 } from "../src/main/vellum-command/term/prime-agent-daemon";
 import { seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
+import { OperatorInterlock } from "../src/main/vellum-command/term/drive/operator-interlock";
 import {
   OBSERVER_UNWATCHED_SCROLLBACK,
   OBSERVER_WATCHED_SCROLLBACK,
@@ -1484,6 +1485,56 @@ describe("LocalSessionHost", () => {
     expect(host.resize(takeover.lease, 100, 40)).toBe(true);
     expect(fake.controllers[0]?.writes).toEqual(["yes\n"]);
     expect(fake.controllers[0]?.resizes).toEqual([{ cols: 100, rows: 40 }]);
+  });
+
+  it("parks operator writes during a submission hold and replays them in order", async () => {
+    const interlock = new OperatorInterlock();
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_520),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake, { operatorInterlock: interlock });
+    host.create({ bindingId: "hold-io" });
+
+    const control = await host.attach({ bindingId: "hold-io", mode: "control" });
+    expect(control.ok).toBe(true);
+    if (!control.ok) return;
+
+    // While the drive's submission span holds the write path, keystrokes
+    // park — nothing reaches the PTY inside a paste envelope.
+    interlock.beginHold("hold-io");
+    expect(host.write(control.lease, "h")).toBe(true);
+    expect(host.write(control.lease, "i")).toBe(true);
+    expect(fake.controllers[0]?.writes).toEqual([]);
+
+    // The outermost hold end replays in arrival order through the normal
+    // write path — lease, epoch, and phase re-validated at replay time.
+    interlock.endHold("hold-io");
+    expect(fake.controllers[0]?.writes).toEqual(["h", "i"]);
+
+    // Writes before the hold and after it flow through untouched.
+    expect(host.write(control.lease, "!")).toBe(true);
+    expect(fake.controllers[0]?.writes).toEqual(["h", "i", "!"]);
+  });
+
+  it("operator writes and resizes stamp the interlock latches", async () => {
+    const interlock = new OperatorInterlock();
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_521),
+      exitOnSignal: "SIGTERM",
+    }));
+    const host = hostWith(fake, { operatorInterlock: interlock });
+    host.create({ bindingId: "latch-io" });
+
+    const control = await host.attach({ bindingId: "latch-io", mode: "control" });
+    expect(control.ok).toBe(true);
+    if (!control.ok) return;
+
+    expect(interlock.gateActive("latch-io")).toBe(false);
+    expect(host.write(control.lease, "x")).toBe(true);
+    expect(interlock.inputActive("latch-io")).toBe(true);
+    expect(host.resize(control.lease, 90, 30)).toBe(true);
+    expect(interlock.resizeActive("latch-io")).toBe(true);
   });
 
   it("retains the observer grid only while a surface lease is painting it", async () => {

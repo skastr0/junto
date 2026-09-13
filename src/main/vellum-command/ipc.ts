@@ -63,6 +63,7 @@ import {
   ManagedTerminalDrive,
   promptHasPasteChip,
   promptStillPending,
+  seatOperatorInterlock,
 } from "./term/drive";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
@@ -1605,9 +1606,17 @@ export const registerVellumIpc = (): void => {
             // The selector's highlighted first option is Claude's own
             // recommended summary recovery. This is startup navigation, not a
             // permission decision, and runs at most once per PTY generation.
-            acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
-            if (!termPlane.host.writeManagedSeat(event.bindingId, "\r")) {
-              acceptedClaudeRecoveryEpoch.delete(event.bindingId);
+            // Selector navigation races live operator keystrokes and any
+            // in-flight drive span — skip this heartbeat's recovery write
+            // rather than interleave; the next attention repaint retries.
+            if (
+              !seatOperatorInterlock.gateActive(event.bindingId) &&
+              !seatOperatorInterlock.holding(event.bindingId)
+            ) {
+              acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
+              if (!termPlane.host.writeManagedSeat(event.bindingId, "\r")) {
+                acceptedClaudeRecoveryEpoch.delete(event.bindingId);
+              }
             }
           }
         }

@@ -5,6 +5,8 @@ import {
   CR,
   INTERRUPT_BYTE,
   ManagedTerminalDrive,
+  OPERATOR_INPUT_LATCH_MS,
+  OperatorInterlock,
   buildPromptWriteSequence,
   canSendIdleInterrupt,
   encodeBracketedPaste,
@@ -563,7 +565,7 @@ describe("ManagedTerminalDrive", () => {
       onAttention: (_id, reason) => attention.push(reason),
     });
     const result = drive.writePrompt("b1", "one\ntwo");
-    await flushMicrotasks();
+    await flushMicrotasks(10);
     expect(writes).toHaveLength(2); // paste + CR, no recipe chip CR yet
     chip = true;
     await vi.advanceTimersByTimeAsync(5_000);
@@ -913,5 +915,252 @@ describe("composer verdict gate (screen truth)", () => {
     ).resolves.toBe(false);
     expect(seen).toEqual([]);
     gated.resetForTest();
+  });
+});
+
+describe("operator interlock", () => {
+  const writes: Array<{ bindingId: string; data: string }> = [];
+  let idle = true;
+  let clock = 10_000;
+  let interlock: OperatorInterlock;
+  let drive: ManagedTerminalDrive;
+  const attention: string[] = [];
+
+  const flushMicrotasks = async (ticks = 2) => {
+    for (let i = 0; i < ticks; i += 1) await Promise.resolve();
+  };
+
+  const makeDrive = (
+    over: Partial<ConstructorParameters<typeof ManagedTerminalDrive>[0]> = {},
+  ) =>
+    new ManagedTerminalDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return true;
+      },
+      isSeatIdle: () => idle,
+      now: () => clock,
+      stallWatch: false,
+      pasteToCrSettleMs: 0,
+      operatorInput: interlock,
+      onAttention: (_bindingId, reason) => {
+        attention.push(reason);
+      },
+      ...over,
+    });
+
+  /** The host write path's half of the interlock, replayable from tests. */
+  const operatorTypes = (bindingId: string, data: string): void => {
+    interlock.noteInput(bindingId);
+    interlock.holdWrite(bindingId, {
+      replay: () => writes.push({ bindingId, data }),
+    });
+  };
+
+  afterEach(() => {
+    drive?.resetForTest();
+    writes.length = 0;
+    attention.length = 0;
+    idle = true;
+    clock = 10_000;
+    vi.useRealTimers();
+  });
+
+  it("parks a keystroke inside the paste→CR span and replays it after the submit", async () => {
+    interlock = new OperatorInterlock();
+    // The keystroke lands while the paste write is on the wire — the modal
+    // focus case. It must be held, never interleaved into the envelope.
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        if (data === encodeBracketedPaste("doctrine")) {
+          operatorTypes(bindingId, "h");
+        }
+        return true;
+      },
+    });
+    await expect(drive.writePrompt("b1", "doctrine")).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("doctrine"),
+      CR,
+      "h",
+    ]);
+  });
+
+  it("parks keystrokes across the settle window, not just the write gap", async () => {
+    interlock = new OperatorInterlock();
+    // Real settle: the keystroke arrives mid-window through the host path.
+    drive = makeDrive({ pasteToCrSettleMs: 20 });
+    const pending = drive.writePrompt("b1", "doctrine");
+    await new Promise<void>((r) => setTimeout(r, 5));
+    expect(interlock.holding("b1")).toBe(true);
+    operatorTypes("b1", "x");
+    expect(interlock.heldCount("b1")).toBe(1);
+    await expect(pending).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("doctrine"),
+      CR,
+      "x",
+    ]);
+  });
+
+  it("replays parked bytes onto the cleared composer after a refused CR", async () => {
+    interlock = new OperatorInterlock();
+    drive = makeDrive({
+      pendingText: () => true,
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        if (data === CR) {
+          // Operator key lands exactly as the submit CR is refused.
+          operatorTypes(bindingId, "h");
+          return false;
+        }
+        return true;
+      },
+    });
+    await expect(drive.writePrompt("b1", "doctrine")).resolves.toBe(false);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("doctrine"),
+      CR,
+      INTERRUPT_BYTE,
+      "h",
+    ]);
+    expect(attention).toContain("prompt-stalled");
+  });
+
+  it("refuses a non-queuing prompt while the input latch is live", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    interlock.noteInput("b1");
+    drive = makeDrive();
+    await expect(
+      drive.writePrompt("b1", "notice", { queueIfBusy: false }),
+    ).resolves.toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("queues during the latch and drains once the window goes quiet", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    interlock.noteInput("b1");
+    drive = makeDrive();
+    const pending = drive.writePrompt("b1", "mail");
+    await flushMicrotasks();
+    expect(writes).toEqual([]);
+    expect(drive.queuedCount("b1")).toBe(1);
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    drive.onSeatIdle("b1");
+    await expect(pending).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("mail"),
+      CR,
+    ]);
+  });
+
+  it("a resize latch gates admission the same way", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    interlock.noteResize("b1");
+    drive = makeDrive();
+    await expect(
+      drive.writePrompt("b1", "notice", { queueIfBusy: false }),
+    ).resolves.toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("latches are per-binding — the neighbour seat still admits", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    interlock.noteInput("b1");
+    drive = makeDrive();
+    await expect(
+      drive.writePrompt("b2", "other seat", { queueIfBusy: false }),
+    ).resolves.toBe(true);
+    expect(writes.map((w) => w.bindingId)).toEqual(["b2", "b2"]);
+  });
+
+  it("never clears a live operator draft after a stalled submit", async () => {
+    interlock = new OperatorInterlock();
+    drive = makeDrive({
+      stallWatch: true,
+      stallTimeoutMs: 30,
+      // Chip stuck in the composer; the seat never publishes turn-start.
+      pendingText: () => true,
+    });
+    const pending = drive.writePrompt("b1", "a\nb");
+    await flushMicrotasks(10);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("a\nb"),
+      CR,
+      CR,
+    ]);
+    // Operator starts typing during the stall watch — before recovery.
+    interlock.noteInput("b1");
+    await expect(pending).resolves.toBe(false);
+    expect(attention).toContain("prompt-stalled");
+    expect(attention).toContain("operator-active");
+    // No Ctrl+C to wipe their sentence.
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("a\nb"),
+      CR,
+      CR,
+    ]);
+  });
+
+  it("skips the recovery CR when the chip paints late and the operator is live", async () => {
+    interlock = new OperatorInterlock();
+    let chipPainted = false;
+    drive = makeDrive({
+      stallWatch: true,
+      stallTimeoutMs: 30,
+      pendingText: () => true,
+      // Chip chrome appears only after the chip-CR check already ran — the
+      // recovery CR is the next legal submit, and it must respect the latch.
+      pasteChip: () => chipPainted,
+    });
+    const pending = drive.writePrompt("b1", "a\nb");
+    setTimeout(() => {
+      chipPainted = true;
+      interlock.noteInput("b1");
+    }, 10).unref();
+    await expect(pending).resolves.toBe(false);
+    expect(attention).toContain("operator-active");
+    // Recipe CR only: no chip CR (chrome had not painted), no recovery CR
+    // (operator live), no Ctrl+C (their draft is real).
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("a\nb"),
+      CR,
+    ]);
+  });
+
+  it("refuses interrupt() while a submission span is held", async () => {
+    interlock = new OperatorInterlock();
+    let releasePaste!: (ok: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => {
+      releasePaste = resolve;
+    });
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return data === encodeBracketedPaste("hold me") ? gate : true;
+      },
+    });
+    const prompt = drive.writePrompt("b1", "hold me");
+    await flushMicrotasks();
+    expect(interlock.holding("b1")).toBe(true);
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
+    releasePaste(true);
+    await expect(prompt).resolves.toBe(true);
+    expect(interlock.holding("b1")).toBe(false);
+  });
+
+  it("invalidateBinding drops the latch and any parked writes", async () => {
+    interlock = new OperatorInterlock(() => clock);
+    interlock.noteInput("b1");
+    drive = makeDrive();
+    drive.invalidateBinding("b1");
+    expect(interlock.gateActive("b1")).toBe(false);
+    // The next generation admits immediately — the dead epoch's keystroke
+    // cannot shadow a replacement seat.
+    await expect(
+      drive.writePrompt("b1", "next gen", { queueIfBusy: false }),
+    ).resolves.toBe(true);
   });
 });
