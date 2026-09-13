@@ -23,6 +23,13 @@ import {
   hermesRefusesMultilinePaste,
   payloadMayChip,
 } from "./typing";
+import {
+  createPtyDeliveryTracer,
+  type PtyDeliveryTraceContext,
+  type PtyDeliveryTraceSink,
+  type PtyDeliveryTracer,
+  type PtyTraceFields,
+} from "./pty-delivery-trace";
 
 /** Returns true when the managed seat may accept a typed prompt. */
 export type SeatIdleLookup = (bindingId: string) => boolean;
@@ -156,6 +163,7 @@ type QueuedPrompt = {
   readonly text: string;
   readonly signal: AbortSignal | undefined;
   readonly awaitTurnStart: boolean;
+  readonly trace: PtyDeliveryTraceContext | undefined;
   readonly resolve: (ok: boolean) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
@@ -211,6 +219,8 @@ export type ManagedTerminalDriveOptions = {
    * process singleton; tests inject an isolated instance.
    */
   readonly operatorInput?: OperatorInterlock;
+  /** Diagnostic sink; production defaults to VELLUM_COMMAND_PTY_TRACE=1. */
+  readonly onTrace?: PtyDeliveryTraceSink;
 };
 
 export class ManagedTerminalDrive {
@@ -229,6 +239,7 @@ export class ManagedTerminalDrive {
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
   private readonly harnessFor: SeatHarnessLookup | undefined;
   private readonly interlock: OperatorInterlock;
+  private readonly tracer: PtyDeliveryTracer | undefined;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
   /**
@@ -259,9 +270,17 @@ export class ManagedTerminalDrive {
   private lifecycleGeneration = 0;
 
   constructor(options: ManagedTerminalDriveOptions) {
+    this.tracer = createPtyDeliveryTracer(options.onTrace);
     this.writeFn = options.write;
-    this.isSeatIdle = options.isSeatIdle;
-    this.onAttention = options.onAttention;
+    this.isSeatIdle = (bindingId) => {
+      const idle = options.isSeatIdle(bindingId);
+      this.tracer?.event(bindingId, "evidence", { probe: "idle", value: idle });
+      return idle;
+    };
+    this.onAttention = (bindingId, reason) => {
+      this.traceState(bindingId, "attention", { reason });
+      options.onAttention?.(bindingId, reason);
+    };
     this.assertClipboardSafe = options.assertClipboardSafe;
     this.now = options.now ?? (() => Date.now());
     this.stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_PROMPT_STALL_MS;
@@ -269,9 +288,21 @@ export class ManagedTerminalDrive {
     this.queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
     this.stallWatch = options.stallWatch ?? true;
     this.pasteToCrSettleMs = options.pasteToCrSettleMs ?? PASTE_TO_CR_SETTLE_MS;
-    this.pendingText = options.pendingText;
-    this.pasteChip = options.pasteChip;
-    this.composerVerdict = options.composerVerdict;
+    this.pendingText = options.pendingText === undefined ? undefined : (bindingId, text) => {
+      const pending = options.pendingText!(bindingId, text);
+      this.tracer?.event(bindingId, "evidence", { probe: "pending-text", value: pending });
+      return pending;
+    };
+    this.pasteChip = options.pasteChip === undefined ? undefined : (bindingId) => {
+      const chip = options.pasteChip!(bindingId);
+      this.tracer?.event(bindingId, "evidence", { probe: "paste-chip", value: chip });
+      return chip;
+    };
+    this.composerVerdict = options.composerVerdict === undefined ? undefined : (bindingId) => {
+      const verdict = options.composerVerdict!(bindingId);
+      this.tracer?.event(bindingId, "evidence", { probe: "composer", value: verdict });
+      return verdict;
+    };
     this.harnessFor = options.harnessFor;
     this.interlock = options.operatorInput ?? seatOperatorInterlock;
   }
@@ -293,13 +324,15 @@ export class ManagedTerminalDrive {
    * observer's blind window between keystroke and repaint.
    */
   private mustWait(bindingId: string): boolean {
-    return (
+    const waiting = (
       !this.isSeatIdle(bindingId) ||
       this.writing.has(bindingId) ||
       this.pendingTurns.has(bindingId) ||
       this.composerBlocked(bindingId) ||
       this.interlock.gateActive(bindingId)
     );
+    this.traceState(bindingId, "gate", { gate: "must-wait", waiting });
+    return waiting;
   }
 
   /**
@@ -326,12 +359,14 @@ export class ManagedTerminalDrive {
    * change and land in the replacement process.
    */
   invalidateBinding(bindingId: string): void {
+    this.traceState(bindingId, "binding.invalidated");
     this.bindingGenerations.set(
       bindingId,
       (this.bindingGenerations.get(bindingId) ?? 0) + 1,
     );
     this.interlock.dropBinding(bindingId);
     this.clearBindingTransientState(bindingId);
+    this.tracer?.forget(bindingId);
   }
 
   /**
@@ -359,11 +394,23 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     signal?: AbortSignal,
   ): boolean {
-    return (
+    const active = (
       !signal?.aborted &&
       this.active(generation) &&
       (this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration
     );
+    if (!active) {
+      this.tracer?.event(bindingId, "gate", {
+        gate: "active-binding", allowed: false,
+        aborted: signal?.aborted ?? false,
+        suspended: this.suspended,
+        generation,
+        currentGeneration: this.lifecycleGeneration,
+        bindingGeneration,
+        currentBindingGeneration: this.bindingGenerations.get(bindingId) ?? 0,
+      });
+    }
+    return active;
   }
 
   /**
@@ -373,7 +420,20 @@ export class ManagedTerminalDrive {
    * acknowledgement timeout, generation change, shutdown, or queue timeout.
    * Returns false immediately for not-ready / clipboard-unsafe / write fail.
    */
-  async writePrompt(
+  writePrompt(
+    bindingId: string,
+    text: string,
+    opts: WritePromptOptions = {},
+  ): Promise<boolean> {
+    if (this.tracer === undefined) return this.writePromptInternal(bindingId, text, opts);
+    return this.tracer.prompt(bindingId, text, () => this.harnessFor?.(bindingId), {
+      ready: opts.ready ?? true,
+      queueIfBusy: opts.queueIfBusy ?? true,
+      awaitTurnStart: opts.awaitTurnStart ?? this.stallWatch,
+    }, () => this.writePromptInternal(bindingId, text, opts));
+  }
+
+  private async writePromptInternal(
     bindingId: string,
     text: string,
     opts: WritePromptOptions = {},
@@ -401,6 +461,7 @@ export class ManagedTerminalDrive {
       opts.readyAfterMs ?? this.readyAfter.get(bindingId) ?? 0;
     const waitMs = readyAfter - this.now();
     if (waitMs > 0) {
+      this.traceState(bindingId, "gate", { gate: "ready-after", allowed: false, waitMs });
       // A non-queuing caller retains authorization context outside this
       // transport and will retry later. Never park its raw text in the drive.
       if (!queueIfBusy) return false;
@@ -493,6 +554,7 @@ export class ManagedTerminalDrive {
           text,
           signal,
           awaitTurnStart,
+          trace: this.tracer?.capture(),
           resolve: (ok) => {
             if (entry.timer !== undefined) clearTimeout(entry.timer);
             entry.timer = undefined;
@@ -524,6 +586,7 @@ export class ManagedTerminalDrive {
         const q = this.queues.get(bindingId) ?? [];
         q.push(entry);
         this.queues.set(bindingId, q);
+        this.traceState(bindingId, "delivery.queued", { timeoutMs, depth: q.length });
         signal?.addEventListener("abort", cancel, { once: true });
       });
     }
@@ -543,6 +606,7 @@ export class ManagedTerminalDrive {
    * Mid-turn: always allowed. Idle: enforces min gap between consecutive 0x03.
    */
   async interrupt(bindingId: string): Promise<boolean> {
+    this.traceState(bindingId, "interrupt.begin");
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
@@ -551,6 +615,7 @@ export class ManagedTerminalDrive {
     // A Ctrl+C can never land inside a live submission span — it would
     // interleave into the paste envelope exactly like operator bytes.
     if (this.interlock.holding(bindingId)) {
+      this.traceState(bindingId, "gate", { gate: "interrupt-hold", allowed: false });
       return false;
     }
     const idle = this.isSeatIdle(bindingId);
@@ -563,9 +628,10 @@ export class ManagedTerminalDrive {
         this.idleInterruptGapMs,
       )
     ) {
+      this.traceState(bindingId, "gate", { gate: "interrupt-spacing", allowed: false });
       return false;
     }
-    const ok = await Promise.resolve(this.writeFn(bindingId, INTERRUPT_BYTE));
+    const ok = await Promise.resolve(this.writeTraced(bindingId, INTERRUPT_BYTE, "interrupt"));
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
     }
@@ -598,16 +664,19 @@ export class ManagedTerminalDrive {
    * Turn-start ack (title flip, hook event, OSC). Clears stall watch for the seat.
    */
   onTurnStart(bindingId: string): void {
+    this.traceState(bindingId, "turn.start", { pendingTurn: this.pendingTurns.has(bindingId) });
     if (this.suspended) return;
     this.turnStartCounts.set(
       bindingId,
       (this.turnStartCounts.get(bindingId) ?? 0) + 1,
     );
     if (this.pendingOnScreen(bindingId)) {
+      this.traceState(bindingId, "turn.start.refused", { reason: "text-pending" });
       // Evidence: our text is still in the prompt box. A working repaint on
       // an unsubmitted chip is a FALSE turn-start — never receipt it.
       return;
     }
+    this.traceState(bindingId, "turn.start.accepted");
     this.resolvePendingTurn(bindingId, true);
   }
 
@@ -704,7 +773,7 @@ export class ManagedTerminalDrive {
     const next = q.shift()!;
     if (q.length === 0) this.queues.delete(bindingId);
     else this.queues.set(bindingId, q);
-    const ok = await this.executePrompt(
+    const execute = () => this.executePrompt(
       bindingId,
       next.text,
       generation,
@@ -712,6 +781,7 @@ export class ManagedTerminalDrive {
       next.awaitTurnStart,
       next.signal,
     );
+    const ok = await (this.tracer === undefined ? execute() : this.tracer.run(next.trace, execute));
     next.resolve(ok);
   }
 
@@ -733,6 +803,8 @@ export class ManagedTerminalDrive {
       return false;
     }
     this.writing.add(bindingId);
+    const endTrace = this.tracer?.activate(bindingId);
+    this.traceState(bindingId, "submission.begin");
     try {
       // Second check under the writing lock: still refuse if seat left idle
       // or the composer stopped being provably empty (operator typing burst,
@@ -889,6 +961,7 @@ export class ManagedTerminalDrive {
         signal,
       );
       if (started) return true;
+      this.traceState(bindingId, "recovery.evaluate", { sentChipCr });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
@@ -918,7 +991,7 @@ export class ManagedTerminalDrive {
         !this.interlock.inputActive(bindingId)
       ) {
         if (
-          !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal))
+          !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal, "recovery-cr"))
         ) {
           await this.clearFailedSubmit(
             bindingId,
@@ -943,10 +1016,13 @@ export class ManagedTerminalDrive {
           return true;
         }
       }
+      this.traceState(bindingId, "recovery.exhausted", { sentChipCr });
       // Law: never leave Vellum Command-authored text as a stuck paste chip.
       await this.clearFailedSubmit(bindingId, generation, bindingGeneration, signal);
       return false;
     } finally {
+      this.traceState(bindingId, "submission.end");
+      endTrace?.();
       this.writing.delete(bindingId);
     }
   }
@@ -966,6 +1042,7 @@ export class ManagedTerminalDrive {
   ): Promise<boolean> {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const wait = this.interlock.quietInMs(bindingId);
+      this.traceState(bindingId, "gate", { gate: "operator-quiet", attempt, waitMs: wait });
       if (wait <= 0) return true;
       await new Promise<void>((r) => {
         const t = setTimeout(
@@ -1023,6 +1100,7 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     signal?: AbortSignal,
   ): Promise<void> {
+    this.traceState(bindingId, "cleanup.evaluate");
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return;
     // A live operator draft: an idle Ctrl+C wipes THEIR sentence along with
     // our chip. Bytes parked inside our own hold are not in the composer
@@ -1058,7 +1136,7 @@ export class ManagedTerminalDrive {
     // mid-clear cannot be wiped by its own Ctrl+C — it replays onto the
     // cleared composer.
     const ok = await this.withOperatorHold(bindingId, () =>
-      Promise.resolve(this.writeFn(bindingId, INTERRUPT_BYTE)),
+      Promise.resolve(this.writeTraced(bindingId, INTERRUPT_BYTE, "cleanup-interrupt")),
     );
     if (ok) {
       this.lastIdleInterruptAt.set(bindingId, now);
@@ -1086,7 +1164,7 @@ export class ManagedTerminalDrive {
     }
     const [paste, cr] = buildPromptWriteSequence(text);
     // ONE write for the full paste envelope…
-    if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
+    if (!(await Promise.resolve(this.writeTraced(bindingId, paste, "paste")))) return false;
     this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
     // The text is on the wire — record it so pendingText evidence can never
     // be bypassed by a delivery path that forgets to register its payload.
@@ -1097,10 +1175,12 @@ export class ManagedTerminalDrive {
     // Let paste-end settle before CR — racing ESC[201~ leaves Claude/Devin
     // with a stuck "[Pasted text …]" chip and never submits.
     if (this.pasteToCrSettleMs > 0) {
+      this.traceState(bindingId, "settle.begin", { ms: this.pasteToCrSettleMs });
       await new Promise<void>((r) => {
         const t = setTimeout(r, this.pasteToCrSettleMs);
         t.unref?.();
       });
+      this.traceState(bindingId, "settle.end");
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
@@ -1109,7 +1189,7 @@ export class ManagedTerminalDrive {
       }
     }
     // …then a SEPARATE CR write. Never join; never LF.
-    if (!(await Promise.resolve(this.writeFn(bindingId, cr)))) return false;
+    if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) return false;
     return this.activeBinding(bindingId, generation, bindingGeneration, signal);
   }
 
@@ -1126,6 +1206,7 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     signal?: AbortSignal,
   ): Promise<boolean> {
+    this.traceState(bindingId, "chip.evaluate", { payloadMayChip: payloadMayChip(text) });
     if (!payloadMayChip(text)) return false;
     if (!this.pasteChip && !this.pendingText) return false;
     if (
@@ -1184,12 +1265,14 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     signal?: AbortSignal,
   ): Promise<boolean> {
+    this.traceState(bindingId, "settle.begin", { ms: this.pasteToCrSettleMs });
     if (this.pasteToCrSettleMs > 0) {
       await new Promise<void>((r) => {
         const t = setTimeout(r, this.pasteToCrSettleMs);
         t.unref?.();
       });
     }
+    this.traceState(bindingId, "settle.end");
     return this.activeBinding(bindingId, generation, bindingGeneration, signal);
   }
 
@@ -1199,6 +1282,7 @@ export class ManagedTerminalDrive {
     generation: number,
     bindingGeneration: number,
     signal?: AbortSignal,
+    stage: "chip-cr" | "recovery-cr" = "chip-cr",
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
@@ -1206,7 +1290,7 @@ export class ManagedTerminalDrive {
     // Single atomic write under the hold: a keystroke in the evidence→CR
     // gap parks instead of becoming draft text our CR would submit.
     return this.withOperatorHold(bindingId, async () =>
-      Boolean(await Promise.resolve(this.writeFn(bindingId, CR))),
+      Boolean(await Promise.resolve(this.writeTraced(bindingId, CR, stage))),
     );
   }
 
@@ -1217,6 +1301,7 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     signal?: AbortSignal,
   ): Promise<boolean> {
+    this.traceState(bindingId, "turn.wait", { timeoutMs: this.stallTimeoutMs });
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return Promise.resolve(false);
     }
@@ -1240,6 +1325,7 @@ export class ManagedTerminalDrive {
       pending.timer = setTimeout(() => {
         if (this.pendingTurns.get(bindingId) !== pending) return;
         this.pendingTurns.delete(bindingId);
+        this.traceState(bindingId, "turn.timeout");
         pending.timer = undefined;
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
           pending.resolve(false);
@@ -1257,6 +1343,7 @@ export class ManagedTerminalDrive {
   private resolvePendingTurn(bindingId: string, ok: boolean): void {
     const pending = this.pendingTurns.get(bindingId);
     if (pending === undefined) return;
+    this.traceState(bindingId, "turn.resolve", { ok });
     this.pendingTurns.delete(bindingId);
     if (pending.timer !== undefined) clearTimeout(pending.timer);
     pending.timer = undefined;
@@ -1269,5 +1356,42 @@ export class ManagedTerminalDrive {
           pending.signal,
         ),
     );
+  }
+
+  private traceState(bindingId: string, event: string, fields: PtyTraceFields = {}): void {
+    if (this.tracer === undefined) return;
+    try {
+      this.tracer.event(bindingId, event, {
+        ...fields,
+        inputActive: this.interlock.inputActive(bindingId),
+        resizeActive: this.interlock.resizeActive(bindingId),
+        holding: this.interlock.holding(bindingId),
+        heldWrites: this.interlock.heldCount(bindingId),
+        writing: this.writing.has(bindingId),
+        pendingTurn: this.pendingTurns.has(bindingId),
+      });
+    } catch {
+      // Diagnostic reads must never change drive behavior.
+    }
+  }
+
+  private writeTraced(bindingId: string, data: string, stage: string): boolean | Promise<boolean> {
+    if (this.tracer === undefined) return this.writeFn(bindingId, data);
+    this.traceState(bindingId, "write.begin", { stage, bytes: Buffer.byteLength(data) });
+    try {
+      const result = this.writeFn(bindingId, data);
+      if (typeof result === "boolean") {
+        this.traceState(bindingId, "write.end", { stage, ok: result });
+      } else {
+        void result.then(
+          (ok) => this.traceState(bindingId, "write.end", { stage, ok }),
+          () => this.traceState(bindingId, "write.end", { stage, ok: false, threw: true }),
+        );
+      }
+      return result;
+    } catch (error) {
+      this.traceState(bindingId, "write.end", { stage, ok: false, threw: true });
+      throw error;
+    }
   }
 }
