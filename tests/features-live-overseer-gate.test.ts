@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { resolveBuildFeatures } from "../scripts/build-features";
 import { LIVE_OVERSEER_ENABLED, managedHarnessEnabled } from "../src/shared/features";
 import { HARNESS_IDS, allTemplates } from "../src/shared/managed-terminal-templates";
@@ -11,6 +12,10 @@ import { ProvidersSettingsSection } from "../src/renderer/components/settings/Pr
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import { canStartOverseerLive, openOverseerLive, overseerLive$ } from "../src/renderer/lib/overseer-live-state";
 import { state$ } from "../src/renderer/lib/state";
+import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+import { makeLocalSeatProcess } from "../src/main/vellum-command/term/seat-process";
+import { occupancyFromSession, occupyVacantSeat } from "../src/shared/terminal-seat-occupancy";
+import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 afterEach(() => {
   overseerLive$.target.set(null);
@@ -56,6 +61,27 @@ describe("Live Overseer product gate", () => {
     const node = makeManagedAgentNode(0, 0, { harness: "vellum-overseer", host: "local" });
     expect(canStartOverseerLive(node)).toBe(false);
     expect(canStartOverseerLive({ ...node, ether: { ...node.ether, overseer: true } })).toBe(true);
+  });
+
+  it.runIf(!LIVE_OVERSEER_ENABLED)("refuses internal occupation of an existing native seat before spawning", async () => {
+    const fake = makeFakeTerminalProcessAuthority();
+    const host = new LocalSessionHost(fake.authority);
+    const command = occupyVacantSeat(occupancyFromSession("live-seat", undefined, "local"));
+    if (command._tag !== "Success") throw new Error("expected vacant seat");
+    await expect(Effect.runPromise(makeLocalSeatProcess(host).occupy(command.success, {
+      bindingId: "live-seat",
+      canvasName: "main",
+      nodeId: "overseer",
+      harness: "vellum-overseer",
+      agentKey: "local:vellum-overseer",
+      spawnIntent: {
+        documentLaunch: { kind: "harness", argv: ["vellum-command", "overseer-host"] },
+        resumeRequested: false,
+        injection: { seatBound: false, connected: false },
+      },
+    }))).rejects.toThrow(/disabled/u);
+    expect(fake.controllers).toHaveLength(0);
+    expect(host.get("live-seat")).toBeUndefined();
   });
 
   it("keeps main composition, preload exposure, and app mounting behind the same gate", () => {

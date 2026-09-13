@@ -11,6 +11,7 @@ import * as os from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Result } from "effect";
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { classifySpawnFailure } from "@shared/spawn-failure";
@@ -742,6 +743,9 @@ export class LocalSessionHost extends EventEmitter {
 
   /** Open the actor seat. Its harness is declared, never inferred at spawn. */
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
+    if (input.harness === "vellum-overseer" && !LIVE_OVERSEER_ENABLED) {
+      throw new Error("Live conversation is disabled in this Vellum Command build");
+    }
     const bindingId = input.bindingId.trim();
     const current = this.sessions.get(bindingId);
     const occupancy = occupancyFromSession(
