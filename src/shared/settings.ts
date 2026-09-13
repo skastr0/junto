@@ -370,6 +370,59 @@ export const TerminalSettings = Schema.Struct({
 });
 export type TerminalSettings = typeof TerminalSettings.Type;
 
+/** GPT-Live voice and its delegated reasoning model have independent identities. */
+export const LIVE_VOICE_USD_PER_MINUTE = 0.05;
+export const LIVE_INITIAL_BILLING_SECONDS = 15;
+export const LIVE_SETTINGS_BOUNDS = {
+  maxCallMinutes: { min: 1, max: 120 },
+  maxVoiceCostUsd: { min: 0.05, max: 100 },
+} as const;
+
+const LiveBackendModel = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(200)),
+  Schema.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/)),
+);
+const LiveMaxCallMinutes = positiveInt(
+  LIVE_SETTINGS_BOUNDS.maxCallMinutes.min,
+  LIVE_SETTINGS_BOUNDS.maxCallMinutes.max,
+);
+const LiveMaxVoiceCostUsd = boundedNumber(
+  LIVE_SETTINGS_BOUNDS.maxVoiceCostUsd.min,
+  LIVE_SETTINGS_BOUNDS.maxVoiceCostUsd.max,
+);
+
+export const LiveSettings = Schema.Struct({
+  backendModel: LiveBackendModel,
+  maxCallMinutes: LiveMaxCallMinutes,
+  /** Per-call voice estimate only; backend token charges are separate. */
+  maxVoiceCostUsd: LiveMaxVoiceCostUsd,
+});
+export type LiveSettings = typeof LiveSettings.Type;
+
+export const LivePatch = Schema.Struct({
+  backendModel: Schema.optionalKey(LiveBackendModel),
+  maxCallMinutes: Schema.optionalKey(LiveMaxCallMinutes),
+  maxVoiceCostUsd: Schema.optionalKey(LiveMaxVoiceCostUsd),
+});
+export type LivePatch = typeof LivePatch.Type;
+
+export const defaultLive = (): LiveSettings => ({
+  backendModel: "gpt-5.4",
+  maxCallMinutes: 30,
+  maxVoiceCostUsd: 1.5,
+});
+
+export const liveSettings = (settings: Settings | undefined): LiveSettings =>
+  settings?.live ?? defaultLive();
+
+/** Main ends a call at the first of its duration or voice-estimate limits. */
+export const liveCallLimitSeconds = (settings: LiveSettings): number =>
+  Math.floor(Math.min(
+    settings.maxCallMinutes * 60,
+    settings.maxVoiceCostUsd / LIVE_VOICE_USD_PER_MINUTE * 60,
+  ));
+
 // --- Providers (usage credentials) ----------------------------------------
 //
 // Operator-configured credentials for usage sources that need an API key /
@@ -390,6 +443,18 @@ export const MASKED_SECRET = "********";
 const providerSecretString = Schema.String.pipe(
   Schema.check(Schema.isMaxLength(8192)),
 );
+
+const OpenAIProviderCredentials = Schema.Struct({
+  /** Write-only on IPC; resolveProviders supplies the raw value only in main. */
+  apiKey: Schema.optionalKey(providerSecretString),
+  /** Derived from active vault bindings; never accepted in a settings patch. */
+  apiKeyConfigured: Schema.optionalKey(Schema.Boolean),
+});
+export type OpenAIProviderCredentials = typeof OpenAIProviderCredentials.Type;
+
+const OpenAIProviderCredentialsPatch = Schema.Struct({
+  apiKey: Schema.optionalKey(providerSecretString),
+});
 
 const OpenRouterProviderCredentials = Schema.Struct({
   apiKey: Schema.optionalKey(providerSecretString),
@@ -444,6 +509,7 @@ export type CursorProviderCredentials = typeof CursorProviderCredentials.Type;
  * harness sessions, never from this page.
  */
 export const PROVIDER_SECTION_KEYS = [
+  "openai",
   "openrouter",
   "synthetic",
   "kimi",
@@ -466,6 +532,7 @@ export const ProvidersSettings = Schema.Struct({
    * profile listing for the snapshot plane. Absent ≡ off.
    */
   hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
+  openai: Schema.optionalKey(OpenAIProviderCredentials),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
   kimi: Schema.optionalKey(KimiProviderCredentials),
@@ -481,6 +548,7 @@ export type ProvidersSettings = typeof ProvidersSettings.Type;
 export const PROVIDER_SECRET_FIELDS: Readonly<
   Record<ProviderSectionKey, ReadonlyArray<string>>
 > = {
+  openai: ["apiKey"],
   openrouter: ["apiKey", "managementApiKey"],
   synthetic: ["apiKey"],
   kimi: ["authToken", "apiKey"],
@@ -501,12 +569,19 @@ export const defaultProviders = (): ProvidersSettings => ({ enabledSources: [] }
 export const redactProvidersForIpc = (settings: Settings): Settings => {
   const providers = settings.providers;
   if (providers === undefined) return settings;
-  const entries: Array<[ProviderSectionKey, Record<string, string | undefined>]> = [];
+  const entries: Array<[ProviderSectionKey, Record<string, string | boolean | undefined>]> = [];
   for (const key of PROVIDER_SECTION_KEYS) {
     const section = providers[key];
     if (section === undefined) continue;
+    if (key === "openai") {
+      entries.push([key, {
+        apiKeyConfigured: providers.openai?.apiKeyConfigured === true
+          || (typeof providers.openai?.apiKey === "string" && providers.openai.apiKey.length > 0),
+      }]);
+      continue;
+    }
     const secretFields = PROVIDER_SECRET_FIELDS[key];
-    const nextSection: Record<string, string | undefined> = { ...section };
+    const nextSection: Record<string, string | boolean | undefined> = { ...section };
     for (const [field, value] of Object.entries(section)) {
       if (
         secretFields.includes(field) &&
@@ -552,6 +627,8 @@ export const Settings = Schema.Struct({
    * Read it through terminalSettings() rather than reaching for the key.
    */
   terminal: Schema.optionalKey(TerminalSettings),
+  /** Absent on older rows; defaults never establish a call or microphone. */
+  live: Schema.optionalKey(LiveSettings),
   /**
    * Optional so rows written before the Providers settings surface still
    * decode. Absent ≡ nothing operator-configured; consumers fall back to env
@@ -655,6 +732,7 @@ export const ProvidersPatch = Schema.Struct({
   /** One source, applied atomically against the current durable allowlist. */
   sourceAccess: Schema.optionalKey(ProviderSourceAccessPatch),
   hermesHostSnapshots: Schema.optionalKey(Schema.Boolean),
+  openai: Schema.optionalKey(OpenAIProviderCredentialsPatch),
   openrouter: Schema.optionalKey(OpenRouterProviderCredentials),
   synthetic: Schema.optionalKey(SyntheticProviderCredentials),
   kimi: Schema.optionalKey(KimiProviderCredentials),
@@ -732,6 +810,7 @@ export const SettingsPatch = Schema.Struct({
   fleet: Schema.optionalKey(FleetPatch),
   harnesses: Schema.optionalKey(HarnessesPatch),
   terminal: Schema.optionalKey(TerminalPatch),
+  live: Schema.optionalKey(LivePatch),
   providers: Schema.optionalKey(ProvidersPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
@@ -745,6 +824,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "fleet",
 "harnesses",
 "terminal",
+"live",
 "providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -905,6 +985,7 @@ export const defaultSettings = (): Settings => ({
   fleet: defaultFleet(),
   harnesses: defaultHarnesses(),
   terminal: defaultTerminal(),
+  live: defaultLive(),
   providers: defaultProviders(),
 });
 
@@ -930,6 +1011,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultHarnesses();
     case "terminal":
       return defaultTerminal();
+    case "live":
+      return defaultLive();
     case "providers":
       return defaultProviders();
   }
@@ -1043,6 +1126,12 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       terminal: mergeSection(next.terminal ?? defaultTerminal(), patch.terminal),
     };
   }
+  if (patch.live) {
+    next = {
+      ...next,
+      live: mergeSection(liveSettings(next), patch.live),
+    };
+  }
   if (patch.harnesses?.byHarness) {
     const current = next.harnesses ?? defaultHarnesses();
     const byHarness: Record<string, HarnessInstancePrefs> = {
@@ -1102,7 +1191,7 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       const sectionPatch: Record<string, string | undefined> | undefined =
         patch.providers[key];
       if (!sectionPatch) continue;
-      const prior: Record<string, string | undefined> = {
+      const prior: Record<string, string | boolean | undefined> = {
         ...(providers[key] ?? {}),
       };
       for (const [field, value] of Object.entries(sectionPatch)) {

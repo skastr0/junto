@@ -28,6 +28,12 @@ export const projectProvidersForRead = (
       : {}),
   };
   for (const key of PROVIDER_SECTION_KEYS) {
+    if (key === "openai") {
+      if (configured.has("openai/apiKey")) {
+        next.openai = { apiKeyConfigured: true };
+      }
+      continue;
+    }
     const section: Record<string, string> = {
       ...((persisted[key] ?? {}) as Record<string, string>),
     };

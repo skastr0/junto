@@ -21,7 +21,17 @@ type BindingRow = {
 const SELECT_ALL = `
   SELECT credential_id, slot, lifecycle, created_at
   FROM provider_credential_bindings
+  UNION ALL
+  SELECT credential_id, slot, lifecycle, created_at
+  FROM openai_credential_bindings
 `;
+
+const tableForSlot = (slot: ProviderCredentialSlot): string =>
+  slot === "openai/apiKey"
+    ? "openai_credential_bindings"
+    : "provider_credential_bindings";
+
+const BINDING_TABLES = ["provider_credential_bindings", "openai_credential_bindings"] as const;
 
 const decodeRow = (row: BindingRow): ProviderCredentialBinding | undefined => {
   if (!isProviderCredentialSlot(row.slot)) return undefined;
@@ -64,7 +74,7 @@ export const insertBinding = (
 ): void => {
   writer.run(
     `
-      INSERT INTO provider_credential_bindings(
+      INSERT INTO ${tableForSlot(binding.slot)}(
         credential_id, slot, lifecycle, created_at
       ) VALUES (?, ?, ?, ?)
     `,
@@ -77,9 +87,9 @@ export const setBindingLifecycle = (
   credentialId: string,
   lifecycle: CredentialLifecycle,
 ): void => {
-  writer.run(
+  for (const table of BINDING_TABLES) writer.run(
     `
-      UPDATE provider_credential_bindings
+      UPDATE ${table}
       SET lifecycle = ?
       WHERE credential_id = ?
     `,
@@ -91,9 +101,9 @@ export const deleteBinding = (
   writer: StateWriter,
   credentialId: string,
 ): void => {
-  writer.run(
+  for (const table of BINDING_TABLES) writer.run(
     `
-      DELETE FROM provider_credential_bindings
+      DELETE FROM ${table}
       WHERE credential_id = ?
     `,
     [credentialId],

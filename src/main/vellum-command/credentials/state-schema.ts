@@ -43,3 +43,24 @@ export const PROVIDER_CREDENTIAL_BINDINGS_SQL = `
     ON provider_credential_bindings(slot)
     WHERE lifecycle = 'active';
 `;
+
+/** Added in schema 23; the released provider slot constraint stays frozen. */
+export const OPENAI_CREDENTIAL_SLOT_VALUES = ["openai/apiKey"] as const;
+
+export const OPENAI_CREDENTIAL_BINDINGS_SQL = `
+  CREATE TABLE IF NOT EXISTS openai_credential_bindings (
+    credential_id TEXT PRIMARY KEY
+      CHECK (
+        length(credential_id) = 36
+        AND credential_id GLOB '*-*-*-*-*'
+      ),
+    slot TEXT NOT NULL CHECK (slot IN ('openai/apiKey')),
+    lifecycle TEXT NOT NULL
+      CHECK (lifecycle IN ('staged', 'active', 'delete_pending')),
+    created_at TEXT NOT NULL CHECK (length(created_at) > 0)
+  ) STRICT;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS openai_credential_bindings_one_active_slot
+    ON openai_credential_bindings(slot)
+    WHERE lifecycle = 'active';
+`;

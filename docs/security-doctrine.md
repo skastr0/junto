@@ -340,13 +340,13 @@ from a newer release, an unknown version, a missing migration, or a drifted
 version witness fails closed without mutation.
 
 Version 1 is the frozen post-consolidation baseline. The current
-source/runtime schema is version 22, selected by `CURRENT_STATE_SCHEMA_VERSION`
+source/runtime schema is version 23, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and the immutable contiguous chain declared in
 `src/main/vellum-command/state/migrations.ts`. The public macOS 0.1.14 package remains
 historical evidence for schema version 18; it does not define the current
 source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never
 be edited, squashed, renumbered, or reused. The next schema change must append
-`22 → 23`. Each step preserves the prior representation by adding beside frozen
+`23 → 24`. Each step preserves the prior representation by adding beside frozen
 durable shapes rather than widening released checks or deleting their bytes.
 
 An unversioned non-empty database is adopted only when both its live schema and

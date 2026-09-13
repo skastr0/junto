@@ -33,6 +33,7 @@ export const stripProviderSecretsFromPreferences = (
     const secretFields = new Set<string>(PROVIDER_SECRET_FIELDS[key]);
     const kept: Record<string, unknown> = {};
     for (const [field, value] of Object.entries(section)) {
+      if (key === "openai" && field === "apiKeyConfigured") continue;
       if (secretFields.has(field)) continue;
       if (value === undefined) continue;
       kept[field] = value;

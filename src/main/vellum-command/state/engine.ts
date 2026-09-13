@@ -11,7 +11,8 @@ import {
   type SQLOutputValue,
   type StatementSync,
 } from "node:sqlite";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
+import { OverseerLiveExecution } from "../overseer/live/execution";
 import {
   StateEngine,
   StateEngineError,
@@ -261,7 +262,9 @@ const openStateEngine = (
         operation: string,
         body: (stateWriter: StateWriter) => A,
       ): Effect.Effect<A, StateEngineError> =>
-        Effect.try({
+        Effect.gen(function* () {
+          const live = yield* Effect.serviceOption(OverseerLiveExecution);
+          return yield* Effect.try({
           // Every durable write in the app funnels through here, so this is the
           // one place that can name a slow one. Reads were already attributed
           // (perf-probe tags every canvas read); writes were not, which is why
@@ -280,7 +283,13 @@ const openStateEngine = (
             transactionOpen = true;
             database.exec("BEGIN IMMEDIATE");
             try {
+              if (Option.isSome(live)) live.value.assertCurrent(writer);
+              const before = Option.isSome(live)
+                ? writer.get("SELECT total_changes() AS n")!.n : undefined;
               const result = body(writer);
+              if (Option.isSome(live) && writer.get("SELECT total_changes() AS n")!.n !== before) {
+                live.value.afterMutation?.(writer, operation);
+              }
               database.exec("COMMIT");
               return result;
             } catch (error) {
@@ -297,6 +306,7 @@ const openStateEngine = (
             }
           }),
           catch: (error) => stateEngineError(operation, error),
+          });
         }).pipe(Effect.withSpan(`state.${operation}`));
 
       const chunkedWrite = <A>(

@@ -8,12 +8,14 @@ import {
   FleetSettings,
   HarnessesSettings,
   KernelSettings,
+  LiveSettings,
   ProvidersSettings,
   SETTINGS_VERSION,
   SettingsError,
   StationSettings,
   TerminalSettings,
   defaultHarnesses,
+  defaultLive,
   defaultProviders,
   defaultTerminal,
   sanitizeFleetConsent,
@@ -60,6 +62,8 @@ export const StoredSettingsPreferences = Schema.Struct({
    * and the next persist writes the key.
    */
   terminal: Schema.optionalKey(TerminalSettings),
+  /** Live calls require explicit start; these are limits and model choice only. */
+  live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before the Providers settings surface. */
   providers: Schema.optionalKey(ProvidersSettings),
 });
@@ -113,6 +117,7 @@ export const preferencesFromSettings = (
   fleet: settings.fleet,
   harnesses: settings.harnesses ?? defaultHarnesses(),
   terminal: settings.terminal ?? defaultTerminal(),
+  live: settings.live ?? defaultLive(),
   providers: persistableProviders(settings.providers, options),
 });
 
@@ -181,6 +186,7 @@ export const decodeStoredSettings = (
     fleet: sanitizeFleetConsent(prefs.fleet),
     harnesses: prefs.harnesses ?? defaultHarnesses(),
     terminal: prefs.terminal ?? defaultTerminal(),
+    live: prefs.live ?? defaultLive(),
     providers: prefs.providers ?? defaultProviders(),
     station: decodedTopology.success,
   };

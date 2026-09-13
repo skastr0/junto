@@ -43,7 +43,8 @@ import {
 } from "../work/state-schema";
 import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
-import { PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
+import { OPENAI_CREDENTIAL_BINDINGS_SQL, PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
+import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
 import {
   persistCanvas,
   writePortfolioHead,
@@ -268,7 +269,7 @@ export const STATE_SCHEMA_V20_IDENTITY = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 22;
+export const CURRENT_STATE_SCHEMA_VERSION = 23;
 
 /**
  * Exact witness of schema version 21 (relational canvas authority; blob
@@ -293,13 +294,19 @@ export const STATE_SCHEMA_V22_IDENTITY = {
     "08c2f4167917bb99d8ac496f978359bb2c3baadef36a0dfe1dd519a2431daf0b",
 } as const satisfies VerifiedStateSchemaIdentity;
 
+/** Exact witness of schema 23, the Live journal and OpenAI credential slot. */
+export const STATE_SCHEMA_V23_IDENTITY = {
+  actualSchemaSha256:
+    "a3ab799d4caafe1cb63412a0d9ac1cbde880a0dee99634e7bcb3adc04e511267",
+} as const satisfies VerifiedStateSchemaIdentity;
+
 /**
  * Stable alias for the head identity so tests and tooling never rename an
  * import on a schema bump. `bun run schema:identity` rewrites the constant
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V22_IDENTITY;
+  STATE_SCHEMA_V23_IDENTITY;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -740,6 +747,17 @@ export const STATE_SCHEMA_MIGRATIONS =
       fromIdentity: STATE_SCHEMA_V21_IDENTITY,
       migrate: (database) => {
         database.exec(PROVIDER_CREDENTIAL_BINDINGS_SQL);
+      },
+    },
+    {
+      fromVersion: 22,
+      toVersion: 23,
+      name: "add-overseer-live-journal",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V22_IDENTITY,
+      migrate: (database) => {
+        database.exec(OPENAI_CREDENTIAL_BINDINGS_SQL);
+        database.exec(OVERSEER_LIVE_STATE_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;

@@ -5,16 +5,20 @@ import {
   type ProviderSectionKey,
   type ProvidersSettings,
 } from "@shared/settings";
-import { PROVIDER_CREDENTIAL_SLOT_VALUES } from "./state-schema";
+import { OPENAI_CREDENTIAL_SLOT_VALUES, PROVIDER_CREDENTIAL_SLOT_VALUES } from "./state-schema";
 
 export type ProviderCredentialSlot =
-  (typeof PROVIDER_CREDENTIAL_SLOT_VALUES)[number];
+  (typeof PROVIDER_CREDENTIAL_SLOT_VALUES)[number]
+  | (typeof OPENAI_CREDENTIAL_SLOT_VALUES)[number];
 
 export type ProviderCredentialFieldOp =
   | { readonly kind: "set"; readonly value: string }
   | { readonly kind: "clear" };
 
-const SLOT_SET = new Set<string>(PROVIDER_CREDENTIAL_SLOT_VALUES);
+const SLOT_SET = new Set<string>([
+  ...PROVIDER_CREDENTIAL_SLOT_VALUES,
+  ...OPENAI_CREDENTIAL_SLOT_VALUES,
+]);
 
 export const isProviderCredentialSlot = (
   value: string,
