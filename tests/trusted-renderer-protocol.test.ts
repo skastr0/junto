@@ -158,7 +158,7 @@ describe("trusted renderer protocol", () => {
 });
 
 describe("trusted renderer permissions", () => {
-  it("allows only sanitized clipboard writes from the trusted main frame", () => {
+  it("allows sanitized clipboard writes and audio capture only in the trusted main frame", () => {
     let check: ((...args: ReadonlyArray<any>) => boolean) | undefined;
     let request: ((...args: ReadonlyArray<any>) => void) | undefined;
     const target = {
@@ -224,6 +224,16 @@ describe("trusted renderer permissions", () => {
       details,
     );
     expect(allowed).toBe(true);
+    expect(check?.(trustedContents, "media", "", { ...details, mediaType: "audio" })).toBe(true);
+    for (const mediaType of ["video", "unknown", undefined]) {
+      expect(check?.(trustedContents, "media", "", { ...details, mediaType })).toBe(false);
+    }
+    expect(check?.(otherContents, "media", "", { ...details, mediaType: "audio" })).toBe(false);
+    expect(check?.(trustedContents, "media", "", { ...details, mediaType: "audio", isMainFrame: false })).toBe(false);
+    for (const mediaTypes of [["audio"], ["video"], ["audio", "video"], [], undefined]) {
+      request?.(trustedContents, "media", (value: boolean) => { allowed = value; }, { ...details, mediaTypes });
+      expect(allowed).toBe(mediaTypes?.length === 1 && mediaTypes[0] === "audio");
+    }
   });
 
   it("permits the exact development authority only when explicitly configured", () => {

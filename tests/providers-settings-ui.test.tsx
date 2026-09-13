@@ -43,4 +43,18 @@ describe("provider access settings", () => {
     expect(checkboxInputs(html).filter((input) => input.includes("checked"))).toHaveLength(2);
     expect(html).toContain("access on");
   });
+
+  it("offers write-only OpenAI credentials and explicit per-call limits", () => {
+    state$.settings.providers.set({ openai: { apiKeyConfigured: true } });
+    const html = render();
+    expect(html).toContain('aria-label="GPT-Live settings"');
+    expect(html).toContain("API key configured");
+    expect(html).toContain("A call starts only when you choose Start live conversation");
+    expect(html).toContain('aria-label="Live backend model"');
+    expect(html).toContain('aria-label="Maximum call minutes"');
+    expect(html).toContain('aria-label="Voice limit per call in USD"');
+    expect(html).toContain("Backend token charges are separate");
+    expect(html).toContain("credential vault");
+    expect(html).not.toContain("Reveal OpenAI API key");
+  });
 });

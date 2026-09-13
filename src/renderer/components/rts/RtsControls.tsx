@@ -8,6 +8,7 @@ import {
   Link2,
   ListChecks,
   MessageSquareText,
+  Mic,
   Package,
   Pause,
   Pencil,
@@ -76,6 +77,7 @@ import { Button } from "../ui";
 import { CronScheduleSurface } from "../nodes/CronScheduleSurface";
 import { AgentReseatControl } from "./AgentReseatControl";
 import { OverseerToggleKey } from "./OverseerToggle";
+import { canStartOverseerLive, openOverseerLive } from "../../lib/overseer-live-state";
 import "./rts-controls.css";
 import "../node-palette/node-palette-mode-deck.css";
 
@@ -519,6 +521,12 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             </KindKey>
             <AgentReseatControl node={node} />
             <OverseerToggleKey node={node} />
+            {canStartOverseerLive(node) && <KindKey
+              label="Start live conversation"
+              title="Talk with this Overseer"
+              testId="rts-overseer-live"
+              onClick={() => openOverseerLive({ canvasName: state$.canvasName.peek(), nodeId: node.id, title: nodeTitle(node) })}
+            ><Mic size={ICON} /></KindKey>}
             {rename}
           </>
         );

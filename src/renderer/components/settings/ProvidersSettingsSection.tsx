@@ -16,14 +16,142 @@ import { use$ } from "@legendapp/state/react";
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, X } from "lucide-react";
 import {
+  LIVE_SETTINGS_BOUNDS,
+  LIVE_VOICE_USD_PER_MINUTE,
   MASKED_SECRET,
+  liveCallLimitSeconds,
+  liveSettings,
   type ProviderSectionKey,
 } from "@shared/settings";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { type NativeUsageProvider } from "@shared/usage";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
-import { Eyebrow } from "../ui";
+import { Button, Eyebrow, IconButton, Input } from "../ui";
+
+function LiveProviderCard() {
+  const settings = use$(state$.settings);
+  const live = liveSettings(settings);
+  const configured = settings.providers?.openai?.apiKeyConfigured === true;
+  const [apiKey, setApiKey] = useState("");
+  const [backendModel, setBackendModel] = useState(live.backendModel);
+  const [maxCallMinutes, setMaxCallMinutes] = useState(String(live.maxCallMinutes));
+  const [maxVoiceCostUsd, setMaxVoiceCostUsd] = useState(String(live.maxVoiceCostUsd));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setBackendModel(live.backendModel);
+    setMaxCallMinutes(String(live.maxCallMinutes));
+    setMaxVoiceCostUsd(String(live.maxVoiceCostUsd));
+  }, [live.backendModel, live.maxCallMinutes, live.maxVoiceCostUsd]);
+
+  return (
+    <form
+      className="settings-provider-card"
+      aria-label="GPT-Live settings"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (saving) return;
+        setSaving(true);
+        void patchSettings({
+          live: {
+            backendModel: backendModel.trim(),
+            maxCallMinutes: Number(maxCallMinutes),
+            maxVoiceCostUsd: Number(maxVoiceCostUsd),
+          },
+          ...(apiKey.trim() === "" ? {} : {
+            providers: { openai: { apiKey: apiKey.trim() } },
+          }),
+        }).then((saved) => {
+          if (saved) setApiKey("");
+        }).finally(() => setSaving(false));
+      }}
+    >
+      <div className="settings-provider-head">
+        <span className="settings-provider-field__text">
+          <Eyebrow>OpenAI live conversation</Eyebrow>
+          <span className="settings-field__hint">GPT-Live-1 voice with a separate backend reasoning model.</span>
+        </span>
+        <span className="text-[10px] text-dim" role="status">
+          {configured ? "API key configured" : "API key needed"}
+        </span>
+      </div>
+      <p className="settings-provider-access">
+        Bring your own OpenAI API key. A call starts only when you choose Start live conversation.
+        Voice costs ${LIVE_VOICE_USD_PER_MINUTE.toFixed(2)} per minute, plus backend usage.
+      </p>
+      <label className="settings-provider-field">
+        <span className="settings-provider-field__text">
+          <span className="settings-provider-field__label">OpenAI API key</span>
+          <span className="settings-field__hint">Saved in this installation's credential vault. The saved key cannot be revealed here.</span>
+        </span>
+        <span className="settings-provider-field__control">
+          <Input
+            type="password"
+            aria-label="OpenAI API key"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={8192}
+            placeholder={configured ? "Enter replacement key" : "sk-..."}
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+          />
+          {configured ? (
+            <IconButton
+              aria-label="Clear OpenAI API key"
+              title="Clear stored OpenAI API key"
+              disabled={saving}
+              onClick={() => {
+                setSaving(true);
+                void patchSettings({ providers: { openai: { apiKey: "" } } })
+                  .then((saved) => { if (saved) setApiKey(""); })
+                  .finally(() => setSaving(false));
+              }}
+            ><X size={13} aria-hidden /></IconButton>
+          ) : null}
+        </span>
+      </label>
+      <label className="settings-provider-field">
+        <span className="settings-provider-field__text">
+          <span className="settings-provider-field__label">Backend model</span>
+          <span className="settings-field__hint">An OpenAI model that supports structured tool calls. Voice remains GPT-Live-1.</span>
+        </span>
+        <span className="settings-provider-field__control">
+          <Input aria-label="Live backend model" required maxLength={200}
+            value={backendModel} onChange={(event) => setBackendModel(event.target.value)} />
+        </span>
+      </label>
+      <label className="settings-provider-field">
+        <span className="settings-provider-field__text">
+          <span className="settings-provider-field__label">Maximum call minutes</span>
+          <span className="settings-field__hint">Automatically ends the call at this duration.</span>
+        </span>
+        <span className="settings-provider-field__control">
+          <Input type="number" aria-label="Maximum call minutes" required step={1}
+            min={LIVE_SETTINGS_BOUNDS.maxCallMinutes.min} max={LIVE_SETTINGS_BOUNDS.maxCallMinutes.max}
+            value={maxCallMinutes} onChange={(event) => setMaxCallMinutes(event.target.value)} />
+        </span>
+      </label>
+      <label className="settings-provider-field">
+        <span className="settings-provider-field__text">
+          <span className="settings-provider-field__label">Voice limit per call (USD)</span>
+          <span className="settings-field__hint">Ends the call at this voice estimate. Backend token charges are separate.</span>
+        </span>
+        <span className="settings-provider-field__control">
+          <Input type="number" aria-label="Voice limit per call in USD" required step="0.01"
+            min={LIVE_SETTINGS_BOUNDS.maxVoiceCostUsd.min} max={LIVE_SETTINGS_BOUNDS.maxVoiceCostUsd.max}
+            value={maxVoiceCostUsd} onChange={(event) => setMaxVoiceCostUsd(event.target.value)} />
+        </span>
+      </label>
+      <div className="flex items-center justify-between gap-4">
+        <span className="settings-field__hint">
+          Current limit: {liveCallLimitSeconds(live) / 60} minutes. A new call bills at least 15 seconds.
+        </span>
+        <Button type="submit" disabled={saving}>{saving ? "Saving" : "Save live settings"}</Button>
+      </div>
+    </form>
+  );
+}
 
 interface ProviderFieldSpec {
   readonly field: string;
@@ -310,12 +438,13 @@ export function ProvidersSettingsSection() {
 
   return (
     <div className="settings-section">
+      <LiveProviderCard />
       <p className="settings-note" role="note">
         Provider access is off by default. Enable only a source you want
         Vellum Command to read. Usage sources refresh every five minutes.
         Hermes host snapshots, when separately enabled, poll every minute.
         Each card names the local data and network access it may use. Stored
-        values stay in this installation's database, are shown masked, and are
+        values stay in this installation's credential vault, are shown masked, and are
         never logged.
       </p>
       {PROVIDER_SPECS.map((spec) => {

@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import type { UsageState } from "../../src/shared/usage";
+import type { LiveSnapshot } from "../../src/shared/overseer-live";
+import { IPC_CHANNELS } from "../../src/shared/ipc";
 import {
   agentTextNode,
   artifactsNode,
@@ -35,6 +37,114 @@ import type {
 } from "../../src/shared/canvas";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
+
+const liveAuditSnapshot: LiveSnapshot = {
+  sessionId: "audit-live-session", canvasName: "live-audit", nodeId: "live-overseer",
+  connectionEpoch: 1, connection: "connecting", authority: "active", controller: "working",
+  elapsedSeconds: 83, voiceCostUsd: 0.011, limitSeconds: 900,
+  transcript: [
+    { id: "you-1", speaker: "operator", text: "Ask the API worker to investigate the authentication failures. Put the task next to it." },
+    { id: "overseer-1", speaker: "overseer", text: "The investigation task is beside the API worker. It has accepted the work and is checking the configuration." },
+  ],
+  requests: [{ requestId: "request-1", intentRevision: 1, text: "Investigate the API authentication failures", status: "executing" }],
+  actions: [
+    { id: "action-1", requestId: "request-1", label: "Create investigation task", status: "committed", targetRefs: ["live-audit/auth-task"] },
+    { id: "action-2", requestId: "request-1", label: "Dispatch to API worker", status: "accepted", targetRefs: ["live-audit/api-worker"] },
+  ],
+};
+
+test("capture live conversation with isolated provider and media fixtures", async () => {
+  test.setTimeout(90_000);
+  await mkdir(SHOTS, { recursive: true });
+  const seat = agentTextNode({ id: "live-overseer", key: "local:overseer", label: "Factory Overseer", harness: "vellum-overseer", x: 60, y: 60 });
+  const world = await launchVellum({
+    offline: true,
+    seedCanvases: { "live-audit": canvasDoc([
+      { ...seat, ether: { ...seat.ether, overseer: true } },
+      agentTextNode({ id: "api-worker", key: "local:api", label: "API worker", x: 420, y: 60 }),
+    ]) },
+  });
+  try {
+    const { page, app } = world;
+    await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
+    // Fixture handlers replace provider/control IPC only in this isolated
+    // Electron test process. No microphone, provider key, or billed call.
+    await app.evaluate(({ ipcMain }, { channels, seed }) => {
+      let current = { ...seed, sessionId: null, connection: "closed" as const, transcript: [], requests: [], actions: [] } as typeof seed;
+      const replace = (channel: string, handler: (...args: unknown[]) => unknown) => {
+        ipcMain.removeHandler(channel);
+        ipcMain.handle(channel, (_event, ...args: unknown[]) => handler(...args));
+      };
+      replace(channels.liveSnapshot, () => current);
+      replace(channels.liveStart, () => {
+        current = seed;
+        return { sessionId: seed.sessionId, connectionEpoch: 1, answerSdp: "audit-answer", snapshot: seed };
+      });
+      replace(channels.liveReady, () => undefined);
+      replace(channels.liveProviderEvent, () => undefined);
+      replace(channels.liveAttention, () => undefined);
+      replace(channels.liveEnd, () => { current = { ...current, connection: "closed" }; return current; });
+      replace(channels.liveCancel, () => { current = { ...current, requests: current.requests.map((request) => ({ ...request, status: "cancelled" })) }; return current; });
+      replace(channels.liveSteer, () => current);
+      replace(channels.liveStopActions, () => { current = { ...current, actionsStopped: true, message: "Actions stopped. End this call and start a new conversation to enable actions." }; return current; });
+    }, { channels: IPC_CHANNELS, seed: liveAuditSnapshot });
+    await page.evaluate(async () => {
+      const api = window.vellumCommand!;
+      // The key is a non-secret fixture in the disposable settings store.
+      await api.settingsPatch({ providers: { openai: { apiKey: "audit-not-a-provider-key" } }, live: { backendModel: "audit-backend" } });
+      const track = { enabled: false, onended: null, stop() {} };
+      const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", { configurable: true, value: async () => stream });
+      class AuditPeer {
+        localDescription = { type: "offer", sdp: "audit-offer" };
+        connectionState = "connected";
+        ontrack = null;
+        onconnectionstatechange = null;
+        channel = { onmessage: null as ((event: { data: string }) => void) | null, onclose: null, onerror: null, close() {} };
+        createDataChannel() { return this.channel; }
+        addTrack() {}
+        async createOffer() { return this.localDescription; }
+        async setLocalDescription() {}
+        async setRemoteDescription() { this.channel.onmessage?.({ data: JSON.stringify({ type: "session.started", event_id: "audit-start" }) }); }
+        close() {}
+      }
+      Object.defineProperty(window, "RTCPeerConnection", { configurable: true, value: AuditPeer });
+    });
+    const seatNode = page.locator('.react-flow__node[data-id="live-overseer"]');
+    await seatNode.click();
+    await page.getByTestId("rts-overseer-live").click();
+    const panel = page.getByRole("dialog", { name: "Live conversation", exact: true });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Microphone off", { exact: true })).toBeVisible();
+    await shot(page, "28-live-before-call");
+    await panel.getByRole("button", { name: "Start live conversation", exact: true }).click();
+    await expect(panel.getByText("Microphone on", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Taking action", { exact: true })).toBeVisible();
+    await shot(page, "29-live-conversation");
+    await panel.getByRole("button", { name: "Mute", exact: true }).click();
+    await expect(panel.getByText("Microphone muted", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Taking action", { exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: "Correct request" }).click();
+    await panel.getByRole("textbox", { name: "Correction for this request" }).fill("Keep the task beside the worker; investigate staging only.");
+    await shot(page, "30-live-correction-muted");
+    await page.evaluate(() => { document.documentElement.dataset.theme = "bright"; });
+    await shot(page, "31-live-bright");
+    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await panel.getByRole("button", { name: "Return to canvas, keep call" }).click();
+    await expect(panel).not.toBeVisible();
+    await page.locator('.react-flow__node[data-id="api-worker"]').click();
+    const rail = page.getByRole("complementary", { name: "Live conversation controls" });
+    await expect(rail).toBeVisible();
+    await shot(page, "32-live-canvas-rail");
+    await rail.getByRole("button", { name: /Factory Overseer/ }).click();
+    await panel.getByRole("button", { name: "End call", exact: true }).click();
+    await expect(panel.getByText("Microphone off", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Cancel request" })).toBeVisible();
+    await shot(page, "33-live-call-ended-work-continues");
+  } finally {
+    await world.close();
+  }
+});
 
 const shot = async (page: Page, name: string) => {
   await page.waitForTimeout(350);
@@ -579,6 +689,9 @@ test("capture every surface for design review", async () => {
       page.getByRole("heading", { name: "Browser", exact: true }),
     ).toBeVisible();
     await shot(page, "13b-settings-browser");
+    await page.locator(".settings-nav__item", { hasText: "Providers" }).click();
+    await expect(page.getByRole("form", { name: "GPT-Live settings" })).toBeVisible();
+    await shot(page, "13c-settings-live-provider");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 

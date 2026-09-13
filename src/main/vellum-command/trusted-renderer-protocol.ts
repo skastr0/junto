@@ -227,7 +227,7 @@ const sameAuthority = (candidate: string | undefined, allowed: string): boolean 
   }
 };
 
-const trustedClipboardRequest = (
+const trustedMainFrameRequest = (
   webContents: WebContents | null,
   permission: string,
   requestingUrl: string | undefined,
@@ -237,7 +237,7 @@ const trustedClipboardRequest = (
 ): boolean => {
   const mainWindow = getTrustedWindow();
   return (
-    permission === "clipboard-sanitized-write" &&
+    (permission === "clipboard-sanitized-write" || permission === "media") &&
     webContents !== null &&
     mainWindow !== undefined &&
     !mainWindow.isDestroyed() &&
@@ -264,7 +264,8 @@ export const installTrustedRendererPermissionPolicy = (
       : developmentRenderer?.initialUrl;
   target.setPermissionCheckHandler(
     (webContents, permission, requestingOrigin, details) =>
-      trustedClipboardRequest(
+      (permission === "clipboard-sanitized-write" ||
+        (permission === "media" && details.mediaType === "audio")) && trustedMainFrameRequest(
         webContents,
         permission,
         details.requestingUrl ?? requestingOrigin,
@@ -275,7 +276,9 @@ export const installTrustedRendererPermissionPolicy = (
   );
   target.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(
-      trustedClipboardRequest(
+      (permission === "clipboard-sanitized-write" ||
+        (permission === "media" && "mediaTypes" in details &&
+          details.mediaTypes?.length === 1 && details.mediaTypes[0] === "audio")) && trustedMainFrameRequest(
         webContents,
         permission,
         details.requestingUrl,

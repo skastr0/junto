@@ -41,6 +41,7 @@ import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
 import { CommandBarHost } from "./components/command-bar/CommandBar";
 import { FocusSwitcherHud } from "./components/FocusSwitcherHud";
+import { LiveConversationHost } from "./components/live/LiveConversation";
 import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
@@ -546,6 +547,7 @@ export function App() {
         <CanvasChrome />
         <CommandBarHost />
         <FocusSwitcherHud />
+        <LiveConversationHost />
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <RendererErrorBoundary
