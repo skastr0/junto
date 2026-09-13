@@ -1151,6 +1151,37 @@ describe("operator interlock", () => {
     expect(interlock.holding("b1")).toBe(false);
   });
 
+  it("pending evidence comes from the drive's own write record — a stalled chip is never receipted", async () => {
+    interlock = new OperatorInterlock();
+    const seen: string[] = [];
+    drive = makeDrive({
+      stallWatch: true,
+      stallTimeoutMs: 30,
+      // The lookup receives the exact text the drive put on the wire — the
+      // pulse path once bypassed the caller-side map and vacuously resolved
+      // stuck chips as submitted (FIRED-LAW misfire on a real seat).
+      pendingText: (_bindingId, text) => {
+        seen.push(text);
+        return text === "a\nb";
+      },
+      pasteChip: () => true,
+    });
+    const pending = drive.writePrompt("b1", "a\nb");
+    await flushMicrotasks(10);
+    // Chip chrome was visible: recipe CR + chip-submit CR.
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("a\nb"),
+      CR,
+      CR,
+    ]);
+    // Stall window closes: the chip is still pending → clear, never resolve
+    // true, never leave a `[Pasted text` chip the operator must clean up.
+    await expect(pending).resolves.toBe(false);
+    expect(writes.at(-1)?.data).toBe(INTERRUPT_BYTE);
+    expect(seen).toContain("a\nb");
+    expect(attention).toContain("prompt-stalled");
+  });
+
   it("invalidateBinding drops the latch and any parked writes", async () => {
     interlock = new OperatorInterlock(() => clock);
     interlock.noteInput("b1");

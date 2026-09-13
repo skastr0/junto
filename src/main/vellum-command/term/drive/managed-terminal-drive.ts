@@ -82,6 +82,18 @@ export type ClipboardSafeAssert = (
 export type PromptPendingLookup = (bindingId: string) => boolean;
 
 /**
+ * Pending-text evidence lookup. Receives the exact text the drive last put
+ * on the wire for this binding — the drive owns that record so no delivery
+ * path can produce a paste the evidence layer cannot see. (The pulse path
+ * once bypassed the ipc-side text map: pendingText answered vacuously, a
+ * stuck chip receipted as submitted.)
+ */
+export type PromptTextLookup = (
+  bindingId: string,
+  promptText: string,
+) => boolean;
+
+/**
  * Screen-derived composer verdict (agent-state/composer.ts).
  *
  * An idle seat is NOT a free composer: the agent can be done while the
@@ -178,8 +190,8 @@ export type ManagedTerminalDriveOptions = {
    * Tests set 0 so write counts stay paste+CR without fake timers.
    */
   readonly pasteToCrSettleMs?: number;
-  /** Evidence-gated acknowledgement (see PromptPendingLookup). */
-  readonly pendingText?: PromptPendingLookup;
+  /** Evidence-gated acknowledgement (see PromptTextLookup). */
+  readonly pendingText?: PromptTextLookup;
   /**
    * Composer paste-chip chrome only (`[Pasted text`). Chip-submit CR reads
    * this when set so Codex payload-head leftovers and Grok `[Pasted:Nlines]`
@@ -212,13 +224,19 @@ export class ManagedTerminalDrive {
   private readonly queueTimeoutMs: number;
   private readonly stallWatch: boolean;
   private readonly pasteToCrSettleMs: number;
-  private readonly pendingText: PromptPendingLookup | undefined;
+  private readonly pendingText: PromptTextLookup | undefined;
   private readonly pasteChip: PromptPendingLookup | undefined;
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
   private readonly harnessFor: SeatHarnessLookup | undefined;
   private readonly interlock: OperatorInterlock;
 
   private readonly queues = new Map<string, QueuedPrompt[]>();
+  /**
+   * The exact text the drive last put on the wire per binding — set when a
+   * paste write succeeds, cleared with the generation. Feeds pendingText so
+   * every delivery path (prompts, pulses, doctrine) carries evidence.
+   */
+  private readonly lastWrittenText = new Map<string, string>();
   private readonly writing = new Set<string>();
   private readonly lastIdleInterruptAt = new Map<string, number>();
   private readonly pendingTurns = new Map<string, PendingTurn>();
@@ -585,7 +603,7 @@ export class ManagedTerminalDrive {
       bindingId,
       (this.turnStartCounts.get(bindingId) ?? 0) + 1,
     );
-    if (this.pendingText && this.pendingText(bindingId)) {
+    if (this.pendingOnScreen(bindingId)) {
       // Evidence: our text is still in the prompt box. A working repaint on
       // an unsubmitted chip is a FALSE turn-start — never receipt it.
       return;
@@ -623,6 +641,7 @@ export class ManagedTerminalDrive {
     this.readyAfter.clear();
     this.mailInterrupts.clear();
     this.bindingGenerations.clear();
+    this.lastWrittenText.clear();
     this.interlock.clearAll();
   }
 
@@ -642,6 +661,7 @@ export class ManagedTerminalDrive {
     this.turnStartCounts.delete(bindingId);
     this.compactNoopCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
+    this.lastWrittenText.delete(bindingId);
   }
 
   /** Test seam — restore a fresh instance-like admission state. */
@@ -774,7 +794,7 @@ export class ManagedTerminalDrive {
             return { kind: "inactive" };
           }
           if (!ok) {
-            if (this.pendingText && this.pendingText(bindingId)) {
+            if (this.pendingOnScreen(bindingId)) {
               // The paste landed (chip/payload visible) but a later write in
               // the sequence was refused: clear the chip this sequence
               // created so the operator never sees a stuck `[Pasted text
@@ -822,7 +842,7 @@ export class ManagedTerminalDrive {
               }
             }
           }
-          if (this.pendingText && this.pendingText(bindingId)) {
+          if (this.pendingOnScreen(bindingId)) {
             // Snapshot-only leftover (Codex payload head / Grok footer) is
             // not a stuck chip — receipt the firstTyped write; never Ctrl+C.
             if (this.pasteChip && !this.pasteChip(bindingId)) {
@@ -879,7 +899,7 @@ export class ManagedTerminalDrive {
       // attention, never false. Resolving false here is what made the
       // delivery layer re-paste the same message on every idle (the live
       // 4x duplicate report).
-      if (this.pendingText && !this.pendingText(bindingId)) {
+      if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
         return true;
       }
       // No composer chip: first CR was the submit (Codex/Grok). A leftover
@@ -919,7 +939,7 @@ export class ManagedTerminalDrive {
           signal,
         );
         if (startedRetry) return true;
-        if (this.pendingText && !this.pendingText(bindingId)) {
+        if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
           return true;
         }
       }
@@ -1014,7 +1034,7 @@ export class ManagedTerminalDrive {
       this.onAttention?.(bindingId, "operator-active");
       return;
     }
-    if (this.pendingText && !this.pendingText(bindingId)) {
+    if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
       // Evidence: our text already left the composer (the submit landed and
       // only the working repaint is late — D3's ackDelay case). Writing an
       // idle Ctrl+C now would interrupt a WORKING agent. Still raise the
@@ -1068,6 +1088,9 @@ export class ManagedTerminalDrive {
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeFn(bindingId, paste)))) return false;
     this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
+    // The text is on the wire — record it so pendingText evidence can never
+    // be bypassed by a delivery path that forgets to register its payload.
+    this.lastWrittenText.set(bindingId, text);
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
@@ -1135,10 +1158,24 @@ export class ManagedTerminalDrive {
     return this.writeSubmitCr(bindingId, generation, bindingGeneration, signal);
   }
 
+  /**
+   * Is the text the drive last wrote still pending on screen? The text comes
+   * from the drive's own write record — every delivery path carries evidence
+   * because no caller can forget to register it.
+   */
+  private pendingOnScreen(bindingId: string): boolean {
+    const text = this.lastWrittenText.get(bindingId);
+    return (
+      text !== undefined &&
+      this.pendingText !== undefined &&
+      this.pendingText(bindingId, text)
+    );
+  }
+
   /** Chip chrome, or pendingText when the production pasteChip lookup is absent. */
   private chipVisible(bindingId: string): boolean {
     if (this.pasteChip) return this.pasteChip(bindingId);
-    return this.pendingText?.(bindingId) === true;
+    return this.pendingOnScreen(bindingId);
   }
 
   private async settle(

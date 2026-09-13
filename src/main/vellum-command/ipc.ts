@@ -1330,10 +1330,9 @@ export const registerVellumIpc = (): void => {
         },
         // Evidence-gated acknowledgement: the drive only receipts a pending
         // prompt once our text has LEFT the composer (no false-working ack on
-        // an unsubmitted chip; no Ctrl+C into a working agent).
-        pendingText: (bindingId) => {
-          const text = lastPromptText.get(bindingId);
-          if (text === undefined) return false;
+        // an unsubmitted chip; no Ctrl+C into a working agent). The text is
+        // the drive's own last-write record — delivery paths cannot bypass it.
+        pendingText: (bindingId, text) => {
           const snap = terminalObserverPlane.snapshot(bindingId);
           if (!snap) return false;
           return promptStillPending(snap, text);
@@ -1403,9 +1402,6 @@ export const registerVellumIpc = (): void => {
           snapshot: terminalObserverPlane.snapshot(bindingId),
         });
       };
-      // Last prompt text per binding — the evidence source the drive's
-      // pendingText callback scans the observer snapshot with.
-      const lastPromptText = new Map<string, string>();
       const writeManagedPrompt = (
         bindingId: string,
         text: string,
@@ -1416,13 +1412,11 @@ export const registerVellumIpc = (): void => {
           /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
           readonly awaitTurnStart?: boolean;
         },
-      ) => {
-        lastPromptText.set(bindingId, text);
-        return managedDrive.writePrompt(bindingId, text, {
+      ) =>
+        managedDrive.writePrompt(bindingId, text, {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
-      };
       /** In-flight firstTyped deliveries — one arm at a time per binding. */
       const firstTypedInFlight = new Set<string>();
       // Operator multi-prompt (RTS): wake lazy seat + paste+CR without a

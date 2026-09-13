@@ -22,6 +22,7 @@ export {
   type ManagedTerminalDriveOptions,
   type ComposerVerdictLookup,
   type PromptPendingLookup,
+  type PromptTextLookup,
   type SeatHarnessLookup,
   type SeatIdleLookup,
   type TerminalWriter,
