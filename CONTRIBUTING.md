@@ -27,6 +27,12 @@ Keep changes focused and run:
 bun run verify
 ```
 
+The unit suite declares native prerequisites at the test that needs them. Linux
+install mutation and GNU tar release-publication cases skip automatically on
+macOS, including when a single test file is passed directly to Vitest. Run
+those cases in a Linux environment; portable validation and calculation tests
+remain part of the local run on both platforms.
+
 Run targeted GUI checks when behavior changes (`bun run test:e2e:fast <spec>`;
 `bun run test:e2e:audit` for design review). The full regression
 (`bun run test:e2e:full`) is not routine. Do not include generated captures,

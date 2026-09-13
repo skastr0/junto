@@ -28,6 +28,7 @@ import {
   type OwnedLinuxInstallRoot,
   type RetirableLinuxInstallTree,
 } from "../src/main/vellum-command/update/linux-install-storage";
+import { itOnLinux } from "./helpers/platform";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -118,7 +119,7 @@ describe("Linux install storage policy", () => {
     })).rejects.toThrow(/free disk space/);
   });
 
-  it("keeps a live staged candidate while collecting only after readiness", async () => {
+  itOnLinux("keeps a live staged candidate while collecting only after readiness", async () => {
     const initial = await fixture();
     const old = await stageLinuxDesktopRelease(initial);
     await activateLinuxDesktopRelease(old, { mode: "first-install" });
@@ -129,7 +130,7 @@ describe("Linux install storage policy", () => {
     expect(await readFile(old.executablePath, "utf8")).toContain("exit 0");
   });
 
-  it("rejects a forged retirement handle without touching the tree", async () => {
+  itOnLinux("rejects a forged retirement handle without touching the tree", async () => {
     const input = await fixture();
     const staged = await stageLinuxDesktopRelease(input);
     await activateLinuxDesktopRelease(staged, { mode: "first-install" });

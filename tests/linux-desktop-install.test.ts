@@ -10,6 +10,7 @@ import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, linuxDesktopArchive
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
 import { installLinuxDesktop } from "../src/main/vellum-command/update/linux-first-install";
 import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum-command/update/linux-install";
+import { itOnLinux } from "./helpers/platform";
 
 const fault = vi.hoisted(() => ({ syncPath: undefined as string | undefined, syncSuffix: undefined as string | undefined }));
 vi.mock("node:fs/promises", async () => {
@@ -166,7 +167,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("authenticates bytes before extracting and rejects source symlinks", async () => {
+  itOnLinux("authenticates bytes before extracting and rejects source symlinks", async () => {
     const input = await fixture();
     await writeFile(input.archivePath, Buffer.alloc(input.bytes.length));
     await expect(stage(input)).rejects.toThrow("checksum");
@@ -194,7 +195,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("creates an inactive generation, then publishes a launcher without touching product state", async () => {
+  itOnLinux("creates an inactive generation, then publishes a launcher without touching product state", async () => {
     const input = await fixture();
     const database = join(input.home, ".vellum-command/state/vellum-command.db");
     await mkdir(dirname(database), { recursive: true });
@@ -210,7 +211,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(activateLinuxDesktopRelease(candidate, { mode: "first-install" })).rejects.toThrow("consumed");
   });
 
-  it("accepts bounded GNU long-name metadata used by the actual Linux packager", async () => {
+  itOnLinux("accepts bounded GNU long-name metadata used by the actual Linux packager", async () => {
     const location = await makeRoot();
     const asar = await makeAsar(location.root, "0.3.0");
     const filename = `${"long-".repeat(35)}asset.txt`;
@@ -243,7 +244,7 @@ describe("rootless Linux desktop installation", () => {
     }
   };
 
-  it("rejects PAX metadata that embeds a NUL in the path", async () => {
+  itOnLinux("rejects PAX metadata that embeds a NUL in the path", async () => {
     const location = await makeRoot();
     const version = "0.3.0";
     const rootName = `vellum-command-runtime-${version}-linux-x64`;
@@ -279,7 +280,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(lstat(active(location.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects oversized PAX metadata instead of falling back to the ordinary header name", async () => {
+  itOnLinux("rejects oversized PAX metadata instead of falling back to the ordinary header name", async () => {
     const location = await makeRoot();
     const version = "0.3.0";
     const rootName = `vellum-command-runtime-${version}-linux-x64`;
@@ -304,7 +305,7 @@ describe("rootless Linux desktop installation", () => {
     expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
   });
 
-  it("first install refuses an existing managed launcher, while update preserves the previous generation", async () => {
+  itOnLinux("first install refuses an existing managed launcher, while update preserves the previous generation", async () => {
     const initial = await fixture();
     const old = await stage(initial);
     await activateLinuxDesktopRelease(old, { mode: "first-install" });
@@ -319,14 +320,14 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(old.executablePath, "utf8")).toContain("exit 0");
   });
 
-  it("refuses forged staged handles and unmanaged update attempts", async () => {
+  itOnLinux("refuses forged staged handles and unmanaged update attempts", async () => {
     const input = await fixture();
     const candidate = await stage(input);
     await expect(revalidateLinuxDesktopRelease({ ...candidate } as StagedLinuxDesktopRelease)).rejects.toThrow("not staged");
     await expect(activateLinuxDesktopRelease(candidate, { mode: "update", expectedIncumbentExecutablePath: candidate.executablePath })).rejects.toThrow("exact managed");
   });
 
-  it("checks managed-install eligibility without creating files", async () => {
+  itOnLinux("checks managed-install eligibility without creating files", async () => {
     const input = await fixture();
     await expect(assertLinuxDesktopManagedIncumbent({ home: input.home, executablePath: "/unmanaged/vellum-command" })).rejects.toThrow();
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -347,7 +348,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(desktop, "utf8")).toBe("existing desktop entry");
   });
 
-  it("recovers launcher hardlinks from interrupted create-only publication without touching unknown links", async () => {
+  itOnLinux("recovers launcher hardlinks from interrupted create-only publication without touching unknown links", async () => {
     const initial = await fixture();
     const old = await stage(initial);
     await activateLinuxDesktopRelease(old, { mode: "first-install" });
@@ -361,7 +362,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(alias, "utf8")).toBe(oldBody);
   });
 
-  it("still rejects hardlinked archive and payload files", async () => {
+  itOnLinux("still rejects hardlinked archive and payload files", async () => {
     const input = await fixture();
     const alias = join(input.root, "archive-alias");
     await link(input.archivePath, alias);
@@ -379,7 +380,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("refuses same-version or older update activation", async () => {
+  itOnLinux("refuses same-version or older update activation", async () => {
     const input = await fixture();
     const initial = await stage(input);
     await activateLinuxDesktopRelease(initial, { mode: "first-install" });
@@ -389,7 +390,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(activateLinuxDesktopRelease(older, { mode: "update", expectedIncumbentExecutablePath: initial.executablePath })).rejects.toThrow("strictly newer");
   });
 
-  it.each(["content", "mode", "extra", "link"] as const)("rejects %s tampering before activation", async (kind) => {
+  itOnLinux.each(["content", "mode", "extra", "link"] as const)("rejects %s tampering before activation", async (kind) => {
     const input = await fixture();
     const candidate = await stage(input);
     if (kind === "content") await writeFile(candidate.executablePath, "modified content");
@@ -403,7 +404,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects replacement of the generation even when its bytes are identical", async () => {
+  itOnLinux("rejects replacement of the generation even when its bytes are identical", async () => {
     const input = await fixture();
     const candidate = await stage(input);
     await rename(candidate.generationPath, `${candidate.generationPath}-retained`);
@@ -411,7 +412,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(revalidateLinuxDesktopRelease(candidate)).rejects.toThrow("filesystem identity");
   });
 
-  it.each(["version", "source", "payload", "marker"] as const)("binds packaged %s identity to the signed release", async (change) => {
+  itOnLinux.each(["version", "source", "payload", "marker"] as const)("binds packaged %s identity to the signed release", async (change) => {
     const input = await fixture({ change });
     await expect(stage(input)).rejects.toThrow(/Packaged update/u);
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
@@ -440,14 +441,14 @@ describe("rootless Linux desktop installation", () => {
     expect(await readdir(outside)).toEqual([]);
   });
 
-  it("fails before activation when admitted payload cannot be made durable", async () => {
+  itOnLinux("fails before activation when admitted payload cannot be made durable", async () => {
     const input = await fixture();
     fault.syncSuffix = "/vellum-command";
     await expect(stage(input)).rejects.toThrow("durable write failure");
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("can re-admit an inactive generation after its parent-directory sync failed", async () => {
+  itOnLinux("can re-admit an inactive generation after its parent-directory sync failed", async () => {
     const input = await fixture();
     fault.syncPath = join(input.home, ".local/opt/vellum-command-alpha");
     await expect(stage(input)).rejects.toThrow("durable write failure");
@@ -459,7 +460,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(active(input.home), "utf8")).toContain(candidate.executablePath);
   });
 
-  it("reports the irreversible boundary when launcher-directory sync fails", async () => {
+  itOnLinux("reports the irreversible boundary when launcher-directory sync fails", async () => {
     const input = await fixture();
     const candidate = await stage(input);
     fault.syncPath = dirname(active(input.home));
@@ -471,7 +472,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(candidate.executablePath, "utf8")).toContain("exit 0");
   });
 
-  it("resumes a first install interrupted after desktop publication, including a retained temporary hardlink", async () => {
+  itOnLinux("resumes a first install interrupted after desktop publication, including a retained temporary hardlink", async () => {
     const input = await fixture();
     const candidate = await stage(input);
     const desktop = join(input.home, ".local/share/applications/vellum-command.desktop");
@@ -490,7 +491,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(active(input.home), "utf8")).toContain(retry.executablePath);
   });
 
-  it("leaves the incumbent selected when desktop-entry durability fails before the switch", async () => {
+  itOnLinux("leaves the incumbent selected when desktop-entry durability fails before the switch", async () => {
     const initial = await fixture();
     const old = await stage(initial);
     await activateLinuxDesktopRelease(old, { mode: "first-install" });
@@ -502,7 +503,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(active(initial.home), "utf8")).toBe(before);
   });
 
-  it("keeps the previous generation through activation and retires it after successor readiness", async () => {
+  itOnLinux("keeps the previous generation through activation and retires it after successor readiness", async () => {
     const initial = await fixture();
     const old = await stage(initial);
     await activateLinuxDesktopRelease(old, { mode: "first-install" });
@@ -516,7 +517,7 @@ describe("rootless Linux desktop installation", () => {
     expect(await readFile(active(initial.home), "utf8")).toContain(candidate.executablePath);
   });
 
-  it("does not delete an unproven leftover generation and reports it in Doctor", async () => {
+  itOnLinux("does not delete an unproven leftover generation and reports it in Doctor", async () => {
     const initial = await fixture();
     const installed = await stage(initial);
     await activateLinuxDesktopRelease(installed, { mode: "first-install" });

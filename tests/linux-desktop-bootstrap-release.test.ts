@@ -7,6 +7,7 @@ import {
   LINUX_DESKTOP_BOOTSTRAP_NAME,
   prepareLinuxDesktopBootstrapRelease,
 } from "../scripts/prepare-linux-desktop-bootstrap-release";
+import { itOnLinux } from "./helpers/platform";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -56,7 +57,9 @@ describe("Linux desktop bootstrap corresponding-source publication", () => {
     })).toThrow(/relink material/);
   });
 
-  it("writes Bun notices, source archive, checksum, and RELINK.md beside matching bytes", async () => {
+  // The release script invokes GNU tar with --sort=name; the Linux release
+  // host provides that native packaging prerequisite.
+  itOnLinux("writes Bun notices, source archive, checksum, and RELINK.md beside matching bytes", async () => {
     const dist = await mkdtemp(join(await realpath(tmpdir()), "vellum-command-bootstrap-release-"));
     roots.push(dist);
     const binary = Buffer.from("bootstrap-bytes");
