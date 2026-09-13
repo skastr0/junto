@@ -129,7 +129,7 @@ native effects expose their separate completion semantics.
 | Family | Required surface |
 | --- | --- |
 | Discovery | status, capabilities, schema, examples, embedded skill |
-| Canvas | list, read, create, delete, digest, render, screenshot |
+| Canvas | list, read, create, batch, delete, digest, render, screenshot |
 | Nodes | list, get, create, configure, move, resize, delete |
 | Edges | list, get, legal verbs, connect, configure, disconnect |
 | Tasks | create, list, claim, describe, transition, promote, comment, respond, full view, rules, checks |
@@ -160,6 +160,22 @@ Onboarding and injected agent guidance advertise it when authority is enabled.
 separate commands for whole-document rendering and read-only capture of the
 current app view. Capture must not alter the view or claim availability in a
 runtime without capture support.
+
+### Structural batch
+
+`canvas.batch` is one closed Overseer mutation on one existing canvas. It accepts
+1–100 `operations`: `node.create`, `node.configure`, `node.move`, `edge.connect`,
+`edge.configure`, and `edge.disconnect`. Each step carries its own typed fields;
+steps cannot select another canvas or invoke arbitrary Overseer operations.
+Client-assigned IDs let later steps refer to newly created nodes and edges.
+
+Main checks the live grant and optional `expectedRevision` against authoritative
+state inside `CanvasesService.mutatePortfolio`. It validates the complete final
+graph, including legal endpoint verbs and task/scheduler DAGs, and commits once.
+A rejected step or graph leaves the whole canvas unchanged. Structural batches
+preserve existing native identities and configuration, cannot grant authority,
+and contain no resource deletion, native action, credential mutation, or document
+replacement. Task creation and worker execution remain separate operations.
 
 ## Parallel implementation ownership
 

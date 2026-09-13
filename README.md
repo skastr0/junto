@@ -108,6 +108,9 @@ Local terminal processes belong to the application and stop when it quits. Remot
 execution is part of the experimental Fleet feature, not a promise of persistent
 local terminals.
 
+The [Live Overseer guide](docs/overseer-live.md) covers optional GPT-Live-1 voice,
+the native controller, OpenAI API-key setup, and per-call voice limits.
+
 ## Agent tools
 
 Build the CLI with `bun run cli:build`; the result is `dist/vellum-command`.
