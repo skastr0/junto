@@ -23,7 +23,7 @@ import {
   liveSettings,
   type ProviderSectionKey,
 } from "@shared/settings";
-import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { type NativeUsageProvider } from "@shared/usage";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
@@ -438,7 +438,7 @@ export function ProvidersSettingsSection() {
 
   return (
     <div className="settings-section">
-      <LiveProviderCard />
+      {LIVE_OVERSEER_ENABLED && <LiveProviderCard />}
       <p className="settings-note" role="note">
         Provider access is off by default. Enable only a source you want
         Vellum Command to read. Usage sources refresh every five minutes.

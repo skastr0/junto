@@ -23,6 +23,10 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_HELP_MAP",
     define: "__VELLUM_COMMAND_HELP_MAP_ENABLED__",
   },
+  liveOverseer: {
+    env: "VELLUM_COMMAND_LIVE_OVERSEER",
+    define: "__VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__",
+  },
   audio: {
     env: "VELLUM_COMMAND_AUDIO",
     define: "__VELLUM_COMMAND_AUDIO_ENABLED__",
@@ -98,6 +102,7 @@ export const SHIP_FEATURES: FeatureSet = {
   usage: false,
   helpMap: false,
   audio: false,
+  liveOverseer: false,
   hermesIntegration: false,
   devTools: false,
   harnessKimi: true,
@@ -117,6 +122,7 @@ export const ALL_FEATURES: FeatureSet = {
   usage: true,
   helpMap: true,
   audio: true,
+  liveOverseer: true,
   hermesIntegration: true,
   devTools: true,
   harnessKimi: true,

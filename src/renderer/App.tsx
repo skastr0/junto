@@ -50,6 +50,7 @@ import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
   HERMES_INTEGRATION_ENABLED,
+  LIVE_OVERSEER_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
 // Fleet is experimental. The define identifier must wrap import() in
@@ -547,7 +548,7 @@ export function App() {
         <CanvasChrome />
         <CommandBarHost />
         <FocusSwitcherHud />
-        <LiveConversationHost />
+        {LIVE_OVERSEER_ENABLED && <LiveConversationHost />}
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
 
         <RendererErrorBoundary

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
+import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { defaultSettings } from "@shared/settings";
 import { NATIVE_USAGE_PROVIDERS } from "@shared/usage";
 import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
@@ -44,7 +44,7 @@ describe("provider access settings", () => {
     expect(html).toContain("access on");
   });
 
-  it("offers write-only OpenAI credentials and explicit per-call limits", () => {
+  it.runIf(LIVE_OVERSEER_ENABLED)("offers write-only OpenAI credentials and explicit per-call limits", () => {
     state$.settings.providers.set({ openai: { apiKeyConfigured: true } });
     const html = render();
     expect(html).toContain('aria-label="GPT-Live settings"');

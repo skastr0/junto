@@ -17,6 +17,7 @@ declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
@@ -64,6 +65,12 @@ export const HELP_MAP_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HELP_MAP_ENABLED__ === "boolean"
     ? __VELLUM_COMMAND_HELP_MAP_ENABLED__
     : envEnabled("VELLUM_COMMAND_HELP_MAP");
+
+/** Local GPT-Live POC, disabled unless explicitly included in this build. */
+export const LIVE_OVERSEER_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__
+    : envEnabled("VELLUM_COMMAND_LIVE_OVERSEER");
 
 export const AUDIO_ENABLED: boolean =
   typeof __VELLUM_COMMAND_AUDIO_ENABLED__ === "boolean"
@@ -159,6 +166,7 @@ export const BUILD_FEATURES = {
   usage: USAGE_ENABLED,
   helpMap: HELP_MAP_ENABLED,
   audio: AUDIO_ENABLED,
+  liveOverseer: LIVE_OVERSEER_ENABLED,
   hermesIntegration: HERMES_INTEGRATION_ENABLED,
   devTools: DEV_TOOLS_ENABLED,
   harnessKimi: HARNESS_KIMI_ENABLED,
@@ -189,6 +197,7 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
  * palette, seat factory, and terminal create IPC.
  */
 export const managedHarnessEnabled = (harness: string): boolean => {
+  if (harness === "vellum-overseer") return LIVE_OVERSEER_ENABLED;
   if (harness === "hermes") return HERMES_INTEGRATION_ENABLED;
   if (harness === "kimi") return HARNESS_KIMI_ENABLED;
   if (harness === "muse") return HARNESS_MUSE_ENABLED;

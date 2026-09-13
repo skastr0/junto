@@ -37,7 +37,7 @@ import { earlyDispatchFromArgv } from "./early-dispatch";
 import { runContentTransfer } from "./content-transfer";
 import { runStationStdio } from "./station-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
-import { BROWSER_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
+import { BROWSER_ENABLED, FLEET_UI_ENABLED, LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { runOverseerHost } from "../overseer-host/main";
 
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
@@ -114,7 +114,12 @@ if (import.meta.main) {
   // ...args]. V4 runWith takes user args only — never the full argv.
   const dispatch = earlyDispatchFromArgv(Bun.argv);
   if (dispatch.kind === "overseer-host") {
-    await runOverseerHost(dispatch.args);
+    if (LIVE_OVERSEER_ENABLED) {
+      await runOverseerHost(dispatch.args);
+    } else {
+      process.stderr.write("Vellum Command live conversation is disabled in this build\n");
+      process.exitCode = 2;
+    }
   } else if (dispatch.kind === "browser") {
     if (!browserCliAvailable) {
       process.stderr.write("vellum-command browser: disabled in this build\n");

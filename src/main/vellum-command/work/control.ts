@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { resolveVellumCommandHome } from "@shared/vellum-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
@@ -2662,6 +2663,11 @@ export const startWorkControlServer = async (
           };
           const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
             callerResolved.caller.node.ether.terminal.harness === "vellum-overseer";
+          if (!LIVE_OVERSEER_ENABLED && (nativeController || req.op === "overseer.live")) {
+            return Result.fail<WorkErrorBody>({
+              type: "ScopeError", message: "Live conversation is disabled in this Vellum Command build",
+            });
+          }
           const controllerIdentity = (): OverseerHostIdentity | undefined => {
             const node = callerResolved.caller.node;
             if (!nativeController || !isManagedAgentNode(node)) return undefined;
@@ -2737,6 +2743,9 @@ export const startWorkControlServer = async (
             }
             let live: OverseerLiveExecutionConstraint | undefined;
             if (nativeController || decoded.success.live !== undefined) {
+              if (!LIVE_OVERSEER_ENABLED) return Result.fail<WorkErrorBody>({
+                type: "ScopeError", message: "Live conversation is disabled in this Vellum Command build",
+              });
               const identity = controllerIdentity();
               if (identity === undefined || options.validateOverseerLive === undefined ||
                 (isOverseerMutation(decoded.success.operation) && decoded.success.live === undefined)) {

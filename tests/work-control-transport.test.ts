@@ -1,3 +1,4 @@
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { chmodSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import {
@@ -391,7 +392,15 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
-  it("binds the private Live protocol to the native occupant and fences uncorrelated or stale mutations", async () => {
+  it.runIf(!LIVE_OVERSEER_ENABLED)("refuses the Live protocol while disabled even when a handler is installed", async () => {
+    const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
+    const { server } = await startTestServer({ onOverseerLive: bridge });
+    expect(await call(server.socketPath, { token: token(), op: "overseer.live", args: { type: "next" } }))
+      .toMatchObject({ ok: false, error: { type: "ScopeError", message: expect.stringContaining("disabled") } });
+    expect(bridge).not.toHaveBeenCalled();
+  });
+
+  it.runIf(LIVE_OVERSEER_ENABLED)("binds the private Live protocol to the native occupant and fences uncorrelated or stale mutations", async () => {
     const assertCurrent = vi.fn();
     const validate = vi.fn<NonNullable<WorkControlServerOptions["validateOverseerLive"]>>(async () => ({ assertCurrent }));
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));

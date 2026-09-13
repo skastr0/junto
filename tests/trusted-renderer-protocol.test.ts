@@ -1,3 +1,4 @@
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import {
   mkdir,
   mkdtemp,
@@ -224,7 +225,7 @@ describe("trusted renderer permissions", () => {
       details,
     );
     expect(allowed).toBe(true);
-    expect(check?.(trustedContents, "media", "", { ...details, mediaType: "audio" })).toBe(true);
+    expect(check?.(trustedContents, "media", "", { ...details, mediaType: "audio" })).toBe(LIVE_OVERSEER_ENABLED);
     for (const mediaType of ["video", "unknown", undefined]) {
       expect(check?.(trustedContents, "media", "", { ...details, mediaType })).toBe(false);
     }
@@ -232,7 +233,7 @@ describe("trusted renderer permissions", () => {
     expect(check?.(trustedContents, "media", "", { ...details, mediaType: "audio", isMainFrame: false })).toBe(false);
     for (const mediaTypes of [["audio"], ["video"], ["audio", "video"], [], undefined]) {
       request?.(trustedContents, "media", (value: boolean) => { allowed = value; }, { ...details, mediaTypes });
-      expect(allowed).toBe(mediaTypes?.length === 1 && mediaTypes[0] === "audio");
+      expect(allowed).toBe(LIVE_OVERSEER_ENABLED && mediaTypes?.length === 1 && mediaTypes[0] === "audio");
     }
   });
 

@@ -63,6 +63,7 @@ import { hostHasCapability } from "@shared/remote-hosts";
 import {
   BROWSER_ENABLED,
   HERMES_INTEGRATION_ENABLED,
+  LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
 import { HermesPlane } from "./vellum-command/hermes/plane";
 import { termPlane, termPlaneBlocksAppExit } from "./vellum-command/term/plane";
@@ -1490,8 +1491,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         }),
         registerRemoteHandler: true,
       });
-      overseerLive = await composeOverseerLive(AppRuntime.runPromise);
-      unregisterOverseerLiveIpc = registerOverseerLiveIpc(overseerLive);
+      if (LIVE_OVERSEER_ENABLED) {
+        overseerLive = await composeOverseerLive(AppRuntime.runPromise);
+        unregisterOverseerLiveIpc = registerOverseerLiveIpc(overseerLive);
+      }
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
@@ -1505,8 +1508,8 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           window.webContents.send(IPC_CHANNELS.preamble, event);
         },
         onOverseer: overseerComposition.onOverseer,
-        onOverseerLive: overseerLive.onHost,
-        validateOverseerLive: overseerLive.validateOperation,
+        onOverseerLive: overseerLive?.onHost,
+        validateOverseerLive: overseerLive?.validateOperation,
       });
       if (shutdownAdmissionClosed) workControl.beginShutdown();
     } catch (error) {

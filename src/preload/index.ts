@@ -35,6 +35,7 @@ import {
   CRON_ENABLED,
   FLEET_UI_ENABLED,
   HERMES_INTEGRATION_ENABLED,
+  LIVE_OVERSEER_ENABLED,
   RELAY_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -368,7 +369,7 @@ ipcRenderer.on(IPC_CHANNELS.rendererSurfaceChallenge, (_event, candidate: unknow
   sendRendererSurfaceReceipt();
 });
 
-const vellumApi: VellumCommandApi = {
+const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
   liveStart: (input) => invoke(IPC_CHANNELS.liveStart, IPC_TIMEOUT_MS, input),
   liveEnd: (id) => invoke(IPC_CHANNELS.liveEnd, IPC_TIMEOUT_MS, id),
   liveSnapshot: () => invoke(IPC_CHANNELS.liveSnapshot, IPC_TIMEOUT_MS),
@@ -379,6 +380,9 @@ const vellumApi: VellumCommandApi = {
   liveSteer: (id, request, text, attention) => invoke(IPC_CHANNELS.liveSteer, IPC_TIMEOUT_MS, id, request, text, attention),
   liveStopActions: (id) => invoke(IPC_CHANNELS.liveStopActions, IPC_TIMEOUT_MS, id),
   onLiveChanged: (callback) => subscribe(IPC_CHANNELS.liveChanged, callback),
+};
+
+const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi> = {
   platform: process.platform,
   updateGetState: () =>
     invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
@@ -807,6 +811,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("chassis", chassisApi);
   contextBridge.exposeInMainWorld("vellumCommand", {
     ...vellumApi,
+    ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),
     ...(CRON_ENABLED || RELAY_ENABLED ? schedulerApi : {}),

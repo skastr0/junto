@@ -24,6 +24,7 @@ describe("compile-time feature profiles", () => {
       usage: false,
       helpMap: false,
       audio: false,
+      liveOverseer: false,
       hermesIntegration: false,
       devTools: false,
       // Every managed harness ships ON; each gate remains the way back off.

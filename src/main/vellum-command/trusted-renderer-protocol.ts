@@ -7,6 +7,7 @@ import {
   TRUSTED_RENDERER_URL,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 
 export { TRUSTED_RENDERER_HOST, TRUSTED_RENDERER_SCHEME, TRUSTED_RENDERER_URL };
@@ -265,7 +266,7 @@ export const installTrustedRendererPermissionPolicy = (
   target.setPermissionCheckHandler(
     (webContents, permission, requestingOrigin, details) =>
       (permission === "clipboard-sanitized-write" ||
-        (permission === "media" && details.mediaType === "audio")) && trustedMainFrameRequest(
+        (LIVE_OVERSEER_ENABLED && permission === "media" && details.mediaType === "audio")) && trustedMainFrameRequest(
         webContents,
         permission,
         details.requestingUrl ?? requestingOrigin,
@@ -277,7 +278,7 @@ export const installTrustedRendererPermissionPolicy = (
   target.setPermissionRequestHandler((webContents, permission, callback, details) => {
     callback(
       (permission === "clipboard-sanitized-write" ||
-        (permission === "media" && "mediaTypes" in details &&
+        (LIVE_OVERSEER_ENABLED && permission === "media" && "mediaTypes" in details &&
           details.mediaTypes?.length === 1 && details.mediaTypes[0] === "audio")) && trustedMainFrameRequest(
         webContents,
         permission,

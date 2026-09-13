@@ -1,3 +1,4 @@
+import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import { observable } from "@legendapp/state";
 import type { CanvasNode } from "@shared/canvas";
 import type { LiveAttention } from "@shared/overseer-live";
@@ -16,10 +17,11 @@ export const overseerLive$ = observable({
 });
 
 export const canStartOverseerLive = (node: CanvasNode): boolean =>
-  node.ether?.entity?.kind === "agent" && node.ether.overseer === true &&
+  LIVE_OVERSEER_ENABLED && node.ether?.entity?.kind === "agent" && node.ether.overseer === true &&
   node.ether.terminal?.harness === "vellum-overseer";
 
 export const openOverseerLive = (target: LiveSeatTarget): void => {
+  if (!LIVE_OVERSEER_ENABLED) return;
   // An existing call stays with its occupant. Opening a different seat never
   // silently replaces a live connection or transfers its authority.
   if (!overseerLive$.target.peek()) overseerLive$.target.set(target);
