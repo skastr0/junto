@@ -497,12 +497,13 @@ export const applyCanvasBatch = (
     switch (step.operation) {
       case "node.create": {
         const { ether, ...draft } = step.node;
+        const { tasks, ...otherEther } = ether ?? {};
         const node: CanvasNode = {
           ...draft,
           id: draft.id ?? mintId("node"),
           ...(ether === undefined ? {} : { ether: {
-            ...ether,
-            ...(ether.tasks === undefined ? {} : { tasks: { ...ether.tasks, items: [] } }),
+            ...otherEther,
+            ...(tasks === undefined ? {} : { tasks: { ...tasks, items: [] } }),
           } }),
         };
         if (nodes.has(node.id)) return reject("InvalidArguments", `node "${node.id}" already exists`);
