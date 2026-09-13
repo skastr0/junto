@@ -10,17 +10,27 @@
  *   tests/pty-e2e/corpus/<harness>/manifest.json      per-scenario manifests
  *   /tmp/vellum-capture-report.md                         receipts + canonicality
  *
- * Standalone script — NOT part of the vitest suite. Run directly:
+ * Test-support utility — NOT part of the vitest suite (no .test.ts suffix, so
+ * the unit lanes never pick it up). Run directly:
  *
- *   node experiments/pty-capture.ts                # capture all shipped harnesses
- *   node experiments/pty-capture.ts <harness>      # capture one harness
- *   node experiments/pty-capture.ts list           # list harnesses
- *   node experiments/pty-capture.ts verify         # decode + scrub-gate corpus
+ *   node tests/pty-e2e/pty-capture.ts                # capture all shipped harnesses
+ *   node tests/pty-e2e/pty-capture.ts <harness>      # capture one harness
+ *   node tests/pty-e2e/pty-capture.ts list           # list harnesses
+ *   node tests/pty-e2e/pty-capture.ts verify         # decode + scrub-gate corpus
  *
- * Canonicality gate (feeds a fixture through the REAL SessionObserver):
+ * Canonicality gate (feeds a fixture through the REAL SessionObserver —
+ * read-only, no PTY spawn, so bun works here):
  *
- *   node --import /tmp/vellum-register.mjs experiments/pty-capture.ts \
- *        check <harness> <scenario> [--glyph <glyph>]
+ *   bun tests/pty-e2e/pty-capture.ts check <harness> <scenario> [--glyph <glyph>]
+ *
+ * CONFIG ISOLATION: spawns run with HOME and the XDG dirs pointed at a fresh
+ * per-harness dir under /tmp/vellum-capture-home, so harnesses cannot load the
+ * operator's instruction files, skills, prompts, hooks, MCP servers, or
+ * extension config into a checked-in recording. A harness whose credentials
+ * only live under the real home simply fails closed — the session is recorded
+ * blocked rather than silently reading operator config. PTY_CAPTURE_OPERATOR_HOME=1
+ * restores the old behavior explicitly (with a warning) for cases where that
+ * tradeoff is intended.
  *
  * NOTE ON BUN: the mission asked for `bun`; node-pty 1.1.0's native addon
  * delivers data on a native worker thread and Bun's event loop never wakes
@@ -38,12 +48,13 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(__dirname, "..");
+const REPO = path.resolve(__dirname, "..", "..");
 
 // ── corpus / capture constants ──────────────────────────────────────────────
 const OUT_ROOT = path.join(REPO, "tests", "pty-e2e", "corpus");
 const CAPTURE_ROOT = path.join(REPO, "tests", "pty-e2e", `.corpus-stage-${process.pid}-${randomUUID()}`);
 const CWD_ROOT = "/tmp/vellum-capture-cwd";
+const HOME_ROOT = "/tmp/vellum-capture-home";
 const FAKE_UUID = "00000000-0000-4000-8000-000000000000"; // fallback; random per spawn
 const COLS = 120;
 const ROWS = 32;
@@ -80,7 +91,8 @@ export type HarnessDef = {
   readonly displayName: string;
   /** argv built at spawn time (cwd may be needed for trust pre-seeding). */
   readonly argv: (cwd: string, sessionId: string) => string[];
-  readonly env?: Record<string, string>;
+  /** extra env, computed against the session's isolated capture home. */
+  readonly env?: (isolatedHome: string) => Record<string, string>;
   /** cwd prep (e.g. grok needs a git work tree). */
   readonly prep?: (cwd: string) => void;
   /** prompt glyphs that mark the idle composer. */
@@ -106,7 +118,8 @@ const HARNESSES: readonly HarnessDef[] = [
     promptGlyphs: ["\u276f", "\u25b8", ">"],
     exitRecipe: ["/exit\r"],
     modals: [{ when: /trust[^\n]{0,40}folder|do you trust/i, reply: "1\r" }],
-    note: "bare TUI; no Vellum Command doctrine/env; keychain auth",
+    env: (home) => ({ CLAUDE_CONFIG_DIR: path.join(home, ".claude") }),
+    note: "bare TUI; no Vellum Command doctrine/env; keychain auth; CLAUDE_CONFIG_DIR isolated",
   },
   {
     name: "codex", displayName: "Codex",
@@ -115,7 +128,8 @@ const HARNESSES: readonly HarnessDef[] = [
       "-c", "checkForUpdateOnStartup=false"],
     promptGlyphs: ["\u203a", ">"],
     exitRecipe: ["\u0003", "/exit\r", "\u0004"],
-    note: "trust pre-seeded via -c projects=…; -a never avoids approval dialogs",
+    env: (home) => ({ CODEX_HOME: path.join(home, ".codex") }),
+    note: "trust pre-seeded via -c projects=…; -a never avoids approval dialogs; CODEX_HOME isolated (auth.json absent = explicit block)",
   },
   {
     name: "grok", displayName: "Grok",
@@ -204,6 +218,8 @@ export function scrub(text: string, cwd: string): string {
   s = s.split(cwd).join("<CWD>");
   s = s.split(path.join(TMP_REAL, "vellum-capture-cwd")).join("<CAPTURE>");
   s = s.split(path.join("/tmp", "vellum-capture-cwd")).join("<CAPTURE>");
+  s = s.split(path.join(TMP_REAL, "vellum-capture-home")).join("<HOME>");
+  s = s.split(path.join("/tmp", "vellum-capture-home")).join("<HOME>");
   s = s.split(HOME).join("<HOME>");
   s = s.split("~" + path.sep + USER).join("<HOME>");
   // Harnesses can print cached/configured paths belonging to another account.
@@ -368,6 +384,8 @@ class Session {
   readonly name: string;
   readonly def: HarnessDef;
   readonly cwd: string;
+  /** isolated config home — harnesses see this as HOME, never the operator's. */
+  readonly home: string;
   pty: IPty | null = null;
   events: RawEvent[] = [];
   bytes = 0;
@@ -382,6 +400,7 @@ class Session {
     this.def = def;
     this.name = def.name;
     this.cwd = path.join(CWD_ROOT, def.name);
+    this.home = path.join(HOME_ROOT, def.name);
   }
 
   private env(): Record<string, string> {
@@ -390,24 +409,47 @@ class Session {
       if (v === undefined || ENV_SCRUB.includes(k)) continue;
       e[k] = v;
     }
+    // Point HOME + XDG dirs at a fresh capture home so the harness cannot
+    // load the operator's instruction files, skills, prompts, hooks, MCP
+    // servers, or extension config into a recording. A harness that needs
+    // credentials which only exist under the real home fails closed (the
+    // block detector records it) instead of silently reading them.
+    // PTY_CAPTURE_OPERATOR_HOME=1 opts back into the real home explicitly.
+    const operatorHome = process.env.PTY_CAPTURE_OPERATOR_HOME === "1";
+    if (operatorHome) {
+      console.warn(`[${this.name}] WARNING: PTY_CAPTURE_OPERATOR_HOME=1 — harness sees the real HOME; operator config may enter the recording`);
+    } else {
+      e.HOME = this.home;
+      e.USERPROFILE = this.home;
+      e.XDG_CONFIG_HOME = path.join(this.home, ".config");
+      e.XDG_DATA_HOME = path.join(this.home, ".local", "share");
+      e.XDG_CACHE_HOME = path.join(this.home, ".cache");
+      e.XDG_STATE_HOME = path.join(this.home, ".local", "state");
+    }
+    e.PWD = this.cwd;
+    delete e.OLDPWD;
     e.TERM = "xterm-256color";
     e.LANG = e.LANG ?? "en_US.UTF-8";
-    Object.assign(e, this.def.env);
+    const activeHome = operatorHome ? HOME : this.home;
+    Object.assign(e, this.def.env?.(activeHome) ?? {});
     return e;
   }
 
   spawn(): void {
     fs.rmSync(this.cwd, { recursive: true, force: true });
     fs.mkdirSync(this.cwd, { recursive: true });
+    fs.rmSync(this.home, { recursive: true, force: true });
+    fs.mkdirSync(this.home, { recursive: true });
     this.def.prep?.(this.cwd);
     const argv = this.def.argv(this.cwd, randomUUID());
-    console.log(`[${this.name}] spawn: ${this.def.name} ${argv.join(" ")}`);
+    const homeMode = process.env.PTY_CAPTURE_OPERATOR_HOME === "1" ? "real HOME (opt-in)" : `isolated ${this.home}`;
+    console.log(`[${this.name}] spawn: ${this.def.name} ${argv.join(" ")}  (home: ${homeMode})`);
     this.pty = ptySpawn(this.def.name, argv, {
       name: "xterm-256color", cols: COLS, rows: ROWS,
       cwd: this.cwd, env: this.env(), encoding: null,
     });
     this.lastDataAt = Date.now();
-    this.pty.onData((d: Buffer) => this.onData(d));
+    this.pty.onData((d) => this.onData(Buffer.isBuffer(d) ? d : Buffer.from(d)));
     this.pty.onExit((e) => {
       this.exited = true;
       this.exitInfo = { code: e.exitCode, signal: e.signal };
@@ -501,7 +543,7 @@ class Session {
 
   write(data: string | Uint8Array): void {
     if (!this.pty || this.exited) return;
-    try { this.pty.write(data); } catch { /* pty gone */ }
+    try { this.pty.write(typeof data === "string" ? data : Buffer.from(data)); } catch { /* pty gone */ }
   }
 
   wait(ms: number): Promise<void> {
@@ -633,7 +675,7 @@ class Session {
 type ScenarioResult = {
   harness: string;
   scenario: string;
-  status: "complete" | "skip" | "fail";
+  status: "complete" | "skip" | "fail" | "killed";
   reason?: string;
   observed: Record<string, unknown>;
   expectedScreen: Record<string, unknown>;

@@ -3,9 +3,9 @@ import {
   cliCoverageManifest,
   expectedCliAuthorizationCellCount,
   generateCliAuthorizationMatrix,
-} from "./matrix";
+} from "./cli-authorization-matrix";
 
-describe("external factory simulator prototype", () => {
+describe("CLI authorization matrix", () => {
   it("classifies every current Vellum Command CLI subcommand into a conformance lane", () => {
     const manifest = cliCoverageManifest();
     expect(manifest.length).toBeGreaterThan(0);

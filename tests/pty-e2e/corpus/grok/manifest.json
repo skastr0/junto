@@ -217,5 +217,9 @@
       "email",
       "token"
     ]
-  }
+  },
+  "redactions": [
+    "operator instruction-file names in model reasoning neutralized",
+    "session-start hook path neutralized"
+  ]
 }

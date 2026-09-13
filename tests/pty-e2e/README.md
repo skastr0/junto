@@ -9,7 +9,7 @@ that failure is the proof. Fixes must turn tests green WITHOUT editing them.**
 ```bash
 bunx vitest run tests/pty-e2e                 # full harness
 bunx vitest run tests/pty-e2e/scenarios/drive-law.test.ts   # drive-loop repros
-node experiments/pty-capture.ts               # regenerate the real-capture corpus (node, NOT bun)
+node tests/pty-e2e/pty-capture.ts             # regenerate the real-capture corpus (node, NOT bun)
 ```
 
 ## Architecture
@@ -36,10 +36,27 @@ clock (vi fake timers), and the scripted TUI process model. All logic under test
 
 ## Fixture format (P1 real captures)
 
-`/tmp/vellum-pty-fixtures/<harness>/<scenario>.jsonl` — one JSON per line: `{"t": ms, "b64": base64}`
+`tests/pty-e2e/corpus/<harness>/<scenario>.jsonl` — one JSON per line: `{"t": ms, "b64": base64}`
 plus `manifest.json` (observed title/osc9/glyphs/modes, expectedScreen, sanitized flag).
 Scenarios: `startup-idle`, `type-echo`, `paste-chip`, `working-turn` × 9 harnesses.
-Sanitized: HOME/USER/CWD/SESSION/TOKEN → placeholders.
+
+The corpus exists to feed REAL terminal byte streams through the observer —
+escape sequences, prompt markers, OSC titles/9;4 progress, paste chips, and
+working-state chrome — not to preserve what a particular operator's harness
+said. Sanitized: HOME/USER/HOST/CWD/SESSION/EMAIL/TOKEN → placeholders, plus
+post-capture redaction of operator-identifying content (account names, plan
+tiers, configured permission modes, hook/plugin text, installed
+skill/prompt/extension inventories) documented per-harness in each manifest's
+`redactions` list. That redaction is content hygiene, not a completeness
+claim: the scrub gate certifies the placeholder classes it checks, and the
+manifests record what was neutralized by hand.
+
+The recorder (`pty-capture.ts`, beside this README) runs each harness under an
+isolated HOME (`/tmp/vellum-capture-home/<harness>`) so future captures do not
+reload the operator's instruction/skill/extension configuration. Harnesses
+whose credentials only exist under the real home fail closed and record
+`blocked` rather than reading operator config; `PTY_CAPTURE_OPERATOR_HOME=1`
+opts back in explicitly.
 
 ## Add a repro (checklist)
 

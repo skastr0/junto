@@ -204,5 +204,12 @@
       "email",
       "token"
     ]
-  }
+  },
+  "redactions": [
+    "configured permission-mode label neutralized",
+    "startup hook/config warning lines redacted",
+    "account usage-limit notice redacted",
+    "MCP server names -> <redacted>",
+    "session-start hook context (plugin text) redacted"
+  ]
 }

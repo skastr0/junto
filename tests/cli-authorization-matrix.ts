@@ -1,6 +1,6 @@
 import { HashSet, Result } from "effect";
-import { commandCapabilities } from "../../src/cli/core/discovery";
-import type { CanvasDoc, CanvasEdge, CanvasNode } from "../../src/shared/canvas";
+import { commandCapabilities } from "../src/cli/core/discovery";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
 import {
   KindSpecs,
   WELL_KNOWN_KINDS,
@@ -13,7 +13,7 @@ import {
   type TargetWorkOpName,
   type Verb,
   type WellKnownKind,
-} from "../../src/shared/physics";
+} from "../src/shared/physics";
 
 /**
  * How the edge in a cell states its relationship. A verb is the whole authored
@@ -77,7 +77,7 @@ const DISCOVERY_COMMANDS = new Set([
 ]);
 
 export const classifyCliCommand = (commandId: string): CliCoverageLane | undefined => {
-  if (isTargetWorkOp(commandId)) return "target-matrix";
+  if (isTargetWorkOp(commandId as TargetWorkOpName)) return "target-matrix";
   // CLI projections of pad.read (digest/svg/look-here/get/tagged) share that grant.
   if (commandId.startsWith("pad.")) return "target-matrix";
   if (SEAT_LOCAL_COMMANDS.has(commandId)) return "seat-local";
@@ -97,7 +97,8 @@ export const cliCoverageManifest = () =>
 export const targetMatrixCommands = (): ReadonlyArray<TargetWorkOpName> =>
   commandCapabilities
     .map(({ command_id: commandId }) => commandId)
-    .filter(isTargetWorkOp);
+    .filter((commandId): commandId is TargetWorkOpName =>
+      isTargetWorkOp(commandId as TargetWorkOpName));
 
 export const expectedCliAuthorizationCellCount = (): number =>
   targetMatrixCommands().length *

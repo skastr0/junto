@@ -144,5 +144,9 @@
       "email",
       "token"
     ]
-  }
+  },
+  "redactions": [
+    "installed skills/prompts/extensions inventory replaced with minimal neutral lists",
+    "configured provider name and install doc paths neutralized"
+  ]
 }

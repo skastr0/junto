@@ -553,7 +553,7 @@ export function requireCapture(harness: string, scenario: string): LoadedFixture
     `real capture missing: ${harness}/${scenario}\n` +
       `  looked for: ${file}\n` +
       `  corpus root: ${corpusRoot()}${process.env.VELLUM_PTY_CORPUS ? " (VELLUM_PTY_CORPUS)" : " (canonical)"}\n` +
-      `  capture it with experiments/pty-capture.ts — a missing corpus is a red suite, never a skip.`,
+      `  capture it with tests/pty-e2e/pty-capture.ts — a missing corpus is a red suite, never a skip.`,
   );
 }
 
