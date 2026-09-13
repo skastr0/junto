@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_IDENTITY } from "../src/main/vellum-command/state/migrations";
+import { CURRENT_STATE_SCHEMA_IDENTITY, CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/vellum-command/state/migrations";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -384,11 +384,11 @@ describe("fresh compiler cohort provenance", () => {
     ).version;
     expect(facts).toMatchObject({
       appVersion: packageVersion,
-      currentStateSchemaVersion: 22,
+      currentStateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
       migrationHead: {
-        fromVersion: 21,
-        toVersion: 22,
-        name: "add-provider-credential-bindings",
+        fromVersion: STATE_SCHEMA_MIGRATIONS.at(-1)!.fromVersion,
+        toVersion: STATE_SCHEMA_MIGRATIONS.at(-1)!.toVersion,
+        name: STATE_SCHEMA_MIGRATIONS.at(-1)!.name,
       },
       migrationIdentitySha256:
         CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,

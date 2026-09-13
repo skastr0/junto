@@ -24,6 +24,7 @@ import {
 } from "../src/main/vellum-command/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
+  STATE_SCHEMA_MIGRATIONS,
   STATE_SCHEMA_V5_IDENTITY,
   STATE_SCHEMA_V6_IDENTITY,
   STATE_SCHEMA_V7_IDENTITY,
@@ -125,7 +126,7 @@ describe("canvas entity registry", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(
       STATE_SCHEMA_V8_IDENTITY,
     );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(STATE_SCHEMA_MIGRATIONS.at(-1)?.toVersion);
 
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
     roots.push(root);

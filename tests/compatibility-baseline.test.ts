@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
+import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/vellum-command/state/migrations";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "../src/shared/station-protocol";
 
 describe("compatibility baseline authority", () => {
@@ -9,6 +9,6 @@ describe("compatibility baseline authority", () => {
       compatibleFrom: 1,
       warnBelow: 1,
     });
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(22);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(STATE_SCHEMA_MIGRATIONS.at(-1)?.toVersion);
   });
 });
