@@ -44,7 +44,7 @@ function fixture() {
   };
   const api = {
     liveStart: vi.fn(async () => started),
-    liveReady: vi.fn(async () => undefined),
+    liveReady: vi.fn(async (): Promise<void> => undefined),
     liveProviderEvent: vi.fn(async (_sessionId: string, _epoch: number, _event: unknown) => undefined),
     liveEnd: vi.fn(async () => ({ ...snapshot, connection: "closed" as const })),
   };
