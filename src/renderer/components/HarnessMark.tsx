@@ -62,7 +62,7 @@ export function HarnessMark({
           draggable={false}
           style={{ display: "block", flex: "none", borderRadius: Math.max(2, Math.round(inner * 0.16)) }}
         />
-      ) : tile.glyph ? (
+      ) : tile.paths.length > 0 ? (
         <svg
           viewBox={tile.viewBox}
           width={inner}

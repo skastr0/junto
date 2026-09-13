@@ -7,16 +7,32 @@ closed HarnessId literal and templates landed in 639a46d9).
 
 How the repository is shaped:
 
-- `GLYPHS` = generated `PROVIDER_MARKS` (CodexBar.app source, do not edit) +
-  `CURATED` overrides/additions. Curated wins on key collision.
-- `devin` has a generated mark (24x24 ring from the CodexBar set). It is
-  deliberately left on the generated table: `tests/harness-icons.test.ts`
-  pins the generated mapping for devin, and the task contract says keep it.
-- `pi`, `prime-agent`, `kimi`, `muse` have no generated mark. `kimi` already
-  had an unprovenanced CURATED wordmark path; it was replaced with the
-  current official logomark (below). `pi`, `prime-agent`, `muse` are new.
+- `GLYPHS` = generated `PROVIDER_MARKS` + `CURATED` overrides/additions.
+  Curated wins on key collision.
+- `PROVIDER_MARKS` is monochrome vector path data extracted from each
+  provider's own published artwork — site favicon/icon SVGs, official brand
+  assets, and provider-controlled repositories. Every entry carries a
+  `// Source:` comment with its fetch origin.
+- `devin` resolves from the generated table: the official Cognition mark
+  fetched from https://cognition.com/icon.svg (SHA-256
+  `207432b78c80378b659deff5114d06e7def680ec6f5b2265a0ac714a9f82beda`).
+- `pi`, `prime-agent`, `kimi`, `muse` have no generated mark — they remain
+  curated. `kimi` replaced an earlier unprovenanced wordmark path; `pi`,
+  `prime-agent` are official vectors; `muse` is a documented crafted
+  monogram.
+- CURATED also carries provider-published raster marks (embedded data URLs)
+  for providers that ship no usable standalone monochrome vector —
+  alibaba, chutes, codebuff, deepgram, deepseek, doubao, jetbrains, kiro,
+  minimax, ollama, perplexity, poe, sakana, synthetic, t3chat, venice,
+  vertexai, warp — each constant's comment in
+  `src/renderer/lib/official-agent-assets.ts` records the provider-controlled
+  URL it was fetched from.
+- Providers with no published mark at all (clawrouter, commandcode, crof,
+  crossmodel, litellm, llmproxy, mimo, sub2api) carry bare CURATED entries so
+  the tile keeps the right display name and renders the existing monogram
+  fallback — no fabricated marks.
 - Monochrome marks record `hex: "#000000"` so `harnessHue` remaps them to
-  house INK (the same convention as claude and the whole generated table).
+  house INK (the same convention as the whole generated table).
 
 ---
 
@@ -89,14 +105,12 @@ Hunt log (all 2026-08-06, every attempt read-only):
 
 Display name "Muse". Aliases: `muse code` → muse.
 
-## devin — generated mark retained (no curation)
+## devin — official Cognition mark (generated table)
 
-Devin resolves from the generated `PROVIDER_MARKS` table (CodexBar source,
-24x24 ring) and the harness-icons contract tests pin that mapping, so it is
-not overridden. A clean official vector does exist at
-https://cognition.com/icon.svg (monochrome 20x20 mark, SHA-256
-`207432b78c80378b659deff5114d06e7def680ec6f5b2265a0ac714a9f82beda`) — noted
-here as the upgrade path if the generated mark is ever relaxed.
+Devin resolves from the generated `PROVIDER_MARKS` table: the official
+Cognition mark fetched from https://cognition.com/icon.svg (SHA-256
+`207432b78c80378b659deff5114d06e7def680ec6f5b2265a0ac714a9f82beda`), three
+paths on its native `-0.747952 -0.722232 21.495942 21.477469` grid.
 
 Aliases: `devin cli` → devin (existing `cognition` → devin kept).
 
@@ -111,6 +125,7 @@ Aliases: `devin cli` → devin (existing `cognition` → devin kept).
 | `kimi code` | kimi |
 | `muse code` | muse |
 | `devin cli` | devin |
+| `opencode-go` | opencodego |
 
 ## Verification
 

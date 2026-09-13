@@ -17,8 +17,26 @@ import { PROVIDER_MARKS } from "../src/renderer/lib/provider-marks.generated";
 import { DIM, HUE, INK } from "../src/renderer/lib/theme";
 
 describe("PROVIDER_MARKS (generated table integrity)", () => {
-  it("carries all 51 bundled provider ids", () => {
-    expect(Object.keys(PROVIDER_MARKS)).toHaveLength(51);
+  it("carries the provider-published monochrome vector set", () => {
+    for (const id of [
+      "amp",
+      "bedrock",
+      "claude",
+      "codex",
+      "copilot",
+      "cursor",
+      "devin",
+      "grok",
+      "openai",
+      "opencode",
+      "opencodego",
+      "openrouter",
+      "wayfinder",
+      "windsurf",
+      "zed",
+    ]) {
+      expect(PROVIDER_MARKS[id], id).toBeDefined();
+    }
   });
 
   it("every entry has at least one non-empty path and a 4-number viewBox", () => {
@@ -43,9 +61,7 @@ describe("repository coverage", () => {
   });
 
   it("maps generated entries through with their own viewBox, paths, and fillRule", () => {
-    // grok/codex/devin/amp used to be hand-pasted duplicates; they now come
-    // straight from the generated table (same source data).
-    for (const id of ["grok", "codex", "devin", "amp", "opencodego", "crossmodel", "openrouter"]) {
+    for (const id of ["grok", "codex", "devin", "amp", "opencodego", "openrouter", "claude", "openai", "windsurf"]) {
       const glyph = GLYPHS[id];
       const source = PROVIDER_MARKS[id];
       expect(glyph, id).toBeDefined();
@@ -56,23 +72,38 @@ describe("repository coverage", () => {
     }
   });
 
-  it("keeps the curated overrides ahead of generated data", () => {
-    // Claude exists in the generated table too — Anthropic's curated
-    // monochrome mark wins the key.
-    expect(GLYPHS.claude.hex).toBe("#000000");
-    expect(GLYPHS.claude.d).not.toEqual(PROVIDER_MARKS.claude.paths);
+  it("keeps the curated entries ahead of and beside generated data", () => {
+    // googlegemini carries brand color on the official sparkle outline.
     expect(GLYPHS.googlegemini.hex).toBe("#8E75B2");
-    expect(GLYPHS.openai.viewBox).toBe("0 0 20 20");
-    expect(typeof GLYPHS.openai.d).toBe("string");
-    // kimi, windsurf, hermes are skipped by the generated set; curated-only.
+    expect(GLYPHS.googlegemini.viewBox).toBe("0 0 192 192");
+    // kimi, hermes live only in CURATED — the generated table skips them.
     expect(PROVIDER_MARKS.kimi).toBeUndefined();
-    expect(PROVIDER_MARKS.windsurf).toBeUndefined();
     expect(PROVIDER_MARKS.hermes).toBeUndefined();
     expect(harnessGlyphFor("kimi")).toBe(GLYPHS.kimi);
-    expect(harnessGlyphFor("windsurf")).toBe(GLYPHS.windsurf);
     expect(harnessGlyphFor("hermes")).toBe(GLYPHS.hermes);
     expect(GLYPHS.hermes.d).toBeUndefined();
     expect(GLYPHS.hermes.imageSrc).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("resolves providers with no monochrome vector to provider-published raster marks", () => {
+    for (const id of ["ollama", "deepseek", "perplexity", "warp", "jetbrains", "vertexai", "codebuff"]) {
+      const glyph = GLYPHS[id];
+      expect(glyph, id).toBeDefined();
+      expect(glyph.imageSrc, id).toMatch(/^data:image\//);
+      expect(glyph.d, id).toBeUndefined();
+    }
+  });
+
+  it("keeps providers with no published mark on the monogram fallback", () => {
+    for (const id of ["litellm", "crossmodel", "llmproxy", "mimo", "sub2api", "clawrouter", "commandcode", "crof"]) {
+      const glyph = GLYPHS[id];
+      expect(glyph, id).toBeDefined();
+      expect(glyph.d, id).toBeUndefined();
+      expect(glyph.imageSrc, id).toBeUndefined();
+      expect(glyph.displayName, id).toBeTruthy();
+    }
+    expect(harnessDisplayName("litellm")).toBe("LiteLLM");
+    expect(harnessDisplayName("llmproxy")).toBe("LLM Proxy");
   });
 });
 
@@ -135,22 +166,20 @@ describe("harnessGlyphFor", () => {
     expect(harnessGlyphFor("   ")).toBeUndefined();
   });
 
-  it("carries multi-path marks as an array of d strings on their own viewBox", () => {
-    expect(Array.isArray(GLYPHS.amp.d)).toBe(true);
-    expect(GLYPHS.amp.d).toHaveLength(4);
-    expect(GLYPHS.amp.viewBox).toBe("0 0 28 28");
-    // Bundled marks: grok is a single evenodd 24×24 path, codex a single
-    // path on a 100×100 grid, devin a 24×24 ring.
-    expect(GLYPHS.grok.viewBox).toBe("0 0 24 24");
-    expect(GLYPHS.grok.fillRule).toBe("evenodd");
-    expect(GLYPHS.codex.viewBox).toBe("0 0 100 100");
-    expect(GLYPHS.devin.viewBox).toBe("0 0 24 24");
-    // Curated single-path marks keep a bare string; claude stays on the
-    // default 24×24 grid, openai on its native 20×20 one.
-    expect(typeof GLYPHS.claude.d).toBe("string");
-    expect(GLYPHS.claude.viewBox).toBeUndefined();
-    expect(typeof GLYPHS.openai.d).toBe("string");
-    expect(GLYPHS.openai.viewBox).toBe("0 0 20 20");
+  it("carries generated marks as path arrays on their own viewBox and fillRule", () => {
+    // Multi-path provider art keeps every path and its native grid.
+    expect(GLYPHS.devin.d).toHaveLength(3);
+    expect(GLYPHS.devin.viewBox).toBe("-0.747952 -0.722232 21.495942 21.477469");
+    expect(GLYPHS.opencodego.d).toHaveLength(2);
+    expect(GLYPHS.opencodego.viewBox).toBe("0 0 512 512");
+    expect(GLYPHS.opencodego.fillRule).toBe("evenodd");
+    expect(GLYPHS.copilot.d).toHaveLength(2);
+    expect(GLYPHS.copilot.viewBox).toBe("0 0 24 24");
+    // Single-path provider art on its native grid.
+    expect(GLYPHS.claude.viewBox).toBe("0 0 248 248");
+    expect(GLYPHS.openai.viewBox).toBe("0 0 24 24");
+    expect(GLYPHS.codex.viewBox).toBe("0 0 14 14");
+    expect(GLYPHS.windsurf.viewBox).toBe("0 0 1024 1024");
   });
 });
 
@@ -283,15 +312,15 @@ describe("markTileFor (HarnessMark resolve step)", () => {
     expect(tile.glyph).toBe(GLYPHS.claude);
     expect(tile.hue).toBe(INK);
     expect(tile.displayName).toBe("Claude");
-    expect(tile.paths).toEqual([GLYPHS.claude.d]);
-    expect(tile.viewBox).toBe("0 0 24 24"); // default grid
+    expect(tile.paths).toEqual(PROVIDER_MARKS.claude.paths);
+    expect(tile.viewBox).toBe("0 0 248 248");
     expect(tile.known).toBe(true);
   });
 
   it("keeps multi-path generated marks as arrays with their own viewBox and fillRule", () => {
-    const tile = markTileFor("grok");
-    expect(tile.paths).toEqual(PROVIDER_MARKS.grok.paths);
-    expect(tile.viewBox).toBe("0 0 24 24");
+    const tile = markTileFor("opencodego");
+    expect(tile.paths).toEqual(PROVIDER_MARKS.opencodego.paths);
+    expect(tile.viewBox).toBe("0 0 512 512");
     expect(tile.fillRule).toBe("evenodd");
     expect(tile.hue).toBe(INK);
   });
@@ -310,6 +339,15 @@ describe("markTileFor (HarnessMark resolve step)", () => {
     expect(MONOGRAM_HUES).toContain(tile.hue);
     expect(tile.paths).toEqual([]);
     expect(tile.displayName).toBe("Aider");
+  });
+
+  it("monograms providers whose glyph carries no artwork", () => {
+    const tile = markTileFor("litellm");
+    expect(tile.glyph).toBe(GLYPHS.litellm);
+    expect(tile.paths).toEqual([]);
+    expect(tile.imageSrc).toBeUndefined();
+    expect(tile.hue).toBe(INK);
+    expect(tile.displayName).toBe("LiteLLM");
   });
 
   it("dims the absent-agent terminal mark instead of monogramming \"agent\"", () => {
