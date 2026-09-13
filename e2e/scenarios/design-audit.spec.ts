@@ -41,7 +41,7 @@ const SHOTS = join(process.cwd(), "test-results", "design-audit");
 const liveAuditSnapshot: LiveSnapshot = {
   sessionId: "audit-live-session", canvasName: "live-audit", nodeId: "live-overseer",
   connectionEpoch: 1, connection: "connecting", authority: "active", controller: "working",
-  elapsedSeconds: 83, voiceCostUsd: 0.011, limitSeconds: 900,
+  elapsedSeconds: 83, voiceCostUsd: 83 / 60 * 0.05, limitSeconds: 900,
   transcript: [
     { id: "you-1", speaker: "operator", text: "Ask the API worker to investigate the authentication failures. Put the task next to it." },
     { id: "overseer-1", speaker: "overseer", text: "The investigation task is beside the API worker. It has accepted the work and is checking the configuration." },
@@ -60,7 +60,7 @@ test("capture live conversation with isolated provider and media fixtures", asyn
   const world = await launchVellum({
     offline: true,
     seedCanvases: { "live-audit": canvasDoc([
-      { ...seat, ether: { ...seat.ether, overseer: true } },
+      seat,
       agentTextNode({ id: "api-worker", key: "local:api", label: "API worker", x: 420, y: 60 }),
     ]) },
   });
@@ -70,7 +70,8 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     // Fixture handlers replace provider/control IPC only in this isolated
     // Electron test process. No microphone, provider key, or billed call.
     await app.evaluate(({ ipcMain }, { channels, seed }) => {
-      let current = { ...seed, sessionId: null, connection: "closed" as const, transcript: [], requests: [], actions: [] } as typeof seed;
+      let current = { ...seed, sessionId: null, connection: "closed" as const, controller: "idle" as const,
+        elapsedSeconds: 0, voiceCostUsd: 0, transcript: [], requests: [], actions: [] } as typeof seed;
       const replace = (channel: string, handler: (...args: unknown[]) => unknown) => {
         ipcMain.removeHandler(channel);
         ipcMain.handle(channel, (_event, ...args: unknown[]) => handler(...args));
@@ -85,13 +86,18 @@ test("capture live conversation with isolated provider and media fixtures", asyn
       replace(channels.liveAttention, () => undefined);
       replace(channels.liveEnd, () => { current = { ...current, connection: "closed" }; return current; });
       replace(channels.liveCancel, () => { current = { ...current, requests: current.requests.map((request) => ({ ...request, status: "cancelled" })) }; return current; });
-      replace(channels.liveSteer, () => current);
+      replace(channels.liveSteer, (_sessionId, requestId, text) => {
+        current = { ...current, requests: current.requests.map((request) => request.requestId === requestId
+          ? { ...request, text: String(text), intentRevision: request.intentRevision + 1 }
+          : request) };
+        return current;
+      });
       replace(channels.liveStopActions, () => { current = { ...current, actionsStopped: true, message: "Actions stopped. End this call and start a new conversation to enable actions." }; return current; });
     }, { channels: IPC_CHANNELS, seed: liveAuditSnapshot });
     await page.evaluate(async () => {
       const api = window.vellumCommand!;
       // The key is a non-secret fixture in the disposable settings store.
-      await api.settingsPatch({ providers: { openai: { apiKey: "audit-not-a-provider-key" } }, live: { backendModel: "audit-backend" } });
+      await api.settingsPatch({ appearance: { theme: "dark" }, providers: { openai: { apiKey: "audit-not-a-provider-key" } }, live: { backendModel: "audit-backend" } });
       const track = { enabled: false, onended: null, stop() {} };
       const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
       Object.defineProperty(navigator.mediaDevices, "getUserMedia", { configurable: true, value: async () => stream });
@@ -112,6 +118,8 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     });
     const seatNode = page.locator('.react-flow__node[data-id="live-overseer"]');
     await seatNode.click();
+    await page.getByTestId("rts-overseer").click();
+    await expect(page.getByTestId("rts-overseer")).toHaveAttribute("data-overseer", "true");
     await page.getByTestId("rts-overseer-live").click();
     const panel = page.getByRole("dialog", { name: "Live conversation", exact: true });
     await expect(panel).toBeVisible();
@@ -127,9 +135,12 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     await panel.getByRole("button", { name: "Correct request" }).click();
     await panel.getByRole("textbox", { name: "Correction for this request" }).fill("Keep the task beside the worker; investigate staging only.");
     await shot(page, "30-live-correction-muted");
-    await page.evaluate(() => { document.documentElement.dataset.theme = "bright"; });
+    await page.evaluate(() => window.vellumCommand!.settingsPatch({ appearance: { theme: "bright" } }));
     await shot(page, "31-live-bright");
-    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await page.evaluate(() => window.vellumCommand!.settingsPatch({ appearance: { theme: "dark" } }));
+    await panel.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(panel.getByText("Keep the task beside the worker; investigate staging only.", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("textbox", { name: "Correction for this request" })).not.toBeVisible();
     await panel.getByRole("button", { name: "Return to canvas, keep call" }).click();
     await expect(panel).not.toBeVisible();
     await page.locator('.react-flow__node[data-id="api-worker"]').click();
@@ -141,6 +152,9 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     await expect(panel.getByText("Microphone off", { exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Cancel request" })).toBeVisible();
     await shot(page, "33-live-call-ended-work-continues");
+    await panel.getByRole("button", { name: "Cancel request", exact: true }).click();
+    await expect(panel.getByText("cancelled", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Cancel request", exact: true })).not.toBeVisible();
   } finally {
     await world.close();
   }
