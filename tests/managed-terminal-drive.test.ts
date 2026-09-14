@@ -525,6 +525,152 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
+  it("concurrent idle interrupts admit exactly one Ctrl+C", async () => {
+    drive = makeDrive();
+    const [first, second] = await Promise.all([
+      drive.interrupt("b1"),
+      drive.interrupt("b1"),
+    ]);
+    expect(writes).toEqual([{ bindingId: "b1", data: INTERRUPT_BYTE }]);
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+
+  it("refuses a second idle interrupt while the first 0x03 is still in flight", async () => {
+    let releaseInterrupt!: (ok: boolean) => void;
+    const inFlight = new Promise<boolean>((resolve) => {
+      releaseInterrupt = resolve;
+    });
+    let calls = 0;
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        calls += 1;
+        return calls === 1 ? inFlight : true;
+      },
+    });
+    const first = drive.interrupt("b1");
+    await flushMicrotasks();
+    clock += 10;
+    const second = drive.interrupt("b1");
+    await flushMicrotasks();
+    // The reservation, not the settled write, is what the second caller sees.
+    expect(writes).toEqual([{ bindingId: "b1", data: INTERRUPT_BYTE }]);
+    releaseInterrupt(true);
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(false);
+    // Spacing runs from the accepted completion, not from admission.
+    clock = 10_010 + 999;
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    clock = 10_010 + 1_000;
+    await expect(drive.interrupt("b1")).resolves.toBe(true);
+    expect(writes).toHaveLength(2);
+  });
+
+  it("holds one idle interrupt reservation past the spacing gap until it completes", async () => {
+    let releaseInterrupt!: (ok: boolean) => void;
+    const inFlight = new Promise<boolean>((resolve) => {
+      releaseInterrupt = resolve;
+    });
+    let calls = 0;
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        calls += 1;
+        return calls === 1 ? inFlight : true;
+      },
+    });
+    const first = drive.interrupt("b1");
+    await flushMicrotasks();
+    // Well past the gap, the first byte has still not landed: no second byte
+    // may be admitted against a physical Ctrl+C that is still in flight.
+    clock = 10_000 + 2_000;
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    expect(writes).toHaveLength(1);
+    clock = 10_000 + 2_500;
+    releaseInterrupt(true);
+    await expect(first).resolves.toBe(true);
+    // The gap now runs from the landing, so a late first byte is never
+    // followed immediately by a second.
+    clock = 12_500 + 500;
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    expect(writes).toHaveLength(1);
+    clock = 12_500 + 1_000;
+    await expect(drive.interrupt("b1")).resolves.toBe(true);
+    expect(writes).toHaveLength(2);
+  });
+
+  it("releases the idle reservation when the interrupt write fails, without stamping spacing", async () => {
+    let refuse = true;
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return !refuse;
+      },
+    });
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    refuse = false;
+    // Same instant: nothing landed, so the retry is not spacing-gated.
+    await expect(drive.interrupt("b1")).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([INTERRUPT_BYTE, INTERRUPT_BYTE]);
+    clock += 10;
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    expect(writes).toHaveLength(2);
+  });
+
+  it("releases the idle reservation when the interrupt write throws", async () => {
+    let throwOnce = true;
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        if (throwOnce) {
+          throwOnce = false;
+          return Promise.reject(new Error("pty gone"));
+        }
+        return true;
+      },
+    });
+    await expect(drive.interrupt("b1")).rejects.toThrow("pty gone");
+    await expect(drive.interrupt("b1")).resolves.toBe(true);
+    expect(writes).toHaveLength(2);
+  });
+
+  it("a stale interrupt's failed write cannot release a replacement generation's reservation", async () => {
+    const gates: Array<(ok: boolean) => void> = [];
+    drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        // The stale and the replacement writes stay in flight; later writes land at once.
+        if (gates.length >= 2) return true;
+        return new Promise<boolean>((resolve) => {
+          gates.push(resolve);
+        });
+      },
+    });
+    const stale = drive.interrupt("b1");
+    await flushMicrotasks();
+    drive.invalidateBinding("b1");
+    // The replacement generation owns its own reservation.
+    const fresh = drive.interrupt("b1");
+    await flushMicrotasks();
+    expect(writes).toHaveLength(2);
+    gates[0]!(false);
+    await expect(stale).resolves.toBe(false);
+    clock += 5_000;
+    // Still reserved by the replacement, however long ago it was admitted.
+    const third = drive.interrupt("b1");
+    await flushMicrotasks();
+    expect(writes).toHaveLength(2);
+    await expect(third).resolves.toBe(false);
+    gates[1]!(true);
+    await expect(fresh).resolves.toBe(true);
+    // Spacing reflects the replacement's completion, not the stale failure.
+    await expect(drive.interrupt("b1")).resolves.toBe(false);
+    clock += 1_000;
+    await expect(drive.interrupt("b1")).resolves.toBe(true);
+    expect(writes).toHaveLength(3);
+  });
+
   it("stall: no turn-start and no chip chrome stays unreceipted without clearing", async () => {
     vi.useFakeTimers();
     const attention: string[] = [];

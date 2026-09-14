@@ -250,6 +250,12 @@ export class ManagedTerminalDrive {
   private readonly lastWrittenText = new Map<string, string>();
   private readonly writing = new Set<string>();
   private readonly lastIdleInterruptAt = new Map<string, number>();
+  /**
+   * One in-flight idle 0x03 per binding. Generation-owned: cuts clear it,
+   * and only the completion that reserved it may release it, so a stale
+   * failure can never free a replacement generation's reservation.
+   */
+  private readonly idleInterrupts = new Map<string, symbol>();
   private readonly pendingTurns = new Map<string, PendingTurn>();
   private readonly turnStartCounts = new Map<string, number>();
   private readonly compactNoopCounts = new Map<string, number>();
@@ -612,6 +618,13 @@ export class ManagedTerminalDrive {
   /**
    * Interrupt the seat with Ctrl+C (0x03).
    * Mid-turn: always allowed. Idle: enforces min gap between consecutive 0x03.
+   *
+   * Idle admission is a reservation, not a timestamp. One idle 0x03 per
+   * binding is in flight at a time, however long the writer takes, and the
+   * spacing gap runs from the accepted landing, so a late first byte is never
+   * followed at once by a second. A write that lands nothing releases only
+   * its own reservation and stamps no spacing; a generation cut already
+   * cleared the reservation and a stale completion never touches the new one.
    */
   async interrupt(bindingId: string): Promise<boolean> {
     this.traceState(bindingId, "interrupt.begin");
@@ -627,24 +640,38 @@ export class ManagedTerminalDrive {
       return false;
     }
     const idle = this.isSeatIdle(bindingId);
-    const now = this.now();
+    if (idle && this.idleInterrupts.has(bindingId)) {
+      this.traceState(bindingId, "gate", { gate: "interrupt-in-flight", allowed: false });
+      return false;
+    }
     if (
       idle &&
       !canSendIdleInterrupt(
         this.lastIdleInterruptAt.get(bindingId),
-        now,
+        this.now(),
         this.idleInterruptGapMs,
       )
     ) {
       this.traceState(bindingId, "gate", { gate: "interrupt-spacing", allowed: false });
       return false;
     }
-    const ok = await Promise.resolve(this.writeTraced(bindingId, INTERRUPT_BYTE, "interrupt"));
+    const reservation = idle ? Symbol("idle-interrupt") : undefined;
+    if (reservation !== undefined) {
+      this.idleInterrupts.set(bindingId, reservation);
+    }
+    let ok = false;
+    try {
+      ok = await Promise.resolve(this.writeTraced(bindingId, INTERRUPT_BYTE, "interrupt"));
+    } finally {
+      if (reservation !== undefined && this.idleInterrupts.get(bindingId) === reservation) {
+        this.idleInterrupts.delete(bindingId);
+      }
+    }
     if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
       return false;
     }
     if (ok && idle) {
-      this.lastIdleInterruptAt.set(bindingId, now);
+      this.lastIdleInterruptAt.set(bindingId, this.now());
     }
     return ok;
   }
@@ -741,6 +768,7 @@ export class ManagedTerminalDrive {
     this.queues.clear();
     this.writing.clear();
     this.lastIdleInterruptAt.clear();
+    this.idleInterrupts.clear();
     this.turnStartCounts.clear();
     this.compactNoopCounts.clear();
     this.readyAfter.clear();
@@ -761,6 +789,7 @@ export class ManagedTerminalDrive {
     }
     this.writing.delete(bindingId);
     this.lastIdleInterruptAt.delete(bindingId);
+    this.idleInterrupts.delete(bindingId);
     this.mailInterrupts.delete(bindingId);
     this.turnStartCounts.delete(bindingId);
     this.compactNoopCounts.delete(bindingId);
