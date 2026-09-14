@@ -142,8 +142,49 @@ export class SeatStateRuntime {
     if (structured !== undefined && structured.epoch !== (epoch ?? "")) {
       this.structuredHookByBinding.delete(bindingId);
     }
+    const prior = this.machine.getSlot(bindingId);
+    const nextEpoch = epoch ?? prior?.epoch ?? "";
+    if (
+      prior !== undefined &&
+      (prior.epoch !== nextEpoch || prior.harness !== harness)
+    ) {
+      // Screen evidence belongs to one generation under one rule pack. The
+      // machine resets the slot here; the snapshot, verdict, and progress
+      // fingerprint judged for the old one go with it, so the replacement
+      // answers nothing until its own observer stream paints. The old
+      // generation's exit cannot do this: its unbind is an epoch no-op.
+      this.lastSnapshot.delete(bindingId);
+      this.composerByBinding.delete(bindingId);
+      this.lastProgressFp.delete(bindingId);
+    }
     this.harnessByBinding.set(bindingId, harness);
     this.machine.bind(bindingId, { harness, epoch });
+  }
+
+  /**
+   * The screen a lookup may answer from: the snapshot the seat state was
+   * judged on, when it belongs to the slot's generation; otherwise the plane's
+   * settled grid, again only for that generation. The two are the same grid
+   * whenever this runtime is subscribed — the plane emits only settled writes
+   * and `observe` runs on that emit — so preferring the judged one costs no
+   * freshness and keeps every lookup on one screen. A grid from another
+   * generation, live or cached, never answers.
+   */
+  private evidenceSnapshot(
+    bindingId: string,
+  ): ObserverGridSnapshot | undefined {
+    const slotEpoch = this.machine.getSlot(bindingId)?.epoch ?? "";
+    const sameGeneration = (
+      snap: ObserverGridSnapshot | undefined,
+    ): ObserverGridSnapshot | undefined =>
+      snap !== undefined &&
+      (slotEpoch.length === 0 || snap.epoch.length === 0 || snap.epoch === slotEpoch)
+        ? snap
+        : undefined;
+    return (
+      sameGeneration(this.lastSnapshot.get(bindingId)) ??
+      sameGeneration(terminalObserverPlane.snapshot(bindingId))
+    );
   }
 
   unbind(
@@ -261,9 +302,7 @@ export class SeatStateRuntime {
         harness === "muse" &&
         peekFirstTypedMessage(bindingId) !== undefined
       ) {
-        const snap =
-          this.lastSnapshot.get(bindingId) ??
-          terminalObserverPlane.snapshot(bindingId);
+        const snap = this.evidenceSnapshot(bindingId);
         if (snap?.signals.modes.bracketedPaste) return true;
       }
       return false;
@@ -278,20 +317,20 @@ export class SeatStateRuntime {
   /**
    * Screen-derived composer verdict for the drive's typing gate.
    *
-   * Reads the LIVE observer grid (not the cached last verdict), so a quiet
-   * idle seat that painted its empty composer minutes ago still answers
-   * truthfully at the paste moment. null — unbound seat, no snapshot yet, or
-   * the harness's probes matched nothing — always refuses typing.
+   * Re-read from the screen at the paste moment (not the cached last
+   * verdict), so a quiet idle seat that painted its empty composer minutes
+   * ago still answers truthfully — and read from the same settled grid the
+   * seat state was judged on, for the slot's own generation only (see
+   * `evidenceSnapshot`). null — unbound seat, no snapshot for this
+   * generation yet, or the harness's probes matched nothing — always refuses
+   * typing.
    */
   composerVerdict(bindingId: string): ComposerVerdict {
     const harness =
       this.harnessByBinding.get(bindingId) ??
       this.machine.getSlot(bindingId)?.harness;
     if (!harness) return null;
-    // Live plane render first; the fed-snapshot cache covers direct-feed tests.
-    const snap =
-      terminalObserverPlane.snapshot(bindingId) ??
-      this.lastSnapshot.get(bindingId);
+    const snap = this.evidenceSnapshot(bindingId);
     if (!snap) return null;
     return composerVerdictForHarness(snap, String(harness));
   }

@@ -131,6 +131,14 @@ export class TerminalObserverPlane {
     return this.byBinding.get(bindingId)?.snapshotNow();
   }
 
+  /**
+   * Whether `snapshot(bindingId)` currently reflects every byte fed. Undefined
+   * when no observer is live for the binding.
+   */
+  isSettled(bindingId: string): boolean | undefined {
+    return this.byBinding.get(bindingId)?.isSettled();
+  }
+
   /** Settled serialized VT state when a live observer exists. */
   async attachScreen(
     bindingId: string,

@@ -564,12 +564,25 @@ export class SessionObserver {
   }
 
   /**
-   * Best-effort sync snapshot — does not include bytes buffered behind an
-   * in-flight write. Callers that need the settled grid must await
-   * `snapshot()` / `attachScreen()`.
+   * Sync read of the grid as of the last settled write. Bytes fed but not yet
+   * parsed are absent, and so is their seq: writes are serialized here, and
+   * xterm parses one queued chunk in full before running its callback, so a
+   * sync read never sees a half-applied write and the seq it carries is
+   * always the seq of the grid it shows. Callers that need every byte fed so
+   * far must await `snapshot()` / `attachScreen()`; `isSettled()` says
+   * whether such bytes exist.
    */
   snapshotNow(): ObserverGridSnapshot {
     return this.buildSnapshot();
+  }
+
+  /**
+   * True when every byte fed so far is on the grid. False while a write is in
+   * flight or bytes wait out the sampling floor — a sync snapshot taken then
+   * is exact for the seq it names, but behind the PTY.
+   */
+  isSettled(): boolean {
+    return !this.writeInFlight && this.pending.length === 0;
   }
 
   /**
