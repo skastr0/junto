@@ -37,7 +37,10 @@ The current [corpus](../../tests/pty-e2e/corpus) has **36 JSONL captures across
 Kimi 2, Muse 4, Amp 4 and OMP 4. With ten manifests and one index, that is
 47 files. Captured composer/state regressions now cover the added Hermes,
 Kimi, Muse, Amp and OMP shapes; captured working/authentication/model failures
-are refused. This qualifies specific recorded adapter cases, not ten native
+are refused. Hermes and Kimi captured setup failures and composer shapes,
+with no successful model turn observed in either manifest. Muse used its
+deterministic echo provider, with no remote model turn. This qualifies
+specific recorded adapter cases, not ten native
 factory integrations. Cursor, Antigravity, fx and Prime Agent still have no
 committed JSONL corpus. Amp's additional capture/startup correction remains
 pending at this checkpoint; it is not claimed integrated or installed.
