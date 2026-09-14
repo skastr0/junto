@@ -480,10 +480,15 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "b-two"),
     );
-    expect(payloads).toHaveLength(1);
-    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b-three")).toBe(
-      false,
+    // The accepted batch is never re-pasted. Once its receipts settle, the
+    // post-batch message lands on its own line with its own transport.
+    await waitUntil(() => payloads.length === 2);
+    expect(payloads.filter((text) => text.includes("unread"))).toHaveLength(1);
+    expect(payloads[1]).toBe("[message - user] third");
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", "b-three"),
     );
+    expect(payloads).toHaveLength(2);
   });
 
   it("does not let an individual notify a message already reserved by a batch", async () => {
@@ -1323,12 +1328,18 @@ describe("MessageDeliveryService", () => {
       },
     );
     const sends: string[] = [];
+    let releaseThird: ((accepted: boolean) => void) | undefined;
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           sends.push(text);
+          if (text === "[message - user] third") {
+            return new Promise<boolean>((resolve) => {
+              releaseThird = resolve;
+            });
+          }
           return true;
         },
       },
@@ -1371,16 +1382,19 @@ describe("MessageDeliveryService", () => {
       (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
     );
-    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b3")).toBe(false);
-    expect(sends).toHaveLength(1);
 
-    // The post-batch message remains pending and is delivered on its own later.
-    service.onManagedTerminalIdle("bind-profile-13");
+    // Recovery stamps only the accepted members. The post-batch message is
+    // never receipted by recovery: it lands on its own line, and its receipt
+    // waits for its own transport result.
     await waitUntil(() => sends.length === 2);
     expect(sends[1]).toBe("[message - user] third");
+    await waitUntil(() => releaseThird !== undefined);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b3")).toBe(false);
+    releaseThird!(true);
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "b3"),
     );
+    expect(sends).toHaveLength(2);
   });
 
   it("request-response respects the seat delivery gate", async () => {
@@ -2201,6 +2215,285 @@ describe("bounded re-drive marks and the PTY write truth", () => {
     service.onComposerEmpty("bind-profile-13");
     await new Promise((r) => setTimeout(r, 30));
     expect(pastes, "the un-acked paste is never re-pasted — the 4x class").toBe(1);
+    service.suspend();
+  });
+});
+
+describe("batch attempt accounting and accepted-batch recovery", () => {
+  const appendItems = (
+    docs: Map<string, CanvasDoc>,
+    canvas: string,
+    nodeId: string,
+    update: (items: ReadonlyArray<Message>) => Message[],
+  ): void => {
+    const current = docs.get(canvas)!;
+    docs.set(canvas, {
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: { items: update(node.ether?.messages?.items ?? []) },
+              },
+            }
+          : node,
+      ),
+    });
+  };
+
+  it("a batch refused before any byte refunds every member; the eventual paste happens once", async () => {
+    const msgs = [userMsg("r1", "first"), userMsg("r2", "second")];
+    const store = makeStore({ c: agentDoc(msgs) });
+    const sent: string[] = [];
+    let writes = 0;
+    let refusals = 0;
+    let driveAccepts = false;
+    const transport: MessageDeliveryTransport = {
+      wakeManagedSeat: async () => true,
+      sendManagedTerminalPrompt: async (_bindingId, text) => {
+        if (!driveAccepts) {
+          refusals += 1;
+          return false; // refused BEFORE any byte reached the PTY
+        }
+        writes += 1;
+        sent.push(text);
+        return true;
+      },
+      pasteWriteCount: () => writes,
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+
+    // More refusals than MAX_TRANSPORT_ATTEMPTS; none of them wrote.
+    for (let round = 1; round <= 4; round += 1) {
+      service.onBooted();
+      await waitUntil(() => refusals === round);
+    }
+    expect(sent).toEqual([]);
+
+    driveAccepts = true;
+    service.onBooted();
+    await waitUntil(() => sent.length === 1);
+    expect(sent[0]).toContain("2 unread");
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "r1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "r2")),
+    );
+    service.onBooted();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sent, "delivered exactly once").toHaveLength(1);
+    service.suspend();
+  });
+
+  it("an un-acked batch paste burns each member; parked members never strand fresh mail", async () => {
+    const msgs = [userMsg("u1", "first"), userMsg("u2", "second")];
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      {
+        onDocs: (current) => {
+          docs = current;
+        },
+      },
+    );
+    const sent: string[] = [];
+    let writes = 0;
+    const transport: MessageDeliveryTransport = {
+      wakeManagedSeat: async () => true,
+      sendManagedTerminalPrompt: async (_bindingId, text) => {
+        writes += 1; // bytes reached the PTY…
+        sent.push(text);
+        return false; // …but no turn-start ack: written, unresolved
+      },
+      pasteWriteCount: () => writes,
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+
+    for (let round = 1; round <= 3; round += 1) {
+      service.onBooted();
+      await waitUntil(() => sent.length === round);
+    }
+    // The 4x law for a batch: both members are parked.
+    service.onBooted();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sent).toHaveLength(3);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "u1")).toBe(false);
+
+    // Fresh mail on the same seat batches on its own budget; the parked
+    // members are left out of the payload rather than pasted a fourth time.
+    appendItems(docs, "c", "agent", (items) => [
+      ...items,
+      userMsg("u3", "third"),
+      userMsg("u4", "fourth"),
+    ]);
+    service.onBooted();
+    await waitUntil(() => sent.length === 4);
+    expect(sent[3]).toContain("2 unread");
+    expect(sent[3]).not.toContain("4 unread");
+    service.suspend();
+  });
+
+  it("a member stamped through attemptOne does not strand the seat's later batches", async () => {
+    const msgs = [userMsg("b1", "first"), userMsg("b2", "second")];
+    let acceptSecond = false;
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      {
+        acceptMessage: (messageId) => messageId !== "b2" || acceptSecond,
+        onDocs: (current) => {
+          docs = current;
+        },
+      },
+    );
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
+      !(await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
+    );
+    expect(payloads).toHaveLength(1);
+
+    // Only the failed member is left, so the seat re-drive routes it through
+    // attemptOne, which stamps the receipt without touching the transport.
+    acceptSecond = true;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "b2"));
+    expect(payloads).toHaveLength(1);
+
+    // Later mail on the same seat must still batch: the accepted batch is
+    // fully receipted, so its marker owes nothing.
+    appendItems(docs, "c", "agent", (items) => [
+      ...items,
+      userMsg("b3", "third"),
+      userMsg("b4", "fourth"),
+    ]);
+    service.onBooted();
+    await waitUntil(() => payloads.length === 2);
+    expect(payloads[1]).toContain("2 unread");
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b3")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b4")),
+    );
+    expect(payloads).toHaveLength(2);
+    service.suspend();
+  });
+
+  it("the early single-survivor path settles the accepted batch instead of stranding it", async () => {
+    const msgs = [userMsg("e1", "first"), userMsg("e2", "second")];
+    let acceptOk = false;
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      {
+        acceptOk: () => acceptOk,
+        onDocs: (current) => {
+          docs = current;
+        },
+      },
+    );
+    const sent: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          sent.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => sent.length === 1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "e1")).toBe(false);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "e2")).toBe(false);
+
+    // e1's receipt lands outside this process; the process-local index still
+    // carries both members, so the seat re-drive enters attemptBatch with two
+    // messages and only one survivor.
+    acceptOk = true;
+    expect(await store.acceptMessageDelivery("c", "agent", "e1")).toBe(true);
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "e2"));
+    expect(sent).toHaveLength(1);
+
+    appendItems(docs, "c", "agent", (items) => [
+      ...items,
+      userMsg("e3", "third"),
+      userMsg("e4", "fourth"),
+    ]);
+    service.onBooted();
+    await waitUntil(() => sent.length === 2);
+    expect(sent[1]).toContain("2 unread");
+    service.suspend();
+  });
+
+  it("identical text with distinct ids: recovery and delivery are owned by message id", async () => {
+    const msgs = [userMsg("same-1", "same text"), userMsg("same-2", "same text")];
+    let acceptOk = false;
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      {
+        acceptOk: () => acceptOk,
+        onDocs: (current) => {
+          docs = current;
+        },
+      },
+    );
+    const sent: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          sent.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => sent.length === 1);
+    expect(sent[0]).toContain("2 unread");
+
+    // A third message with the same text but its own id arrives after the
+    // accepted payload. It is not a member and must not inherit a receipt.
+    appendItems(docs, "c", "agent", (items) => [
+      ...items,
+      userMsg("same-3", "same text"),
+    ]);
+    acceptOk = true;
+    service.onResumed();
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "same-1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "same-2")),
+    );
+    // The look-alike is not a member: it earns its receipt through its own
+    // paste, never through the accepted batch's recovery.
+    await waitUntil(() => sent.length === 2);
+    expect(sent[1]).toBe("[message - user] same text");
+    await waitUntil(() => store.hasAcceptedMessageDelivery("c", "agent", "same-3"));
+    expect(sent).toHaveLength(2);
     service.suspend();
   });
 });
