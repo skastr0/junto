@@ -28,6 +28,7 @@ const CHUNK = 64;
 const replay = async (
   harness: string,
   events: ReadonlyArray<{ readonly b64: string }>,
+  chunk = CHUNK,
 ): Promise<{ draftFrames: number; final: ComposerVerdict }> => {
   const obs = new SessionObserver({
     bindingId: "b",
@@ -41,8 +42,8 @@ const replay = async (
   try {
     for (const ev of events) {
       const data = Buffer.from(ev.b64, "base64").toString("utf8");
-      for (let off = 0; off < data.length; off += CHUNK) {
-        obs.feed(data.slice(off, off + CHUNK), seq++);
+      for (let off = 0; off < data.length; off += chunk) {
+        obs.feed(data.slice(off, off + chunk), seq++);
         const snapshot = await obs.snapshot();
         const verdict = composerVerdictForHarness(snapshot, harness);
         if (verdict === "draft") draftFrames += 1;
@@ -54,6 +55,23 @@ const replay = async (
   }
   return { draftFrames, final };
 };
+
+describe("amp composer verdict on real bytes", () => {
+  it("startup-idle settles to empty (blank ruled box)", async () => {
+    const fixture = loadP1Fixture("amp", "startup-idle");
+    expect(fixture, "amp/startup-idle corpus missing").not.toBeNull();
+    // Logo animation is 16 full-ish redraws; 64-byte chunks time out.
+    const run = await replay("amp", fixture!.events, 1024);
+    expect(run.final).toBe("empty");
+  });
+
+  it("paste-chip shows a draft frame (payload in the box)", async () => {
+    const fixture = loadP1Fixture("amp", "paste-chip");
+    expect(fixture, "amp/paste-chip corpus missing").not.toBeNull();
+    const run = await replay("amp", fixture!.events);
+    expect(run.draftFrames).toBeGreaterThan(0);
+  });
+});
 
 for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes", "kimi"] as const) {
   describe(`${harness} composer verdict on real bytes`, () => {

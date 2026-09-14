@@ -1,31 +1,22 @@
 /**
  * Amp CLI (`amp`) seat rules.
  *
- * Written from a real PTY capture of `amp --no-ide threads continue <T-id>`
+ * Composer grounded in P1 corpus amp/* captured 2026-09-14 from
+ * 0.0.1789397462 (`amp --no-ide`, operator home). Empty is a blank ╭─╮ box;
+ * draft puts `steering:` or payload lines inside it. Connecting / catching-up
+ * / streaming footers stay unreadable. Permission dialogs were not observed.
  *
- * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
- * capture on this machine, so composerVerdictFor returns null and factory
- * typing into its seats REFUSES (composer-unreadable attention). Ground the
- * real empty/draft chrome and add `composer` probes before shipping it.
- * (0.0.1787664850). What Amp actually paints, in order:
- *
- *   startup   title ""                              footer `~ Connecting`
- *   resume    title ""                              footer `~ Catching Up`
- *   turn      title "<braille> amp - ~/Projects/vellum"  footer `~ Streaming`
- *   settled   title "Ready response - amp - ~/…"    footer plain
- *
- * The empty startup title is why readiness here is positive: an Amp seat is
- * not writeable because it went quiet, it is writeable once the composer stops
- * saying `Connecting`. Writing during that window is silently swallowed — the
- * text lands in the composer and the CR never submits it, which is exactly how
- * the first capture of this harness lost its prompt.
+ * Historical paint (0.0.1787664850 continue): startup footer `~ Connecting`,
+ * resume `~ Catching Up`, turn braille title + `~ Streaming`, settled
+ * `<title> - amp - <cwd>`. The empty startup title is why readiness is
+ * positive: writing during Connecting is swallowed.
  */
 
 import type { SeatRulePack } from "../types";
 
 export const ampRules: SeatRulePack = {
   harness: "amp",
-  version: "2026.08.25.1",
+  version: "2026.09.14.1",
   rules: [
     {
       /** Approval gate: the turn stops until the operator answers. */
@@ -116,6 +107,42 @@ export const ampRules: SeatRulePack = {
       matchers: {
         contains: [" - amp - "],
         not: [{ regex: ["[\\u2800-\\u28FF]"] }],
+      },
+    },
+  ],
+  composer: [
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      matchers: {
+        any: [
+          { contains: ["steering:"] },
+          { lineRegex: ["^\\s*\\u2502\\s+[^\\u2502\\s]"] },
+        ],
+        not: [
+          { contains: ["waiting for approval"] },
+          { contains: ["connecting"] },
+          { contains: ["catching up"] },
+        ],
+      },
+    },
+    {
+      id: "bare_box_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      matchers: {
+        lineRegex: ["^\\s*\\u256d\\u2500", "^\\s*\\u2502\\s*\\u2502\\s*$"],
+        not: [
+          { contains: ["steering:"] },
+          { contains: ["streaming"] },
+          { contains: ["connecting"] },
+          { contains: ["catching up"] },
+          { contains: ["waiting for approval"] },
+          { lineRegex: ["^\\s*\\u2502\\s+[^\\u2502\\s]"] },
+        ],
       },
     },
   ],

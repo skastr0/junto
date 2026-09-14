@@ -38,8 +38,8 @@
  *   DRV-7       Grok `[Pasted:Nlines]` footer is not composer chip chrome
  *                (no recipe CR2). Codex payload-head leftover is the same
  *                class — D8 is the drive proof.
- *   DRV-8       Amp has no composer probes; firstTyped admits empty;
- *                mail (firstTypedArmed false) stays null. Muse is grounded.
+ *   DRV-8       OMP has no composer probes; firstTyped admits empty;
+ *                mail (firstTypedArmed false) stays null. Amp is grounded.
  *   DRV-9       Grok history footer is not a chip-submit CR — drive proof is
  *                D9 in drive-law.test.ts (not duplicated).
  *   POL-2  D26  false working→idle flips count as turns → fake escalation.
@@ -657,24 +657,21 @@ describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", (
 // DRV-8 — Amp/Muse ungrounded composer: firstTyped empty, mail stays null
 // ---------------------------------------------------------------------------
 
-describe("GAP-DRV-8: Amp ungrounded composer admits firstTyped only", () => {
-  it("GAP-DRV-8: Amp pack has no composer probes", () => {
-    expect(rulePackFor("amp").composer ?? []).toEqual([]);
+describe("GAP-DRV-8: OMP ungrounded composer admits firstTyped only", () => {
+  it("GAP-DRV-8: OMP pack has no composer probes", () => {
+    expect(rulePackFor("omp").composer ?? []).toEqual([]);
   });
 
-  it("GAP-DRV-8: admitUngroundedFirstTypedComposer(null, amp, true) is empty", () => {
+  it("GAP-DRV-8: admitUngroundedFirstTypedComposer(null, omp, true) is empty", () => {
     expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
+      admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
     ).toBe("empty");
     expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
+      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
     ).toBe(null);
   });
 
   it("GAP-DRV-8: mail path stays null when firstTypedArmed is false", async () => {
-    // Live grid through a real observer: Amp-shaped settled title, no
-    // composer probes → verdict null. Mail (firstTypedArmed false) stays
-    // refuse; it must not inherit the firstTyped one-shot empty.
     const obs = new SessionObserver({
       bindingId: BINDING,
       epoch: "e1",
@@ -684,9 +681,9 @@ describe("GAP-DRV-8: Amp ungrounded composer admits firstTyped only", () => {
     try {
       obs.feed("\x1b]0;Ready response - amp - ~/Projects/vellum\x07", 1n);
       const snap = await obs.snapshot();
-      const amp = rulePackFor("amp");
-      expect(composerVerdictFor(snap, amp)).toBe(null);
-      expect(admitUngroundedFirstTypedComposer(null, amp, false)).toBe(null);
+      const omp = rulePackFor("omp");
+      expect(composerVerdictFor(snap, omp)).toBe(null);
+      expect(admitUngroundedFirstTypedComposer(null, omp, false)).toBe(null);
     } finally {
       obs.dispose();
     }

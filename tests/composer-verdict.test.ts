@@ -338,10 +338,70 @@ describe("kimi (P1 corpus 0.43.0)", () => {
   });
 });
 
+describe("amp (P1 corpus 0.0.1789397462)", () => {
+  const v = (lines: readonly string[]) =>
+    composerVerdictFor(snap({ lines }), rulePackFor("amp"));
+
+  it("blank ruled box is empty", () => {
+    expect(
+      v([
+        "╭──────────────────────────────── low ─╮",
+        "│                                      │",
+        "│                                      │",
+        "│                                      │",
+        "╰──────────────────────────────── <CWD> ─╯",
+      ]),
+    ).toBe("empty");
+  });
+
+  it("payload lines in the box are a draft", () => {
+    expect(
+      v([
+        "╭────────────────────────────────╮",
+        "│ PASTE_LINE_30                  │",
+        "│ PASTE_LINE_31                  │",
+        "╰────────────────────────────────╯",
+      ]),
+    ).toBe("draft");
+  });
+
+  it("steering prefix in the box is a draft", () => {
+    expect(
+      v([
+        "╭────────────────────────────────╮",
+        "│ steering: PASTE_LINE_00 hello  │",
+        "╰────────────────────────────────╯",
+      ]),
+    ).toBe("draft");
+  });
+
+  it("streaming footer is unreadable even with a box", () => {
+    expect(
+      v([
+        "╭────────────────────────────────╮",
+        "│                                      │",
+        "╰────────────────────────────────╯",
+        "  ∼ Streaming",
+      ]),
+    ).toBe(null);
+  });
+
+  it("waiting-for-approval is unreadable", () => {
+    expect(
+      v([
+        "╭────────────────────────────────╮",
+        "│                                      │",
+        "╰────────────────────────────────╯",
+        "waiting for approval",
+      ]),
+    ).toBe(null);
+  });
+});
+
 describe("fail-closed defaults", () => {
   it("a probe-less pack yields null — factory typing refuses", () => {
     expect(
-      composerVerdictFor(snap({ lines: ["❯ "] }), rulePackFor("amp")),
+      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("omp")),
     ).toBe(null);
   });
 
@@ -357,8 +417,11 @@ describe("fail-closed defaults", () => {
 
   it("ungrounded firstTyped admits a one-shot empty; probed packs stay closed", () => {
     expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
+      admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
     ).toBe("empty");
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
+    ).toBe(null);
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
     ).toBe(null);
