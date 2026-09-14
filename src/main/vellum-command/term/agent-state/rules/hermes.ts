@@ -1,11 +1,7 @@
 /**
  * Hermes seat rules — thin screen net; hooks are authoritative when live.
  * Attention: OSC title ⚠; dangerous-command approval form on grid.
- *
- * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
- * capture on this machine, so composerVerdictFor returns null and factory
- * typing into its seats REFUSES (composer-unreadable attention). Ground the
- * real empty/draft chrome and add `composer` probes before shipping it.
+ * Composer grounded in P1 corpus hermes/* (v0.21.0): last-line `❯`.
  */
 
 import type { SeatRulePack } from "../types";

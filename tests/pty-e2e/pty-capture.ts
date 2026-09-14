@@ -633,6 +633,7 @@ class Session {
       [/please run \/login/, "auth: /login required"],
       [/device code|device_code/, "auth: device-code flow"],
       [/login to continue|log in to continue|sign in to continue|to get started.*sign up/i, "auth: login required"],
+      [/no api key found|would you like to log in/i, "auth: login required"],
       [/choose a provider|provider setup|select.*provider/i, "auth: provider picker"],
       [/enter your api key/i, "auth: api key prompt"],
       [/pairing mode|enter pairing code/i, "auth: pairing"],
@@ -1424,6 +1425,13 @@ async function main(): Promise<void> {
       console.log(`\n========== ${def.name} (${def.displayName}) ==========`);
       const results = await runHarness(def);
       writeManifests(def, results);
+      const jsonl = fs.existsSync(path.join(CAPTURE_ROOT, def.name))
+        ? fs.readdirSync(path.join(CAPTURE_ROOT, def.name)).filter((file) => file.endsWith(".jsonl"))
+        : [];
+      if (jsonl.length === 0) {
+        console.log(`[${def.name}] no JSONL fixtures (blocked or skipped) — not promoting`);
+        continue;
+      }
       const receipt = certifyHarness(CAPTURE_ROOT, def.name);
       earnSanitizedStamp(CAPTURE_ROOT, def.name, receipt);
       promoteHarness(def.name);
