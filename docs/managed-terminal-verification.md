@@ -8,6 +8,69 @@ Scope: this map verifies mechanisms exposed by the harness binaries, not
 Vellum Command's current wiring or release status. Current release capability is
 recorded by the managed-terminal template badges.
 
+## Live factory reproduction (2026-09-13)
+
+Use the complete saved factory: nodes, edges, region rules, task rows, claims,
+mail, and its authored playing/paused state. Let normal scheduling activate
+seats. Starting only the seat under investigation does not exercise the same
+delivery competition. Drive the native app with Computer Use and inspect the
+terminal while delivery happens.
+
+Keep one private production snapshot for repeat runs. The capture used here
+was a cold byte copy of the product database and content directory, with the
+app closed, no database owner, and no WAL/SHM present. Verify the source hash
+before and after copying. Never open production SQLite from a QA helper or
+copy install-ops ledgers, control sockets, or tokens. Boot a disposable copy
+through the normal app runtime. Keep its home short, such as `/tmp/vc-pty-qa`:
+long temporary paths can exceed the Unix socket path limit.
+
+An isolated `VELLUM_COMMAND_HOME` preserves product state but deliberately
+starts fresh harness sessions (`launchForManagedSpawn`). It does not copy the
+production process's live composer or resume its harness session. A successful
+clone run therefore does not establish that the original stuck session is fixed.
+
+Enable `VELLUM_COMMAND_PTY_TRACE=1` before launch. The local journal is
+`<VELLUM_COMMAND_HOME>/.vellum-command/logs/pty-delivery.jsonl`; with the default
+home it is `~/.vellum-command/logs/pty-delivery.jsonl`. Records correlate a
+delivery with its binding, harness, evidence probes, admission gates, physical
+write stages, acknowledgements, and final verdict. Prompt content is represented
+only by length and SHA-256. The journal is bounded and disabled by default.
+
+For a built renderer served at `http://127.0.0.1:5173`, launch the normal app
+from the repository with the isolated home and tracing enabled:
+
+```bash
+env -u VELLUM_COMMAND_WORK_HOME -u VELLUM_COMMAND_WORK_SOCKET \
+  -u VELLUM_COMMAND_SOCKET -u VELLUM_COMMAND_SEAT \
+  -u VELLUM_COMMAND_NODE_REF -u VELLUM_COMMAND_TOKEN \
+  -u VELLUM_COMMAND_WORK_TOKEN \
+  VELLUM_COMMAND_HOME=/tmp/vc-pty-qa VELLUM_COMMAND_PTY_TRACE=1 \
+  ELECTRON_RENDERER_URL=http://127.0.0.1:5173 \
+  node_modules/.bin/electron --disable-backgrounding-occluded-windows .
+```
+
+The [Chromium launch switch](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md)
+keeps a covered window painting during native
+Computer Use capture. In this run, without it, accessibility state advanced
+while screenshots retained an old frame, even after reload and with software
+rendering. Do not treat such a frame as current PTY evidence. This is a
+QA presentation option; it does not enable the app's E2E mode or fake agents.
+
+Proof requires an actual automatic paste and submission on screen, correlated
+with the trace. Opening a terminal, approving its bootstrap tools, or observing
+busy-gate refusals does not prove message injection. Keep the factory running
+across subsequent ticks and inspect receipts and repeated writes as well as
+the first frame. Manual Enter completing a pending chip is operator recovery,
+not evidence of successful automatic submission.
+
+`tests/kernel-claim-delivery-stall.test.ts` complements the live check: it runs
+the real kernel, pulse bridge, drive, observer, and SQLite against a modeled
+harness process boundary. The pre-fix run produced two pastes and an automatic
+Ctrl+C without a receipt. Its required behavior is one unresolved paste, no
+automatic Ctrl+C or later paste in that binding generation, no accepted
+receipt, and attention on subsequent delivery attempts. Before-write refusal
+remains retryable. This regression is not a live GUI proof.
+
 The design being verified: **one agent surface** — a Vellum Command-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
 Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 2026-07) - hermes (2026-07, gpt-5.4/5.5 era) - herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
