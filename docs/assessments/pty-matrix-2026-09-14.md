@@ -3,10 +3,54 @@
 Assessment target: `eefaafff30d151c8c28f65d873d9c73bb18d3ae1`, 2026-09-14 UTC.
 This is an engineering assessment, not a claim that the reported production defect is fixed.
 
-Subsequent evidence: the [native submission repair](pty-native-submission-2026-09-14.md)
-records a reproduced own-paste idle-gate failure, correction `7d2d6cb1`, and
-signed production verification exercising that race. Findings below describe
-the original assessment target; they are not all still open.
+## Current status, 2026-09-14
+
+**Source checkpoint: `d845d8b7`. Native checkpoint: PID `14290`, source `7d2d6cb1`.**
+The [native submission repair](pty-native-submission-2026-09-14.md) and
+[fresh-mail qualification](pty-fresh-mail-2026-09-14.md) establish visible
+delivery through the normal 192-node, 57-edge factory and both warm Devin
+seats. The fresh-mail checkpoint has eight physical pastes, eight submitted
+verdicts, eight submit CRs and two chip CRs, with no interrupts or duplicate
+pastes. Six distinct fresh source comments have six durable mail receipts
+and exactly one case reply each. Multiline mail used compact notices plus
+full-content CLI retrieval; the claims exercised long PTY pastes. These
+receipts belong to the running `7d2d6cb1` package, not the newer source.
+
+| Area | Integrated source corrections |
+|---|---|
+| Submission and source identity | Positive pending text and accepted ACK evidence, bounded recovery, generation-owned holds, resize interlocks, and own-paste continuation (`3e1da200`, `6df3111f`, `7d2d6cb1`); canonical claim-fact receipt identity (`4cf844a5`). See the [native repair's included corrections](pty-native-submission-2026-09-14.md#other-repairs-included-in-this-package). |
+| Mail and supervisor | Immutable accepted batch membership and shared member reservations (`02a420ab`, `b9185f17`, `9832392b`); per-member retry/receipt recovery and rejected-before-write refunds (`c2ee9755`, `ae13b0c7`); supervisor notices counted only after acceptance (`94657fa1`). |
+| Observation and attachment | Generation-owned evidence (`93c058b6`), ordered observer bytes/resizes (`4b45df28`), renderer attachment/output/resize fences (`821dcead`). |
+| Composition and session ownership | Concrete pulse transport registration, opaque first-typed arm ownership and re-kick (`3b744c2c`, `871516ed`); exclusive captured-session ownership (`9c905ecf`). Remote mail remains explicitly unsupported. |
+
+**S9 correction:** the original claim that `snapshotNow()` could pair a grid
+with an incoherent sequence was disproven. Buffered bytes may be absent,
+but their sequence is absent too: the snapshot describes its last settled
+write. The [observer contract](../../src/main/vellum-command/term/observer/session-observer.ts#L593)
+and [focused regression](../../tests/seat-state-evidence-coherence.test.ts#L114)
+distinguish that lag from the separately fixed reuse of an old
+generation's evidence and byte/resize ordering. The historical S9 row below
+must not be treated as a confirmed sequence defect.
+
+The current [corpus](../../tests/pty-e2e/corpus) has **36 JSONL captures across
+10 external harnesses**: Claude 4, Codex 4, Grok 5, Pi 2, Devin 4, Hermes 3,
+Kimi 2, Muse 4, Amp 4 and OMP 4. With ten manifests and one index, that is
+47 files. Captured composer/state regressions now cover the added Hermes,
+Kimi, Muse, Amp and OMP shapes; captured working/authentication/model failures
+are refused. This qualifies specific recorded adapter cases, not ten native
+factory integrations. Cursor, Antigravity, fx and Prime Agent still have no
+committed JSONL corpus. Amp's additional capture/startup correction remains
+pending at this checkpoint; it is not claimed integrated or installed.
+
+Still open: final build/install and named-resume native qualification of the
+newer integrated source, the remaining producer/harness/input/resize matrix,
+full Remote execution proof, and the [Remote mailbox delivery contract](pty-remote-mail-plan-2026-09-14.md).
+The external acceptance-to-durable-receipt crash window (S11) remains;
+raw PTY writes cannot promise durable exactly-once delivery.
+
+Everything below retains the original `eefaafff` assessment, counts and test
+results as historical evidence. They are not current open-defect or coverage
+counts; the status and S9 correction above take precedence.
 
 ## Verdict
 
