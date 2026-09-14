@@ -140,6 +140,23 @@ describe("amp readiness is positive, not quiet", () => {
       }),
     ).toBe(true);
   });
+
+  it("admits an untitled complete settled composer only with bracketed paste enabled", () => {
+    const snapshot = snap("", ["╭──────── low ─╮", "│             │", "╰─────────────╯"]);
+    expect(isManagedTerminalReady({ harness: "amp", snapshot })).toBe(false);
+    snapshot.signals.modes.bracketedPaste = true;
+    expect(isManagedTerminalReady({ harness: "amp", snapshot })).toBe(true);
+    expect(isManagedTerminalReady({ harness: "amp", snapshot: { ...snapshot, lines: ["│             │"] } })).toBe(false);
+  });
+
+  it.each(["Loading Thread", "Connecting", "Catching Up", "Sending", "Streaming", "Waiting for Approval", "Login required"])(
+    "refuses %s even with a stale idle title and an empty composer",
+    (status) => {
+      const snapshot = snap("Prior turn - amp - <CWD>", ["╭──────── low ─╮", "│             │", `╰ ∼ ${status} ─╯`]);
+      snapshot.signals.modes.bracketedPaste = true;
+      expect(isManagedTerminalReady({ harness: "amp", snapshot })).toBe(false);
+    },
+  );
 });
 
 describe("firstTyped arming", () => {

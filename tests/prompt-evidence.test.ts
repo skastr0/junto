@@ -110,4 +110,25 @@ describe("prompt paste-chip evidence", () => {
       promptStillPending({ lines: ["pending text", "status"] }, "pending text"),
     ).toBe(false);
   });
+
+  it("Amp rounded composer holds literal text while its footer is outside the pending region", () => {
+    const box = ["╭──────── low ─╮", "│ hello       │", "╰─────────────╯"];
+    expect(promptStillPending({ lines: box }, "hello")).toBe(true);
+    expect(promptStillPending({ lines: box }, "low")).toBe(false);
+    expect(promptStillPending({ lines: ["┃ hello", "reply", "╭──────── low ─╮", "│             │", "╰─────────────╯"] }, "hello")).toBe(false);
+  });
+
+  it("Amp connected steering remains pending but detached history does not", () => {
+    const steering = ["╭──────────────────╮", "│ steering: hello  │"];
+    const composer = ["╭┴─────── low ────┴╮", "│                  │", "╰ ∼ Streaming ─────╯"];
+    expect(promptStillPending({ lines: [...steering, ...composer] }, "hello")).toBe(true);
+    expect(promptStillPending({ lines: [...steering, "╰──────────────────╯", "╭──────── low ─────╮", "│                  │", "╰ ∼ Streaming ─────╯"] }, "hello")).toBe(false);
+  });
+
+  it("Amp narrow boxed rows preserve a wrapped literal head without treating side walls as payload", () => {
+    const text = "A literal factory message longer than sixty four characters wraps inside a narrow composer.";
+    const rows = Array.from({ length: Math.ceil(text.length / 22) }, (_, index) => `│ ${text.slice(index * 22, (index + 1) * 22).padEnd(22)} │`);
+    expect(promptStillPending({ lines: ["╭───────────────── low ─╮", ...rows, "╰───────────────────────╯"] }, text)).toBe(true);
+    expect(promptStillPending({ lines: [...rows, "╭───────────────── low ─╮", "│                       │", "╰───────────────────────╯"] }, text)).toBe(false);
+  });
 });

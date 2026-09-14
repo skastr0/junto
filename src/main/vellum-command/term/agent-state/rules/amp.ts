@@ -16,8 +16,19 @@ import type { SeatRulePack } from "../types";
 
 export const ampRules: SeatRulePack = {
   harness: "amp",
-  version: "2026.09.14.2",
+  version: "2026.09.14.3",
   rules: [
+    {
+      id: "authentication_attention",
+      state: "attention",
+      priority: 1300,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleAttention: true,
+      matchers: {
+        lineRegex: ["^\\s*(?:[│╰]\\s*)?(?:[∼≈≋~]\\s*)?(?:Error:\\s*)?(?:not logged in|login required|authentication required|sign in to continue)\\b"],
+      },
+    },
     {
       /** Approval gate: the turn stops until the operator answers. */
       id: "approval_wait_attention",
@@ -89,6 +100,7 @@ export const ampRules: SeatRulePack = {
       skipStateUpdate: true,
       matchers: {
         any: [
+          { contains: ["loading thread"] },
           { contains: ["connecting"] },
           { contains: ["reconnecting"] },
           // Resume replays the thread before the composer accepts a turn.
@@ -112,6 +124,22 @@ export const ampRules: SeatRulePack = {
         not: [{ regex: ["[\\u2800-\\u28FF]"] }],
       },
     },
+    {
+      /** P1 current Amp leaves a new empty thread untitled until its first turn. */
+      id: "untitled_empty_composer_idle",
+      state: "idle",
+      priority: 950,
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      visibleIdle: true,
+      matchers: {
+        lineRegex: ["^\\s*╭─", "^\\s*│\\s*│\\s*$", "^\\s*╰─"],
+        not: [
+          { contains: ["steering:"] },
+          { lineRegex: ["^\\s*│\\s+[^│\\s]"] },
+        ],
+      },
+    },
   ],
   composer: [
     {
@@ -126,6 +154,7 @@ export const ampRules: SeatRulePack = {
         ],
         not: [
           { contains: ["waiting for approval"] },
+          { contains: ["loading thread"] },
           { contains: ["connecting"] },
           { contains: ["catching up"] },
         ],
@@ -141,6 +170,7 @@ export const ampRules: SeatRulePack = {
         not: [
           { contains: ["steering:"] },
           { contains: ["streaming"] },
+          { contains: ["loading thread"] },
           { contains: ["connecting"] },
           { contains: ["catching up"] },
           { contains: ["waiting for approval"] },

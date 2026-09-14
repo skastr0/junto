@@ -74,6 +74,34 @@ const EVIDENCE_GLYPH = /^\s*(?:❯|›|❭|>)(?:\s+|$)/u;
 const EVIDENCE_TAIL_LINES = 10;
 
 /**
+ * Amp's composer has labeled rounded borders, so neither a plain ─── rule
+ * nor a prompt glyph anchors it. Select the bottom complete box, never its
+ * echoed transcript above. A connected steering panel is still queued text.
+ */
+const roundedComposerEvidence = (lines: readonly string[]): readonly string[] | undefined => {
+  let bottom = lines.length - 1;
+  while (bottom >= 0 && !lines[bottom]!.trim()) bottom -= 1;
+  if (bottom < 0 || !/^\s*╰(?:─|\s*[∼≈≋~]\s)/u.test(lines[bottom]!)) return undefined;
+  let top = bottom - 1;
+  while (top >= 0 && /^\s*│.*│\s*$/u.test(lines[top]!)) top -= 1;
+  if (top < 0 || top === bottom - 1 || !/^\s*╭[─┴]/u.test(lines[top]!)) return undefined;
+  let start = top + 1;
+  if (/^\s*╭┴/u.test(lines[top]!)) {
+    let steeringTop = top - 1;
+    while (steeringTop >= 0 && /^\s*│.*│\s*$/u.test(lines[steeringTop]!)) steeringTop -= 1;
+    const steering = lines.slice(steeringTop + 1, top);
+    if (steeringTop >= 0 && /^\s*╭─/u.test(lines[steeringTop]!) &&
+        steering.some((line) => /^\s*│\s*steering:/u.test(line))) start = steeringTop + 1;
+  }
+  // Strip only the side chrome of these validated body rows. Otherwise a
+  // wrapped payload head gets artificial │ characters between its pieces.
+  return lines.slice(start, bottom).flatMap((line) => {
+    const body = /^\s*│(.*)│\s*$/u.exec(line);
+    return body ? [body[1]!] : [];
+  });
+};
+
+/**
  * Evidence region for "is our text still in the composer" scans. Ruled grids
  * use promptRegionLines. On a ruleless grid the composer can sit ABOVE a
  * footer/status line, and a single last-line window misses it — anchor at
@@ -85,6 +113,8 @@ const EVIDENCE_TAIL_LINES = 10;
 export const pendingEvidenceLines = (
   lines: readonly string[],
 ): readonly string[] => {
+  const rounded = roundedComposerEvidence(lines);
+  if (rounded !== undefined) return rounded;
   for (const line of lines) {
     if (isHorizontalRule(line)) return promptRegionLines(lines);
   }
