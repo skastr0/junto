@@ -3,8 +3,9 @@
 This extends the [native submission proof](pty-native-submission-2026-09-14.md)
 with fresh task-comment mail on both already-running Devin seats. Both
 boards passed individual and multiline-content cases; intake also passed
-the identical-content queued-batch case. Replacement-package qualification
-remains in progress at this checkpoint.
+the identical-content queued-batch case. The replacement package subsequently
+passed named-session resume, fresh mail, and a new two-board claim/handoff
+case, as recorded below.
 
 ## Environment and method
 
@@ -106,4 +107,70 @@ intake completion notice, the trace has eight pastes, eight submit CRs,
 two chip CRs and eight submitted verdicts; no recovery CR, interrupts or
 duplicate physical pastes. The downstream task remains working intentionally
 for a final fresh-mail check after the replacement package resumes its named
-session; its final completion instruction has not yet been sent.
+session; its final completion instruction had not yet been sent at that
+checkpoint.
+
+## Fresh production replacement
+
+The integrated source was frozen at
+`ce3c10ae7a4efb47fb2bac3d3617bb80c66328aa`. With pinned Bun 1.3.13,
+the full all-on suite passed **7,141 tests, 62 skipped**; typecheck and the
+product-name, no-middot, Effect-runpromise and single-write-seam lints passed.
+The ship-feature suite passed 36 tests with eight skips.
+
+`scripts/build-app.sh --target mac --sign`, with the ship profile and the
+explicit existing Developer ID identity, rebuilt the runtime cohort, CLI
+and native module before packaging. Package provenance and security audits
+passed. After Computer Use confirmed normal quit, the old PID `14290`
+exited and its four bindings invalidated. The packaged runtime smoke passed
+with no production-root changes, then `scripts/install-app.sh --skip-build`
+audited the candidate, staged copy and installed copy.
+
+The installed app launched at `2026-09-14T16:30:38.718Z` with trace enabled,
+the normal production home, and no development or backgrounding flags.
+The running-byte proof was repeated after native qualification:
+
+| Identity | Verified value |
+|---|---|
+| Running process | PID `41562`, `/Applications/Vellum Command.app/Contents/MacOS/Vellum Command` |
+| Source | `ce3c10ae7a4efb47fb2bac3d3617bb80c66328aa` |
+| Runtime cohort | `497b9c6d-5456-4eba-9380-9ca7e3d2da2b` |
+| Open installed archive inode | `310714975`, confirmed in the running PID's open files |
+| Archive SHA-256 | `c2e44f597b81f60d1c9725963fccabf6f59c410d0d3b7fe038fe7b505e6ad686`, identical to the fresh release archive |
+| Main payload | 4,091,190 bytes; SHA-256 `b7c5bd43ab860cebd05b06fe354c0d8e1d3f50a48efd2e71bd9fec032d1d2c96`, matching embedded provenance |
+| Signature | Strict deep verification passed; team `4452968868` |
+
+Version `0.2.1` alone was not used as build evidence. The full 192-node,
+57-edge production factory remained playing. Both original explicit Devin
+sessions, `rounded-biology` and `mini-yuzu`, were retained. Computer Use
+observed the resumed second-board history and empty composer before sending
+new mail. No terminal Enter, Escape or Ctrl+C advanced these cases.
+
+### Post-install receipts
+
+The launch journal cut was row 823. Through row 1004 at `16:38:13Z`, there
+were exactly three begins, three unique payload hashes, three pastes,
+three submit CRs, one chip CR and three submitted verdicts. All three used
+`turn.start` with `pending-text:false`; there were no refusal verdicts,
+recovery CRs, interrupts or duplicate pastes.
+
+| Case | Physical delivery | Durable and visible result |
+|---|---|---|
+| F, fresh multiline mail plus the second board's final instruction | `f52f8db0-f9ce-4e98-86c9-1c0b4b33a851`, rows 855–879; one 142-byte paste and one CR; submitted `16:33:22.031Z` | Source `01M2GC85F9RYACJFNH5WBXK8CJ`; mail `01M2GC85FJEXXQ80VN47J7VKH3` receipted at `.032Z`; one reply `01M2GC8PYMYXHKMZ07TFV3XFKE` with `quartz, topaz, 61`. Original task completed normally at `16:33:55.075Z`, preserving prior receipts and rule evidence. |
+| New intake claim | `16bec995-8669-49ed-a4c8-e88655f37718`, rows 900–939; one 4,962-byte paste and one CR; submitted `16:35:40.936Z` | Task `01M2GCC8ZSVPAM2JJF3ZF4KZTQ`, “Production claim and handoff ce3c10ae”, created through the normal intake UI. Intake recorded its working update, satisfied both live rules and sent on at `16:36:11.891Z`. |
+| New downstream claim | `d616f06a-a345-4347-a26f-3695a3cd82c8`, rows 940–973; one 4,479-byte paste, one submit CR and one chip CR; submitted `16:36:12.055Z` | Downstream recorded its working update, verified `PULSE_PROOF_CE3C10AE` and `nickel` in the inherited handoff, satisfied its rule and completed at `16:36:37.098Z`. |
+
+Computer Use then observed both completed terminal turns with empty
+composers. The app-owned canvas control projection independently confirmed
+both task copies completed, the handoff, working updates and the F reply.
+Neither progress updates nor subsequent idle/modal reopenings generated
+another physical delivery. The trace remained free of duplicate pastes
+more than two minutes after the last submission.
+
+These checks qualify the installed replacement's named resume, one fresh
+mail notice and normal two-board claim/handoff path. The new-package F
+case did not repeat the earlier identical-content batch test or inject
+receipt failures. Captured adapter tests, Remote support and the remaining
+matrix retain their explicit limits; this is not full-matrix certification.
+Private build, install, runtime-proof, trace and app-owned receipt artifacts
+are under `/tmp/vellum-command-fresh-mail-20260914/`.

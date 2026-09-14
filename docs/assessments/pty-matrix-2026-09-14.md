@@ -5,7 +5,14 @@ This is an engineering assessment, not a claim that the reported production defe
 
 ## Current status, 2026-09-14
 
-**Source checkpoint: `134deb27`. Native checkpoint: PID `14290`, source `7d2d6cb1`.**
+**Installed source: `ce3c10ae`. Native checkpoint: PID `41562`.**
+The [fresh production replacement proof](pty-fresh-mail-2026-09-14.md#fresh-production-replacement)
+verifies the exact signed runtime/archive bytes, named resume, fresh mail
+and a new two-board claim/handoff through completion. Its launch-relative
+trace has three pastes, three submitted verdicts and no duplicates or
+interrupts. The full integrated suite passed 7,141 tests with 62 skips.
+
+The earlier native checkpoint used PID `14290`, source `7d2d6cb1`.
 The [native submission repair](pty-native-submission-2026-09-14.md) and
 [fresh-mail qualification](pty-fresh-mail-2026-09-14.md) establish visible
 delivery through the normal 192-node, 57-edge factory and both warm Devin
@@ -46,11 +53,11 @@ factory integrations. Cursor, Antigravity, fx and Prime Agent still have no
 committed JSONL corpus. Amp's replacement recordings preserve initialization
 and prove a recorded hello acknowledgement through the actual drive
 (`134deb27`). They also retain a later prompt still queued as steering input;
-that state is not claimed accepted or idle. These changes are integrated,
-but have not yet been installed at this checkpoint.
+that state is not claimed accepted or idle. These changes are included in
+the installed `ce3c10ae` package; Amp itself has recorded-byte qualification,
+not native factory qualification.
 
-Still open: final build/install and named-resume native qualification of the
-newer integrated source, the remaining producer/harness/input/resize matrix,
+Still open: the remaining producer/harness/input/resize matrix,
 full Remote execution proof, and the [Remote mailbox delivery contract](pty-remote-mail-plan-2026-09-14.md).
 The external acceptance-to-durable-receipt crash window (S11) remains;
 raw PTY writes cannot promise durable exactly-once delivery.
