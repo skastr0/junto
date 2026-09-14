@@ -63,7 +63,6 @@ import {
   ManagedTerminalDrive,
   promptHasPasteChip,
   promptStillPending,
-  seatOperatorInterlock,
 } from "./term/drive";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
@@ -1603,15 +1602,13 @@ export const registerVellumIpc = (): void => {
             // Selector navigation races live operator keystrokes and any
             // in-flight drive span — skip this heartbeat's recovery write
             // rather than interleave; the next attention repaint retries.
-            if (
-              !seatOperatorInterlock.gateActive(event.bindingId) &&
-              !seatOperatorInterlock.holding(event.bindingId)
-            ) {
-              acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
-              if (!termPlane.host.writeManagedSeat(event.bindingId, "\r")) {
-                acceptedClaudeRecoveryEpoch.delete(event.bindingId);
-              }
-            }
+            // Routed through the drive so a bare CR can never submit a stuck
+            // chip the drive has not receipted (the seat wedge that refused
+            // every later prompt until respawn).
+            acceptedClaudeRecoveryEpoch.set(event.bindingId, epoch);
+            void managedDrive.submitRecoveryCr(event.bindingId).then((ok) => {
+              if (!ok) acceptedClaudeRecoveryEpoch.delete(event.bindingId);
+            });
           }
         }
         if (event.state === "idle") {

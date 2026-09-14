@@ -650,6 +650,31 @@ export class ManagedTerminalDrive {
   }
 
   /**
+   * Bare recovery submit for harness-owned selectors (Claude resume-summary
+   * choice). Startup navigation, not a prompt: no paste envelope, no turn
+   * acknowledgement, no evidence record.
+   *
+   * Refuses while a submission is in flight or a paste is unresolved, so
+   * recovery can never submit a stuck chip the drive has not receipted.
+   * Never requires seat idle: recovery fires from the attention state.
+   */
+  async submitRecoveryCr(bindingId: string): Promise<boolean> {
+    const generation = this.lifecycleGeneration;
+    const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    if (!this.activeBinding(bindingId, generation, bindingGeneration)) {
+      return false;
+    }
+    if (this.writing.has(bindingId) || this.pendingTurns.has(bindingId)) {
+      return false;
+    }
+    if (this.refuseWrittenUnresolved(bindingId)) return false;
+    if (this.interlock.holding(bindingId) || this.interlock.gateActive(bindingId)) {
+      return false;
+    }
+    return this.writeSubmitCr(bindingId, generation, bindingGeneration, undefined, "recovery-cr");
+  }
+
+  /**
    * Seat became idle — drain at most one queued prompt (one turn at a time).
    * Phase 2 state machine calls this on working→idle.
    */
