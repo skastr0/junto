@@ -35,12 +35,6 @@ export const OPERATOR_INPUT_LATCH_MS = 400;
 /** Resize admission block. Covers the SIGWINCH repaint churn window. */
 export const OPERATOR_RESIZE_LATCH_MS = 250;
 
-/**
- * Number of direct replay slots. Once full, the final slot folds into an
- * iterative overflow lane so held input never falls through to the live host.
- */
-const MAX_HELD_WRITES = 512;
-
 /** A parked operator write. Replay re-enters the host write path so lease,
  * epoch, and phase are re-validated against the CURRENT session record — a
  * held keystroke can never leak into a replacement seat generation. */
@@ -51,8 +45,6 @@ export type HeldOperatorWrite = {
 type HoldState = {
   depth: number;
   readonly held: HeldOperatorWrite[];
-  overflow?: HeldOperatorWrite[];
-  parkedCount: number;
 };
 
 function replayHeldWrites(writes: ReadonlyArray<HeldOperatorWrite>): void {
@@ -68,8 +60,6 @@ function replayHeldWrites(writes: ReadonlyArray<HeldOperatorWrite>): void {
 
 function discardHeldWrites(hold: HoldState): void {
   hold.held.length = 0;
-  hold.overflow?.splice(0);
-  hold.parkedCount = 0;
 }
 
 export class OperatorInterlock {
@@ -185,33 +175,15 @@ export class OperatorInterlock {
   /**
    * Called from the operator write path. Returns true when a submission span
    * is in-flight and the write was parked for ordered replay on hold end.
-   * After the direct replay slots fill, callbacks share one iterative
-   * overflow lane. Each callback remains intact, so the host re-validates the
-   * original lease, epoch, and phase when it replays that write.
+   * Every callback remains intact, so the host re-validates the original
+   * lease, epoch, and phase when it replays that write. Do not add a count cap:
+   * the current host API has no acknowledged backpressure, and returning
+   * false would either drop bytes or bypass the submission hold.
    */
   holdWrite(bindingId: string, write: HeldOperatorWrite): boolean {
     const hold = this.holds.get(bindingId);
     if (hold === undefined) return false;
-    hold.parkedCount += 1;
-    if (hold.overflow !== undefined) {
-      hold.overflow.push(write);
-      return true;
-    }
-    if (hold.held.length < MAX_HELD_WRITES) {
-      hold.held.push(write);
-      return true;
-    }
-
-    const tail = hold.held.pop();
-    if (tail === undefined) {
-      // MAX_HELD_WRITES is positive; retain the write defensively if that
-      // invariant is ever changed instead of allowing a live-write bypass.
-      hold.held.push(write);
-      return true;
-    }
-    const overflow = [tail, write];
-    hold.overflow = overflow;
-    hold.held.push({ replay: () => replayHeldWrites(overflow) });
+    hold.held.push(write);
     return true;
   }
 
@@ -225,7 +197,7 @@ export class OperatorInterlock {
     if (hold !== undefined) {
       hold.depth += 1;
     } else {
-      hold = { depth: 1, held: [], parkedCount: 0 };
+      hold = { depth: 1, held: [] };
       this.holds.set(bindingId, hold);
     }
     let released = false;
@@ -260,7 +232,7 @@ export class OperatorInterlock {
 
   /** Parked write count — tests and diagnostics. */
   heldCount(bindingId: string): number {
-    return this.holds.get(bindingId)?.parkedCount ?? 0;
+    return this.holds.get(bindingId)?.held.length ?? 0;
   }
 
   /**

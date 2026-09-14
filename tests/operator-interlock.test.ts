@@ -105,7 +105,7 @@ describe("OperatorInterlock", () => {
     release();
   });
 
-  it("parks writes beyond the dispatch cap without bypassing or reordering them", () => {
+  it("parks extreme input without bypassing or reordering it", () => {
     const interlock = new OperatorInterlock(() => 1_000);
     const writes: number[] = [];
     const release = interlock.beginHold("binding");
