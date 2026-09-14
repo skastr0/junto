@@ -277,6 +277,12 @@ export class MessageDeliveryService {
    */
   private readonly transportAccepted = new Set<string>();
   /**
+   * Immutable membership of each batch whose transport was accepted. A later
+   * recovery may see newer pending mail on the same seat, but that mail was not
+   * part of the accepted payload and must never receive its receipt here.
+   */
+  private readonly acceptedBatchMembers = new Map<string, ReadonlySet<string>>();
+  /**
    * Delivery receipt landed, full-body read stamp did not. Later scans retry
    * acceptMessageRead only — never the PTY paste.
    */
@@ -400,6 +406,7 @@ export class MessageDeliveryService {
     this.lifecycleGeneration += 1;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.acceptedBatchMembers.clear();
     this.pendingReadStamps.clear();
     this.transportAttempts.clear();
     this.attemptedClaims.clear();
@@ -435,6 +442,7 @@ export class MessageDeliveryService {
     this.seatPausedLookup = undefined;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.acceptedBatchMembers.clear();
     this.pendingReadStamps.clear();
     this.transportAttempts.clear();
     this.attemptedClaims.clear();
@@ -1449,7 +1457,18 @@ export class MessageDeliveryService {
 
       // Stamp-only path: transport already accepted this seat's batch once.
       if (this.transportAccepted.has(batchKey)) {
-        for (const message of livePending) {
+        const acceptedMembers = this.acceptedBatchMembers.get(batchKey);
+        if (!acceptedMembers) {
+          // The membership is process-local and should always accompany the
+          // batch marker. Fail closed if that invariant is ever broken.
+          this.transportAccepted.delete(batchKey);
+          this.transportAttempts.delete(batchKey);
+          return;
+        }
+        const acceptedPending = livePending.filter((message) =>
+          acceptedMembers.has(message.messageId),
+        );
+        for (const message of acceptedPending) {
           const key = flightKey(canvas, nodeId, message.messageId);
           const accepted = await store.acceptMessageDelivery(
             canvas,
@@ -1463,7 +1482,7 @@ export class MessageDeliveryService {
           }
         }
         let anyOpen = false;
-        for (const message of livePending) {
+        for (const message of acceptedPending) {
           if (
             !(await store.hasAcceptedMessageDelivery(
               canvas,
@@ -1477,6 +1496,7 @@ export class MessageDeliveryService {
         }
         if (!anyOpen) {
           this.transportAccepted.delete(batchKey);
+          this.acceptedBatchMembers.delete(batchKey);
           this.transportAttempts.delete(batchKey);
         }
         return;
@@ -1512,6 +1532,10 @@ export class MessageDeliveryService {
       );
       if (!delivered) return;
       this.transportAccepted.add(batchKey);
+      this.acceptedBatchMembers.set(
+        batchKey,
+        new Set(livePending.map((message) => message.messageId)),
+      );
 
       for (const message of livePending) {
         const key = flightKey(canvas, nodeId, message.messageId);
@@ -1550,6 +1574,7 @@ export class MessageDeliveryService {
       }
       if (!anyOpen) {
         this.transportAccepted.delete(batchKey);
+        this.acceptedBatchMembers.delete(batchKey);
         this.transportAttempts.delete(batchKey);
       }
     } catch {

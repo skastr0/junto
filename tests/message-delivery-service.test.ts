@@ -1164,6 +1164,80 @@ describe("MessageDeliveryService", () => {
     expect(sends).toBe(1);
   });
 
+  it("batch receipt recovery only stamps messages in the accepted payload", async () => {
+    const msgs = [userMsg("b1", "first"), userMsg("b2", "second")];
+    let docs!: Map<string, CanvasDoc>;
+    let acceptOk = false;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      {
+        acceptOk: () => acceptOk,
+        onDocs: (current) => {
+          docs = current;
+        },
+      },
+    );
+    const sends: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          sends.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    // The transport accepts the A/B batch, but durable receipt stamping fails.
+    service.onBooted();
+    await waitUntil(() => sends.length === 1);
+    expect(sends[0]).toContain("2 unread");
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b1")).toBe(false);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b2")).toBe(false);
+
+    // C arrives through durable projection after the accepted batch, without a
+    // local notifyAppended event.
+    const current = docs.get("c")!;
+    docs.set("c", {
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === "agent"
+          ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [
+                    ...(node.ether?.messages?.items ?? []),
+                    userMsg("b3", "third"),
+                  ],
+                },
+              },
+            }
+          : node,
+      ),
+    });
+
+    acceptOk = true;
+    service.onResumed();
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
+    );
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b3")).toBe(false);
+    expect(sends).toHaveLength(1);
+
+    // The post-batch message remains pending and is delivered on its own later.
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => sends.length === 2);
+    expect(sends[1]).toBe("[message - user] third");
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", "b3"),
+    );
+  });
+
   it("request-response respects the seat delivery gate", async () => {
     const store = makeStore({ c: agentDoc([]) });
     let sends = 0;
