@@ -5,6 +5,7 @@ import {
   OperatorInterlock,
   encodeBracketedPaste,
 } from "../src/main/vellum-command/term/drive";
+import { isLiveClaudeResumeSummaryChoice } from "../src/main/vellum-command/term/drive/claude-startup";
 
 describe("recovery CR (harness-owned selector submit)", () => {
   const drives: ManagedTerminalDrive[] = [];
@@ -73,5 +74,47 @@ describe("recovery CR (harness-owned selector submit)", () => {
     releasePaste(true);
     await expect(prompt).resolves.toBe(true);
     expect(writes).toEqual([encodeBracketedPaste("in flight"), CR]);
+  });
+});
+
+describe("live resume-selector gate", () => {
+  // Frame shapes reuse the recorded selector wording (claude-startup.test.ts)
+  // and the rule-pack permission chrome; no invented selector layout.
+  const SELECTOR = [
+    "This session is 1h 52m old and 207.2k tokens.",
+    "1. Resume from summary (recommended)",
+    "2. Resume full session as-is",
+    "Enter to confirm - Esc to cancel",
+  ];
+  const PERMISSION = [
+    "Do you want to proceed?",
+    "1. Yes",
+    "2. No",
+    "Enter to select - Esc to cancel",
+  ];
+  const RULE = "─".repeat(40);
+
+  it("matches the recorded rule-free selector frame", async () => {
+    expect(isLiveClaudeResumeSummaryChoice(SELECTOR)).toBe(true);
+  });
+
+  it("matches a live selector below a transcript rule", async () => {
+    expect(
+      isLiveClaudeResumeSummaryChoice(["older turn output", RULE, ...SELECTOR]),
+    ).toBe(true);
+  });
+
+  it("rejects a stale selector above a live permission dialog", async () => {
+    // Every phrase is present viewport-wide, but Enter would answer the
+    // permission form, not the selector.
+    expect(
+      isLiveClaudeResumeSummaryChoice([...SELECTOR, RULE, ...PERMISSION]),
+    ).toBe(false);
+  });
+
+  it("rejects live permission chrome sharing the selector tail", async () => {
+    expect(
+      isLiveClaudeResumeSummaryChoice([...SELECTOR, "Enter to select"]),
+    ).toBe(false);
   });
 });

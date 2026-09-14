@@ -67,7 +67,7 @@ import {
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
   isClaudeCompactNoop,
-  isClaudeResumeSummaryChoice,
+  isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import {
@@ -1588,13 +1588,13 @@ export const registerVellumIpc = (): void => {
         ) {
           const live = termPlane.host.get(event.bindingId);
           const epoch = live?.epoch;
-          const screen = terminalObserverPlane.snapshot(event.bindingId)?.text;
+          const snap = terminalObserverPlane.snapshot(event.bindingId);
           if (
             live?.status === "running" &&
             epoch &&
-            screen &&
+            snap &&
             acceptedClaudeRecoveryEpoch.get(event.bindingId) !== epoch &&
-            isClaudeResumeSummaryChoice(screen)
+            isLiveClaudeResumeSummaryChoice(snap.lines)
           ) {
             // The selector's highlighted first option is Claude's own
             // recommended summary recovery. This is startup navigation, not a
