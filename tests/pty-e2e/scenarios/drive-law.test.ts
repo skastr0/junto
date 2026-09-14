@@ -148,15 +148,21 @@ describe("D1 — paste+CR on the Claude chip model", () => {
     expect(loop.tui.chipPending()).toBe(true);
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.runtime.getState(BINDING)).toBe("idle");
-    // Stall window → unresolved false. Preserve the chip for the operator.
+    let settled: boolean | null = null;
+    void p.then((ok) => { settled = ok; });
+    // The first timeout permits one recovery CR for the same pending paste.
+    await advance(5_000);
+    await flush();
+    expect(settled).toBeNull();
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
+    expect(loop.attention).toEqual([]);
+    // Exhausting that recovery returns false and preserves the chip.
     await advance(5_000);
     await flush();
     await expect(p).resolves.toBe(false);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
-    expect(loop.attention.map((a) => a.reason)).toEqual([
-      "prompt-stalled",
-      "prompt-stalled",
-    ]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
+    expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
+    expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     expect(ctrlC(loop)).toHaveLength(0);
     expect(loop.tui.chipPending()).toBe(true);
     expect(loop.tui.getPhase()).toBe("idle");
@@ -165,12 +171,12 @@ describe("D1 — paste+CR on the Claude chip model", () => {
 
   it("settle 40ms: chip remains after recipe CRs → writePrompt FALSE + prompt-stalled without cleanup", async () => {
     const { loop } = await runStuckEpisode(40);
-    // Exact write log (t = fake Date.now()): paste, CR + chip CR after
-    // 40ms settle; the 5s stall adds no bytes.
+    // Exact write log: recipe CRs after settle, then one bounded recovery.
     expect(loop.writes.map((w) => w.t)).toEqual([
       1_000_002, // paste
       1_000_042, // cr (settle 40ms)
       1_000_042, // chip-submit cr (immediate)
+      1_005_042, // recovery after the first ACK timeout
     ]);
     loop.dispose();
   });
@@ -181,6 +187,7 @@ describe("D1 — paste+CR on the Claude chip model", () => {
       1_000_002,
       1_000_082, // settle 80ms
       1_000_082, // chip-submit cr
+      1_005_082, // recovery after the first ACK timeout
     ]);
     loop.dispose();
   });
@@ -231,8 +238,8 @@ describe("D2 — false-working must not resolve awaitTurnStart on an unsubmitted
 describe("D3 — unresolved delivery must never Ctrl+C a working agent", () => {
   it("late working ack after a submitted chip CR does not Ctrl+C the working turn", async () => {
     const { loop, advance, flush } = setup({
-      // Chip collapses on the retry CR (real submit), but the working
-      // repaint is delivered 6s late — past the second 5s stall window.
+      // Chip collapses on the recipe chip CR, but the working repaint is
+      // delivered 6s late — past the first 5s ACK window.
       tui: { secondCrSubmits: true, workingFrames: 2, ackDelayMs: 6_000 },
       stallTimeoutMs: 5_000,
       pasteToCrSettleMs: 40,
@@ -246,7 +253,7 @@ describe("D3 — unresolved delivery must never Ctrl+C a working agent", () => {
     expect(loop.tui.getPhase()).toBe("working");
     expect(loop.tui.chipPending()).toBe(false);
 
-    await advance(5_000); // second stall fires at t≈10.04s — ack still in flight
+    await advance(5_000); // first ACK timeout; working repaint is still in flight
     await flush();
     // Law-aligned (live duplicate fix): the retry CR SUBMITTED — the TUI
     // truth is working and our text left the composer; only the working
@@ -258,9 +265,9 @@ describe("D3 — unresolved delivery must never Ctrl+C a working agent", () => {
     // PRODUCT LAW: delivery recovery must not interrupt the working agent.
     expect(ctrlC(loop)).toEqual([]);
 
-    // Attention stream under the fired-law: the stall timeout fires
-    // prompt-stalled; no clear-attempt (text already left the composer).
-    expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
+    // Positive submission evidence resolves success without stalled attention.
+    expect(loop.attention).toEqual([]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
 
     // The late ack is a no-op for the drive (no pending turn).
     await advance(1_100);
@@ -349,7 +356,7 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
 
 describe("D5 — 2nd-CR collapse (sanity, passes today)", () => {
 describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (live 4x duplicate class)", () => {
-  it("D7: text leaves the composer before the stall → writePrompt TRUE, no clear, no retry (today: false → re-paste on every idle)", async () => {
+  it("D7: text leaves the composer before the timeout → TRUE without recovery or attention", async () => {
     const { loop, advance, flush } = setup({
       // Real submit on the FIRST CR (single-line paste), but the working
       // repaint is delivered 6s later — past the 5s stall window. This is
@@ -371,10 +378,8 @@ describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (
     // FIRED-LAW: our text is no longer in the composer → delivered.
     await expect(p).resolves.toBe(true);
     expect(ctrlC(loop)).toEqual([]);
-    // The stall timeout itself still fires prompt-stalled (the ack WAS late) —
-    // the fired-law means we resolve TRUE and never clear, not that we hide
-    // the stall. No retry CR, no clear attempt.
-    expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
+    // Attention belongs to a final failure, not an intermediate ACK timeout.
+    expect(loop.attention).toEqual([]);
     expect(labels(loop)).toEqual(["paste", "cr"]);
     loop.dispose();
   });
@@ -419,11 +424,12 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     const p = loop.drive.writePrompt(BINDING, "a\nb");
     await advance(40);
     await flush();
-    await advance(5_000);
+    await advance(10_000); // original ACK wait plus one recovery ACK wait
     await flush();
     await expect(p).resolves.toBe(false);
     expect(ctrlC(loop)).toHaveLength(0);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
+    expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     expect(loop.tui.getPhase()).toBe("idle");
     expect(loop.tui.chipPending()).toBe(true);
     loop.dispose();
@@ -439,7 +445,7 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     const p1 = loop.drive.writePrompt(BINDING, "a\nb");
     await advance(40);
     await flush();
-    await advance(450);
+    await advance(900); // original ACK wait plus one recovery ACK wait
     await flush();
     await expect(p1).resolves.toBe(false);
     expect(ctrlC(loop)).toHaveLength(0);
@@ -451,7 +457,8 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     loop.drive.onSeatIdle(BINDING);
     await advance(450);
     await flush();
-    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
+    expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
     expect(ctrlC(loop)).toHaveLength(0);
     expect(loop.tui.chipPending()).toBe(true);
     expect(loop.tui.getPhase()).toBe("idle");
@@ -468,7 +475,7 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     const p1 = loop.drive.writePrompt(BINDING, "a\nb");
     await advance(40);
     await flush();
-    await advance(1_100);
+    await advance(2_200); // original ACK wait plus one recovery ACK wait
     await flush();
     await expect(p1).resolves.toBe(false);
     expect(ctrlC(loop)).toHaveLength(0);
@@ -477,7 +484,8 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     await advance(1_100);
     await flush();
     await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toBe(false);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
+    expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
     expect(ctrlC(loop)).toHaveLength(0);
     expect(loop.tui.chipPending()).toBe(true);
     expect(loop.tui.getPhase()).toBe("idle");
@@ -486,7 +494,7 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
 });
 
 describe("D8 — Codex snapshot evidence must not send a chip-submit CR", () => {
-  it("payload still on the idle observer grid after CR1 does not queue CR2", async () => {
+  it("literal pending text permits later bounded recovery, never an immediate chip CR or early receipt", async () => {
     const { loop, advance, flush } = setup({
       harness: "codex",
       pendingEvidence: "snapshot",
@@ -496,6 +504,8 @@ describe("D8 — Codex snapshot evidence must not send a chip-submit CR", () => 
     });
     await flush();
     const p = loop.drive.writePrompt(BINDING, "one\ntwo");
+    let settled: boolean | null = null;
+    void p.then((ok) => { settled = ok; });
     await advance(40);
     await flush();
     // Chip-CR path waits one more settle when chrome is absent.
@@ -508,15 +518,23 @@ describe("D8 — Codex snapshot evidence must not send a chip-submit CR", () => 
     expect(labels(loop)).toEqual(["paste", "cr"]);
     await advance(5_000);
     await flush();
+    expect(settled).toBeNull();
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(loop.attention).toEqual([]);
+    // Only the delayed working paint clears pending evidence and permits success.
+    await advance(1_100);
+    await flush();
     await expect(p).resolves.toBe(true);
-    expect(labels(loop)).toEqual(["paste", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
+    expect(loop.attention).toEqual([]);
     expect(ctrlC(loop)).toEqual([]);
     loop.dispose();
   }, 15_000);
 });
 
 describe("D9 — Grok history footer is not a chip-submit CR", () => {
-  it("multiline paste + [Pasted:Nlines] footer stays paste, cr", async () => {
+  it("history footer never adds a chip CR; literal pending text allows one later recovery", async () => {
     const { loop, advance, flush } = setup({
       harness: "grok",
       pendingEvidence: "snapshot",
@@ -527,6 +545,8 @@ describe("D9 — Grok history footer is not a chip-submit CR", () => {
     await flush();
     expect(loop.runtime.getState(BINDING)).toBe("idle");
     const p = loop.drive.writePrompt(BINDING, "one\ntwo");
+    let settled: boolean | null = null;
+    void p.then((ok) => { settled = ok; });
     await advance(40);
     await flush();
     await advance(40);
@@ -539,8 +559,15 @@ describe("D9 — Grok history footer is not a chip-submit CR", () => {
     expect(labels(loop)).toEqual(["paste", "cr"]);
     await advance(5_000);
     await flush();
+    expect(settled).toBeNull();
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(loop.attention).toEqual([]);
+    await advance(1_100);
+    await flush();
     await expect(p).resolves.toBe(true);
-    expect(labels(loop)).toEqual(["paste", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
+    expect(loop.attention).toEqual([]);
     expect(ctrlC(loop)).toEqual([]);
     loop.dispose();
   }, 15_000);
