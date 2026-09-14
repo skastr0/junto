@@ -80,11 +80,11 @@ import {
 import { injectionSupervisor } from "./term/injection-supervisor";
 import {
   peekFirstTypedMessage,
-  takeFirstTypedMessage,
+  peekFirstTypedEntry,
+  takeFirstTypedEntryIfCurrent,
   clearDeliveredForBinding,
 } from "./term/first-typed";
 import {
-  managedPulseDeliver,
   scheduleManagedPulseReady,
   setManagedPulseDeliver,
 } from "./term/managed-pulse-bridge";
@@ -1386,8 +1386,8 @@ export const registerVellumIpc = (): void => {
       // its own destination drive.
       const { kick: kickFirstTypedDoctrine } = makeFactoryFirstTypedKick({
         firstTyped: {
-          peek: peekFirstTypedMessage,
-          take: takeFirstTypedMessage,
+          peekEntry: peekFirstTypedEntry,
+          takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
           clearDeliveredForBinding,
         },
         driveReady,
@@ -1532,12 +1532,14 @@ export const registerVellumIpc = (): void => {
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),
       });
-      factoryPulseTransport({
+      // Concrete factory closure: the suspension-conditional registration
+      // below wraps THIS closure. Wrapping the global dispatcher instead
+      // re-registers the wrapper itself and recurses on every pulse.
+      const writeManagedPulse = factoryPulseTransport({
         pulse: { setDeliver: setManagedPulseDeliver },
         drive: managedDrive,
         driveReady,
       });
-      const writeManagedPulse = managedPulseDeliver;
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
         // Drive lifecycle (compact ACK, generation cuts, Grok spawn gate)

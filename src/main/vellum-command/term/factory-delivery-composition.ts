@@ -1,11 +1,14 @@
 /**
  * Shared factory-delivery composition.
  *
- * The five product delivery paths — kernel pulses, mailbox mail, the
- * injection supervisor, board wakes, and first-typed doctrine — all reach a
- * managed seat PTY through one destination drive. Command Center wires them
- * in `ipc.ts`; the packaged Node Remote wires the same five through its own
- * destination drive here. Both callsites supply their own evidence sources
+ * The product delivery paths — kernel pulses, the injection supervisor,
+ * board wakes, and first-typed doctrine, plus mailbox mail where its input
+ * exists — all reach a managed seat PTY through one destination drive.
+ * Command Center wires all five in `ipc.ts`; the packaged Node Remote
+ * wires the four locally-sourced paths through its own destination drive
+ * and leaves mail explicitly uncomposed (actor mailboxes are CC-homed; a
+ * Remote never materializes message.append, so no local store read can
+ * source pending mail). Both callsites supply their own evidence sources
  * (runtime, kernel, canvases, pause); this module owns only the shared
  * recipe, so neither side can drift into a raw PTY bypass.
  *
@@ -22,7 +25,10 @@ import type { CanvasDoc } from "@shared/canvas";
 import { seatPaused, type CanvasPauseState } from "@shared/pause";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
-import { makeManagedPulseDeliver } from "./managed-pulse-bridge";
+import {
+  makeManagedPulseDeliver,
+  type ManagedPulseDeliver,
+} from "./managed-pulse-bridge";
 import type { BoardDeliveryTransport } from "../work/board-delivery";
 import type {
   MessageDeliveryReadSite,
@@ -126,8 +132,13 @@ export type FactoryDeliveryBoard = {
 };
 
 export type FactoryDeliveryFirstTyped = {
-  readonly peek: (bindingId: string) => string | undefined;
-  readonly take: (bindingId: string) => string | undefined;
+  readonly peekEntry: (
+    bindingId: string,
+  ) => { readonly text: string; readonly seq: number } | undefined;
+  readonly takeEntryIfCurrent: (
+    bindingId: string,
+    seq: number,
+  ) => string | undefined;
   readonly clearDeliveredForBinding: (bindingId: string) => void;
 };
 
@@ -192,20 +203,18 @@ export const makeFactoryFirstTypedKick = (input: {
 } => {
   const inFlight = new Set<string>();
   const kick = (bindingId: string): void => {
-    const first = input.firstTyped.peek(bindingId);
+    const arm = input.firstTyped.peekEntry(bindingId);
     if (
-      first &&
+      arm &&
       input.driveReady(bindingId) &&
       !inFlight.has(bindingId)
     ) {
       inFlight.add(bindingId);
       void input
-        .write(bindingId, first, { awaitTurnStart: false })
+        .write(bindingId, arm.text, { awaitTurnStart: false })
         .then(
           (ok) => {
-            if (ok && input.firstTyped.peek(bindingId) === first) {
-              input.firstTyped.take(bindingId);
-            }
+            if (ok) input.firstTyped.takeEntryIfCurrent(bindingId, arm.seq);
           },
           () => {},
         )
@@ -217,19 +226,25 @@ export const makeFactoryFirstTypedKick = (input: {
   return { kick, inFlight };
 };
 
-/** Kernel pulse transport through the destination drive. */
+/**
+ * Kernel pulse transport through the destination drive. Returns the
+ * concrete deliver closure it registers: callsites must route later
+ * conditional re-registrations through this closure, never through the
+ * global dispatcher — wrapping the dispatcher re-registers the wrapper
+ * itself and recurses on every pulse.
+ */
 export const factoryPulseTransport = (input: {
   readonly pulse: FactoryDeliveryPulse;
   readonly drive: FactoryDeliveryDrive;
   readonly driveReady: (bindingId: string) => boolean;
-}): void => {
-  input.pulse.setDeliver(
-    makeManagedPulseDeliver(
-      (bindingId, text, options) =>
-        input.drive.writePrompt(bindingId, text, options),
-      input.driveReady,
-    ),
+}): ManagedPulseDeliver => {
+  const deliver = makeManagedPulseDeliver(
+    (bindingId, text, options) =>
+      input.drive.writePrompt(bindingId, text, options),
+    input.driveReady,
   );
+  input.pulse.setDeliver(deliver);
+  return deliver;
 };
 
 /** Board megaphone transport through the destination drive. */
@@ -297,8 +312,15 @@ export type ComposeFactoryDeliveryInput = {
   readonly events: FactoryDeliveryEvents;
   readonly supervisor: FactoryDeliverySupervisor;
   readonly escalate: (bindingId: string, reason: string) => void;
-  readonly mail: FactoryDeliveryMail;
-  readonly store: MessageDeliveryStore;
+  /**
+   * Mailbox mail is Command Center-only: actor mailboxes are CC-homed and
+   * a Remote never materializes message.append, so no local store read can
+   * source pending mail there. A runtime without a CC-authoritative pending
+   * delivery input omits both; the composition then wires
+   * pulse/supervisor/board/firstTyped only and claims no mail completion.
+   */
+  readonly mail?: FactoryDeliveryMail;
+  readonly store?: MessageDeliveryStore;
   readonly pulse: FactoryDeliveryPulse;
   readonly board: FactoryDeliveryBoard;
   readonly firstTyped: FactoryDeliveryFirstTyped;
@@ -317,9 +339,12 @@ export type ComposedFactoryDelivery = {
 };
 
 /**
- * Compose all five delivery paths through one destination drive. Returns
- * the writer plus the doctrine kick (for the runtime's pre-idle hook) and
- * a dispose closing every subscription this call opened.
+ * Compose the factory delivery paths through one destination drive. With
+ * mail/store supplied this is all five paths; without them (a runtime with
+ * no CC-authoritative pending-mail input, such as the Node Remote) it is
+ * pulse/supervisor/board/firstTyped with mail explicitly uncomposed.
+ * Returns the writer plus the doctrine kick (for the runtime's pre-idle
+ * hook) and a dispose closing every subscription this call opened.
  */
 export const composeFactoryDelivery = (
   input: ComposeFactoryDeliveryInput,
@@ -339,17 +364,22 @@ export const composeFactoryDelivery = (
   input.board.configure(
     factoryBoardTransport({ kernel: input.kernel, write }),
   );
-  input.mail.configure({
-    transport: factoryMailTransport({
-      kernel: input.kernel,
-      write,
-      drive: input.drive,
-      seatSnapshot: input.seatSnapshot,
-    }),
-    store: input.store,
-    seatPaused: (canvas, doc, nodeId) =>
-      factorySeatPaused(input.pause, canvas, doc, nodeId),
-  });
+  const mail = input.mail !== undefined && input.store !== undefined
+    ? { service: input.mail, store: input.store }
+    : undefined;
+  if (mail) {
+    mail.service.configure({
+      transport: factoryMailTransport({
+        kernel: input.kernel,
+        write,
+        drive: input.drive,
+        seatSnapshot: input.seatSnapshot,
+      }),
+      store: mail.store,
+      seatPaused: (canvas, doc, nodeId) =>
+        factorySeatPaused(input.pause, canvas, doc, nodeId),
+    });
+  }
   const unsubs: Array<() => void> = [];
   unsubs.push(
     wireFactorySupervisor({
@@ -366,28 +396,30 @@ export const composeFactoryDelivery = (
         input.firstTyped.clearDeliveredForBinding(event.bindingId);
       }
       if (event.state === "idle") {
-        input.mail.onManagedTerminalIdle(event.bindingId);
+        mail?.service.onManagedTerminalIdle(event.bindingId);
       }
     }),
   );
-  unsubs.push(
-    input.events.subscribeComposerEmpty((bindingId) => {
-      input.mail.onComposerEmpty(bindingId);
-    }),
-  );
-  unsubs.push(
-    input.pause.subscribe((canvas) => {
-      if (input.pause.stateFor(canvas).playing) input.mail.onResumed();
-    }),
-  );
+  if (mail) {
+    unsubs.push(
+      input.events.subscribeComposerEmpty((bindingId) => {
+        mail.service.onComposerEmpty(bindingId);
+      }),
+    );
+    unsubs.push(
+      input.pause.subscribe((canvas) => {
+        if (input.pause.stateFor(canvas).playing) mail.service.onResumed();
+      }),
+    );
 
-  const bootMs = input.bootRescanMs ?? 10_000;
-  if (input.scheduleBootRescan) {
-    input.scheduleBootRescan(() => input.mail.onBooted(), bootMs);
-  } else {
-    const timer = setTimeout(() => input.mail.onBooted(), bootMs);
-    timer.unref?.();
-    unsubs.push(() => clearTimeout(timer));
+    const bootMs = input.bootRescanMs ?? 10_000;
+    if (input.scheduleBootRescan) {
+      input.scheduleBootRescan(() => mail.service.onBooted(), bootMs);
+    } else {
+      const timer = setTimeout(() => mail.service.onBooted(), bootMs);
+      timer.unref?.();
+      unsubs.push(() => clearTimeout(timer));
+    }
   }
 
   return {

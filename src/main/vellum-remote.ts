@@ -9,34 +9,22 @@
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import {
   isRemotePackaged,
   remoteAppVersion,
   RemoteRuntime,
 } from "./remote-runtime";
-import type { CanvasDoc } from "@shared/canvas";
-import { IntentFactBasis } from "@shared/work-protocol";
-import { CanvasesService } from "./vellum-command/canvases";
 import { PausePlane } from "./vellum-command/pause-plane";
-import { SettingsService } from "./vellum-command/settings/service";
-import { messageDelivery } from "./vellum-command/work/message-delivery";
-import {
-  mailboxMessageDeliveryId,
-  mailboxMessageReadId,
-} from "./vellum-command/work/mailbox-receipts";
 import { configureBoardDelivery } from "./vellum-command/work/board-delivery";
 import { setManagedPulseDeliver } from "./vellum-command/term/managed-pulse-bridge";
 import { injectionSupervisor } from "./vellum-command/term/injection-supervisor";
 import {
   clearDeliveredForBinding,
-  peekFirstTypedMessage,
-  takeFirstTypedMessage,
+  peekFirstTypedEntry,
+  takeFirstTypedEntryIfCurrent,
 } from "./vellum-command/term/first-typed";
-import {
-  composeFactoryDelivery,
-  factoryDeliveryReadTag,
-} from "./vellum-command/term/factory-delivery-composition";
+import { composeFactoryDelivery } from "./vellum-command/term/factory-delivery-composition";
 import { isManagedTerminalReady } from "./vellum-command/term/drive/readiness";
 import { evaluateSchemaCompatibility } from "./vellum-command/state/schema-version-probe";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
@@ -176,7 +164,8 @@ const runProductBoot = async (): Promise<void> => {
     if (handles.shuttingDown) return;
     handles.shuttingDown = true;
     handles.kernel?.suspend();
-    messageDelivery.suspend();
+    // Mail was never configured on this process (CC-homed, unsupported);
+    // only the pulse slot this process owns is cleared.
     setManagedPulseDeliver(undefined);
     try {
       handles.delivery?.dispose();
@@ -440,79 +429,15 @@ const runProductBoot = async (): Promise<void> => {
       snapshot: terminalObserverPlane.snapshot(bindingId),
     });
   };
-  const remoteCanvases = await RemoteRuntime.runPromise(CanvasesService);
   const remotePause = await RemoteRuntime.runPromise(PausePlane);
-  // Mailbox receipt stamp for Remote-homed mail. Mirrors the Command Center
-  // stamp with projected-intent basis (this process never authors intent);
-  // direct repository writes follow the kernel claim-receipt precedent —
-  // no main-authoring gate on this path. Delivery semantics themselves
-  // remain Claude's lane (message-delivery.ts untouched).
-  const stampRemoteMailboxReceipt = (
-    deliveryId: string,
-    canvas: string,
-    nodeId: string,
-    messageId: string,
-  ): Promise<boolean> =>
-    RemoteRuntime.runPromise(
-      Effect.gen(function* () {
-        const repo = yield* WorkRepository;
-        const canvases = yield* CanvasesService;
-        const sink = { canvasName: canvas, nodeId };
-        if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
-          return true;
-        }
-        const read = yield* canvases.read(canvas, "delivery.readStamp");
-        const actor = read.actorRefs.find(
-          (ref) => ref.canvasName === canvas && ref.nodeId === nodeId,
-        );
-        if (actor === undefined) return false;
-        const settings = yield* SettingsService;
-        const current = yield* settings.get;
-        const intentWitness = yield* canvases.activeIntentWitness();
-        const basis = Schema.decodeUnknownSync(IntentFactBasis)({
-          kind:
-            current.station.role === "command-center"
-              ? "authorial-intent"
-              : "projected-intent",
-          generation: intentWitness.generation,
-          contentSha256: intentWitness.contentSha256,
-        });
-        yield* repo.acceptDelivery({
-          sink,
-          basis,
-          receipt: {
-            deliveryId,
-            deliveredItem: {
-              kind: "message",
-              itemId: messageId,
-              sink,
-            },
-            actor,
-            acceptedAt: new Date().toISOString(),
-          },
-        });
-        return true;
-      }) as never,
-    ).then(
-      (ok) => (ok as boolean),
-      () =>
-        RemoteRuntime.runPromise(
-          Effect.gen(function* () {
-            const repo = yield* WorkRepository;
-            return yield* repo.hasAcceptedDelivery(
-              { canvasName: canvas, nodeId },
-              deliveryId,
-            );
-          }) as never,
-        ).then(
-          (ok) => (ok as boolean),
-          () => false,
-        ),
-    );
-  // Factory delivery composition: kernel pulses, mailbox mail, the
-  // injection supervisor, board wakes, and first-typed doctrine all reach
-  // Remote seats through this installation's destination drive — the same
-  // shared recipe as Command Center, no raw PTY bypass.
+  // Factory delivery composition: kernel pulses, the injection supervisor,
+  // board wakes, and first-typed doctrine reach Remote seats through this
+  // installation's destination drive — the same shared recipe as Command
+  // Center, no raw PTY bypass. Mailbox mail is explicitly uncomposed:
+  // actor mailboxes are CC-homed and a Remote never materializes
+  // message.append, so no local store read can source pending mail. Mail
+  // stays unsupported here until a CC-authoritative pending-delivery input
+  // exists; nothing below claims mail completion.
   const remoteDelivery = composeFactoryDelivery({
     drive: remoteDrive,
     driveReady: remoteDriveReady,
@@ -533,74 +458,11 @@ const runProductBoot = async (): Promise<void> => {
       if (!seatStateRuntime.machine.getSlot(bindingId)) return;
       seatStateRuntime.machine.force(bindingId, "attention", reason, "high");
     },
-    mail: messageDelivery,
-    store: {
-      listCanvasNames: () =>
-        RemoteRuntime.runPromise(
-          remoteCanvases.list.pipe(
-            Effect.map((entries) => entries.map((e) => e.name)),
-          ),
-        ),
-      readDoc: (name, site) =>
-        RemoteRuntime.runPromise(
-          remoteCanvases.read(name, factoryDeliveryReadTag(site)).pipe(
-            Effect.map((r) => r.doc),
-            Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
-          ),
-        ),
-      // Deliberately NOT error-swallowing: `undefined` here must mean the
-      // node is gone, so delivery can retire queued work for it. A failed
-      // read has to reject and leave that work queued.
-      readNodeStructure: (name, nodeId) =>
-        RemoteRuntime.runPromise(
-          remoteCanvases.readNodeStructure(name, nodeId, "delivery.route").pipe(
-            Effect.map((found) =>
-              found === undefined
-                ? undefined
-                : { node: found.node, structure: found.structure },
-            ),
-          ),
-        ),
-      hasAcceptedMessageDelivery: (canvas, nodeId, messageId) =>
-        RemoteRuntime.runPromise(
-          Effect.gen(function* () {
-            const repo = yield* WorkRepository;
-            return yield* repo.hasAcceptedDelivery(
-              { canvasName: canvas, nodeId },
-              mailboxMessageDeliveryId(canvas, nodeId, messageId),
-            );
-          }).pipe(Effect.catch(() => Effect.succeed(false))) as never,
-        ),
-      hasAcceptedMessageRead: (canvas, nodeId, messageId) =>
-        RemoteRuntime.runPromise(
-          Effect.gen(function* () {
-            const repo = yield* WorkRepository;
-            return yield* repo.hasAcceptedDelivery(
-              { canvasName: canvas, nodeId },
-              mailboxMessageReadId(canvas, nodeId, messageId),
-            );
-          }).pipe(Effect.catch(() => Effect.succeed(false))) as never,
-        ),
-      acceptMessageDelivery: (canvas, nodeId, messageId) =>
-        stampRemoteMailboxReceipt(
-          mailboxMessageDeliveryId(canvas, nodeId, messageId),
-          canvas,
-          nodeId,
-          messageId,
-        ),
-      acceptMessageRead: (canvas, nodeId, messageId) =>
-        stampRemoteMailboxReceipt(
-          mailboxMessageReadId(canvas, nodeId, messageId),
-          canvas,
-          nodeId,
-          messageId,
-        ),
-    },
     pulse: { setDeliver: setManagedPulseDeliver },
     board: { configure: configureBoardDelivery },
     firstTyped: {
-      peek: peekFirstTypedMessage,
-      take: takeFirstTypedMessage,
+      peekEntry: peekFirstTypedEntry,
+      takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
       clearDeliveredForBinding,
     },
     seatSnapshot: (bindingId) => {

@@ -11,9 +11,10 @@ import { InjectionSupervisor } from "../src/main/vellum-command/term/injection-s
 import {
   armFirstTypedMessage,
   clearDeliveredForBinding,
+  peekFirstTypedEntry,
   peekFirstTypedMessage,
   resetFirstTypedForTest,
-  takeFirstTypedMessage,
+  takeFirstTypedEntryIfCurrent,
 } from "../src/main/vellum-command/term/first-typed";
 import { MessageDeliveryService } from "../src/main/vellum-command/work/message-delivery";
 import {
@@ -77,14 +78,17 @@ describe("makeFactoryFirstTypedKick", () => {
   it("consumes the armed doctrine only after a successful paste", async () => {
     const drive = fakeDrive();
     let armed: string | undefined = "doctrine body";
+    let seq = 1;
     const taken: string[] = [];
     const { kick } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: () => armed,
-        take: () => {
+        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
+        takeEntryIfCurrent: (_b, s) => {
+          if (s !== seq || armed === undefined) return undefined;
           taken.push("b1");
+          const text = armed;
           armed = undefined;
-          return "doctrine body";
+          return text;
         },
         clearDeliveredForBinding: () => {},
       },
@@ -103,11 +107,13 @@ describe("makeFactoryFirstTypedKick", () => {
     const drive = fakeDrive();
     drive.writePrompt = () => Promise.resolve(false);
     let armed: string | undefined = "doctrine body";
+    const seq = 1;
     let took = 0;
     const { kick } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: () => armed,
-        take: () => {
+        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
+        takeEntryIfCurrent: (_b, s) => {
+          if (s !== seq) return undefined;
           took += 1;
           return armed;
         },
@@ -134,8 +140,8 @@ describe("makeFactoryFirstTypedKick", () => {
     };
     const { kick, inFlight } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: () => "doctrine",
-        take: () => "doctrine",
+        peekEntry: () => ({ text: "doctrine", seq: 1 }),
+        takeEntryIfCurrent: (_b, s) => (s === 1 ? "doctrine" : undefined),
         clearDeliveredForBinding: () => {},
       },
       driveReady: () => true,
@@ -152,8 +158,8 @@ describe("makeFactoryFirstTypedKick", () => {
     const drive = fakeDrive();
     const { kick } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: () => "doctrine",
-        take: () => "doctrine",
+        peekEntry: () => ({ text: "doctrine", seq: 1 }),
+        takeEntryIfCurrent: (_b, s) => (s === 1 ? "doctrine" : undefined),
         clearDeliveredForBinding: () => {},
       },
       driveReady: () => false,
@@ -171,15 +177,17 @@ describe("makeFactoryFirstTypedKick", () => {
         resolveWrite = resolve;
       });
     let armed: string | undefined = "generation-one";
+    let seq = 1;
     const taken: string[] = [];
     const { kick, inFlight } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: () => armed,
-        take: () => {
-          const current = armed;
-          taken.push(current ?? "");
+        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
+        takeEntryIfCurrent: (_b, s) => {
+          if (s !== seq || armed === undefined) return undefined;
+          taken.push(armed);
+          const text = armed;
           armed = undefined;
-          return current;
+          return text;
         },
         clearDeliveredForBinding: () => {},
       },
@@ -189,6 +197,7 @@ describe("makeFactoryFirstTypedKick", () => {
     kick("b1");
     // Generation replacement rearms mid-flight with newer doctrine.
     armed = "generation-two";
+    seq = 2;
     resolveWrite(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(taken).toEqual([]);
@@ -206,15 +215,46 @@ describe("makeFactoryFirstTypedKick", () => {
     expect(taken).toEqual(["generation-two"]);
   });
 
+  it("same-text rearm survives a late old success (real registry)", async () => {
+    // Reviewer scenario: arm T, old kick in flight, clear plus rearm of the
+    // IDENTICAL text. Text equality is not arm identity — the old success
+    // must not consume the new arm.
+    const drive = fakeDrive();
+    let resolveWrite!: (ok: boolean) => void;
+    drive.writePrompt = () =>
+      new Promise<boolean>((resolve) => {
+        resolveWrite = resolve;
+      });
+    const { kick, inFlight } = makeFactoryFirstTypedKick({
+      firstTyped: {
+        peekEntry: peekFirstTypedEntry,
+        takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
+        clearDeliveredForBinding,
+      },
+      driveReady: () => true,
+      write: makeFactoryWriteManagedPrompt(drive, () => true),
+    });
+    armFirstTypedMessage("rearm-b", "identical doctrine");
+    kick("rearm-b");
+    clearDeliveredForBinding("rearm-b");
+    armFirstTypedMessage("rearm-b", "identical doctrine");
+    resolveWrite(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(peekFirstTypedMessage("rearm-b")).toBe("identical doctrine");
+    expect(inFlight.has("rearm-b")).toBe(false);
+  });
+
   it("a rejected write releases the flight and keeps the arm", async () => {
     const drive = fakeDrive();
     drive.writePrompt = () => Promise.reject(new Error("seat gone"));
     let armed: string | undefined = "doctrine body";
+    const seq = 7;
     let took = 0;
     const { kick, inFlight } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: () => armed,
-        take: () => {
+        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
+        takeEntryIfCurrent: (_b, s) => {
+          if (s !== seq) return undefined;
           took += 1;
           return armed;
         },
@@ -235,7 +275,7 @@ describe("factoryPulseTransport", () => {
   it("routes pulses through the drive without the busy queue", async () => {
     const drive = fakeDrive();
     let delivered: ((b: string, m: string) => Promise<boolean>) | undefined;
-    factoryPulseTransport({
+    const returned = factoryPulseTransport({
       pulse: {
         setDeliver: (fn) => {
           delivered = fn;
@@ -245,6 +285,7 @@ describe("factoryPulseTransport", () => {
       driveReady: () => true,
     });
     expect(delivered).toBeDefined();
+    expect(returned).toBe(delivered);
     await delivered?.("b1", "pulse body");
     expect(drive.writes).toHaveLength(1);
     expect(drive.writes[0]).toMatchObject({
@@ -252,6 +293,43 @@ describe("factoryPulseTransport", () => {
       text: "pulse body",
       options: { ready: true, queueIfBusy: false },
     });
+  });
+
+  it("registers the concrete closure so conditional wrappers cannot recurse", async () => {
+    // Regression for the ipc wiring defect: the suspension-conditional
+    // re-registration wrapped the global dispatcher instead of the
+    // factory closure, so every kernel pulse recursed into itself.
+    // This test replays the exact registration order against the real
+    // bridge: factory registration, conditional wrapper, one pulse.
+    const {
+      managedPulseDeliver,
+      setManagedPulseDeliver,
+    } = await import(
+      "../src/main/vellum-command/term/managed-pulse-bridge"
+    );
+    const drive = fakeDrive();
+    try {
+      const concrete = factoryPulseTransport({
+        pulse: { setDeliver: setManagedPulseDeliver },
+        drive,
+        driveReady: () => true,
+      });
+      const suspended = false;
+      setManagedPulseDeliver(
+        suspended ? undefined : (bindingId, text) => concrete(bindingId, text),
+      );
+      await managedPulseDeliver("bridge-b1", "kernel pulse");
+      const payload = drive.writes
+        .filter((w) => w.bindingId === "bridge-b1")
+        .map((w) => w.text)
+        .join("");
+      expect(payload).toContain("kernel pulse");
+      expect(
+        drive.writes.filter((w) => w.bindingId === "bridge-b1"),
+      ).toHaveLength(1);
+    } finally {
+      setManagedPulseDeliver(undefined);
+    }
   });
 });
 
@@ -434,8 +512,8 @@ describe("composeFactoryDelivery", () => {
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
       firstTyped: {
-        peek: () => undefined,
-        take: () => undefined,
+        peekEntry: () => undefined,
+        takeEntryIfCurrent: () => undefined,
         clearDeliveredForBinding: (b) => {
           cleared.push(b);
         },
@@ -535,8 +613,11 @@ describe("composeFactoryDelivery", () => {
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
       firstTyped: {
-        peek: (b) => armed.get(b),
-        take: (b) => armed.get(b),
+        peekEntry: (b) => {
+          const text = armed.get(b);
+          return text === undefined ? undefined : { text, seq: 1 };
+        },
+        takeEntryIfCurrent: (b, s) => (s === 1 ? armed.get(b) : undefined),
         clearDeliveredForBinding: () => {},
       },
       seatSnapshot: () => undefined,
@@ -586,8 +667,8 @@ describe("composeFactoryDelivery", () => {
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
       firstTyped: {
-        peek: () => undefined,
-        take: () => undefined,
+        peekEntry: () => undefined,
+        takeEntryIfCurrent: () => undefined,
         clearDeliveredForBinding: () => {},
       },
       seatSnapshot: () => undefined,
@@ -636,8 +717,8 @@ describe("real destination-drive composition", () => {
     const write = makeFactoryWriteManagedPrompt(d, () => true);
     const { kick } = makeFactoryFirstTypedKick({
       firstTyped: {
-        peek: peekFirstTypedMessage,
-        take: takeFirstTypedMessage,
+        peekEntry: peekFirstTypedEntry,
+        takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
         clearDeliveredForBinding,
       },
       driveReady: () => true,
