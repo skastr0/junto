@@ -7,13 +7,13 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
-import { seatPaused, type PauseScope } from "@shared/pause";
+import { type PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
 import { registerBrowserIpc } from "./browser/ipc";
 import type { BrowserSessionService } from "./browser/sessions";
-import { CanvasesService, type CanvasReadTag } from "./canvases";
+import { CanvasesService } from "./canvases";
 import { CanvasEntityRepository } from "./entities/repository";
 import { BoxActivityPolicy } from "./box";
 
@@ -45,10 +45,7 @@ import { SnapshotsService } from "./snapshots";
 import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
-import {
-  messageDelivery,
-  type MessageDeliveryReadSite,
-} from "./work/message-delivery";
+import { messageDelivery } from "./work/message-delivery";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
@@ -87,10 +84,19 @@ import {
   clearDeliveredForBinding,
 } from "./term/first-typed";
 import {
-  makeManagedPulseDeliver,
+  managedPulseDeliver,
   scheduleManagedPulseReady,
   setManagedPulseDeliver,
 } from "./term/managed-pulse-bridge";
+import {
+  factoryBoardTransport,
+  factoryDeliveryReadTag,
+  factoryMailTransport,
+  factoryPulseTransport,
+  factorySeatPaused,
+  makeFactoryFirstTypedKick,
+  wireFactorySupervisor,
+} from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
 import { termPlane } from "./term/plane";
 import { bindManagedTerminalDriveForOverseer } from "./term/managed-drive-holder";
@@ -1349,37 +1355,44 @@ export const registerVellumIpc = (): void => {
           seatStateRuntime.machine.getSlot(bindingId)?.harness,
       });
       bindManagedTerminalDriveForOverseer(managedDrive);
-      // Tier B doctrine kick, extracted so the shared runtime initiates it
-      // before the drive's own idle drain (preserving the original
-      // firstTyped-before-drain invocation order; no stronger lock priority
-      // is claimed).
-      function kickFirstTypedDoctrine(bindingId: string): void {
-        // Peek first — only consume after a successful physical paste+CR.
-        // Do NOT await turn-start: Muse (and other weak-chrome harnesses)
-        // never publish working, so stallWatch would force attention, leave
-        // the arm live, and re-paste on every idle re-entry (infinite loop).
-        const first = peekFirstTypedMessage(bindingId);
-        if (
-          first &&
-          driveReady(bindingId) &&
-          !firstTypedInFlight.has(bindingId)
-        ) {
-          firstTypedInFlight.add(bindingId);
-          void writeManagedPrompt(bindingId, first, {
-            // Weak-chrome harnesses never publish working. Skip the stall
-            // watch, but still send a chip-submit CR when `[Pasted text`
-            // chrome is visible, then settle. An unresolved paste stays
-            // unreceipted and blocks automation until binding invalidation.
-            awaitTurnStart: false,
-          })
-            .then((ok) => {
-              if (ok) takeFirstTypedMessage(bindingId);
-            })
-            .finally(() => {
-              firstTypedInFlight.delete(bindingId);
-            });
-        }
-      }
+      const driveReady = (bindingId: string): boolean => {
+        if (productAutomationSuspended) return false;
+        const slot = seatStateRuntime.machine.getSlot(bindingId);
+        return isManagedTerminalReady({
+          harness: slot?.harness,
+          seatState: seatStateRuntime.getState(bindingId),
+          snapshot: terminalObserverPlane.snapshot(bindingId),
+        });
+      };
+      const writeManagedPrompt = (
+        bindingId: string,
+        text: string,
+        options?: {
+          readonly queueTimeoutMs?: number;
+          readonly ready?: boolean;
+          readonly interruptIfBusy?: boolean;
+          /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
+          readonly awaitTurnStart?: boolean;
+        },
+      ) =>
+        managedDrive.writePrompt(bindingId, text, {
+          ready: options?.ready ?? driveReady(bindingId),
+          ...(options ?? {}),
+        });
+      // Tier B doctrine kick, initiated by the shared runtime before the
+      // drive's own idle drain (preserving the original firstTyped-before-
+      // drain invocation order; no stronger lock priority is claimed).
+      // Shared recipe — the Node Remote kicks the same doctrine through
+      // its own destination drive.
+      const { kick: kickFirstTypedDoctrine } = makeFactoryFirstTypedKick({
+        firstTyped: {
+          peek: peekFirstTypedMessage,
+          take: takeFirstTypedMessage,
+          clearDeliveredForBinding,
+        },
+        driveReady,
+        write: writeManagedPrompt,
+      });
       // Shared drive lifecycle (ACK/drain/generation cuts); product
       // supervisory feeds below stay local to Command Center.
       attachManagedTerminalDriveRuntime(managedDrive, {
@@ -1441,32 +1454,6 @@ export const registerVellumIpc = (): void => {
       // Post-spawn session capture for harnesses that mint an id and never
       // print it (Muse, fx). Home is read lazily so a test seam can move it.
       const seatSessionCapture = new SeatSessionCapture(() => homedir());
-      const driveReady = (bindingId: string): boolean => {
-        if (productAutomationSuspended) return false;
-        const slot = seatStateRuntime.machine.getSlot(bindingId);
-        return isManagedTerminalReady({
-          harness: slot?.harness,
-          seatState: seatStateRuntime.getState(bindingId),
-          snapshot: terminalObserverPlane.snapshot(bindingId),
-        });
-      };
-      const writeManagedPrompt = (
-        bindingId: string,
-        text: string,
-        options?: {
-          readonly queueTimeoutMs?: number;
-          readonly ready?: boolean;
-          readonly interruptIfBusy?: boolean;
-          /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
-          readonly awaitTurnStart?: boolean;
-        },
-      ) =>
-        managedDrive.writePrompt(bindingId, text, {
-          ready: options?.ready ?? driveReady(bindingId),
-          ...(options ?? {}),
-        });
-      /** In-flight firstTyped deliveries — one arm at a time per binding. */
-      const firstTypedInFlight = new Set<string>();
       // Operator multi-prompt (RTS): wake lazy seat + paste+CR without a
       // renderer control lease. Same drive as board megaphone / mailbox.
       privilegedIpc.handle(
@@ -1527,26 +1514,30 @@ export const registerVellumIpc = (): void => {
       // Supervisor transport wiring: re-delivered doctrine goes through the
       // same drive as first-typed doctrine; escalation surfaces on the canvas
       // via the seat state machine (attention with an operator-facing reason).
-      injectionSupervisor.setWriter((bindingId, text) =>
-        writeManagedPrompt(bindingId, text),
-      );
-
-      injectionSupervisor.setEscalationHandler((bindingId, reason) => {
-        seatStateRuntime.machine.force(
-          bindingId,
-          "attention",
-          reason,
-          "high",
-        );
+      // Supervisor transport wiring: re-delivered doctrine goes through the
+      // same drive as first-typed doctrine; escalation surfaces on the canvas
+      // via the seat state machine. Shared recipe — the Node Remote wires
+      // the same supervisor through its own destination drive.
+      wireFactorySupervisor({
+        supervisor: injectionSupervisor,
+        write: writeManagedPrompt,
+        escalate: (bindingId, reason) => {
+          seatStateRuntime.machine.force(
+            bindingId,
+            "attention",
+            reason,
+            "high",
+          );
+        },
+        subscribeSnapshots: (listener) =>
+          terminalObserverPlane.subscribeGlobal(listener),
       });
-      terminalObserverPlane.subscribeGlobal((snap) => {
-        injectionSupervisor.onSnapshot(snap);
-      });
-      const writeManagedPulse = makeManagedPulseDeliver(
-        (bindingId, text, options) =>
-          managedDrive.writePrompt(bindingId, text, options),
+      factoryPulseTransport({
+        pulse: { setDeliver: setManagedPulseDeliver },
+        drive: managedDrive,
         driveReady,
-      );
+      });
+      const writeManagedPulse = managedPulseDeliver;
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
         // Drive lifecycle (compact ACK, generation cuts, Grok spawn gate)
@@ -1668,44 +1659,23 @@ export const registerVellumIpc = (): void => {
       const { configureBoardDelivery } = yield* Effect.promise(
         () => import("./work/board-delivery"),
       );
-      configureBoardDelivery({
-        wakeManagedSeat: (canvas, nodeId) =>
-          kernel.wakeManagedSeat(canvas, nodeId),
-        sendManagedTerminalPrompt: (bindingId, text, options) =>
-          writeManagedPrompt(bindingId, text, options),
-      });
+      configureBoardDelivery(
+        factoryBoardTransport({ kernel, write: writeManagedPrompt }),
+      );
 
       // Message nudge channel: ether.messages -> live managed terminal seats.
       // Retry only on session-live / seat-idle (no polling store).
-      // One perf tag per delivery call site — a read loop must name its driver.
-      const deliveryReadTag = (
-        site: MessageDeliveryReadSite,
-      ): CanvasReadTag => {
-        switch (site) {
-          case "scan":
-            return "delivery.scan";
-          case "attempt":
-            return "delivery.attempt";
-          case "batch":
-            return "delivery.batch";
-        }
-      };
+      // Shared recipe — the Node Remote configures the same transport
+      // through its own destination drive (see factory-delivery-composition).
       messageDelivery.configure({
-        transport: {
-          wakeManagedSeat: (canvas, nodeId) =>
-            kernel.wakeManagedSeat(canvas, nodeId),
-          // Kind-discriminated surfaces only — no ACP transport fields.
-          // Raw geography shells: no auto-submit.
-          sendTerminalPaste: (_bindingId, _text, _messageId) => false,
-          // managedAgent + rawTerminal → paste+CR via idle-gated drive.
-          sendManagedTerminalPrompt: (bindingId, text, options) =>
-            writeManagedPrompt(bindingId, text, options),
-          pasteWriteCount: (bindingId) =>
-            managedDrive.pasteWriteCount(bindingId),
+        transport: factoryMailTransport({
+          kernel,
+          write: writeManagedPrompt,
+          drive: managedDrive,
           // Settled idle + do not paste over a live operator (recent
           // keystrokes or a stuck paste chip). Generation-lifetime typing
           // is not draft — a human-driven seat would never drain mail.
-          seatDeliverySnapshot: (bindingId) => {
+          seatSnapshot: (bindingId) => {
             const live = termPlane.host.get(bindingId);
             if (
               !live ||
@@ -1725,7 +1695,7 @@ export const registerVellumIpc = (): void => {
                 seatStateRuntime.composerVerdict(bindingId) !== "empty",
             };
           },
-        },
+        }),
         store: {
           listCanvasNames: () =>
             AppRuntime.runPromise(
@@ -1733,7 +1703,7 @@ export const registerVellumIpc = (): void => {
             ),
           readDoc: (name, site) =>
             AppRuntime.runPromise(
-              canvases.read(name, deliveryReadTag(site)).pipe(
+              canvases.read(name, factoryDeliveryReadTag(site)).pipe(
                 Effect.map((r) => r.doc),
                 Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
@@ -1791,7 +1761,7 @@ export const registerVellumIpc = (): void => {
         // Pause law (@shared/pause): canvas paused OR node paused OR any
         // containing region paused keeps the message pending, never sent.
         seatPaused: (canvas, doc, nodeId) =>
-          seatPaused(pause.stateFor(canvas), doc, nodeId),
+          factorySeatPaused(pause, canvas, doc, nodeId),
       });
       // A canvas flipping to playing (or a node/region unpausing inside a
       // playing canvas) re-drives every message held pending while paused.

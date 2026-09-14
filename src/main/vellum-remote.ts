@@ -9,12 +9,35 @@
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   isRemotePackaged,
   remoteAppVersion,
   RemoteRuntime,
 } from "./remote-runtime";
+import type { CanvasDoc } from "@shared/canvas";
+import { IntentFactBasis } from "@shared/work-protocol";
+import { CanvasesService } from "./vellum-command/canvases";
+import { PausePlane } from "./vellum-command/pause-plane";
+import { SettingsService } from "./vellum-command/settings/service";
+import { messageDelivery } from "./vellum-command/work/message-delivery";
+import {
+  mailboxMessageDeliveryId,
+  mailboxMessageReadId,
+} from "./vellum-command/work/mailbox-receipts";
+import { configureBoardDelivery } from "./vellum-command/work/board-delivery";
+import { setManagedPulseDeliver } from "./vellum-command/term/managed-pulse-bridge";
+import { injectionSupervisor } from "./vellum-command/term/injection-supervisor";
+import {
+  clearDeliveredForBinding,
+  peekFirstTypedMessage,
+  takeFirstTypedMessage,
+} from "./vellum-command/term/first-typed";
+import {
+  composeFactoryDelivery,
+  factoryDeliveryReadTag,
+} from "./vellum-command/term/factory-delivery-composition";
+import { isManagedTerminalReady } from "./vellum-command/term/drive/readiness";
 import { evaluateSchemaCompatibility } from "./vellum-command/state/schema-version-probe";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
 import { resolveControlHome } from "./vellum-command/control-home";
@@ -126,7 +149,12 @@ type Handles = {
   kernel?: {
     readonly start: (host: KernelHost) => void;
     readonly suspend: () => void;
+    readonly wakeManagedSeat: (
+      canvasName: string,
+      nodeId: string,
+    ) => Promise<boolean>;
   };
+  delivery?: { readonly dispose: () => void };
   shuttingDown: boolean;
 };
 
@@ -148,6 +176,13 @@ const runProductBoot = async (): Promise<void> => {
     if (handles.shuttingDown) return;
     handles.shuttingDown = true;
     handles.kernel?.suspend();
+    messageDelivery.suspend();
+    setManagedPulseDeliver(undefined);
+    try {
+      handles.delivery?.dispose();
+    } catch {
+      // Best-effort unsubscription; process exit reclaims the rest.
+    }
     try {
       handles.drive?.dispose();
     } catch {
@@ -388,36 +423,244 @@ const runProductBoot = async (): Promise<void> => {
       seatStateRuntime.machine.getSlot(bindingId)?.harness,
   });
   bindManagedTerminalDriveForOverseer(remoteDrive);
-  handles.drive = {
-    dispose: attachManagedTerminalDriveRuntime(remoteDrive, {
-      subscribeHostEvents: (listener, options) =>
-        termPlane.host.subscribeEvents((payload) => {
-          if (payload.type === "output") {
-            listener({ kind: "output", bindingId: payload.bindingId });
-            return;
-          }
-          if (payload.type !== "session") return;
-          listener({
-            kind: "session",
-            bindingId: payload.bindingId,
-            exited: payload.status === "exited",
-            running: payload.status === "running",
-          });
-        }, options),
-      subscribeSeatState: (listener) =>
-        seatStateRuntime.subscribe((event) =>
-          listener({ bindingId: event.bindingId, state: event.state }),
+  const kernelForDelivery = handles.kernel;
+  if (!kernelForDelivery) {
+    console.error("[delivery] kernel plane missing; cannot compose delivery");
+    await drainAndExit(1, "delivery-kernel-missing");
+    return;
+  }
+  // Destination readiness: same positive-readiness gate as Command Center,
+  // minus Electron-only layers (no automation suspension flag, no
+  // clipboard preflight outside Electron).
+  const remoteDriveReady = (bindingId: string): boolean => {
+    const slot = seatStateRuntime.machine.getSlot(bindingId);
+    return isManagedTerminalReady({
+      harness: slot?.harness,
+      seatState: seatStateRuntime.getState(bindingId),
+      snapshot: terminalObserverPlane.snapshot(bindingId),
+    });
+  };
+  const remoteCanvases = await RemoteRuntime.runPromise(CanvasesService);
+  const remotePause = await RemoteRuntime.runPromise(PausePlane);
+  // Mailbox receipt stamp for Remote-homed mail. Mirrors the Command Center
+  // stamp with projected-intent basis (this process never authors intent);
+  // direct repository writes follow the kernel claim-receipt precedent —
+  // no main-authoring gate on this path. Delivery semantics themselves
+  // remain Claude's lane (message-delivery.ts untouched).
+  const stampRemoteMailboxReceipt = (
+    deliveryId: string,
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+  ): Promise<boolean> =>
+    RemoteRuntime.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* WorkRepository;
+        const canvases = yield* CanvasesService;
+        const sink = { canvasName: canvas, nodeId };
+        if (yield* repo.hasAcceptedDelivery(sink, deliveryId)) {
+          return true;
+        }
+        const read = yield* canvases.read(canvas, "delivery.readStamp");
+        const actor = read.actorRefs.find(
+          (ref) => ref.canvasName === canvas && ref.nodeId === nodeId,
+        );
+        if (actor === undefined) return false;
+        const settings = yield* SettingsService;
+        const current = yield* settings.get;
+        const intentWitness = yield* canvases.activeIntentWitness();
+        const basis = Schema.decodeUnknownSync(IntentFactBasis)({
+          kind:
+            current.station.role === "command-center"
+              ? "authorial-intent"
+              : "projected-intent",
+          generation: intentWitness.generation,
+          contentSha256: intentWitness.contentSha256,
+        });
+        yield* repo.acceptDelivery({
+          sink,
+          basis,
+          receipt: {
+            deliveryId,
+            deliveredItem: {
+              kind: "message",
+              itemId: messageId,
+              sink,
+            },
+            actor,
+            acceptedAt: new Date().toISOString(),
+          },
+        });
+        return true;
+      }) as never,
+    ).then(
+      (ok) => (ok as boolean),
+      () =>
+        RemoteRuntime.runPromise(
+          Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            return yield* repo.hasAcceptedDelivery(
+              { canvasName: canvas, nodeId },
+              deliveryId,
+            );
+          }) as never,
+        ).then(
+          (ok) => (ok as boolean),
+          () => false,
         ),
+    );
+  // Factory delivery composition: kernel pulses, mailbox mail, the
+  // injection supervisor, board wakes, and first-typed doctrine all reach
+  // Remote seats through this installation's destination drive — the same
+  // shared recipe as Command Center, no raw PTY bypass.
+  const remoteDelivery = composeFactoryDelivery({
+    drive: remoteDrive,
+    driveReady: remoteDriveReady,
+    kernel: kernelForDelivery,
+    pause: remotePause,
+    events: {
+      subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
       subscribeComposerEmpty: (listener) =>
         seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
           if (verdict !== "empty") return;
           listener(bindingId);
         }),
-      harnessFor: (bindingId) =>
-        seatStateRuntime.machine.getSlot(bindingId)?.harness,
-      snapshotText: (bindingId) =>
-        terminalObserverPlane.snapshot(bindingId)?.text,
-    }),
+      subscribeSnapshots: (listener) =>
+        terminalObserverPlane.subscribeGlobal(listener),
+    },
+    supervisor: injectionSupervisor,
+    escalate: (bindingId, reason) => {
+      if (!seatStateRuntime.machine.getSlot(bindingId)) return;
+      seatStateRuntime.machine.force(bindingId, "attention", reason, "high");
+    },
+    mail: messageDelivery,
+    store: {
+      listCanvasNames: () =>
+        RemoteRuntime.runPromise(
+          remoteCanvases.list.pipe(
+            Effect.map((entries) => entries.map((e) => e.name)),
+          ),
+        ),
+      readDoc: (name, site) =>
+        RemoteRuntime.runPromise(
+          remoteCanvases.read(name, factoryDeliveryReadTag(site)).pipe(
+            Effect.map((r) => r.doc),
+            Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
+          ),
+        ),
+      // Deliberately NOT error-swallowing: `undefined` here must mean the
+      // node is gone, so delivery can retire queued work for it. A failed
+      // read has to reject and leave that work queued.
+      readNodeStructure: (name, nodeId) =>
+        RemoteRuntime.runPromise(
+          remoteCanvases.readNodeStructure(name, nodeId, "delivery.route").pipe(
+            Effect.map((found) =>
+              found === undefined
+                ? undefined
+                : { node: found.node, structure: found.structure },
+            ),
+          ),
+        ),
+      hasAcceptedMessageDelivery: (canvas, nodeId, messageId) =>
+        RemoteRuntime.runPromise(
+          Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            return yield* repo.hasAcceptedDelivery(
+              { canvasName: canvas, nodeId },
+              mailboxMessageDeliveryId(canvas, nodeId, messageId),
+            );
+          }).pipe(Effect.catch(() => Effect.succeed(false))) as never,
+        ),
+      hasAcceptedMessageRead: (canvas, nodeId, messageId) =>
+        RemoteRuntime.runPromise(
+          Effect.gen(function* () {
+            const repo = yield* WorkRepository;
+            return yield* repo.hasAcceptedDelivery(
+              { canvasName: canvas, nodeId },
+              mailboxMessageReadId(canvas, nodeId, messageId),
+            );
+          }).pipe(Effect.catch(() => Effect.succeed(false))) as never,
+        ),
+      acceptMessageDelivery: (canvas, nodeId, messageId) =>
+        stampRemoteMailboxReceipt(
+          mailboxMessageDeliveryId(canvas, nodeId, messageId),
+          canvas,
+          nodeId,
+          messageId,
+        ),
+      acceptMessageRead: (canvas, nodeId, messageId) =>
+        stampRemoteMailboxReceipt(
+          mailboxMessageReadId(canvas, nodeId, messageId),
+          canvas,
+          nodeId,
+          messageId,
+        ),
+    },
+    pulse: { setDeliver: setManagedPulseDeliver },
+    board: { configure: configureBoardDelivery },
+    firstTyped: {
+      peek: peekFirstTypedMessage,
+      take: takeFirstTypedMessage,
+      clearDeliveredForBinding,
+    },
+    seatSnapshot: (bindingId) => {
+      const live = termPlane.host.get(bindingId);
+      if (
+        !live ||
+        (live.status !== "running" && live.status !== "starting")
+      ) {
+        return undefined;
+      }
+      return {
+        idle: seatStateRuntime.isSeatIdle(bindingId),
+        generationKey: live.epoch,
+        operatorDraft:
+          seatStateRuntime.composerVerdict(bindingId) !== "empty",
+      };
+    },
+  });
+  handles.delivery = { dispose: () => remoteDelivery.dispose() };
+  // Same lifecycle ownership as Command Center (ACK/drain/generation),
+  // plus the doctrine kick before the drive's own idle drain.
+  const disposeDriveRuntime = attachManagedTerminalDriveRuntime(remoteDrive, {
+    beforeSeatIdle: remoteDelivery.kickFirstTyped,
+    subscribeHostEvents: (listener, options) =>
+      termPlane.host.subscribeEvents((payload) => {
+        if (payload.type === "output") {
+          listener({ kind: "output", bindingId: payload.bindingId });
+          return;
+        }
+        if (payload.type !== "session") return;
+        listener({
+          kind: "session",
+          bindingId: payload.bindingId,
+          exited: payload.status === "exited",
+          running: payload.status === "running",
+        });
+      }, options),
+    subscribeSeatState: (listener) =>
+      seatStateRuntime.subscribe((event) =>
+        listener({ bindingId: event.bindingId, state: event.state }),
+      ),
+    subscribeComposerEmpty: (listener) =>
+      seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
+        if (verdict !== "empty") return;
+        listener(bindingId);
+      }),
+    harnessFor: (bindingId) =>
+      seatStateRuntime.machine.getSlot(bindingId)?.harness,
+    snapshotText: (bindingId) =>
+      terminalObserverPlane.snapshot(bindingId)?.text,
+  });
+  handles.drive = {
+    dispose: () => {
+      try {
+        remoteDelivery.dispose();
+      } catch {
+        // Best-effort unsubscription; process exit reclaims the rest.
+      }
+      disposeDriveRuntime();
+    },
     suspend: () => remoteDrive.suspend(),
   };
 
