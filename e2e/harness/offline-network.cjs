@@ -1,21 +1,14 @@
 /*
  * Electron -r preload, executed before the product main module. Constrain
  * only this test process: loopback and Unix sockets keep the renderer and
- * local control planes available. Chromium HTTP uses the harness server as
- * a rejecting proxy (configured by launch.ts), including native net.fetch.
+ * local control planes available. Chromium requests are rejected at each
+ * session's request boundary, including native net.fetch.
  */
 "use strict";
 
 const net = require("node:net");
 const { syncBuiltinESMExports } = require("node:module");
 const { app } = require("electron");
-
-// Production no longer installs --no-proxy-server, and src/main/index.ts
-// strips inherited proxy switches from the live command line. This module's
-// global marker exempts the offline harness from that strip: launch.ts
-// deliberately configures a rejecting loopback proxy for the whole process
-// (including defaultSession and native net.fetch), and no managed browser
-// partition exists in offline scenarios.
 
 const loopback = (host) =>
   host === undefined ||
@@ -26,6 +19,15 @@ const loopback = (host) =>
 
 const offline = () => Object.assign(new Error("E2E external network is offline"), {
   code: "ENETUNREACH",
+});
+
+// Register before app readiness, so the first request is already constrained.
+// Product proxy configuration cannot undo this independent request boundary.
+app.on("session-created", (session) => {
+  session.webRequest.onBeforeRequest((details, callback) => {
+    const url = new URL(details.url);
+    callback({ cancel: ["http:", "https:", "ws:", "wss:"].includes(url.protocol) && !loopback(url.hostname) });
+  });
 });
 
 const connect = net.Socket.prototype.connect;

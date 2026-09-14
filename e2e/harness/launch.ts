@@ -500,19 +500,6 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
           : []),
         MAIN_ENTRY,
         `--user-data-dir=${sandbox.userDataDir}`,
-        ...(options.offline === true
-          ? [
-              // Rejecting-loopback proxy for the Chromium network stack
-              // (defaultSession, net.fetch). Product main strips inherited
-              // proxy switches, but the -r offline-network.cjs preload above
-              // sets the marker global that exempts this harness, so these
-              // switches survive. They are harness-owned test input, not
-              // launcher inheritance; no managed browser partition exists in
-              // offline scenarios.
-              `--proxy-server=${new URL(server.url).origin}`,
-              "--proxy-bypass-list=127.0.0.1;localhost;[::1]",
-            ]
-          : []),
         ...PLATFORM_ELECTRON_ARGS,
         ...(options.electronArgs ?? []),
       ],

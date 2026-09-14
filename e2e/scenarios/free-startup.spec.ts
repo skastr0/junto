@@ -27,7 +27,7 @@ for (const seedRetiredCommercialState of [false, true]) {
       expect(connectivity.requests).toEqual(["rejected", "rejected"]);
       // Prove harness denial, rather than accepting an unrelated DNS failure.
       expect(connectivity.errors[0]).toContain("E2E external network is offline");
-      expect(connectivity.errors[1]).toContain("ERR_TUNNEL_CONNECTION_FAILED");
+      expect(connectivity.errors[1]).toContain("ERR_BLOCKED_BY_CLIENT");
       const result = await page.evaluate(async () => {
         const api = window.vellumCommand;
         if (api === undefined) throw new Error("Vellum Command preload API is unavailable");
