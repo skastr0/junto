@@ -189,9 +189,17 @@ export const makeFactoryWriteManagedPrompt = (
  * on every idle re-entry. One arm at a time per binding.
  *
  * Arm ownership: the completing write consumes the arm only when the live
- * peek still equals the text it sent. A generation replacement that rearms
- * mid-flight keeps its newer doctrine; a late success must never eat it.
- * Rejections release the flight without consuming anything.
+ * arm still carries the seq it sent (takeEntryIfCurrent) — text equality
+ * is not identity. A generation replacement that rearms mid-flight keeps
+ * its newer doctrine; a late success must never eat it. Rejections release
+ * the flight without consuming anything and schedule no retry.
+ *
+ * Liveness: the flight is owned per arm seq, not per binding. A new idle
+ * that finds an older arm still settling remembers one re-kick; when the
+ * old write settles, the re-kick fires once if the newer arm is still live
+ * and the drive is ready. Without this, a same-text rearm stranded behind
+ * a slow old write would wait for an idle that never comes on weak-chrome
+ * seats.
  */
 export const makeFactoryFirstTypedKick = (input: {
   readonly firstTyped: FactoryDeliveryFirstTyped;
@@ -199,29 +207,35 @@ export const makeFactoryFirstTypedKick = (input: {
   readonly write: FactoryWritePrompt;
 }): {
   readonly kick: (bindingId: string) => void;
-  readonly inFlight: ReadonlySet<string>;
+  readonly inFlight: ReadonlyMap<string, number>;
 } => {
-  const inFlight = new Set<string>();
+  const inFlight = new Map<string, number>();
+  const pendingRekick = new Set<string>();
   const kick = (bindingId: string): void => {
     const arm = input.firstTyped.peekEntry(bindingId);
-    if (
-      arm &&
-      input.driveReady(bindingId) &&
-      !inFlight.has(bindingId)
-    ) {
-      inFlight.add(bindingId);
-      void input
-        .write(bindingId, arm.text, { awaitTurnStart: false })
-        .then(
-          (ok) => {
-            if (ok) input.firstTyped.takeEntryIfCurrent(bindingId, arm.seq);
-          },
-          () => {},
-        )
-        .finally(() => {
-          inFlight.delete(bindingId);
-        });
+    if (!arm || !input.driveReady(bindingId)) return;
+    const owner = inFlight.get(bindingId);
+    if (owner !== undefined) {
+      // An older arm is still settling. Remember one re-kick only when a
+      // strictly newer arm is live; the same arm refusing must never loop.
+      if (arm.seq !== owner) pendingRekick.add(bindingId);
+      return;
     }
+    inFlight.set(bindingId, arm.seq);
+    void input
+      .write(bindingId, arm.text, { awaitTurnStart: false })
+      .then(
+        (ok) => {
+          if (ok) input.firstTyped.takeEntryIfCurrent(bindingId, arm.seq);
+        },
+        () => {},
+      )
+      .finally(() => {
+        // Stale-finally fence: only the owning completion releases the
+        // flight it opened.
+        if (inFlight.get(bindingId) === arm.seq) inFlight.delete(bindingId);
+        if (pendingRekick.delete(bindingId)) kick(bindingId);
+      });
   };
   return { kick, inFlight };
 };

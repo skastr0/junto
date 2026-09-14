@@ -244,6 +244,71 @@ describe("makeFactoryFirstTypedKick", () => {
     expect(inFlight.has("rearm-b")).toBe(false);
   });
 
+  it("same-body new idle before old settle re-kicks once (real registry)", async () => {
+    // Liveness: old seq1 in flight, generation clear plus IDENTICAL rearm
+    // (seq2), then a new idle before the old write settles. The old
+    // completion must neither consume the new arm nor strand it: exactly
+    // one re-kick delivers the new arm.
+    const drive = fakeDrive();
+    const resolvers: Array<(ok: boolean) => void> = [];
+    let calls = 0;
+    drive.writePrompt = () => {
+      calls += 1;
+      return new Promise<boolean>((resolve) => {
+        resolvers.push(resolve);
+      });
+    };
+    const { kick, inFlight } = makeFactoryFirstTypedKick({
+      firstTyped: {
+        peekEntry: peekFirstTypedEntry,
+        takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
+        clearDeliveredForBinding,
+      },
+      driveReady: () => true,
+      write: makeFactoryWriteManagedPrompt(drive, () => true),
+    });
+    armFirstTypedMessage("live-b", "same body");
+    kick("live-b");
+    expect(calls).toBe(1);
+    clearDeliveredForBinding("live-b");
+    armFirstTypedMessage("live-b", "same body");
+    kick("live-b");
+    expect(calls).toBe(1);
+    resolvers[0](false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toBe(2);
+    resolvers[1](true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(peekFirstTypedMessage("live-b")).toBeUndefined();
+    expect(inFlight.has("live-b")).toBe(false);
+  });
+
+  it("same-arm kicks while settling never retry-loop", async () => {
+    const drive = fakeDrive();
+    let calls = 0;
+    let resolveWrite!: (ok: boolean) => void;
+    drive.writePrompt = () => {
+      calls += 1;
+      return new Promise<boolean>((resolve) => {
+        resolveWrite = resolve;
+      });
+    };
+    const { kick } = makeFactoryFirstTypedKick({
+      firstTyped: {
+        peekEntry: () => ({ text: "doctrine", seq: 1 }),
+        takeEntryIfCurrent: (_b, s) => (s === 1 ? "doctrine" : undefined),
+        clearDeliveredForBinding: () => {},
+      },
+      driveReady: () => true,
+      write: makeFactoryWriteManagedPrompt(drive, () => true),
+    });
+    kick("b1");
+    kick("b1");
+    resolveWrite(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toBe(1);
+  });
+
   it("a rejected write releases the flight and keeps the arm", async () => {
     const drive = fakeDrive();
     drive.writePrompt = () => Promise.reject(new Error("seat gone"));
