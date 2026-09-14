@@ -12,7 +12,7 @@ import type { SeatRulePack } from "../types";
 
 export const hermesRules: SeatRulePack = {
   harness: "hermes",
-  version: "2026.07.26.1",
+  version: "2026.09.14.1",
   rules: [
     {
       id: "osc_title_attention",
@@ -99,7 +99,8 @@ export const hermesRules: SeatRulePack = {
       region: "footer_line",
       visibleIdle: true,
       matchers: {
-        regex: ["(?i)\\bready\\b"],
+        // Matcher is `u` only; inline `(?i)` does not compile.
+        regex: ["\\b[Rr]eady\\b"],
         not: [{ contains: ["⚠"] }],
       },
     },

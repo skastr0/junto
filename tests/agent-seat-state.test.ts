@@ -13,6 +13,8 @@ import {
 } from "../src/main/vellum-command/term/agent-state";
 import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
+import type { SeatMatcher } from "../src/main/vellum-command/term/agent-state/types";
+import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -59,6 +61,31 @@ describe("rule packs", () => {
     expect(codexRules.rules.length).toBeGreaterThan(3);
     expect(grokRules.rules.length).toBeGreaterThan(5);
     expect(hermesRules.rules.length).toBeGreaterThan(2);
+  });
+
+  it("every pack regex compiles under the production /u flag", () => {
+    const sources: string[] = [];
+    const walk = (m: SeatMatcher): void => {
+      for (const source of m.regex ?? []) sources.push(source);
+      for (const source of m.lineRegex ?? []) sources.push(source);
+      for (const child of [...(m.all ?? []), ...(m.any ?? []), ...(m.not ?? [])]) {
+        walk(child);
+      }
+    };
+    for (const id of HARNESS_IDS) {
+      const pack = rulePackFor(id);
+      for (const rule of pack.rules) walk(rule.matchers);
+      for (const probe of pack.composer ?? []) walk(probe.matchers);
+    }
+    const invalid: string[] = [];
+    for (const source of sources) {
+      try {
+        void new RegExp(source, "u");
+      } catch {
+        invalid.push(source);
+      }
+    }
+    expect(invalid).toEqual([]);
   });
 });
 
@@ -333,7 +360,7 @@ describe("evaluate — hermes", () => {
     expect(r.state).toBe("attention");
   });
 
-  it("ready footer → idle", () => {
+  it("ready footer → idle via ready_footer_idle (not fallback)", () => {
     const r = evaluate(
       snap({
         lines: [
@@ -343,6 +370,9 @@ describe("evaluate — hermes", () => {
       { harness: "hermes" },
     );
     expect(r.state).toBe("idle");
+    expect(r.ruleId).toBe("ready_footer_idle");
+    expect(r.visibleIdle).toBe(true);
+    expect(r.confidence).toBe("high");
   });
 });
 
