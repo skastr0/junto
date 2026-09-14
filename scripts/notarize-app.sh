@@ -94,6 +94,10 @@ require_cmd python3
 require_cmd ditto
 require_cmd shasum
 require_cmd node
+[[ -f "$SCRIPT_DIR/make-mac-dmg.sh" && ! -L "$SCRIPT_DIR/make-mac-dmg.sh" ]] || {
+  err "missing regular DMG finalization helper: $SCRIPT_DIR/make-mac-dmg.sh"
+  exit 1
+}
 
 canonical_existing_nonlink_directory() {
   local description="$1"
