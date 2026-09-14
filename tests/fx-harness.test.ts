@@ -125,6 +125,33 @@ describe("fx session discovery", () => {
     ).toBeUndefined();
   });
 
+  it("refuses two same-workspace index sessions in the discovery window rather than binding both seats to the newest", () => {
+    // Isolated index probe from the 2026-09-14 PTY matrix: both spawn times
+    // returned BBBBBBBBBBBB before uniqueness. That pins the earlier seat to a
+    // sibling session and can attribute the other seat's ACK/idle evidence.
+    home = mkdtempSync(join(tmpdir(), "fx-"));
+    const earlier = "AAAAAAAAAAAA";
+    const newest = "BBBBBBBBBBBB";
+    seedIndex([
+      { id: earlier, ms: 10_000, root: WORKSPACE },
+      { id: newest, ms: 10_100, root: WORKSPACE },
+    ]);
+    expect(
+      discoverFxSessionId({
+        cwd: WORKSPACE,
+        spawnedAtMs: 10_000,
+        home,
+      }),
+    ).toBeUndefined();
+    expect(
+      discoverFxSessionId({
+        cwd: WORKSPACE,
+        spawnedAtMs: 10_100,
+        home,
+      }),
+    ).toBeUndefined();
+  });
+
   it("falls back to id timestamps when the index is unusable, but only when unambiguous", () => {
     home = mkdtempSync(join(tmpdir(), "fx-"));
     // A schema this reader was not written against: fields may have moved, so

@@ -3,10 +3,11 @@
  *
  * fx mints its session id and never prints it, so a seat has to find its own.
  * The store makes that easy and exact: `~/.fx/sessions/index.json` lists every
- * session with the `workspace_root` it was started in and a `created_at_ms`,
- * which is the same workspace-and-time pairing Muse capture uses — a seat
- * claims the session started in ITS directory after IT spawned, never merely
- * the newest one on the machine.
+ * session with the `workspace_root` it was started in and a `created_at_ms`.
+ * A seat claims the session started in ITS directory after IT spawned, and
+ * only when that pairing is unique. Two same-workspace sessions inside the
+ * discovery window leave the seat uncaptured rather than binding both seats
+ * to the newest id (which would attribute another seat's ACK/idle evidence).
  *
  * The index is the authority when it is readable. When it is missing, older
  * than this schema, or unparsable, discovery falls back to the directory names
@@ -14,8 +15,7 @@
  * 0.0.8 short tokens do not; that fallback then uses the directory birthtime
  * (mtime if birthtime is missing) so the time floor still applies. The
  * fallback cannot check the workspace, so it only answers when exactly one
- * candidate qualifies — an ambiguous machine leaves the seat honestly
- * uncaptured rather than guessing.
+ * candidate qualifies. Indexed and directory paths share that uniqueness law.
  *
  * Read-only throughout: one file read and one readdir, no writes into ~/.fx.
  */
@@ -147,10 +147,18 @@ export type FxDiscoveryInput = {
 
 const DEFAULT_GRACE_MS = 2_000;
 
+/** Claim only when exactly one candidate can be this seat's session. */
+const claimIfUnambiguous = (
+  candidates: readonly IndexEntry[],
+): string | undefined =>
+  candidates.length === 1 ? candidates[0]!.id : undefined;
+
 /**
  * The session this seat started, or undefined while there is no unambiguous
  * answer. Undefined is the normal early result — fx writes its store after
- * startup — so callers retry on the seat's own boundaries.
+ * startup — so callers retry on the seat's own boundaries. It is also the
+ * closed answer when more than one session qualifies: there is no newest-
+ * session fallback.
  */
 export const discoverFxSessionId = (
   input: FxDiscoveryInput,
@@ -159,19 +167,17 @@ export const discoverFxSessionId = (
   const floor = input.spawnedAtMs - (input.graceMs ?? DEFAULT_GRACE_MS);
   const indexed = readIndex(root);
   if (indexed !== undefined) {
-    const mine = indexed
-      .filter(
+    return claimIfUnambiguous(
+      indexed.filter(
         (entry) =>
           entry.workspaceRoot === input.cwd && entry.createdAtMs >= floor,
-      )
-      .sort((a, b) => b.createdAtMs - a.createdAtMs);
-    return mine[0]?.id;
+      ),
+    );
   }
   // No usable index: the id's own timestamp is all the evidence there is, and
   // it says nothing about which workspace. Answer only when one session could
   // possibly be this seat's.
-  const candidates = readSessionDirs(root).filter(
-    (entry) => entry.createdAtMs >= floor,
+  return claimIfUnambiguous(
+    readSessionDirs(root).filter((entry) => entry.createdAtMs >= floor),
   );
-  return candidates.length === 1 ? candidates[0]!.id : undefined;
 };
