@@ -300,10 +300,48 @@ describe("hermes (P1 corpus v0.21.0)", () => {
   });
 });
 
+describe("kimi (P1 corpus 0.43.0)", () => {
+  const v = (lines: readonly string[]) =>
+    composerVerdictFor(snap({ lines }), rulePackFor("kimi"));
+
+  it("boxed empty > with context footer is empty", () => {
+    expect(
+      v([
+        "╭────────────────────────────────╮",
+        "│ >                              │",
+        "╰────────────────────────────────╯",
+        " Ask When Needed",
+        "context: 0%",
+      ]),
+    ).toBe("empty");
+  });
+
+  it("boxed > hello is a draft", () => {
+    expect(
+      v([
+        "╭────────────────────────────────╮",
+        "│ > hello                        │",
+        "╰────────────────────────────────╯",
+        "context: 0%",
+      ]),
+    ).toBe("draft");
+  });
+
+  it("folder-trust picker is unreadable", () => {
+    expect(
+      v([
+        "  Trust this folder?",
+        "   ❯ Trust this folder",
+        "     Don't trust",
+      ]),
+    ).toBe(null);
+  });
+});
+
 describe("fail-closed defaults", () => {
   it("a probe-less pack yields null — factory typing refuses", () => {
     expect(
-      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("kimi")),
+      composerVerdictFor(snap({ lines: ["❯ "] }), rulePackFor("amp")),
     ).toBe(null);
   });
 

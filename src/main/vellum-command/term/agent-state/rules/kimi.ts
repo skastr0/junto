@@ -7,19 +7,18 @@
  * No alt screen — the grid includes the whole session like codex.
  * Patterns from the 2026-08 agent-CLI sweep of kimi
  *
- * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
- * capture on this machine, so composerVerdictFor returns null and factory
- * typing into its seats REFUSES (composer-unreadable attention). Ground the
- * real empty/draft chrome and add `composer` probes before shipping it.
- * (rewritten; not vendored; (?i) inline flags are not valid in this runtime,
- * so case-insensitivity is spelled out with character classes).
+ * Composer grounded in P1 corpus kimi/* captured 2026-09-14 from Kimi Code
+ * 0.43.0: boxed `│ > … │` above `context:`. Folder-trust pickers use `❯`
+ * and do not match. (rewritten; not vendored; (?i) inline flags are not
+ * valid in this runtime, so case-insensitivity is spelled out with
+ * character classes).
  */
 
 import type { SeatRulePack } from "../types";
 
 export const kimiRules: SeatRulePack = {
   harness: "kimi",
-  version: "2026.08.07.2",
+  version: "2026.09.14.1",
   rules: [
     // "↵ confirm" + a question + " choose" + approve/reject/revise.
     // Bottom-scoped: transcript replay of an old approval must not pin NEEDS INPUT.
@@ -179,6 +178,33 @@ export const kimiRules: SeatRulePack = {
       matchers: {
         contains: ["context:"],
         lineRegex: ["^\\s*>"],
+      },
+    },
+  ],
+  composer: [
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      matchers: {
+        // Closing `│` is box chrome, never draft content.
+        lineRegex: ["^\\s*\\u2502\\s*>\\s+[^\\u2502\\s]"],
+        not: [{ contains: ["trust this folder"] }],
+      },
+    },
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      matchers: {
+        lineRegex: ["^\\s*\\u2502\\s*>\\s*\\u2502\\s*$"],
+        contains: ["context:"],
+        not: [
+          { lineRegex: ["^\\s*\\u2502\\s*>\\s+[^\\u2502\\s]"] },
+          { contains: ["trust this folder"] },
+        ],
       },
     },
   ],
