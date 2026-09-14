@@ -3,6 +3,11 @@
 Assessment target: `eefaafff30d151c8c28f65d873d9c73bb18d3ae1`, 2026-09-14 UTC.
 This is an engineering assessment, not a claim that the reported production defect is fixed.
 
+Subsequent evidence: the [native submission repair](pty-native-submission-2026-09-14.md)
+records a reproduced own-paste idle-gate failure, correction `7d2d6cb1`, and
+signed production verification exercising that race. Findings below describe
+the original assessment target; they are not all still open.
+
 ## Verdict
 
 The failures concentrate in shared delivery identity, submission evidence, and asynchronous ownership. They also expose incomplete harness adapters. This requires a coherent submission protocol across producers, the drive, observers, and receipts; independently tuning Enter delays in fourteen adapters cannot establish correctness.

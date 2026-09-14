@@ -10,6 +10,11 @@ recorded by the managed-terminal template badges.
 
 ## Live factory reproduction (2026-09-13)
 
+Later production verification: [2026-09-14 native submission repair](assessments/pty-native-submission-2026-09-14.md)
+reproduces the own-paste idle-gate race, identifies its exact missing CR, and
+verifies `7d2d6cb1` completing that race on the installed package. The clone
+run below remains historical evidence with its stated limits.
+
 Use the complete saved factory: nodes, edges, region rules, task rows, claims,
 mail, and its authored playing/paused state. Let normal scheduling activate
 seats. Starting only the seat under investigation does not exercise the same
@@ -99,14 +104,17 @@ covered by the failing-before/passing-after regression above.
 The trace also exposed a separate source-level defect: after the original
 claim was accepted, its identical briefing was attempted six more times,
 all refused before bytes because the seat was busy. `deliverWorkingClaims`
-currently calls the latest task history message a claim boundary and includes
+at that checkpoint called the latest task history message a claim boundary and included
 it in the receipt key. A `working` progress note appends a new message ID, so
 the same claim can bypass its accepted receipt. The live note timing is
 consistent with this mechanism; the journal does not include source receipt
 IDs, so that particular causal link remains inferred. A correct identity must
 follow the canonical `task.claim` fact across progress/comments and change on
 release/reclaim, including reclaim by the same actor. The unresolved-write
-guard does not resolve this accepted-delivery identity defect.
+guard does not resolve this accepted-delivery identity defect. Commit
+`4cf844a5` subsequently tied the receipt identity to the canonical claim fact;
+the later native run above exercised two progress notes per worker without
+duplicate claim pastes.
 
 The design being verified: **one agent surface** — a Vellum Command-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
