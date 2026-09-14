@@ -7472,6 +7472,26 @@ export interface WorkRepositoryId {
   readonly _workRepository: unique symbol;
 }
 
+type TaskClaimFactRow = StateRow & {
+  readonly operation: WorkOperation;
+  readonly predecessor_event_home: string | null;
+  readonly predecessor_entity_home: string | null;
+  readonly predecessor_seq: string | null;
+  readonly boundary_message_id: string | null;
+  readonly boundary_index: number | null;
+  readonly replaced_brief_message_id: string | null;
+  readonly claimed_actor_seat_id: string | null;
+};
+
+/** Identity of the active claim, anchored in immutable Work facts. */
+export type CurrentTaskClaim = {
+  readonly id: WorkRecordId;
+  /** Start of this claim's history, for recognizing already stored delivery receipts. */
+  readonly historyBoundaryMessageId: string | undefined;
+  readonly historyBoundaryIndex: number;
+  readonly replacedBriefMessageIds: ReadonlyArray<string>;
+};
+
 export interface WorkRepositoryShape {
     readonly readSnapshot: (
       canvasName: string,
@@ -7491,6 +7511,11 @@ export interface WorkRepositoryShape {
       nodeId: string,
       itemId: string,
     ) => Effect.Effect<InstallationId | undefined, WorkRepositoryError>;
+    readonly currentTaskClaim: (
+      sink: SinkRefValue,
+      taskId: string,
+      actorSeatId: ActorSeatId,
+    ) => Effect.Effect<CurrentTaskClaim | undefined, WorkRepositoryError>;
     readonly hasAcceptedDelivery: (
       sink: SinkRefValue,
       deliveryId: string,
@@ -7701,6 +7726,108 @@ export const WorkRepositoryLive = Layer.effect(
             toRepositoryError("work.itemHome", error),
           ),
         );
+
+    // Canonical facts are immutable. Cache at most 1,024 material heads so a
+    // pulse does one task-PK read, and a new progress fact normally walks one
+    // predecessor. Cold reads follow only this task's indexed fact chain.
+    const taskClaimHeads = new Map<string, CurrentTaskClaim>();
+    const currentTaskClaim = (
+      sink: SinkRefValue,
+      taskId: string,
+      actorSeatId: ActorSeatId,
+    ): Effect.Effect<CurrentTaskClaim | undefined, WorkRepositoryError> =>
+      state.read("work.currentTaskClaim", (reader) => {
+        const current = selectTaskIdentity(reader, "task", sink, taskId);
+        if (
+          current?.state !== "working" ||
+          current.actor_seat_id !== actorSeatId
+        ) {
+          return undefined;
+        }
+        let cursor: WorkRecordId | null = currentIdentity(current);
+        const visited = new Set<string>();
+        const replacedBriefMessageIds: string[] = [];
+        let claim: CurrentTaskClaim | undefined;
+        while (cursor !== null) {
+          const key = JSON.stringify(cursor);
+          if (visited.has(key)) return undefined;
+          visited.add(key);
+          const cached = taskClaimHeads.get(key);
+          if (cached !== undefined) {
+            claim = {
+              ...cached,
+              replacedBriefMessageIds: [
+                ...replacedBriefMessageIds, ...cached.replacedBriefMessageIds,
+              ],
+            };
+            break;
+          }
+          const row: TaskClaimFactRow | undefined = reader.get<TaskClaimFactRow>(`
+            SELECT event.operation,
+              fact.predecessor_event_home, fact.predecessor_entity_home,
+              fact.predecessor_seq,
+              CASE WHEN event.operation = 'task.claim' THEN
+                json_extract(fact.result_json, '$.task.history[#-1].messageId')
+              END AS boundary_message_id,
+              CASE WHEN event.operation = 'task.claim' THEN
+                json_array_length(fact.result_json, '$.task.history') - 1
+              END AS boundary_index,
+              CASE WHEN event.operation = 'task.describe' THEN
+                json_extract(fact.result_json, '$.task.history[0].messageId')
+              END AS replaced_brief_message_id,
+              CASE WHEN event.operation = 'task.claim' THEN
+                json_extract(fact.result_json, '$.claimedBy.seatId')
+              END AS claimed_actor_seat_id
+            FROM work_events AS event
+            JOIN work_facts AS fact USING (event_home, entity_home, seq)
+            WHERE event.event_home = ? AND event.entity_home = ? AND event.seq = ?
+              AND event.item_kind = 'task' AND event.item_id = ?
+              AND event.item_canvas_name = ? AND event.item_node_id = ?
+          `, [
+            cursor.route.eventHome, cursor.route.entityHome, cursor.seq,
+            taskId, sink.canvasName, sink.nodeId,
+          ]);
+          if (row === undefined) return undefined;
+          if (row.operation === "task.claim") {
+            if (row.claimed_actor_seat_id !== actorSeatId) return undefined;
+            claim = {
+              id: cursor,
+              historyBoundaryMessageId: row.boundary_message_id ?? undefined,
+              historyBoundaryIndex: Math.max(0, row.boundary_index ?? 0),
+              replacedBriefMessageIds,
+            };
+            break;
+          }
+          if (
+            row.operation !== "task.transition" &&
+            row.operation !== "task.describe"
+          ) {
+            return undefined;
+          }
+          if (row.replaced_brief_message_id !== null) {
+            replacedBriefMessageIds.push(row.replaced_brief_message_id);
+          }
+          cursor = row.predecessor_event_home === null ||
+            row.predecessor_entity_home === null || row.predecessor_seq === null
+            ? null
+            : recordId(
+                row.predecessor_event_home as InstallationId,
+                row.predecessor_entity_home as InstallationId,
+                row.predecessor_seq,
+              );
+        }
+        if (claim !== undefined) {
+          for (const key of Array.from(visited).reverse()) {
+            taskClaimHeads.set(key, claim);
+            if (taskClaimHeads.size > 1_024) {
+              taskClaimHeads.delete(taskClaimHeads.keys().next().value!);
+            }
+          }
+        }
+        return claim;
+      }).pipe(
+        Effect.mapError((error) => toRepositoryError("work.currentTaskClaim", error)),
+      );
 
     const hasAcceptedDelivery = (
       sink: SinkRefValue,
@@ -9800,6 +9927,7 @@ export const WorkRepositoryLive = Layer.effect(
       snapshotsForCanvas: readSnapshotsForCanvas,
       recentOpsForSeat: readRecentOpsForSeat,
       itemHome,
+      currentTaskClaim,
       hasAcceptedDelivery,
       acceptedDeliveryAt,
       createTask,

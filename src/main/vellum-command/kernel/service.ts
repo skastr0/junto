@@ -596,7 +596,7 @@ export const managedTaskDeliveryId = (
   sink: SinkRef,
   taskId: string,
   actorSeatId: ActorSeatId,
-  claimBoundaryMessageId: string,
+  claimIdentity: string,
 ): string =>
   `delivery_${createHash("sha256")
     .update(
@@ -606,7 +606,7 @@ export const managedTaskDeliveryId = (
         sink.nodeId,
         taskId,
         actorSeatId,
-        claimBoundaryMessageId,
+        claimIdentity,
       ]),
       "utf8",
     )
@@ -1114,18 +1114,41 @@ const makeKernelService = (
             const surface = actorDeliverySurfaceOf(actor);
             if (surface?._tag !== "managedAgent") continue;
             const sinkRef = { canvasName, nodeId: sink.id } satisfies SinkRef;
-            const claimBoundaryMessageId =
-              task.history.at(-1)?.messageId ?? task.id;
+            const claim = yield* workRepository.currentTaskClaim(
+              sinkRef, task.id, actorSeatId,
+            );
+            if (claim === undefined) continue;
             const deliveryId = managedTaskDeliveryId(
               sinkRef,
               task.id,
               actorSeatId,
-              claimBoundaryMessageId,
+              JSON.stringify([
+                claim.id.route.eventHome, claim.id.route.entityHome, claim.id.seq,
+              ]),
             );
-            const alreadyAccepted = yield* workRepository.hasAcceptedDelivery(
-              sinkRef,
-              deliveryId,
+            let alreadyAccepted = yield* workRepository.hasAcceptedDelivery(
+              sinkRef, deliveryId,
             );
+            if (!alreadyAccepted) {
+              // Existing receipts used the latest history message. Recognize
+              // those only within this canonical claim's history boundary;
+              // progress/comments must not replay an accepted installed claim.
+              // Describe replaces history[0], so retain the original boundary
+              // as well as its position in the current materialized history.
+              const previousKeys = new Set([
+                claim.historyBoundaryMessageId ?? task.id,
+                ...claim.replacedBriefMessageIds,
+                ...task.history.slice(claim.historyBoundaryIndex)
+                  .map((message) => message.messageId),
+              ]);
+              for (const key of previousKeys) {
+                alreadyAccepted = yield* workRepository.hasAcceptedDelivery(
+                  sinkRef,
+                  managedTaskDeliveryId(sinkRef, task.id, actorSeatId, key),
+                );
+                if (alreadyAccepted) break;
+              }
+            }
             if (alreadyAccepted) continue;
             if (!generationIsActive(generation)) return;
             const running = yield* ensureManagedSeatRunning(

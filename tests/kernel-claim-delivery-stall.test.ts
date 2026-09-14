@@ -190,8 +190,11 @@ const startFixture = async (stuck: boolean, initialReady = true) => {
     if (!claim.ok) throw new Error(claim.message);
     expect(claim.data.state).toBe("working");
     const sink = { canvasName: CANVAS, nodeId: "tasks" };
-    const deliveryId = managedTaskDeliveryId(sink, claim.data.id, actor.seatId, claim.data.history.at(-1)?.messageId ?? claim.data.id);
     const repository = await runtime.runPromise(WorkRepository);
+    const identity = await runtime.runPromise(repository.currentTaskClaim(sink, claim.data.id, actor.seatId));
+    if (identity === undefined) throw new Error("fixture claim has no canonical fact");
+    const deliveryId = managedTaskDeliveryId(sink, claim.data.id, actor.seatId,
+      JSON.stringify([identity.id.route.eventHome, identity.id.route.entityHome, identity.id.seq]));
     const pause = await runtime.runPromise(PausePlane);
     await runtime.runPromise(pause.start);
     await runtime.runPromise(pause.setPlaying(CANVAS, true));
