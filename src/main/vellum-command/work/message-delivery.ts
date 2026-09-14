@@ -1468,7 +1468,7 @@ export class MessageDeliveryService {
         await this.attemptOne(canvas, nodeId, message);
       }
       if (unclaimed.length === 0) return;
-      if (unclaimed.length === 1) {
+      if (unclaimed.length === 1 && !batchTransportAccepted) {
         const only = unclaimed[0]!;
         const key = reservedMessageKeys.pop()!;
         this.inFlight.delete(key);

@@ -60,6 +60,7 @@ const makeStore = (
   initial: Record<string, CanvasDoc>,
   options: {
     readonly acceptOk?: () => boolean;
+    readonly acceptMessage?: (messageId: string) => boolean;
     readonly acceptReadOk?: () => boolean;
     readonly now?: () => number;
     /**
@@ -92,6 +93,7 @@ const makeStore = (
       acceptedRead.has(keyOf(canvas, nodeId, messageId)),
     acceptMessageDelivery: async (canvas, nodeId, messageId) => {
       if (options.acceptOk && !options.acceptOk()) return false;
+      if (options.acceptMessage && !options.acceptMessage(messageId)) return false;
       const k = keyOf(canvas, nodeId, messageId);
       accepted.add(k);
       // Mirror projection enrichment so isPendingDelivery/tests see stop.
@@ -417,6 +419,108 @@ describe("MessageDeliveryService", () => {
       (await store.hasAcceptedMessageDelivery("c", "agent", "m-two")),
     );
     expect(payloads).toHaveLength(2);
+  });
+
+  it("does not re-paste a partial batch when only its failed member remains", async () => {
+    const msgs = [userMsg("b-one", "first"), userMsg("b-two", "second")];
+    let acceptSecond = false;
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore(
+      { c: agentDoc(msgs) },
+      {
+        acceptMessage: (messageId) => messageId !== "b-two" || acceptSecond,
+        onDocs: (current) => {
+          docs = current;
+        },
+      },
+    );
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "b-one")) &&
+      !(await store.hasAcceptedMessageDelivery("c", "agent", "b-two")),
+    );
+    expect(payloads).toHaveLength(1);
+
+    const current = docs.get("c")!;
+    docs.set("c", {
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === "agent"
+          ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [
+                    ...(node.ether?.messages?.items ?? []),
+                    userMsg("b-three", "third"),
+                  ],
+                },
+              },
+            }
+          : node,
+      ),
+    });
+    acceptSecond = true;
+    service.onResumed();
+
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", "b-two"),
+    );
+    expect(payloads).toHaveLength(1);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "b-three")).toBe(
+      false,
+    );
+  });
+
+  it("does not let an individual notify a message already reserved by a batch", async () => {
+    const msgs = [userMsg("batch-one", "first"), userMsg("batch-two", "second")];
+    const store = makeStore({ c: agentDoc(msgs) });
+    const payloads: string[] = [];
+    let releaseBatch!: (accepted: boolean) => void;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return new Promise<boolean>((resolve) => {
+            releaseBatch = resolve;
+          });
+        },
+      },
+      store,
+    });
+
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+
+    // A duplicate append arrives while the batch envelope is awaiting its
+    // transport result. The batch's per-message reservation must suppress an
+    // individual transport request for the same durable message.
+    service.notifyAppended("c", "agent", msgs[0]!);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(payloads).toHaveLength(1);
+
+    releaseBatch(true);
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "batch-one")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "batch-two")),
+    );
+    expect(payloads).toHaveLength(1);
   });
 
   it("never delivers own (agent-role) messages", async () => {
