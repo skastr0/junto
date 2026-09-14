@@ -867,3 +867,77 @@ describe("SessionObserver retention tier", () => {
     plane.disposeAll();
   });
 });
+
+describe("SessionObserver resize ordering", () => {
+  const make = (cols: number, rows: number): SessionObserver =>
+    new SessionObserver({ bindingId: "rz", epoch: "e1", cols, rows });
+  // Two rows painted for a 40-column grid: the second places text at
+  // column 35. Parsed at 40 then shrunk to 20, xterm keeps "abc" and drops
+  // the cells past the new edge; parsed at 20, column 35 clamps to the edge
+  // and "END" wraps onto a third row.
+  const WIDE_ROW = "\x1b[2J\x1b[Hrow-one\r\nabc\x1b[35GEND";
+
+  it("bytes fed before a resize are parsed at the geometry they were rendered for", async () => {
+    // Reference: parse at 40 columns, then shrink — the order the PTY child
+    // and the renderer both saw.
+    const ref = make(40, 6);
+    const obs = make(40, 6);
+    try {
+      ref.feed(WIDE_ROW, 1n);
+      await ref.snapshot();
+      ref.resize(20, 6);
+      const expected = await ref.snapshot();
+
+      // Under test: the bytes are still queued when the resize arrives.
+      obs.feed(WIDE_ROW, 1n);
+      obs.resize(20, 6);
+      const settled = await obs.snapshot();
+      expect(settled.cols).toBe(20);
+      expect(settled.seq).toBe(1n);
+      expect(expected.lines.slice(0, 2)).toEqual(["row-one", "abc"]);
+      expect(settled.lines).toEqual(expected.lines);
+    } finally {
+      ref.dispose();
+      obs.dispose();
+    }
+  });
+
+  it("bytes fed after a queued resize land at the new geometry", async () => {
+    const ref = make(40, 6);
+    const obs = make(40, 6);
+    try {
+      ref.feed(WIDE_ROW, 1n);
+      await ref.snapshot();
+      ref.resize(20, 6);
+      ref.feed("\r\n\x1b[35GB", 2n);
+      const expected = await ref.snapshot();
+
+      obs.feed(WIDE_ROW, 1n);
+      obs.resize(20, 6);
+      obs.feed("\r\n\x1b[35GB", 2n);
+      const settled = await obs.snapshot();
+      expect(settled.seq).toBe(2n);
+      expect(settled.lines).toEqual(expected.lines);
+    } finally {
+      ref.dispose();
+      obs.dispose();
+    }
+  });
+
+  it("a resize on a settled grid applies synchronously", async () => {
+    const obs = make(40, 6);
+    try {
+      obs.feed("hi", 1n);
+      await obs.snapshot();
+      const seen: number[] = [];
+      obs.subscribe((s) => {
+        seen.push(s.cols);
+      });
+      obs.resize(20, 6);
+      expect(obs.snapshotNow().cols).toBe(20);
+      expect(seen).toEqual([20]);
+    } finally {
+      obs.dispose();
+    }
+  });
+});

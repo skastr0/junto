@@ -189,7 +189,12 @@ export class SessionObserver {
   private pending: string[] = [];
   /** Journal seq of the newest buffered chunk — pinned when that write lands. */
   private pendingSeq: bigint | undefined;
-  private writeInFlight = false;
+  /**
+   * Writes and resizes handed to the grid but not yet applied. The grid
+   * applies them in order on later tasks; while any is outstanding, new bytes
+   * wait in `pending` so they land behind it.
+   */
+  private queueDepth = 0;
   /** Per-session override of the sampling floor; falls back to the process value. */
   private writeIntervalOverride: number | undefined;
   /** When the last write was handed to the grid. Undefined until the first one. */
@@ -351,7 +356,7 @@ export class SessionObserver {
     if (!this.pendingSignal && carriesSignal(data)) this.pendingSignal = true;
     // Bytes landing mid-write mean the producer is outrunning the parser —
     // the regime the sampling floor exists for.
-    if (this.writeInFlight) {
+    if (this.queueDepth > 0) {
       this.lastBacklogAt = Date.now();
       return;
     }
@@ -381,7 +386,7 @@ export class SessionObserver {
    * never dropped, and they keep their arrival order.
    */
   private maybeFlush(): void {
-    if (this.disposed || this.writeInFlight || this.pending.length === 0) return;
+    if (this.disposed || this.queueDepth > 0 || this.pending.length === 0) return;
     const wait = this.floorWaitMs();
     if (wait <= 0) {
       this.flushPending();
@@ -436,19 +441,19 @@ export class SessionObserver {
     this.pending = [];
     this.pendingSeq = undefined;
     this.pendingSignal = false;
-    this.writeInFlight = true;
+    this.queueDepth += 1;
     this.writeQueue = this.writeQueue
       .then(
         () =>
           new Promise<void>((resolve) => {
             if (this.disposed) {
-              this.writeInFlight = false;
+              this.queueDepth -= 1;
               resolve();
               return;
             }
             this.term.write(data, () => {
               if (seq !== undefined) this.seq = seq;
-              this.writeInFlight = false;
+              this.queueDepth -= 1;
               this.emitSnapshot();
               // Everything that arrived during this write goes out as one
               // follow-up write, so the batch grows with the load — but no
@@ -459,7 +464,7 @@ export class SessionObserver {
           }),
       )
       .catch(() => {
-        this.writeInFlight = false;
+        this.queueDepth = Math.max(0, this.queueDepth - 1);
       });
   }
 
@@ -477,15 +482,38 @@ export class SessionObserver {
     await this.writeQueue;
   }
 
-  /** Resize the headless grid to match the live PTY. */
+  /**
+   * Resize the headless grid to match the live PTY.
+   *
+   * Bytes fed before this call were rendered by the child for the old
+   * geometry, and the renderer applies them before it applies the resize. The
+   * grid parses a write on a later task, so resizing right here would parse
+   * those bytes at the new width. A settled grid resizes at once; otherwise
+   * the resize joins the write queue behind everything already fed, and
+   * bytes fed after it wait their turn behind the resize.
+   */
   resize(cols: number, rows: number): void {
     if (this.disposed) return;
     const c = Math.max(20, Math.min(300, cols));
     const r = Math.max(5, Math.min(120, rows));
-    // Buffered bytes belong to the pre-resize geometry — queue them first.
+    if (this.isSettled()) {
+      this.term.resize(c, r);
+      this.emitSnapshot();
+      return;
+    }
     this.flushPending();
-    this.term.resize(c, r);
-    this.emitSnapshot();
+    this.queueDepth += 1;
+    this.writeQueue = this.writeQueue
+      .then(() => {
+        this.queueDepth -= 1;
+        if (this.disposed) return;
+        this.term.resize(c, r);
+        this.emitSnapshot();
+        this.maybeFlush();
+      })
+      .catch(() => {
+        this.queueDepth = Math.max(0, this.queueDepth - 1);
+      });
   }
 
   /**
@@ -582,7 +610,7 @@ export class SessionObserver {
    * is exact for the seq it names, but behind the PTY.
    */
   isSettled(): boolean {
-    return !this.writeInFlight && this.pending.length === 0;
+    return this.queueDepth === 0 && this.pending.length === 0;
   }
 
   /**
