@@ -50,12 +50,12 @@ describe("TerminalStreamCoalescer", () => {
     vi.useRealTimers();
   });
 
-  it("batches chunks into one event per flush window with the last seq", () => {
+  it("batches chunks while preserving sequence boundaries as UTF-16 offsets", () => {
     const seen: LocalHostEvent[] = [];
     const coalescer = new TerminalStreamCoalescer((e) => seen.push(e), 50, 1024);
 
     coalescer.push(output(1n, "a"));
-    coalescer.push(output(2n, "b"));
+    coalescer.push(output(2n, "💡"));
     coalescer.push(output(3n, "c"));
     expect(seen).toHaveLength(0);
 
@@ -66,7 +66,12 @@ describe("TerminalStreamCoalescer", () => {
       bindingId: "b1",
       epoch: "e1",
       seq: 3n,
-      data: "abc",
+      data: "a💡c",
+      chunks: [
+        { seq: 1n, end: 1 },
+        { seq: 2n, end: 3 },
+        { seq: 3n, end: 4 },
+      ],
     });
   });
 

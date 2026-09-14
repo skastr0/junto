@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasNode } from "@shared/canvas";
 import type { VellumCommandTerminalApi } from "@shared/ipc";
-import { resolveTerminalBinding } from "@shared/terminal";
+import { resolveTerminalBinding, type TerminalOutputBatch } from "@shared/terminal";
 import { terminalSettings, type TerminalSettings } from "@shared/settings";
 import { taskBrief } from "@shared/task";
 import { MONO_CELL } from "../../lib/focus-measure";
@@ -95,11 +95,10 @@ type AttachResult = {
   }[];
 };
 
-type LiveEvent = {
-  readonly bindingId?: string;
-  readonly epoch?: string;
-  readonly type?: string;
-  readonly data?: string;
+type LiveEvent = TerminalOutputBatch | {
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly type: "resize" | "exit" | "session" | "seat-state";
   readonly seq?: bigint;
 };
 
@@ -672,6 +671,8 @@ export function TerminalSurface({
   /** Failed/false child notifies for the current desired size. Reset on ack or new geom. */
   const ptyNotifyFailCount = useRef(0);
   const notifyInFlight = useRef(false);
+  /** Async resize replies belong to one attachment, even when refs survive it. */
+  const resizeGeneration = useRef(0);
   /** Trailing timer that coalesces child SIGWINCH into one settled size. */
   const ptyNotifyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [status, setStatus] = useState("attaching…");
@@ -837,12 +838,17 @@ export function TerminalSurface({
         return;
       }
       if (!shouldNotifyPtyResize(lastAcked.current, desired)) return;
+      const generation = resizeGeneration.current;
+      const current = (): boolean =>
+        resizeGeneration.current === generation &&
+        leaseRef.current === lease && apiRef.current === api;
       notifyInFlight.current = true;
       void (async () => {
         const send = desiredGeom.current;
         try {
           const ok =
             (await api.terminalResize(lease, send.cols, send.rows)) !== false;
+          if (!current()) return;
           logTermGeom("pty-notify", {
             cols: send.cols,
             rows: send.rows,
@@ -859,6 +865,7 @@ export function TerminalSurface({
             ptyNotifyFailCount.current += 1;
           }
         } catch {
+          if (!current()) return;
           logTermGeom("pty-notify-failed", { cols: send.cols, rows: send.rows });
           if (
             send.cols === desiredGeom.current.cols &&
@@ -867,20 +874,24 @@ export function TerminalSurface({
             ptyNotifyFailCount.current += 1;
           }
         } finally {
-          notifyInFlight.current = false;
-          if (
-            shouldNotifyPtyResize(lastAcked.current, desiredGeom.current) &&
-            ptyNotifyShouldRetry(ptyNotifyFailCount.current)
-          ) {
-            scheduleChildNotify();
+          if (current()) {
+            notifyInFlight.current = false;
+            if (
+              shouldNotifyPtyResize(lastAcked.current, desiredGeom.current) &&
+              ptyNotifyShouldRetry(ptyNotifyFailCount.current)
+            ) {
+              scheduleChildNotify();
+            }
           }
         }
       })();
     };
 
     const scheduleChildNotify = (): void => {
+      const generation = resizeGeneration.current;
       if (ptyNotifyTimer.current !== undefined) clearTimeout(ptyNotifyTimer.current);
       ptyNotifyTimer.current = setTimeout(() => {
+        if (resizeGeneration.current !== generation) return;
         ptyNotifyTimer.current = undefined;
         flushChildNotify();
       }, ptyNotifyDelayMs(lastAcked.current, ptyNotifyFailCount.current));
@@ -1368,6 +1379,7 @@ export function TerminalSurface({
     let alive = true;
     const pending: LiveEvent[] = [];
     let attachDone = false;
+    let lastSeq: bigint | undefined;
     const settleTimers: ReturnType<typeof setTimeout>[] = [];
     // Agent seats: starting|resuming → attaching (finding when pin unknown).
     // Geography shells: attaching only.
@@ -1410,6 +1422,19 @@ export function TerminalSurface({
 
     // Do NOT wire term.onResize → PTY. pushResize is the only path.
 
+    const writeOutput = (event: TerminalOutputBatch): void => {
+      const fresh: string[] = [];
+      let start = 0;
+      for (const chunk of event.chunks) {
+        if (lastSeq === undefined || chunk.seq > lastSeq) {
+          fresh.push(event.data.slice(start, chunk.end));
+          lastSeq = chunk.seq;
+        }
+        start = chunk.end;
+      }
+      if (fresh.length > 0) term.write(fresh.join(""));
+    };
+
     const offEvent = onTerminalEvent((raw) => {
       const event = raw as LiveEvent;
       if (event.bindingId !== bindingId) return;
@@ -1421,7 +1446,7 @@ export function TerminalSurface({
         return;
       }
       if (event.epoch !== epochRef.current) return;
-      if (event.type === "output" && event.data) term.write(event.data);
+      if (event.type === "output") writeOutput(event);
       if (event.type === "exit") {
         // Lazy seat: a generation ending is not the seat ending. Unless the
         // operator stopped it, re-attach (which re-ensures a live generation)
@@ -1469,7 +1494,6 @@ export function TerminalSurface({
           // at 0 makes the first measurement always notify.
           lastAcked.current = { ...UNKNOWN_TERMINAL_GEOMETRY };
           ptyNotifyFailCount.current = 0;
-          let lastSeq: bigint | undefined;
           // Live sessions have exactly one attach representation: serialized VT
           // state. Journal is only for failures before an observer existed.
           const serializedScreen = result.screen?.serialized;
@@ -1486,7 +1510,7 @@ export function TerminalSurface({
                 event.seq <= lastSeq
               )
                 continue;
-              if (event.type === "output" && event.data) term.write(event.data);
+              if (event.type === "output") writeOutput(event);
               if (event.type === "exit") sawExit = true;
             }
             discardPending();
@@ -1676,6 +1700,12 @@ export function TerminalSurface({
 
     return () => {
       alive = false;
+      resizeGeneration.current += 1;
+      notifyInFlight.current = false;
+      if (ptyNotifyTimer.current !== undefined) {
+        clearTimeout(ptyNotifyTimer.current);
+        ptyNotifyTimer.current = undefined;
+      }
       window.clearTimeout(stuckTimer);
       // Only bookmark a fully attached surface. Mid-attach store would overwrite
       // a good pin bookmark with empty-buffer state and lose scroll position.

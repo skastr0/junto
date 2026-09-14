@@ -75,6 +75,21 @@ TerminalEventResize,
 TerminalEventExit,]);
 export type TerminalEvent = typeof TerminalEvent.Type;
 
+/**
+ * Renderer IPC output, built after local or Remote host events reach main.
+ * This is not a Station/journal event. Every batch retains its original
+ * sequence boundaries so an attach snapshot can discard only the old prefix.
+ * `end` is the exclusive UTF-16 offset in `data`, matching String.slice.
+ */
+export type TerminalOutputBatch = {
+  readonly type: "output";
+  readonly bindingId: string;
+  readonly epoch: string;
+  readonly seq: bigint;
+  readonly data: string;
+  readonly chunks: ReadonlyArray<{ readonly seq: bigint; readonly end: number }>;
+};
+
 export const TerminalAttachSnapshot = Schema.Struct({
   epoch: Schema.String,
   snapshotAt: Schema.BigInt,

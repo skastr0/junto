@@ -1,4 +1,5 @@
 import type { LocalHostEvent } from "./local-host";
+import type { TerminalOutputBatch } from "../../../shared/terminal";
 
 export const TERMINAL_STREAM_FLUSH_MS = 50;
 export const TERMINAL_STREAM_FLUSH_BYTES = 64 * 1024;
@@ -15,7 +16,7 @@ type PendingFlush = {
 type OutputBuffer = {
   readonly bindingId: string;
   readonly epoch: string;
-  chunks: string[];
+  chunks: Array<{ readonly data: string; readonly seq: bigint }>;
   bytes: number;
   seq: bigint;
   pending: PendingFlush | undefined;
@@ -35,7 +36,8 @@ export const terminalBindingKey = (bindingId: string, epoch: string): string =>
  *
  * Ordering law: non-output events (resize/exit/session) flush pending
  * output first, so a binding's event order is preserved. The batched event
- * carries the last chunk's `seq` — the renderer's replay dedup keys on seq.
+ * carries every chunk's sequence boundary as well as the final `seq`, so an
+ * attach snapshot can cut through a batch without replaying its old prefix.
  *
  * Cadence is per binding, not global, and the two cadences answer different
  * questions:
@@ -115,7 +117,7 @@ export class TerminalStreamCoalescer {
       };
       this.buffers.set(key, buf);
     }
-    buf.chunks.push(event.data);
+    buf.chunks.push({ data: event.data, seq: event.seq });
     buf.bytes += event.data.length;
     buf.seq = event.seq;
     if (buf.bytes >= this.flushBytes) {
@@ -137,13 +139,19 @@ export class TerminalStreamCoalescer {
     }
     this.buffers.delete(key);
     if (buf.chunks.length === 0) return;
-    this.sink({
+    let end = 0;
+    const batch: TerminalOutputBatch = {
       type: "output",
       bindingId: buf.bindingId,
       epoch: buf.epoch,
       seq: buf.seq,
-      data: buf.chunks.join(""),
-    });
+      data: buf.chunks.map((chunk) => chunk.data).join(""),
+      chunks: buf.chunks.map((chunk) => {
+        end += chunk.data.length;
+        return { seq: chunk.seq, end };
+      }),
+    };
+    this.sink(batch);
   }
 
   /** Drop buffered output without emitting (no owners left for the binding). */
