@@ -15,7 +15,7 @@ node tests/pty-e2e/pty-capture.ts             # regenerate the real-capture corp
 ## Architecture
 
 ```
-real TUI bytes (36 fixtures, 9 harnesses)          P3 receipts (probe docs)       scripted TUI (byte-faithful model)
+real TUI bytes (19 captures, 5 harnesses)          P3 receipts (probe docs)       scripted TUI (byte-faithful model)
         │                                                     │                            │
         └───────────────► tests/pty-e2e/runner.ts ◄───────────┘                            │
                               │ fixture loader (P1 > P2/P3)                                │
@@ -38,7 +38,12 @@ clock (vi fake timers), and the scripted TUI process model. All logic under test
 
 `tests/pty-e2e/corpus/<harness>/<scenario>.jsonl` — one JSON per line: `{"t": ms, "b64": base64}`
 plus `manifest.json` (observed title/osc9/glyphs/modes, expectedScreen, sanitized flag).
-Scenarios: `startup-idle`, `type-echo`, `paste-chip`, `working-turn` × 9 harnesses.
+Current captures: Claude, Codex and Devin have `startup-idle`, `type-echo`,
+`paste-chip` and `working-turn`; Grok has those four plus
+`permission-returns-idle`; Pi has only `startup-idle` and `type-echo`.
+Manifest skips are missing evidence, not passing scenarios. The registry has
+14 external harnesses; this corpus covers five. See the
+[full matrix assessment](../../docs/assessments/pty-matrix-2026-09-14.md).
 
 The corpus exists to feed REAL terminal byte streams through the observer —
 escape sequences, prompt markers, OSC titles/9;4 progress, paste chips, and

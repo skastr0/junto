@@ -1,0 +1,427 @@
+{
+  "targetRevision": "eefaafff30d151c8c28f65d873d9c73bb18d3ae1",
+  "scope": "Assessment evidence; modeled probes are not native GUI qualification.",
+  "existingTests": {
+    "targeted": {
+      "passed": 249,
+      "skipped": 1,
+      "files": 9,
+      "command": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on bunx --no-install vitest run tests/pty-e2e tests/managed-terminal-drive.test.ts tests/message-delivery-service.test.ts tests/managed-spawn-and-drive-gaps.test.ts"
+    },
+    "full": {
+      "passed": 6932,
+      "skipped": 62,
+      "command": "bun run typecheck && bun run test --testTimeout=15000"
+    }
+  },
+  "driveProbe": {
+    "source": "eefaafff",
+    "evidence": "in-memory production classes, no live PTY",
+    "results": [
+      {
+        "case": "literal-pending-no-chip",
+        "accepted": true,
+        "pending": true,
+        "physicalWrites": 2
+      },
+      {
+        "case": "rejected-working-event-before-ack-wait",
+        "accepted": true,
+        "pending": true,
+        "physicalWrites": 3,
+        "turnEvents": [
+          {
+            "event": "turn.start",
+            "fields": {
+              "pendingTurn": false,
+              "inputActive": false,
+              "resizeActive": false,
+              "holding": true,
+              "heldWrites": 0,
+              "writing": true
+            }
+          },
+          {
+            "event": "turn.start.refused",
+            "fields": {
+              "reason": "text-pending",
+              "inputActive": false,
+              "resizeActive": false,
+              "holding": true,
+              "heldWrites": 0,
+              "writing": true,
+              "pendingTurn": false
+            }
+          }
+        ]
+      },
+      {
+        "case": "queue-expiry-after-physical-write",
+        "callerAccepted": false,
+        "physicalWrites": 2,
+        "ackDeliveredAfterFalse": true
+      },
+      {
+        "case": "resize-arrives-after-paste",
+        "accepted": true,
+        "phases": [
+          {
+            "cr": false,
+            "resizeActive": true
+          },
+          {
+            "cr": true,
+            "resizeActive": true
+          }
+        ]
+      },
+      {
+        "case": "hold-overflow",
+        "offered": 513,
+        "parked": 512,
+        "holding": true,
+        "lastWriteWouldPassThrough": true
+      }
+    ]
+  },
+  "generationProbe": {
+    "source": "eefaafff",
+    "evidence": "in-memory production drive and interlock",
+    "oldAccepted": false,
+    "heldBeforeOldSettles": true,
+    "heldAfterOldSettles": false,
+    "writesBeforeCurrentSettles": [
+      "\u001b[200~old\u001b[201~",
+      "\u001b[200~current\u001b[201~",
+      "\u001b[200~third\u001b[201~"
+    ],
+    "results": [
+      true,
+      true
+    ]
+  },
+  "ruleProbe": {
+    "source": "eefaafff",
+    "harnessPacks": 15,
+    "ruleCount": 112,
+    "composerCount": 23,
+    "regexCount": 109,
+    "invalid": [
+      {
+        "path": "hermes.rules[5].matchers.regex",
+        "pattern": "(?i)\\bready\\b",
+        "error": "SyntaxError: Invalid regular expression: unrecognized character after (?"
+      }
+    ],
+    "hermesReadyMatch": false
+  },
+  "registry": [
+    {
+      "id": "claude",
+      "rules": 17,
+      "composerProbes": 3,
+      "rulePackVersion": "2026.08.11.1"
+    },
+    {
+      "id": "codex",
+      "rules": 9,
+      "composerProbes": 3,
+      "rulePackVersion": "2026.08.28.1"
+    },
+    {
+      "id": "grok",
+      "rules": 16,
+      "composerProbes": 2,
+      "rulePackVersion": "2026.08.25.1"
+    },
+    {
+      "id": "hermes",
+      "rules": 6,
+      "composerProbes": 0,
+      "rulePackVersion": "2026.07.26.1"
+    },
+    {
+      "id": "pi",
+      "rules": 8,
+      "composerProbes": 2,
+      "rulePackVersion": "2026.08.07.2"
+    },
+    {
+      "id": "prime-agent",
+      "rules": 6,
+      "composerProbes": 3,
+      "rulePackVersion": "2026.08.07.2"
+    },
+    {
+      "id": "kimi",
+      "rules": 9,
+      "composerProbes": 0,
+      "rulePackVersion": "2026.08.07.2"
+    },
+    {
+      "id": "muse",
+      "rules": 1,
+      "composerProbes": 0,
+      "rulePackVersion": "2026.08.07.2"
+    },
+    {
+      "id": "devin",
+      "rules": 7,
+      "composerProbes": 3,
+      "rulePackVersion": "2026.08.06.1"
+    },
+    {
+      "id": "cursor",
+      "rules": 7,
+      "composerProbes": 3,
+      "rulePackVersion": "2026.08.28.1"
+    },
+    {
+      "id": "agy",
+      "rules": 8,
+      "composerProbes": 2,
+      "rulePackVersion": "2026.09.11.1"
+    },
+    {
+      "id": "amp",
+      "rules": 6,
+      "composerProbes": 0,
+      "rulePackVersion": "2026.08.25.1"
+    },
+    {
+      "id": "fx",
+      "rules": 5,
+      "composerProbes": 2,
+      "rulePackVersion": "2026.08.26.1"
+    },
+    {
+      "id": "omp",
+      "rules": 4,
+      "composerProbes": 0,
+      "rulePackVersion": "2026.08.28.1"
+    },
+    {
+      "id": "vellum-overseer",
+      "rules": 3,
+      "composerProbes": 0,
+      "rulePackVersion": "1"
+    }
+  ],
+  "mailProbes": [
+    {
+      "name": "concurrent-individual-and-batch-own-the-same-message",
+      "reproduced": true,
+      "publicTriggers": [
+        "onTerminalAttached (prime settle)",
+        "notifyAppended(m-one)",
+        "onBooted"
+      ],
+      "transportCalls": [
+        {
+          "bindingId": "binding",
+          "text": "[message - user] Body of m-one"
+        },
+        {
+          "bindingId": "binding",
+          "text": "[message - user] 2 unread — m-two,m-one — vellum-command msg list"
+        }
+      ],
+      "receiptCountBeforeReleasingTransport": 0,
+      "scope": "Duplicate transport requests, not a physical PTY paste reproduction."
+    },
+    {
+      "name": "new-message-receipted-under-an-older-accepted-batch",
+      "reproduced": true,
+      "publicTriggers": [
+        "onTerminalAttached (prime settle)",
+        "onBooted",
+        "projection gains m-three",
+        "onResumed"
+      ],
+      "transportCalls": [
+        {
+          "bindingId": "binding",
+          "text": "[message - user] 2 unread — m-two,m-one — vellum-command msg list"
+        }
+      ],
+      "acceptedMessageIds": [
+        "m-one",
+        "m-three",
+        "m-two"
+      ],
+      "falselyReceiptedMessageIds": [
+        "m-three"
+      ],
+      "scope": "Receipt semantics in real service with modeled store failure and recovery."
+    }
+  ],
+  "corpus": {
+    "captureCount": 19,
+    "harnessCount": 5,
+    "captures": {
+      "claude": [
+        "paste-chip",
+        "startup-idle",
+        "type-echo",
+        "working-turn"
+      ],
+      "codex": [
+        "paste-chip",
+        "startup-idle",
+        "type-echo",
+        "working-turn"
+      ],
+      "devin": [
+        "paste-chip",
+        "startup-idle",
+        "type-echo",
+        "working-turn"
+      ],
+      "grok": [
+        "paste-chip",
+        "permission-returns-idle",
+        "startup-idle",
+        "type-echo",
+        "working-turn"
+      ],
+      "pi": [
+        "startup-idle",
+        "type-echo"
+      ]
+    }
+  },
+  "artifactsLocal": "/tmp/vellum-command-pty-matrix-20260914",
+  "probeCommands": [
+    "bun /tmp/vellum-command-pty-matrix-20260914/drive-probes.ts",
+    "bun /tmp/vellum-command-pty-matrix-20260914/generation-probe.ts",
+    "bun /tmp/vellum-command-pty-matrix-20260914/rule-probes.ts",
+    "bun --no-install /tmp/vellum-command-pty-matrix-20260914/mail-probes.ts",
+    "bun /tmp/vellum-command-pty-matrix-20260914/adapter-probes.ts",
+    "bun /tmp/vellum-command-pty-matrix-20260914/fx-probe.ts"
+  ],
+  "adapterProbes": {
+    "source": "eefaafff",
+    "evidence": "Production observer/matchers over constructed input; no live harness",
+    "results": [
+      {
+        "case": "cursor-draft-starts-with-placeholder-prefix",
+        "composer": "empty",
+        "expected": "draft"
+      },
+      {
+        "case": "agy-spinner-below-prior-output",
+        "state": {
+          "state": "idle",
+          "reason": "rule:empty_prompt_idle",
+          "priority": 80,
+          "confidence": "high",
+          "visibleIdle": true,
+          "visibleWorking": false,
+          "visibleAttention": false,
+          "skipStateUpdate": false,
+          "ruleId": "empty_prompt_idle",
+          "harness": "agy"
+        },
+        "composer": "empty",
+        "evidence": "Constructed screen using declared spinner and prompt idioms; not a live Agy frame"
+      },
+      {
+        "case": "ruleless-prompt-above-footer",
+        "pending": false,
+        "expected": true
+      },
+      {
+        "case": "literal-pending-head-wraps-across-lines",
+        "pending": false,
+        "expected": true
+      }
+    ]
+  },
+  "sessionDiscoveryProbe": {
+    "source": "eefaafff",
+    "evidence": "Production discovery function, isolated filesystem index, no harness process",
+    "first": "BBBBBBBBBBBB",
+    "second": "BBBBBBBBBBBB",
+    "sameSession": true
+  },
+  "observedBuild": {
+    "verifiedAtUtc": "2026-09-14T01:48:34.169028+00:00",
+    "sourceCommit": "eefaafff30d151c8c28f65d873d9c73bb18d3ae1",
+    "version": "0.2.1",
+    "runningProcess": "66717 Sun Sep 13 22:46:23 2026     /Applications/Vellum Command.app/Contents/MacOS/Vellum Command",
+    "installedAndReleaseAsarSha256": "b8a42f8181c3cea30f1c8ebace3ff0d9861e5bcd6399bd40546dd1a6f4134d24",
+    "mainPayloadSha256": "08ee8d5b21e02128abc4308da7558b63de75d54862d6a94acbb91eb8c637be8f",
+    "nativeCanvasObserved": true,
+    "scope": "Prior verified packaged-app observation; no application launch in this assessment pass."
+  },
+  "workflowExecution": {
+    "worker": "devin",
+    "model": "swe-2-max",
+    "requestedConcurrency": 10,
+    "localHarnessWorkerCap": 8,
+    "freshStores": true,
+    "liveHarnessQualification": false,
+    "runs": [
+      {
+        "id": "7cdd2144-6992-4507-be0a-44d0eaa2805b",
+        "kind": "initial-combined",
+        "outcome": "stopped after tool/parser failures"
+      },
+      {
+        "id": "2cb0474e-cf02-48ef-a1cb-ea11172ff51c",
+        "kind": "fourteen-harnesses",
+        "failedTasks": 14,
+        "outcome": "workflow completed with failed isolated task results"
+      },
+      {
+        "id": "4f56bc47-feff-4328-9059-e54d87b6f458",
+        "kind": "eight-shared-subsystems",
+        "failedTasks": 8,
+        "outcome": "workflow completed with failed isolated task results"
+      }
+    ],
+    "usableRecoveredFinalReports": [
+      "prime-agent",
+      "hermes",
+      "kimi"
+    ],
+    "substantiveWrongSchemaReports": [
+      "pi",
+      "mail"
+    ],
+    "limits": [
+      "noninteractive approval exits",
+      "output schema/parser failures",
+      "account-wide message rate limit"
+    ],
+    "completionMethod": "Local source audits and independently executed isolated production-class probes completed assessment coverage; not fourteen successful Devin executions."
+  },
+  "localArtifactSha256": {
+    "drive-probes.ts": "841019d44a576cfdc9efc805d020114b6761720ec9d6f69cc05c48e75cc78936",
+    "generation-probe.ts": "931c504d29e854bb611cb25287c6f14708fc7143b8c064d7ad69d7a92779db65",
+    "rule-probes.ts": "1c934aa049dd28f3e65270915091d959063e4de160ebba4fe5b4fe4d7a620eeb",
+    "adapter-probes.ts": "523f282099d2abb6dfdcdc1d13b54bc4352a9c536b0532821fb7573af7f31736",
+    "fx-probe.ts": "06f0b0b36367663b7760215081c109569c96c0f0615d330ad60ea05e0404c9e2",
+    "mail-probes.ts": "26f5c6ae75ab3a6c9b3b82ab6fa64628ba2e8615760ffe40a152a1ae3cd4124c",
+    "baseline-tests.log": "1fc0d2b2d03b44722a3ff919f309b87da8565db5e365ab11845e911d5d21c316",
+    "typecheck.log": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "full-tests.log": "350242717f5ce1906650f4fabd0533d688ab001909ba31fe6d3b7e8b02cca913"
+  },
+  "assessedSourceSha256": {
+    "src/main/vellum-command/term/drive/managed-terminal-drive.ts": "1c4e49c18395cfe46a347a1b584b0f48f364ce71509ce84c0aaaefaa53b9a1f1",
+    "src/main/vellum-command/term/drive/operator-interlock.ts": "c2a7461b1643957ce322cad06e3846f43344ed7063ac53dd81baac199ac5728a",
+    "src/main/vellum-command/term/drive/prompt-evidence.ts": "ae8f1528966f2a7ce0be23c91d36f57f9f3e3c0db932fda76a661f7edbc8fc06",
+    "src/main/vellum-command/work/message-delivery.ts": "4b72115a174a343ecf0b148f8bc20a22c7addd5a3fb4daee475a914cfd643e21",
+    "src/main/vellum-command/kernel/service.ts": "29c8cc9a45051f5e7a9237b1623cdef20ab30124ae0774be07ab85563c3860e9",
+    "src/main/vellum-command/term/observer/session-observer.ts": "e49e58e04e391f08756540d2f94c8c81f21010d4204498aa5fd75843358f832c",
+    "src/main/vellum-command/term/agent-state/rules/cursor.ts": "8be846df194e2c706215ec001301a926e59470dc3c99dbf74cb2ae8594d880ce",
+    "src/main/vellum-command/term/agent-state/rules/agy.ts": "d865daadd3a9fe846a87c73b5ae16e91fc56b64f32a90250e218ae3fe8f6e91a",
+    "src/main/vellum-command/term/agent-state/rules/hermes.ts": "79edafea943ab9468f53d74e0c362aceeaedba6cf0a575bfb419b3dbdfab0550",
+    "src/main/vellum-command/term/templates/fx-session.ts": "feb4927c6fd379940e12b623d1349ed0d0a424a302ff39149361a62418a65f6e",
+    "src/renderer/components/terminal/TerminalSurface.tsx": "5a8d92398f6256d640c2851ac821fde93affdcb8f4d255c839815684942297d8",
+    "src/main/vellum-command/term/stream-coalescer.ts": "3719b6f5ed027b64492df6e3081c2e2619e25225a56d728fb70c0e6ce22a9d94",
+    "src/main/vellum-command/term/ipc.ts": "86b636f70e320028a5bcc74ca0ab178838646a8719a9d5a8158377553d8b158f",
+    "src/main/vellum-command/ipc.ts": "8064f22c54ab2c3514aac5f140f959c00c5d117c27a2103e4eba6fbcec44c78a",
+    "src/main/vellum-remote.ts": "ad20c2eb14771084c06025dc7aa63d53c2bb8693964d7b99ce286af9f26f60f4"
+  }
+}
