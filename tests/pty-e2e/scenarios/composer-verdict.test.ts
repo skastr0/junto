@@ -24,6 +24,11 @@ import { composerVerdictForHarness } from "../../../src/main/vellum-command/term
 import type { ComposerVerdict } from "../../../src/main/vellum-command/term/agent-state";
 
 const CHUNK = 64;
+// macOS Verify runs vitest at the default 5s test timeout on 2 workers;
+// every 64-byte chunk gets a snapshot + verdict evaluation (~1ms each), so
+// 200KB+ captures need an explicit budget. 15s covers ~3x the slowest
+// observed local replay (amp/paste-chip ~4.2s) under CI contention.
+const REPLAY_TIMEOUT_MS = 15_000;
 
 const replay = async (
   harness: string,
@@ -63,14 +68,14 @@ describe("amp composer verdict on real bytes", () => {
     // Logo animation is 16 full-ish redraws; 64-byte chunks time out.
     const run = await replay("amp", fixture!.events, 1024);
     expect(run.final).toBe("empty");
-  });
+  }, REPLAY_TIMEOUT_MS);
 
   it("paste-chip shows a draft frame (payload in the box)", async () => {
     const fixture = loadP1Fixture("amp", "paste-chip");
     expect(fixture, "amp/paste-chip corpus missing").not.toBeNull();
     const run = await replay("amp", fixture!.events);
     expect(run.draftFrames).toBeGreaterThan(0);
-  });
+  }, REPLAY_TIMEOUT_MS);
 });
 
 for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes", "kimi", "omp"] as const) {
@@ -83,7 +88,7 @@ for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes
         run.final,
         `${harness} idle screen must prove an EMPTY composer or first-spawn delivery holds forever`,
       ).toBe("empty");
-    });
+    }, REPLAY_TIMEOUT_MS);
 
     it("type-echo shows a draft frame, then returns to an empty composer", async () => {
       const fixture = loadP1Fixture(harness, "type-echo");
@@ -97,6 +102,6 @@ for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes
         run.final,
         `${harness} post-turn screen must return to EMPTY or delivery never resumes`,
       ).toBe("empty");
-    });
+    }, REPLAY_TIMEOUT_MS);
   });
 }

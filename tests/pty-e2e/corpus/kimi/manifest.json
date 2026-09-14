@@ -172,5 +172,6 @@
     "model": null,
     "authentication": "not configured: the captured welcome panel requests /login or /provider",
     "turnEvidence": "composer and missing-model errors only; no successful model turn was observed"
-  }
+  },
+  "redactions": []
 }

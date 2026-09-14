@@ -235,5 +235,8 @@
     "visibleMode": "low",
     "authentication": "existing operator-home credentials; a real greeting response is recorded, but the authentication mechanism and provider are not painted",
     "turnEvidence": "hello returns to a settled empty composer; subsequent paste and numbered-line prompts include queued steering while a turn remains active"
-  }
+  },
+  "redactions": [
+    "escape-split capture working-directory fragments -> <CWD>"
+  ]
 }

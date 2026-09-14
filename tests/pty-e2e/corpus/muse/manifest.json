@@ -200,5 +200,6 @@
     "model": null,
     "authentication": "not required by the deterministic echo provider",
     "turnEvidence": "deterministic echo turns only; no remote model turn was exercised"
-  }
+  },
+  "redactions": []
 }

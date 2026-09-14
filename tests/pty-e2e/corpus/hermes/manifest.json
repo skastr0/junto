@@ -207,5 +207,9 @@
     "model": "gpt-5.4-mini",
     "authentication": "failed: captured agent-init errors report no stored Codex credentials",
     "turnEvidence": "composer and authentication-failure frames only; no successful model turn was observed"
-  }
+  },
+  "redactions": [
+    "captured session id -> 00000000",
+    "truncated capture working-directory fragment -> <CAPTURE>/hermes"
+  ]
 }

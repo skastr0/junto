@@ -200,5 +200,12 @@
       "email",
       "token"
     ]
-  }
+  },
+  "redactions": [
+    "prior-session title in the Recent sessions sidebar neutralized",
+    "configured provider label -> provider-01",
+    "configured model and usage-multiplier label -> synth-model-1 (1x usage)",
+    "live context/quota percentages -> 0.0%/1M",
+    "capture working-directory link text and escape-split path fragments -> <CWD>"
+  ]
 }

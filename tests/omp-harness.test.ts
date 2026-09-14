@@ -233,9 +233,10 @@ describe("omp launch shape", () => {
 });
 
 describe("omp seat state", () => {
-  // Frames transcribed from a live omp 18.0.9 PTY capture.
+  // Frames transcribed from a live omp 18.0.9 PTY capture, with the
+  // configured provider/model/quota labels neutralized like the P1 corpus.
   const STATUS =
-    "   \u00B7  GLM-5.3-Flash (2x usage) \u00B7 high \u00B7 omp-probe \u00B7 5.4%/1M ";
+    "   \u00B7  synth-model-1 (1x usage) \u00B7 high \u00B7 omp-probe \u00B7 0.0%/1M ";
 
   const snap = (title: string, lines: readonly string[]): ObserverGridSnapshot => ({
     cols: 120,

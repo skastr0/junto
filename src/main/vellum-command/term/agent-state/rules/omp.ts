@@ -2,7 +2,8 @@
  * Oh My Pi (`omp`) seat rules.
  *
  * Composer grounded in P1 corpus omp/* captured 2026-09-14 from omp/18.1.16
- * (operator home, GLM-5.3-Flash / opencode-go). Empty is whitespace between
+ * (operator home; configured provider/model labels neutralized in the corpus
+ * per its manifest redactions). Empty is whitespace between
  * the last two ─── rules; draft is `hello` in that box. Permission dialogs
  * were not observed. Isolated HOME is a provider picker (unreadable).
  *
@@ -18,8 +19,9 @@
  * matched, because either alone would be a single point of failure and they
  * cost nothing together.
  *
- * The status bar is always present (`… U+00B7 GLM-5.3-Flash (2x usage)
- * U+00B7 high U+00B7 …`) and therefore proves nothing about state on its
+ * The status bar is always present (`… U+00B7 synth-model-1 (1x usage)
+ * U+00B7 high U+00B7 …` after corpus neutralization) and therefore proves
+ * nothing about state on its
  * own. Its separators are U+00B7; rule sources spell them as the escape
  * rather than pasting the glyph, per the repo's copy law.
  */
