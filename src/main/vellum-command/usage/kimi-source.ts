@@ -80,8 +80,10 @@ interface KimiCodeCredentialFile {
   readonly expiresAt?: number;
 }
 
-const readKimiCodeCredentialFile = (): KimiCodeCredentialFile | undefined => {
-  const path = join(kimiCodeHome(), "credentials", "kimi-code.json");
+const readKimiCodeCredentialFile = (
+  env: NodeJS.ProcessEnv = process.env,
+): KimiCodeCredentialFile | undefined => {
+  const path = join(kimiCodeHome(env), "credentials", "kimi-code.json");
   try {
     if (!existsSync(path)) return undefined;
     const payload: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -158,7 +160,7 @@ export const resolveKimiCredential = (
   }
 
   if (endpointOverride) return undefined;
-  const file = readKimiCodeCredentialFile();
+  const file = readKimiCodeCredentialFile(env);
   if (file !== undefined && kimiCodeCredentialFresh(file, nowMs)) {
     return {
       token: file.accessToken,

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildKimiSnapshot,
@@ -249,12 +252,32 @@ describe("credential resolution", () => {
     const base = { KIMI_CODE_HOME: "/nonexistent-kimi-home-for-tests" };
     expect(resolveKimiCredential({ ...base, KIMI_AUTH_TOKEN: "web-tok" })?.kind).toBe("web-token");
     expect(resolveKimiCredential({ ...base, KIMI_CODE_API_KEY: "api-key" })?.kind).toBe("api-key");
-    expect(resolveKimiCredential(base)).toBeUndefined();
+    expect(resolveKimiCredential(base)?.kind).toBeUndefined();
     // Endpoint overrides disable the file tier.
     expect(
       resolveKimiCredential({ KIMI_CODE_HOME: "/nonexistent-kimi-home-for-tests", KIMI_CODE_OAUTH_HOST: "x" })
         ?.kind,
     ).toBeUndefined();
+  });
+
+  it("reads CLI OAuth credentials from the supplied KIMI_CODE_HOME", () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "vellum-kimi-source-"));
+    const previousHome = process.env.KIMI_CODE_HOME;
+    mkdirSync(join(tempHome, "credentials"));
+    writeFileSync(
+      join(tempHome, "credentials", "kimi-code.json"),
+      JSON.stringify({ access_token: "test-only-kimi-token" }),
+    );
+    process.env.KIMI_CODE_HOME = join(tempHome, "missing-process-home");
+    try {
+      expect(resolveKimiCredential({ KIMI_CODE_HOME: tempHome }, 1_000)?.kind).toBe(
+        "cli-oauth",
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.KIMI_CODE_HOME;
+      else process.env.KIMI_CODE_HOME = previousHome;
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 });
 
