@@ -2497,3 +2497,96 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
     service.suspend();
   });
 });
+
+describe.each(["individual", "batch"] as const)("%s transport rejection accounting", (lane) => {
+  const messages = () =>
+    lane === "individual"
+      ? [userMsg("reject-1", "first")]
+      : [userMsg("reject-1", "first"), userMsg("reject-2", "second")];
+  // All store and transport operations in these cases settle through promises.
+  const flushDelivery = async () => {
+    for (let i = 0; i < 100; i += 1) await Promise.resolve();
+  };
+
+  it.each(["throw", "reject"] as const)("refunds a pre-write %s so later delivery can succeed", async (failure) => {
+    const msgs = messages();
+    const store = makeStore({ c: agentDoc(msgs) });
+    let requests = 0;
+    let writes = 0;
+    let ready = false;
+    const service = new MessageDeliveryService();
+    service.configure({
+      store,
+      transport: {
+        wakeManagedSeat: async () => true,
+        pasteWriteCount: () => writes,
+        sendManagedTerminalPrompt: () => {
+          requests += 1;
+          if (!ready) {
+            const error = new Error("transport rejected before paste");
+            if (failure === "throw") throw error;
+            return Promise.reject(error);
+          }
+          writes += 1;
+          return Promise.resolve(true);
+        },
+      },
+    });
+    try {
+      // More failures than the transport attempt cap, with no physical paste.
+      for (let round = 1; round <= 4; round += 1) {
+        service.onBooted();
+        await flushDelivery();
+        expect(requests).toBe(round);
+      }
+      expect(writes).toBe(0);
+      for (const message of msgs) {
+        expect(await store.hasAcceptedMessageDelivery("c", "agent", message.messageId)).toBe(false);
+      }
+
+      ready = true;
+      service.onBooted();
+      await flushDelivery();
+      expect(requests).toBe(5);
+      expect(writes).toBe(1);
+      for (const message of msgs) {
+        expect(await store.hasAcceptedMessageDelivery("c", "agent", message.messageId)).toBe(true);
+      }
+      service.onBooted();
+      await flushDelivery();
+      expect(writes).toBe(1);
+    } finally {
+      service.suspend();
+    }
+  });
+
+  it("keeps the charge and leaves receipts pending when rejection follows a paste", async () => {
+    const msgs = messages();
+    const store = makeStore({ c: agentDoc(msgs) });
+    let writes = 0;
+    const service = new MessageDeliveryService();
+    service.configure({
+      store,
+      transport: {
+        wakeManagedSeat: async () => true,
+        pasteWriteCount: () => writes,
+        sendManagedTerminalPrompt: async () => {
+          writes += 1;
+          throw new Error("transport rejected after paste without acceptance");
+        },
+      },
+    });
+    try {
+      for (let round = 1; round <= 4; round += 1) {
+        service.onBooted();
+        await flushDelivery();
+      }
+      expect(writes).toBe(3);
+      for (const message of msgs) {
+        expect(await store.hasAcceptedMessageDelivery("c", "agent", message.messageId)).toBe(false);
+      }
+    } finally {
+      service.suspend();
+    }
+  });
+});

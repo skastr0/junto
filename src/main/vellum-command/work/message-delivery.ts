@@ -1314,20 +1314,23 @@ export class MessageDeliveryService {
             : undefined;
         this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
         const writesBefore = transport.pasteWriteCount?.(target.bindingId);
-        const delivered = await this.deliver(
-          transport,
-          target,
-          payload,
-          live.messageId,
-          promptOptions,
-        );
-        if (!delivered) {
+        let delivered = false;
+        try {
+          delivered = await this.deliver(
+            transport,
+            target,
+            payload,
+            live.messageId,
+            promptOptions,
+          );
+        } finally {
           // A failure that never touched the PTY (drive refused at a gate
-          // race — seat left idle, composer stopped being provably empty)
+          // race, or the transport threw/rejected before writing)
           // must not consume the bounded re-drive marks: nothing was pasted,
           // so there is nothing a re-drive could duplicate. A failure that
           // DID write (paste without ack — the live 4x class) keeps them.
           if (
+            !delivered &&
             writesBefore !== undefined &&
             transport.pasteWriteCount?.(target.bindingId) === writesBefore
           ) {
@@ -1335,8 +1338,8 @@ export class MessageDeliveryService {
             const attempts = this.transportAttempts.get(key) ?? 0;
             if (attempts > 0) this.transportAttempts.set(key, attempts - 1);
           }
-          return;
         }
+        if (!delivered) return;
         this.transportAccepted.add(key);
       }
 
@@ -1551,18 +1554,21 @@ export class MessageDeliveryService {
         this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
       }
       const writesBefore = transport.pasteWriteCount?.(target.bindingId);
-      const delivered = await this.deliver(
-        transport,
-        target,
-        payload,
-        batchKey,
-        promptOptions,
-      );
-      if (!delivered) {
-        // Same law as attemptOne: a refusal that never touched the PTY hands
-        // every member its attempt back; a paste that wrote without an ack is
-        // written-unresolved — it keeps the charge and is never marked accepted.
+      let delivered = false;
+      try {
+        delivered = await this.deliver(
+          transport,
+          target,
+          payload,
+          batchKey,
+          promptOptions,
+        );
+      } finally {
+        // Same law as attemptOne, including transport throws/rejections: a
+        // failure that never touched the PTY hands every member its attempt
+        // back. A paste without acceptance keeps the charge and stays pending.
         if (
+          !delivered &&
           writesBefore !== undefined &&
           transport.pasteWriteCount?.(target.bindingId) === writesBefore
         ) {
@@ -1571,8 +1577,8 @@ export class MessageDeliveryService {
             if (attempts > 0) this.transportAttempts.set(key, attempts - 1);
           }
         }
-        return;
       }
+      if (!delivered) return;
       // Marker plus every member key land before the first await, so no
       // later pass can re-send any part of the accepted payload.
       this.transportAccepted.add(batchKey);
