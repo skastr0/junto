@@ -14,8 +14,9 @@
  * the unit lanes never pick it up). Run directly:
  *
  *   node tests/pty-e2e/pty-capture.ts                # capture all shipped harnesses
- *   node tests/pty-e2e/pty-capture.ts <harness>      # capture one harness
- *   node tests/pty-e2e/pty-capture.ts list           # list harnesses
+ *   node tests/pty-e2e/pty-capture.ts <harness>      # capture one shipped or composer-lane harness
+ *   node tests/pty-e2e/pty-capture.ts list           # list shipped harnesses
+ *   node tests/pty-e2e/pty-capture.ts list all       # include composer-lane defs
  *   node tests/pty-e2e/pty-capture.ts verify         # decode + scrub-gate corpus
  *
  * Canonicality gate (feeds a fixture through the REAL SessionObserver —
@@ -67,6 +68,8 @@ const TURN_WAIT_CAP_MS = 30_000;   // post-CR idle-return cap
 const WORKING_WAIT_CAP_MS = 20_000; // working-signal wait cap
 const QUIET_MS = 1400;             // bytes-quiet threshold for "stable"
 const SHIPPED_HARNESSES = new Set(["claude", "codex", "grok", "pi", "devin"]);
+/** Named capture only — never the default capture-all, which stays shipped. */
+const COMPOSER_LANE = new Set(["hermes", "kimi", "muse", "amp", "omp"]);
 
 // ── scrub source material ───────────────────────────────────────────────────
 const HOME = os.homedir();
@@ -196,6 +199,20 @@ export const HARNESSES: readonly HarnessDef[] = [
     modals: [{ when: /trust this workspace|do you trust/i, reply: "1\r" }],
     freshSpawnPerScenario: true,
     note: "echo provider = free deterministic turns, no auth needed; --trust-workspace avoids the trust modal",
+  },
+  {
+    name: "amp", displayName: "Amp",
+    argv: () => ["--no-ide"],
+    promptGlyphs: [">", "\u276f", "~"],
+    exitRecipe: ["\u0003", "\u0004"],
+    note: "standalone TUI via --no-ide; isolated HOME fails closed without auth",
+  },
+  {
+    name: "omp", displayName: "Oh My Pi",
+    argv: () => [],
+    promptGlyphs: [">", "\u03c0", "\u276f"],
+    exitRecipe: ["\u0003", "\u0004", "/exit\r"],
+    note: "pi-family TUI; isolated HOME fails closed without provider credentials",
   },
   {
     name: "devin", displayName: "Devin",
@@ -1206,6 +1223,17 @@ async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
   return results;
 }
 // ── manifest writing ────────────────────────────────────────────────────────
+function probeHarnessVersion(name: string): string | null {
+  for (const args of [["--version"], ["-V"], ["version"]] as const) {
+    const result = spawnSync(name, [...args], { encoding: "utf8", timeout: 8_000 });
+    const text = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+    if (result.status === 0 && text.length > 0) {
+      return text.split("\n")[0]!.slice(0, 240);
+    }
+  }
+  return null;
+}
+
 function writeManifests(def: HarnessDef, results: ScenarioResult[]): void {
   const outDir = path.join(CAPTURE_ROOT, def.name);
   fs.mkdirSync(outDir, { recursive: true });
@@ -1214,6 +1242,7 @@ function writeManifests(def: HarnessDef, results: ScenarioResult[]): void {
     harness: def.name,
     displayName: def.displayName,
     source: "P1-real-capture",
+    harnessVersion: probeHarnessVersion(def.name),
     capturedAt: new Date().toISOString(),
     pty: { cols: COLS, rows: ROWS, term: "xterm-256color" },
     sanitized: false,
@@ -1331,8 +1360,11 @@ async function checkFixture(harness: string, scenario: string, glyphArg?: string
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args[0] === "list") {
-    for (const h of HARNESSES.filter((harness) => SHIPPED_HARNESSES.has(harness.name))) {
-      console.log(h.name.padEnd(12), h.displayName);
+    const all = args[1] === "all";
+    for (const h of HARNESSES) {
+      if (!all && !SHIPPED_HARNESSES.has(h.name)) continue;
+      const lane = COMPOSER_LANE.has(h.name) ? "  (composer-lane)" : "";
+      console.log(h.name.padEnd(12), h.displayName + lane);
     }
     return;
   }
@@ -1372,12 +1404,15 @@ async function main(): Promise<void> {
     process.exit(allOk ? 0 : 1);
   }
 
-  // capture mode
+  // capture mode — default stays shipped; named composer-lane harnesses are opt-in
   const only = args[0];
   const shipped = HARNESSES.filter((harness) => SHIPPED_HARNESSES.has(harness.name));
-  const defs = only ? shipped.filter((harness) => harness.name === only) : shipped;
+  const capturable = HARNESSES.filter(
+    (harness) => SHIPPED_HARNESSES.has(harness.name) || COMPOSER_LANE.has(harness.name),
+  );
+  const defs = only ? capturable.filter((harness) => harness.name === only) : shipped;
   if (only && defs.length === 0) {
-    console.error(`unknown or unshipped harness '${only}'. Try: list`);
+    console.error(`unknown or uncapturable harness '${only}'. Try: list all`);
     process.exit(2);
   }
   fs.mkdirSync(CAPTURE_ROOT, { recursive: true });
