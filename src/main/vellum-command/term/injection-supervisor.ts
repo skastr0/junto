@@ -64,6 +64,8 @@ type SeatSupervision = {
    * compacts its own context throws the doctrine away mid-session.
    */
   orientationsDelivered: number;
+  /** One transport request owns this generation's next orientation receipt. */
+  orientationInFlight: boolean;
   escalatedOnce: boolean;
   hadDelivery: boolean;
   lastText: string | undefined;
@@ -127,6 +129,7 @@ export class InjectionSupervisor {
         lastActedKind: undefined,
         repairedOnce: false,
         orientationsDelivered: 0,
+        orientationInFlight: false,
         escalatedOnce: false,
         hadDelivery: false,
         lastText: undefined,
@@ -274,8 +277,8 @@ export class InjectionSupervisor {
     };
     const decision = decideIntervention(ctx);
 
-    // Dedup: identical decisions are not re-acted. notify-orient is governed
-    // by the once-per-generation flag, so it is exempt from same-kind dedup.
+    // Orientations use accepted-delivery budgets and an in-flight reservation
+    // instead of same-kind dedup, so a refused notice can be retried later.
     if (
       decision.kind !== "notify-orient" &&
       decision.kind === seat.lastActedKind &&
@@ -290,15 +293,30 @@ export class InjectionSupervisor {
       case "hold":
         return;
       case "notify-orient": {
-        // The policy owns the schedule; the supervisor only records that a
-        // notice went out, which is what moves the budget forward.
-        seat.orientationsDelivered += 1;
-        seat.lastActedKind = "notify-orient";
+        const writer = this.writer;
+        if (writer === undefined || seat.orientationInFlight) return;
+        // Reserve before invoking the writer: synchronous observer callbacks
+        // and later turn events must not request an overlapping notice.
+        seat.orientationInFlight = true;
         const payload = appendBootstrapMarker(
           buildOrientNotice(bindingId),
           bindingId,
         );
-        void this.writer?.(bindingId, payload);
+        const settle = (accepted: boolean): void => {
+          if (this.seats.get(bindingId) !== seat) return;
+          seat.orientationInFlight = false;
+          if (accepted) {
+            seat.orientationsDelivered += 1;
+            seat.lastActedKind = "notify-orient";
+          }
+        };
+        try {
+          const result = writer(bindingId, payload);
+          if (typeof result === "boolean") settle(result);
+          else void result.then(settle, () => settle(false));
+        } catch {
+          settle(false);
+        }
         return;
       }
       case "escalate": {
