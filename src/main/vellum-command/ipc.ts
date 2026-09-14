@@ -1348,10 +1348,10 @@ export const registerVellumIpc = (): void => {
           seatStateRuntime.machine.getSlot(bindingId)?.harness,
       });
       bindManagedTerminalDriveForOverseer(managedDrive);
-      // Tier B doctrine kick, extracted so the shared runtime can run it
-      // synchronously before the drive's own idle drain (preserving the
-      // original firstTyped-before-drain order). Takes the writing lock
-      // synchronously when it writes; a queued prompt then parks behind it.
+      // Tier B doctrine kick, extracted so the shared runtime initiates it
+      // before the drive's own idle drain (preserving the original
+      // firstTyped-before-drain invocation order; no stronger lock priority
+      // is claimed).
       function kickFirstTypedDoctrine(bindingId: string): void {
         // Peek first — only consume after a successful physical paste+CR.
         // Do NOT await turn-start: Muse (and other weak-chrome harnesses)

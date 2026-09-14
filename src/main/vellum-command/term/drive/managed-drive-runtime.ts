@@ -46,10 +46,11 @@ export type ManagedDriveRuntimeSources = {
   readonly harnessFor: SeatHarnessLookup;
   readonly snapshotText: (bindingId: string) => string | undefined;
   /**
-   * Synchronous pre-idle hook, invoked before the drive's own idle drain.
-   * Lets Command Center start firstTyped doctrine (which synchronously
-   * wins the writing lock) before a previously queued prompt drains.
-   * Omitted on Remote, which has no doctrine layer.
+   * Pre-idle hook, invoked before the drive's own idle drain. Lets
+   * Command Center initiate firstTyped doctrine before a previously queued
+   * prompt drains (restoring prior invocation order). It starts first; no
+   * stronger lock priority is claimed — the clipboard preflight awaits even
+   * on a synchronous pass. Omitted on Remote, which has no doctrine layer.
    */
   readonly beforeSeatIdle?: (bindingId: string) => void;
 };
