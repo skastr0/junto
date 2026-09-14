@@ -16,7 +16,7 @@ import type { SeatRulePack } from "../types";
 
 export const ampRules: SeatRulePack = {
   harness: "amp",
-  version: "2026.09.14.1",
+  version: "2026.09.14.2",
   rules: [
     {
       /** Approval gate: the turn stops until the operator answers. */
@@ -65,6 +65,9 @@ export const ampRules: SeatRulePack = {
       visibleWorking: true,
       matchers: {
         any: [
+          // P1 paste-chip paints Sending before the OSC title gains its
+          // spinner. The footer already owns the turn during this window.
+          { lineRegex: ["^\\s*(?:╰\\s*)?[∼≈≋]\\s*Sending\\b"] },
           { contains: ["streaming"] },
           { contains: ["thinking"] },
           { contains: ["cancelling"] },
