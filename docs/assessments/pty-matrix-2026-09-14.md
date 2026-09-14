@@ -5,7 +5,7 @@ This is an engineering assessment, not a claim that the reported production defe
 
 ## Current status, 2026-09-14
 
-**Source checkpoint: `d845d8b7`. Native checkpoint: PID `14290`, source `7d2d6cb1`.**
+**Source checkpoint: `134deb27`. Native checkpoint: PID `14290`, source `7d2d6cb1`.**
 The [native submission repair](pty-native-submission-2026-09-14.md) and
 [fresh-mail qualification](pty-fresh-mail-2026-09-14.md) establish visible
 delivery through the normal 192-node, 57-edge factory and both warm Devin
@@ -22,6 +22,7 @@ receipts belong to the running `7d2d6cb1` package, not the newer source.
 | Mail and supervisor | Immutable accepted batch membership and shared member reservations (`02a420ab`, `b9185f17`, `9832392b`); per-member retry/receipt recovery and rejected-before-write refunds (`c2ee9755`, `ae13b0c7`); supervisor notices counted only after acceptance (`94657fa1`). |
 | Observation and attachment | Generation-owned evidence (`93c058b6`), ordered observer bytes/resizes (`4b45df28`), renderer attachment/output/resize fences (`821dcead`). |
 | Composition and session ownership | Concrete pulse transport registration, opaque first-typed arm ownership and re-kick (`3b744c2c`, `871516ed`); exclusive captured-session ownership (`9c905ecf`). Remote mail remains explicitly unsupported. |
+| Captured adapters | Muse working and Hermes/Kimi setup refusal (`af9db2e9`), Amp Sending refusal (`30dc6219`), OMP composer/working evidence (`d845d8b7`), and untitled Amp readiness with rounded-box pending evidence (`2a5c1e77`). |
 
 **S9 correction:** the original claim that `snapshotNow()` could pair a grid
 with an incoherent sequence was disproven. Buffered bytes may be absent,
@@ -42,8 +43,11 @@ with no successful model turn observed in either manifest. Muse used its
 deterministic echo provider, with no remote model turn. This qualifies
 specific recorded adapter cases, not ten native
 factory integrations. Cursor, Antigravity, fx and Prime Agent still have no
-committed JSONL corpus. Amp's additional capture/startup correction remains
-pending at this checkpoint; it is not claimed integrated or installed.
+committed JSONL corpus. Amp's replacement recordings preserve initialization
+and prove a recorded hello acknowledgement through the actual drive
+(`134deb27`). They also retain a later prompt still queued as steering input;
+that state is not claimed accepted or idle. These changes are integrated,
+but have not yet been installed at this checkpoint.
 
 Still open: final build/install and named-resume native qualification of the
 newer integrated source, the remaining producer/harness/input/resize matrix,
