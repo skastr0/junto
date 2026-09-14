@@ -454,11 +454,11 @@ describe("GAP-POL-5: sticky noteUserInput across generations (documentation)", (
 });
 
 // ---------------------------------------------------------------------------
-// DRV-4 — mid-sequence write failure must clear the chip it created
+// DRV-4 — an accepted paste followed by a refused CR is unresolved
 // ---------------------------------------------------------------------------
 
-describe("GAP-DRV-4: paste accepted, CR write refused → exactly one clear attempt", () => {
-  it("GAP-DRV-4: drive must clear the leaked chip (today: write-failed, no clear, chip stays)", async () => {
+describe("GAP-DRV-4: paste accepted, CR write refused → preserve chip and stop retries", () => {
+  it("GAP-DRV-4: drive must not interrupt or repaste after the CR is refused", async () => {
     const { loop, advance, flush } = setup({
       tui: { refuseCrWrite: true },
     });
@@ -468,21 +468,15 @@ describe("GAP-DRV-4: paste accepted, CR write refused → exactly one clear atte
     await flush();
     const ok = await p;
 
-    // ACTUAL today (pre-fix): paste landed, the CR write was refused,
-    // executePrompt fired write-failed and returned false WITHOUT
-    // clearFailedSubmit — the chip leaked (D20). Documented as a comment
-    // (the law below requires the chip to be cleared afterwards).
+    // Accepted paste bytes cannot safely be undone or repeated after a
+    // refused CR. Keep the source unreceipted and request operator attention.
     expect(ok).toBe(false);
-
-    // PRODUCT LAW: the drive created the chip, so it must clean it up:
-    // exactly one idle Ctrl+C (never two — D6 exit window) and the composer
-    // must be empty afterwards.
-    expect(ctrlC(loop)).toHaveLength(1);
-    // Law-aligned: the drive must ATTEMPT the CR (it cannot know the write
-    // will be refused) — the harness logs the attempt. The law is the single
-    // Ctrl+C + cleared composer, not the absence of the refused CR attempt.
-    expect(labels(loop)).toEqual(["paste", "cr", "ctrl-c"]);
-    expect(loop.tui.chipPending()).toBe(false);
+    expect(loop.attention.map((a) => a.reason)).toEqual(["write-failed", "prompt-stalled"]);
+    await expect(loop.drive.writePrompt(BINDING, "one\ntwo\nthree")).resolves.toBe(false);
+    expect(ctrlC(loop)).toHaveLength(0);
+    // The physical writer logs the refused CR attempt as well as the paste.
+    expect(labels(loop)).toEqual(["paste", "cr"]);
+    expect(loop.tui.chipPending()).toBe(true);
     loop.dispose();
   });
 });

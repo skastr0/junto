@@ -18,6 +18,7 @@ import {
   scheduleManagedPulseReady,
   subscribeManagedPulseReady,
 } from "../src/main/vellum-command/term/managed-pulse-bridge";
+import type { PtyDeliveryTraceEvent } from "../src/main/vellum-command/term/drive/pty-delivery-trace";
 
 describe("typing recipe", () => {
   it("encodes bracketed paste as one envelope", () => {
@@ -250,12 +251,11 @@ describe("ManagedTerminalDrive", () => {
     expect(local.map((w) => w.data)).toEqual([
       encodeBracketedPaste("one\ntwo"),
       CR,
-      INTERRUPT_BYTE,
     ]);
     vi.useRealTimers();
   }, 15_000);
 
-  it("firstTyped does not receipt a stuck multiline chip — clears and returns false", async () => {
+  it("firstTyped leaves a stuck multiline chip unreceipted without clearing it", async () => {
     let pending = false;
     const local: Array<{ bindingId: string; data: string }> = [];
     drive = makeDrive({
@@ -274,8 +274,10 @@ describe("ManagedTerminalDrive", () => {
       encodeBracketedPaste("one\ntwo"),
       CR,
       CR,
-      INTERRUPT_BYTE,
     ]);
+    expect(pending).toBe(true);
+    await expect(drive.writePrompt("b1", "another prompt")).resolves.toBe(false);
+    expect(local).toHaveLength(3);
   });
 
   it("idle gate queues when busy and drains one on idle transition", async () => {
@@ -523,7 +525,7 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("stall: no turn-start and no chip chrome → false + clear, no retry CR", async () => {
+  it("stall: no turn-start and no chip chrome stays unreceipted without clearing", async () => {
     vi.useFakeTimers();
     const attention: string[] = [];
     drive = makeDrive({
@@ -540,14 +542,13 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(2); // paste + CR
     expect(settled).toBe(false);
 
-    // Recovery CR is chip-chrome only. No pasteChip / pendingText → clear.
+    // No chip evidence authorizes another CR; uncertainty never authorizes Ctrl+C.
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toBe(false);
     expect(attention).toEqual(["prompt-stalled", "prompt-stalled"]);
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("stalled") },
       { bindingId: "b1", data: CR },
-      { bindingId: "b1", data: INTERRUPT_BYTE },
     ]);
 
     vi.useRealTimers();
@@ -573,7 +574,9 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toHaveLength(3); // recovery CR
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toBe(false);
-    expect(writes.at(-1)).toMatchObject({ data: INTERRUPT_BYTE });
+    expect(writes.map((write) => write.data)).toEqual([
+      encodeBracketedPaste("one\ntwo"), CR, CR,
+    ]);
     expect(attention.length).toBeGreaterThan(0);
     vi.useRealTimers();
   });
@@ -671,9 +674,10 @@ describe("ManagedTerminalDrive", () => {
 
       await vi.advanceTimersByTimeAsync(5_000);
       await expect(accepted).resolves.toBe(false);
-      // No chip chrome → no recovery CR; one idle Ctrl+C clear.
-      expect(writes).toHaveLength(3);
-      expect(writes[2]).toMatchObject({ data: INTERRUPT_BYTE });
+      // No chip chrome authorizes recovery, and failure never sends Ctrl+C.
+      expect(writes).toHaveLength(2);
+      await expect(pulse("b1", "kernel pulse")).resolves.toBe(false);
+      expect(writes).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
@@ -1004,7 +1008,7 @@ describe("operator interlock", () => {
     ]);
   });
 
-  it("replays parked bytes onto the cleared composer after a refused CR", async () => {
+  it("replays parked operator bytes without clearing the composer after a refused CR", async () => {
     interlock = new OperatorInterlock();
     drive = makeDrive({
       pendingText: () => true,
@@ -1022,7 +1026,6 @@ describe("operator interlock", () => {
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("doctrine"),
       CR,
-      INTERRUPT_BYTE,
       "h",
     ]);
     expect(attention).toContain("prompt-stalled");
@@ -1094,7 +1097,6 @@ describe("operator interlock", () => {
     interlock.noteInput("b1");
     await expect(pending).resolves.toBe(false);
     expect(attention).toContain("prompt-stalled");
-    expect(attention).toContain("operator-active");
     // No Ctrl+C to wipe their sentence.
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("a\nb"),
@@ -1120,7 +1122,7 @@ describe("operator interlock", () => {
       interlock.noteInput("b1");
     }, 10).unref();
     await expect(pending).resolves.toBe(false);
-    expect(attention).toContain("operator-active");
+    expect(attention).toContain("prompt-stalled");
     // Recipe CR only: no chip CR (chrome had not painted), no recovery CR
     // (operator live), no Ctrl+C (their draft is real).
     expect(writes.map((w) => w.data)).toEqual([
@@ -1174,10 +1176,11 @@ describe("operator interlock", () => {
       CR,
       CR,
     ]);
-    // Stall window closes: the chip is still pending → clear, never resolve
-    // true, never leave a `[Pasted text` chip the operator must clean up.
+    // The chip remains pending: no receipt, destructive cleanup, or repaste.
     await expect(pending).resolves.toBe(false);
-    expect(writes.at(-1)?.data).toBe(INTERRUPT_BYTE);
+    expect(writes.map((write) => write.data)).toEqual([
+      encodeBracketedPaste("a\nb"), CR, CR,
+    ]);
     expect(seen).toContain("a\nb");
     expect(attention).toContain("prompt-stalled");
   });
@@ -1193,5 +1196,204 @@ describe("operator interlock", () => {
     await expect(
       drive.writePrompt("b1", "next gen", { queueIfBusy: false }),
     ).resolves.toBe(true);
+  });
+});
+
+describe("written-unresolved submission guard", () => {
+  const drives: ManagedTerminalDrive[] = [];
+  const makeDrive = (
+    options: Partial<ConstructorParameters<typeof ManagedTerminalDrive>[0]> = {},
+  ) => {
+    const drive = new ManagedTerminalDrive({
+      write: () => true,
+      isSeatIdle: () => true,
+      pasteToCrSettleMs: 0,
+      stallWatch: false,
+      operatorInput: new OperatorInterlock(),
+      ...options,
+    });
+    drives.push(drive);
+    return drive;
+  };
+  const flush = async () => {
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+  };
+  afterEach(() => {
+    for (const drive of drives.splice(0)) drive.resetForTest();
+    vi.useRealTimers();
+  });
+
+  it("stays blocked across redraws, late working signals, time, and scheduling reset until generation replacement", async () => {
+    vi.useFakeTimers();
+    const writes: Array<{ bindingId: string; data: string }> = [];
+    const trace: PtyDeliveryTraceEvent[] = [];
+    let pending = true;
+    const drive = makeDrive({
+      write: (bindingId, data) => { writes.push({ bindingId, data }); return true; },
+      pendingText: () => pending,
+      onTrace: (event) => trace.push(event),
+    });
+    await expect(drive.writePrompt("stalled", "first\nprompt")).resolves.toBe(false);
+    expect(writes.map(({ data }) => data)).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR]);
+
+    pending = false;
+    drive.onTurnStart("stalled");
+    drive.onComposerClear("stalled");
+    drive.onSeatIdle("stalled");
+    await vi.advanceTimersByTimeAsync(60_000);
+    drive.suspend();
+    drive.resetForTest();
+    await expect(drive.writePrompt("stalled", "retry", { interruptIfBusy: true })).resolves.toBe(false);
+    expect(writes).toHaveLength(3);
+    await expect(drive.writePrompt("unrelated", "still works")).resolves.toBe(true);
+    expect(writes.slice(3).map(({ bindingId }) => bindingId)).toEqual(["unrelated", "unrelated"]);
+
+    drive.invalidateBinding("stalled");
+    await expect(drive.writePrompt("stalled", "new generation")).resolves.toBe(true);
+    expect(writes.slice(5).map(({ data }) => data)).toEqual([encodeBracketedPaste("new generation"), CR]);
+    expect(writes.map(({ data }) => data)).not.toContain(INTERRUPT_BYTE);
+    expect(trace).toContainEqual(expect.objectContaining({ event: "delivery.verdict", fields: expect.objectContaining({ verdict: "written-unresolved" }) }));
+    expect(trace).toContainEqual(expect.objectContaining({ event: "delivery.verdict", fields: expect.objectContaining({ verdict: "refused-before-write", reason: "written-unresolved" }) }));
+  });
+
+  it("refuses queued followers when the first accepted paste remains unresolved", async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const drive = makeDrive({
+      write: (_bindingId, data) => { writes.push(data); return true; },
+      pendingText: () => true,
+      stallWatch: true,
+      stallTimeoutMs: 10,
+    });
+    const first = drive.writePrompt("seat", "first\nprompt");
+    await flush();
+    const second = drive.writePrompt("seat", "second");
+    const third = drive.writePrompt("seat", "third");
+    expect(drive.queuedCount("seat")).toBe(2);
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(Promise.all([first, second, third])).resolves.toEqual([false, false, false]);
+    expect(drive.queuedCount("seat")).toBe(0);
+    drive.onSeatIdle("seat");
+    await flush();
+    expect(writes).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR]);
+  });
+
+  it.each(["refused", "threw"] as const)("blocks after an accepted paste when the submit CR %s", async (failure) => {
+    const writes: string[] = [];
+    const drive = makeDrive({
+      write: (_bindingId, data) => {
+        writes.push(data);
+        if (data === CR) {
+          if (failure === "threw") throw new Error("submit failed");
+          return false;
+        }
+        return true;
+      },
+    });
+    const first = drive.writePrompt("seat", "accepted paste");
+    if (failure === "threw") await expect(first).rejects.toThrow("submit failed");
+    else await expect(first).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "never repaste")).resolves.toBe(false);
+    expect(writes).toEqual([encodeBracketedPaste("accepted paste"), CR]);
+  });
+
+  it("keeps a before-paste refusal retryable", async () => {
+    const writes: string[] = [];
+    let admit = false;
+    const drive = makeDrive({
+      write: (_bindingId, data) => { writes.push(data); return admit; },
+    });
+    await expect(drive.writePrompt("seat", "retryable")).resolves.toBe(false);
+    expect(drive.pasteWriteCount("seat")).toBe(0);
+    admit = true;
+    await expect(drive.writePrompt("seat", "retryable")).resolves.toBe(true);
+    expect(drive.pasteWriteCount("seat")).toBe(1);
+    expect(writes).toEqual([encodeBracketedPaste("retryable"), encodeBracketedPaste("retryable"), CR]);
+  });
+
+  it("re-checks after clipboard preflight so an already waiting delivery cannot interrupt a stalled seat", async () => {
+    let finishPreflight!: (safe: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => { finishPreflight = resolve; });
+    let checks = 0;
+    let idle = true;
+    const writes: string[] = [];
+    const drive = makeDrive({
+      isSeatIdle: () => idle,
+      pendingText: () => true,
+      assertClipboardSafe: () => ++checks === 1 ? preflight : true,
+      write: (_bindingId, data) => { writes.push(data); return true; },
+    });
+    const waiting = drive.writePrompt("seat", "waiting mail", { interruptIfBusy: true });
+    await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toBe(false);
+    idle = false;
+    finishPreflight(true);
+    await expect(waiting).resolves.toBe(false);
+    expect(drive.queuedCount("seat")).toBe(0);
+    expect(writes).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR]);
+  });
+
+  it("does not cancel a working turn when idle disappears after the accepted paste", async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    let idle = true;
+    const drive = makeDrive({
+      isSeatIdle: () => idle,
+      pendingText: () => true,
+      pasteToCrSettleMs: 10,
+      write: (_bindingId, data) => { writes.push(data); idle = false; return true; },
+    });
+    const first = drive.writePrompt("seat", "already working");
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(first).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "mail", { interruptIfBusy: true })).resolves.toBe(false);
+    expect(writes).toEqual([encodeBracketedPaste("already working")]);
+  });
+
+  it("retains unresolved accepted bytes when automation suspends during the paste settle", async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const drive = makeDrive({
+      pasteToCrSettleMs: 10,
+      write: (_bindingId, data) => { writes.push(data); return true; },
+    });
+    const first = drive.writePrompt("seat", "in flight");
+    await flush();
+    drive.suspend();
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(first).resolves.toBe(false);
+    drive.resetForTest();
+    await expect(drive.writePrompt("seat", "retry")).resolves.toBe(false);
+    expect(writes).toEqual([encodeBracketedPaste("in flight")]);
+  });
+
+  it("leaves an explicit interrupt available without reopening automated delivery", async () => {
+    const writes: string[] = [];
+    const drive = makeDrive({
+      pendingText: () => true,
+      write: (_bindingId, data) => { writes.push(data); return true; },
+    });
+    await expect(drive.writePrompt("seat", "unresolved")).resolves.toBe(false);
+    await expect(drive.interrupt("seat")).resolves.toBe(true);
+    await expect(drive.writePrompt("seat", "retry")).resolves.toBe(false);
+    expect(writes).toEqual([encodeBracketedPaste("unresolved"), CR, INTERRUPT_BYTE]);
+  });
+
+  it("does not poison a replacement generation when an old accepted paste completes late", async () => {
+    let finishOld!: (ok: boolean) => void;
+    const oldWrite = new Promise<boolean>((resolve) => { finishOld = resolve; });
+    const writes: string[] = [];
+    const drive = makeDrive({
+      write: (_bindingId, data) => {
+        writes.push(data);
+        return data === encodeBracketedPaste("old") ? oldWrite : true;
+      },
+    });
+    const old = drive.writePrompt("seat", "old");
+    drive.invalidateBinding("seat");
+    await expect(drive.writePrompt("seat", "replacement")).resolves.toBe(true);
+    finishOld(true);
+    await expect(old).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "still usable")).resolves.toBe(true);
+    expect(writes).toEqual([encodeBracketedPaste("old"), encodeBracketedPaste("replacement"), CR, encodeBracketedPaste("still usable"), CR]);
   });
 });

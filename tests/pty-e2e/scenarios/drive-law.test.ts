@@ -148,30 +148,29 @@ describe("D1 — paste+CR on the Claude chip model", () => {
     expect(loop.tui.chipPending()).toBe(true);
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.runtime.getState(BINDING)).toBe("idle");
-    // Stall window → clear attempt (Ctrl+C), then false. No third CR.
+    // Stall window → unresolved false. Preserve the chip for the operator.
     await advance(5_000);
     await flush();
     await expect(p).resolves.toBe(false);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr", "ctrl-c"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual([
       "prompt-stalled",
       "prompt-stalled",
     ]);
-    expect(ctrlC(loop)).toHaveLength(1);
-    expect(loop.tui.chipPending()).toBe(false); // composer cleared by Ctrl+C
+    expect(ctrlC(loop)).toHaveLength(0);
+    expect(loop.tui.chipPending()).toBe(true);
     expect(loop.tui.getPhase()).toBe("idle");
     return { loop, advance, flush };
   };
 
-  it("settle 40ms: chip remains after recipe CRs → writePrompt FALSE + prompt-stalled + one clear", async () => {
+  it("settle 40ms: chip remains after recipe CRs → writePrompt FALSE + prompt-stalled without cleanup", async () => {
     const { loop } = await runStuckEpisode(40);
     // Exact write log (t = fake Date.now()): paste, CR + chip CR after
-    // 40ms settle, clear Ctrl+C at the 5s stall.
+    // 40ms settle; the 5s stall adds no bytes.
     expect(loop.writes.map((w) => w.t)).toEqual([
       1_000_002, // paste
       1_000_042, // cr (settle 40ms)
       1_000_042, // chip-submit cr (immediate)
-      1_005_042, // ctrl-c (stall)
     ]);
     loop.dispose();
   });
@@ -182,7 +181,6 @@ describe("D1 — paste+CR on the Claude chip model", () => {
       1_000_002,
       1_000_082, // settle 80ms
       1_000_082, // chip-submit cr
-      1_005_082,
     ]);
     loop.dispose();
   });
@@ -230,7 +228,7 @@ describe("D2 — false-working must not resolve awaitTurnStart on an unsubmitted
   });
 });
 
-describe("D3 — clearFailedSubmit must never Ctrl+C a working agent", () => {
+describe("D3 — unresolved delivery must never Ctrl+C a working agent", () => {
   it("late working ack after a submitted chip CR does not Ctrl+C the working turn", async () => {
     const { loop, advance, flush } = setup({
       // Chip collapses on the retry CR (real submit), but the working
@@ -257,7 +255,7 @@ describe("D3 — clearFailedSubmit must never Ctrl+C a working agent", () => {
     // message and can never re-paste it on a later idle.
     await expect(p).resolves.toBe(true);
 
-    // PRODUCT LAW: the agent is working — clearFailedSubmit must not write.
+    // PRODUCT LAW: delivery recovery must not interrupt the working agent.
     expect(ctrlC(loop)).toEqual([]);
 
     // Attention stream under the fired-law: the stall timeout fires
@@ -273,7 +271,7 @@ describe("D3 — clearFailedSubmit must never Ctrl+C a working agent", () => {
 });
 
 describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip", () => {
-  it("chip remains after recipe → writePrompt FALSE and the chip is cleared", async () => {
+  it("chip remains after recipe → writePrompt FALSE and the chip is preserved", async () => {
     const { loop, advance, flush } = setup({
       tui: { secondCrSubmits: false, workingFrames: 1 },
       stallTimeoutMs: 5_000,
@@ -294,8 +292,8 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     // PRODUCT LAW: never return true while a paste chip sits in the composer
     // (firstTyped arm is consumed on resolve → gate closes → chip stays).
     expect(ok).toBe(false);
-    expect(loop.tui.chipPending()).toBe(false);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr", "ctrl-c"]);
+    expect(loop.tui.chipPending()).toBe(true);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     loop.dispose();
   });
@@ -320,7 +318,7 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     const snap = loop.observer.snapshotNow();
     expect(snap.lines.some((l) => l.includes("[Pasted text"))).toBe(true);
     await expect(p).resolves.toBe(false);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr", "ctrl-c"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     loop.dispose();
   });
@@ -410,8 +408,8 @@ describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (
   });
 });
 
-describe("D6 — single-clear invariant (never two idle Ctrl+C inside ~1s)", () => {
-  it("one failed episode issues exactly ONE idle Ctrl+C", async () => {
+describe("D6 — an unresolved paste stops automatic writes on the binding", () => {
+  it("one failed episode preserves the chip without automatic Ctrl+C", async () => {
     const { loop, advance, flush } = setup({
       tui: { secondCrSubmits: false, workingFrames: 1 },
       stallTimeoutMs: 5_000,
@@ -424,16 +422,17 @@ describe("D6 — single-clear invariant (never two idle Ctrl+C inside ~1s)", () 
     await advance(5_000);
     await flush();
     await expect(p).resolves.toBe(false);
-    expect(ctrlC(loop)).toHaveLength(1);
+    expect(ctrlC(loop)).toHaveLength(0);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.tui.getPhase()).toBe("idle");
-    expect(loop.tui.chipPending()).toBe(false);
+    expect(loop.tui.chipPending()).toBe(true);
     loop.dispose();
   });
 
-  it("back-to-back failed episodes: second clear attempt is gap-blocked (no exit window press)", async () => {
+  it("an immediate delivery retry cannot paste over the unresolved chip", async () => {
     const { loop, advance, flush } = setup({
       tui: { secondCrSubmits: false, workingFrames: 1 },
-      stallTimeoutMs: 450, // episode cadence 0.9s → clear #2 would land 0.94s after #1
+      stallTimeoutMs: 450,
       pasteToCrSettleMs: 40,
     });
     await flush();
@@ -443,28 +442,25 @@ describe("D6 — single-clear invariant (never two idle Ctrl+C inside ~1s)", () 
     await advance(450);
     await flush();
     await expect(p1).resolves.toBe(false);
-    expect(ctrlC(loop)).toHaveLength(1);
+    expect(ctrlC(loop)).toHaveLength(0);
     expect(loop.tui.getPhase()).toBe("idle");
-    expect(loop.tui.chipPending()).toBe(false); // cleared by Ctrl+C
+    expect(loop.tui.chipPending()).toBe(true);
 
     // message-delivery style immediate retry on the idle event
-    const p2 = loop.drive.writePrompt(BINDING, "c\nd");
-    await advance(40);
-    await flush();
-    expect(loop.tui.chipPending()).toBe(true);
+    await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toBe(false);
+    loop.drive.onSeatIdle(BINDING);
     await advance(450);
     await flush();
-    await expect(p2).resolves.toBe(false);
-    expect(ctrlC(loop)).toHaveLength(1); // second clear attempt BLOCKED (gap < 1s)
-    expect(loop.tui.chipPending()).toBe(true); // chip survives — no clear press
-    expect(loop.tui.getPhase()).toBe("idle"); // model never exited
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(ctrlC(loop)).toHaveLength(0);
+    expect(loop.tui.chipPending()).toBe(true);
+    expect(loop.tui.getPhase()).toBe("idle");
     loop.dispose();
   });
 
-  it("consecutive clear attempts are >= 1s apart (never inside Claude's exit window)", async () => {
+  it("elapsed time does not re-arm a binding with an unresolved paste", async () => {
     const { loop, advance, flush } = setup({
       tui: { secondCrSubmits: false, workingFrames: 1 },
-      // One stall per episode: 1.1s keeps the second clear outside 0.509–1.009s.
       stallTimeoutMs: 1_100,
       pasteToCrSettleMs: 40,
     });
@@ -475,18 +471,16 @@ describe("D6 — single-clear invariant (never two idle Ctrl+C inside ~1s)", () 
     await advance(1_100);
     await flush();
     await expect(p1).resolves.toBe(false);
-    expect(ctrlC(loop)).toHaveLength(1);
+    expect(ctrlC(loop)).toHaveLength(0);
 
-    const p2 = loop.drive.writePrompt(BINDING, "c\nd");
-    await advance(40);
-    await flush();
+    // Waiting beyond the former idle-interrupt gap must not reopen admission.
     await advance(1_100);
     await flush();
-    await expect(p2).resolves.toBe(false);
-    expect(ctrlC(loop)).toHaveLength(2);
-    const gap = ctrlC(loop)[1]!.t - ctrlC(loop)[0]!.t;
-    expect(gap).toBeGreaterThanOrEqual(1_000); // 1.24s — outside 0.509–1.009s
-    expect(loop.tui.getPhase()).toBe("idle"); // no exit: window expired
+    await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toBe(false);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(ctrlC(loop)).toHaveLength(0);
+    expect(loop.tui.chipPending()).toBe(true);
+    expect(loop.tui.getPhase()).toBe("idle");
     loop.dispose();
   });
 });

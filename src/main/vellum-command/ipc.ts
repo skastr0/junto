@@ -1630,8 +1630,8 @@ export const registerVellumIpc = (): void => {
             void writeManagedPrompt(event.bindingId, first, {
               // Weak-chrome harnesses never publish working. Skip the stall
               // watch, but still send a chip-submit CR when `[Pasted text`
-              // chrome is visible, then settle and clearFailedSubmit if the
-              // chip is still sitting in an idle composer.
+              // chrome is visible, then settle. An unresolved paste stays
+              // unreceipted and blocks automation until binding invalidation.
               awaitTurnStart: false,
             })
               .then((ok) => {

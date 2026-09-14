@@ -81,8 +81,8 @@ export type ClipboardSafeAssert = (
  * When configured, acknowledgement becomes evidence-gated:
  *  - onTurnStart only resolves a pending turn while evidence says the text
  *    is GONE (a false-working repaint on an unsubmitted chip must not ack);
- *  - clearFailedSubmit skips the Ctrl+C when evidence says there is nothing
- *    left to clear (the submit landed; only the working repaint is late);
+ *  - an unresolved write remains unreceipted and stops further automation
+ *    for that binding; the drive never clears a composer with Ctrl+C;
  *  - the awaitTurnStart:false fast path refuses to receipt a prompt whose
  *    text is still in the composer.
  */
@@ -266,6 +266,8 @@ export class ManagedTerminalDrive {
    * bookkeeping that exists to stop re-pasting text already on the PTY.
    */
   private readonly pasteWrites = new Map<string, number>();
+  /** A paste landed without submission proof. Only a new binding generation clears it. */
+  private readonly writtenUnresolved = new Set<string>();
   private suspended = false;
   private lifecycleGeneration = 0;
 
@@ -366,6 +368,7 @@ export class ManagedTerminalDrive {
     );
     this.interlock.dropBinding(bindingId);
     this.clearBindingTransientState(bindingId);
+    this.writtenUnresolved.delete(bindingId);
     this.tracer?.forget(bindingId);
   }
 
@@ -444,6 +447,7 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
+    if (this.refuseWrittenUnresolved(bindingId)) return false;
     const ready = opts.ready ?? true;
     const queueIfBusy = opts.queueIfBusy ?? true;
     const awaitTurnStart = opts.awaitTurnStart ?? this.stallWatch;
@@ -491,6 +495,9 @@ export class ManagedTerminalDrive {
       }
     }
 
+    // Readiness and clipboard preflight can outlive an earlier delivery.
+    // Re-check before this call can interrupt a turn or retain more text.
+    if (this.refuseWrittenUnresolved(bindingId)) return false;
     if (this.mustWait(bindingId)) {
       if (!queueIfBusy) return false;
       if (
@@ -531,6 +538,7 @@ export class ManagedTerminalDrive {
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
+      if (this.refuseWrittenUnresolved(bindingId)) return false;
       // The interrupt can make the seat idle before its observer event is
       // delivered. Do not miss that boundary and strand the prompt in a queue
       // that was drained just before this call resumed.
@@ -709,7 +717,6 @@ export class ManagedTerminalDrive {
     this.compactNoopCounts.clear();
     this.readyAfter.clear();
     this.mailInterrupts.clear();
-    this.bindingGenerations.clear();
     this.lastWrittenText.clear();
     this.interlock.clearAll();
   }
@@ -733,7 +740,7 @@ export class ManagedTerminalDrive {
     this.lastWrittenText.delete(bindingId);
   }
 
-  /** Test seam — restore a fresh instance-like admission state. */
+  /** Test seam — reset scheduling; unresolved writes still require a generation cut. */
   resetForTest(): void {
     this.lifecycleGeneration += 1;
     this.clearTransientState();
@@ -796,6 +803,7 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
+    if (this.refuseWrittenUnresolved(bindingId)) return false;
     // Re-check idle immediately before paste — observer can flip to dialog
     // after the outer gate and before the physical write.
     if (!this.isSeatIdle(bindingId)) {
@@ -805,6 +813,12 @@ export class ManagedTerminalDrive {
     this.writing.add(bindingId);
     const endTrace = this.tracer?.activate(bindingId);
     this.traceState(bindingId, "submission.begin");
+    let pasteAccepted = false;
+    let submitted = false;
+    const confirmSubmitted = (): true => {
+      submitted = true;
+      return true;
+    };
     try {
       // Second check under the writing lock: still refuse if seat left idle
       // or the composer stopped being provably empty (operator typing burst,
@@ -843,7 +857,7 @@ export class ManagedTerminalDrive {
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
       const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
       // The physical unit (gates → paste → settle → CR → chip CR → firstTyped
-      // evidence settles → any in-sequence clear) runs under one interlock
+      // evidence settles) runs under one interlock
       // hold. Operator bytes arriving mid-span park and replay only after
       // the span resolves, so they can never interleave inside the paste
       // envelope or land between paste-end and CR — the modal-focus race.
@@ -861,26 +875,13 @@ export class ManagedTerminalDrive {
             generation,
             bindingGeneration,
             signal,
+            () => { pasteAccepted = true; },
           );
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             return { kind: "inactive" };
           }
           if (!ok) {
-            if (this.pendingOnScreen(bindingId)) {
-              // The paste landed (chip/payload visible) but a later write in
-              // the sequence was refused: clear the chip this sequence
-              // created so the operator never sees a stuck `[Pasted text
-              // #N]` (DRV-4 law). Still inside the hold — parked operator
-              // bytes replay after the clear, onto the clean composer.
-              await this.clearFailedSubmit(
-                bindingId,
-                generation,
-                bindingGeneration,
-                signal,
-              );
-            } else {
-              this.onAttention?.(bindingId, "write-failed");
-            }
+            this.onAttention?.(bindingId, "write-failed");
             return { kind: "failed" };
           }
           // Multiline paste chips on Claude/Devin. The second CR is the
@@ -920,14 +921,6 @@ export class ManagedTerminalDrive {
             if (this.pasteChip && !this.pasteChip(bindingId)) {
               return { kind: "done", ok: true };
             }
-            if (this.isSeatIdle(bindingId)) {
-              await this.clearFailedSubmit(
-                bindingId,
-                generation,
-                bindingGeneration,
-                signal,
-              );
-            }
             return { kind: "done", ok: false };
           }
           return { kind: "done", ok: true };
@@ -937,6 +930,7 @@ export class ManagedTerminalDrive {
         return false;
       }
       if (physical.kind === "done") {
+        submitted = physical.ok;
         return physical.ok;
       }
       const sentChipCr = physical.sentChipCr;
@@ -945,13 +939,13 @@ export class ManagedTerminalDrive {
       // sequence. The hold is released: the seat is submitting or working,
       // and operator input must flow normally through the stall watch.
       if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
-        return true;
+        return confirmSubmitted();
       }
       if (
         text === "/compact" &&
         (this.compactNoopCounts.get(bindingId) ?? 0) !== compactNoopCount
       ) {
-        return true;
+        return confirmSubmitted();
       }
       const started = await this.awaitTurnStart(
         bindingId,
@@ -960,7 +954,7 @@ export class ManagedTerminalDrive {
         bindingGeneration,
         signal,
       );
-      if (started) return true;
+      if (started) return confirmSubmitted();
       this.traceState(bindingId, "recovery.evaluate", { sentChipCr });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
@@ -973,12 +967,12 @@ export class ManagedTerminalDrive {
       // delivery layer re-paste the same message on every idle (the live
       // 4x duplicate report).
       if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
-        return true;
+        return confirmSubmitted();
       }
       // No composer chip: first CR was the submit (Codex/Grok). A leftover
       // payload head on a stale idle grid must not recovery-CR or clear.
       if (this.pasteChip && !this.pasteChip(bindingId)) {
-        return true;
+        return confirmSubmitted();
       }
       // Evidence was late: the chip CR never fired. One recovery CR, and
       // only while the seat is still idle and the operator is not live at
@@ -993,16 +987,10 @@ export class ManagedTerminalDrive {
         if (
           !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal, "recovery-cr"))
         ) {
-          await this.clearFailedSubmit(
-            bindingId,
-            generation,
-            bindingGeneration,
-            signal,
-          );
           return false;
         }
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
-          return true;
+          return confirmSubmitted();
         }
         const startedRetry = await this.awaitTurnStart(
           bindingId,
@@ -1011,19 +999,33 @@ export class ManagedTerminalDrive {
           bindingGeneration,
           signal,
         );
-        if (startedRetry) return true;
+        if (startedRetry) return confirmSubmitted();
         if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
-          return true;
+          return confirmSubmitted();
         }
       }
       this.traceState(bindingId, "recovery.exhausted", { sentChipCr });
-      // Law: never leave Vellum Command-authored text as a stuck paste chip.
-      await this.clearFailedSubmit(bindingId, generation, bindingGeneration, signal);
       return false;
     } finally {
+      const verdict = submitted ? "submitted" : pasteAccepted ? "written-unresolved" : "refused-before-write";
+      this.traceState(bindingId, "delivery.verdict", { verdict });
+      if (
+        pasteAccepted && !submitted &&
+        (this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration
+      ) {
+        // Install the guard before releasing the writing lock. An idle event
+        // cannot race a queued follower into this unresolved composer.
+        this.writtenUnresolved.add(bindingId);
+        const queued = this.queues.get(bindingId);
+        this.queues.delete(bindingId);
+        for (const item of queued ?? []) item.resolve(false);
+      }
       this.traceState(bindingId, "submission.end");
       endTrace?.();
       this.writing.delete(bindingId);
+      if (this.writtenUnresolved.has(bindingId)) {
+        this.onAttention?.(bindingId, "prompt-stalled");
+      }
     }
   }
 
@@ -1088,60 +1090,14 @@ export class ManagedTerminalDrive {
     }
   }
 
-  /**
-   * After a failed paste+CR, clear residual composer text so operators never
-   * see an opaque `[Pasted text #N]` chip from Vellum Command.
-   * Claude: idle Ctrl+C with text clears the composer (verification C13);
-   * a second idle Ctrl+C on an empty composer can exit — send only one.
-   */
-  private async clearFailedSubmit(
-    bindingId: string,
-    generation: number,
-    bindingGeneration: number,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    this.traceState(bindingId, "cleanup.evaluate");
-    if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return;
-    // A live operator draft: an idle Ctrl+C wipes THEIR sentence along with
-    // our chip. Bytes parked inside our own hold are not in the composer
-    // yet — that case stays clearable.
-    if (
-      !this.interlock.holding(bindingId) &&
-      this.interlock.inputActive(bindingId)
-    ) {
-      this.onAttention?.(bindingId, "operator-active");
-      return;
-    }
-    if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
-      // Evidence: our text already left the composer (the submit landed and
-      // only the working repaint is late — D3's ackDelay case). Writing an
-      // idle Ctrl+C now would interrupt a WORKING agent. Still raise the
-      // stall attention exactly once per call site (D1/D3 both expect the
-      // clear attempt to publish prompt-stalled).
-      this.onAttention?.(bindingId, "prompt-stalled");
-      return;
-    }
-    const now = this.now();
-    if (
-      !canSendIdleInterrupt(
-        this.lastIdleInterruptAt.get(bindingId),
-        now,
-        this.idleInterruptGapMs,
-      )
-    ) {
-      this.onAttention?.(bindingId, "prompt-stalled");
-      return;
-    }
-    // The check→write gap holds operator input so a keystroke arriving
-    // mid-clear cannot be wiped by its own Ctrl+C — it replays onto the
-    // cleared composer.
-    const ok = await this.withOperatorHold(bindingId, () =>
-      Promise.resolve(this.writeTraced(bindingId, INTERRUPT_BYTE, "cleanup-interrupt")),
-    );
-    if (ok) {
-      this.lastIdleInterruptAt.set(bindingId, now);
-    }
+  private refuseWrittenUnresolved(bindingId: string): boolean {
+    if (!this.writtenUnresolved.has(bindingId)) return false;
+    this.traceState(bindingId, "delivery.verdict", {
+      verdict: "refused-before-write",
+      reason: "written-unresolved",
+    });
     this.onAttention?.(bindingId, "prompt-stalled");
+    return true;
   }
 
   private async writePasteAndCr(
@@ -1149,7 +1105,8 @@ export class ManagedTerminalDrive {
     text: string,
     generation: number,
     bindingGeneration: number,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    onPasteAccepted: () => void,
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
@@ -1165,6 +1122,7 @@ export class ManagedTerminalDrive {
     const [paste, cr] = buildPromptWriteSequence(text);
     // ONE write for the full paste envelope…
     if (!(await Promise.resolve(this.writeTraced(bindingId, paste, "paste")))) return false;
+    onPasteAccepted();
     this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
     // The text is on the wire — record it so pendingText evidence can never
     // be bypassed by a delivery path that forgets to register its payload.
