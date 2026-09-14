@@ -1,0 +1,193 @@
+{
+  "harness": "muse",
+  "displayName": "Muse Code",
+  "source": "P1-real-capture",
+  "harnessVersion": "Muse Code 1.2.1 (1.2.1-R2847.1)",
+  "capturedAt": "2026-09-14T15:13:30.785Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "muse",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "muse",
+        "osc9": "",
+        "glyphs": [
+          "·",
+          "⌥",
+          "─",
+          "❯"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2026,
+            25
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❯",
+        "bytes": 2816,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "muse",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "muse",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "⠏ muse",
+        "osc9": "",
+        "glyphs": [
+          "·",
+          "⌥",
+          "─",
+          "◆",
+          "◈",
+          "❯",
+          "⠇",
+          "⠋",
+          "⠏",
+          "⠙",
+          "⠹"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2026,
+            25
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": "❯",
+        "lines": 1,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "⠏ muse",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "muse",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": null,
+        "chipAfterCr40ms": false,
+        "submitted40ms": false,
+        "chipTextSlow": null,
+        "submittedSlow": false,
+        "clearedByCtrlC": false,
+        "ctrlCSent": false,
+        "osc9s": [],
+        "lines": 3,
+        "pasteLines": 40,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "⠏ muse",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
+        "payloadVisible": true,
+        "chipObserved": false
+      }
+    },
+    {
+      "harness": "muse",
+      "scenario": "working-turn",
+      "status": "complete",
+      "observed": {
+        "workingSeen": true,
+        "interrupted": false,
+        "osc9s": [],
+        "titles": [
+          "⠴ muse",
+          "⠦ muse",
+          "⠧ muse",
+          "⠇ muse",
+          "⠏ muse",
+          "muse"
+        ],
+        "glyphs": [
+          "·",
+          "⌥",
+          "─",
+          "◆",
+          "◈",
+          "❯",
+          "⠇",
+          "⠋",
+          "⠏",
+          "⠙",
+          "⠴",
+          "⠸",
+          "⠹",
+          "⠼"
+        ],
+        "lines": 1,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "⠏ muse",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
+        "prompt": "forty numbered VELLUM CAPTURE lines"
+      }
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 4,
+    "decodedBytes": 105276,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

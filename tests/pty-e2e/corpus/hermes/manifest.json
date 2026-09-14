@@ -1,0 +1,200 @@
+{
+  "harness": "hermes",
+  "displayName": "Hermes",
+  "source": "P1-real-capture",
+  "harnessVersion": "Hermes Agent v0.21.0 (2026.8.31) · upstream 1cb3ab61",
+  "capturedAt": "2026-09-14T15:16:47.138Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "hermes",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "reason": "idle not fully confirmed (prompt glyph absent)",
+      "observed": {
+        "title": "✓ gpt-5.4-mini · …llum-capture-cwd/hermes",
+        "osc9": "",
+        "glyphs": [
+          "▁"
+        ],
+        "modes": {
+          "set": [
+            25,
+            1049,
+            1000,
+            1002,
+            1003,
+            1006,
+            2004,
+            1004,
+            2026
+          ],
+          "reset": [
+            1003,
+            1002,
+            1001,
+            1000,
+            9,
+            1006,
+            1005,
+            1015,
+            1016,
+            2029,
+            1004,
+            2004,
+            1049,
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": true
+        },
+        "promptGlyph": null,
+        "bytes": 135110,
+        "lines": 6,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "✓ gpt-5.4-mini · …llum-capture-cwd/hermes",
+        "osc9": "",
+        "promptGlyph": null,
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "hermes",
+      "scenario": "type-echo",
+      "status": "complete",
+      "reason": "idle-return not confirmed (timebox or session died)",
+      "observed": {
+        "title": "⏳ gpt-5.4-mini · …llum-capture-cwd/hermes",
+        "osc9": "",
+        "glyphs": [
+          "│",
+          "✓"
+        ],
+        "modes": {
+          "set": [
+            25,
+            1049,
+            1000,
+            1002,
+            1003,
+            1006,
+            2004,
+            1004,
+            2026
+          ],
+          "reset": [
+            1003,
+            1002,
+            1001,
+            1000,
+            9,
+            1006,
+            1005,
+            1015,
+            1016,
+            2029,
+            1004,
+            2004,
+            1049,
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": true
+        },
+        "promptGlyph": "│",
+        "lines": 6,
+        "idleReturned": false,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "⏳ gpt-5.4-mini · …llum-capture-cwd/hermes",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "hermes",
+      "scenario": "paste-chip",
+      "status": "complete",
+      "observed": {
+        "chipText40ms": "[[ PASTE_LINE_00 PA.. [40 lines] .. PASTE_LINE_38 PASTE_LINE_39 ]]",
+        "chipAfterCr40ms": true,
+        "submitted40ms": false,
+        "chipTextSlow": null,
+        "submittedSlow": false,
+        "clearedByCtrlC": true,
+        "ctrlCSent": true,
+        "osc9s": [],
+        "lines": 6,
+        "pasteLines": 40,
+        "settleMs": 40
+      },
+      "expectedScreen": {
+        "title": "⏳ gpt-5.4-mini · …llum-capture-cwd/hermes",
+        "osc9": "4;0;",
+        "promptGlyph": "❯",
+        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
+        "payloadVisible": true,
+        "chipObserved": true
+      }
+    },
+    {
+      "harness": "hermes",
+      "scenario": "working-turn",
+      "status": "skip",
+      "reason": "timebox or composer never ready",
+      "observed": {},
+      "expectedScreen": {}
+    },
+    {
+      "harness": "hermes",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {},
+      "expectedScreen": {}
+    },
+    {
+      "harness": "hermes",
+      "scenario": "permission-returns-idle",
+      "status": "skip",
+      "reason": "composer never ready",
+      "observed": {},
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 3,
+    "decodedBytes": 424632,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

@@ -194,7 +194,9 @@ export const HARNESSES: readonly HarnessDef[] = [
   {
     name: "muse", displayName: "Muse Code",
     argv: (cwd) => ["--provider", "echo", "--echo-delay-ms", "800", "--trust-workspace"],
-    promptGlyphs: ["\u27e9"],
+    // Live Muse 1.2.1-R2847.1 paints U+276F `❯` in the ruled box. The 2026-08
+    // probe recorded U+27E9 `⟩`; keep both so either chrome still counts idle.
+    promptGlyphs: ["\u276f", "\u27e9"],
     exitRecipe: ["\u0003", "\u0004", "/exit\r"],
     modals: [{ when: /trust this workspace|do you trust/i, reply: "1\r" }],
     freshSpawnPerScenario: true,

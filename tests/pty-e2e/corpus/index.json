@@ -175,6 +175,84 @@
       "expectedScreen": {}
     }
   },
+  "hermes": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": "idle not fully confirmed (prompt glyph absent)"
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": "idle-return not confirmed (timebox or session died)"
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "skip",
+        "reason": "timebox or composer never ready"
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "composer never ready"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "composer never ready"
+      }
+    ],
+    "session": {
+      "harness": "hermes",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 146181,
+        "elapsedMs": 100336
+      },
+      "expectedScreen": {}
+    }
+  },
+  "muse": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "complete",
+        "reason": null
+      }
+    ],
+    "session": {
+      "harness": "muse",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 3868,
+        "elapsedMs": 6097
+      },
+      "expectedScreen": {}
+    }
+  },
   "pi": {
     "scenarios": [
       {
