@@ -341,6 +341,50 @@
       "expectedScreen": {}
     }
   },
+  "omp": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "working-turn",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "a real permission dialog was not observed"
+      }
+    ],
+    "session": {
+      "harness": "omp",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 823840,
+        "elapsedMs": 90278
+      },
+      "expectedScreen": {}
+    }
+  },
   "pi": {
     "scenarios": [
       {

@@ -124,6 +124,12 @@ export type HarnessDef = {
    * chrome is visible, treat the seat as idle without waiting for quiet.
    */
   readonly idleOncePromptVisible?: boolean;
+  /**
+   * How many trailing capture bytes promptVisible scans. OMP's status bar
+   * is on the grid but not in the default 8k CSI tail. Amp keeps using
+   * idleOncePromptVisible (full buffer) — do not conflate the two.
+   */
+  readonly promptScanBytes?: number;
 };
 
 export const HARNESSES: readonly HarnessDef[] = [
@@ -221,9 +227,11 @@ export const HARNESSES: readonly HarnessDef[] = [
   {
     name: "omp", displayName: "Oh My Pi",
     argv: () => [],
-    promptGlyphs: [">", "\u03c0", "\u276f"],
+    promptGlyphs: [">", "\u03c0", "\u276f", "usage)"],
+    promptScanBytes: 2_000_000,
     exitRecipe: ["\u0003", "\u0004", "/exit\r"],
-    note: "pi-family TUI; isolated HOME fails closed without provider credentials",
+    modals: [{ when: /welcome back/i, reply: "\r" }],
+    note: "operator-home TUI; status `usage)` marks ready; Enter on welcome splash; no idleOnce tail-slice",
   },
   {
     name: "devin", displayName: "Devin",
@@ -629,7 +637,8 @@ class Session {
   promptVisible(): boolean {
     // Amp's welcome logo keeps streaming megabytes after the composer box
     // is already on screen, so the recent tail never contains the chrome.
-    const window = this.def.idleOncePromptVisible ? Number.POSITIVE_INFINITY : 8000;
+    const window = this.def.promptScanBytes
+      ?? (this.def.idleOncePromptVisible ? Number.POSITIVE_INFINITY : 8000);
     const t = tailText(this.currentBytes(), window);
     return this.def.promptGlyphs.some((g) => t.includes(g));
   }
