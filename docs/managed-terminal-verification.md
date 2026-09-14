@@ -71,6 +71,24 @@ automatic Ctrl+C or later paste in that binding generation, no accepted
 receipt, and attention on subsequent delivery attempts. Before-write refusal
 remains retryable. This regression is not a live GUI proof.
 
+Executed native check, containment commit `91546531`: the full copied factory
+held 192 nodes and 57 edges, remained playing, and activated both existing
+Devin seats through normal scheduling. Computer Use observed a short map-change
+message, a 4,072-character claim briefing, a queued 4,783-character QA briefing,
+and a 3,502-character downstream claim submit automatically. Each had one
+accepted paste and a turn-start acknowledgement; multiline deliveries used
+the recipe's submit CR and chip CR. The ledger showed accepted message/task
+receipts. The QA worker printed its requested marker and completed intake
+through the existing task path.
+
+The operator used Devin's Escape interrupt to end long bootstrap/research
+turns before waiting for automation; those visible cancellations were manual.
+No manual Enter submitted a factory briefing. The trace contained zero
+automatic interrupts at this checkpoint. This proves a usable native GUI
+delivery check, not reproduction or repair of the original intermittent
+stuck-chip/resize failure. The unresolved-write containment remains separately
+covered by the failing-before/passing-after regression above.
+
 The design being verified: **one agent surface** — a Vellum Command-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
 Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 2026-07) - hermes (2026-07, gpt-5.4/5.5 era) - herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
