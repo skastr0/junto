@@ -153,7 +153,7 @@ describe("ManagedTerminalDrive", () => {
     expect(writes[1]!.data).toBe("\r");
   });
 
-  it("chip-submit CR ignores payload-head pendingText when pasteChip is false", async () => {
+  it("no chip neither overrides pending text nor authorizes a chip-submit CR", async () => {
     const local: Array<{ bindingId: string; data: string }> = [];
     drive = makeDrive({
       write: (bindingId, data) => {
@@ -163,7 +163,7 @@ describe("ManagedTerminalDrive", () => {
       pendingText: () => true,
       pasteChip: () => false,
     });
-    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(false);
     expect(local.map((w) => w.data)).toEqual([
       encodeBracketedPaste("one\ntwo"),
       CR,
@@ -1221,6 +1221,66 @@ describe("written-unresolved submission guard", () => {
   afterEach(() => {
     for (const drive of drives.splice(0)) drive.resetForTest();
     vi.useRealTimers();
+  });
+
+  it.each([false, true])("does not receipt or repeat literal pending text with awaitTurnStart=%s", async (awaitTurnStart) => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const trace: PtyDeliveryTraceEvent[] = [];
+    const drive = makeDrive({
+      write: (_bindingId, data) => { writes.push(data); return true; },
+      composerVerdict: () => "empty",
+      pendingText: () => true,
+      pasteChip: () => false,
+      stallTimeoutMs: 10,
+      onTrace: (event) => trace.push(event),
+    });
+    const result = drive.writePrompt("seat", "factory notice", { awaitTurnStart });
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(result).resolves.toBe(false);
+    drive.onSeatIdle("seat");
+    await expect(drive.writePrompt("seat", "factory notice")).resolves.toBe(false);
+    expect(writes).toEqual([encodeBracketedPaste("factory notice"), CR]);
+    expect(trace).toContainEqual(expect.objectContaining({
+      event: "delivery.verdict",
+      fields: expect.objectContaining({ verdict: "written-unresolved" }),
+    }));
+    expect(trace).not.toContainEqual(expect.objectContaining({
+      event: "delivery.verdict",
+      fields: expect.objectContaining({ verdict: "submitted" }),
+    }));
+  });
+
+  it("does not reuse a rejected working event as a submit acknowledgement", async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const trace: PtyDeliveryTraceEvent[] = [];
+    const drive = makeDrive({
+      write: (bindingId, data) => {
+        writes.push(data);
+        // The accepted paste is already registered when the CR writer emits
+        // a working repaint. Pending composer evidence rejects this event.
+        if (data === CR) drive.onTurnStart(bindingId);
+        return true;
+      },
+      composerVerdict: () => "empty",
+      pendingText: () => true,
+      pasteChip: () => true,
+      stallWatch: true,
+      stallTimeoutMs: 10,
+      onTrace: (event) => trace.push(event),
+    });
+    const result = drive.writePrompt("seat", "one\ntwo");
+    await vi.advanceTimersByTimeAsync(20);
+    await expect(result).resolves.toBe(false);
+    expect(trace).toContainEqual(expect.objectContaining({
+      event: "turn.start.refused",
+      fields: expect.objectContaining({ reason: "text-pending" }),
+    }));
+    expect(trace).not.toContainEqual(expect.objectContaining({ event: "turn.start.accepted" }));
+    await expect(drive.writePrompt("seat", "one\ntwo")).resolves.toBe(false);
+    expect(drive.pasteWriteCount("seat")).toBe(1);
+    expect(writes).not.toContain(INTERRUPT_BYTE);
   });
 
   it("stays blocked across redraws, late working signals, time, and scheduling reset until generation replacement", async () => {

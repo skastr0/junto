@@ -674,16 +674,19 @@ export class ManagedTerminalDrive {
   onTurnStart(bindingId: string): void {
     this.traceState(bindingId, "turn.start", { pendingTurn: this.pendingTurns.has(bindingId) });
     if (this.suspended) return;
-    this.turnStartCounts.set(
-      bindingId,
-      (this.turnStartCounts.get(bindingId) ?? 0) + 1,
-    );
     if (this.pendingOnScreen(bindingId)) {
       this.traceState(bindingId, "turn.start.refused", { reason: "text-pending" });
       // Evidence: our text is still in the prompt box. A working repaint on
       // an unsubmitted chip is a FALSE turn-start — never receipt it.
       return;
     }
+    // The physical writer can observe an acknowledgement before its promise
+    // settles. Preserve only accepted events for that fast path: a refused
+    // repaint must not later become a receipt through a changed counter.
+    this.turnStartCounts.set(
+      bindingId,
+      (this.turnStartCounts.get(bindingId) ?? 0) + 1,
+    );
     this.traceState(bindingId, "turn.start.accepted");
     this.resolvePendingTurn(bindingId, true);
   }
@@ -916,11 +919,8 @@ export class ManagedTerminalDrive {
             }
           }
           if (this.pendingOnScreen(bindingId)) {
-            // Snapshot-only leftover (Codex payload head / Grok footer) is
-            // not a stuck chip — receipt the firstTyped write; never Ctrl+C.
-            if (this.pasteChip && !this.pasteChip(bindingId)) {
-              return { kind: "done", ok: true };
-            }
+            // Chip chrome only selects the extra-CR recipe. A literal draft
+            // is equally pending and cannot be receipted by its absence.
             return { kind: "done", ok: false };
           }
           return { kind: "done", ok: true };
@@ -967,11 +967,6 @@ export class ManagedTerminalDrive {
       // delivery layer re-paste the same message on every idle (the live
       // 4x duplicate report).
       if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
-        return confirmSubmitted();
-      }
-      // No composer chip: first CR was the submit (Codex/Grok). A leftover
-      // payload head on a stale idle grid must not recovery-CR or clear.
-      if (this.pasteChip && !this.pasteChip(bindingId)) {
         return confirmSubmitted();
       }
       // Evidence was late: the chip CR never fired. One recovery CR, and
