@@ -60,6 +60,13 @@ version when creating this archive; a different gzip implementation can produce
 different compressed bytes. The archive includes the complete Git tree, without Git history, local
 files, or build output. Bun's archive contains its build driver and patches;
 WebKit's contains the JavaScriptCore build scripts and platform configuration.
+Gitiles generates request-time timestamps inside its source tarballs. Entries
+marked `normalized-tar` are repacked with the pinned `tar` dependency and Bun
+1.3.13 gzip implementation, removing timestamps and owner metadata while retaining
+file bytes, paths, executable modes, and symlink targets. Their catalog checksums
+identify those reproducible archives. The five affected source trees were checked
+against the immutable upstream Git trees when these digests were established.
+
 No runtime source archive is committed to the Vellum Command repository.
 
 Release preparation downloads these materials into a separate local directory:

@@ -8,6 +8,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
+import { create as createTar } from "tar";
 import catalog from "../third_party/bun-1.3.13/runtime-source-catalog.json";
 
 export const RUNTIME_SOURCE_INDEX = "runtime-sources.json";
@@ -29,7 +30,7 @@ export type RuntimeSourceFile = {
 };
 export type RuntimeSourceMaterial = RuntimeSourceFile & {
   readonly repository: string;
-  readonly preparation: "download" | "git-archive";
+  readonly preparation: "download" | "git-archive" | "normalized-tar";
 };
 export type RuntimeSourceIndex = {
   readonly schema: typeof RUNTIME_SOURCE_SCHEMA;
@@ -223,6 +224,20 @@ const archiveGitSource = async (
   ]);
 };
 
+/** Gitiles stamps entries at download time. Preserve source bytes and modes,
+ * but remove that request-specific metadata before checking the pinned digest.
+ * Repacking reads archive entries; it never extracts them to the filesystem.
+ */
+export const normalizeRuntimeSourceArchive = async (input: string, output: string): Promise<void> => {
+  await pipeline(
+    // tar's asynchronous @archive reader stalls on directory entries. The
+    // synchronous reader also keeps archive entry ordering deterministic.
+    createTar({ sync: true, portable: true, noMtime: true, strict: true }, [`@${input}`]),
+    createGzip({ level: 9 }),
+    createWriteStream(output, { flags: "wx", mode: 0o600 }),
+  );
+};
+
 export const prepareRuntimeSources = async (input: {
   readonly destinationDirectory: string;
   readonly sourceCacheDirectory?: string;
@@ -246,16 +261,26 @@ export const prepareRuntimeSources = async (input: {
       continue;
     }
     const temporary = path.join(directory, `runtime-stage-${randomUUID()}.partial`);
+    const downloaded = `${temporary}.download`;
     try {
       if (material.preparation === "git-archive") {
         await archiveGitSource(material, temporary,
           input.sourceCacheDirectory ?? path.join(path.dirname(directory), ".runtime-source-cache"));
       } else {
+        if (material.preparation === "normalized-tar" && process.versions.bun !== BUN_VERSION) {
+          throw new Error(`Source archive normalization requires Bun ${BUN_VERSION} for the pinned gzip output`);
+        }
         const response = await fetch(material.sourceUrl, { signal: AbortSignal.timeout(30 * 60 * 1000) });
         if (!response.ok || response.body === null) {
           throw new Error(`runtime source download failed for ${material.id}: HTTP ${response.status}`);
         }
-        await pipeline(Readable.from(responseChunks(response.body)), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
+        await pipeline(Readable.from(responseChunks(response.body)), createWriteStream(
+          material.preparation === "normalized-tar" ? downloaded : temporary,
+          { flags: "wx", mode: 0o600 },
+        ));
+        if (material.preparation === "normalized-tar") {
+          await normalizeRuntimeSourceArchive(downloaded, temporary);
+        }
       }
       await verifyRuntimeSourceFile(directory, { ...material, file: path.basename(temporary) });
       // Install exclusively: a concurrent preparer must never replace a file
@@ -263,6 +288,7 @@ export const prepareRuntimeSources = async (input: {
       await link(temporary, destination);
     } finally {
       await rm(temporary, { force: true });
+      await rm(downloaded, { force: true });
     }
   }
   const body = `${JSON.stringify(index, null, 2)}\n`;

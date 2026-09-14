@@ -45,9 +45,9 @@
     "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
     "file": "chromium-build-e69b30bba288603e514cffb4c79c359cac68e923.tar.gz",
     "sourceUrl": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/build.tar.gz",
-    "bytes": 1851410,
-    "sha256": "4ca85a0a8c7504831b3ed6f86829ddf0b6ec4d3b7ddc50cf0c6fc23b93ae4fe8",
-    "preparation": "download"
+    "bytes": 1771350,
+    "sha256": "d50a215aef39d83a333cc9066aa2caed006afcc09b7a8518894ca3c6a19da1ac",
+    "preparation": "normalized-tar"
   },
   {
     "id": "chromium-media-ffmpeg",
@@ -55,9 +55,9 @@
     "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
     "file": "chromium-media-ffmpeg-e69b30bba288603e514cffb4c79c359cac68e923.tar.gz",
     "sourceUrl": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/media/ffmpeg.tar.gz",
-    "bytes": 104307,
-    "sha256": "86cdd3175171ee0f1a30dcbd06dec60f148406d0b6c93942ed1a9a0f7e9651da",
-    "preparation": "download"
+    "bytes": 101658,
+    "sha256": "8a161b649ae643b56a1029d3e7658c18bdc408cf182a89008fca4ce12ff2be30",
+    "preparation": "normalized-tar"
   },
   {
     "id": "chromium-nasm",
@@ -65,9 +65,9 @@
     "revision": "525a09a813be0f75b646ee93fc2a31c27b87d722",
     "file": "chromium-nasm-525a09a813be0f75b646ee93fc2a31c27b87d722.tar.gz",
     "sourceUrl": "https://chromium.googlesource.com/chromium/deps/nasm/+archive/525a09a813be0f75b646ee93fc2a31c27b87d722.tar.gz",
-    "bytes": 2433505,
-    "sha256": "f486ad394c6618a85bb734ddefd580bc79915bdd3b53eb02c4db3c9123cc2880",
-    "preparation": "download"
+    "bytes": 2336097,
+    "sha256": "337f82f226bb8b109e17024e60bc992416158919d3ec18c5f2527f23221d219e",
+    "preparation": "normalized-tar"
   },
   {
     "id": "chromium-third_party-opus",
@@ -75,9 +75,9 @@
     "revision": "e69b30bba288603e514cffb4c79c359cac68e923",
     "file": "chromium-third_party-opus-e69b30bba288603e514cffb4c79c359cac68e923.tar.gz",
     "sourceUrl": "https://chromium.googlesource.com/chromium/src/+archive/e69b30bba288603e514cffb4c79c359cac68e923/third_party/opus.tar.gz",
-    "bytes": 4258724,
-    "sha256": "1a28ceb7ef28044e31198889c0a9f6b408ef64c2ad99902ea2c149fcf017c964",
-    "preparation": "download"
+    "bytes": 4151072,
+    "sha256": "2e3cc436b6a3df4b0b11aa47aa298f46154459fb6ec19105b452e1e1fcd567fc",
+    "preparation": "normalized-tar"
   },
   {
     "id": "electron",
@@ -95,9 +95,9 @@
     "revision": "ad41607c61898cf7150e0fb20fe4bbabd44922a3",
     "file": "electron-ffmpeg-ad41607c61898cf7150e0fb20fe4bbabd44922a3.tar.gz",
     "sourceUrl": "https://chromium.googlesource.com/chromium/third_party/ffmpeg/+archive/ad41607c61898cf7150e0fb20fe4bbabd44922a3.tar.gz",
-    "bytes": 18441976,
-    "sha256": "e1f21512aabba38c98bf5be7ca7eba8ad2acf99c0ac63b68b584f7c654bb5a3a",
-    "preparation": "download"
+    "bytes": 17790051,
+    "sha256": "f11aea38128b9b38ac10d02c404017379191bed55ca2f323c8b82f574e533e03",
+    "preparation": "normalized-tar"
   },
   {
     "id": "hdrhistogram",

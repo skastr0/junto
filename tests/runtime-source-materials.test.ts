@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { create as createTar, list as listTar } from "tar";
 
 vi.mock("../third_party/bun-1.3.13/runtime-source-catalog.json", () => ({
   default: [{
@@ -20,6 +21,7 @@ vi.mock("../third_party/bun-1.3.13/runtime-source-catalog.json", () => ({
 import {
   decodeRuntimeSourceIndex,
   prepareRuntimeSources,
+  normalizeRuntimeSourceArchive,
   verifyRuntimeSources,
   RUNTIME_SOURCE_INDEX,
   RUNTIME_SOURCE_MATERIALS,
@@ -49,6 +51,34 @@ afterEach(async () => {
 });
 
 describe("pinned runtime source preparation", () => {
+  it("normalizes changing archive timestamps while preserving source bytes, executability, and symlinks", async () => {
+    const directory = await temporary();
+    await writeFile(path.join(directory, "source.sh"), "#!/bin/sh\nprintf source\n");
+    await chmod(path.join(directory, "source.sh"), 0o755);
+    await symlink("source.sh", path.join(directory, "link"));
+    await mkdir(path.join(directory, "empty"));
+    const outputs: Buffer[] = [];
+    for (const timestamp of [1_700_000_000_000, 1_800_000_000_000]) {
+      const input = path.join(directory, `${timestamp}.tar.gz`);
+      const output = `${input}.normalized`;
+      await createTar({ cwd: directory, file: input, gzip: true, mtime: new Date(timestamp) }, ["source.sh", "link", "empty"]);
+      await normalizeRuntimeSourceArchive(input, output);
+      outputs.push(await readFile(output));
+    }
+    expect(outputs[0]).toEqual(outputs[1]);
+    const entries: Array<{ path: string; mode: number | undefined; linkpath: string | undefined; body: string }> = [];
+    await listTar({ file: path.join(directory, "1700000000000.tar.gz.normalized"), onReadEntry: (entry) => {
+      const value = { path: entry.path, mode: entry.mode, linkpath: entry.linkpath, body: "" };
+      entry.on("data", (chunk: Buffer) => { value.body += chunk.toString(); });
+      entries.push(value);
+    } });
+    expect(entries).toEqual([
+      { path: "source.sh", mode: 0o755, linkpath: undefined, body: "#!/bin/sh\nprintf source\n" },
+      { path: "link", mode: 0o755, linkpath: "source.sh", body: "" },
+      { path: "empty/", mode: 0o755, linkpath: undefined, body: "" },
+    ]);
+  });
+
   it("downloads fresh material, verifies it, and reuses verified bytes", async () => {
     expect(createHash("sha256").update(body).digest("hex")).toBe(index().files[0]!.sha256);
     const destinationDirectory = await temporary();
