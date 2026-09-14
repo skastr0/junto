@@ -119,6 +119,11 @@ export type HarnessDef = {
    * ~2 turns in a bare PTY).
    */
   readonly freshSpawnPerScenario?: boolean;
+  /**
+   * Welcome/logo animations (Amp) never go byte-quiet. Once the composer
+   * chrome is visible, treat the seat as idle without waiting for quiet.
+   */
+  readonly idleOncePromptVisible?: boolean;
 };
 
 export const HARNESSES: readonly HarnessDef[] = [
@@ -206,9 +211,12 @@ export const HARNESSES: readonly HarnessDef[] = [
   {
     name: "amp", displayName: "Amp",
     argv: () => ["--no-ide"],
-    promptGlyphs: [">", "\u276f", "~"],
+    // Live 0.0.1789397462 empty composer is a blank ╭─╮ box; the welcome
+    // logo never goes quiet. `ctrl+o for commands` is the idle chrome.
+    promptGlyphs: ["ctrl+o for commands", "\u256d"],
+    idleOncePromptVisible: true,
     exitRecipe: ["\u0003", "\u0004"],
-    note: "standalone TUI via --no-ide; isolated HOME fails closed without auth",
+    note: "standalone TUI via --no-ide; composer is a blank ruled box",
   },
   {
     name: "omp", displayName: "Oh My Pi",
@@ -619,9 +627,10 @@ class Session {
 
   /** True when a prompt glyph is present in the current tail text. */
   promptVisible(): boolean {
-    // 8000 chars: covers the full 32-row screen even when per-second footer
-    // ticks (hermes) have pushed older paints out of a short tail window.
-    const t = tailText(this.currentBytes(), 8000);
+    // Amp's welcome logo keeps streaming megabytes after the composer box
+    // is already on screen, so the recent tail never contains the chrome.
+    const window = this.def.idleOncePromptVisible ? Number.POSITIVE_INFINITY : 8000;
+    const t = tailText(this.currentBytes(), window);
     return this.def.promptGlyphs.some((g) => t.includes(g));
   }
 
@@ -769,6 +778,11 @@ type Ctx = {
   remaining: () => number;
 };
 
+function fixtureOrigin(def: HarnessDef, sess: Session, s0: number, tailMs = 4000): number {
+  if (!def.idleOncePromptVisible) return s0;
+  return Math.max(s0, sess.sliceIndexAt(Date.now() - tailMs));
+}
+
 async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
   const { def, sess, results, remaining } = ctx;
   const idleOk = await (async () => {
@@ -777,6 +791,7 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
     while (Date.now() - start < cap) {
       if (sess.exited) return false;
       if (sess.promptVisible() && Date.now() - sess.lastDataAt >= QUIET_MS && Date.now() - start >= 1500) return true;
+      if (def.idleOncePromptVisible && sess.promptVisible() && Date.now() - start >= 2000) return true;
       // glyph-less TUIs (pi/prime-agent bare-box composer): a stable screen
       // with content after 5s is idle enough to proceed
       if (Date.now() - start >= 5000 && Date.now() - sess.lastDataAt >= QUIET_MS && sess.bytes >= 2000) return true;
@@ -804,14 +819,17 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
     return;
   }
   const idleEnd = Math.min(sess.events.length, sess.sliceIndexAt(Math.max(sess.lastDataAt, Date.now() - 4000) + 1800));
-  const sig = extractSignals(Buffer.concat(sess.events.slice(s0, idleEnd).map((e) => e.buf)));
-  const idleText = tailText(Buffer.concat(sess.events.slice(s0, idleEnd).map((e) => e.buf)));
+  const idleFrom = def.idleOncePromptVisible
+    ? Math.max(s0, sess.sliceIndexAt(Date.now() - 2500))
+    : s0;
+  const sig = extractSignals(Buffer.concat(sess.events.slice(idleFrom, idleEnd).map((e) => e.buf)));
+  const idleText = tailText(Buffer.concat(sess.events.slice(idleFrom, idleEnd).map((e) => e.buf)));
   const idleGlyph = def.promptGlyphs.find((g) => idleText.includes(g)) ?? null;
   if (process.env.PTY_CAPTURE_DEBUG) console.log(`[${def.name}] idleText tail:`, JSON.stringify(idleText.slice(-220)), "| glyphHits:", def.promptGlyphs.map((g) => [g, idleText.includes(g)]));
   const idleTitle = sig.titles[sig.titles.length - 1] ?? "";
   const idleOsc9 = sig.osc9s[sig.osc9s.length - 1] ?? "";
-  const idleBytes = Buffer.concat(sess.events.slice(s0, idleEnd).map((e) => e.buf));
-  const lines1 = sess.writeFixture(s0, idleEnd, path.join(CAPTURE_ROOT, def.name, "startup-idle.jsonl"), "startup-idle");
+  const idleBytes = Buffer.concat(sess.events.slice(idleFrom, idleEnd).map((e) => e.buf));
+  const lines1 = sess.writeFixture(idleFrom, idleEnd, path.join(CAPTURE_ROOT, def.name, "startup-idle.jsonl"), "startup-idle");
   results.push({
     harness: def.name, scenario: "startup-idle", status: idleOk ? "complete" : "complete",
     reason: idleOk ? undefined : "idle not fully confirmed (prompt glyph absent)",
@@ -837,10 +855,11 @@ async function scenarioTypeEcho(ctx: Ctx, s0: number): Promise<void> {
   sess.write("\r");
   const teTurnOk = await sess.waitQuiet(Math.min(TURN_WAIT_CAP_MS, remaining()));
   const teEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 1200));
-  const sig = extractSignals(Buffer.concat(sess.events.slice(s0, teEnd).map((e) => e.buf)));
-  const teGlyph = def.promptGlyphs.find((g) => tailText(Buffer.concat(sess.events.slice(s0, teEnd).map((e) => e.buf))).includes(g)) ?? null;
-  const teBytes = Buffer.concat(sess.events.slice(s0, teEnd).map((e) => e.buf));
-  const lines2 = sess.writeFixture(s0, teEnd, path.join(CAPTURE_ROOT, def.name, "type-echo.jsonl"), "type-echo");
+  const teFrom = fixtureOrigin(def, sess, s0);
+  const sig = extractSignals(Buffer.concat(sess.events.slice(teFrom, teEnd).map((e) => e.buf)));
+  const teGlyph = def.promptGlyphs.find((g) => tailText(Buffer.concat(sess.events.slice(teFrom, teEnd).map((e) => e.buf))).includes(g)) ?? null;
+  const teBytes = Buffer.concat(sess.events.slice(teFrom, teEnd).map((e) => e.buf));
+  const lines2 = sess.writeFixture(teFrom, teEnd, path.join(CAPTURE_ROOT, def.name, "type-echo.jsonl"), "type-echo");
   results.push({
     harness: def.name, scenario: "type-echo",
     status: teTurnOk ? "complete" : "complete",
@@ -948,7 +967,8 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
     });
     return;
   }
-  const lines3 = sess.writeFixture(s0, pcEnd, path.join(CAPTURE_ROOT, def.name, "paste-chip.jsonl"), "paste-chip");
+  const pcFrom = fixtureOrigin(def, sess, s0, 6000);
+  const lines3 = sess.writeFixture(pcFrom, pcEnd, path.join(CAPTURE_ROOT, def.name, "paste-chip.jsonl"), "paste-chip");
   results.push({
     harness: def.name, scenario: "paste-chip", status: "complete",
     observed: {
@@ -1011,7 +1031,8 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   }
   const wtEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 600));
   const wtBytes = Buffer.concat(sess.events.slice(s0, wtEnd).map((e) => e.buf));
-  const lines4 = sess.writeFixture(s0, wtEnd, path.join(CAPTURE_ROOT, def.name, "working-turn.jsonl"), "working-turn");
+  const wtFrom = fixtureOrigin(def, sess, s0, 8000);
+  const lines4 = sess.writeFixture(wtFrom, wtEnd, path.join(CAPTURE_ROOT, def.name, "working-turn.jsonl"), "working-turn");
   results.push({
     harness: def.name, scenario: "working-turn", status: "complete",
     observed: {
@@ -1059,7 +1080,8 @@ async function scenarioOsc9EmptyComposer(ctx: Ctx, s0: number): Promise<void> {
     return;
   }
   const bytes = Buffer.concat(sess.events.slice(s0, end).map((event) => event.buf));
-  const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "osc9-empty-composer.jsonl"), "osc9-empty-composer");
+  const oscFrom = fixtureOrigin(def, sess, s0, 6000);
+  const lines = sess.writeFixture(oscFrom, end, path.join(CAPTURE_ROOT, def.name, "osc9-empty-composer.jsonl"), "osc9-empty-composer");
   results.push({
     harness: def.name, scenario: "osc9-empty-composer", status: "complete",
     observed: { osc9: "4;3", composerEmpty: true, lines },
@@ -1119,7 +1141,8 @@ async function scenarioPermissionReturnsIdle(ctx: Ctx, s0: number): Promise<void
   }
   const end = sess.events.length;
   const bytes = Buffer.concat(sess.events.slice(s0, end).map((event) => event.buf));
-  const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "permission-returns-idle.jsonl"), "permission-returns-idle");
+  const permFrom = fixtureOrigin(def, sess, s0, 8000);
+  const lines = sess.writeFixture(permFrom, end, path.join(CAPTURE_ROOT, def.name, "permission-returns-idle.jsonl"), "permission-returns-idle");
   results.push({
     harness: def.name, scenario: "permission-returns-idle", status: "complete",
     observed: { permissionSeen: true, idleReturned: true, lines },
