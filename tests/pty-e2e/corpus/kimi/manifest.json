@@ -1,0 +1,166 @@
+{
+  "harness": "kimi",
+  "displayName": "Kimi Code",
+  "source": "P1-real-capture",
+  "harnessVersion": "0.43.0",
+  "capturedAt": "2026-09-14T15:24:34.520Z",
+  "pty": {
+    "cols": 120,
+    "rows": 32,
+    "term": "xterm-256color"
+  },
+  "sanitized": true,
+  "scrub": [
+    "<HOME>",
+    "<USER>",
+    "<HOST>",
+    "<CWD>",
+    "<CAPTURE>",
+    "<SESSION>",
+    "<EMAIL>",
+    "<TOKEN>"
+  ],
+  "scenarios": [
+    {
+      "harness": "kimi",
+      "scenario": "startup-idle",
+      "status": "complete",
+      "observed": {
+        "title": "",
+        "osc9": "",
+        "glyphs": [
+          "—",
+          "…",
+          "─",
+          "│",
+          "╭",
+          "╮",
+          "╯",
+          "╰",
+          "✦"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2031,
+            2026
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": ">",
+        "bytes": 9046,
+        "lines": 1,
+        "stableQuietMs": 1400
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": ">",
+        "description": "idle composer of the bare TUI"
+      }
+    },
+    {
+      "harness": "kimi",
+      "scenario": "type-echo",
+      "status": "complete",
+      "observed": {
+        "title": "",
+        "osc9": "",
+        "glyphs": [
+          "—",
+          "…",
+          "─",
+          "│",
+          "╭",
+          "╮",
+          "╯",
+          "╰",
+          "✦"
+        ],
+        "modes": {
+          "set": [
+            2004,
+            1004,
+            2031,
+            2026
+          ],
+          "reset": [
+            25,
+            2026
+          ],
+          "kittyPush": false,
+          "kittyPop": false
+        },
+        "promptGlyph": ">",
+        "lines": 1,
+        "idleReturned": true,
+        "exited": false
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": ">",
+        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "echoText": "hello"
+      }
+    },
+    {
+      "harness": "kimi",
+      "scenario": "paste-chip",
+      "status": "skip",
+      "reason": "neither pasted payload nor a real paste chip was visible",
+      "observed": {
+        "payloadVisible": false,
+        "chipObserved": false
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "working-turn",
+      "status": "skip",
+      "reason": "no explicit working chrome or progress signal was observed",
+      "observed": {
+        "osc9s": [],
+        "titles": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "osc9-empty-composer",
+      "status": "skip",
+      "reason": "real OSC 9;4;3 with an empty composer was not observed",
+      "observed": {
+        "osc9s": []
+      },
+      "expectedScreen": {}
+    },
+    {
+      "harness": "kimi",
+      "scenario": "permission-returns-idle",
+      "status": "skip",
+      "reason": "a real permission dialog was not observed",
+      "observed": {},
+      "expectedScreen": {}
+    }
+  ],
+  "sanitization": {
+    "method": "decoded-jsonl-scan",
+    "fixtures": 2,
+    "decodedBytes": 19640,
+    "checks": [
+      "home-path",
+      "username",
+      "hostname",
+      "email",
+      "token"
+    ]
+  }
+}

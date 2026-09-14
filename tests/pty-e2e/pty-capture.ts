@@ -163,7 +163,8 @@ export const HARNESSES: readonly HarnessDef[] = [
     argv: (cwd) => ["--yolo"],
     promptGlyphs: [">", "\u276f"],
     exitRecipe: ["\u0003", "\u0004", "/exit\r"],
-    note: "static OSC title 'Kimi Code'; no alt screen",
+    modals: [{ when: /trust this folder/i, reply: "\r" }],
+    note: "static OSC title 'Kimi Code'; no alt screen; Enter accepts the folder-trust picker",
   },
   {
     name: "pi", displayName: "Pi",

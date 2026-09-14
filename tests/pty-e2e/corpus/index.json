@@ -219,6 +219,50 @@
       "expectedScreen": {}
     }
   },
+  "kimi": {
+    "scenarios": [
+      {
+        "scenario": "startup-idle",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "type-echo",
+        "status": "complete",
+        "reason": null
+      },
+      {
+        "scenario": "paste-chip",
+        "status": "skip",
+        "reason": "neither pasted payload nor a real paste chip was visible"
+      },
+      {
+        "scenario": "working-turn",
+        "status": "skip",
+        "reason": "no explicit working chrome or progress signal was observed"
+      },
+      {
+        "scenario": "osc9-empty-composer",
+        "status": "skip",
+        "reason": "real OSC 9;4;3 with an empty composer was not observed"
+      },
+      {
+        "scenario": "permission-returns-idle",
+        "status": "skip",
+        "reason": "a real permission dialog was not observed"
+      }
+    ],
+    "session": {
+      "harness": "kimi",
+      "scenario": "__session__",
+      "status": "complete",
+      "observed": {
+        "bytes": 21324,
+        "elapsedMs": 103776
+      },
+      "expectedScreen": {}
+    }
+  },
   "muse": {
     "scenarios": [
       {
