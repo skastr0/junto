@@ -1,9 +1,10 @@
 # Vellum Command fresh-mail qualification
 
 This extends the [native submission proof](pty-native-submission-2026-09-14.md)
-with fresh task-comment mail on an already-running Devin seat. The first
-board passed individual, multiline-content and queued-batch cases. The
-second board and the replacement package remain in progress at this checkpoint.
+with fresh task-comment mail on both already-running Devin seats. Both
+boards passed individual and multiline-content cases; intake also passed
+the identical-content queued-batch case. Replacement-package qualification
+remains in progress at this checkpoint.
 
 ## Environment and method
 
@@ -72,3 +73,37 @@ receipt recovery, supervisor acceptance, generation evidence and Remote
 composition; this run does not qualify those uninstalled changes. Crash
 reconciliation, the full producer and harness matrix, and Remote execution
 retain the limits in the [matrix assessment](pty-matrix-2026-09-14.md).
+
+## Handoff and second warm seat
+
+The intake completion instruction was accepted as delivery
+`d0140b76-22c4-4750-a9c0-45d7240c330e` at `15:25:04.999Z`.
+Intake completed through normal task rules at `15:30:42.152Z`; its handoff
+preserved all four source-comment IDs and their acknowledgment values.
+The same task then became working on the existing second board and binding
+`01M27TDQYGX75C0ESBPB0SVNKD`.
+
+The downstream claim, `458afbbd-31cd-4789-a916-af668c8dbf45`, submitted at
+`15:30:42.317Z` with one paste, one submit CR and one chip CR. Its progress
+note and thread acknowledgment carried `MAIL_READY_20260914`. Computer Use
+verified the empty welcome composer before the next fresh comment.
+
+| Case | Source comment | Mail copy | Physical acceptance and response |
+|---|---|---|---|
+| D, fresh individual | `01M2G93T0TMF7Z3YCMA62388HW` | `01M2G93T10JPPTEGTV30ZPEN4V` | `d9ef3226-e2c5-427e-a0ca-8b6b9f0047d7` submitted and receipted at `15:38:33.519Z`; one reply containing `silver` |
+| E, multiline while D worked | `01M2G94EXC4K26FBDK46CCPK4H` | `01M2G94EXGZANBG08T8ANNPB5X` | `71c81271-68b0-4bac-bcfb-4ba2b7c7172b` submitted at `15:42:48.447Z`, receipted two milliseconds later; one reply with `maple, copper, 83` |
+
+E remained pending while D worked. As at intake, Devin read the full thread
+early and answered E before the later notice; the subsequent notice and
+durable receipt independently establish its physical delivery. After that
+notice, Computer Use showed the agent recognize the existing answer and
+return to an empty composer without replying again.
+
+At the second-seat checkpoint, the app-owned thread contains exactly six
+case replies across both boards. All six fresh mail IDs have durable
+receipts, transported by five short notices. Including both claims and the
+intake completion notice, the trace has eight pastes, eight submit CRs,
+two chip CRs and eight submitted verdicts; no recovery CR, interrupts or
+duplicate physical pastes. The downstream task remains working intentionally
+for a final fresh-mail check after the replacement package resumes its named
+session; its final completion instruction has not yet been sent.
