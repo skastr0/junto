@@ -27,7 +27,8 @@ const localHost = Schema.decodeUnknownSync(StationHostId)("local");
 const waitFor = async (predicate: () => boolean): Promise<void> => {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (predicate()) return;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    // Yield to the retry timer even when immediate callbacks run in under 1 ms.
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("condition did not settle");
 };
