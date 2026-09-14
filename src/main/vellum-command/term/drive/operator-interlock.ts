@@ -18,8 +18,8 @@
  *     can scramble chip collapse timing.
  *
  *   submission hold — the drive wraps the physical paste/settle/CR unit in
- *     beginHold/endHold. While held, LocalSessionHost.write parks operator
- *     bytes instead of writing them through; the outermost endHold replays
+ *     beginHold/release. While held, LocalSessionHost.write parks operator
+ *     bytes instead of writing them through; the outermost release replays
  *     them in order. Operator input can never interleave inside a paste
  *     envelope or land between paste-end and CR, and replayed bytes arrive
  *     after the submission resolved (submitted chip, cleared composer, or
@@ -53,6 +53,7 @@ type HoldState = {
 export class OperatorInterlock {
   private readonly now: () => number;
   private readonly inputUntil = new Map<string, number>();
+  private readonly inputVersions = new Map<string, number>();
   private readonly resizeUntil = new Map<string, number>();
   private readonly holds = new Map<string, HoldState>();
   private readonly quietWaiters = new Map<
@@ -70,6 +71,10 @@ export class OperatorInterlock {
    * itself is refused.
    */
   noteInput(bindingId: string): void {
+    this.inputVersions.set(
+      bindingId,
+      (this.inputVersions.get(bindingId) ?? 0) + 1,
+    );
     this.inputUntil.set(bindingId, this.now() + OPERATOR_INPUT_LATCH_MS);
   }
 
@@ -83,9 +88,19 @@ export class OperatorInterlock {
     return (this.inputUntil.get(bindingId) ?? 0) > at;
   }
 
+  /** Monotonic operator-input version within the current binding generation. */
+  inputVersion(bindingId: string): number {
+    return this.inputVersions.get(bindingId) ?? 0;
+  }
+
   /** A resize landed recently — composer evidence may be mid-repaint. */
   resizeActive(bindingId: string, at = this.now()): boolean {
     return (this.resizeUntil.get(bindingId) ?? 0) > at;
+  }
+
+  /** Milliseconds until the resize-only quiet window ends (0 when quiet). */
+  resizeQuietInMs(bindingId: string, at = this.now()): number {
+    return Math.max(0, (this.resizeUntil.get(bindingId) ?? 0) - at);
   }
 
   /** Either latch — the gate-level "operator activity possible" verdict. */
@@ -159,25 +174,40 @@ export class OperatorInterlock {
 
   /**
    * Begin a submission span. Depth-tracked so nested drive recovery writes
-   * (chip-submit CR, clear Ctrl+C) share the outer span — the replay flush
-   * fires once, at the outermost endHold.
+   * (chip-submit CR, clear Ctrl+C) share the outer span. The returned release
+   * is idempotent and owns this exact hold generation.
    */
-  beginHold(bindingId: string): void {
-    const hold = this.holds.get(bindingId);
+  beginHold(bindingId: string): () => void {
+    let hold = this.holds.get(bindingId);
     if (hold !== undefined) {
       hold.depth += 1;
-      return;
+    } else {
+      hold = { depth: 1, held: [] };
+      this.holds.set(bindingId, hold);
     }
-    this.holds.set(bindingId, { depth: 1, held: [] });
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.releaseHold(bindingId, hold);
+    };
   }
 
   /**
-   * End a submission span. At depth zero the hold lifts and parked operator
-   * writes replay in arrival order — after every drive write in the span.
+   * End a submission span for legacy binding-key callers. At depth zero the
+   * hold lifts and parked operator writes replay in arrival order — after every
+   * drive write in the span. New callers should use beginHold's release.
    */
   endHold(bindingId: string): void {
     const hold = this.holds.get(bindingId);
     if (hold === undefined) return;
+    this.releaseHold(bindingId, hold);
+  }
+
+  private releaseHold(bindingId: string, hold: HoldState): void {
+    // A binding id may be reused for a replacement generation. Only the hold
+    // state owned by this release may decrement or flush that binding.
+    if (this.holds.get(bindingId) !== hold) return;
     hold.depth -= 1;
     if (hold.depth > 0) return;
     this.holds.delete(bindingId);
@@ -203,6 +233,7 @@ export class OperatorInterlock {
    */
   dropBinding(bindingId: string): void {
     this.inputUntil.delete(bindingId);
+    this.inputVersions.delete(bindingId);
     this.resizeUntil.delete(bindingId);
     this.holds.delete(bindingId);
     this.quietWaiters.delete(bindingId);
@@ -211,6 +242,7 @@ export class OperatorInterlock {
   /** Process-level cut (drive suspend): every binding's latches and holds. */
   clearAll(): void {
     this.inputUntil.clear();
+    this.inputVersions.clear();
     this.resizeUntil.clear();
     this.holds.clear();
     this.quietWaiters.clear();
