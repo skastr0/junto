@@ -189,5 +189,16 @@
       "email",
       "token"
     ]
+  },
+  "harnessVersionEvidence": {
+    "source": "capture-time CLI version probe",
+    "visibleVersion": "1.2.1",
+    "note": "The build suffix 1.2.1-R2847.1 is recorded by the CLI probe; the captured screen paints 1.2.1."
+  },
+  "providerContext": {
+    "provider": "echo",
+    "model": null,
+    "authentication": "not required by the deterministic echo provider",
+    "turnEvidence": "deterministic echo turns only; no remote model turn was exercised"
   }
 }

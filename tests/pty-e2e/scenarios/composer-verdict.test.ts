@@ -4,12 +4,14 @@
  *
  * Replays each shipped harness's P1 corpus through a REAL SessionObserver in
  * fine chunks and asserts the product law end-to-end on real bytes:
- *  - startup-idle settles to verdict "empty" (a fresh seat is deliverable —
- *    the placeholder hint must read as an empty box, or first-spawn delivery
- *    holds forever);
+ *  - startup-idle settles to verdict "empty" (the placeholder hint must
+ *    read as an empty box);
  *  - type-echo passes through at least one "draft" frame (typed text on
  *    screen refuses factory typing) and settles back to "empty" after the
- *    turn (delivery resumes).
+ *    submission attempt.
+ * Composer contents do not prove readiness: Hermes/Kimi captures contain
+ * setup failures. composer-readiness.test.ts separately refuses their real
+ * blocked frames through the shared destination drive.
  *
  * A harness failing here means its composer probes no longer match its real
  * chrome — factory typing into its seats is refusing (fail closed), and the
@@ -55,7 +57,7 @@ const replay = async (
 
 for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes", "kimi"] as const) {
   describe(`${harness} composer verdict on real bytes`, () => {
-    it("startup-idle settles to empty (fresh seat is deliverable)", async () => {
+    it("startup-idle settles to an empty composer", async () => {
       const fixture = loadP1Fixture(harness, "startup-idle");
       expect(fixture, `${harness}/startup-idle corpus missing`).not.toBeNull();
       const run = await replay(harness, fixture!.events);
@@ -65,7 +67,7 @@ for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes
       ).toBe("empty");
     });
 
-    it("type-echo shows a draft frame, then settles back to empty", async () => {
+    it("type-echo shows a draft frame, then returns to an empty composer", async () => {
       const fixture = loadP1Fixture(harness, "type-echo");
       expect(fixture, `${harness}/type-echo corpus missing`).not.toBeNull();
       const run = await replay(harness, fixture!.events);

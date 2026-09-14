@@ -18,8 +18,34 @@ import type { SeatRulePack } from "../types";
 
 export const kimiRules: SeatRulePack = {
   harness: "kimi",
-  version: "2026.09.14.1",
+  version: "2026.09.14.2",
   rules: [
+    {
+      id: "model_not_configured_attention",
+      state: "attention",
+      priority: 1300,
+      region: "whole_recent",
+      visibleAttention: true,
+      // P1 startup has a writable box but explicitly reports no model in
+      // the welcome panel. Empty composer chrome cannot make it runnable.
+      matchers: {
+        contains: ["welcome to kimi code!"],
+        lineRegex: ["^\\s*│\\s+Model:\\s+not set, run /login or /provider\\s*│\\s*$"],
+      },
+    },
+    {
+      id: "model_missing_error_attention",
+      state: "attention",
+      priority: 1300,
+      region: "bottom_non_empty_lines",
+      regionN: 8,
+      visibleAttention: true,
+      // P1 type-echo returns to the box after rejecting the turn. Match
+      // the current error directly above that box, not old transcript text.
+      matchers: {
+        regex: ["(?:^|\\n)\\s*Error: LLM not set, send \"/login\" to login[^\\n]*\\n\\s*╭─"],
+      },
+    },
     // "↵ confirm" + a question + " choose" + approve/reject/revise.
     // Bottom-scoped: transcript replay of an old approval must not pin NEEDS INPUT.
     {

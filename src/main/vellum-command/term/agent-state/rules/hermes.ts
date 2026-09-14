@@ -8,8 +8,22 @@ import type { SeatRulePack } from "../types";
 
 export const hermesRules: SeatRulePack = {
   harness: "hermes",
-  version: "2026.09.14.1",
+  version: "2026.09.14.2",
   rules: [
+    {
+      id: "authentication_failed_attention",
+      state: "attention",
+      priority: 350,
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      visibleAttention: true,
+      // P1 startup/type-echo: the latest transcript entry reports failed
+      // authentication while the TUI still paints a ready footer. Anchor
+      // to that footer so an older error above a later response cannot win.
+      matchers: {
+        regex: ["\\bNo Codex credentials stored\\.[^\\n]*\\n(?:[\\s┃│]*\\n)*\\s*─\\s+[Rr]eady\\b"],
+      },
+    },
     {
       id: "osc_title_attention",
       state: "attention",

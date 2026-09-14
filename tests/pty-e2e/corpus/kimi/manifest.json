@@ -62,7 +62,7 @@
         "title": "",
         "osc9": "",
         "promptGlyph": ">",
-        "description": "idle composer of the bare TUI"
+        "description": "empty boxed composer with no configured model; not ready for automated delivery"
       }
     },
     {
@@ -106,7 +106,7 @@
         "title": "",
         "osc9": "",
         "promptGlyph": ">",
-        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "description": "typed hello reaches the composer; submission reports LLM not set, then returns to an empty box without a model turn",
         "echoText": "hello"
       }
     },
@@ -162,5 +162,15 @@
       "email",
       "token"
     ]
+  },
+  "harnessVersionEvidence": {
+    "source": "capture-time CLI version probe and captured welcome panel",
+    "visibleVersion": "0.43.0"
+  },
+  "providerContext": {
+    "provider": null,
+    "model": null,
+    "authentication": "not configured: the captured welcome panel requests /login or /provider",
+    "turnEvidence": "composer and missing-model errors only; no successful model turn was observed"
   }
 }

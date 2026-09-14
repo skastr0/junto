@@ -73,7 +73,7 @@
         "title": "✓ gpt-5.4-mini · …llum-capture-cwd/hermes",
         "osc9": "",
         "promptGlyph": null,
-        "description": "idle composer of the bare TUI"
+        "description": "empty TUI composer with an agent-init authentication failure; not ready for automated delivery"
       }
     },
     {
@@ -129,7 +129,7 @@
         "title": "⏳ gpt-5.4-mini · …llum-capture-cwd/hermes",
         "osc9": "",
         "promptGlyph": "❯",
-        "description": "typed 'hello' echoed in composer, CR submits, idle returns",
+        "description": "typed hello reaches the composer; submission reports missing Codex credentials, with no successful model turn",
         "echoText": "hello"
       }
     },
@@ -196,5 +196,16 @@
       "email",
       "token"
     ]
+  },
+  "harnessVersionEvidence": {
+    "source": "capture-time CLI version probe",
+    "visibleVersion": null,
+    "note": "The captured TUI frames do not paint the recorded Hermes Agent version or upstream revision."
+  },
+  "providerContext": {
+    "provider": "openai-codex",
+    "model": "gpt-5.4-mini",
+    "authentication": "failed: captured agent-init errors report no stored Codex credentials",
+    "turnEvidence": "composer and authentication-failure frames only; no successful model turn was observed"
   }
 }

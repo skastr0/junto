@@ -14,8 +14,22 @@ const MUSE_GLYPH = "[\u276f\u27e9]";
 
 export const museRules: SeatRulePack = {
   harness: "muse",
-  version: "2026.09.14.1",
+  version: "2026.09.14.2",
   rules: [
+    {
+      id: "live_status_working",
+      state: "working",
+      priority: 110,
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      visibleWorking: true,
+      // P1 type-echo paints Thinking before the OSC spinner. This live
+      // status sits immediately above the Voice input header, outside the
+      // four-line composer strip; a transcript status elsewhere is not it.
+      matchers: {
+        regex: ["(?:^|\\n)\\s*[◇◆◈]\\s+(?:Thinking|Working)[^\\n]*\\n\\s*── Voice input\\b"],
+      },
+    },
     {
       id: "osc_title_working",
       state: "working",
