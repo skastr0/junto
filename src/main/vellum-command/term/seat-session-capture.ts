@@ -40,6 +40,8 @@ export const discoversSessionAfterSpawn = (harness: string): boolean =>
   Object.hasOwn(DISCOVERY, harness);
 
 type Watch = {
+  readonly harness: string;
+  readonly home: string;
   readonly canvasName: string;
   readonly nodeId: string;
   readonly cwd: string;
@@ -50,6 +52,9 @@ type Watch = {
 
 export class SeatSessionCapture {
   private readonly watching = new Map<string, Watch>();
+  // A completed/forgotten watcher must not make its session available to a
+  // sibling. The durable writer also checks the whole current portfolio.
+  private readonly owners = new Map<string, Watch>();
   private readonly home: () => string;
 
   constructor(home: () => string) {
@@ -78,6 +83,8 @@ export class SeatSessionCapture {
       return;
     }
     this.watching.set(input.bindingId, {
+      harness: input.harness,
+      home: this.home(),
       canvasName: input.canvasName,
       nodeId: input.nodeId,
       cwd: input.cwd,
@@ -102,11 +109,27 @@ export class SeatSessionCapture {
     const sessionId = watch.discovery.discover({
       cwd: watch.cwd,
       spawnedAtMs: watch.spawnedAtMs,
-      home: this.home(),
+      home: watch.home,
     });
     // Undefined is the normal early answer: these harnesses write their store
     // asynchronously, so the next boundary tries again.
     if (sessionId === undefined) return undefined;
+    const candidateKey = JSON.stringify([watch.home, watch.harness, sessionId]);
+    const owner = this.owners.get(candidateKey);
+    if (owner !== undefined && owner !== watch) return undefined;
+    if (owner === undefined) {
+      // One candidate does not mean one eligible seat. Do not choose whichever
+      // callback happens first while another watch can claim the same id.
+      for (const other of this.watching.values()) {
+        if (other === watch || other.harness !== watch.harness || other.home !== watch.home) continue;
+        if (other.discovery.discover({
+          cwd: other.cwd,
+          spawnedAtMs: other.spawnedAtMs,
+          home: other.home,
+        }) === sessionId) return undefined;
+      }
+      this.owners.set(candidateKey, watch);
+    }
     // Claim the slot before awaiting, so two boundaries arriving together
     // cannot both write.
     watch.settled = true;
@@ -117,7 +140,14 @@ export class SeatSessionCapture {
       // A resuming seat already carries its id; capture must not replace it
       // with a sibling session that happens to be newer in the store.
       onlyIfAbsent: true,
+      capture: {
+        bindingId,
+        harness: watch.harness,
+        isCurrent: () => this.watching.get(bindingId) === watch,
+      },
     });
+    // An old completion cannot consume a replacement generation's watcher.
+    if (this.watching.get(bindingId) !== watch) return undefined;
     if (!stored.ok) {
       // Keep watching: an unwritten id means the seat still cannot cold-resume,
       // and the next boundary is a free retry.
