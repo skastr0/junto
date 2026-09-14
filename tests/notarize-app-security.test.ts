@@ -54,6 +54,7 @@ function notarizeFixture(): NotarizeFixture {
   mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
   copyFileSync(script, join(scripts, "notarize-app.sh"));
   copyFileSync(join(root, "scripts", "app-paths.sh"), join(scripts, "app-paths.sh"));
+  copyFileSync(join(root, "scripts", "make-mac-dmg.sh"), join(scripts, "make-mac-dmg.sh"));
   writeFileSync(executable, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
   writeFileSync(join(app, "Contents", "Info.plist"), "<plist/>\n");
   writeFileSync(zip, "fixture\n");
