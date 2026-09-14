@@ -354,8 +354,9 @@ export const verifyReleaseSources = async (input: {
   };
 };
 
-/** Developer ID signing changes Mach-O bytes. Compare all remaining bytes after
- * removing only signatures from private copies; never mutate either input. */
+/** Developer ID signing changes Mach-O bytes, including __LINKEDIT allocation.
+ * Re-sign private copies identically before stripping: removing a signature
+ * alone leaves its former virtual allocation size. Never mutate either input. */
 export const assertPackagedCliCorresponds = async (
   original: string,
   packaged: string,
@@ -383,13 +384,26 @@ export const assertPackagedCliCorresponds = async (
     ] as const) {
       const copy = path.join(temporary, name);
       await copyFile(input, copy, constants.COPYFILE_EXCL);
-      const result = spawnSync("codesign", ["--remove-signature", copy], {
-        encoding: "utf8",
-      });
-      if (result.status !== 0)
-        throw new Error(
-          `cannot normalize CLI code signature: ${result.stderr}`,
-        );
+      for (const args of [
+        ["--remove-signature"],
+        [
+          "--force",
+          "--sign",
+          "-",
+          "--timestamp=none",
+          "--identifier",
+          "vellum-command-cli-comparison",
+        ],
+        ["--remove-signature"],
+      ]) {
+        const result = spawnSync("codesign", [...args, copy], {
+          encoding: "utf8",
+        });
+        if (result.status !== 0)
+          throw new Error(
+            `cannot normalize CLI code signature: ${result.stderr}`,
+          );
+      }
       normalized.push(await fingerprintSourceFile(temporary, name));
     }
     if (

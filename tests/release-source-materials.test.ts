@@ -184,7 +184,7 @@ describe("corresponding-source release inventory", () => {
   });
 
   it.skipIf(process.platform !== "darwin")(
-    "admits a changed Mach-O signature but rejects changed executable content",
+    "admits changed Mach-O signature allocation but rejects changed executable content",
     async () => {
       const root = temporary();
       const original = path.join(root, "original");
@@ -193,9 +193,16 @@ describe("corresponding-source release inventory", () => {
         input: "int main(void) { return 0; }",
         stdio: ["pipe", "pipe", "pipe"],
       });
-      execFileSync("codesign", ["--force", "--sign", "-", original], {
-        stdio: "pipe",
-      });
+      const entitlements = path.join(root, "entitlements.plist");
+      writeFileSync(
+        entitlements,
+        `<?xml version="1.0"?><plist version="1.0"><dict><key>fixture</key><string>${"x".repeat(100_000)}</string></dict></plist>`,
+      );
+      execFileSync(
+        "codesign",
+        ["--force", "--sign", "-", "--entitlements", entitlements, original],
+        { stdio: "pipe" },
+      );
       copyFileSync(original, signed);
       execFileSync(
         "codesign",
@@ -211,9 +218,14 @@ describe("corresponding-source release inventory", () => {
         ],
         { stdio: "pipe" },
       );
+      const originalBytes = readFileSync(original);
+      const signedBytes = readFileSync(signed);
+      expect(originalBytes.length).not.toBe(signedBytes.length);
       await expect(
         assertPackagedCliCorresponds(original, signed),
       ).resolves.toBeUndefined();
+      expect(readFileSync(original)).toEqual(originalBytes);
+      expect(readFileSync(signed)).toEqual(signedBytes);
       execFileSync("cc", ["-x", "c", "-o", signed, "-"], {
         input: "int main(void) { return 1; }",
         stdio: ["pipe", "pipe", "pipe"],
