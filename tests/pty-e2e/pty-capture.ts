@@ -15,9 +15,13 @@
  *
  *   node tests/pty-e2e/pty-capture.ts                # capture all shipped harnesses
  *   node tests/pty-e2e/pty-capture.ts <harness>      # capture one shipped or composer-lane harness
+ *   node tests/pty-e2e/pty-capture.ts <harness> --core-only # startup/type/paste/working only
  *   node tests/pty-e2e/pty-capture.ts list           # list shipped harnesses
  *   node tests/pty-e2e/pty-capture.ts list all       # include composer-lane defs
  *   node tests/pty-e2e/pty-capture.ts verify         # decode + scrub-gate corpus
+ *
+ * Amp can bind an explicitly created, empty capture thread with
+ * PTY_CAPTURE_AMP_THREAD_ID=T-<uuid>; never use an existing operator thread.
  *
  * Canonicality gate (feeds a fixture through the REAL SessionObserver —
  * read-only, no PTY spawn, so bun works here):
@@ -46,6 +50,7 @@
 import { spawn as ptySpawn, type IPty } from "node-pty";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -53,6 +58,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
+const { Terminal } = createRequire(import.meta.url)("@xterm/headless") as typeof import("@xterm/headless");
 
 // ── corpus / capture constants ──────────────────────────────────────────────
 const OUT_ROOT = path.join(REPO, "tests", "pty-e2e", "corpus");
@@ -216,7 +222,13 @@ export const HARNESSES: readonly HarnessDef[] = [
   },
   {
     name: "amp", displayName: "Amp",
-    argv: () => ["--no-ide"],
+    argv: () => {
+      const threadId = process.env.PTY_CAPTURE_AMP_THREAD_ID;
+      if (threadId && !/^T-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(threadId)) {
+        throw new Error("PTY_CAPTURE_AMP_THREAD_ID must name one newly created Amp capture thread");
+      }
+      return ["--no-ide", ...(threadId ? ["threads", "continue", threadId] : [])];
+    },
     // Live 0.0.1789397462 empty composer is a blank ╭─╮ box; the welcome
     // logo never goes quiet. `ctrl+o for commands` is the idle chrome.
     promptGlyphs: ["ctrl+o for commands", "\u256d"],
@@ -385,8 +397,8 @@ export function extractSignals(bytes: Buffer): ObservedSignals {
   while ((m = oscRe.exec(text))) {
     const ident = m[1];
     const payload = m[2] ?? "";
-    if (ident === "0" || ident === "2") titles.add(payload);
-    else if (ident === "9") osc9s.add(payload);
+    if (ident === "0" || ident === "2") { titles.delete(payload); titles.add(payload); }
+    else if (ident === "9") { osc9s.delete(payload); osc9s.add(payload); }
   }
   // DEC private / ANSI mode sets
   const modeRe = /\x1b\[(\??)(\d+(?:;\d+)*)([hl])/g;
@@ -483,12 +495,17 @@ class Session {
   blocked = false;
   blockReason = "";
   modalsReplied = new Set<string>();
+  private promptTerminal: import("@xterm/headless").Terminal | undefined;
 
   constructor(def: HarnessDef) {
     this.def = def;
     this.name = def.name;
     this.cwd = path.join(CWD_ROOT, def.name);
     this.home = path.join(HOME_ROOT, def.name);
+    // Amp paints its ruled box before Loading Thread finishes, and a fresh
+    // empty thread need not emit any OSC title. Read its actual current grid;
+    // neither historical prompt bytes nor a title requirement proves ready.
+    if (def.name === "amp") this.promptTerminal = new Terminal({ cols: COLS, rows: ROWS, allowProposedApi: true });
   }
 
   private env(): Record<string, string> {
@@ -513,6 +530,8 @@ class Session {
     this.pty.onExit((e) => {
       this.exited = true;
       this.exitInfo = { code: e.exitCode, signal: e.signal };
+      this.promptTerminal?.dispose();
+      this.promptTerminal = undefined;
     });
   }
 
@@ -530,6 +549,7 @@ class Session {
     this.events.push({ t, buf: Buffer.from(d) });
     this.bytes += d.length;
     const raw = d.toString("utf8");
+    this.promptTerminal?.write(raw);
     this.blinkTail = (this.blinkTail + raw).slice(-300);
     if (!this.isBlinkOnly()) this.lastDataAt = t;
     this.respondToQueries(raw);
@@ -634,9 +654,18 @@ class Session {
   }
 
   /** True when a prompt glyph is present in the current tail text. */
-  promptVisible(): boolean {
-    // Amp's welcome logo keeps streaming megabytes after the composer box
-    // is already on screen, so the recent tail never contains the chrome.
+  promptVisible(requireSettled = false): boolean {
+    if (this.promptTerminal) {
+      const buffer = this.promptTerminal.buffer.active;
+      const lines = Array.from({ length: ROWS }, (_, row) => buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "");
+      const footer = lines.filter((line) => line.trim()).slice(-4);
+      if (footer.some((line) => /\b(?:loading thread|connecting|reconnecting|catching up)\b/iu.test(line))) return false;
+      // Status words can be partially erased during a repaint. Require the
+      // actual settled footer, rather than the absence of a complete word.
+      return (!requireSettled || footer.some((line) => /^\s*╰─/u.test(line))) &&
+        lines.some((line) => /^\s*╭─/u.test(line)) && lines.some((line) => /^\s*│/u.test(line));
+    }
+    // Harnesses with large startup output can retain a wider prompt scan.
     const window = this.def.promptScanBytes
       ?? (this.def.idleOncePromptVisible ? Number.POSITIVE_INFINITY : 8000);
     const t = tailText(this.currentBytes(), window);
@@ -787,11 +816,6 @@ type Ctx = {
   remaining: () => number;
 };
 
-function fixtureOrigin(def: HarnessDef, sess: Session, s0: number, tailMs = 4000): number {
-  if (!def.idleOncePromptVisible) return s0;
-  return Math.max(s0, sess.sliceIndexAt(Date.now() - tailMs));
-}
-
 async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
   const { def, sess, results, remaining } = ctx;
   const idleOk = await (async () => {
@@ -799,8 +823,8 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < cap) {
       if (sess.exited) return false;
-      if (sess.promptVisible() && Date.now() - sess.lastDataAt >= QUIET_MS && Date.now() - start >= 1500) return true;
-      if (def.idleOncePromptVisible && sess.promptVisible() && Date.now() - start >= 2000) return true;
+      if (sess.promptVisible(true) && Date.now() - sess.lastDataAt >= QUIET_MS && Date.now() - start >= 1500) return true;
+      if (def.idleOncePromptVisible && sess.promptVisible(true) && Date.now() - start >= 2000) return true;
       // glyph-less TUIs (pi/prime-agent bare-box composer): a stable screen
       // with content after 5s is idle enough to proceed
       if (Date.now() - start >= 5000 && Date.now() - sess.lastDataAt >= QUIET_MS && sess.bytes >= 2000) return true;
@@ -828,9 +852,9 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
     return;
   }
   const idleEnd = Math.min(sess.events.length, sess.sliceIndexAt(Math.max(sess.lastDataAt, Date.now() - 4000) + 1800));
-  const idleFrom = def.idleOncePromptVisible
-    ? Math.max(s0, sess.sliceIndexAt(Date.now() - 2500))
-    : s0;
+  // Differential TUI repaints depend on the original cursor, grid, and title.
+  // Keep that actual initialization even when idle animation never gets quiet.
+  const idleFrom = s0;
   const sig = extractSignals(Buffer.concat(sess.events.slice(idleFrom, idleEnd).map((e) => e.buf)));
   const idleText = tailText(Buffer.concat(sess.events.slice(idleFrom, idleEnd).map((e) => e.buf)));
   const idleGlyph = def.promptGlyphs.find((g) => idleText.includes(g)) ?? null;
@@ -845,7 +869,8 @@ async function scenarioStartupIdle(ctx: Ctx, s0: number): Promise<void> {
     observed: {
       title: idleTitle, osc9: idleOsc9, glyphs: sig.glyphs,
       modes: sig.modes, promptGlyph: idleGlyph, bytes: sess.bytes,
-      lines: lines1, stableQuietMs: QUIET_MS,
+      lines: lines1, stableQuietMs: Math.max(0, Date.now() - sess.lastDataAt),
+      idleEvidence: def.idleOncePromptVisible ? "visible-composer" : "quiet-output",
     },
     expectedScreen: expectedScreenFor(def, idleBytes, "idle composer of the bare TUI"),
   });
@@ -864,7 +889,7 @@ async function scenarioTypeEcho(ctx: Ctx, s0: number): Promise<void> {
   sess.write("\r");
   const teTurnOk = await sess.waitQuiet(Math.min(TURN_WAIT_CAP_MS, remaining()));
   const teEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 1200));
-  const teFrom = fixtureOrigin(def, sess, s0);
+  const teFrom = s0;
   const sig = extractSignals(Buffer.concat(sess.events.slice(teFrom, teEnd).map((e) => e.buf)));
   const teGlyph = def.promptGlyphs.find((g) => tailText(Buffer.concat(sess.events.slice(teFrom, teEnd).map((e) => e.buf))).includes(g)) ?? null;
   const teBytes = Buffer.concat(sess.events.slice(teFrom, teEnd).map((e) => e.buf));
@@ -878,7 +903,9 @@ async function scenarioTypeEcho(ctx: Ctx, s0: number): Promise<void> {
       glyphs: sig.glyphs, modes: sig.modes, promptGlyph: teGlyph, lines: lines2,
       idleReturned: teTurnOk, exited: sess.exited,
     },
-    expectedScreen: expectedScreenFor(def, teBytes, "typed 'hello' echoed in composer, CR submits, idle returns", { echoText: "hello" }),
+    expectedScreen: expectedScreenFor(def, teBytes, teTurnOk
+      ? "typed 'hello' echoed in composer, CR submits, output returns quiet"
+      : "typed 'hello' and CR sent; idle return was not confirmed", { echoText: "hello" }),
   });
 }
 
@@ -976,7 +1003,7 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
     });
     return;
   }
-  const pcFrom = fixtureOrigin(def, sess, s0, 6000);
+  const pcFrom = s0;
   const lines3 = sess.writeFixture(pcFrom, pcEnd, path.join(CAPTURE_ROOT, def.name, "paste-chip.jsonl"), "paste-chip");
   results.push({
     harness: def.name, scenario: "paste-chip", status: "complete",
@@ -986,7 +1013,7 @@ async function scenarioPasteChip(ctx: Ctx, s0: number): Promise<void> {
       clearedByCtrlC: cleared, ctrlCSent,
       osc9s: r1.sig.osc9s, lines: lines3, pasteLines, settleMs: 40,
     },
-    expectedScreen: expectedScreenFor(def, pcBytes, "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear", {
+    expectedScreen: expectedScreenFor(def, pcBytes, `round1: paste+CR@40ms; round2: paste, chip render, CR; ${ctrlCSent ? "one Ctrl+C sent" : "no Ctrl+C sent"}`, {
       pasteText, payloadVisible, chipObserved,
     }),
   });
@@ -1040,7 +1067,7 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   }
   const wtEnd = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 600));
   const wtBytes = Buffer.concat(sess.events.slice(s0, wtEnd).map((e) => e.buf));
-  const wtFrom = fixtureOrigin(def, sess, s0, 8000);
+  const wtFrom = s0;
   const lines4 = sess.writeFixture(wtFrom, wtEnd, path.join(CAPTURE_ROOT, def.name, "working-turn.jsonl"), "working-turn");
   results.push({
     harness: def.name, scenario: "working-turn", status: "complete",
@@ -1049,7 +1076,7 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
       titles: sig.titles.slice(-6), glyphs: sig.glyphs, lines: lines4,
       exited: sess.exited,
     },
-    expectedScreen: expectedScreenFor(def, wtBytes, "working turn: OSC title churn / spinner / progress frames then interrupt", {
+    expectedScreen: expectedScreenFor(def, wtBytes, `working turn: OSC title churn / spinner / progress frames; ${wtStillWorking ? "Ctrl+C sent" : "no interrupt sent"}`, {
       prompt: "forty numbered VELLUM CAPTURE lines",
     }),
   });
@@ -1089,7 +1116,7 @@ async function scenarioOsc9EmptyComposer(ctx: Ctx, s0: number): Promise<void> {
     return;
   }
   const bytes = Buffer.concat(sess.events.slice(s0, end).map((event) => event.buf));
-  const oscFrom = fixtureOrigin(def, sess, s0, 6000);
+  const oscFrom = s0;
   const lines = sess.writeFixture(oscFrom, end, path.join(CAPTURE_ROOT, def.name, "osc9-empty-composer.jsonl"), "osc9-empty-composer");
   results.push({
     harness: def.name, scenario: "osc9-empty-composer", status: "complete",
@@ -1150,7 +1177,7 @@ async function scenarioPermissionReturnsIdle(ctx: Ctx, s0: number): Promise<void
   }
   const end = sess.events.length;
   const bytes = Buffer.concat(sess.events.slice(s0, end).map((event) => event.buf));
-  const permFrom = fixtureOrigin(def, sess, s0, 8000);
+  const permFrom = s0;
   const lines = sess.writeFixture(permFrom, end, path.join(CAPTURE_ROOT, def.name, "permission-returns-idle.jsonl"), "permission-returns-idle");
   results.push({
     harness: def.name, scenario: "permission-returns-idle", status: "complete",
@@ -1172,7 +1199,7 @@ async function exitTui(def: HarnessDef, sess: Session, remaining: () => number):
   }
 }
 
-async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
+async function runHarness(def: HarnessDef, coreOnly = false): Promise<ScenarioResult[]> {
   const results: ScenarioResult[] = [];
   const tStart = Date.now();
   const deadline = tStart + HARNESS_TIMEOUT_MS;
@@ -1245,10 +1272,12 @@ async function runHarness(def: HarnessDef): Promise<ScenarioResult[]> {
       await finish(sess); return results;
     }
     await scenarioWorkingTurn({ def, sess, results, remaining }, s0);
-    if (remaining() >= 12_000) await scenarioOsc9EmptyComposer({ def, sess, results, remaining }, s0);
-    else results.push({ harness: def.name, scenario: "osc9-empty-composer", status: "skip", reason: "timebox", observed: {}, expectedScreen: {} });
-    if (remaining() >= 15_000) await scenarioPermissionReturnsIdle({ def, sess, results, remaining }, s0);
-    else results.push({ harness: def.name, scenario: "permission-returns-idle", status: "skip", reason: "timebox", observed: {}, expectedScreen: {} });
+    if (!coreOnly) {
+      if (remaining() >= 12_000) await scenarioOsc9EmptyComposer({ def, sess, results, remaining }, s0);
+      else results.push({ harness: def.name, scenario: "osc9-empty-composer", status: "skip", reason: "timebox", observed: {}, expectedScreen: {} });
+      if (remaining() >= 15_000) await scenarioPermissionReturnsIdle({ def, sess, results, remaining }, s0);
+      else results.push({ harness: def.name, scenario: "permission-returns-idle", status: "skip", reason: "timebox", observed: {}, expectedScreen: {} });
+    }
     await exitTui(def, sess, remaining);
   } catch (err) {
     console.error(`[${def.name}] ERROR:`, err);
@@ -1282,10 +1311,15 @@ function writeManifests(def: HarnessDef, results: ScenarioResult[]): void {
     capturedAt: new Date().toISOString(),
     pty: { cols: COLS, rows: ROWS, term: "xterm-256color" },
     sanitized: false,
+    recordingContext: {
+      scope: "session initialization through scenario end",
+      selfContained: true,
+      note: "Every fixture retains the actual PTY stream from its own session start, including earlier scenario output when the session is shared. No synthetic terminal prefix or time-tail truncation is used.",
+    },
     scrub: ["<HOME>", "<USER>", "<HOST>", "<CWD>", "<CAPTURE>", "<SESSION>", "<EMAIL>", "<TOKEN>"],
     scenarios,
   };
-  fs.writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  fs.writeFileSync(path.join(outDir, "manifest.json"), scrub(JSON.stringify(manifest, null, 2), path.join(CWD_ROOT, def.name)) + "\n");
 }
 
 function earnSanitizedStamp(root: string, harness: string, receipt: ScrubReceipt): void {
@@ -1455,7 +1489,7 @@ async function main(): Promise<void> {
   try {
     for (const def of defs) {
       console.log(`\n========== ${def.name} (${def.displayName}) ==========`);
-      const results = await runHarness(def);
+      const results = await runHarness(def, args.includes("--core-only"));
       writeManifests(def, results);
       const jsonl = fs.existsSync(path.join(CAPTURE_ROOT, def.name))
         ? fs.readdirSync(path.join(CAPTURE_ROOT, def.name)).filter((file) => file.endsWith(".jsonl"))

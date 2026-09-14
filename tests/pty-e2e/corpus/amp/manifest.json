@@ -2,14 +2,21 @@
   "harness": "amp",
   "displayName": "Amp",
   "source": "P1-real-capture",
-  "harnessVersion": "0.0.1789397462-g32b092 (released 2026-09-14T14:51:02.000Z, 48m ago)",
-  "capturedAt": "2026-09-14T15:39:23.480Z",
+  "harnessVersion": "0.0.1789401648-g1df9a1 (released 2026-09-14T16:00:48.000Z, 10m ago)",
+  "capturedAt": "2026-09-14T16:11:01.543Z",
   "pty": {
     "cols": 120,
     "rows": 32,
     "term": "xterm-256color"
   },
   "sanitized": true,
+  "recordingContext": {
+    "scope": "session initialization through scenario end",
+    "selfContained": true,
+    "note": "Every fixture retains the actual PTY stream from its own session start, including earlier scenario output when the session is shared. No synthetic terminal prefix or time-tail truncation is used.",
+    "thread": "one explicitly created private capture thread, separate from existing operator sessions",
+    "captureCommand": "PTY_CAPTURE_OPERATOR_HOME=1 PTY_CAPTURE_AMP_THREAD_ID=T-<SESSION> node tests/pty-e2e/pty-capture.ts amp --core-only"
+  },
   "scrub": [
     "<HOME>",
     "<USER>",
@@ -30,11 +37,11 @@
         "osc9": "",
         "glyphs": [
           "·",
-          "•",
-          "▌",
-          "▍",
-          "▎",
-          "●"
+          "∼",
+          "≈",
+          "≋",
+          "─",
+          "◷"
         ],
         "modes": {
           "set": [
@@ -56,15 +63,16 @@
           "kittyPop": false
         },
         "promptGlyph": null,
-        "bytes": 406818,
-        "lines": 16,
-        "stableQuietMs": 1400
+        "bytes": 200050,
+        "lines": 8,
+        "stableQuietMs": 55,
+        "idleEvidence": "visible-composer"
       },
       "expectedScreen": {
         "title": "",
         "osc9": "",
         "promptGlyph": null,
-        "description": "blank ruled composer in a welcome-animation tail; initial terminal title state is not retained"
+        "description": "complete untitled empty composer after Loading Thread and Catching Up settle; all original terminal initialization is retained"
       }
     },
     {
@@ -72,34 +80,44 @@
       "scenario": "type-echo",
       "status": "complete",
       "observed": {
-        "title": "Greeting - amp - /private/tmp/vellum-capture-cwd/amp",
+        "title": "Greeting - amp - <CWD>",
         "osc9": "",
         "glyphs": [
-          "—",
           "∼",
           "≈",
           "≋",
           "─",
           "┃",
-          "⠖",
+          "⠒",
+          "⠝",
           "⠤",
+          "⠪",
           "⠭",
-          "⠶",
-          "⠷",
-          "⡓",
-          "⡘",
-          "⡰",
-          "⢅",
-          "⢱",
+          "⡢",
+          "⢃",
+          "⢌",
+          "⢮",
+          "⢯",
+          "⢸",
           "⣀",
-          "⣭",
+          "⣒",
+          "⣙",
+          "⣶",
           "⣿"
         ],
         "modes": {
           "set": [
+            1002,
+            1003,
+            1004,
+            1006,
+            2004,
+            1049,
+            2048,
             2026
           ],
           "reset": [
+            1049,
             25,
             2026
           ],
@@ -107,7 +125,7 @@
           "kittyPop": false
         },
         "promptGlyph": null,
-        "lines": 1,
+        "lines": 9,
         "idleReturned": true,
         "exited": false
       },
@@ -115,7 +133,7 @@
         "title": "Greeting - amp - <CWD>",
         "osc9": "",
         "promptGlyph": null,
-        "description": "a greeting response is captured; the prior startup grid is required to reconstruct the empty composer",
+        "description": "typed 'hello' echoed in composer, CR submits, output returns quiet",
         "echoText": "hello"
       }
     },
@@ -132,15 +150,15 @@
         "clearedByCtrlC": false,
         "ctrlCSent": false,
         "osc9s": [],
-        "lines": 1,
+        "lines": 9,
         "pasteLines": 40,
         "settleMs": 40
       },
       "expectedScreen": {
-        "title": "⣒ General greeting - amp - <CWD>",
+        "title": "⣤ Coding workspace - amp - <CWD>",
         "osc9": "",
         "promptGlyph": "╭",
-        "description": "payload and steering are captured through Sending and Streaming; no Ctrl+C was sent",
+        "description": "40-line literal paste and later queued steering; Sending precedes the spinning title; no paste chip or Ctrl+C observed",
         "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
         "payloadVisible": true,
         "chipObserved": false
@@ -155,71 +173,46 @@
         "interrupted": false,
         "osc9s": [],
         "titles": [
-          "⣉ General greeting - amp - /private/tmp/vellum-capture-cwd/amp",
-          "⣄ General greeting - amp - /private/tmp/vellum-capture-cwd/amp",
-          "⣤ General greeting - amp - /private/tmp/vellum-capture-cwd/amp",
-          "⡵ General greeting - amp - /private/tmp/vellum-capture-cwd/amp",
-          "⡽ General greeting - amp - /private/tmp/vellum-capture-cwd/amp",
-          "⠚ General greeting - amp - /private/tmp/vellum-capture-cwd/amp"
+          "⢽ Coding workspace - amp - <CWD>",
+          "⠭ Coding workspace - amp - <CWD>",
+          "⣹ Coding workspace - amp - <CWD>",
+          "⠰ Coding workspace - amp - <CWD>",
+          "⡸ Coding workspace - amp - <CWD>",
+          "⣿ Coding workspace - amp - <CWD>"
         ],
         "glyphs": [
+          "…",
           "∼",
           "≈",
           "≋",
-          "─",
-          "┃",
-          "▂",
-          "█",
-          "◷",
-          "⠚",
-          "⠛",
           "⠭",
-          "⡌",
-          "⡵",
-          "⡽",
-          "⢋",
-          "⣀",
-          "⣁",
-          "⣄",
-          "⣉",
+          "⠰",
+          "⡸",
+          "⢼",
+          "⢽",
           "⣒",
-          "⣛",
-          "⣤"
+          "⣲",
+          "⣹",
+          "⣿"
         ],
-        "lines": 1,
-        "exited": false
+        "lines": 10,
+        "exited": false,
+        "idleReturned": false,
+        "promptDisposition": "queued steering during an ongoing turn; a distinct new turn acknowledgement is not established"
       },
       "expectedScreen": {
-        "title": "⣒ General greeting - amp - <CWD>",
+        "title": "⣿ Coding workspace - amp - <CWD>",
         "osc9": "",
-        "promptGlyph": "╭",
-        "description": "the captured turn remains Streaming at the end; no interrupt was performed",
+        "promptGlyph": null,
+        "description": "the numbered-line prompt remains queued as steering while the ongoing turn is Streaming; no interrupt or idle return is recorded",
         "prompt": "forty numbered VELLUM CAPTURE lines"
       }
-    },
-    {
-      "harness": "amp",
-      "scenario": "osc9-empty-composer",
-      "status": "skip",
-      "reason": "real OSC 9;4;3 with an empty composer was not observed",
-      "observed": {
-        "osc9s": []
-      },
-      "expectedScreen": {}
-    },
-    {
-      "harness": "amp",
-      "scenario": "permission-returns-idle",
-      "status": "skip",
-      "reason": "a real permission dialog was not observed",
-      "observed": {},
-      "expectedScreen": {}
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
     "fixtures": 4,
-    "decodedBytes": 448542,
+    "decodedBytes": 883533,
     "checks": [
       "home-path",
       "username",
@@ -229,19 +222,18 @@
     ]
   },
   "harnessVersionEvidence": {
-    "source": "capture-time CLI version probe",
+    "source": "CLI version probe after recording",
     "visibleVersion": null,
-    "note": "The recorded Amp version is not painted in these captured frames."
+    "executableModifiedAt": "2026-09-14T16:08:38.645618+00:00",
+    "firstFixtureTimestamp": "2026-09-14T16:10:27.255000+00:00",
+    "executableSha256": "b6a4f067aa647c55bc2ca92940d85cf97f077a00fec6119cc96c5184aac6a92d",
+    "note": "The version is not painted in the TUI. The final CLI executable modification precedes this recording, and the version probe followed recording. Earlier captures in this lane used a different installed version; no update command was run."
   },
   "providerContext": {
     "provider": null,
-    "visibleModel": "muse spark 1.3",
-    "authentication": "operator-home session produced a greeting response; the authentication mechanism is not recorded",
-    "turnEvidence": "a greeting response is visible; the later working capture ends while Streaming"
-  },
-  "recordingContext": {
-    "scope": "bounded output tails",
-    "selfContained": false,
-    "note": "The capture omitted initial terminal state. type-echo requires the real startup-idle grid prefix to reconstruct the composer; initial title and startup readiness are not established by the saved tail."
+    "visibleModel": null,
+    "visibleMode": "low",
+    "authentication": "existing operator-home credentials; a real greeting response is recorded, but the authentication mechanism and provider are not painted",
+    "turnEvidence": "hello returns to a settled empty composer; subsequent paste and numbered-line prompts include queued steering while a turn remains active"
   }
 }

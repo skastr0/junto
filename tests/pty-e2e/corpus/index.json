@@ -20,16 +20,6 @@
         "scenario": "working-turn",
         "status": "complete",
         "reason": null
-      },
-      {
-        "scenario": "osc9-empty-composer",
-        "status": "skip",
-        "reason": "real OSC 9;4;3 with an empty composer was not observed"
-      },
-      {
-        "scenario": "permission-returns-idle",
-        "status": "skip",
-        "reason": "a real permission dialog was not observed"
       }
     ],
     "session": {
@@ -37,8 +27,8 @@
       "scenario": "__session__",
       "status": "complete",
       "observed": {
-        "bytes": 865429,
-        "elapsedMs": 90658
+        "bytes": 254364,
+        "elapsedMs": 35929
       },
       "expectedScreen": {}
     }

@@ -15,7 +15,7 @@ node tests/pty-e2e/pty-capture.ts             # regenerate the real-capture corp
 ## Architecture
 
 ```
-real TUI bytes (19 captures, 5 harnesses)          P3 receipts (probe docs)       scripted TUI (byte-faithful model)
+real TUI bytes (36 captures, 10 harnesses)         P3 receipts (probe docs)       scripted TUI (byte-faithful model)
         │                                                     │                            │
         └───────────────► tests/pty-e2e/runner.ts ◄───────────┘                            │
                               │ fixture loader (P1 > P2/P3)                                │
@@ -38,11 +38,13 @@ clock (vi fake timers), and the scripted TUI process model. All logic under test
 
 `tests/pty-e2e/corpus/<harness>/<scenario>.jsonl` — one JSON per line: `{"t": ms, "b64": base64}`
 plus `manifest.json` (observed title/osc9/glyphs/modes, expectedScreen, sanitized flag).
-Current captures: Claude, Codex and Devin have `startup-idle`, `type-echo`,
-`paste-chip` and `working-turn`; Grok has those four plus
-`permission-returns-idle`; Pi has only `startup-idle` and `type-echo`.
-Manifest skips are missing evidence, not passing scenarios. The registry has
-14 external harnesses; this corpus covers five. See the
+Current captures cover Amp, Claude, Codex, Devin, Grok, Hermes, Kimi, Muse,
+Oh My Pi, and Pi. The integrated corpus contains 36 JSONL fixtures across
+those ten harnesses; each manifest lists its actual recorded scenarios.
+Manifest skips are missing evidence, not passing scenarios. Provider errors,
+authentication failures, and unfinished turns remain explicit limitations;
+a captured screen alone does not establish a working provider. The registry has
+14 external harnesses. See the
 [full matrix assessment](../../docs/assessments/pty-matrix-2026-09-14.md).
 
 The corpus exists to feed REAL terminal byte streams through the observer —
@@ -65,6 +67,27 @@ load operator config. Harnesses whose credentials only exist under the real
 home fail closed and record `blocked` rather than reading operator config;
 `PTY_CAPTURE_OPERATOR_HOME=1` opts back in explicitly (parent env inherited
 as-is, no pins).
+
+Each recorded fixture includes the actual stream from its PTY session start,
+including cursor, grid, mode, and title initialization. Shared-session scenarios
+also retain the earlier scenario output. Replay each fixture into a new terminal;
+do not concatenate fixtures or add a manufactured reset/prefix. Animation is
+bounded by the capture timebox, never by dropping an arbitrary output tail.
+
+For an authorized Amp capture using existing credentials, create one new private
+thread with `amp threads new --visibility private`, then pass its explicit
+`T-<uuid>` ID to the recorder:
+
+```bash
+PTY_CAPTURE_OPERATOR_HOME=1 PTY_CAPTURE_AMP_THREAD_ID=T-<uuid> node tests/pty-e2e/pty-capture.ts amp --core-only
+```
+
+Use only that newly created capture thread. The recorder never selects the latest
+thread. Amp's blank ruled composer can become ready while its welcome animation
+continues; the manifest distinguishes this from quiet output and separately
+records whether a submitted turn returned idle and whether Ctrl+C was sent.
+`--core-only` limits the capture to startup, typing, paste, and working output;
+it does not send the optional delayed-response or shell-permission probes.
 
 ## Add a repro (checklist)
 
