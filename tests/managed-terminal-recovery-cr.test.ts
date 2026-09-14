@@ -6,6 +6,11 @@ import {
   encodeBracketedPaste,
 } from "../src/main/vellum-command/term/drive";
 import { isLiveClaudeResumeSummaryChoice } from "../src/main/vellum-command/term/drive/claude-startup";
+import {
+  claudeRules,
+  ruleMatches,
+} from "../src/main/vellum-command/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 
 describe("recovery CR (harness-owned selector submit)", () => {
   const drives: ManagedTerminalDrive[] = [];
@@ -78,8 +83,9 @@ describe("recovery CR (harness-owned selector submit)", () => {
 });
 
 describe("live resume-selector gate", () => {
-  // Frame shapes reuse the recorded selector wording (claude-startup.test.ts)
-  // and the rule-pack permission chrome; no invented selector layout.
+  // Frame shapes reuse the existing selector fixture (claude-startup.test.ts)
+  // and the rule-pack permission chrome; no invented selector layout and no
+  // raw PTY capture claimed.
   const SELECTOR = [
     "This session is 1h 52m old and 207.2k tokens.",
     "1. Resume from summary (recommended)",
@@ -94,7 +100,7 @@ describe("live resume-selector gate", () => {
   ];
   const RULE = "─".repeat(40);
 
-  it("matches the recorded rule-free selector frame", async () => {
+  it("matches the existing rule-free selector fixture", async () => {
     expect(isLiveClaudeResumeSummaryChoice(SELECTOR)).toBe(true);
   });
 
@@ -116,5 +122,42 @@ describe("live resume-selector gate", () => {
     expect(
       isLiveClaudeResumeSummaryChoice([...SELECTOR, "Enter to select"]),
     ).toBe(false);
+  });
+});
+
+describe("resume selector state rule is live-region only", () => {
+  const snap = (lines: readonly string[]): ObserverGridSnapshot => ({
+    cols: 80,
+    rows: 24,
+    lines,
+    text: lines.join("\n"),
+    signals: {
+      title: "",
+      osc9: "",
+      modes: {
+        bracketedPaste: false,
+        synchronizedOutput: false,
+        altScreen: false,
+        mouseModes: [],
+      },
+    },
+    seq: 1n,
+    epoch: "e1",
+    bindingId: "b1",
+  });
+  const RULE = "─".repeat(40);
+  const SELECTOR = [
+    "1. Resume from summary (recommended)",
+    "2. Resume full session as-is",
+    "Enter to confirm - Esc to cancel",
+  ];
+  const rule = claudeRules.rules.find((r) => r.id === "resume_summary_choice")!;
+
+  it("matches a live selector below the last rule", async () => {
+    expect(ruleMatches(rule, snap(["older output", RULE, ...SELECTOR]))).toBe(true);
+  });
+
+  it("does not pin attention on a stale selector above a live composer", async () => {
+    expect(ruleMatches(rule, snap([...SELECTOR, RULE, "❯"]))).toBe(false);
   });
 });

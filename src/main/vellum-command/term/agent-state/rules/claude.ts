@@ -115,7 +115,10 @@ export const claudeRules: SeatRulePack = {
       id: "resume_summary_choice",
       state: "attention",
       priority: 1210,
-      region: "whole_recent",
+      // Live selector only: a stale selector transcript above the last rule
+      // must not pin attention over a live composer or permission dialog
+      // (same precedent as bash_permission_prompt and the recovery-CR gate).
+      region: "after_last_horizontal_rule",
       visibleAttention: true,
       matchers: {
         contains: [
