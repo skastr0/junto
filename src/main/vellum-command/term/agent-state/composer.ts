@@ -45,7 +45,7 @@ export const composerVerdictForHarness = (
 };
 
 /**
- * Amp / Muse / Kimi / Hermes / omp have no grounded composer probes, so the
+ * Amp / Kimi / omp have no grounded composer probes, so the
  * live verdict is always null and the drive refuses (`composer-unreadable`).
  * Tier B firstTyped is the only doctrine path on those seats — admit a
  * one-shot empty while the arm is live. Packs that already declare probes

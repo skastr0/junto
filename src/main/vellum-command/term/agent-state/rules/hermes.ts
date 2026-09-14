@@ -92,16 +92,50 @@ export const hermesRules: SeatRulePack = {
       },
     },
     {
-      // Ready footer from hermes TUI probes (thin idle chrome).
+      // Ready footer from hermes TUI probes (thin idle chrome). Live 0.21.0
+      // paints `ready` on the second-to-last line with `❯` under it; older
+      // scripted receipts put `ready` last. n=3 covers both.
       id: "ready_footer_idle",
       state: "idle",
       priority: 50,
-      region: "footer_line",
+      region: "bottom_non_empty_lines",
+      regionN: 3,
       visibleIdle: true,
       matchers: {
         // Matcher is `u` only; inline `(?i)` does not compile.
         regex: ["\\b[Rr]eady\\b"],
         not: [{ contains: ["⚠"] }],
+      },
+    },
+  ],
+  // Composer grounded in P1 hermes/* captured 2026-09-14 from Hermes Agent
+  // v0.21.0. Last non-empty line is `❯` (empty) or `❯ hello` (draft).
+  composer: [
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      matchers: {
+        lineRegex: ["^\\s*\u276f\\s+\\S"],
+        not: [
+          { contains: ["dangerous command"] },
+          { contains: ["allow once"] },
+        ],
+      },
+    },
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 6,
+      matchers: {
+        lineRegex: ["^\\s*\u276f\\s*$"],
+        not: [
+          { lineRegex: ["^\\s*\u276f\\s+\\S"] },
+          { contains: ["dangerous command"] },
+          { contains: ["allow once"] },
+        ],
       },
     },
   ],

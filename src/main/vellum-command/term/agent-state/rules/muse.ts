@@ -1,32 +1,20 @@
 /**
  * Muse seat rules.
  *
- * 2026-08 agent-CLI sweep + probe:
- *
- * NO COMPOSER PROBES YET: this harness's composer chrome is not grounded in a
- * capture on this machine, so composerVerdictFor returns null and factory
- * typing into its seats REFUSES (composer-unreadable attention). Ground the
- * real empty/draft chrome and add `composer` probes before shipping it.
- * - Handshake surface verified: bracketed paste, focus, OSC palette, DSR.
- * - No OSC title, no alt screen, no evidenced attention/working literals.
- * - `--agents <JSON>` CLI accepts an object shape, but the binary reports
- *   "Session Agent Definition decoder is not implemented" — not a Tier A path
- *   on Muse Code 0.1.0-R708.1.
- *
- * Doctrine is Tier B firstTyped. Screen matchers cannot yet express
- * handshake-only idle, so the typeable gate for the armed firstTyped body
- * lives in SeatStateRuntime.isSeatIdle (muse + bracketedPaste + pending
- * firstTyped). Only the OSC-title spinner is evidenced (working-turn.jsonl:
- * ⠋⠙⠹⠸⠼ muse frames); keep the pack otherwise empty of inventing
- * unproven chrome strings — startup idle (plain "muse" title) intentionally
- * falls through to fallback idle (fail-closed, isSeatIdle false).
+ * Composer + idle chrome grounded in P1 corpus muse/* captured 2026-09-14
+ * from Muse Code 1.2.1-R2847.1 (`--provider echo`). Live glyph is U+276F
+ * `❯` between a "Voice input" header and a ─── footer rule; 2026-08 probes
+ * recorded U+27E9 `⟩`, kept as an alternate. Permission dialogs were not
+ * observed — unmatched screens stay composer-null (refuse).
  */
 
 import type { SeatRulePack } from "../types";
 
+const MUSE_GLYPH = "[\u276f\u27e9]";
+
 export const museRules: SeatRulePack = {
   harness: "muse",
-  version: "2026.08.07.2",
+  version: "2026.09.14.1",
   rules: [
     {
       id: "osc_title_working",
@@ -36,10 +24,59 @@ export const museRules: SeatRulePack = {
       visibleWorking: true,
       // Real muse working-turn capture: the OSC title animates braille
       // spinner frames ("⠙ muse", ⠋⠙⠹⠸⠼ muse) while working.
-      // Startup idle keeps the plain "muse" title → no match → fallback
-      // idle (documented fail-closed, isSeatIdle false).
       matchers: {
         regex: ["[\u2800-\u28FF]"],
+      },
+    },
+    {
+      id: "composer_draft_idle",
+      state: "idle",
+      priority: 90,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      // Typed/pasted composer (`❯ hello`, `❯ PASTE_LINE_00`). `esc to
+      // interrupt` is mid-turn chrome on the same strip after CR.
+      matchers: {
+        lineRegex: [`^\\s*${MUSE_GLYPH}\\s+\\S`],
+        not: [{ contains: ["esc to interrupt"] }],
+      },
+    },
+    {
+      id: "bare_composer_idle",
+      state: "idle",
+      priority: 80,
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      visibleIdle: true,
+      matchers: {
+        lineRegex: [`^\\s*${MUSE_GLYPH}\\s*$`],
+        not: [
+          { lineRegex: [`^\\s*${MUSE_GLYPH}\\s+\\S`] },
+          { contains: ["esc to interrupt"] },
+        ],
+      },
+    },
+  ],
+  composer: [
+    {
+      id: "composer_content_draft",
+      verdict: "draft",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: {
+        lineRegex: [`^\\s*${MUSE_GLYPH}\\s+\\S`],
+        not: [{ contains: ["esc to interrupt"] }],
+      },
+    },
+    {
+      id: "bare_prompt_empty",
+      verdict: "empty",
+      region: "bottom_non_empty_lines",
+      regionN: 4,
+      matchers: {
+        lineRegex: [`^\\s*${MUSE_GLYPH}\\s*$`],
+        not: [{ lineRegex: [`^\\s*${MUSE_GLYPH}\\s+\\S`] }],
       },
     },
   ],

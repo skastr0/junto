@@ -223,11 +223,87 @@ describe("prime-agent", () => {
   });
 });
 
+describe("muse (P1 corpus 1.2.1-R2847.1)", () => {
+  const v = (lines: readonly string[]) =>
+    composerVerdictFor(snap({ lines }), rulePackFor("muse"));
+
+  it("bare ❯ in the voice-input box is empty", () => {
+    expect(
+      v([
+        "── Voice input (⌥ + v to start) ──",
+        "❯ ",
+        "────────────────────────────────",
+        "  echo · <CWD>",
+      ]),
+    ).toBe("empty");
+  });
+
+  it("typed text in the box is a draft", () => {
+    expect(
+      v([
+        "── Voice input (⌥ + v to start) ──",
+        "❯ hello",
+        "────────────────────────────────",
+        "  echo · <CWD>",
+      ]),
+    ).toBe("draft");
+  });
+
+  it("a pasted first line in the box is a draft", () => {
+    expect(v(["❯ PASTE_LINE_00", "  PASTE_LINE_01"])).toBe("draft");
+  });
+
+  it("thinking chrome with a transcript ❯ line stays unreadable", () => {
+    // Mid-turn: submitted `❯ hello` sits in the same n=4 strip as the empty
+    // box. Neither empty nor draft can be proved — refuse.
+    expect(
+      v([
+        "❯ hello",
+        "◆ Thinking (1s · esc to interrupt)",
+        "── Voice input (⌥ + v to start) ──",
+        "❯ ",
+      ]),
+    ).toBe(null);
+  });
+});
+
+describe("hermes (P1 corpus v0.21.0)", () => {
+  const v = (lines: readonly string[]) =>
+    composerVerdictFor(snap({ lines }), rulePackFor("hermes"));
+
+  it("bare ❯ on the last line is empty", () => {
+    expect(
+      v([
+        "─ ready │ gpt 5.4 mini │ 51s │ voice off │ 1 session",
+        " ❯",
+      ]),
+    ).toBe("empty");
+  });
+
+  it("typed text on the last line is a draft", () => {
+    expect(
+      v([
+        "─ ready │ gpt 5.4 mini │ 51s │ voice off │ 1 session",
+        " ❯ hello",
+      ]),
+    ).toBe("draft");
+  });
+
+  it("a dangerous-command form covering the box is unreadable", () => {
+    expect(
+      v([
+        "Dangerous command detected",
+        "Allow once - Allow for this session - Deny",
+        " ❯",
+      ]),
+    ).toBe(null);
+  });
+});
+
 describe("fail-closed defaults", () => {
   it("a probe-less pack yields null — factory typing refuses", () => {
-    // hermes/kimi/muse/amp/omp carry no probes until their chrome is grounded.
     expect(
-      composerVerdictFor(snap({ lines: ["❯ "] }), rulePackFor("hermes")),
+      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("kimi")),
     ).toBe(null);
   });
 
@@ -247,7 +323,7 @@ describe("fail-closed defaults", () => {
     ).toBe("empty");
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
-    ).toBe("empty");
+    ).toBe(null);
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), false),
     ).toBe(null);

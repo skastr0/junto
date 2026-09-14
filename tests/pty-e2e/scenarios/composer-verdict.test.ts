@@ -53,7 +53,7 @@ const replay = async (
   return { draftFrames, final };
 };
 
-for (const harness of ["claude", "codex", "grok", "pi", "devin"] as const) {
+for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes"] as const) {
   describe(`${harness} composer verdict on real bytes`, () => {
     it("startup-idle settles to empty (fresh seat is deliverable)", async () => {
       const fixture = loadP1Fixture(harness, "startup-idle");

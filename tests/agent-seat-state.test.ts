@@ -365,6 +365,7 @@ describe("evaluate — hermes", () => {
       snap({
         lines: [
           "─ ready │ gpt 5.4 mini │ 17.7k/272k │ voice off ─ ~/Projects",
+          " ❯",
         ],
       }),
       { harness: "hermes" },

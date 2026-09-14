@@ -38,8 +38,8 @@
  *   DRV-7       Grok `[Pasted:Nlines]` footer is not composer chip chrome
  *                (no recipe CR2). Codex payload-head leftover is the same
  *                class — D8 is the drive proof.
- *   DRV-8       Amp/Muse have no composer probes; firstTyped admits empty;
- *                mail (firstTypedArmed false) stays null.
+ *   DRV-8       Amp has no composer probes; firstTyped admits empty;
+ *                mail (firstTypedArmed false) stays null. Muse is grounded.
  *   DRV-9       Grok history footer is not a chip-submit CR — drive proof is
  *                D9 in drive-law.test.ts (not duplicated).
  *   POL-2  D26  false working→idle flips count as turns → fake escalation.
@@ -533,28 +533,21 @@ describe("GAP-DRV-6: hermes chips never collapse on a 2nd CR (real E2 receipts)"
     }
   });
 
-  it("GAP-DRV-6b: hermes is fallback-idle today → drive never pastes; queue-timeout, zero writes (documentation)", async () => {
+  it("GAP-DRV-6b: hermes ready footer is visible idle so one-line paste is attempted", async () => {
     const { loop, advance, flush } = setup({
       harness: "hermes",
       drive: { queueTimeoutMs: 800 },
     });
     await flush();
-    // Real hermes idle (✓ title + ready footer) evaluates fallback idle —
-    // low confidence, not visible → the paste gate refuses (RBR-4 coupling).
     expect(loop.runtime.getState(BINDING)).toBe("idle");
-    expect(loop.runtime.isSeatIdle(BINDING)).toBe(false);
+    expect(loop.runtime.isSeatIdle(BINDING)).toBe(true);
 
     const p = loop.drive.writePrompt(BINDING, "one line");
-    await advance(900);
+    await advance(200);
     await flush();
-    await expect(p).resolves.toBe(false);
-    // Today the drive never reaches the paste (the chip-collapse law for
-    // hermes is unreachable until hermes publishes visible idle)…
-    expect(loop.writes).toEqual([]);
-    expect(loop.tui.chipPending()).toBe(false);
-    // …and the prompt waits out the queue budget into attention.
-    expect(loop.attention.map((a) => a.reason)).toEqual(["queue-timeout"]);
+    expect(loop.writes.length).toBeGreaterThan(0);
     loop.dispose();
+    void p;
   });
 
   it("GAP-DRV-6c: hermes multiline is refused at the write boundary — zero writes, attention", async () => {
@@ -664,19 +657,18 @@ describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", (
 // DRV-8 — Amp/Muse ungrounded composer: firstTyped empty, mail stays null
 // ---------------------------------------------------------------------------
 
-describe("GAP-DRV-8: Amp/Muse ungrounded composer admits firstTyped only", () => {
-  it("GAP-DRV-8: Amp and Muse packs have no composer probes", () => {
+describe("GAP-DRV-8: Amp ungrounded composer admits firstTyped only", () => {
+  it("GAP-DRV-8: Amp pack has no composer probes", () => {
     expect(rulePackFor("amp").composer ?? []).toEqual([]);
-    expect(rulePackFor("muse").composer ?? []).toEqual([]);
   });
 
-  it("GAP-DRV-8: admitUngroundedFirstTypedComposer(null, pack, true) is empty", () => {
+  it("GAP-DRV-8: admitUngroundedFirstTypedComposer(null, amp, true) is empty", () => {
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
     ).toBe("empty");
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
-    ).toBe("empty");
+    ).toBe(null);
   });
 
   it("GAP-DRV-8: mail path stays null when firstTypedArmed is false", async () => {
@@ -693,11 +685,8 @@ describe("GAP-DRV-8: Amp/Muse ungrounded composer admits firstTyped only", () =>
       obs.feed("\x1b]0;Ready response - amp - ~/Projects/vellum\x07", 1n);
       const snap = await obs.snapshot();
       const amp = rulePackFor("amp");
-      const muse = rulePackFor("muse");
       expect(composerVerdictFor(snap, amp)).toBe(null);
-      expect(composerVerdictFor(snap, muse)).toBe(null);
       expect(admitUngroundedFirstTypedComposer(null, amp, false)).toBe(null);
-      expect(admitUngroundedFirstTypedComposer(null, muse, false)).toBe(null);
     } finally {
       obs.dispose();
     }
