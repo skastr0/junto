@@ -376,6 +376,7 @@ const runProductBoot = async (): Promise<void> => {
     write: (bindingId, data) =>
       termPlane.host.writeManagedSeat(bindingId, data),
     isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+    seatState: (bindingId) => seatStateRuntime.getState(bindingId),
     onAttention: (bindingId, reason) => {
       if (!seatStateRuntime.machine.getSlot(bindingId)) return;
       seatStateRuntime.machine.force(bindingId, "attention", reason);

@@ -1306,6 +1306,7 @@ export const registerVellumIpc = (): void => {
           !productAutomationSuspended &&
           termPlane.host.writeManagedSeat(bindingId, data),
         isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+        seatState: (bindingId) => seatStateRuntime.getState(bindingId),
         // Only Grok has the clipboard-image TUI trap. Electron exposes the
         // pasteboard format list without decoding its payload; all other
         // harnesses bypass this preflight entirely.

@@ -95,6 +95,7 @@ describe("shared destination drive factory", () => {
         return true;
       },
       isSeatIdle: () => true,
+      seatState: () => "idle",
       onAttention: () => undefined,
       snapshot: () => ({ text: "❯", lines: ["❯"] }),
       composerVerdict: () => "empty",
@@ -406,6 +407,7 @@ describe("snapshot-unknown evidence", () => {
         return true;
       },
       isSeatIdle: () => true,
+      seatState: () => "idle",
       onAttention: (_bindingId, reason) => {
         controls.attention.push(reason);
       },
@@ -464,6 +466,7 @@ describe("shared runtime lifecycle", () => {
         return true;
       },
       isSeatIdle: () => true,
+      seatState: () => "idle",
       onAttention: () => undefined,
       snapshot: () => ({ text: lines.join("\n"), lines }),
       composerVerdict: () => "empty",

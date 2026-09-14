@@ -180,6 +180,8 @@ type PendingTurn = {
 export type ManagedTerminalDriveOptions = {
   readonly write: TerminalWriter;
   readonly isSeatIdle: SeatIdleLookup;
+  /** Continue an accepted paste despite its draft replacing idle chrome. */
+  readonly canContinueSubmission?: (bindingId: string, text: string) => boolean;
   readonly onAttention?: DriveAttentionCallback;
   readonly assertClipboardSafe?: ClipboardSafeAssert;
   readonly now?: () => number;
@@ -226,6 +228,7 @@ export type ManagedTerminalDriveOptions = {
 export class ManagedTerminalDrive {
   private readonly writeFn: TerminalWriter;
   private readonly isSeatIdle: SeatIdleLookup;
+  private readonly canContinueSubmission: SeatIdleLookup;
   private readonly onAttention: DriveAttentionCallback | undefined;
   private readonly assertClipboardSafe: ClipboardSafeAssert | undefined;
   private readonly now: () => number;
@@ -284,6 +287,14 @@ export class ManagedTerminalDrive {
       const idle = options.isSeatIdle(bindingId);
       this.tracer?.event(bindingId, "evidence", { probe: "idle", value: idle });
       return idle;
+    };
+    this.canContinueSubmission = (bindingId) => {
+      const text = this.lastWrittenText.get(bindingId);
+      const allowed = text !== undefined && (
+        options.canContinueSubmission?.(bindingId, text) ?? this.isSeatIdle(bindingId)
+      );
+      this.tracer?.event(bindingId, "evidence", { probe: "submission-continuation", value: allowed });
+      return allowed;
     };
     this.onAttention = (bindingId, reason) => {
       this.traceState(bindingId, "attention", { reason });
@@ -1040,7 +1051,7 @@ export class ManagedTerminalDrive {
         return false;
       }
       if (
-        this.isSeatIdle(bindingId) &&
+        this.canContinueSubmission(bindingId) &&
         this.pendingOnScreen(bindingId) &&
         this.interlock.inputVersion(bindingId) === inputVersion &&
         !this.interlock.inputActive(bindingId)
@@ -1207,16 +1218,15 @@ export class ManagedTerminalDrive {
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return false;
       }
-      if (!this.isSeatIdle(bindingId)) {
-        return false;
-      }
     }
     if (this.interlock.resizeActive(bindingId)) {
       if (!(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration, signal))) {
         return false;
       }
-      if (!this.isSeatIdle(bindingId)) return false;
     }
+    // Our own draft can replace idle chrome during settle. Continue the
+    // accepted submission using its evidence, never the empty-seat gate.
+    if (!this.canContinueSubmission(bindingId)) return false;
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) return false;
     return this.activeBinding(bindingId, generation, bindingGeneration, signal);
@@ -1269,7 +1279,7 @@ export class ManagedTerminalDrive {
     ) {
       return false;
     }
-    if (!this.isSeatIdle(bindingId)) return false;
+    if (!this.canContinueSubmission(bindingId)) return false;
     if (!this.chipVisible(bindingId)) return false;
     return this.writeSubmitCr(bindingId, generation, bindingGeneration, signal);
   }

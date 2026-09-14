@@ -8,6 +8,7 @@
  * explicitly when it is missing.
  */
 
+import type { AgentSeatState } from "../../../../shared/agent-seat-state";
 import {
   ManagedTerminalDrive,
   type ClipboardSafeAssert,
@@ -30,6 +31,7 @@ export type ManagedDriveSnapshot = {
 export type ManagedDriveFactoryDeps = {
   readonly write: TerminalWriter;
   readonly isSeatIdle: SeatIdleLookup;
+  readonly seatState: (bindingId: string) => AgentSeatState | undefined;
   readonly onAttention: DriveAttentionCallback;
   readonly snapshot: (bindingId: string) => ManagedDriveSnapshot | undefined;
   readonly composerVerdict: ComposerVerdictLookup;
@@ -47,6 +49,18 @@ export const createManagedTerminalDrive = (
     // prove an empty composer, so nothing is admitted until one paints.
     isSeatIdle: (bindingId) =>
       deps.snapshot(bindingId) !== undefined && deps.isSeatIdle(bindingId),
+    // Admission requires strong idle evidence. After our paste, its draft
+    // may replace that chrome (e.g. Devin's welcome placeholder). Continue
+    // only with an actual idle destination and positive evidence of our
+    // pending draft. Unknown screens, working and permission states refuse.
+    canContinueSubmission: (bindingId, text) => {
+      const snap = deps.snapshot(bindingId);
+      if (!snap || deps.seatState(bindingId) !== "idle") return false;
+      return deps.isSeatIdle(bindingId) || (
+        deps.composerVerdict(bindingId) === "draft" &&
+        promptStillPending(snap, text)
+      );
+    },
     onAttention: deps.onAttention,
     // Evidence-gated acknowledgement: the drive only receipts a pending
     // prompt once our text has LEFT the composer. A missing snapshot proves
