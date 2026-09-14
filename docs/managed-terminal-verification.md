@@ -81,6 +81,13 @@ the recipe's submit CR and chip CR. The ledger showed accepted message/task
 receipts. The QA worker printed its requested marker and completed intake
 through the existing task path.
 
+At the final native check, the downstream review board showed both the
+original test task and the new QA task as completed: `Closed 2`, with no
+incoming, working, or needs-input tasks. The factory remained playing.
+This verifies the existing intake-to-review path as well as submission.
+Keep the disposable app running between checks to reuse its warm agents;
+restarting an isolated home repeats fresh-session bootstrap.
+
 The operator used Devin's Escape interrupt to end long bootstrap/research
 turns before waiting for automation; those visible cancellations were manual.
 No manual Enter submitted a factory briefing. The trace contained zero
