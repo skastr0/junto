@@ -545,7 +545,7 @@ describe("ManagedTerminalDrive", () => {
     // No chip evidence authorizes another CR; uncertainty never authorizes Ctrl+C.
     await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toBe(false);
-    expect(attention).toEqual(["prompt-stalled", "prompt-stalled"]);
+    expect(attention).toEqual(["prompt-stalled"]);
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("stalled") },
       { bindingId: "b1", data: CR },
@@ -1179,7 +1179,7 @@ describe("operator interlock", () => {
     // The chip remains pending: no receipt, destructive cleanup, or repaste.
     await expect(pending).resolves.toBe(false);
     expect(writes.map((write) => write.data)).toEqual([
-      encodeBracketedPaste("a\nb"), CR, CR,
+      encodeBracketedPaste("a\nb"), CR, CR, CR,
     ]);
     expect(seen).toContain("a\nb");
     expect(attention).toContain("prompt-stalled");
@@ -1240,7 +1240,7 @@ describe("written-unresolved submission guard", () => {
     await expect(result).resolves.toBe(false);
     drive.onSeatIdle("seat");
     await expect(drive.writePrompt("seat", "factory notice")).resolves.toBe(false);
-    expect(writes).toEqual([encodeBracketedPaste("factory notice"), CR]);
+    expect(writes).toEqual([encodeBracketedPaste("factory notice"), CR, ...(awaitTurnStart ? [CR] : [])]);
     expect(trace).toContainEqual(expect.objectContaining({
       event: "delivery.verdict",
       fields: expect.objectContaining({ verdict: "written-unresolved" }),
@@ -1330,12 +1330,12 @@ describe("written-unresolved submission guard", () => {
     const second = drive.writePrompt("seat", "second");
     const third = drive.writePrompt("seat", "third");
     expect(drive.queuedCount("seat")).toBe(2);
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(20);
     await expect(Promise.all([first, second, third])).resolves.toEqual([false, false, false]);
     expect(drive.queuedCount("seat")).toBe(0);
     drive.onSeatIdle("seat");
     await flush();
-    expect(writes).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR]);
+    expect(writes).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR, CR]);
   });
 
   it.each(["refused", "threw"] as const)("blocks after an accepted paste when the submit CR %s", async (failure) => {

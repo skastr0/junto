@@ -806,6 +806,10 @@ export class ManagedTerminalDrive {
     const q = this.queues.get(bindingId);
     if (!q || q.length === 0) return;
     const next = q.shift()!;
+    // This deadline admits work to the writer. Once dequeued, submission owns
+    // the result; queue expiry must not report false after bytes have landed.
+    if (next.timer !== undefined) clearTimeout(next.timer);
+    next.timer = undefined;
     if (q.length === 0) this.queues.delete(bindingId);
     else this.queues.set(bindingId, q);
     const execute = () => this.executePrompt(
@@ -884,6 +888,7 @@ export class ManagedTerminalDrive {
       }
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
       const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
+      const inputVersion = this.interlock.inputVersion(bindingId);
       // The physical unit (gates → paste → settle → CR → chip CR → firstTyped
       // evidence settles) runs under one interlock
       // hold. Operator bytes arriving mid-span park and replay only after
@@ -979,6 +984,7 @@ export class ManagedTerminalDrive {
         bindingGeneration,
         signal,
       );
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
       if (started) return confirmSubmitted();
       this.traceState(bindingId, "recovery.evaluate", { sentChipCr });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
@@ -994,14 +1000,20 @@ export class ManagedTerminalDrive {
       if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
         return confirmSubmitted();
       }
-      // Evidence was late: the chip CR never fired. One recovery CR, and
-      // only while the seat is still idle and the operator is not live at
-      // the composer — a CR over fresh keystrokes would submit our chip
-      // plus their draft as one message. Never into a working turn.
+      // One bounded recovery belongs to this accepted paste, for literal text
+      // as well as chips. Even an earlier chip CR can have been eaten. Never
+      // re-paste, and never submit across operator input since the paste:
+      // its short activity latch may have expired during the ACK wait.
       if (
-        !sentChipCr &&
+        this.interlock.resizeActive(bindingId) &&
+        !(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration, signal))
+      ) {
+        return false;
+      }
+      if (
         this.isSeatIdle(bindingId) &&
-        this.chipVisible(bindingId) &&
+        this.pendingOnScreen(bindingId) &&
+        this.interlock.inputVersion(bindingId) === inputVersion &&
         !this.interlock.inputActive(bindingId)
       ) {
         if (
@@ -1009,6 +1021,7 @@ export class ManagedTerminalDrive {
         ) {
           return false;
         }
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
           return confirmSubmitted();
         }
@@ -1019,6 +1032,7 @@ export class ManagedTerminalDrive {
           bindingGeneration,
           signal,
         );
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
         if (startedRetry) return confirmSubmitted();
         if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
           return confirmSubmitted();
@@ -1042,7 +1056,9 @@ export class ManagedTerminalDrive {
       }
       this.traceState(bindingId, "submission.end");
       endTrace?.();
-      this.writing.delete(bindingId);
+      if ((this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration) {
+        this.writing.delete(bindingId);
+      }
       if (this.writtenUnresolved.has(bindingId)) {
         this.onAttention?.(bindingId, "prompt-stalled");
       }
@@ -1102,11 +1118,11 @@ export class ManagedTerminalDrive {
     bindingId: string,
     fn: () => Promise<T>,
   ): Promise<T> {
-    this.interlock.beginHold(bindingId);
+    const release = this.interlock.beginHold(bindingId);
     try {
       return await fn();
     } finally {
-      this.interlock.endHold(bindingId);
+      release();
     }
   }
 
@@ -1144,12 +1160,12 @@ export class ManagedTerminalDrive {
     if (!(await Promise.resolve(this.writeTraced(bindingId, paste, "paste")))) return false;
     onPasteAccepted();
     this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
-    // The text is on the wire — record it so pendingText evidence can never
-    // be bypassed by a delivery path that forgets to register its payload.
-    this.lastWrittenText.set(bindingId, text);
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
+    // Register only in the generation that accepted this attempt. A late
+    // physical completion from a replaced process cannot replace its text.
+    this.lastWrittenText.set(bindingId, text);
     // Let paste-end settle before CR — racing ESC[201~ leaves Claude/Devin
     // with a stuck "[Pasted text …]" chip and never submits.
     if (this.pasteToCrSettleMs > 0) {
@@ -1165,6 +1181,12 @@ export class ManagedTerminalDrive {
       if (!this.isSeatIdle(bindingId)) {
         return false;
       }
+    }
+    if (this.interlock.resizeActive(bindingId)) {
+      if (!(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration, signal))) {
+        return false;
+      }
+      if (!this.isSeatIdle(bindingId)) return false;
     }
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) return false;
@@ -1212,6 +1234,12 @@ export class ManagedTerminalDrive {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
+    if (
+      this.interlock.resizeActive(bindingId) &&
+      !(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration, signal))
+    ) {
+      return false;
+    }
     if (!this.isSeatIdle(bindingId)) return false;
     if (!this.chipVisible(bindingId)) return false;
     return this.writeSubmitCr(bindingId, generation, bindingGeneration, signal);
@@ -1235,6 +1263,26 @@ export class ManagedTerminalDrive {
   private chipVisible(bindingId: string): boolean {
     if (this.pasteChip) return this.pasteChip(bindingId);
     return this.pendingOnScreen(bindingId);
+  }
+
+  /** Wait for repaint quiet without releasing parked input or waiting forever. */
+  private async awaitResizeQuiet(
+    bindingId: string,
+    generation: number,
+    bindingGeneration: number,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const waitMs = this.interlock.resizeQuietInMs(bindingId);
+      this.traceState(bindingId, "gate", { gate: "submit-resize-quiet", attempt, waitMs });
+      if (waitMs <= 0) return true;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, waitMs);
+        timer.unref?.();
+      });
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
+    }
+    return !this.interlock.resizeActive(bindingId);
   }
 
   private async settle(
@@ -1267,9 +1315,10 @@ export class ManagedTerminalDrive {
     }
     // Single atomic write under the hold: a keystroke in the evidence→CR
     // gap parks instead of becoming draft text our CR would submit.
-    return this.withOperatorHold(bindingId, async () =>
-      Boolean(await Promise.resolve(this.writeTraced(bindingId, CR, stage))),
-    );
+    return this.withOperatorHold(bindingId, async () => {
+      const accepted = await Promise.resolve(this.writeTraced(bindingId, CR, stage));
+      return accepted && this.activeBinding(bindingId, generation, bindingGeneration, signal);
+    });
   }
 
   private awaitTurnStart(
@@ -1309,7 +1358,8 @@ export class ManagedTerminalDrive {
           pending.resolve(false);
           return;
         }
-        this.onAttention?.(bindingId, "prompt-stalled");
+        // The caller owns recovery and the terminal outcome. Forcing attention
+        // here would make its immediately following idle recovery gate fail.
         pending.resolve(false);
       }, this.stallTimeoutMs);
       pending.timer.unref?.();
