@@ -378,6 +378,47 @@ describe("MessageDeliveryService", () => {
     expect(sendCount).toBe(1);
   });
 
+  it("does not batch a message while its individual delivery is in flight", async () => {
+    const msgs = [userMsg("m-one", "first"), userMsg("m-two", "second")];
+    const store = makeStore({ c: agentDoc(msgs) });
+    const payloads: string[] = [];
+    let releaseFirst!: (accepted: boolean) => void;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          if (payloads.length === 1) {
+            return new Promise<boolean>((resolve) => {
+              releaseFirst = resolve;
+            });
+          }
+          return true;
+        },
+      },
+      store,
+    });
+
+    service.notifyAppended("c", "agent", msgs[0]!);
+    await waitUntil(() => payloads.length === 1);
+
+    // Boot scans the full durable backlog while m-one is still awaiting its
+    // individual transport result. It must leave that message out of the
+    // batch so the same payload cannot be requested twice.
+    service.onBooted();
+    await waitUntil(() => payloads.length === 2);
+    expect(payloads[0]).toBe("[message - user] first");
+    expect(payloads[1]).toBe("[message - user] second");
+
+    releaseFirst(true);
+    await waitUntil(async () =>
+      (await store.hasAcceptedMessageDelivery("c", "agent", "m-one")) &&
+      (await store.hasAcceptedMessageDelivery("c", "agent", "m-two")),
+    );
+    expect(payloads).toHaveLength(2);
+  });
+
   it("never delivers own (agent-role) messages", async () => {
     const own = userMsg("own", "status", { role: "agent" });
     const store = makeStore({ c: agentDoc([own]) });

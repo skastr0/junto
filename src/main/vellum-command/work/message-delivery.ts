@@ -1376,7 +1376,8 @@ export class MessageDeliveryService {
    * Deliver several ordinary pending messages as ONE notify line, then stamp
    * every message on success. Gate/wake failure leaves all pending.
    * inFlight / transportAccepted / attempt caps use a per-seat batch key
-   * (not content-addressed message sets) so overlapping scans cannot double-paste.
+   * (not content-addressed message sets), and a batch reserves each member's
+   * message key so an individual notify cannot double-paste it.
    */
   private async attemptBatch(
     canvas: string,
@@ -1393,6 +1394,8 @@ export class MessageDeliveryService {
     const batchKey = flightKey(canvas, nodeId, "__batch__");
     if (this.inFlight.has(batchKey)) return;
     this.inFlight.add(batchKey);
+    const reservedMessageKeys: string[] = [];
+    const batchTransportAccepted = this.transportAccepted.has(batchKey);
 
     try {
       // Drop already-receipted messages; if nothing left, done.
@@ -1427,7 +1430,7 @@ export class MessageDeliveryService {
 
       // Re-check each message still lives on the node as pending.
       const liveItems = node.ether?.messages?.items ?? [];
-      const livePending = pending.filter((m) => {
+      let livePending = pending.filter((m) => {
         const live = liveItems.find((item) => item.messageId === m.messageId);
         if (live !== undefined && isPendingDelivery(live)) return true;
         // Gone or already handled — off the index on document evidence.
@@ -1435,10 +1438,44 @@ export class MessageDeliveryService {
         return false;
       });
       if (livePending.length === 0) return;
-      if (livePending.length === 1) {
-        await this.attemptOne(canvas, nodeId, livePending[0]!);
+
+      // Reserve each batch member before the next await. An individual
+      // notify can already be in flight for one of these messages while a
+      // boot/resume sweep reads the same backlog. Leave that message to its
+      // individual owner; only the unclaimed remainder may be batched.
+      const individuallyOwned: Message[] = [];
+      const unclaimed: Message[] = [];
+      const acceptedMembers = batchTransportAccepted
+        ? this.acceptedBatchMembers.get(batchKey)
+        : undefined;
+      for (const message of livePending) {
+        const key = flightKey(canvas, nodeId, message.messageId);
+        if (this.inFlight.has(key)) continue;
+        if (batchTransportAccepted && acceptedMembers !== undefined) {
+          if (!acceptedMembers.has(message.messageId)) continue;
+        } else if (!batchTransportAccepted && this.transportAccepted.has(key)) {
+          // An individual transport can have accepted while its durable
+          // receipt is still pending. Let attemptOne stamp that message; it
+          // must never be folded into a new batch and sent again.
+          individuallyOwned.push(message);
+          continue;
+        }
+        this.inFlight.add(key);
+        reservedMessageKeys.push(key);
+        unclaimed.push(message);
+      }
+      for (const message of individuallyOwned) {
+        await this.attemptOne(canvas, nodeId, message);
+      }
+      if (unclaimed.length === 0) return;
+      if (unclaimed.length === 1) {
+        const only = unclaimed[0]!;
+        const key = reservedMessageKeys.pop()!;
+        this.inFlight.delete(key);
+        await this.attemptOne(canvas, nodeId, only);
         return;
       }
+      livePending = unclaimed;
 
       const woke = await this.wakeManagedSeat(transport, canvas, nodeId);
       if (!woke) {
@@ -1580,6 +1617,7 @@ export class MessageDeliveryService {
     } catch {
       // Leave pending for idle/attach retry.
     } finally {
+      for (const key of reservedMessageKeys) this.inFlight.delete(key);
       this.inFlight.delete(batchKey);
     }
   }
