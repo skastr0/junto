@@ -104,4 +104,28 @@ describe("OperatorInterlock", () => {
 
     release();
   });
+
+  it("parks writes beyond the dispatch cap without bypassing or reordering them", () => {
+    const interlock = new OperatorInterlock(() => 1_000);
+    const writes: number[] = [];
+    const release = interlock.beginHold("binding");
+
+    for (let index = 0; index < 513; index += 1) {
+      expect(
+        interlock.holdWrite("binding", {
+          replay: () => writes.push(index),
+        }),
+      ).toBe(true);
+    }
+
+    expect(interlock.holding("binding")).toBe(true);
+    expect(interlock.heldCount("binding")).toBe(513);
+    expect(writes).toEqual([]);
+
+    release();
+
+    expect(writes).toEqual(
+      Array.from({ length: 513 }, (_, index) => index),
+    );
+  });
 });

@@ -35,7 +35,10 @@ export const OPERATOR_INPUT_LATCH_MS = 400;
 /** Resize admission block. Covers the SIGWINCH repaint churn window. */
 export const OPERATOR_RESIZE_LATCH_MS = 250;
 
-/** Held keystrokes beyond this pass through — a span never legitimately fills it. */
+/**
+ * Number of direct replay slots. Once full, the final slot folds into an
+ * iterative overflow lane so held input never falls through to the live host.
+ */
 const MAX_HELD_WRITES = 512;
 
 /** A parked operator write. Replay re-enters the host write path so lease,
@@ -48,7 +51,26 @@ export type HeldOperatorWrite = {
 type HoldState = {
   depth: number;
   readonly held: HeldOperatorWrite[];
+  overflow?: HeldOperatorWrite[];
+  parkedCount: number;
 };
+
+function replayHeldWrites(writes: ReadonlyArray<HeldOperatorWrite>): void {
+  for (const write of writes) {
+    try {
+      write.replay();
+    } catch {
+      // A replayed write that throws (dead lease teardown) drops like a
+      // refused write — never take the drive's span cleanup down with it.
+    }
+  }
+}
+
+function discardHeldWrites(hold: HoldState): void {
+  hold.held.length = 0;
+  hold.overflow?.splice(0);
+  hold.parkedCount = 0;
+}
 
 export class OperatorInterlock {
   private readonly now: () => number;
@@ -163,18 +185,39 @@ export class OperatorInterlock {
   /**
    * Called from the operator write path. Returns true when a submission span
    * is in-flight and the write was parked for ordered replay on hold end.
+   * After the direct replay slots fill, callbacks share one iterative
+   * overflow lane. Each callback remains intact, so the host re-validates the
+   * original lease, epoch, and phase when it replays that write.
    */
   holdWrite(bindingId: string, write: HeldOperatorWrite): boolean {
     const hold = this.holds.get(bindingId);
     if (hold === undefined) return false;
-    if (hold.held.length >= MAX_HELD_WRITES) return false;
-    hold.held.push(write);
+    hold.parkedCount += 1;
+    if (hold.overflow !== undefined) {
+      hold.overflow.push(write);
+      return true;
+    }
+    if (hold.held.length < MAX_HELD_WRITES) {
+      hold.held.push(write);
+      return true;
+    }
+
+    const tail = hold.held.pop();
+    if (tail === undefined) {
+      // MAX_HELD_WRITES is positive; retain the write defensively if that
+      // invariant is ever changed instead of allowing a live-write bypass.
+      hold.held.push(write);
+      return true;
+    }
+    const overflow = [tail, write];
+    hold.overflow = overflow;
+    hold.held.push({ replay: () => replayHeldWrites(overflow) });
     return true;
   }
 
   /**
    * Begin a submission span. Depth-tracked so nested drive recovery writes
-   * (chip-submit CR, clear Ctrl+C) share the outer span. The returned release
+   * (chip-submit CR and related recovery writes) share the outer span. The returned release
    * is idempotent and owns this exact hold generation.
    */
   beginHold(bindingId: string): () => void {
@@ -182,7 +225,7 @@ export class OperatorInterlock {
     if (hold !== undefined) {
       hold.depth += 1;
     } else {
-      hold = { depth: 1, held: [] };
+      hold = { depth: 1, held: [], parkedCount: 0 };
       this.holds.set(bindingId, hold);
     }
     let released = false;
@@ -211,19 +254,13 @@ export class OperatorInterlock {
     hold.depth -= 1;
     if (hold.depth > 0) return;
     this.holds.delete(bindingId);
-    for (const write of hold.held) {
-      try {
-        write.replay();
-      } catch {
-        // A replayed write that throws (dead lease teardown) drops like a
-        // refused write — never take the drive's span cleanup down with it.
-      }
-    }
+    replayHeldWrites(hold.held);
+    discardHeldWrites(hold);
   }
 
   /** Parked write count — tests and diagnostics. */
   heldCount(bindingId: string): number {
-    return this.holds.get(bindingId)?.held.length ?? 0;
+    return this.holds.get(bindingId)?.parkedCount ?? 0;
   }
 
   /**
@@ -235,6 +272,8 @@ export class OperatorInterlock {
     this.inputUntil.delete(bindingId);
     this.inputVersions.delete(bindingId);
     this.resizeUntil.delete(bindingId);
+    const hold = this.holds.get(bindingId);
+    if (hold !== undefined) discardHeldWrites(hold);
     this.holds.delete(bindingId);
     this.quietWaiters.delete(bindingId);
   }
@@ -244,6 +283,7 @@ export class OperatorInterlock {
     this.inputUntil.clear();
     this.inputVersions.clear();
     this.resizeUntil.clear();
+    for (const hold of this.holds.values()) discardHeldWrites(hold);
     this.holds.clear();
     this.quietWaiters.clear();
   }
