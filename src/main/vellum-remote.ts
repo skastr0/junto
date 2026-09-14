@@ -54,6 +54,11 @@ import { HermesPlane } from "./vellum-command/hermes/plane";
 import { HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { termPlane } from "./vellum-command/term/plane";
+import { seatStateRuntime } from "./vellum-command/term/agent-state";
+import { terminalObserverPlane } from "./vellum-command/term/observer";
+import { createManagedTerminalDrive } from "./vellum-command/term/drive/managed-drive-factory";
+import { attachManagedTerminalDriveRuntime } from "./vellum-command/term/drive/managed-drive-runtime";
+import { bindManagedTerminalDriveForOverseer } from "./vellum-command/term/managed-drive-holder";
 import { startTransportJournal } from "./vellum-command/observability";
 import { configureTerminalRouterLayeredRunner } from "./vellum-command/term/router";
 
@@ -113,6 +118,7 @@ type Handles = {
   workControl?: WorkControlServer;
   overseer?: OverseerComposition;
   stationControl?: StationControlServer;
+  drive?: { readonly dispose: () => void; readonly suspend: () => void };
   stationRemoteReportPump?: StationRemoteReportPump;
   hermes?: {
     readonly shutdown: { readonly drainOnQuit: () => Promise<unknown> };
@@ -142,6 +148,16 @@ const runProductBoot = async (): Promise<void> => {
     if (handles.shuttingDown) return;
     handles.shuttingDown = true;
     handles.kernel?.suspend();
+    try {
+      handles.drive?.dispose();
+    } catch {
+      // Best-effort unsubscription; process exit reclaims the rest.
+    }
+    try {
+      handles.drive?.suspend();
+    } catch {
+      // A suspended drive refuses later writes; shutdown continues regardless.
+    }
     handles.overseer?.dispose();
     handles.workControl?.beginShutdown();
     void handles.stationRemoteReportPump?.close();
@@ -348,6 +364,61 @@ const runProductBoot = async (): Promise<void> => {
   } catch (error) {
     console.error("[term] control socket failed to start:", error);
   }
+
+  // Destination drive for managed prompts served over the term control
+  // socket (overseer agent.prompt for Remote seats). Same shared recipe as
+  // Command Center, wired to this installation's real observer/seat-state
+  // evidence, with the same lifecycle ownership (ACK/drain/generation).
+  // No clipboard preflight outside Electron (Grok image-trap unchecked, as
+  // with the previous raw path); no remote cancellation identity — bounded
+  // destination completion, and a client timeout never authorizes a repaste.
+  const remoteDrive = createManagedTerminalDrive({
+    write: (bindingId, data) =>
+      termPlane.host.writeManagedSeat(bindingId, data),
+    isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+    onAttention: (bindingId, reason) => {
+      if (!seatStateRuntime.machine.getSlot(bindingId)) return;
+      seatStateRuntime.machine.force(bindingId, "attention", reason);
+    },
+    snapshot: (bindingId) => terminalObserverPlane.snapshot(bindingId),
+    composerVerdict: (bindingId) =>
+      seatStateRuntime.composerVerdict(bindingId),
+    harnessFor: (bindingId) =>
+      seatStateRuntime.machine.getSlot(bindingId)?.harness,
+  });
+  bindManagedTerminalDriveForOverseer(remoteDrive);
+  handles.drive = {
+    dispose: attachManagedTerminalDriveRuntime(remoteDrive, {
+      subscribeHostEvents: (listener, options) =>
+        termPlane.host.subscribeEvents((payload) => {
+          if (payload.type === "output") {
+            listener({ kind: "output", bindingId: payload.bindingId });
+            return;
+          }
+          if (payload.type !== "session") return;
+          listener({
+            kind: "session",
+            bindingId: payload.bindingId,
+            exited: payload.status === "exited",
+            running: payload.status === "running",
+          });
+        }, options),
+      subscribeSeatState: (listener) =>
+        seatStateRuntime.subscribe((event) =>
+          listener({ bindingId: event.bindingId, state: event.state }),
+        ),
+      subscribeComposerEmpty: (listener) =>
+        seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
+          if (verdict !== "empty") return;
+          listener(bindingId);
+        }),
+      harnessFor: (bindingId) =>
+        seatStateRuntime.machine.getSlot(bindingId)?.harness,
+      snapshotText: (bindingId) =>
+        terminalObserverPlane.snapshot(bindingId)?.text,
+    }),
+    suspend: () => remoteDrive.suspend(),
+  };
 
   try {
     publishSystemdGenerationReadiness();

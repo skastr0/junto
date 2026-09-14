@@ -70,6 +70,7 @@ import {
 } from "./release-fence";
 import { readHostDirectory } from "./host-directory";
 import { launchForManagedSpawnIntent } from "./managed-spawn-plan";
+import { managedTerminalDriveForOverseer } from "./managed-drive-holder";
 
 const tokenHash = (token: string): Buffer =>
   createHash("sha256").update(token, "utf8").digest();
@@ -643,6 +644,35 @@ export const startTermControlServer = async (
           const lease = leaseById.get(req.leaseId);
           if (!lease) return { v: TERM_CONTROL_PROTOCOL, id, ok: false, error: "unknown lease" };
           return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: host.write(lease, req.data) };
+        }
+        case "managedPrompt": {
+          // Lease-free product-automation delivery through the destination
+          // drive. Never raw-writes: a missing holder refuses explicitly.
+          // No cancellation identity — the drive owns bounded completion.
+          const bindingId =
+            typeof req.bindingId === "string" ? req.bindingId.trim() : "";
+          const text = typeof req.text === "string" ? req.text : "";
+          if (!bindingId || !text) {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: "managedPrompt requires bindingId and text",
+            };
+          }
+          const drive = managedTerminalDriveForOverseer();
+          if (drive === undefined) {
+            return {
+              v: TERM_CONTROL_PROTOCOL,
+              id,
+              ok: false,
+              error: "no destination managed drive; refusing raw write",
+            };
+          }
+          const delivered = await drive.writePrompt(bindingId, text, {
+            queueIfBusy: req.queueIfBusy === true,
+          });
+          return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: delivered };
         }
         case "resize": {
           const lease = leaseById.get(req.leaseId);

@@ -122,6 +122,19 @@ export type TermControlRequest =
       readonly data: string;
     }
   | {
+      // Managed prompt delivery through the destination's drive (paste+CR
+      // recipe, idle/composer gates, evidence). Lease-free: product
+      // automation, not an external terminal controller. No cancellation
+      // identity: a client timeout is an uncertain outcome and never
+      // authorizes a repaste.
+      readonly v: typeof TERM_CONTROL_PROTOCOL;
+      readonly id: string;
+      readonly op: "managedPrompt";
+      readonly bindingId: string;
+      readonly text: string;
+      readonly queueIfBusy?: boolean;
+    }
+  | {
       readonly v: typeof TERM_CONTROL_PROTOCOL;
       readonly id: string;
       readonly op: "resize";

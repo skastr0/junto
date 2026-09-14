@@ -52,7 +52,7 @@ import type {
   LocalSessionHost,
   TerminalOpenInput,
 } from "./local-host";
-import { TermControlClient } from "./control-client";
+import { TermControlClient, TermControlTransportUncertainError } from "./control-client";
 import {
   appendTransportTrace,
   recordTransportError,
@@ -612,6 +612,48 @@ export class TerminalRouter extends EventEmitter {
       return await entry.client.write(remoteId, data);
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Managed prompt on a remote host's destination drive. Dials on demand
+   * through the same ensure path as attach (no lease: the op is
+   * lease-free); local bindings never route here and are refused rather
+   * than misdelivered. Returns "uncertain" when transport may already
+   * have delivered — the caller must surface that, never repaste.
+   */
+  async managedPrompt(
+    bindingId: string,
+    text: string,
+    queueIfBusy: boolean,
+    hostId?: string,
+    signal?: AbortSignal,
+  ): Promise<boolean | "uncertain"> {
+    if (this.quiescing) return false;
+    if (signal?.aborted) return false;
+    const normalizedHostId = hostId?.trim();
+    if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) return false;
+    if (!hostId || this.isLocalHostId(hostId)) return false;
+    let entry;
+    try {
+      entry = await this.ensureRemoteEntry(hostId);
+    } catch {
+      return false;
+    }
+    // No wire cancellation identity: revocation during entry setup must
+    // refuse here, before any bytes reach the destination drive. Revalidate
+    // route admission like attach does — a maintenance cut can land between
+    // ensure returning and this continuation.
+    if (signal?.aborted) return false;
+    try {
+      this.assertRouteAdmission(hostId);
+    } catch {
+      return false;
+    }
+    try {
+      return await entry.client.managedPrompt(bindingId, text, queueIfBusy);
+    } catch (err) {
+      return err instanceof TermControlTransportUncertainError ? "uncertain" : false;
     }
   }
 

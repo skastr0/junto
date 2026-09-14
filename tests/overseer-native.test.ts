@@ -526,26 +526,25 @@ describe("overseer native adapters", () => {
     expect(configured.error.type).toBe("Unsupported");
   });
 
-  it("keeps the outer Effect pending until lease release completes after interrupt", async () => {
-    let releaseLease!: () => void;
-    const heldRelease = new Promise<void>((resolve) => {
-      releaseLease = resolve;
+  it("keeps the remote prompt pending on the destination op without a control lease", async () => {
+    let releasePrompt!: (outcome: boolean | "uncertain") => void;
+    const heldPrompt = new Promise<boolean | "uncertain">((resolve) => {
+      releasePrompt = resolve;
     });
-    let attached = false;
-    const attach = vi.fn(async () => {
-      attached = true;
-      return {
-        ok: true as const,
-        lease: { leaseId: "ctl", bindingId: "bind-remote", epoch: "e", mode: "control" as const },
-      };
-    });
-    const release = vi.fn(async () => heldRelease);
+    const managedPrompt = vi.fn(async () => heldPrompt);
+    const attach = vi.fn(async () => ({
+      ok: true as const,
+      lease: { leaseId: "ctl", bindingId: "bind-remote", epoch: "e", mode: "control" as const },
+    }));
+    const release = vi.fn(async () => undefined);
     const remoteAgent: TextNode = {
       ...agent("remote-a", { bindingId: "bind-remote" }),
       ether: { ...agent("remote-a", { bindingId: "bind-remote" }).ether!, host: "studio" },
     };
+    const plane = makeTermPlane({ attach, release });
+    (plane.router as unknown as { managedPrompt: unknown }).managedPrompt = managedPrompt;
     const native = live([{ name: "factory", doc: doc([remoteAgent]) }], {
-      termPlane: makeTermPlane({ attach, release }),
+      termPlane: plane,
     });
     const fiber = Effect.runFork(
       native.executeResult(
@@ -553,17 +552,19 @@ describe("overseer native adapters", () => {
         { operation: "agent.prompt" as never, args: { nodeId: "remote-a", text: "hello" } },
       ),
     );
-    await vi.waitFor(() => expect(attached).toBe(true));
-    let interruptDone = false;
-    const interrupted = Effect.runPromise(Fiber.interrupt(fiber)).then(() => {
-      interruptDone = true;
+    await vi.waitFor(() => expect(managedPrompt).toHaveBeenCalled());
+    // No control lease is taken for a managed remote prompt.
+    expect(attach).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    let promptDone = false;
+    const finished = Effect.runPromise(Fiber.join(fiber)).then(() => {
+      promptDone = true;
     });
     await Promise.resolve();
-    expect(interruptDone).toBe(false);
-    expect(release).toHaveBeenCalled();
-    releaseLease();
-    await interrupted;
-    expect(interruptDone).toBe(true);
+    expect(promptDone).toBe(false);
+    releasePrompt(true);
+    await finished;
+    expect(promptDone).toBe(true);
   });
 
   it("does not mutate after Effect interrupt even if the grant is restored", async () => {

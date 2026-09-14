@@ -60,13 +60,11 @@ import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
 import {
   GROK_MIN_POST_SPAWN_MS,
-  ManagedTerminalDrive,
-  promptHasPasteChip,
-  promptStillPending,
 } from "./term/drive";
+import { createManagedTerminalDrive } from "./term/drive/managed-drive-factory";
+import { attachManagedTerminalDriveRuntime } from "./term/drive/managed-drive-runtime";
 import { clipboardFormatsAreSafeForGrok } from "./term/drive/clipboard-safe";
 import {
-  isClaudeCompactNoop,
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
@@ -1301,7 +1299,9 @@ export const registerVellumIpc = (): void => {
       // Observer → seat state machine → idle gate for drive typing.
       // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
       seatStateRuntime.start();
-      const managedDrive = new ManagedTerminalDrive({
+      // Single shared destination-drive recipe (managed-drive-factory);
+      // this callsite only supplies Command Center evidence sources.
+      const managedDrive = createManagedTerminalDrive({
         write: (bindingId, data) =>
           !productAutomationSuspended &&
           termPlane.host.writeManagedSeat(bindingId, data),
@@ -1327,21 +1327,7 @@ export const registerVellumIpc = (): void => {
             reason,
           );
         },
-        // Evidence-gated acknowledgement: the drive only receipts a pending
-        // prompt once our text has LEFT the composer (no false-working ack on
-        // an unsubmitted chip; no Ctrl+C into a working agent). The text is
-        // the drive's own last-write record — delivery paths cannot bypass it.
-        pendingText: (bindingId, text) => {
-          const snap = terminalObserverPlane.snapshot(bindingId);
-          if (!snap) return false;
-          return promptStillPending(snap, text);
-        },
-        // Chip-submit CR is chrome-only. Payload-head leftovers (Codex) and
-        // Grok `[Pasted:Nlines]` footers must not queue a second turn.
-        pasteChip: (bindingId) => {
-          const snap = terminalObserverPlane.snapshot(bindingId);
-          return snap !== undefined && promptHasPasteChip(snap);
-        },
+        snapshot: (bindingId) => terminalObserverPlane.snapshot(bindingId),
         // Screen truth: typing is authorized only while the harness's
         // composer probes prove an EMPTY input box on the live grid.
         composerVerdict: (bindingId) => {
@@ -1362,11 +1348,73 @@ export const registerVellumIpc = (): void => {
           seatStateRuntime.machine.getSlot(bindingId)?.harness,
       });
       bindManagedTerminalDriveForOverseer(managedDrive);
+      // Tier B doctrine kick, extracted so the shared runtime can run it
+      // synchronously before the drive's own idle drain (preserving the
+      // original firstTyped-before-drain order). Takes the writing lock
+      // synchronously when it writes; a queued prompt then parks behind it.
+      function kickFirstTypedDoctrine(bindingId: string): void {
+        // Peek first — only consume after a successful physical paste+CR.
+        // Do NOT await turn-start: Muse (and other weak-chrome harnesses)
+        // never publish working, so stallWatch would force attention, leave
+        // the arm live, and re-paste on every idle re-entry (infinite loop).
+        const first = peekFirstTypedMessage(bindingId);
+        if (
+          first &&
+          driveReady(bindingId) &&
+          !firstTypedInFlight.has(bindingId)
+        ) {
+          firstTypedInFlight.add(bindingId);
+          void writeManagedPrompt(bindingId, first, {
+            // Weak-chrome harnesses never publish working. Skip the stall
+            // watch, but still send a chip-submit CR when `[Pasted text`
+            // chrome is visible, then settle. An unresolved paste stays
+            // unreceipted and blocks automation until binding invalidation.
+            awaitTurnStart: false,
+          })
+            .then((ok) => {
+              if (ok) takeFirstTypedMessage(bindingId);
+            })
+            .finally(() => {
+              firstTypedInFlight.delete(bindingId);
+            });
+        }
+      }
+      // Shared drive lifecycle (ACK/drain/generation cuts); product
+      // supervisory feeds below stay local to Command Center.
+      attachManagedTerminalDriveRuntime(managedDrive, {
+        beforeSeatIdle: kickFirstTypedDoctrine,
+        subscribeHostEvents: (listener, options) =>
+          termPlane.host.subscribeEvents((payload) => {
+            if (payload.type === "output") {
+              listener({ kind: "output", bindingId: payload.bindingId });
+              return;
+            }
+            if (payload.type !== "session") return;
+            listener({
+              kind: "session",
+              bindingId: payload.bindingId,
+              exited: payload.status === "exited",
+              running: payload.status === "running",
+            });
+          }, options),
+        subscribeSeatState: (listener) =>
+          seatStateRuntime.subscribe((event) =>
+            listener({ bindingId: event.bindingId, state: event.state }),
+          ),
+        subscribeComposerEmpty: (listener) =>
+          seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
+            if (verdict !== "empty") return;
+            listener(bindingId);
+          }),
+        harnessFor: (bindingId) =>
+          seatStateRuntime.machine.getSlot(bindingId)?.harness,
+        snapshotText: (bindingId) =>
+          terminalObserverPlane.snapshot(bindingId)?.text,
+      });
       // The composer went visibly empty (operator submitted or cleared, or a
       // repaint settled): release the queued prompts that waited on it.
       seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
         if (verdict !== "empty") return;
-        managedDrive.onComposerClear(bindingId);
         // Deliveries refused at the turn boundary (idle published before the
         // composer repaint settled) wait on exactly this boundary.
         messageDelivery.onComposerEmpty(bindingId);
@@ -1500,29 +1548,19 @@ export const registerVellumIpc = (): void => {
       );
       // Grok ≥1.5s post-spawn before first paste (verified trap).
       termPlane.host.subscribeEvents((payload) => {
-        if (payload.type === "output") {
-          if (
-            seatStateRuntime.machine.getSlot(payload.bindingId)?.harness ===
-              "claude" &&
-            isClaudeCompactNoop(
-              terminalObserverPlane.snapshot(payload.bindingId)?.text ?? "",
-            )
-          ) {
-            managedDrive.onCompactNoop(payload.bindingId);
-          }
-          return;
-        }
+        // Drive lifecycle (compact ACK, generation cuts, Grok spawn gate)
+        // is owned by the shared runtime attach above; this feed keeps only
+        // Command Center product layers (pulses, capture, recovery epoch).
+        if (payload.type === "output") return;
         if (payload.type !== "session") return;
         const bindingId = payload.bindingId;
         const epoch = payload.epoch;
         if (payload.status === "exited") {
-          managedDrive.invalidateBinding(bindingId);
           cancelManagedPulseReady(bindingId, epoch);
           acceptedClaudeRecoveryEpoch.delete(bindingId);
           return;
         }
         if (payload.status !== "running") return;
-        managedDrive.invalidateBinding(bindingId);
         cancelManagedPulseReady(bindingId);
         acceptedClaudeRecoveryEpoch.delete(bindingId);
         const harness = seatStateRuntime.machine.getSlot(bindingId)?.harness;
@@ -1612,37 +1650,10 @@ export const registerVellumIpc = (): void => {
           }
         }
         if (event.state === "idle") {
-          // Tier B doctrine: first typed message once seat is ready+idle.
-          // Peek first — only consume after a successful physical paste+CR.
-          // Do NOT await turn-start: Muse (and other weak-chrome harnesses)
-          // never publish working, so stallWatch would force attention, leave
-          // the arm live, and re-paste on every idle re-entry (infinite loop).
-          const first = peekFirstTypedMessage(event.bindingId);
-          if (
-            first &&
-            driveReady(event.bindingId) &&
-            !firstTypedInFlight.has(event.bindingId)
-          ) {
-            firstTypedInFlight.add(event.bindingId);
-            void writeManagedPrompt(event.bindingId, first, {
-              // Weak-chrome harnesses never publish working. Skip the stall
-              // watch, but still send a chip-submit CR when `[Pasted text`
-              // chrome is visible, then settle. An unresolved paste stays
-              // unreceipted and blocks automation until binding invalidation.
-              awaitTurnStart: false,
-            })
-              .then((ok) => {
-                if (ok) takeFirstTypedMessage(event.bindingId);
-              })
-              .finally(() => {
-                firstTypedInFlight.delete(event.bindingId);
-              });
-          }
-          managedDrive.onSeatIdle(event.bindingId);
+          // FirstTyped doctrine kick and the drive idle drain run in the
+          // shared runtime attach above (hook before drain); this feed keeps
+          // only message delivery.
           messageDelivery.onManagedTerminalIdle(event.bindingId);
-        }
-        if (event.state === "working") {
-          managedDrive.onTurnStart(event.bindingId);
         }
       });
       // Kernel pulses for managed seats (not ACP).

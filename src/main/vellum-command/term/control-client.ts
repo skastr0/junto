@@ -239,6 +239,21 @@ export const reviveTermAuthSeatState = (data: unknown): LocalHostEvent[] => {
   return out;
 };
 
+/**
+ * A managed-prompt request left the client without a definitive outcome:
+ * the bytes may or may not have reached the destination drive (timeout or
+ * socket loss after send). Never a repaste authorization — callers must
+ * surface uncertainty, not retry blindly.
+ */
+export class TermControlTransportUncertainError extends Error {
+  override readonly name = "TermControlTransportUncertainError";
+}
+
+/** Rejected before any byte could leave: the client was already closed. */
+export class TermControlClientClosedError extends Error {
+  override readonly name = "TermControlClientClosedError";
+}
+
 export class TermControlClient extends EventEmitter implements TermMaintenanceControlPort {
   private socket: Socket | undefined;
   private buf = "";
@@ -442,7 +457,7 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
 
   private call(body: TermControlRequest, timeoutMs = 15_000): Promise<TermControlResponse> {
     if (this.quiescing || this.closeObserved || !this.socket || this.socket.destroyed) {
-      return Promise.reject(new Error("term control client closed"));
+      return Promise.reject(new TermControlClientClosedError("term control client closed"));
     }
     const started = Date.now();
     const bindingId =
@@ -811,6 +826,38 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
       leaseId,
       data,
     });
+    if (!res.ok) throw new Error(res.error);
+    return Boolean(res.data);
+  }
+
+  /**
+   * Managed prompt through the destination drive. No lease, no
+   * cancellation identity: a transport timeout is an uncertain outcome
+   * and the caller must never repaste on it.
+   */
+  async managedPrompt(
+    bindingId: string,
+    text: string,
+    queueIfBusy = false,
+  ): Promise<boolean> {
+    let res: TermControlResponse;
+    try {
+      res = await this.call({
+        v: TERM_CONTROL_PROTOCOL,
+        id: this.nextId(),
+        op: "managedPrompt",
+        bindingId,
+        text,
+        queueIfBusy,
+      });
+    } catch (err) {
+      // Closed before send is a definite refusal; anything else may have
+      // reached the destination drive already.
+      if (err instanceof TermControlClientClosedError) throw err;
+      throw new TermControlTransportUncertainError(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     if (!res.ok) throw new Error(res.error);
     return Boolean(res.data);
   }

@@ -465,7 +465,7 @@ const promptSeat = async (
   bindingId: string,
   hostId: string,
   text: string,
-): Promise<boolean> => {
+): Promise<boolean | "uncertain"> => {
   if (ctx.managedDrive !== undefined && ctx.termPlane.router.isLocalHostId(hostId)) {
     // Non-retaining: a revoked overseer request must not land later via drainOne.
     return ctx.managedDrive.writePrompt(bindingId, text, {
@@ -473,7 +473,13 @@ const promptSeat = async (
       signal: ctx.signal,
     });
   }
-  return writeSeat(ctx, bindingId, hostId, text.endsWith("\r") ? text : `${text}\r`);
+  if (ctx.termPlane.router.isLocalHostId(hostId)) return false;
+  // Remote seats deliver through the destination's managed drive, never as
+  // raw text+CR over a control lease. No cancellation identity crosses the
+  // socket: a transport timeout is uncertain and the caller must not repaste
+  // (agent.prompt performs a single attempt). The caller signal is still
+  // honored router-side before any bytes are sent.
+  return ctx.termPlane.router.managedPrompt(bindingId, text, false, hostId, ctx.signal);
 };
 
 const occupySeat = async (
@@ -615,7 +621,20 @@ const handleAgent = async (
       const revoked = await requireGrant(ctx, caller);
       if (revoked) return revoked;
       const delivered = await promptSeat(ctx, binding.bindingId, binding.hostId, text);
-      if (!delivered) return fail("RuntimeDown", "prompt did not reach the managed seat");
+      // "uncertain" is a named outcome, not a refusal: transport may already
+      // have delivered, so it must never read as "did not reach" (which
+      // would invite a repaste) and must never be retried automatically.
+      if (delivered === "uncertain") {
+        const still = await requireGrant(ctx, caller);
+        if (still) return still;
+        return ok({
+          delivered: false,
+          uncertain: true,
+          bindingId: binding.bindingId,
+          message: "prompt transport timed out; delivery unknown — do not repaste automatically",
+        });
+      }
+      if (!delivered) return fail("RuntimeDown", "prompt submission was not confirmed");
       const still = await requireGrant(ctx, caller);
       if (still) return still;
       return ok({ delivered: true, bindingId: binding.bindingId });
