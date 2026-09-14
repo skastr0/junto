@@ -15,7 +15,11 @@
  * while a chip is still pending.
  */
 
-import { PASTE_CHIP_TEXT, promptRegionLines } from "../observer/interaction";
+import {
+  PASTE_CHIP_TEXT,
+  pendingEvidenceLines,
+  regionContains,
+} from "../observer/interaction";
 
 export { PASTE_CHIP_TEXT };
 
@@ -38,17 +42,15 @@ const payloadHead = (text: string): string => {
  */
 export const promptHasPasteChip = (snapshot: {
   readonly lines: readonly string[];
-}): boolean => {
-  for (const line of promptRegionLines(snapshot.lines)) {
-    if (line.includes(PASTE_CHIP_TEXT)) return true;
-  }
-  return false;
-};
+}): boolean =>
+  regionContains(pendingEvidenceLines(snapshot.lines), PASTE_CHIP_TEXT);
 
 /**
  * True when the prompt region of `snapshot` still holds text we pasted:
  * the harness chip literal (`[Pasted text`), the injection marker token, or
- * the payload head. Pure: no I/O, no clocks.
+ * the payload head. The region is glyph-anchored on ruleless grids (a footer
+ * below the composer must not hide a pending line) and needles match across
+ * hard-wrapped rows. Pure: no I/O, no clocks.
  */
 export const promptStillPending = (
   snapshot: { readonly lines: readonly string[] },
@@ -59,10 +61,8 @@ export const promptStillPending = (
   const marker = markerToken !== undefined && markerToken.length > 0
     ? markerToken
     : undefined;
-  for (const line of promptRegionLines(snapshot.lines)) {
-    if (line.includes(PASTE_CHIP_TEXT)) return true;
-    if (marker !== undefined && line.includes(marker)) return true;
-    if (head.length > 0 && line.includes(head)) return true;
-  }
-  return false;
+  const region = pendingEvidenceLines(snapshot.lines);
+  if (regionContains(region, PASTE_CHIP_TEXT)) return true;
+  if (marker !== undefined && regionContains(region, marker)) return true;
+  return regionContains(region, head);
 };

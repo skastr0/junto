@@ -1062,6 +1062,23 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
     expect(result.ruleId).toBe("subagents_working");
   });
 
+  it("agy: braille spinner below prior output is working", () => {
+    // Constructed from the declared spinner + prompt idioms (adapter probe:
+    // agy-spinner-below-prior-output). The spinner rule must see a line
+    // anywhere in whole_recent — a `^`-anchored `regex` matcher tests the
+    // joined blob where `^` only sees the first row, so a spinner under
+    // prior output silently read idle.
+    const result = evaluate(
+      snap({
+        lines: ["Earlier response", "⠋ Thinking", HR, "❯", HR],
+      }),
+      { harness: "agy" },
+    );
+    expect(result.state).toBe("working");
+    expect(result.ruleId).toBe("spinner_working");
+    expect(result.visibleWorking).toBe(true);
+  });
+
   it("agy: empty composer is visible idle (factory mail nudge gate)", () => {
     const result = evaluate(
       snap({

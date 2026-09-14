@@ -192,6 +192,15 @@ describe("cursor", () => {
     expect(v(["transcript", "", "  → Add a follow-up"])).toBe("empty");
   });
 
+  it("a draft starting with the placeholder's own words is a draft", () => {
+    // The empty probe must match the placeholder LINE exactly — a real
+    // follow-up that happens to start with those words is typed text, and
+    // an "empty" verdict here would let the factory type over a live draft.
+    expect(
+      v(["transcript", "", "  → Add a follow-up remove the unused file"]),
+    ).toBe("draft");
+  });
+
   it("typed text is a draft", () => {
     expect(v(["  Cursor Agent", "", "  → hello"])).toBe("draft");
   });

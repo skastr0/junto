@@ -67,6 +67,54 @@ const PROMPT_GLYPH = /^\s*❯(?:\s+|$)/u;
 const ANY_PROMPT_GLYPH = /^\s*(?:❯|›)(?:\s+|$)/u;
 
 /**
+ * Prompt glyphs the ruleless evidence region anchors on (❯ › ❭ >). `>` is
+ * common in scrollback, so the anchor search is confined to the bottom tail.
+ */
+const EVIDENCE_GLYPH = /^\s*(?:❯|›|❭|>)(?:\s+|$)/u;
+const EVIDENCE_TAIL_LINES = 10;
+
+/**
+ * Evidence region for "is our text still in the composer" scans. Ruled grids
+ * use promptRegionLines. On a ruleless grid the composer can sit ABOVE a
+ * footer/status line, and a single last-line window misses it — anchor at
+ * the last prompt-glyph line inside the bottom tail and take the rest.
+ * Bottom-up anchoring keeps echoed scrollback (a submitted payload repeated
+ * above the box) out of the region; a glyph-looking footer line can only
+ * shrink the region (a miss), never falsely include history.
+ */
+export const pendingEvidenceLines = (
+  lines: readonly string[],
+): readonly string[] => {
+  for (const line of lines) {
+    if (isHorizontalRule(line)) return promptRegionLines(lines);
+  }
+  const tailStart = Math.max(0, lines.length - EVIDENCE_TAIL_LINES);
+  for (let i = lines.length - 1; i >= tailStart; i -= 1) {
+    if (EVIDENCE_GLYPH.test(lines[i]!)) return lines.slice(i);
+  }
+  return bottomNonEmptyLines(lines, 1);
+};
+
+/**
+ * Does a region hold `needle`? Per-line first, then a whitespace-squashed
+ * join of the rows: a payload head hard-wrapped at the box edge is split
+ * across rows (with grid padding/indent interposed) and only re-forms once
+ * the rows are joined with all whitespace removed. Squashing both sides
+ * keeps a wrap that lands on a real space honest too.
+ */
+export const regionContains = (
+  lines: readonly string[],
+  needle: string,
+): boolean => {
+  if (needle.length === 0) return false;
+  for (const line of lines) {
+    if (line.includes(needle)) return true;
+  }
+  const squash = (s: string): string => s.replace(/\s+/g, "");
+  return squash(lines.join("")).includes(squash(needle));
+};
+
+/**
  * Claude/Devin composer chip. Must stay the full `[Pasted text` prefix —
  * Grok's history footer uses `[Pasted:Nlines]`, which is not a pending
  * composer chip. Shared with prompt-evidence so the prefix cannot drift.
@@ -129,11 +177,12 @@ export const scanMarker = (
   hadDelivered: boolean,
 ): MarkerScan => {
   if (markerToken.length === 0) return hadDelivered ? "cleared" : "none";
-  const promptRegion = promptRegionLines(lines);
-  for (const line of promptRegion) {
-    if (line.includes(markerToken) || line.includes(PASTE_CHIP_TEXT)) {
-      return "prompt";
-    }
+  const promptRegion = pendingEvidenceLines(lines);
+  if (
+    regionContains(promptRegion, markerToken) ||
+    regionContains(promptRegion, PASTE_CHIP_TEXT)
+  ) {
+    return "prompt";
   }
   if (markerAtPasteHead(lines, markerToken)) return "prompt";
   for (const line of lines) {

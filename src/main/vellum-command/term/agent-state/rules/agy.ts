@@ -66,7 +66,10 @@ export const agyRules: SeatRulePack = {
       visibleWorking: true,
       matchers: {
         any: [
-          { regex: ["^\\s*[\\u2800-\\u28FF]+\\s+\\p{Alphabetic}+\\w*ing\\b"] },
+          // lineRegex: `regex` tests the whole joined region, where a
+          // line-start anchor can only see the first row — a spinner below
+          // prior output never matched and live turns read idle.
+          { lineRegex: ["^\\s*[\\u2800-\\u28FF]+\\s+\\p{Alphabetic}+\\w*ing\\b"] },
           { contains: ["esc to cancel"] },
         ],
       },

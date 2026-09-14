@@ -136,7 +136,7 @@ export const cursorRules: SeatRulePack = {
       verdict: "empty",
       region: "whole_recent",
       matchers: {
-        lineRegex: ["^\\s*\u2192 Add a follow-up"],
+        lineRegex: ["^\\s*\u2192 Add a follow-up\\s*$"],
         not: [{ contains: ["ctrl+c to stop"] }],
       },
     },
