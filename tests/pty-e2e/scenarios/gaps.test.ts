@@ -38,8 +38,7 @@
  *   DRV-7       Grok `[Pasted:Nlines]` footer is not composer chip chrome
  *                (no recipe CR2). Codex payload-head leftover is the same
  *                class — D8 is the drive proof.
- *   DRV-8       OMP has no composer probes; firstTyped admits empty;
- *                mail (firstTypedArmed false) stays null. Amp is grounded.
+ *   DRV-8       Probe-less packs admit firstTyped empty; OMP is grounded.
  *   DRV-9       Grok history footer is not a chip-submit CR — drive proof is
  *                D9 in drive-law.test.ts (not duplicated).
  *   POL-2  D26  false working→idle flips count as turns → fake escalation.
@@ -657,36 +656,15 @@ describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", (
 // DRV-8 — Amp/Muse ungrounded composer: firstTyped empty, mail stays null
 // ---------------------------------------------------------------------------
 
-describe("GAP-DRV-8: OMP ungrounded composer admits firstTyped only", () => {
-  it("GAP-DRV-8: OMP pack has no composer probes", () => {
-    expect(rulePackFor("omp").composer ?? []).toEqual([]);
+describe("GAP-DRV-8: probe-less packs admit firstTyped only", () => {
+  it("GAP-DRV-8: OMP now has composer probes", () => {
+    expect((rulePackFor("omp").composer ?? []).length).toBeGreaterThan(0);
   });
 
-  it("GAP-DRV-8: admitUngroundedFirstTypedComposer(null, omp, true) is empty", () => {
+  it("GAP-DRV-8: admitUngroundedFirstTypedComposer stays closed for OMP", () => {
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
-    ).toBe("empty");
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
     ).toBe(null);
-  });
-
-  it("GAP-DRV-8: mail path stays null when firstTypedArmed is false", async () => {
-    const obs = new SessionObserver({
-      bindingId: BINDING,
-      epoch: "e1",
-      cols: 80,
-      rows: 16,
-    });
-    try {
-      obs.feed("\x1b]0;Ready response - amp - ~/Projects/vellum\x07", 1n);
-      const snap = await obs.snapshot();
-      const omp = rulePackFor("omp");
-      expect(composerVerdictFor(snap, omp)).toBe(null);
-      expect(admitUngroundedFirstTypedComposer(null, omp, false)).toBe(null);
-    } finally {
-      obs.dispose();
-    }
   });
 });
 

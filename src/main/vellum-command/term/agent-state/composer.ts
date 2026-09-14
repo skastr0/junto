@@ -45,11 +45,10 @@ export const composerVerdictForHarness = (
 };
 
 /**
- * omp has no grounded composer probes, so the
- * live verdict is always null and the drive refuses (`composer-unreadable`).
- * Tier B firstTyped is the only doctrine path on those seats — admit a
- * one-shot empty while the arm is live. Packs that already declare probes
- * stay fail-closed: null still means unreadable.
+ * Packs with no composer probes still refuse (`composer-unreadable`).
+ * Tier B firstTyped admits a one-shot empty only while that arm is live
+ * and the pack has zero probes. Packs that already declare probes stay
+ * fail-closed: null still means unreadable.
  */
 export const admitUngroundedFirstTypedComposer = (
   verdict: ComposerVerdict,

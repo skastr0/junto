@@ -73,7 +73,7 @@ describe("amp composer verdict on real bytes", () => {
   });
 });
 
-for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes", "kimi"] as const) {
+for (const harness of ["claude", "codex", "grok", "pi", "devin", "muse", "hermes", "kimi", "omp"] as const) {
   describe(`${harness} composer verdict on real bytes`, () => {
     it("startup-idle settles to an empty composer", async () => {
       const fixture = loadP1Fixture(harness, "startup-idle");

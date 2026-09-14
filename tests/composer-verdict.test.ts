@@ -398,10 +398,30 @@ describe("amp (P1 corpus 0.0.1789397462)", () => {
   });
 });
 
+describe("omp (P1 corpus 18.1.16 operator-home)", () => {
+  const HR = "─".repeat(40);
+  const v = (lines: readonly string[]) =>
+    composerVerdictFor(snap({ lines }), rulePackFor("omp"));
+
+  it("whitespace between the last two rules is empty", () => {
+    expect(v([HR, " ".repeat(40), " ".repeat(40), HR, "  model (2x usage)"])).toBe(
+      "empty",
+    );
+  });
+
+  it("hello in that box is a draft", () => {
+    expect(v([HR, "hello", HR, "  model (2x usage)"])).toBe("draft");
+  });
+
+  it("an approval dialog covering the box is unreadable", () => {
+    expect(v([HR, "  Allow once", "  Reject", HR])).toBe(null);
+  });
+});
+
 describe("fail-closed defaults", () => {
   it("a probe-less pack yields null — factory typing refuses", () => {
     expect(
-      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("omp")),
+      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("vellum-overseer")),
     ).toBe(null);
   });
 
@@ -418,6 +438,9 @@ describe("fail-closed defaults", () => {
   it("ungrounded firstTyped admits a one-shot empty; probed packs stay closed", () => {
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
+    ).toBe(null);
+    expect(
+      admitUngroundedFirstTypedComposer(null, rulePackFor("vellum-overseer"), true),
     ).toBe("empty");
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
