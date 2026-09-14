@@ -89,6 +89,18 @@ delivery check, not reproduction or repair of the original intermittent
 stuck-chip/resize failure. The unresolved-write containment remains separately
 covered by the failing-before/passing-after regression above.
 
+The trace also exposed a separate source-level defect: after the original
+claim was accepted, its identical briefing was attempted six more times,
+all refused before bytes because the seat was busy. `deliverWorkingClaims`
+currently calls the latest task history message a claim boundary and includes
+it in the receipt key. A `working` progress note appends a new message ID, so
+the same claim can bypass its accepted receipt. The live note timing is
+consistent with this mechanism; the journal does not include source receipt
+IDs, so that particular causal link remains inferred. A correct identity must
+follow the canonical `task.claim` fact across progress/comments and change on
+release/reclaim, including reclaim by the same actor. The unresolved-write
+guard does not resolve this accepted-delivery identity defect.
+
 The design being verified: **one agent surface** — a Vellum Command-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
 Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 2026-07) - hermes (2026-07, gpt-5.4/5.5 era) - herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
