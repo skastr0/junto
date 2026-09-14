@@ -941,3 +941,114 @@ describe("SessionObserver resize ordering", () => {
     }
   });
 });
+
+describe("SessionObserver queue depth", () => {
+  const make = (cols = 40, rows = 6): SessionObserver =>
+    new SessionObserver({ bindingId: "qd", epoch: "e1", cols, rows });
+  const depthOf = (obs: SessionObserver): number =>
+    (obs as unknown as { queueDepth: number }).queueDepth;
+  const termOf = (
+    obs: SessionObserver,
+  ): { write: (data: string, cb?: () => void) => void } =>
+    (obs as unknown as { term: { write: (data: string, cb?: () => void) => void } }).term;
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
+
+  it("stays unsettled at the first emit while a settle-chained write is still queued", async () => {
+    const obs = make();
+    try {
+      let atFirstEmit: boolean | undefined;
+      obs.subscribe((s) => {
+        if (s.seq === 1n && atFirstEmit === undefined) atFirstEmit = obs.isSettled();
+      });
+      obs.feed("a", 1n);
+      obs.feed("b", 2n); // waits behind the first write
+      const settled = await obs.snapshot(); // chains the second write now
+      expect(atFirstEmit, "second write still queued at the first emit").toBe(false);
+      expect(settled.seq).toBe(2n);
+      expect(settled.text).toContain("ab");
+      expect(obs.isSettled()).toBe(true);
+      expect(depthOf(obs)).toBe(0);
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  it("queued resizes apply in order behind the bytes and end at the last geometry", async () => {
+    const obs = make();
+    try {
+      const cols: number[] = [];
+      obs.subscribe((s) => {
+        cols.push(s.cols);
+      });
+      obs.feed("\x1b[2J\x1b[Habc", 1n);
+      obs.resize(20, 6);
+      obs.resize(30, 8);
+      expect(obs.isSettled()).toBe(false);
+      const settled = await obs.snapshot();
+      expect(settled.cols).toBe(30);
+      expect(settled.rows).toBe(8);
+      expect(settled.seq).toBe(1n);
+      expect(settled.lines[0]).toBe("abc");
+      expect(cols).toEqual([40, 20, 30]);
+      expect(obs.isSettled()).toBe(true);
+      expect(depthOf(obs)).toBe(0);
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  it("a write that throws releases the queue; later bytes still land", async () => {
+    const obs = make();
+    try {
+      const term = termOf(obs);
+      const realWrite = term.write.bind(term);
+      let throwOnce = true;
+      term.write = (data, cb) => {
+        if (throwOnce) {
+          throwOnce = false;
+          throw new Error("grid refused the write");
+        }
+        realWrite(data, cb);
+      };
+      obs.feed("lost", 1n);
+      await tick();
+      expect(obs.isSettled()).toBe(true);
+      expect(depthOf(obs)).toBe(0);
+
+      obs.feed("kept", 2n);
+      const settled = await obs.snapshot();
+      expect(settled.seq).toBe(2n);
+      expect(settled.text).toContain("kept");
+      expect(obs.isSettled()).toBe(true);
+      expect(depthOf(obs)).toBe(0);
+    } finally {
+      obs.dispose();
+    }
+  });
+
+  it("dispose with writes and a resize queued leaves no negative depth and emits nothing after", async () => {
+    const obs = make();
+    const emitted: bigint[] = [];
+    obs.subscribe((s) => {
+      emitted.push(s.seq);
+    });
+    obs.feed("a", 1n);
+    obs.feed("b", 2n);
+    obs.resize(20, 6);
+    expect(obs.isSettled()).toBe(false);
+    obs.dispose();
+    await tick();
+    // The grid still runs the queued callbacks after dispose, so the chain
+    // drains to zero rather than sticking; nothing is emitted for it.
+    expect(emitted).toEqual([]);
+    expect(depthOf(obs)).toBe(0);
+    // Late feeds and resizes on a disposed observer are inert.
+    obs.feed("c", 3n);
+    obs.resize(30, 8);
+    await tick();
+    expect(depthOf(obs)).toBe(0);
+    expect(emitted).toEqual([]);
+    // A settle on a disposed observer resolves rather than hanging.
+    await obs.snapshot();
+  });
+});
