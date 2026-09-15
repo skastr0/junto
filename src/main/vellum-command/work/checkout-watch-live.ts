@@ -81,15 +81,34 @@ import type { CrewRepositoryShape } from "./crew-repository";
 export type CheckoutWatchClaim = {
   readonly seatId: ActorSeatId;
   readonly taskId: string;
+  /** The board node the task row was observed on. */
+  readonly taskNodeId: string;
+  /** The seat's agent node on this canvas. */
   readonly nodeId: string;
   /** Canonical worktree path. */
   readonly checkoutKey: string;
   readonly via: CheckoutBindingVia;
+  /**
+   * Observed process identity of that seat, captured when the claim was
+   * derived. It is provenance, never re-read: a retained observation is
+   * stamped with the generation that was bound when its commit was attributed,
+   * so a replacement process can never relabel it.
+   */
+  readonly generation: string;
+  readonly harness: string;
 };
 
 export type CheckoutWatchContext = {
   readonly canvasName: string;
   readonly claims: ReadonlyArray<CheckoutWatchClaim>;
+};
+
+/** One board's live rows, as the canvas projection presents them. */
+export type CheckoutWatchBoard = {
+  readonly nodeId: string;
+  readonly tasks: ReadonlyArray<Task>;
+  /** That board's `ether.tasks.contract`, if authored. */
+  readonly contract: TasksContract | undefined;
 };
 
 /**
@@ -98,8 +117,7 @@ export type CheckoutWatchContext = {
  */
 export type CheckoutWatchFacts = {
   readonly canvasName: string;
-  readonly tasks: ReadonlyArray<Task>;
-  readonly contract: TasksContract | undefined;
+  readonly boards: ReadonlyArray<CheckoutWatchBoard>;
   /** Live process-bound seats for this canvas (`canvas.actorRefs`). */
   readonly actorRefs: ReadonlyArray<ActorRef>;
   readonly nodes: ReadonlyArray<CanvasNode>;
@@ -109,16 +127,25 @@ export type CheckoutWatchFacts = {
    * a node with no proven checkout yields no claim.
    */
   readonly checkoutKeyFor: (nodeId: string) => string | undefined;
+  /**
+   * Observed process identity for a seat node (the delivery snapshot's
+   * `generationKey` plus the harness), or undefined when the process is not
+   * live. A node with no observed process yields no claim.
+   */
+  readonly observedProcessFor: (
+    nodeId: string,
+  ) => { readonly generation: string; readonly harness: string } | undefined;
 };
 
 /**
  * Derive the active binding set from live facts.
  *
- * A claim needs all four: a live non-terminal task whose owner is a seat
+ * A claim needs all five: a live non-terminal task whose owner is a seat
  * (`currentTaskOwner` — terminal rows notify nobody, a Me board has no seat
  * claimant), that seat process-bound on *this* canvas, a managed seat whose
- * canonical delivery surface is this host, and a proven canonical checkout for
- * that seat's node. Missing any one yields no claim rather than a guess.
+ * canonical delivery surface is this host, a proven canonical checkout, and an
+ * observed process generation. Missing any one yields no claim rather than a
+ * guess.
  *
  * A seat binds one checkout: its process-bound node's proven worktree (the
  * first `actorRef` for a seat wins, so a duplicated ref cannot bind twice).
@@ -135,27 +162,34 @@ export const claimContextFrom = (facts: CheckoutWatchFacts): CheckoutWatchContex
   }
 
   const claims = new Map<string, CheckoutWatchClaim>();
-  for (const task of facts.tasks) {
-    const claimed = task.claimedBy;
-    if (claimed === undefined) continue;
-    const owner = currentTaskOwner(task, facts.contract);
-    if (owner.kind !== "seat" || owner.seatId !== claimed) continue;
-    const ref = actorBySeat.get(claimed);
-    if (ref === undefined) continue;
-    const node = nodesById.get(ref.nodeId);
-    if (node === undefined) continue;
-    const surface = actorDeliverySurfaceOf(node);
-    if (surface === undefined) continue;
-    if (surface.hostId !== DEFAULT_STATION_HOST_ID) continue;
-    const checkoutKey = facts.checkoutKeyFor(ref.nodeId)?.trim();
-    if (checkoutKey === undefined || checkoutKey.length === 0) continue;
-    claims.set(`${checkoutKey}\u0000${claimed}`, {
-      seatId: claimed,
-      taskId: task.id,
-      nodeId: ref.nodeId,
-      checkoutKey,
-      via: "claim-context",
-    });
+  for (const board of facts.boards) {
+    for (const task of board.tasks) {
+      const claimed = task.claimedBy;
+      if (claimed === undefined) continue;
+      const owner = currentTaskOwner(task, board.contract);
+      if (owner.kind !== "seat" || owner.seatId !== claimed) continue;
+      const ref = actorBySeat.get(claimed);
+      if (ref === undefined) continue;
+      const node = nodesById.get(ref.nodeId);
+      if (node === undefined) continue;
+      const surface = actorDeliverySurfaceOf(node);
+      if (surface === undefined) continue;
+      if (surface.hostId !== DEFAULT_STATION_HOST_ID) continue;
+      const checkoutKey = facts.checkoutKeyFor(ref.nodeId)?.trim();
+      if (checkoutKey === undefined || checkoutKey.length === 0) continue;
+      const process = facts.observedProcessFor(ref.nodeId);
+      if (process === undefined || process.generation.length === 0) continue;
+      claims.set(`${checkoutKey}\u0000${claimed}`, {
+        seatId: claimed,
+        taskId: task.id,
+        taskNodeId: board.nodeId,
+        nodeId: ref.nodeId,
+        checkoutKey,
+        via: "claim-context",
+        generation: process.generation,
+        harness: process.harness,
+      });
+    }
   }
   return { canvasName: facts.canvasName, claims: [...claims.values()] };
 };
@@ -244,12 +278,23 @@ export type CheckoutWatchReceiptFailure = {
   readonly message: string;
 };
 
-/** Ingredients of one attributed receipt delivery, grouped per (checkout, task, seat). */
+/** Ingredients of one attributed receipt delivery, grouped per (checkout, task, seat, generation). */
 export type CheckoutReceiptMailInput = {
   readonly canvasName: string;
+  /** The board node the task row was observed on. */
+  readonly taskNodeId: string;
   readonly checkoutKey: string;
   readonly taskId: string;
   readonly authorSeatId: ActorSeatId;
+  /** The seat's agent node, for the readable sender handle. */
+  readonly senderNodeId: string;
+  /**
+   * The generation observed when the commits were attributed — the historical
+   * provenance, never the current process's. The writer may stamp it as the
+   * sender generation; it must not replace it.
+   */
+  readonly senderGeneration: string;
+  readonly senderHarness: string;
   readonly shas: ReadonlyArray<string>;
 };
 
@@ -261,9 +306,22 @@ export type CheckoutWatchScanReceipt = {
   readonly observed: number;
   /** Observations in this pass that carried proven seat/task context. */
   readonly attributed: number;
+  /**
+   * Attributed observations with no receipt owed: the seat no longer holds the
+   * same task on the same checkout, or the observation carries no observed
+   * generation to stamp. Recorded, never mailed.
+   */
+  readonly unreceipted: number;
   /** Observations the durable plane already held. */
   readonly coalesced: number;
+  /**
+   * Groups the receipt writer accepted in this pass. A group the writer
+   * accepted may legitimately append nothing (a task that is gone, or a
+   * subject with no eligible reviewer), so this counts accepted groups.
+   */
   readonly receiptsDelivered: number;
+  /** Receipt records the writer appended in this pass. */
+  readonly receiptsAppended: number;
   /** Observations carried into the next pass after a failed delivery or record. */
   readonly retained: number;
   /** Retained observations dropped past the backlog bound. */
@@ -297,11 +355,20 @@ export type CheckoutWatchLiveOptions = {
    * and edge authority at write time — a claim observed here is only the
    * trigger, never standing authority — and it is idempotent on its own
    * natural key, because the same group may arrive twice after a failed record
-   * or a re-emitted range.
+   * or a re-emitted range. It must stamp `senderGeneration`/`senderHarness`
+   * exactly as given (the observed provenance) and never restamp them to the
+   * current process.
+   *
+   * Returns the number of receipt records it appended (0 for a task that is
+   * gone or a subject with no eligible reviewer — a receipt that is no longer
+   * owed). A failure is retained and retried, so the composition must translate
+   * a terminal refusal (for example a current-author mismatch) into an accepted
+   * group with zero appended records rather than a failure: nothing is owed, so
+   * there is nothing to retry.
    */
   readonly deliverReceipts: (
     input: CheckoutReceiptMailInput,
-  ) => Effect.Effect<void, CheckoutWatchReceiptFailure>;
+  ) => Effect.Effect<number, CheckoutWatchReceiptFailure>;
   /** Runner for timer-driven scans. The app runtime supplies it. */
   readonly run: <A>(effect: Effect.Effect<A, never, never>) => Promise<A>;
   readonly now?: () => number;
@@ -338,8 +405,10 @@ export const CHECKOUT_WATCH_MAX_RETAINED = 1_024;
 
 type DrainCounts = {
   readonly attributed: number;
+  readonly unreceipted: number;
   readonly coalesced: number;
   readonly receiptsDelivered: number;
+  readonly receiptsAppended: number;
   readonly retained: number;
   readonly dropped: number;
   readonly failed: number;
@@ -360,7 +429,7 @@ export const makeCheckoutWatchLive = (
     pending = [...pending, ...observations];
   });
 
-  const applied = new Map<string, CheckoutBinding>();
+  const applied = new Map<string, CheckoutWatchClaim>();
   const tracked = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let inFlight: Promise<CheckoutWatchScanReceipt> | undefined;
@@ -373,30 +442,34 @@ export const makeCheckoutWatchLive = (
 
   /** Track, bind and release so the watcher's view equals the live claims. */
   const applyContext = (claims: ReadonlyArray<CheckoutWatchClaim>): void => {
-    const desired = new Map<string, CheckoutBinding>();
+    const desired = new Map<string, CheckoutWatchClaim>();
     for (const claim of claims) {
       if (claim.checkoutKey.length === 0) continue;
-      desired.set(bindingKey(claim.checkoutKey, claim.seatId), {
-        checkoutKey: claim.checkoutKey,
-        seatId: claim.seatId,
-        taskId: claim.taskId,
-        via: claim.via,
-      });
+      desired.set(bindingKey(claim.checkoutKey, claim.seatId), claim);
     }
-    for (const [key, binding] of [...applied]) {
+    for (const [key, prior] of [...applied]) {
       if (desired.has(key)) continue;
-      watcher.bindings().release(binding.checkoutKey, binding.seatId);
+      watcher.bindings().release(prior.checkoutKey, prior.seatId);
       applied.delete(key);
     }
-    for (const [key, binding] of desired) {
+    for (const [key, claim] of desired) {
+      // The observed process generation rides the binding, so the pure watcher
+      // copies it verbatim onto every observation it attributes with it.
       watcher.track(
-        { checkoutKey: binding.checkoutKey, worktree: binding.checkoutKey },
-        binding,
+        { checkoutKey: claim.checkoutKey, worktree: claim.checkoutKey },
+        {
+          checkoutKey: claim.checkoutKey,
+          seatId: claim.seatId,
+          taskId: claim.taskId,
+          via: claim.via,
+          generation: claim.generation,
+          harness: claim.harness,
+        },
       );
-      applied.set(key, binding);
-      tracked.add(binding.checkoutKey);
+      applied.set(key, claim);
+      tracked.add(claim.checkoutKey);
     }
-    const live = new Set([...desired.values()].map((binding) => binding.checkoutKey));
+    const live = new Set([...desired.values()].map((claim) => claim.checkoutKey));
     for (const checkoutKey of [...tracked]) {
       if (live.has(checkoutKey)) continue;
       watcher.untrack(checkoutKey);
@@ -426,8 +499,10 @@ export const makeCheckoutWatchLive = (
 
   const emptyCounts = (): DrainCounts => ({
     attributed: 0,
+    unreceipted: 0,
     coalesced: 0,
     receiptsDelivered: 0,
+    receiptsAppended: 0,
     retained: pending.length,
     dropped: 0,
     failed: 0,
@@ -441,9 +516,19 @@ export const makeCheckoutWatchLive = (
       const retained: CheckoutObservation[] = [];
       const groups = new Map<
         string,
-        { readonly checkoutKey: string; readonly taskId: string; readonly seatId: ActorSeatId; readonly observations: CheckoutObservation[] }
+        {
+          readonly checkoutKey: string;
+          readonly taskId: string;
+          readonly seatId: ActorSeatId;
+          readonly generation: string;
+          readonly harness: string;
+          readonly taskNodeId: string;
+          readonly senderNodeId: string;
+          readonly observations: CheckoutObservation[];
+        }
       >();
       let attributed = 0;
+      let unreceipted = 0;
       let coalesced = 0;
       let failed = 0;
 
@@ -454,7 +539,9 @@ export const makeCheckoutWatchLive = (
           retained.push(observation);
           continue;
         }
-        if (observation.seatId === undefined || observation.taskId === undefined) {
+        const seatId = observation.seatId;
+        const taskId = observation.taskId;
+        if (seatId === undefined || taskId === undefined) {
           // Unattributed: recorded, exposed, never seat-claimed.
           const recorded = yield* record(observation, undefined, at);
           if (Result.isFailure(recorded)) {
@@ -467,11 +554,44 @@ export const makeCheckoutWatchLive = (
           continue;
         }
         attributed += 1;
-        const key = `${observation.checkoutKey}\u0000${observation.taskId}\u0000${observation.seatId}`;
+
+        // A receipt is owed only while the SAME stable seat still holds the
+        // SAME task on the SAME checkout: the current claim supplies the live
+        // authority and the task board node, the observation supplies the
+        // generation that was bound when the commit landed. Neither is taken
+        // from the other.
+        const claim = applied.get(bindingKey(observation.checkoutKey, seatId));
+        const generation = observation.generation;
+        const harness = observation.harness;
+        if (
+          claim === undefined ||
+          claim.taskId !== taskId ||
+          generation === undefined ||
+          generation.length === 0 ||
+          harness === undefined
+        ) {
+          // Nothing is owed: still recorded with its attribution, never mailed.
+          unreceipted += 1;
+          const recorded = yield* record(observation, { seatId, taskId }, at);
+          if (Result.isFailure(recorded)) {
+            failed += 1;
+            retained.push(observation);
+            options.onError?.(recorded.failure);
+            continue;
+          }
+          if (!recorded.success) coalesced += 1;
+          continue;
+        }
+
+        const key = `${observation.checkoutKey}\u0000${taskId}\u0000${seatId}\u0000${generation}`;
         const group = groups.get(key) ?? {
           checkoutKey: observation.checkoutKey,
-          taskId: observation.taskId,
-          seatId: observation.seatId,
+          taskId,
+          seatId,
+          generation,
+          harness,
+          taskNodeId: claim.taskNodeId,
+          senderNodeId: claim.nodeId,
           observations: [],
         };
         group.observations.push(observation);
@@ -479,6 +599,7 @@ export const makeCheckoutWatchLive = (
       }
 
       let receiptsDelivered = 0;
+      let receiptsAppended = 0;
       for (const group of groups.values()) {
         if (stopped) {
           retained.push(...group.observations);
@@ -487,9 +608,13 @@ export const makeCheckoutWatchLive = (
         const delivered = yield* Effect.result(
           options.deliverReceipts({
             canvasName,
+            taskNodeId: group.taskNodeId,
             checkoutKey: group.checkoutKey,
             taskId: group.taskId,
             authorSeatId: group.seatId,
+            senderNodeId: group.senderNodeId,
+            senderGeneration: group.generation,
+            senderHarness: group.harness,
             shas: group.observations.map((observation) => observation.sha),
           }),
         );
@@ -502,6 +627,7 @@ export const makeCheckoutWatchLive = (
           continue;
         }
         receiptsDelivered += 1;
+        receiptsAppended += delivered.success;
         for (const observation of group.observations) {
           if (stopped) {
             retained.push(observation);
@@ -537,8 +663,10 @@ export const makeCheckoutWatchLive = (
       }
       return {
         attributed,
+        unreceipted,
         coalesced,
         receiptsDelivered,
+        receiptsAppended,
         retained: pending.length,
         dropped,
         failed,
@@ -554,8 +682,10 @@ export const makeCheckoutWatchLive = (
     checkouts: tracked.size,
     observed,
     attributed: counts.attributed,
+    unreceipted: counts.unreceipted,
     coalesced: counts.coalesced,
     receiptsDelivered: counts.receiptsDelivered,
+    receiptsAppended: counts.receiptsAppended,
     retained: counts.retained,
     dropped: counts.dropped,
     failed: counts.failed,
@@ -651,7 +781,7 @@ export type CheckoutWatchSupervisorOptions = {
   ) => Effect.Effect<ReadonlyArray<CheckoutWatchClaim>, never>;
   readonly deliverReceipts: (
     input: CheckoutReceiptMailInput,
-  ) => Effect.Effect<void, CheckoutWatchReceiptFailure>;
+  ) => Effect.Effect<number, CheckoutWatchReceiptFailure>;
   readonly run: <A>(effect: Effect.Effect<A, never, never>) => Promise<A>;
   readonly now?: () => number;
   readonly pollMs?: number;

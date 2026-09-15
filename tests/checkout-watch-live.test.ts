@@ -83,14 +83,24 @@ const facts = (input: {
   nodes: ReadonlyArray<CanvasNode>;
   actorRefs: ReadonlyArray<ActorRef>;
   contract?: TasksContract;
+  board?: string;
   checkoutFor?: (nodeId: string) => string | undefined;
+  processFor?: (
+    nodeId: string,
+  ) => { readonly generation: string; readonly harness: string } | undefined;
 }) => ({
   canvasName: CANVAS,
-  tasks: input.tasks,
-  contract: input.contract,
+  boards: [
+    {
+      nodeId: input.board ?? "sink",
+      tasks: input.tasks,
+      contract: input.contract,
+    },
+  ],
   actorRefs: input.actorRefs,
   nodes: input.nodes,
   checkoutKeyFor: input.checkoutFor ?? ((nodeId: string) => `/co-${nodeId}`),
+  observedProcessFor: input.processFor ?? (() => ({ generation: "gen-1", harness: "claude" })),
 });
 
 type ProbeHarness = {
@@ -189,6 +199,7 @@ type LiveHarness = {
   readonly errors: unknown[];
   setClaims: (next: ReadonlyArray<CheckoutWatchClaim>) => void;
   setDeliveryFailing: (failing: boolean) => void;
+  setAppendedPerGroup: (next: number) => void;
   readonly contextReads: () => number;
 };
 
@@ -197,12 +208,16 @@ const claim = (
   taskId: string,
   nodeId: string,
   checkoutKey: string = CHECKOUT,
+  provenance: { readonly generation?: string; readonly harness?: string } = {},
 ): CheckoutWatchContext["claims"][number] => ({
   seatId,
   taskId,
+  taskNodeId: "sink",
   nodeId,
   checkoutKey,
   via: "claim-context",
+  generation: provenance.generation ?? "gen-1",
+  harness: provenance.harness ?? "claude",
 });
 
 const makeLive = (
@@ -216,6 +231,7 @@ const makeLive = (
   let claims = initial;
   let contextReads = 0;
   let deliveryFailing = false;
+  let appendedPerGroup = 1;
   const live = makeCheckoutWatchLive({
     canvasName: CANVAS,
     probe: probe.probe,
@@ -231,7 +247,7 @@ const makeLive = (
           return Effect.fail({ reason: "test", message: "delivery failed" });
         }
         delivered.push(input);
-        return Effect.void;
+        return Effect.succeed(appendedPerGroup);
       }),
     run: runEffect,
     now: () => 1_700_000_000_000,
@@ -251,6 +267,9 @@ const makeLive = (
     },
     setDeliveryFailing: (failing) => {
       deliveryFailing = failing;
+    },
+    setAppendedPerGroup: (next) => {
+      appendedPerGroup = next;
     },
     contextReads: () => contextReads,
   };
@@ -283,7 +302,16 @@ describe("claimContextFrom — proven context only", () => {
     );
     expect(context.canvasName).toBe(CANVAS);
     expect(context.claims).toEqual([
-      { seatId: SEAT_A, taskId: "t1", nodeId: "n1", checkoutKey: CHECKOUT, via: "claim-context" },
+      {
+        seatId: SEAT_A,
+        taskId: "t1",
+        taskNodeId: "sink",
+        nodeId: "n1",
+        checkoutKey: CHECKOUT,
+        via: "claim-context",
+        generation: "gen-1",
+        harness: "claude",
+      },
     ]);
   });
 
@@ -405,6 +433,27 @@ describe("claimContextFrom — proven context only", () => {
     expect(context.claims.map((entry) => entry.seatId).sort()).toEqual(
       [SEAT_A, SEAT_B].sort(),
     );
+  });
+
+  it("a seat with no observed process generation yields no claim", () => {
+    const noProcess = claimContextFrom(
+      facts({
+        tasks: [task("t1", "working", SEAT_A)],
+        nodes: [agentNode("n1")],
+        actorRefs: [actorRef(SEAT_A, "n1")],
+        processFor: () => undefined,
+      }),
+    );
+    expect(noProcess.claims).toEqual([]);
+    const blankGeneration = claimContextFrom(
+      facts({
+        tasks: [task("t1", "working", SEAT_A)],
+        nodes: [agentNode("n1")],
+        actorRefs: [actorRef(SEAT_A, "n1")],
+        processFor: () => ({ generation: "", harness: "claude" }),
+      }),
+    );
+    expect(blankGeneration.claims).toEqual([]);
   });
 
   it("a duplicated actorRef for one seat resolves deterministically to the first", () => {
@@ -623,9 +672,13 @@ describe("makeCheckoutWatchLive — baseline, attribution, coalescing", () => {
     expect(harness.delivered).toEqual([
       {
         canvasName: CANVAS,
+        taskNodeId: "sink",
         checkoutKey: CHECKOUT,
         taskId: "t1",
         authorSeatId: SEAT_A,
+        senderNodeId: "n1",
+        senderGeneration: "gen-1",
+        senderHarness: "claude",
         shas: ["s2"],
       },
     ]);
@@ -836,6 +889,87 @@ describe("makeCheckoutWatchLive — baseline, attribution, coalescing", () => {
     expect(harness.repository.calls).toHaveLength(1);
   });
 
+  it("retains the observed generation verbatim when the claim moves on", async () => {
+    const harness = makeLive([claim(SEAT_A, "t1", "n1")]);
+    harness.probe.heads.set(CHECKOUT, "h1");
+    await runEffect(harness.live.scanOnce());
+    harness.probe.heads.set(CHECKOUT, "h2");
+    harness.probe.ranges.set(`${CHECKOUT}\u0000h1..h2`, ["s2"]);
+    harness.setDeliveryFailing(true);
+    const failed = await runEffect(harness.live.scanOnce());
+    expect(failed).toMatchObject({ retained: 1, receiptsDelivered: 0 });
+
+    // A replacement process takes the seat before the retry. The receipt is
+    // still owed — same stable author, same claim, same checkout — but it must
+    // carry the generation that was observed when the commit landed.
+    harness.setClaims([
+      claim(SEAT_A, "t1", "n1", CHECKOUT, { generation: "gen-2" }),
+    ]);
+    harness.setDeliveryFailing(false);
+    const retried = await runEffect(harness.live.scanOnce());
+    expect(retried).toMatchObject({ receiptsDelivered: 1, receiptsAppended: 1, retained: 0 });
+    expect(harness.delivered.map((mail) => mail.senderGeneration)).toEqual(["gen-1"]);
+    expect(harness.repository.calls).toHaveLength(1);
+  });
+
+  it("never mixes two generations of one seat in one delivery group", async () => {
+    const harness = makeLive([claim(SEAT_A, "t1", "n1")]);
+    harness.probe.heads.set(CHECKOUT, "h1");
+    await runEffect(harness.live.scanOnce());
+    harness.probe.heads.set(CHECKOUT, "h2");
+    harness.probe.ranges.set(`${CHECKOUT}\u0000h1..h2`, ["s2"]);
+    harness.setDeliveryFailing(true);
+    await runEffect(harness.live.scanOnce());
+
+    harness.setClaims([
+      claim(SEAT_A, "t1", "n1", CHECKOUT, { generation: "gen-2" }),
+    ]);
+    harness.setDeliveryFailing(false);
+    harness.probe.heads.set(CHECKOUT, "h3");
+    harness.probe.ranges.set(`${CHECKOUT}\u0000h2..h3`, ["s3"]);
+    const pass = await runEffect(harness.live.scanOnce());
+    expect(pass).toMatchObject({ observed: 1, attributed: 2, receiptsDelivered: 2 });
+    expect(
+      harness.delivered.map((mail) => [mail.senderGeneration, [...mail.shas]]),
+    ).toEqual([
+      ["gen-1", ["s2"]],
+      ["gen-2", ["s3"]],
+    ]);
+  });
+
+  it("records but never mails a retained commit whose task the seat has left", async () => {
+    const harness = makeLive([claim(SEAT_A, "t1", "n1")]);
+    harness.probe.heads.set(CHECKOUT, "h1");
+    await runEffect(harness.live.scanOnce());
+    harness.probe.heads.set(CHECKOUT, "h2");
+    harness.probe.ranges.set(`${CHECKOUT}\u0000h1..h2`, ["s2"]);
+    harness.setDeliveryFailing(true);
+    await runEffect(harness.live.scanOnce());
+    // The seat has moved on to another task on the same checkout before the
+    // retained receipt could be written.
+    harness.setClaims([claim(SEAT_A, "t9", "n1")]);
+    harness.setDeliveryFailing(false);
+    const receipt = await runEffect(harness.live.scanOnce());
+    expect(receipt).toMatchObject({
+      observed: 0,
+      attributed: 1,
+      unreceipted: 1,
+      receiptsDelivered: 0,
+      retained: 0,
+    });
+    expect(harness.delivered).toEqual([]);
+    expect(harness.repository.calls).toEqual([
+      {
+        checkoutKey: CHECKOUT,
+        sha: "s2",
+        seatId: SEAT_A,
+        taskId: "t1",
+        attributedVia: "claim-context",
+        observedAt: new Date(1_700_000_000_000).toISOString(),
+      },
+    ]);
+  });
+
   it("bounds the retry backlog instead of growing without limit", async () => {
     const harness = makeLive([claim(SEAT_A, "t1", "n1")]);
     harness.probe.heads.set(CHECKOUT, "h1");
@@ -867,6 +1001,7 @@ describe("makeCheckoutWatchSupervisor — one watcher per live canvas", () => {
     const delivered: CheckoutReceiptMailInput[] = [];
     const errors: unknown[] = [];
     let deliveryFailing = false;
+    let appendedPerGroup = 1;
     const supervisor = makeCheckoutWatchSupervisor({
       probe: probe.probe,
       repository: repository.repository,
@@ -878,7 +1013,7 @@ describe("makeCheckoutWatchSupervisor — one watcher per live canvas", () => {
             return Effect.fail({ reason: "test", message: "delivery failed" });
           }
           delivered.push(mail);
-          return Effect.void;
+          return Effect.succeed(appendedPerGroup);
         }),
       run: runEffect,
       now: () => 1_700_000_000_000,
@@ -894,6 +1029,9 @@ describe("makeCheckoutWatchSupervisor — one watcher per live canvas", () => {
       errors,
       setDeliveryFailing: (next: boolean) => {
         deliveryFailing = next;
+      },
+      setAppendedPerGroup: (next: number) => {
+        appendedPerGroup = next;
       },
     };
   };
@@ -917,8 +1055,28 @@ describe("makeCheckoutWatchSupervisor — one watcher per live canvas", () => {
     const pass = await runEffect(harness.supervisor.scanOnce());
     expect(pass.map((entry) => entry.receipt.receiptsDelivered)).toEqual([1, 1]);
     expect(harness.delivered).toEqual([
-      { canvasName: "board-a", checkoutKey: "/co-board-a", taskId: "t-board-a", authorSeatId: SEAT_A, shas: ["a2"] },
-      { canvasName: "board-b", checkoutKey: "/co-board-b", taskId: "t-board-b", authorSeatId: SEAT_A, shas: ["b2"] },
+      {
+        canvasName: "board-a",
+        taskNodeId: "sink",
+        checkoutKey: "/co-board-a",
+        taskId: "t-board-a",
+        authorSeatId: SEAT_A,
+        senderNodeId: "n1",
+        senderGeneration: "gen-1",
+        senderHarness: "claude",
+        shas: ["a2"],
+      },
+      {
+        canvasName: "board-b",
+        taskNodeId: "sink",
+        checkoutKey: "/co-board-b",
+        taskId: "t-board-b",
+        authorSeatId: SEAT_A,
+        senderNodeId: "n1",
+        senderGeneration: "gen-1",
+        senderHarness: "claude",
+        shas: ["b2"],
+      },
     ]);
 
     // Closing a canvas stops its watcher; the other keeps polling.
@@ -957,7 +1115,17 @@ describe("makeCheckoutWatchSupervisor — one watcher per live canvas", () => {
     const afterClose = await runEffect(harness.supervisor.scanOnce());
     expect(afterClose.map((entry) => entry.canvasName)).toEqual(["board-b"]);
     expect(harness.delivered).toEqual([
-      { canvasName: "board-b", checkoutKey: "/co-board-b", taskId: "t-board-b", authorSeatId: SEAT_A, shas: ["b2"] },
+      {
+        canvasName: "board-b",
+        taskNodeId: "sink",
+        checkoutKey: "/co-board-b",
+        taskId: "t-board-b",
+        authorSeatId: SEAT_A,
+        senderNodeId: "n1",
+        senderGeneration: "gen-1",
+        senderHarness: "claude",
+        shas: ["b2"],
+      },
     ]);
   });
 
