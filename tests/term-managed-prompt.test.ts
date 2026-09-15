@@ -157,7 +157,7 @@ describe("term control managedPrompt", () => {
       seatState: () => "unknown",
       onAttention: () => undefined,
       snapshot: () => undefined,
-      composerVerdict: () => "unreadable",
+      composerVerdict: () => null,
       harnessFor: () => "codex",
     });
     const write = vi.spyOn(drive, "writePrompt").mockResolvedValue(outcome);
