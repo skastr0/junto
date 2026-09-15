@@ -85,23 +85,37 @@ const factoryMailFromSeat = (message: Message): string | undefined => {
   return trimmed.length > 0 ? trimmed.slice(0, 32) : undefined;
 };
 
-/** Installed messages may still carry the old envelope in their body. */
+/** Strip only a recognized envelope; sender text elsewhere remains the body. */
+const stripFactoryEnvelope = (text: string, message: Message): string => {
+  const body = text.replace(/^\[factory mail from [^\]]*\]\s*/i, "").trim();
+  const labels = [message.metadata?.senderName, message.metadata?.senderNodeId, message.metadata?.fromSeat]
+    .filter((value): value is string => typeof value === "string")
+    .map(sanitizeDeliveryLine)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (const label of labels) {
+    const prefix = `mail from ${label}`;
+    if (body.startsWith(prefix) && (body.length === prefix.length || /\s/.test(body[prefix.length]!))) {
+      return body.slice(prefix.length).trim();
+    }
+  }
+  return body;
+};
+
 const briefWithoutFactoryEnvelope = (message: Message): string =>
-  messageBriefText(message)
-    .replace(/^\[factory mail from [^\]]*\]\s*/i, "")
-    .trim();
+  stripFactoryEnvelope(messageBriefText(message), message);
 
 /** Full-body prompt policy has its own composer; notices never choose it. */
 export const composeImmediatePromptPayload = (message: Message): string => {
   const from = factoryMailFromSeat(message) ?? "seat";
-  const body = message.parts
+  const raw = message.parts
     .filter((part) => part.kind === "text")
     .map((part) => part.text)
     .join("\n")
-    .replace(/^\[factory mail from [^\]]*\]\s*/i, "")
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "")
     .trim();
+  const body = stripFactoryEnvelope(raw, message);
   return `mail from ${from}\n${body}`;
 };
 

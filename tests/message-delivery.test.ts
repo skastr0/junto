@@ -50,6 +50,16 @@ const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"]
 });
 
 describe("message-delivery pure helpers", () => {
+  it("strips recognized current envelopes without dropping other sender-like prose", () => {
+    const message = userMsg({
+      metadata: { factoryMail: true, fromSeat: "seat-a", senderName: "Peer Reviewer" },
+      parts: [{ kind: "text", text: "mail from Peer Reviewer\nReview the patch" }],
+    });
+    expect(composeMessageDeliveryPayload(message)).toContain("mail from Peer Reviewer — Review the patch");
+    expect(composeImmediatePromptPayload(message)).toBe("mail from Peer Reviewer\nReview the patch");
+    expect(composeImmediatePromptPayload({ ...message, parts: [{ kind: "text", text: "mail from someone else should be checked" }] }))
+      .toContain("mail from someone else should be checked");
+  });
   it("preserves a prompt body and attributes it to the server-stamped sender", () => {
     const message = userMsg({
       metadata: { factoryMail: true, mailKind: "prompt", fromSeat: "seat_hash", senderName: "Reviewer" },
