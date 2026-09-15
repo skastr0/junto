@@ -10,12 +10,14 @@ import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
   MailAttemptFacts as MailAttemptFactsSchema,
+  MailAttemptReason as MailAttemptReasonSchema,
   MailEvidenceRef as MailEvidenceRefSchema,
   deriveMailDisplayState,
   normalizeDisplayTimestamp,
   readMailExtension,
   type MailAttemptFacts as CanonicalMailAttemptFacts,
   type MailAttemptReason,
+  type MailDisplayFacts,
   type MailDisplayState,
   type MailEvidenceRef,
   type MailKind,
@@ -24,7 +26,8 @@ import {
 export type { MailEvidenceRef, MailKind };
 export type MailDeliveryDisplay = MailDisplayState;
 
-export type MailAttemptFacts = {
+/** Ledger view: transport attempt plus receipt-plane stamps. Not a schema. */
+export type MailViewFacts = {
   readonly queuedAt: number | string | undefined;
   readonly notifiedAt: number | string | undefined;
   readonly unresolvedAt: number | string | undefined;
@@ -36,6 +39,9 @@ export type MailAttemptFacts = {
   readonly generation: string | undefined;
 };
 
+/** @deprecated use MailViewFacts — kept for existing ledger imports. */
+export type MailAttemptFacts = MailViewFacts;
+
 const nonempty = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
@@ -44,6 +50,7 @@ const isMailKind = (value: unknown): value is MailKind =>
 
 const decodeEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRefSchema);
 const decodeAttemptFacts = Schema.decodeUnknownOption(MailAttemptFactsSchema);
+const decodeAttemptReason = Schema.decodeUnknownOption(MailAttemptReasonSchema);
 
 export const parseMailEvidenceRef = (
   value: unknown,
@@ -69,7 +76,7 @@ export const parseMailEvidenceRefs = (
  * physical write cannot be hidden by a no-write retry.
  */
 export const deriveMailDisplay = (
-  facts: MailAttemptFacts,
+  facts: MailViewFacts,
 ): MailDeliveryDisplay =>
   deriveMailDisplayState({
     queuedAt: normalizeDisplayTimestamp(facts.queuedAt),
@@ -79,7 +86,7 @@ export const deriveMailDisplay = (
     readAt: normalizeDisplayTimestamp(facts.readAt),
     repliedAt: normalizeDisplayTimestamp(facts.repliedAt),
     reactedAt: normalizeDisplayTimestamp(facts.reactedAt),
-  });
+  } satisfies MailDisplayFacts);
 
 export const mailDisplayLabel = (display: MailDeliveryDisplay): string => {
   switch (display) {
@@ -150,40 +157,31 @@ const stampOf = (value: unknown): number | string | undefined => {
   return nonempty(value);
 };
 
-const isAttemptReason = (value: unknown): value is MailAttemptReason =>
-  value === "seat-busy" ||
-  value === "composer-draft" ||
-  value === "composer-unreadable" ||
-  value === "operator-interlock" ||
-  value === "not-idle" ||
-  value === "not-settled" ||
-  value === "paused" ||
-  value === "no-lease" ||
-  value === "seat-gone" ||
-  value === "oversize" ||
-  value === "written-no-evidence";
-
 /**
- * Transport facts use the exported MailAttemptFacts names. Receipt stamps
- * stay on the root envelope (`readAt`, and the historical `deliveredAt`
- * notify receipt). No parallel metadata keys.
+ * Transport facts are the flat MailAttemptFacts keys p15 projects from
+ * work_mail_attempts. Receipt stamps stay on the existing plane. The only
+ * reason key is refusedReason.
  */
 export const mailAttemptFactsOf = (
   message: Message,
   queuedAt: number | undefined,
-): MailAttemptFacts => {
+): MailViewFacts => {
   const meta = message.metadata;
   const decoded = decodeAttemptFacts(meta);
   const transport: CanonicalMailAttemptFacts | undefined =
     decoded._tag === "Some" ? decoded.value : undefined;
+  const refused = decodeAttemptReason(meta?.refusedReason);
   return {
-    queuedAt: transport?.queuedAt ?? queuedAt,
-    notifiedAt: transport?.notifiedAt ?? stampOf(meta?.notifiedAt) ?? stampOf(meta?.deliveredAt),
+    queuedAt: transport?.queuedAt ?? stampOf(meta?.queuedAt) ?? queuedAt,
+    notifiedAt:
+      transport?.notifiedAt ??
+      stampOf(meta?.notifiedAt) ??
+      stampOf(meta?.deliveredAt),
     unresolvedAt: transport?.unresolvedAt ?? stampOf(meta?.unresolvedAt),
     refusedAt: transport?.refusedAt ?? stampOf(meta?.refusedAt),
     refusedReason:
       transport?.refusedReason ??
-      (isAttemptReason(meta?.refusedReason) ? meta.refusedReason : undefined),
+      (refused._tag === "Some" ? refused.value : undefined),
     readAt: stampOf(meta?.readAt),
     repliedAt: stampOf(meta?.repliedAt),
     reactedAt: stampOf(meta?.reactedAt),
@@ -193,12 +191,13 @@ export const mailAttemptFactsOf = (
 
 export const mailSubjectOf = (message: Message): string | undefined => {
   const extension = readMailExtension(message.metadata);
-  return nonempty(extension?.subject) ?? nonempty(message.metadata?.subject);
+  if (extension !== undefined) return nonempty(extension.subject);
+  return nonempty(message.metadata?.subject);
 };
 
 export const mailRefsOf = (message: Message): ReadonlyArray<MailEvidenceRef> => {
   const extension = readMailExtension(message.metadata);
-  if (extension?.refs !== undefined) return extension.refs;
+  if (extension !== undefined) return extension.refs ?? [];
   return parseMailEvidenceRefs(message.metadata?.refs);
 };
 
@@ -260,7 +259,7 @@ export type CrewMailView = {
   readonly messageId: string;
   readonly kind: MailKind | undefined;
   readonly subject: string | undefined;
-  readonly facts: MailAttemptFacts;
+  readonly facts: MailViewFacts;
   readonly display: MailDeliveryDisplay;
   readonly displayReason: string | undefined;
   readonly refs: ReadonlyArray<MailEvidenceRef>;

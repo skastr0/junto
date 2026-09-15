@@ -90,6 +90,28 @@ describe("crewMailViewOf", () => {
 });
 
 describe("mailAttemptFactsOf via crewMailViewOf", () => {
+  it("ignores refuseReason and only reads refusedReason", () => {
+    const ignored = crewMailViewOf(
+      message({
+        refusedAt: "2026-01-01T00:00:04.000Z",
+        refuseReason: "seat-busy",
+      }),
+      1,
+    );
+    expect(ignored.display).toBe("refused");
+    expect(ignored.displayReason).toBeUndefined();
+    expect(ignored.facts.refusedReason).toBeUndefined();
+    const named = crewMailViewOf(
+      message({
+        refusedAt: "2026-01-01T00:00:04.000Z",
+        refusedReason: "seat-busy",
+      }),
+      1,
+    );
+    expect(named.facts.refusedReason).toBe("seat-busy");
+    expect(named.displayReason).toBe("seat-busy");
+  });
+
   it("reads flat MailAttemptFacts names and keeps unresolved above refusal", () => {
     const view = crewMailViewOf(
       message({
