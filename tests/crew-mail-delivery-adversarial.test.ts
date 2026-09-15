@@ -111,7 +111,7 @@ const makeAttemptLedger = () => {
     messageId: input.messageId,
     recipient: {
       seat: {
-        seatId: "seat_recipient" as DeliveryAttempt["recipient"]["seat"]["seatId"],
+        seatId: `seat_${"a".repeat(64)}` as DeliveryAttempt["recipient"]["seat"]["seatId"],
         canvasName: input.canvas,
         nodeId: input.nodeId,
       },

@@ -202,10 +202,9 @@ describe("sendTaskOn writer-time review gate", () => {
     expect((await taskAt(s2, "task-control"))?.state).toBe("submitted");
   });
 
-  it.fails(
-    "a failing reviewGate must refuse the send-on commit — the field is " +
-      "dropped today, so a concurrent blocking verdict between preflight " +
-      "and commit is never caught on the move-to-next-board path",
+  it(
+    "a failing reviewGate refuses the send-on commit — the writer-time " +
+      "re-check runs inside the move-to-next-board transaction",
     async () => {
       await mintTask("task-gated");
       const unsatisfiableGate = {
