@@ -280,7 +280,7 @@ const msgSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 | intent | command |
 |---|---|
 | read / write thread | \`vellum-command msg list\` (own inbox, no target — marks listed mail read; \`sent\` shows whether peers read your mail) - \`vellum-command msg send '{"target":"${t}","text":"..."}'\` - \`vellum-command msg react '{"messageId":"<msgId>"}'\` (ack, reply later) - \`vellum-command msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |
-| factory mail | when mail arrives: \`msg list\` (own inbox). \`msg react\` if you will reply later. \`msg reply\` when you have an answer. |
+| peer mail | Mailbox is pull-only: at every turn boundary run \`msg list\`. A typed notice may also arrive as \`mail from <seat>\`. When mail arrives: \`msg list\` (own inbox). \`msg react\` if you will reply later. \`msg reply\` when you have an answer. |
 
 Batch: \`msg send/read/reply\` accept a JSON array; add \`--concurrency <n>\`.`;
 };

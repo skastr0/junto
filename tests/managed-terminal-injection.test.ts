@@ -74,7 +74,8 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).toContain(`vellum-command escalate '{"target":"req-1"`);
     // msg slot
     expect(text).toContain("### Edge contract — messages");
-    expect(text).toContain("factory mail");
+    expect(text).toContain("pull-only");
+    expect(text).toContain("mail from <seat>");
     // NOT compiled: artifacts / board (no such edges)
     expect(text).not.toContain("### Edge contract — artifacts");
     expect(text).not.toContain("### Edge contract — board");
