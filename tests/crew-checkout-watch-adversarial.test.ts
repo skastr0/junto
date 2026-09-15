@@ -124,10 +124,9 @@ describe("checkout watcher scan — honest bounded pass", () => {
     expect(obs[0]?.seatId).toBeUndefined();
   });
 
-  it.fails(
-    "a newCommits failure loses the range forever — lastSeen advances " +
-      "before the rev-list runs, so the next scan diffs against the head it " +
-      "never enumerated (same gap for an onObservations throw)",
+  it(
+    "a newCommits failure retries the exact range — lastSeen commits only " +
+      "after successful enumeration and emission",
     async () => {
       let head = "h1";
       let calls = 0;
@@ -152,6 +151,37 @@ describe("checkout watcher scan — honest bounded pass", () => {
       await expect(w.scan()).rejects.toThrow("rev-list boom");
       // The failed range h1..h2 must not be skipped: the next scan must
       // still enumerate it.
+      const obs = await w.scan();
+      expect(obs.map((o) => o.sha)).toEqual(["c1", "c2"]);
+      expect(emitted).toEqual(["c1", "c2"]);
+    },
+  );
+
+  it(
+    "an onObservations throw leaves every watermark in place — emission " +
+      "is the commit point, so the exact range re-emits next scan",
+    async () => {
+      let head = "h1";
+      let sinkCalls = 0;
+      const emitted: string[] = [];
+      const w = new CheckoutWatcher(
+        probe({
+          head: async () => ({ branch: "main", head }),
+          newCommits: async () => ["c1", "c2"],
+        }),
+        (obs) => {
+          sinkCalls += 1;
+          if (sinkCalls === 1) throw new Error("durable sink boom");
+          obs.forEach((o) => emitted.push(o.sha));
+        },
+      );
+      w.track(
+        { checkoutKey: "co-1", worktree: "/wt" },
+        { checkoutKey: "co-1", seatId: SEAT_A, taskId: "t1", via: "claim-context" },
+      );
+      await w.scan(); // baseline at h1
+      head = "h2";
+      await expect(w.scan()).rejects.toThrow("durable sink boom");
       const obs = await w.scan();
       expect(obs.map((o) => o.sha)).toEqual(["c1", "c2"]);
       expect(emitted).toEqual(["c1", "c2"]);
