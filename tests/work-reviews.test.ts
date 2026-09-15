@@ -6,6 +6,7 @@ import { LogicalSequence } from "../src/shared/work-protocol";
 import { Port } from "../src/shared/physics/schema";
 import {
   evaluateReviewGate,
+  planCheckoutReceiptMail,
   planReceiptMail,
   planVerdictPost,
   receiptDedupeKey,
@@ -658,6 +659,7 @@ describe("receipt feed — exact source/ref dedupe", () => {
     // CAS subject (no task-read grant widening) — in the returned shape, in
     // metadata, and actionably in the body with the target sink.
     expect(mail.subject.kind).toBe("task");
+    if (mail.subject.kind !== "task") return;
     expect(mail.subject.subjectHash).toMatch(/^[0-9a-f]{64}$/);
     const metadata = mail.message.metadata as Record<string, unknown>;
     expect(metadata.mailKind).toBe("receipt");
@@ -723,5 +725,82 @@ describe("receipt feed — exact source/ref dedupe", () => {
     });
     expect(planned.coalesced).toBe(1);
     expect(planned.mail).toHaveLength(0);
+  });
+});
+
+describe("checkout receipt feed — standalone commit subjects", () => {
+  const REVIEWER_2 = `seat_${"c".repeat(64)}` as ActorSeatId;
+
+  const plan = (over?: {
+    shas?: ReadonlyArray<string>;
+    reviewers?: ReadonlyArray<{ nodeId: string; seatId: ActorSeatId }>;
+    alreadySent?: (key: string) => boolean;
+  }) =>
+    planCheckoutReceiptMail({
+      canvasName: "alpha",
+      checkoutKey: "co-1",
+      shas: over?.shas ?? ["abc123", "def456"],
+      reviewers: over?.reviewers ?? [{ nodeId: "reviewer-node", seatId: REVIEWER }],
+      author: { seatId: AUTHOR, generation: "gen-3", harness: "claude" },
+      contextId: "ctx-1",
+      alreadySent: over?.alreadySent ?? (() => false),
+      messageId: (() => {
+        let n = 0;
+        return () => `m-${++n}`;
+      })(),
+    });
+
+  it("one mail per (fresh commit, reviewer), each an actionable commit subject", () => {
+    const planned = plan({
+      reviewers: [
+        { nodeId: "reviewer-node", seatId: REVIEWER },
+        { nodeId: "reviewer-2-node", seatId: REVIEWER_2 },
+      ],
+    });
+    expect(planned.coalesced).toBe(0);
+    expect(planned.mail).toHaveLength(4); // 2 shas x 2 reviewers
+    const first = planned.mail[0]!;
+    expect(first.subject).toEqual({ kind: "commit", sha: "abc123" });
+    expect(first.dedupeKeys).toHaveLength(1);
+    expect(first.message.role).toBe("user");
+    const metadata = first.message.metadata as Record<string, unknown>;
+    expect(metadata.mailKind).toBe("receipt");
+    expect(metadata.reviewSubject).toEqual({ kind: "commit", sha: "abc123" });
+    expect(metadata.fromSeat).toBe(AUTHOR);
+    const refs = metadata.refs as ReadonlyArray<{ kind: string; sha?: string }>;
+    expect(refs).toEqual([{ kind: "commit", sha: "abc123" }]);
+  });
+
+  it("the body states plainly that no task binding is implied", () => {
+    const body = plan().mail[0]!.message.parts
+      .filter((part) => part.kind === "text")
+      .map((part) => ("text" in part ? part.text : ""))
+      .join("\n");
+    expect(body).toContain("no task binding is implied");
+    expect(body).not.toContain("epoch");
+  });
+
+  it("an already-recorded (checkout, sha, reviewer) coalesces out", () => {
+    const sentKey = receiptDedupeKey({
+      canvasName: "alpha",
+      source: { kind: "checkout", checkoutKey: "co-1" },
+      refSha: "abc123",
+      reviewerSeatId: REVIEWER,
+    });
+    const planned = plan({ alreadySent: (key) => key === sentKey });
+    expect(planned.coalesced).toBe(1);
+    expect(planned.mail).toHaveLength(1);
+    expect(planned.mail[0]?.subject).toEqual({ kind: "commit", sha: "def456" });
+  });
+
+  it("case variants of one sha collapse before keying and mailing", () => {
+    const planned = plan({ shas: ["ABC123", "abc123"] });
+    expect(planned.coalesced).toBe(0);
+    expect(planned.mail).toHaveLength(1);
+    expect(planned.mail[0]?.subject).toEqual({ kind: "commit", sha: "abc123" });
+  });
+
+  it("blank shas never reach a reviewer", () => {
+    expect(plan({ shas: ["", "   "] }).mail).toHaveLength(0);
   });
 });

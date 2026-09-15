@@ -671,12 +671,23 @@ export const receiptDedupeKey = (input: {
  * resolveTaskSubject CAS-checks it, and the target sink in the mail body
  * tells them where it lives.
  */
-export type ReceiptSubject = {
-  readonly kind: "task";
-  readonly taskId: string;
-  readonly epoch: number;
-  readonly subjectHash: string;
-};
+export type ReceiptSubject =
+  | {
+      readonly kind: "task";
+      readonly taskId: string;
+      readonly epoch: number;
+      readonly subjectHash: string;
+    }
+  | {
+      /**
+       * A standalone commit subject observed on a watched checkout. Epoch is
+       * always 0 and there is NO task hash: an observed commit may not be any
+       * task's staged evidence yet, so the receipt never pretends a task
+       * binding — the reviewer posts against {kind:"commit", sha} verbatim.
+       */
+      readonly kind: "commit";
+      readonly sha: string;
+    };
 
 export type ReceiptMail = {
   readonly reviewerSeatId: ActorSeatId;
@@ -816,6 +827,90 @@ export const planReceiptMail = (input: {
         }),
       ),
     });
+  }
+  return { mail, coalesced };
+};
+
+/**
+ * Commit receipts from a watched checkout. One mail per (fresh commit,
+ * reviewer): each mail is ONE actionable verdict subject, standalone
+ * {kind:"commit", sha} — never a task hash, because an observed commit may
+ * not be any task's staged evidence yet. Source is {kind:"checkout",
+ * checkoutKey}; dedupe is the shared exact source/ref/reviewer coalesce.
+ * The author stamp is server-resolved provenance (first author of the sha),
+ * supplied by the caller — never the reviewer's payload.
+ */
+export const planCheckoutReceiptMail = (input: {
+  readonly canvasName: string;
+  readonly checkoutKey: string;
+  readonly shas: ReadonlyArray<string>;
+  readonly reviewers: ReadonlyArray<{
+    readonly nodeId: string;
+    readonly seatId: ActorSeatId;
+  }>;
+  readonly author: {
+    readonly seatId: ActorSeatId;
+    readonly generation: string;
+    readonly harness: string;
+  };
+  readonly contextId: string;
+  readonly alreadySent: (dedupeKey: string) => boolean;
+  readonly messageId: () => string;
+}): ReceiptMailPlan => {
+  const source: ReceiptSource = {
+    kind: "checkout",
+    checkoutKey: input.checkoutKey,
+  };
+  const shas = [
+    ...new Set(
+      input.shas.map(normalizeSha).filter((sha) => sha.length > 0),
+    ),
+  ];
+  const mail: ReceiptMail[] = [];
+  let coalesced = 0;
+  for (const reviewer of input.reviewers) {
+    for (const sha of shas) {
+      const key = receiptDedupeKey({
+        canvasName: input.canvasName,
+        source,
+        refSha: sha,
+        reviewerSeatId: reviewer.seatId,
+      });
+      if (input.alreadySent(key)) {
+        coalesced += 1;
+        continue;
+      }
+      const receiptSubject: ReceiptSubject = { kind: "commit", sha };
+      const subject = `receipt: commit ${sha} on ${input.checkoutKey}`;
+      const body = [
+        `${subject} (observed on checkout ${input.checkoutKey})`,
+        `ref: ${sha}`,
+        "review: read the commit, then post your verdict against subject {kind:commit, sha} — no task binding is implied",
+      ].join("\n");
+      const message: Message = makeUserMessage({
+        messageId: input.messageId(),
+        text: body,
+        contextId: input.contextId,
+        metadata: {
+          ...mailExtensionMetadata({
+            mailKind: "receipt",
+            subject,
+            refs: [{ kind: "commit", sha }],
+            fromSeat: input.author.seatId,
+            senderGeneration: input.author.generation,
+            senderHarness: input.author.harness,
+          }),
+          reviewSubject: receiptSubject,
+        },
+      });
+      mail.push({
+        reviewerSeatId: reviewer.seatId,
+        reviewerNodeId: reviewer.nodeId,
+        message,
+        subject: receiptSubject,
+        dedupeKeys: [key],
+      });
+    }
   }
   return { mail, coalesced };
 };
