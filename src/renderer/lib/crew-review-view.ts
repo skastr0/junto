@@ -1,17 +1,28 @@
 /**
  * Operator review projection. Verdicts are immutable facts from p15/p1F;
  * this module only decodes the exported ReviewVerdict and Rule.kind.
+ *
+ * Chain field is `task.verdicts` (canonical ReviewVerdict[], ascending
+ * postedAtMs, composed service-side). `metadata.verdicts` is a legacy
+ * fallback only. Current `subjectHash` and `epoch` come from the
+ * reviewSubjectProjection overlay on tasks.show / ether task items —
+ * never invented metadata keys.
  */
 import { Schema } from "effect";
 import {
   ReviewVerdict as SharedReviewVerdict,
-  VerdictSubject as SharedVerdictSubject,
   type MailEvidenceRef,
   type ReviewVerdict as CanonicalReviewVerdict,
   type VerdictKind,
   type VerdictSubject,
 } from "@shared/crew";
 import type { Rule, Task, TasksContract } from "@shared/work-model";
+
+/** Service overlay composed onto a Task. Root owns the mint. */
+export type TaskReviewProjection = Task & {
+  readonly verdicts?: unknown;
+  readonly subjectHash?: unknown;
+};
 
 export type ReviewVerdictKind = VerdictKind;
 
@@ -40,7 +51,9 @@ export type ReviewVerdict = {
 };
 
 const decodeCanonicalVerdict = Schema.decodeUnknownOption(SharedReviewVerdict);
-const decodeVerdictSubject = Schema.decodeUnknownOption(SharedVerdictSubject);
+
+const asReviewProjection = (task: Task): TaskReviewProjection =>
+  task as TaskReviewProjection;
 
 export type ReviewGate = {
   readonly required: boolean;
@@ -98,7 +111,7 @@ export const parseReviewVerdicts = (
     const parsed = parseReviewVerdict(entry);
     if (parsed !== undefined) verdicts.push(parsed);
   }
-  return verdicts;
+  return [...verdicts].sort((left, right) => left.postedAtMs - right.postedAtMs);
 };
 
 export const isRequiresReviewRule = (rule: Rule): boolean =>
@@ -138,10 +151,8 @@ export const taskRequiresReview = (
 export const taskEpochOf = (task: Task): number => task.epoch ?? 0;
 
 export const verdictsOnTask = (task: Task): ReadonlyArray<ReviewVerdict> => {
-  const fromField = parseReviewVerdicts(
-    (task as Task & { readonly verdicts?: unknown }).verdicts,
-  );
-  if (fromField.length > 0) return fromField;
+  const composed = asReviewProjection(task).verdicts;
+  if (Array.isArray(composed)) return parseReviewVerdicts(composed);
   return parseReviewVerdicts(task.metadata?.verdicts);
 };
 
@@ -155,16 +166,21 @@ const subjectMatches = (
   return verdict.subjectHash === subjectHash;
 };
 
+export const currentReviewSubjectHash = (task: Task): string | undefined =>
+  nonempty(asReviewProjection(task).subjectHash);
+
 export const currentReviewSubject = (
   task: Task,
 ): ReviewSubject | undefined => {
-  const decoded = decodeVerdictSubject(task.metadata?.reviewSubject);
-  return decoded._tag === "Some" ? flattenSubject(decoded.value) : undefined;
+  const subjectHash = currentReviewSubjectHash(task);
+  if (subjectHash === undefined) return undefined;
+  return {
+    kind: "task",
+    taskId: task.id,
+    epoch: taskEpochOf(task),
+    subjectHash,
+  };
 };
-
-export const currentReviewSubjectHash = (task: Task): string | undefined =>
-  nonempty(task.metadata?.reviewSubjectHash) ??
-  currentReviewSubject(task)?.subjectHash;
 
 /**
  * Green must come from a distinct seat on the current epoch and subject hash.

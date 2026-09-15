@@ -54,7 +54,11 @@ export function VerdictChain({
       ) : (
         <ol className="verdict-chain__list">
           {verdicts.map((verdict) => {
-            const current = verdict.epoch === gate.currentEpoch;
+            const current =
+              verdict.epoch === gate.currentEpoch &&
+              gate.currentSubject !== undefined &&
+              verdict.subjectHash === gate.currentSubject.subjectHash;
+            const blocking = gate.blocking?.verdictId === verdict.verdictId;
             return (
               <li
                 key={verdict.verdictId}
@@ -65,6 +69,7 @@ export function VerdictChain({
                 data-reviewer-seat={verdict.reviewerSeatId}
                 data-reviewer-node={verdict.reviewerNodeId}
                 data-current={current ? "true" : "false"}
+                data-blocking={blocking ? "true" : undefined}
               >
                 <div className="verdict-chain__entry-head">
                   <strong className="verdict-chain__reviewer">

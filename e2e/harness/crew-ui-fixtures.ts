@@ -96,6 +96,19 @@ export const crewMailMessage = (input: {
   metadata: input.metadata,
 });
 
+/** Seed `task.verdicts` plus the reviewSubjectProjection hash on tasks.show. */
+export const taskReviewProjection = (input: {
+  readonly subjectHash: string;
+  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
+}): {
+  readonly subjectHash: string;
+  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
+} => ({
+  subjectHash: input.subjectHash,
+  verdicts: input.verdicts,
+});
+
+/** Canonical ReviewVerdict rows for `task.verdicts` (ascending postedAtMs). */
 export const compactReviewVerdict = (input: {
   readonly verdictId: string;
   readonly kind: "green" | "blocking";
