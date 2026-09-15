@@ -223,6 +223,10 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
         }
       });
     }
+    writeHold({
+      phase: "launched",
+      sandboxHome: sandbox.homeDir,
+    });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -278,6 +282,13 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
     if (!send.ok) throw new Error("unreachable");
     const messageId = (send.data as { messageId?: string } | undefined)?.messageId;
     expect(typeof messageId).toBe("string");
+    writeHold({
+      phase: "submitted",
+      harnessPid: occupied.pid,
+      sandboxHome: sandbox.homeDir,
+      cwd: occupied.cwd,
+      messageId,
+    });
 
     await expect
       .poll(
@@ -298,6 +309,38 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
     const fromSeat = found?.metadata?.fromSeat ?? null;
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
     const logs = preserveLogs(sandbox.homeDir);
+    const traceEvents = existsSync(PRESERVED_PTY_TRACE)
+      ? readFileSync(PRESERVED_PTY_TRACE, "utf8")
+          .split("\n")
+          .filter((line) => line.length > 0)
+          .map((line) => JSON.parse(line) as {
+            event?: string;
+            bindingId?: string;
+            fields?: { waiting?: boolean; probe?: string; value?: unknown; gate?: string; ok?: boolean };
+          })
+      : [];
+    const physicalPastes = traceEvents.filter(
+      (event) =>
+        event.bindingId === DEVIN_BINDING &&
+        (event.event === "write.end" || event.event === "delivery.begin"),
+    ).length;
+    const lastDevinGate = [...traceEvents]
+      .reverse()
+      .find((event) => event.bindingId === DEVIN_BINDING && event.event === "gate");
+    const lastDevinIdle = [...traceEvents]
+      .reverse()
+      .find(
+        (event) =>
+          event.bindingId === DEVIN_BINDING &&
+          event.event === "evidence" &&
+          event.fields?.probe === "idle",
+      );
+    const unresolvedReason =
+      readAt !== null && readAt !== undefined
+        ? null
+        : physicalPastes === 0
+          ? `enqueue-only: no physical paste; last gate=${String(lastDevinGate?.fields?.gate)} waiting=${String(lastDevinGate?.fields?.waiting)} idle=${String(lastDevinIdle?.fields?.value)}`
+          : "pasted but readAt missing";
     writeHold({
       harnessPid: occupied.pid,
       sandboxHome: sandbox.homeDir,
@@ -305,11 +348,19 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
       messageId,
       senderFromSeat: fromSeat,
       readAt,
+      physicalPastes,
+      unresolvedReason,
       ...logs,
     });
     if (HOLD) {
       await page.waitForTimeout(HOLD_MS);
     }
+    expect(physicalPastes, unresolvedReason ?? "repeat paste").toBeLessThanOrEqual(1);
+    expect(
+      readAt !== null && readAt !== undefined,
+      unresolvedReason ?? "readAt missing",
+    ).toBe(true);
+    expect(physicalPastes).toBe(1);
   } finally {
     try {
       preserveLogs(vellum.sandbox.homeDir);
