@@ -55,6 +55,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isolatedCaptureEnv,
+  isHarnessId,
+} from "../../src/shared/managed-terminal-templates";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
@@ -464,6 +468,10 @@ export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Recor
   const operatorHome = process.env.PTY_CAPTURE_OPERATOR_HOME === "1";
   if (operatorHome) {
     console.warn(`[${def.name}] WARNING: PTY_CAPTURE_OPERATOR_HOME=1 — harness sees the real HOME; operator config may enter the recording`);
+  } else if (isHarnessId(def.name)) {
+    const overlay = isolatedCaptureEnv(def.name, home, process.env);
+    Object.assign(e, overlay.env);
+    Object.assign(e, def.env?.(home) ?? {});
   } else {
     e.HOME = home;
     e.USERPROFILE = home;

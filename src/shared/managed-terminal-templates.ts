@@ -345,6 +345,194 @@ export type CapabilityBadges = {
   readonly labels: readonly string[];
 };
 
+// ── Mail transport (crew mail substrate) ───────────────────────────────────
+
+/**
+ * T2 typed-notice paste. `unavailable-setup` means isolation, credentials, or
+ * a model picker currently cannot prove notice acceptance — not a missing T3.
+ * Hooks that only report idle/state are not a native channel.
+ */
+export type MailTypedNoticeSupport = "working" | "unavailable-setup";
+
+/**
+ * Per-harness mail delivery facts. T1 `nativeChannel` is true only when an
+ * implemented transport proves acceptance. Every harness is T3 pull-only.
+ */
+export type MailTransportSpec = {
+  readonly nativeChannel: boolean;
+  readonly typedNotice: MailTypedNoticeSupport;
+  readonly pullOnly: true;
+};
+
+export type IsolationHomePin = {
+  readonly envKey: string;
+  /** Path relative to the isolated capture home. */
+  readonly homeRelative: string;
+};
+
+/**
+ * How a disposable capture/test home relocates this harness's config and
+ * session state. Tests inherit only `credentialEnv` from the operator process;
+ * they never copy history or settings files.
+ */
+export type IsolationSpec = {
+  readonly homePins: readonly IsolationHomePin[];
+  readonly credentialEnv: readonly string[];
+  readonly captureHome: "isolated" | "unsupported";
+  readonly limitation?: string;
+};
+
+const MAIL_T2_WORKING: MailTransportSpec = {
+  nativeChannel: false,
+  typedNotice: "working",
+  pullOnly: true,
+};
+
+const MAIL_T2_UNAVAILABLE: MailTransportSpec = {
+  nativeChannel: false,
+  typedNotice: "unavailable-setup",
+  pullOnly: true,
+};
+
+const HOME_ONLY_ISOLATION: IsolationSpec = {
+  homePins: [],
+  credentialEnv: [],
+  captureHome: "isolated",
+};
+
+/** Template facts reported by harness list / doctor. T1 is none today. */
+export const HARNESS_MAIL_TRANSPORT: Readonly<Record<HarnessId, MailTransportSpec>> = {
+  claude: MAIL_T2_WORKING,
+  codex: MAIL_T2_WORKING,
+  grok: MAIL_T2_WORKING,
+  hermes: MAIL_T2_UNAVAILABLE,
+  pi: MAIL_T2_WORKING,
+  "prime-agent": MAIL_T2_UNAVAILABLE,
+  kimi: MAIL_T2_UNAVAILABLE,
+  muse: MAIL_T2_WORKING,
+  devin: MAIL_T2_WORKING,
+  cursor: MAIL_T2_UNAVAILABLE,
+  agy: MAIL_T2_UNAVAILABLE,
+  amp: MAIL_T2_WORKING,
+  fx: MAIL_T2_UNAVAILABLE,
+  omp: MAIL_T2_WORKING,
+  "vellum-overseer": MAIL_T2_UNAVAILABLE,
+};
+
+export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
+  claude: {
+    homePins: [{ envKey: "CLAUDE_CONFIG_DIR", homeRelative: ".claude" }],
+    credentialEnv: [],
+    captureHome: "isolated",
+    limitation: "auth is keychain; isolated home has no operator session history",
+  },
+  codex: {
+    homePins: [{ envKey: "CODEX_HOME", homeRelative: ".codex" }],
+    credentialEnv: [],
+    captureHome: "isolated",
+    limitation: "isolated CODEX_HOME has no auth.json; login is an explicit block",
+  },
+  grok: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "reads ~/.grok under isolated HOME; spawn still needs a git cwd",
+  },
+  hermes: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "isolated HOME has no Codex credentials; captured setup is not a model turn",
+  },
+  pi: {
+    homePins: [
+      { envKey: "PI_CODING_AGENT_DIR", homeRelative: ".pi/agent" },
+      { envKey: "PI_CODING_AGENT_SESSION_DIR", homeRelative: ".pi/agent/sessions" },
+    ],
+    credentialEnv: [],
+    captureHome: "isolated",
+    limitation: "PI_CODING_AGENT_DIR is resolved before HOME; pin it or operator config leaks",
+  },
+  "prime-agent": {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "first paint is a provider/sign-in picker; no committed notice corpus",
+  },
+  kimi: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "isolated HOME has no provider; captured setup is LLM-not-set, not a model turn",
+  },
+  muse: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "echo provider needs no credentials; not a remote-model turn",
+  },
+  devin: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "native factory uses named sessions; capture HOME still must not copy operator history",
+  },
+  cursor: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "no committed JSONL corpus; T2 notice acceptance unproven",
+  },
+  agy: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "no committed JSONL corpus; T2 notice acceptance unproven",
+  },
+  amp: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "isolated HOME hits login; recorded-byte T2 is not native factory qualification",
+  },
+  fx: {
+    ...HOME_ONLY_ISOLATION,
+    limitation: "no committed JSONL corpus; T2 notice acceptance unproven",
+  },
+  omp: {
+    homePins: [
+      { envKey: "PI_CODING_AGENT_DIR", homeRelative: ".pi/agent" },
+      { envKey: "PI_CODING_AGENT_SESSION_DIR", homeRelative: ".pi/agent/sessions" },
+    ],
+    credentialEnv: [],
+    captureHome: "isolated",
+    limitation: "isolated HOME is a provider picker; operator-home T2 was a disposable cwd",
+  },
+  "vellum-overseer": {
+    homePins: [],
+    credentialEnv: [],
+    captureHome: "unsupported",
+    limitation: "structured host, not a TUI paste channel",
+  },
+};
+
+/**
+ * Build a capture/test environment that never points HOME or harness config
+ * at the operator's real home. Inherits only declared credential keys.
+ */
+/** Fixture shape for generated-canvas / real-harness launchers. */
+export type IsolatedHarnessLaunch = {
+  readonly harness: HarnessId;
+  readonly isolatedHome: string;
+  readonly cwd: string;
+  readonly env: Record<string, string>;
+};
+
+export const isolatedCaptureEnv = (
+  harness: HarnessId,
+  isolatedHome: string,
+  ambient: NodeJS.Dict<string | undefined> = process.env,
+): { readonly env: Record<string, string>; readonly limitation?: string } => {
+  const spec = HARNESS_ISOLATION[harness];
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(ambient)) {
+    if (value === undefined) continue;
+    if (spec.credentialEnv.includes(key)) env[key] = value;
+  }
+  env.HOME = isolatedHome;
+  env.USERPROFILE = isolatedHome;
+  env.XDG_CONFIG_HOME = `${isolatedHome}/.config`;
+  env.XDG_DATA_HOME = `${isolatedHome}/.local/share`;
+  env.XDG_CACHE_HOME = `${isolatedHome}/.cache`;
+  env.XDG_STATE_HOME = `${isolatedHome}/.local/state`;
+  for (const pin of spec.homePins) {
+    env[pin.envKey] = `${isolatedHome}/${pin.homeRelative}`;
+  }
+  return { env, limitation: spec.limitation };
+};
+
 // ── Template ───────────────────────────────────────────────────────────────
 
 export type ManagedTerminalTemplate = {
@@ -354,6 +542,8 @@ export type ManagedTerminalTemplate = {
   readonly envSpec: EnvSpec;
   readonly injectionSpec: InjectionSpec;
   readonly capabilityBadges: CapabilityBadges;
+  readonly mailTransport: MailTransportSpec;
+  readonly isolation: IsolationSpec;
   /**
    * Effort values the picker may offer. Empty = omit effort in v1
    * (no spawn flag on the harness).
@@ -435,6 +625,8 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (OSC cannot distinguish permission prompt)",
     labels: ["injection A", "OSC + grid", "effort", "session pin"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.claude,
+  isolation: HARNESS_ISOLATION.claude,
   // Six levels verified; ultracode accepted at spawn despite incomplete CLI help.
   efforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
   defaultPermissionMode: "default",
@@ -487,6 +679,8 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
       "doctrine at creation",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.codex,
+  isolation: HARNESS_ISOLATION.codex,
   // Common floors from `codex debug models` on 0.154.0 (union). Per-model
   // lists come from supported_reasoning_levels[].effort when the catalog runs.
   efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
@@ -557,6 +751,8 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
       "git cwd",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.grok,
+  isolation: HARNESS_ISOLATION.grok,
   // CLI 1.0.25 enumerates xhigh|high|medium|low; grok-4.5 cache still
   // omits xhigh, but the flag accepts the union on this binary.
   efforts: ["xhigh", "high", "medium", "low"],
@@ -632,6 +828,8 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
       "remote",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.hermes,
+  isolation: HARNESS_ISOLATION.hermes,
   efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
 
@@ -686,6 +884,8 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (trust/confirm dialogs)",
     labels: ["injection A", "grid + OSC133", "effort", "session pin"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.pi,
+  isolation: HARNESS_ISOLATION.pi,
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 };
 
@@ -749,6 +949,8 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
       "remote",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT["prime-agent"],
+  isolation: HARNESS_ISOLATION["prime-agent"],
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 };
 
@@ -819,6 +1021,8 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
       "doctrine at creation",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.kimi,
+  isolation: HARNESS_ISOLATION.kimi,
   efforts: [],
 };
 
@@ -898,6 +1102,8 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (approval/trust dialogs)",
     labels: ["injection B", "grid", "effort", "capture session"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.muse,
+  isolation: HARNESS_ISOLATION.muse,
   efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
 };
 
@@ -958,6 +1164,8 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (permission/trust footers)",
     labels: ["injection B", "grid", "permission enum", "capture session"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.devin,
+  isolation: HARNESS_ISOLATION.devin,
   efforts: [],
   defaultPermissionMode: "normal",
 };
@@ -1037,6 +1245,8 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "grid (approval forms)",
     labels: ["injection B", "grid", "effort in model", "session pin"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.cursor,
+  isolation: HARNESS_ISOLATION.cursor,
   // Suffixes `agent models` enumerates on 2026.09.10-fd3934a. `-fast` is a
   // variant after the effort token (`-high-fast`), not a picker level. A
   // model that advertises its own levels still wins via `effortsFor`.
@@ -1125,6 +1335,8 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
       "agents",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.agy,
+  isolation: HARNESS_ISOLATION.agy,
   efforts: ["low", "medium", "high"],
   defaultPermissionMode: undefined,
 };
@@ -1194,6 +1406,8 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
       "provisioned thread",
     ],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.amp,
+  isolation: HARNESS_ISOLATION.amp,
   efforts: [],
   modes: ["low", "medium", "high", "ultra"],
   defaultPermissionMode: undefined,
@@ -1268,6 +1482,8 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "unprobed — no approval-form capture yet",
     labels: ["injection B", "grid", "env dials", "capture session"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.fx,
+  isolation: HARNESS_ISOLATION.fx,
   efforts: [],
 };
 
@@ -1340,6 +1556,8 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource: "approval dialog (literals from the binary, uncaptured)",
     labels: ["injection A", "OSC + grid", "thinking", "capture session"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT.omp,
+  isolation: HARNESS_ISOLATION.omp,
   efforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"],
 };
 
@@ -1363,6 +1581,8 @@ export const VELLUM_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "correlated run events", attentionSource: "structured run events",
     labels: ["live conversation", "correlated tools", "cancellation"],
   },
+  mailTransport: HARNESS_MAIL_TRANSPORT["vellum-overseer"],
+  isolation: HARNESS_ISOLATION["vellum-overseer"],
   efforts: [],
 };
 
