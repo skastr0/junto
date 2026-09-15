@@ -56,10 +56,22 @@ describe("crew edge authority", () => {
 
   it("does not turn malformed attenuation into unmasked authority", () => {
     const doc = docWith([edge("messages")]);
-    for (const mask of [null, "msg.send", ["unknown.port"], [123]]) {
+    for (const mask of [undefined, null, "msg.send", ["unknown.port"], [123]]) {
       expect(Result.isFailure(decodeCanvasDoc({
         ...doc, edges: [{ ...doc.edges[0], ether: { verb: "messages", mask } }],
       }))).toBe(true);
+    }
+  });
+
+  it("does not infer a broader relationship from an explicitly invalid verb", () => {
+    const doc = docWith([edge("messages")]);
+    for (const verb of [undefined, null, "reviewz", 123]) {
+      const decoded = decodeCanvasDoc({
+        ...doc, edges: [{ ...doc.edges[0], ether: { verb } }],
+      });
+      expect(Result.isSuccess(decoded)).toBe(true);
+      if (Result.isFailure(decoded)) throw decoded.failure;
+      expect(decoded.success.edges).toEqual([]);
     }
   });
 

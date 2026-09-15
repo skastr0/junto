@@ -717,7 +717,9 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
           ? pairHolds(authored, fromKind, toKind)
             ? authored
             : undefined
-          : inferVerb(
+          : eth !== undefined && Object.prototype.hasOwnProperty.call(eth, "verb")
+            ? undefined
+            : inferVerb(
               eth === undefined ? undefined : readLegacyEdgeEther(eth),
               fromKind,
               toKind,
@@ -745,7 +747,9 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         // mask would accidentally restore all ports on the relationship.
         next.ether = {
           verb,
-          ...(eth?.mask !== undefined ? { mask: eth.mask } : {}),
+          ...(eth !== undefined && Object.prototype.hasOwnProperty.call(eth, "mask")
+            ? { mask: eth.mask }
+            : {}),
         };
         return [next];
       })
