@@ -9,6 +9,7 @@ import {
   type Verb,
 } from "@shared/physics";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
+import { persistPortMaskEther } from "./crew-port-mask";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
 import { flowEdgeRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
@@ -167,10 +168,7 @@ export const setEdgePortMask = (
       if (edge.id !== id || edge.ether?.verb === undefined) return edge;
       return {
         ...edge,
-        ether: {
-          verb: edge.ether.verb,
-          ...(portMask === undefined ? {} : { portMask }),
-        } as typeof edge.ether,
+        ether: persistPortMaskEther(edge.ether.verb, portMask),
       };
     }),
   });

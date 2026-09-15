@@ -5,6 +5,7 @@ import {
   crewPortLabel,
   edgePortMaskView,
   parsePortMask,
+  persistPortMaskEther,
   toggleAllowedPort,
 } from "../src/renderer/lib/crew-port-mask";
 
@@ -79,6 +80,22 @@ describe("authoredPortMaskOf", () => {
         ether: { verb: "messages", mask: ["seat.wait"] },
       } as CanvasEdge),
     ).toEqual(["seat.wait"]);
+  });
+});
+
+describe("persistPortMaskEther", () => {
+  it("writes the live mask field so compile and scrub keep attenuation", () => {
+    expect(persistPortMaskEther("messages", undefined)).toEqual({
+      verb: "messages",
+    });
+    expect(persistPortMaskEther("messages", ["msg.send"])).toEqual({
+      verb: "messages",
+      mask: ["msg.send"],
+    });
+    expect(persistPortMaskEther("messages", [])).toEqual({
+      verb: "messages",
+      mask: [],
+    });
   });
 });
 

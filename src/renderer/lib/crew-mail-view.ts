@@ -9,6 +9,7 @@ import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
   deriveMailDisplayState,
+  readMailExtension,
   type MailDisplayState,
   type MailEvidenceRef,
   type MailKind,
@@ -183,9 +184,30 @@ export const stripMailEnvelope = (body: string): string => {
 };
 
 export const mailKindOf = (message: Message): MailKind | undefined => {
+  const extension = readMailExtension(message.metadata);
+  if (extension !== undefined) return extension.mailKind;
   const explicit = message.metadata?.mailKind;
   if (isMailKind(explicit)) return explicit;
   return undefined;
+};
+
+const attemptRecordOf = (
+  metadata: Message["metadata"],
+): Record<string, unknown> | undefined => {
+  if (metadata === undefined) return undefined;
+  const facts = metadata.facts;
+  if (facts !== null && typeof facts === "object") {
+    return facts as Record<string, unknown>;
+  }
+  const attempt = metadata.attempt;
+  if (attempt !== null && typeof attempt === "object") {
+    const nested = (attempt as { readonly facts?: unknown }).facts;
+    if (nested !== null && typeof nested === "object") {
+      return nested as Record<string, unknown>;
+    }
+    return attempt as Record<string, unknown>;
+  }
+  return metadata as Record<string, unknown>;
 };
 
 export const mailAttemptFactsOf = (
@@ -193,21 +215,80 @@ export const mailAttemptFactsOf = (
   queuedAt: number | undefined,
 ): MailAttemptFacts => {
   const meta = message.metadata;
+  const attempt = attemptRecordOf(meta);
   return {
     queuedAt,
-    notifiedAt: finiteMs(meta?.notifiedAt) ?? finiteMs(meta?.deliveredAt),
-    unresolvedAt: finiteMs(meta?.unresolvedAt),
-    refusedAt: finiteMs(meta?.refusedAt),
-    refusedReason: nonempty(meta?.refuseReason) ?? nonempty(meta?.refusedReason),
+    notifiedAt: finiteMs(attempt?.notifiedAt) ?? finiteMs(meta?.deliveredAt),
+    unresolvedAt: finiteMs(attempt?.unresolvedAt),
+    refusedAt: finiteMs(attempt?.refusedAt),
+    refusedReason:
+      nonempty(attempt?.refusedReason) ??
+      nonempty(meta?.refuseReason) ??
+      nonempty(meta?.refusedReason),
     readAt: finiteMs(meta?.readAt),
     repliedAt: finiteMs(meta?.repliedAt),
     reactedAt: finiteMs(meta?.reactedAt),
-    generation: nonempty(meta?.generation),
+    generation: nonempty(attempt?.generation) ?? nonempty(meta?.generation),
   };
 };
 
-export const mailSubjectOf = (message: Message): string | undefined =>
-  nonempty(message.metadata?.subject);
+export const mailSubjectOf = (message: Message): string | undefined => {
+  const extension = readMailExtension(message.metadata);
+  return nonempty(extension?.subject) ?? nonempty(message.metadata?.subject);
+};
+
+export const mailRefsOf = (message: Message): ReadonlyArray<MailEvidenceRef> => {
+  const extension = readMailExtension(message.metadata);
+  if (extension?.refs !== undefined) return extension.refs;
+  return parseMailEvidenceRefs(message.metadata?.refs);
+};
+
+const metadataRecord = (
+  metadata: unknown,
+): Record<string, unknown> | undefined =>
+  metadata !== null && typeof metadata === "object"
+    ? (metadata as Record<string, unknown>)
+    : undefined;
+
+/** Stamped sender handle: canvas node when present, else today's fromSeat. */
+export const resolveMailSenderStamp = (
+  metadata: unknown,
+): string | undefined => {
+  const record = metadataRecord(metadata);
+  if (record === undefined) return undefined;
+  return nonempty(record.senderNodeId) ?? nonempty(record.fromSeat);
+};
+
+/**
+ * Peer maps key by canvas node. Prefer the stamped sender node; fall back to
+ * `fromSeat` only when that value is still a node id (today's repository).
+ */
+export const resolveMailSenderNodeId = (
+  doc: CanvasDoc,
+  metadata: unknown,
+): string | undefined => {
+  const stamp = resolveMailSenderStamp(metadata);
+  if (stamp !== undefined && doc.nodes.some((node) => node.id === stamp)) {
+    return stamp;
+  }
+  const record = metadataRecord(metadata);
+  const fromSeat = nonempty(record?.fromSeat);
+  if (fromSeat !== undefined && doc.nodes.some((node) => node.id === fromSeat)) {
+    return fromSeat;
+  }
+  return undefined;
+};
+
+export const resolveMailSenderLabel = (
+  metadata: unknown,
+  fallbackStamp: string | undefined,
+  titleOf: (nodeId: string) => string | undefined,
+): string => {
+  const named = nonempty(metadataRecord(metadata)?.senderName);
+  const stamp = fallbackStamp ?? resolveMailSenderStamp(metadata);
+  if (stamp === undefined) return named ?? "system";
+  return titleOf(stamp) ?? named ?? stamp;
+};
 
 export type CrewMailView = {
   readonly messageId: string;
@@ -232,7 +313,7 @@ export const crewMailViewOf = (
     facts,
     display,
     displayReason: display === "refused" ? facts.refusedReason : undefined,
-    refs: parseMailEvidenceRefs(message.metadata?.refs),
+    refs: mailRefsOf(message),
   };
 };
 

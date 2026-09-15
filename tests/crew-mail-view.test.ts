@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import type { CanvasDoc } from "../src/shared/canvas";
 import type { Message } from "../src/shared/work-model";
 import {
   countMailViews,
   crewMailViewOf,
   deriveMailDisplay,
   parseMailEvidenceRef,
+  resolveMailSenderNodeId,
+  resolveMailSenderStamp,
   stripMailEnvelope,
   unresolvedMailByPeer,
 } from "../src/renderer/lib/crew-mail-view";
@@ -83,6 +86,66 @@ describe("crewMailViewOf", () => {
       kind: "url",
       url: "https://example.com",
     });
+  });
+});
+
+describe("mailAttemptFactsOf via crewMailViewOf", () => {
+  it("reads nested attempt facts without inventing a chip", () => {
+    const view = crewMailViewOf(
+      message({
+        facts: {
+          generation: "gen-1",
+          queuedAt: "1",
+          unresolvedAt: "3",
+          refusedAt: "4",
+          refusedReason: "written-no-evidence",
+        },
+      }),
+      1,
+    );
+    expect(view.display).toBe("unresolved");
+    expect(view.displayReason).toBeUndefined();
+    expect(view.facts.generation).toBe("gen-1");
+    expect(view.facts.refusedReason).toBe("written-no-evidence");
+  });
+});
+
+describe("resolveMailSenderNodeId", () => {
+  const doc: CanvasDoc = {
+    nodes: [
+      {
+        id: "bravo",
+        type: "text",
+        text: "Bravo",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+      },
+    ],
+    edges: [],
+  };
+
+  it("prefers senderNodeId and only uses fromSeat when it is a node id", () => {
+    expect(
+      resolveMailSenderNodeId(doc, {
+        fromSeat: "seat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        senderNodeId: "bravo",
+      }),
+    ).toBe("bravo");
+    expect(resolveMailSenderNodeId(doc, { fromSeat: "bravo" })).toBe("bravo");
+    expect(
+      resolveMailSenderNodeId(doc, {
+        fromSeat: "seat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveMailSenderStamp({
+        fromSeat: "seat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+    ).toBe(
+      "seat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
   });
 });
 

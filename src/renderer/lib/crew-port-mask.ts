@@ -148,6 +148,17 @@ export const toggleAllowedPort = (
   return next;
 };
 
+/**
+ * Persist shape for today's canvas schema. `compileEdgeGrant` and the
+ * decode scrub keep `mask`; `portMask` is still stripped. Flip this helper
+ * to `portMask` when that field lands — the view already reads both.
+ */
+export const persistPortMaskEther = <V extends string>(
+  verb: V,
+  allowed: ReadonlyArray<CrewPortName> | undefined,
+): { readonly verb: V; readonly mask?: ReadonlyArray<CrewPortName> } =>
+  allowed === undefined ? { verb } : { verb, mask: allowed };
+
 /** @deprecated use toggleAllowedPort — kept for the subtract-only tests. */
 export const toggleMaskedPort = (
   compiled: ReadonlyArray<string>,

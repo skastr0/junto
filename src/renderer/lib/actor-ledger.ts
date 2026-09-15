@@ -4,7 +4,7 @@
  * state into `ether`; no IPC reads here).
  *
  * Mailbox facts come from `ether.messages` on the actor node itself:
- *   - sender: `metadata.fromSeat` (stamped by msg.send)
+ *   - sender: `metadata.senderNodeId`, else `fromSeat` when that is a node id
  *   - read: `metadata.readAt` (listed or marked read)
  *   - delivery display is derived from preserved attempt timestamps
  *   - age: the messageId is a ULID — its timestamp is birth time
@@ -19,6 +19,9 @@ import {
 import {
   countMailViews,
   crewMailViewOf,
+  resolveMailSenderLabel,
+  resolveMailSenderNodeId,
+  resolveMailSenderStamp,
   stripMailEnvelope,
   type MailCounts,
   type MailDeliveryDisplay,
@@ -60,22 +63,10 @@ const textOfParts = (parts: ReadonlyArray<Part>): string =>
 /** msg.send wraps the text as "mail from <seat> …" — strip for display. */
 const stripFactoryMailPrefix = stripMailEnvelope;
 
-const metadataString = (message: Message, key: string): string | undefined => {
-  const value = message.metadata?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-};
-
-const senderLabel = (
-  doc: CanvasDoc,
-  fromNodeId: string | undefined,
-): string => {
-  if (fromNodeId === undefined) return "system";
-  const peer = doc.nodes.find((node) => node.id === fromNodeId);
-  return peer ? nodeTitle(peer) : fromNodeId;
-};
-
 const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
-  const fromNodeId = metadataString(message, "fromSeat");
+  const fromNodeId =
+    resolveMailSenderNodeId(doc, message.metadata) ??
+    resolveMailSenderStamp(message.metadata);
   const rawBody = textOfParts(message.parts);
   const body = stripFactoryMailPrefix(rawBody);
   const sentAtMs = messageIdTimeMs(message.messageId);
@@ -86,7 +77,10 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
     messageId: message.messageId,
     direction: message.role === "user" ? "in" : "note",
     fromNodeId,
-    fromLabel: senderLabel(doc, fromNodeId),
+    fromLabel: resolveMailSenderLabel(message.metadata, fromNodeId, (id) => {
+      const peer = doc.nodes.find((node) => node.id === id);
+      return peer ? nodeTitle(peer) : undefined;
+    }),
     sentAtMs,
     preview: firstLine,
     body,
@@ -156,8 +150,8 @@ export const visibleMailRows = (
 /**
  * Per-peer unread counts over this actor's inbound mail — for the
  * connections rail: "which wired peer is waiting on this seat". Keys are
- * sender node ids (metadata.fromSeat, process-bound since admission strips
- * spoofed values); read state is the seat's durable read-ack projection.
+ * sender node ids (`senderNodeId`, or `fromSeat` when that is still a node
+ * id); read state is the seat's durable read-ack projection.
  */
 export const unreadMailByPeer = (
   rows: ReadonlyArray<MailRow>,

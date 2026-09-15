@@ -112,4 +112,46 @@ describe("reviewGateOf", () => {
     expect(parseReviewVerdict({ kind: "green" })).toBeUndefined();
     expect(boardReviewGate(undefined).required).toBe(false);
   });
+
+  it("reads the storage TaskRef subject and binds on subject hash", () => {
+    const author = seat("a");
+    const reviewer = seat("b");
+    const task = taskOf({
+      epoch: 1,
+      claimedBy: author,
+      metadata: {
+        requiresReview: true,
+        reviewSubjectHash: "hash-current",
+        verdicts: [
+          {
+            verdictId: "v-canonical",
+            kind: "green",
+            reviewerSeatId: reviewer,
+            reviewerNodeId: "reviewer",
+            authorSeatId: author,
+            subject: {
+              kind: "task",
+              task: {
+                kind: "task",
+                itemId: "task-1",
+                sink: { canvasName: "ops", nodeId: "tasks" },
+              },
+              epoch: 1,
+            },
+            subjectHash: "hash-other",
+            epoch: 1,
+            findings: ["looks good"],
+            refs: [],
+            postedAtMs: 40,
+          },
+        ],
+      },
+    });
+    expect(parseReviewVerdict(task.metadata?.verdicts?.[0])?.subject).toEqual({
+      kind: "task",
+      taskId: "task-1",
+      epoch: 1,
+    });
+    expect(reviewGateOf(task, undefined, author).satisfied).toBe(false);
+  });
 });
