@@ -52,6 +52,39 @@ const snap = (
 const HR = "────────────────";
 
 describe("rule packs", () => {
+  it("classifies Devin directory trust as attention, not fallback idle", () => {
+    const longForm = evaluate(
+      snap({
+        lines: [
+          "Welcome to Devin CLI!",
+          "Do you trust the authors of this directory?",
+          "with untrusted content.",
+          "  1. Yes, trust ~/work",
+          "  2. No, exit",
+        ],
+      }),
+      { harness: "devin" },
+    );
+    expect(longForm.state).toBe("attention");
+    expect(longForm.reason).toBe("rule:workspace_trust_prompt");
+    expect(longForm.visibleAttention).toBe(true);
+    const cuaFrame = evaluate(
+      snap({
+        lines: [
+          "Welcome to Devin CLI!",
+          "Do you trust authors?",
+          "~/",
+          "  1. Yes, trust",
+          "  2. No, exit",
+        ],
+      }),
+      { harness: "devin" },
+    );
+    expect(cuaFrame.state).toBe("attention");
+    expect(cuaFrame.reason).toBe("rule:workspace_trust_prompt");
+    expect(cuaFrame.visibleAttention).toBe(true);
+  });
+
   it("ships four harness packs", () => {
     expect(rulePackFor("claude").harness).toBe("claude");
     expect(rulePackFor("codex").harness).toBe("codex");

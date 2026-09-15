@@ -25,10 +25,16 @@ export const devinRules: SeatRulePack = {
       regionN: 8,
       visibleAttention: true,
       matchers: {
-        contains: [
-          "do you trust the authors of this directory?",
-          "with untrusted content.",
-          "yes, trust ",
+        any: [
+          {
+            contains: [
+              "do you trust the authors of this directory?",
+              "with untrusted content.",
+              "yes, trust ",
+            ],
+          },
+          { contains: ["do you trust the authors", "yes, trust"] },
+          { contains: ["do you trust authors", "yes", "exit"] },
         ],
       },
     },

@@ -224,6 +224,63 @@ test("isolated Devin [real-harness]: native mail is readAt or named unresolved",
       cwd: occupied.cwd,
     });
 
+    const readGrid = async () => {
+      const grid = await sender.op("seat.read", {
+        target: ISOLATED_DEVIN_RECEIVER_ID,
+        lines: 40,
+      });
+      const text = String(
+        (grid.ok ? (grid.data as { text?: string } | undefined)?.text : "") ?? "",
+      );
+      const state = grid.ok
+        ? String((grid.data as { state?: string; reason?: string }).state ?? "")
+        : "";
+      const reason = grid.ok
+        ? String((grid.data as { reason?: string }).reason ?? "")
+        : "";
+      const trustPrompt =
+        /do you trust (the )?authors/i.test(text) &&
+        /yes,?\s*trust|\b1[\.)]?\s*yes/i.test(text);
+      const typeableIdle = /❭/.test(text) && !trustPrompt;
+      return { ok: grid.ok, text, state, reason, trustPrompt, typeableIdle, raw: grid };
+    };
+
+    const dismissExactTrustOnce = async () => {
+      const attached = (await page.evaluate(async (bindingId) => {
+        const api = window.vellumCommand!;
+        return api.terminalAttach({ bindingId, mode: "control", takeover: true });
+      }, DEVIN_BINDING)) as { ok?: boolean; lease?: { leaseId?: string } };
+      const leaseId = attached.lease?.leaseId;
+      if (leaseId === undefined) return;
+      await page.evaluate(
+        async ([id]) => {
+          await window.vellumCommand!.terminalWrite(id, "\r");
+          await window.vellumCommand!.terminalRelease(id);
+        },
+        [leaseId] as const,
+      );
+    };
+
+    let grid = await readGrid();
+    if (grid.trustPrompt) {
+      await dismissExactTrustOnce();
+      await page.waitForTimeout(1_500);
+      grid = await readGrid();
+    }
+    writeHold({
+      phase: "post-trust-inspect",
+      harnessPid: occupied.pid,
+      sandboxHome: sandbox.homeDir,
+      gridState: grid.state,
+      gridReason: grid.reason,
+      trustPrompt: grid.trustPrompt,
+      typeableIdle: grid.typeableIdle,
+    });
+    if (grid.trustPrompt || (!grid.typeableIdle && /welcome to devin/i.test(grid.text))) {
+      // Do not treat fallback idle as typeable. Send still runs so ledger
+      // enqueue vs paste can be compared; unresolvedReason records the grid.
+    }
+
     const nonce = `isolated-devin-mail ${String(Date.now())}`;
     const send = await sender.op("msg.send", {
       target: ISOLATED_DEVIN_RECEIVER_ID,
