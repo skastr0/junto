@@ -8165,18 +8165,27 @@ export const WorkRepositoryLive = Layer.effect(
               `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
             );
           }
-          if (
-            input.reviewGate !== undefined &&
-            !reviewGateSatisfiedWithin(writer, input.reviewGate)
-          ) {
-            // Writer-time gate: a distinct eligible reviewer's latest verdict on
-            // the exact epoch + subject hash must be green. Checked in the same
-            // transaction as the completion so a concurrent blocking, new epoch,
-            // or changed subject cannot pass a stale preflight then commit.
-            throw authorityError(
-              "invalid-transition",
-              "requires-review: no current green verdict from a distinct reviewer for this epoch and subject",
-            );
+          if (input.reviewGate !== undefined) {
+            // CAS the live task epoch against the reviewed epoch first: a
+            // concurrent blocking that reclaimed the task to a newer epoch must
+            // fail an old completion writer even though a green still exists at
+            // the stale epoch the preflight saw.
+            if ((current.task.epoch ?? 0) !== input.reviewGate.epoch) {
+              throw authorityError(
+                "invalid-transition",
+                "requires-review: task epoch advanced since the reviewed subject",
+              );
+            }
+            // Then the gate: a distinct eligible reviewer's latest verdict on
+            // the exact epoch + subject hash must be green. Both are checked in
+            // the completion transaction so a concurrent blocking or changed
+            // subject cannot pass a stale preflight then commit.
+            if (!reviewGateSatisfiedWithin(writer, input.reviewGate)) {
+              throw authorityError(
+                "invalid-transition",
+                "requires-review: no current green verdict from a distinct reviewer for this epoch and subject",
+              );
+            }
           }
         }
         const base = applyTaskRecordPatch(
@@ -8370,17 +8379,22 @@ export const WorkRepositoryLive = Layer.effect(
             `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
           );
         }
-        if (
-          input.reviewGate !== undefined &&
-          !reviewGateSatisfiedWithin(writer, input.reviewGate)
-        ) {
-          // Writer-time gate for the complete-here step, same rule and reason
-          // as transitionTask so a concurrent blocking or epoch change cannot
-          // pass a stale preflight then commit the send-on.
-          throw authorityError(
-            "invalid-transition",
-            "requires-review: no current green verdict from a distinct reviewer for this epoch and subject",
-          );
+        if (input.reviewGate !== undefined) {
+          // Same CAS + gate as transitionTask for the complete-here step: the
+          // live epoch must still match the reviewed epoch, and a distinct
+          // reviewer's latest verdict on the exact subject must be green.
+          if ((current.task.epoch ?? 0) !== input.reviewGate.epoch) {
+            throw authorityError(
+              "invalid-transition",
+              "requires-review: task epoch advanced since the reviewed subject",
+            );
+          }
+          if (!reviewGateSatisfiedWithin(writer, input.reviewGate)) {
+            throw authorityError(
+              "invalid-transition",
+              "requires-review: no current green verdict from a distinct reviewer for this epoch and subject",
+            );
+          }
         }
         const completed = Schema.decodeUnknownSync(Task, strictDecode)({
           ...taskWithTransitionState(current.task, "completed"),
