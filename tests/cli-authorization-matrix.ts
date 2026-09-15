@@ -63,6 +63,7 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "capabilities",
   "onboard",
   "preamble",
+  "msg.sent",
 ]);
 
 const DISCOVERY_COMMANDS = new Set([
@@ -150,8 +151,8 @@ const AGENT_SINK_GRANTS = {
     narrow: { verb: "navigates", ports: ["browser.automate"] },
   },
   agent: {
-    wide: { verb: "messages", ports: ["msg.list", "msg.send"] },
-    narrow: { verb: "messages", ports: ["msg.list", "msg.send"] },
+    wide: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] },
+    narrow: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] },
   },
   relay: {
     wide: { verb: "fires", ports: ["relay.trigger"] },
