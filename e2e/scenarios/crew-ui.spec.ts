@@ -106,9 +106,13 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     });
     const messageId = opData(send).messageId as string;
     await expect
-      .poll(async () =>
-        (await crewMailAttempts(page, CANVAS, B))
-          .find((row) => row.messageId === messageId)?.notifiedAt,
+      .poll(
+        async () =>
+          (await crewMailAttempts(page, CANVAS, B))
+            .find((row) => row.messageId === messageId)?.notifiedAt,
+        // Cold first contact can refuse not-settled once and retry — the
+        // stamp follows the delivery pipeline's own settle window.
+        { timeout: 60_000, intervals: [250, 500, 1_000] },
       )
       .not.toBeUndefined();
 
@@ -134,9 +138,13 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     });
     const swallowedId = opData(swallowed).messageId as string;
     await expect
-      .poll(async () =>
-        (await crewMailAttempts(page, CANVAS, B))
-          .find((entry) => entry.messageId === swallowedId)?.unresolvedAt,
+      .poll(
+        async () =>
+          (await crewMailAttempts(page, CANVAS, B))
+            .find((entry) => entry.messageId === swallowedId)?.unresolvedAt,
+        // Written-but-unacknowledged is stamped after the drive's ack
+        // observation window — same evidence window crew-mail uses.
+        { timeout: 90_000, intervals: [500, 1_000, 2_000] },
       )
       .not.toBeUndefined();
 

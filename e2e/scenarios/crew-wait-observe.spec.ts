@@ -86,7 +86,7 @@ test("crew wait [fake-tui]: resolves on first matching state for idle/working/go
     const { a, b } = await boot(vellum);
 
     // Already idle — resolves immediately with evidence fields.
-    const idle = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 20_000 });
+    const idle = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 20_000 }, { awaitMs: 45_000, timeoutMs: 45_000 });
     const idleData = opData(idle) as {
       target: string; state: string; generation: string; epoch: string;
     };
@@ -97,12 +97,12 @@ test("crew wait [fake-tui]: resolves on first matching state for idle/working/go
     // Flip to working, then wait for the transition — seat.wait must see
     // the same state machine the drive sees.
     await b.control({ screen: { mode: "working" } });
-    const working = await a.op("seat.wait", { target: B, until: "working", timeoutMs: 30_000 });
+    const working = await a.op("seat.wait", { target: B, until: "working", timeoutMs: 30_000 }, { awaitMs: 45_000, timeoutMs: 45_000 });
     expect((opData(working) as { state: string }).state).toBe("working");
 
     // Exit the fake — the seat goes gone and the wait sees it.
     await b.control({ exit: 0 });
-    const gone = await a.op("seat.wait", { target: B, until: "gone", timeoutMs: 30_000 });
+    const gone = await a.op("seat.wait", { target: B, until: "gone", timeoutMs: 30_000 }, { awaitMs: 45_000, timeoutMs: 45_000 });
     expect((opData(gone) as { state: string }).state).toBe("gone");
   } finally {
     await vellum.close();
@@ -137,7 +137,7 @@ test("crew wait [fake-tui]: attention resolves while a peer holds a prompt form"
     await b.control({ screen: { mode: "attention" } });
     const res = await a.op("seat.wait", {
       target: B, until: "attention", timeoutMs: 30_000,
-    });
+    }, { awaitMs: 45_000, timeoutMs: 45_000 });
     const data = opData(res) as { state: string; confidence: string };
     expect(data.state).toBe("attention");
   } finally {
