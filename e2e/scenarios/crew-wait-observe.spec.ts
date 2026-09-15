@@ -100,10 +100,20 @@ test("crew wait [fake-tui]: resolves on first matching state for idle/working/go
     const working = await a.op("seat.wait", { target: B, until: "working", timeoutMs: 30_000 }, { awaitMs: 45_000, timeoutMs: 45_000 });
     expect((opData(working) as { state: string }).state).toBe("working");
 
-    // Exit the fake — the seat goes gone and the wait sees it.
+    // Exit the fake — the seat goes gone and the wait sees it. A wait that
+    // starts after the exit resolves from the retired-generation tombstone:
+    // state gone, reason generation_exited, the retired generation+epoch as
+    // witness.
     await b.control({ exit: 0 });
     const gone = await a.op("seat.wait", { target: B, until: "gone", timeoutMs: 30_000 }, { awaitMs: 45_000, timeoutMs: 45_000 });
-    expect((opData(gone) as { state: string }).state).toBe("gone");
+    const goneData = opData(gone) as {
+      state: string; reason?: string; confidence?: string;
+      generation?: string; epoch?: string;
+    };
+    expect(goneData.state).toBe("gone");
+    expect(goneData.reason).toBe("generation_exited");
+    expect(goneData.confidence).toBe("high");
+    expect(goneData.generation?.length).toBeGreaterThan(0);
   } finally {
     await vellum.close();
   }
