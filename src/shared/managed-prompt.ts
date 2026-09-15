@@ -114,7 +114,7 @@ export type ManagedPromptOutcomeFacts =
  * refused/written-unresolved) to an uncertainty error — never a bare
  * Boolean() of the payload.
  */
-export const ManagedPromptOutcome = Schema.Union([
+const ManagedPromptOutcomeUnion = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("submitted"),
     ...ManagedPromptOutcomeFacts.fields,
@@ -130,6 +130,19 @@ export const ManagedPromptOutcome = Schema.Union([
     ...ManagedPromptOutcomeFacts.fields,
   }),
 ]);
+
+export const ManagedPromptOutcome = ManagedPromptOutcomeUnion.pipe(
+  // Counter coherence, matching the documented facts: an envelope delta
+  // cannot go backwards, and the per-attempt count is exactly the delta.
+  // A submitted receipt with contradictory counters proves nothing.
+  Schema.refine(
+    (
+      outcome,
+    ): outcome is typeof ManagedPromptOutcomeUnion.Type =>
+      outcome.writesAfter >= outcome.writesBefore &&
+      outcome.pasteWrites === outcome.writesAfter - outcome.writesBefore,
+  ),
+);
 export type ManagedPromptOutcome = typeof ManagedPromptOutcome.Type;
 
 const decodeManagedPromptOutcome = Schema.decodeUnknownOption(

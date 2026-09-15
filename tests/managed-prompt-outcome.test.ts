@@ -4,6 +4,7 @@ import {
   admitImmediatePrompt,
   deriveMailDisplayState,
   mailAttemptReasonOfRefusal,
+  readManagedPromptOutcome,
   type ManagedPromptOutcome,
 } from "../src/shared/managed-prompt";
 import type { ActorSeatId } from "../src/shared/actor-seat";
@@ -72,6 +73,67 @@ describe("managed-prompt admission and reason mapping", () => {
     expect(mailAttemptReasonOfRefusal("over-limit")).toBe("oversize");
     expect(mailAttemptReasonOfRefusal("cancelled")).toBeUndefined();
     expect(mailAttemptReasonOfRefusal("suspended")).toBeUndefined();
+  });
+
+  it("validates wire outcomes and rejects contradictory counters", () => {
+    expect(
+      readManagedPromptOutcome({
+        status: "submitted",
+        bindingGeneration: 2,
+        writesBefore: 4,
+        writesAfter: 5,
+        pasteWrites: 1,
+        wrotePhysicalBytes: true,
+      }),
+    ).toMatchObject({ status: "submitted", pasteWrites: 1 });
+    expect(
+      readManagedPromptOutcome({
+        status: "refused",
+        reason: "seat-busy",
+        bindingGeneration: 0,
+        writesBefore: 0,
+        writesAfter: 0,
+        pasteWrites: 0,
+        wrotePhysicalBytes: false,
+      }),
+    ).toMatchObject({ status: "refused", reason: "seat-busy" });
+    // Backwards delta proves nothing.
+    expect(
+      readManagedPromptOutcome({
+        status: "submitted",
+        bindingGeneration: 0,
+        writesBefore: 5,
+        writesAfter: 4,
+        pasteWrites: -1,
+        wrotePhysicalBytes: true,
+      }),
+    ).toBeUndefined();
+    // Per-attempt count must equal the envelope delta.
+    expect(
+      readManagedPromptOutcome({
+        status: "submitted",
+        bindingGeneration: 0,
+        writesBefore: 4,
+        writesAfter: 5,
+        pasteWrites: 0,
+        wrotePhysicalBytes: true,
+      }),
+    ).toBeUndefined();
+    // Malformed shape or reason proves nothing.
+    expect(readManagedPromptOutcome({ status: "submitted" })).toBeUndefined();
+    expect(
+      readManagedPromptOutcome({
+        status: "refused",
+        reason: "bogus",
+        bindingGeneration: 0,
+        writesBefore: 0,
+        writesAfter: 0,
+        pasteWrites: 0,
+        wrotePhysicalBytes: false,
+      }),
+    ).toBeUndefined();
+    expect(readManagedPromptOutcome(true)).toBeUndefined();
+    expect(readManagedPromptOutcome(null)).toBeUndefined();
   });
 
   it("ranks unresolved above refused and acknowledgement above transport", () => {
@@ -395,13 +457,24 @@ describe("MessageDeliveryService outcome policy", () => {
     });
     service.notifyAppended("c", "agent", userMsg("m1"));
     await new Promise((r) => setTimeout(r, 25));
-    // First pass only starts the settle clock; nothing may transport yet.
-    expect(seen).toEqual([]);
+    // First pass only starts the settle clock: the refusal is durable
+    // (enqueued plus refused/not-settled) but nothing transports yet.
+    expect(seen).toEqual(["enqueue"]);
+    expect(ledger.records).toEqual([
+      {
+        messageId: "m1",
+        set: { refusedAt: expect.any(String), refusedReason: "not-settled" },
+      },
+    ]);
     clock += 2_000;
     service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 50));
-    expect(seen).toEqual(["enqueue", "transport"]);
+    expect(seen).toEqual(["enqueue", "enqueue", "transport"]);
     expect(ledger.records).toEqual([
+      {
+        messageId: "m1",
+        set: { refusedAt: expect.any(String), refusedReason: "not-settled" },
+      },
       { messageId: "m1", set: { notifiedAt: expect.any(String) } },
     ]);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "m1")).toBe(
@@ -473,5 +546,177 @@ describe("MessageDeliveryService outcome policy", () => {
     });
     expect(retry).toEqual({ unavailable: "settled" });
     expect(calls).toBe(2);
+  });
+
+  it("refuses an over-limit prompt without typing and records oversize", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", "x".repeat(200), {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    const ledger = makeLedger();
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+      seatDeliverySnapshot: async () => ({
+        idle: true,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store, attempts: ledger, now: () => clock });
+    // First call starts the settle clock and refuses retryable SeatBusy.
+    const settling = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(settling).toMatchObject({
+      outcome: { status: "refused", reason: "seat-busy" },
+    });
+    clock += 2_000;
+    const result = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(result).toMatchObject({
+      policy: "immediate",
+      outcome: { status: "refused", reason: "over-limit" },
+    });
+    expect(calls).toBe(0);
+    expect(ledger.records).toEqual([
+      {
+        messageId: "p1",
+        set: { refusedAt: expect.any(String), refusedReason: "not-settled" },
+      },
+      {
+        messageId: "p1",
+        set: { refusedAt: expect.any(String), refusedReason: "oversize" },
+      },
+    ]);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
+      false,
+    );
+  });
+
+  it("never wakes a stopped seat for immediate policy", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", "act now", {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    let wakes = 0;
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      wakeManagedSeat: async () => {
+        wakes += 1;
+        return true;
+      },
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+    const result = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(result).toMatchObject({
+      policy: "immediate",
+      outcome: { status: "submitted" },
+    });
+    expect(wakes).toBe(0);
+    expect(calls).toBe(1);
+  });
+
+  it("stamp-only path receipts ledger-notified rows without repasting", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", "act now", {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    const ledger = makeLedger();
+    const notifiedFacts = {
+      generation: "gen-7",
+      queuedAt: new Date(0).toISOString(),
+      notifiedAt: new Date(1).toISOString(),
+    };
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+      seatDeliverySnapshot: async () => ({
+        idle: true,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport,
+      store,
+      attempts: {
+        ...ledger,
+        enqueueAttempt: async (input) => ({
+          messageId: input.messageId,
+          recipient: {
+            seat: {
+              seatId: `seat_${"b".repeat(64)}` as ActorSeatId,
+              canvasName: input.canvas,
+              nodeId: input.nodeId,
+            },
+            generation: input.generation,
+          },
+          policy: input.policy,
+          facts: notifiedFacts,
+        }),
+      },
+      now: () => clock,
+    });
+    clock += 2_000;
+    // First call starts the settle clock; the second passes the gate and
+    // finds the ledger-notified row, stamping without pasting.
+    await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
+    clock += 2_000;
+    const result = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(result).toMatchObject({
+      policy: "immediate",
+      outcome: { status: "submitted", wrotePhysicalBytes: false },
+    });
+    expect(calls).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
+      true,
+    );
   });
 });
