@@ -3,13 +3,17 @@
 **The local crew implementation has substantial unit and database evidence;
 the complete feature is not qualified in a real harness or a production
 package.** Durable fallback/resume and checkout receipt composition now have
-checked service/database results. The historical generated review workflow
-passed while its PTY trace recorded a stalled fake author prompt. The repaired
-fixture has not renewed that result, and the observed Devin attempt wrote
-zero prompts. A workflow assertion cannot stand in for terminal submission.
+checked service/database results. Recorded Codex multiline evidence and an
+actual fake-PTY submission now pass their bounded checks. The historical
+generated review workflow passed while its PTY trace recorded a stalled
+fake author prompt; its complete Electron rerun remains pending. The
+observed Devin attempt wrote zero prompts.
 
 This reconciles the [required crew contract](../crew-contract.md) with
-the committed source cutoff **`171492635`**, 2026-09-15. This includes
+the committed source cutoff **`9e4385864`**, 2026-09-15. New receipts cover
+`9e4385864` (acknowledged-mail display), `4f84cb80a` / `cf52d96ab`
+(recorded Codex multiline evidence) and `2d2e6a4e8` (raw fake-PTY fixture).
+This includes the previous `171492635` lifecycle integration,
 `8ef303514` (explicit fallback and generation-safe resume), `466f438e2`
 (checkout composition), `396455873` (SHA author preservation), `f1b404998`
 (one reviewer per stable seat), `e9c4324ac` (receipt writer tests),
@@ -34,9 +38,9 @@ identified production artifact, not an Electron development build.
 |---|---|---|---|---|---|
 | Current process identity, directed edges and independently masked ports | Checked current authority and writer-race cases [U1, U3]; mask source/tests exist | No authority qualification from a screen recording | Reported mail/prompt/wait edge refusals [E1]; checked review scope/self-review refusal [E2] | Unrun | Unrun |
 | Stable mailbox identity, intent/outcome sequences, retained batch membership and crash reconciliation | Checked real repository and adapter transactions, rollback and reopen [U1, U2, U6] | Not a database proof | Reported durable-mail scenarios [E1]; full crash/restart matrix unrun | Gate-only Devin attempt, zero writes [E3] | Unrun |
-| Notification distinct from read/reply/reaction, server sender and typed refs | Checked repository facts and reviewed projection tests [U1, U5] | No receipt proof | Reported mail ledger/read scenarios [E1] | No Devin read receipt [E3] | Unrun |
-| Ordinary compact notice, one notice per turn, no automatic repeat after uncertainty | Checked drive/service regressions and accepted-write counts [U2, U4] | Partial: shared submission gates and pending evidence [C1] | Reported mail scenarios [E1]; review trace contains stalled author/queued reviewer [E2] | Unqualified for new crew | Unrun |
-| Immediate prompt, body-only 160-character cap, named refusal, same-message retry | Checked named outcomes, explicit policy and same-ID retry [U4, U6]; control retains domain retryability [U8] | Partial: shared drive only; Codex literal pending gap remains open [C1] | Reported 7 prompt scenarios [E1] | Unrun | Unrun |
+| Notification distinct from read/reply/reaction, server sender and typed refs | Checked repository facts; acknowledged notification outranks historical refusal/uncertainty without implying read [U1, U5] | No receipt proof | Reported mail ledger/read scenarios [E1] | No Devin read receipt [E3] | Unrun |
+| Ordinary compact notice, one notice per turn, no automatic repeat after uncertainty | Checked drive/service regressions and accepted-write counts [U2, U4] | Partial: shared gates, including recorded Codex multiline evidence [C1] | Prior scenarios reported [E1]; repaired fake PTY checked separately, full Electron rerun pending [E4] | Unqualified for new crew | Unrun |
+| Immediate prompt, body-only 160-character cap, named refusal, same-message retry | Checked named outcomes, explicit policy and same-ID retry [U4, U6]; control retains domain retryability [U8] | Partial: recorded Codex pending/ACK path now checked; full prompt control path remains separate [C1] | Reported 7 prompt scenarios [E1]; full repaired-fixture rerun pending | Unrun | Unrun |
 | Durable notice fallback and explicit same-generation resume/retry | Checked real DB reopen, one notification across generations, current-grant ordering and generation fences [U6]; live callback wired [U8] | No full feature qualification | Unrun for durable restart/resume semantics | Unrun | Unrun |
 | Seat wait, authorized `--any`, revocation, generation replacement and cancellation | Checked service/observer regressions [U3]; current control dispatch inspected | Partial: state and composer interpretation only [C1] | Reported wait scenarios [E1] | Unrun | Unrun |
 | Bounded terminal read/follow and task wait | Checked byte bounds, generation cursor, subscriptions and task events [U3] | Partial: observer grid source, not peer authorization/follow integration | Reported read/follow/task-wait scenarios [E1] | Unrun | Unrun |
@@ -133,15 +137,22 @@ This is shared-drive qualification on specific captured/modeled cases;
 the new crew prompt, authorization, receipt and UI paths are additional
 boundaries.
 
-**Open captured-frame defect:** Codex's recorded 15-line literal composer
-extends above the prior bottom-ten-row pending region. Its prompt glyph and
-first lines can fall outside that region, hiding real pending text. The
-recording is [Codex paste-chip](../../tests/pty-e2e/corpus/codex/paste-chip.jsonl)
-(the captured content is literal text, despite the scenario name).
-The new boundary/drive regression and implementation are under review after
-this source cutoff. A passing exploratory probe is not a committed fix or
-renewed Codex qualification. The earlier Amp and other bounded corpus
-results remain valid for their specific cases.
+**Recorded Codex multiline correction:** `4f84cb80a` recognizes the
+contiguous literal-composer layout above the former bottom-ten-row limit;
+it can prove a draft, not idle or an empty composer. `cf52d96ab` keeps the
+test compatible with ES2022. The primary source is
+[Codex paste-chip](../../tests/pty-e2e/corpus/codex/paste-chip.jsonl), whose
+content is literal text despite the scenario name. The
+[regression](../../tests/codex-multiline-pending.test.ts) finds 17 pending
+frames carrying the exact 15-line payload, then distinguishes submitted
+history from the live empty composer. An adjacent-frame replay through
+the observer, seat runtime and shared drive accepts exactly one paste and
+one CR, with pending evidence gone before the accepted working event.
+
+`/tmp/vellum-command-codex-multiline-gate-20260915.log` records **140/140
+tests in 7 files**, 08:15:35 BRT. This closes the recorded-evidence gap for
+those cases. It is replay of captured native bytes, not a fresh real Codex
+model run or a crew-workflow qualification.
 
 ### U5 — projection and schema scope
 
@@ -158,6 +169,17 @@ definitions and retained work history.
 It tested the shared tree after `e52ea0e27`; it is not a clean-package
 upgrade run. The number 21 is the test count: the current schema is **24**,
 with the additive migration **23 to 24**.
+
+`9e4385864` also corrects mail display precedence: reacted, replied, read,
+notified, unresolved, refused, queued. A proven notification wins over
+historical refusal/uncertainty; those timestamps remain intact and no
+read fact is invented. Without notification, unresolved still wins over
+refusal. The updated contract and
+[display regression](../../tests/crew-mail-view.test.ts#L57) agree.
+`/tmp/vellum-command-notified-display-before.log` records **3 failed,
+17 passed in 2 files**; `/tmp/vellum-command-notified-display-after.log`
+records **69/69 in 5 files**, 08:22:23 BRT. This is fact/display
+qualification, not proof that an external recipient received or read mail.
 
 ### U6 — corrected durable fallback and resume
 
@@ -243,8 +265,9 @@ Their checked [fixture](../../e2e/harness/crew-fixture.ts) uses real PTYs,
 process-bound control descendants and app projections with a deterministic
 fake TUI. No retained successful run log/report for those 20 scenarios was
 independently opened in this assessment, so these cells remain reported.
-The source is under active fixture correction; neither test authorship nor
-a new build silently renews the prior run's result.
+The fixture correction is now committed and has the actual fake-PTY proof
+in E4. Neither that narrower proof nor a new build renews these earlier
+complete Electron journeys.
 
 ### E2 — generated review workflow, separately from PTY health
 
@@ -264,8 +287,9 @@ The independently opened trace
 `/tmp/vellum-command-crew-review-native-digest-pty.jsonl` also contains an
 author claim paste followed by refused continuation and a reviewer
 `queue-timeout`. Therefore the passing review workflow is not successful
-unattended PTY submission qualification. The repaired fixture has not been
-run at this cutoff; the 1/1 is historical evidence for the earlier workflow.
+unattended PTY submission qualification. The complete Electron review
+journey has not been rerun after the fixture repair at this cutoff; the
+1/1 is historical evidence for the earlier workflow.
 
 ### E3 — isolated Devin has not proved delivery
 
@@ -283,6 +307,29 @@ The classifier regression supplies the captured visible text directly to
 `evaluate()`, not a full observer replay. This adapter repair does not
 demonstrate that the restarted real harness accepts mail;
 the corrected fixture/run still requires fresh, identified evidence.
+
+### E4 — corrected fake fixture over an actual PTY
+
+`2d2e6a4e8` gives the fake Codex process raw UTF-8 input, bracketed-paste
+mode and the idle `codex` title. It retains split paste-start/end markers
+between input callbacks and records the complete submitted payload's length
+and hash. This removes cooked-input echo/buffering that misrepresented the
+composer to the observer.
+
+The inspected `/tmp/vellum-command-fake-codex-20260915/report.json` and
+`probe.test.ts` exercise the installed fixture through **node-pty**, the real
+SessionObserver, SeatStateRuntime and shared drive. Paste markers were
+deliberately split across three writes. Before CR, the observer reports
+draft, positive pending text, bracketed paste enabled and title `codex`.
+The result is submitted with one paste, one CR, one complete 209-byte
+15-line submit event, matching SHA-256
+`c373534f3f9b9a7141519d7f51f2cf9153cc9ebb610fec91d01b5db4c63c54c0`,
+and no attention event. Raw stdin is exactly the paste envelope plus CR.
+
+The retained `probe.log` is **1/1 passed** and `focused.log` is **22/22 in
+2 files**, both in that evidence directory. This qualifies the actual fake
+process's PTY/observer/drive boundary. It does not launch Electron, traverse
+crew authorization or mail receipts, or call a real model provider.
 
 ## Aggregate result and remaining qualification
 
@@ -302,15 +349,20 @@ single-worker rerun recorded at
 aggregate run green. `6767b57fb` registers the missing boundaries, but the
 recorded aggregate predates that correction and further edits.
 
+A fresh clean QA checkout,
+`/tmp/vellum-command-crew-qa-9e438586`, is pinned to `9e4385864`.
+Its build and unit runs are in progress at this update; no result is
+claimed for them, and it has not supplied a renewed Electron or native
+qualification receipt.
+
 - **Final integrated run:** the focused corrections do not renew the old
   full-suite result. Rerun the final committed bundle and retain its source
   identity and outcomes; no full-green claim is made here.
-- **Generated app coverage:** retain inspectable mail/prompt/wait results
-  and run the repaired fake PTY fixture on the final source. The historical
-  review workflow result does not clear its hidden submission stall.
-- **Codex pending region:** finish and qualify the captured 15-line literal
-  composer repair before treating that adapter as covered by the old corpus
-  results.
+- **Generated app coverage:** run the complete mail/prompt/wait/review
+  journeys against the corrected fixture on the final source. Its bounded
+  actual-PTY proof does not clear the historical workflow's hidden stall.
+- **Codex live coverage:** the recorded multiline evidence and fake PTY
+  boundary now pass; fresh real-harness crew delivery remains unqualified.
 - **Real harness/package:** finish the isolated Devin run with actual
   running-source identity, physical-write trace and durable reads/reasons.
   No current checked receipt upgrades any new-crew package cell.
