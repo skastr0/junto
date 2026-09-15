@@ -136,6 +136,8 @@ const fixture = async (canvas: string, withNextBoard = false, withSecondReviewer
       ...(withNextBoard ? [{ id: "path", fromNode: "tasks", toNode: "next", ether: { verb: "feeds" as const } }] : []),
       ...(withSecondReviewer ? [{
         id: "second-review", fromNode: "second-reviewer", toNode: "author", ether: { verb: "reviews" as const },
+      }, {
+        id: "second-claim", fromNode: "tasks", toNode: "second-reviewer", ether: { verb: "works" as const },
       }] : []),
     ],
   };
@@ -644,6 +646,56 @@ describe("crew reviews through the real WorkService", () => {
     }
   });
 
+  it("rolls back an authored receipt update when a different seat claims before its writer", async () => {
+    const f = await fixture("crew-review-receipt-author-race", false, true);
+    const sender: MailSenderStamp = {
+      fromSeat: f.author.seatId, senderNodeId: f.author.nodeId,
+      senderGeneration: "original-author-generation", senderHarness: "claude",
+    };
+    let reachedWriter!: () => void;
+    let release!: () => void;
+    let barrierTimer: ReturnType<typeof setTimeout> | undefined;
+    const arrived = new Promise<void>((resolve, reject) => {
+      reachedWriter = resolve;
+      barrierTimer = setTimeout(() => reject(new Error("Receipt update did not reach transitionTask")), 3_000);
+    });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const original = repository.transitionTask.bind(repository);
+    const scheduling = vi.spyOn(repository, "transitionTask").mockImplementation((args) => {
+      const write = original(args);
+      if (args.receiptAuthor === undefined) return write;
+      return Effect.promise(async () => {
+        reachedWriter();
+        await released;
+      }).pipe(Effect.flatMap(() => write));
+    });
+    const notify = vi.spyOn(messageDelivery, "notifyAppended");
+    const updating = runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "working", "Original author's commit", evidence([SHA_A]), undefined, sender,
+    ));
+    try {
+      await arrived;
+      applied(await runtime.runPromise(work.workTaskTransition(
+        f.canvas, "tasks", f.taskId, "submitted", "Hand off to another seat",
+      )));
+      applied(await runtime.runPromise(work.workTaskClaim(f.canvas, "tasks", f.taskId, f.secondReviewer!)));
+      const reclaimed = await f.snapshot();
+      expect(reclaimed).toMatchObject({ state: "working", claimedBy: f.secondReviewer!.seatId });
+      expect(reclaimed.epoch ?? 0).toBe(0);
+      release();
+      const refused = await updating;
+      expect(refused.ok).toBe(false);
+      expect(await f.snapshot()).toEqual(reclaimed);
+      expect((await runtime.runPromise(repository.readSnapshot(f.canvas, "reviewer"))).messages.items).toEqual([]);
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      if (barrierTimer !== undefined) clearTimeout(barrierTimer);
+      release();
+      scheduling.mockRestore();
+      await Promise.allSettled([updating]);
+    }
+  });
+
   it("refuses a green verdict when the task refs change after service preflight", async () => {
     const f = await fixture("crew-review-green-stale-refs");
     const before = await f.show();
@@ -738,7 +790,7 @@ describe("crew reviews through the real WorkService", () => {
     }
   });
 
-  it("keeps a standalone commit verdict separate from its provenance task", async () => {
+  it("keeps a standalone commit verdict separate from its task and rechecks review authority", async () => {
     const f = await fixture("crew-review-standalone-commit");
     const sha = "c".repeat(40);
     const originalTask = await f.snapshot();
@@ -770,9 +822,44 @@ describe("crew reviews through the real WorkService", () => {
     expect(posted.newEpoch).toBeUndefined();
     expect(await f.snapshot()).toEqual(originalTask);
     expect((await f.show()).verdicts).toEqual([]);
-    expect(await runtime.runPromise(crew.verdictsForSubject({ kind: "commit", sha }))).toEqual([
+    const committedVerdicts = await runtime.runPromise(crew.verdictsForSubject({ kind: "commit", sha }));
+    expect(committedVerdicts).toEqual([
       expect.objectContaining({ verdictId: posted.verdictId, kind: "blocking", epoch: 0 }),
     ]);
+
+    let reachedWriter!: () => void;
+    let release!: () => void;
+    let barrierTimer: ReturnType<typeof setTimeout> | undefined;
+    const arrived = new Promise<void>((resolve, reject) => {
+      reachedWriter = resolve;
+      barrierTimer = setTimeout(() => reject(new Error("Commit verdict preflight did not reach its writer")), 3_000);
+    });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const original = repository.postReviewVerdict.bind(repository);
+    const scheduling = vi.spyOn(repository, "postReviewVerdict").mockImplementation((...args) => {
+      const write = original(...args);
+      return Effect.promise(async () => {
+        reachedWriter();
+        await released;
+      }).pipe(Effect.flatMap(() => write));
+    });
+    const posting = runtime.runPromise(work.workVerdictPost(
+      f.canvas, "author", { subject: input.subject, kind: "green" }, f.reviewer,
+    ));
+    try {
+      await arrived;
+      await f.replaceReviewEdge(undefined);
+      release();
+      const refused = await posting;
+      expect(refused).toMatchObject({ ok: false, code: "scope_error", details: { reason: "reviews-edge-missing" } });
+      expect(await f.snapshot()).toEqual(originalTask);
+      expect(await runtime.runPromise(crew.verdictsForSubject({ kind: "commit", sha }))).toEqual(committedVerdicts);
+    } finally {
+      if (barrierTimer !== undefined) clearTimeout(barrierTimer);
+      release();
+      scheduling.mockRestore();
+      await Promise.allSettled([posting]);
+    }
   });
 
   it("does not complete a reclaimed epoch using a prior epoch's surviving green", async () => {

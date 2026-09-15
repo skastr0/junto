@@ -173,6 +173,7 @@ import {
   createCurrentProjectedTaskDependencyScopeCapability,
   type PendingCommand,
   type ReviewGateWithin,
+  type ReviewReceiptRecord,
   type TaskDependencyScopeCapability,
   type TaskRecordPatch,
 } from "./repository";
@@ -1424,7 +1425,7 @@ export const WorkLive = Layer.effect(
 
     const local = <T>(
       effect: Effect.Effect<
-        { readonly value: T },
+        { readonly value: T; readonly reviewReceipts?: ReadonlyArray<ReviewReceiptRecord> },
         unknown
       >,
       admin?: OverseerWorkAdmin,
@@ -1433,6 +1434,13 @@ export const WorkLive = Layer.effect(
         Effect.flatMap(() =>
           effect.pipe(
             Effect.mapError(toWorkServiceError),
+            Effect.tap(({ reviewReceipts }) => reviewReceipts === undefined
+              ? Effect.void
+              : Effect.sync(() => {
+                  for (const receipt of reviewReceipts) {
+                    messageDelivery.notifyAppended(receipt.canvas, receipt.nodeId, receipt.message);
+                  }
+                })),
             Effect.map(({ value }) => ({
               value,
               disposition: "applied" as const,
