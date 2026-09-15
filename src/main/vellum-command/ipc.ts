@@ -54,6 +54,8 @@ import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { CrewRepository } from "./work/crew-repository";
 import { makeMailAttemptStore } from "./work/mail-attempt-store";
+import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
+import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
@@ -1286,6 +1288,7 @@ export const registerVellumIpc = (): void => {
       // External control leases belong to interactive terminal clients; product
       // automation must never steal them during claim delivery.
       let productAutomationSuspended = false;
+      let checkoutWatch: CheckoutWatchSupervisor | undefined;
       const managedPulseReadyCancels = new Map<
         string,
         { readonly epoch: string; readonly cancel: () => void }
@@ -1440,6 +1443,7 @@ export const registerVellumIpc = (): void => {
         suspend: (): void => {
           if (productAutomationSuspended) return;
           productAutomationSuspended = true;
+          checkoutWatch?.stop();
           // Cut every Vellum Command-owned source before releasing its exact control
           // leases. LocalSessionHost.release never signals the PTY process.
           managedDrive.suspend();
@@ -1695,6 +1699,11 @@ export const registerVellumIpc = (): void => {
       });
       messageDelivery.configure({
         attempts,
+        releaseSeatHold: (bindingId, generation) => {
+          if (termPlane.host.get(bindingId)?.epoch === generation) {
+            managedDrive.releaseWrittenUnresolved(bindingId);
+          }
+        },
         transport: factoryMailTransport({
           kernel,
           write: writeManagedPrompt,
@@ -1800,6 +1809,29 @@ export const registerVellumIpc = (): void => {
       // and station planes have settled. Every gate re-checks inside.
       setTimeout(() => messageDelivery.onBooted(), 10_000);
 
+      const workRepository = yield* WorkRepository;
+      checkoutWatch = makeCheckoutWatchComposition({
+        canvases,
+        settings: settingsForSeed,
+        host: termPlane.host,
+        crew,
+        workRepository,
+        messageDelivery,
+        basisFor: (witness) => Schema.decodeUnknownSync(IntentFactBasis)({
+          kind: "authorial-intent",
+          generation: witness.generation,
+          contentSha256: witness.contentSha256,
+        }),
+        run: (effect) => AppRuntime.runPromise(effect),
+        write: (effect) => runMainAuthoring("review.checkout", () => AppRuntime.runPromise(effect)),
+        onError: (error) => console.error("[checkout-watch]", error),
+      });
+      const syncCheckoutWatch = (role: string): void => {
+        if (!productAutomationSuspended && role === "command-center") checkoutWatch?.start();
+        else checkoutWatch?.stop();
+      };
+      syncCheckoutWatch((yield* settingsForSeed.get).station.role);
+
       canvases.start();
       snapshots.start();
       // First usage fetch is fire-and-forget off the boot critical path;
@@ -1822,6 +1854,7 @@ export const registerVellumIpc = (): void => {
         startLiveFleetUpdateExecutor();
       }
       settingsForSeed.subscribe((settings) => {
+        syncCheckoutWatch(settings.station.role);
         if (FLEET_UI_ENABLED && settings.station.role === "command-center") {
           Effect.runFork(fleetPropagation.start());
           startLiveFleetUpdateExecutor();
