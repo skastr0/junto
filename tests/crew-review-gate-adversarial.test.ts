@@ -511,11 +511,10 @@ describe("planReceiptMail — the receipt feed", () => {
     expect(second.coalesced).toBeGreaterThan(0);
   });
 
-  it.fails(
-    "case-variant commit shas bypass the fresh dedupe — the key normalizes " +
-      "with normalizeSha but `fresh.some(kept => kept.sha === ref.sha)` " +
-      "compares raw text, so 'ABC123'+'abc123' emit two identical dedupe " +
-      "keys and 'N commit refs' over-counts",
+  it(
+    "case-variant commit shas coalesce — refs canonicalize at the " +
+      "boundary, so 'ABC123'+'abc123' emit one dedupe key and an honest " +
+      "'1 commit ref' subject",
     () => {
       const res = planReceiptMail({
         canvasName: "c",
