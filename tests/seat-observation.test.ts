@@ -373,6 +373,23 @@ describe("seat.wait", () => {
     }
   });
 
+  it("answers within the observation budget of the transition it waits on", async () => {
+    const harness = makeHarness({ doc: peerDoc(), sessionEpoch: "e1" });
+    const started = Date.now();
+    const pending = Effect.runPromiseExit(
+      harness.service.waitSeat({ target: "peer", until: "working", timeoutMs: 2_000 }, caller),
+    );
+    await settle(20);
+    expect(harness.seatSubscribed()).toBe(true);
+    harness.emitSeat(seatEvent({ state: "working", reason: "turn", confidence: "high" }));
+    const exit = await pending;
+    const elapsed = Date.now() - started;
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) expect(exit.value.state).toBe("working");
+    // The wait adds no debounce of its own: it answers the machine's event.
+    expect(elapsed).toBeLessThan(250);
+  });
+
   it("fails ScopeError when the edge is revoked before the canvas subscription installs", async () => {
     // The loop's own read sees an authorized document; the grant is removed
     // before the canvas subscription is registered, so no commit event can
