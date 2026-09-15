@@ -29,12 +29,12 @@ export interface OverseerRuntime {
 
 const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
   switch (type) {
-    case "ScopeError": case "AuthError": return "Forbidden";
+    case "ScopeError": case "AuthError": case "ReviewerIsAuthor": return "Forbidden";
     case "UnknownTarget": case "StaleNodeRef": return "NotFound";
     case "InputError": case "ProtocolError": return "InvalidArguments";
     case "ClaimConflict": case "InvalidTransition": return "Conflict";
-    case "RuntimeDown": return "RuntimeDown";
-    case "Paused": case "Blocked": return "Conflict";
+    case "RuntimeDown": case "Timeout": return "RuntimeDown";
+    case "Paused": case "Blocked": case "SeatBusy": return "Conflict";
     case "InternalError": return "InternalError";
   }
 };

@@ -7,7 +7,7 @@ import type { Port, SinkKind } from "./schema";
 
 export type TargetWorkOpName = Exclude<
   WorkOpName,
-  "ping" | "doctor" | "capabilities" | "onboard" | "preamble" | "overseer" | "overseer.live"
+  "ping" | "doctor" | "capabilities" | "onboard" | "preamble" | "overseer" | "overseer.live" | "msg.sent"
 >;
 
 /**
@@ -16,6 +16,7 @@ export type TargetWorkOpName = Exclude<
  */
 export const PortForWorkOp = {
   "tasks.list": "tasks.list",
+  "tasks.wait": "tasks.list",
   "tasks.create": "tasks.create",
   "tasks.claim": "tasks.claim",
   "tasks.update": "tasks.update",
@@ -32,6 +33,10 @@ export const PortForWorkOp = {
   "content.materialize": "tasks.list",
   "msg.list": "msg.list",
   "msg.send": "msg.send",
+  "msg.prompt": "msg.prompt",
+  "seat.wait": "seat.wait",
+  "seat.read": "terminal.read",
+  "verdict.post": "verdict.post",
   // Read/reply reuse list/send edge ports — no new capability surface.
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
@@ -59,6 +64,7 @@ export const isTargetWorkOp = (op: WorkOpName): op is TargetWorkOpName =>
 
 export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "tasks.list",
+  "tasks.wait",
   "tasks.create",
   "tasks.claim",
   "tasks.update",
@@ -71,6 +77,10 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "content.materialize",
   "msg.list",
   "msg.send",
+  "msg.prompt",
+  "seat.wait",
+  "seat.read",
+  "verdict.post",
   "msg.read",
   "msg.reply",
   "msg.react",
@@ -101,6 +111,7 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
 export const OPS_BY_SINK = {
   task: [
     "tasks.list",
+    "tasks.wait",
     "tasks.create",
     "tasks.claim",
     "tasks.update",

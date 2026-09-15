@@ -278,8 +278,10 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "capabilities":
     case "onboard":
     case "preamble":
+    case "msg.sent":
       return false;
     case "tasks.list":
+    case "tasks.wait":
     case "tasks.create":
     case "tasks.claim":
     case "tasks.update":
@@ -292,6 +294,10 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "content.materialize":
     case "msg.list":
     case "msg.send":
+    case "msg.prompt":
+    case "seat.wait":
+    case "seat.read":
+    case "verdict.post":
     case "msg.read":
     case "msg.reply":
     case "msg.react":
@@ -314,6 +320,10 @@ const NO_OPS: ReadonlyArray<WorkOpName> = [];
 const MSG_OPS: ReadonlyArray<WorkOpName> = [
   "msg.list",
   "msg.send",
+  "msg.prompt",
+  "seat.wait",
+  "seat.read",
+  "verdict.post",
   "msg.read",
   "msg.reply",
   "msg.react",

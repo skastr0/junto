@@ -12,6 +12,11 @@ import {
 } from "./work-model";
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
+import { MailEvidenceRef } from "./crew";
+export {
+  SeatWaitArgs, SeatReadArgs, TaskWaitArgs,
+  SeatWaitResult, SeatReadResult, TaskWaitResult,
+} from "./seat-control";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
 // socket at ~/.vellum-command/work/control.sock. Pure module — no Node imports — so
@@ -56,15 +61,21 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "tasks.show",
 "tasks.rules",
 "tasks.check",
+"tasks.wait",
 "rulings",
 "content.path",
 "content.stat",
 "content.materialize",
 "msg.list",
 "msg.send",
+"msg.prompt",
+"msg.sent",
 "msg.read",
 "msg.reply",
 "msg.react",
+"seat.wait",
+"seat.read",
+"verdict.post",
 "request.escalate",
 "artifact.publish",
 "board.list",
@@ -93,7 +104,10 @@ export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
 "ProtocolError",
 "InternalError",
 "Paused",
-"Blocked",]);
+"Blocked",
+"SeatBusy",
+"Timeout",
+"ReviewerIsAuthor",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
 
 export const WorkErrorDetails = Schema.Struct({
@@ -111,6 +125,10 @@ export const WorkErrorDetails = Schema.Struct({
   missing: Schema.optionalKey(Schema.String),
   /** Open escalate request id when type === Blocked. */
   requestId: Schema.optionalKey(Schema.String),
+  /** Durable prompt identity, returned even when immediate admission refuses. */
+  messageId: Schema.optionalKey(Schema.String),
+  generation: Schema.optionalKey(Schema.String),
+  reason: Schema.optionalKey(Schema.String),
   /** Machine-readable stop instruction for harness tools (Blocked / escalate). */
   stop_directive: Schema.optionalKey(Schema.Unknown),
 });
@@ -514,8 +532,33 @@ export const MsgSendArgs = Schema.Struct({
   target: Schema.String,
   text: Schema.String,
   taskId: Schema.optionalKey(Schema.String),
+  subject: Schema.optionalKey(Schema.String),
+  refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
+
+/** Immediate creation and retry are disjoint, so retries cannot replace a body. */
+export const MsgPromptArgs = Schema.Union([
+  Schema.Struct({
+    target: Schema.String,
+    text: Schema.String,
+    subject: Schema.optionalKey(Schema.String),
+    refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
+    fallback: Schema.optionalKey(Schema.Literal("notice")),
+  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  Schema.Struct({
+    target: Schema.String,
+    messageId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    fallback: Schema.optionalKey(Schema.Literal("notice")),
+  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+]);
+export type MsgPromptArgs = typeof MsgPromptArgs.Type;
+
+/** Read the admitted sender's receipts; never marks the recipient mailbox read. */
+export const MsgSentArgs = Schema.Struct({
+  target: Schema.optionalKey(Schema.String),
+});
+export type MsgSentArgs = typeof MsgSentArgs.Type;
 
 /** Mark a mailbox message read. Target must be the caller's own seat. */
 export const MsgReadArgs = Schema.Struct({
@@ -540,6 +583,7 @@ export const MsgReplyArgs = Schema.Struct({
   target: Schema.String,
   text: Schema.String,
   inReplyTo: Schema.String,
+  refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
 });
 export type MsgReplyArgs = typeof MsgReplyArgs.Type;
 
