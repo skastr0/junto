@@ -146,20 +146,7 @@ export const mailKindOf = (message: Message): MailKind | undefined => {
 export const mailAttemptFactsOf = (
   message: Message,
   _queuedAt: number | undefined,
-): MailViewFacts => {
-  const facts = mailDisplayFactsOf(message);
-  return {
-    queuedAt: facts.queuedAt,
-    notifiedAt: facts.notifiedAt,
-    unresolvedAt: facts.unresolvedAt,
-    refusedAt: facts.refusedAt,
-    refusedReason: facts.refusedReason,
-    readAt: facts.readAt,
-    repliedAt: facts.repliedAt,
-    reactedAt: facts.reactedAt,
-    generation: facts.generation,
-  };
-};
+): MailViewFacts => mailDisplayFactsOf(message);
 
 export const mailSubjectOf = (message: Message): string | undefined => {
   const extension = readMailExtension(message.metadata);
