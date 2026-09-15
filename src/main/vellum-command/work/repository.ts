@@ -2587,7 +2587,8 @@ const writeTaskFinish = (
   // deliberate clear and an omitted field arrive here identically. Merge-keeping
   // on a non-completed task resurrects stale evidence into a Task that violates
   // the model filter (a QA rejection, completed -> submitted, is exactly this).
-  const evidenceAllowed = task.state === "completed";
+  const evidenceAllowed =
+    task.state === "completed" || task.state === "working";
   const existing = loadTaskFinish(writer, sink, task.id);
   if (
     task.finishCriteria === undefined &&
@@ -7215,8 +7216,9 @@ const validateIncomingFact = (
       // Completion evidence is stamped on completion and cleared when QA
       // rejects that completion back to Queue. Other transitions keep it
       // unchanged for installed rows that predate this QA exit.
-      if (next.state === "completed") {
-        // Stamp or leave empty is legal; prior non-completed had no evidence.
+      if (next.state === "completed" || next.state === "working") {
+        // Stamp, change, or leave empty is legal: completed stamps final
+        // evidence, working stages review refs.
       } else if (isQaRejection) {
         if (next.completionEvidence !== undefined) {
           throw authorityError(
@@ -7230,7 +7232,7 @@ const validateIncomingFact = (
       ) {
         throw authorityError(
           "invalid-transition",
-          "completionEvidence may only change when transitioning to completed",
+          "completionEvidence may only change when transitioning to completed or working",
         );
       }
       if (
@@ -8302,13 +8304,17 @@ export const WorkRepositoryLive = Layer.effect(
             "a QA rejection comment is required before returning a completed task to Queue",
           );
         }
-        const evidence =
-          input.state === "completed"
-            ? normalizeRuleEvidence(
-                normalizeCompletionEvidence(input.completionEvidence),
-                input.completionEvidence,
-              )
-            : undefined;
+        // Completion evidence persists on completed AND working: a working task
+        // may carry staged review refs. Only completed runs the finish and
+        // review gates below; working just stages the refs.
+        const evidenceState =
+          input.state === "completed" || input.state === "working";
+        const evidence = evidenceState
+          ? normalizeRuleEvidence(
+              normalizeCompletionEvidence(input.completionEvidence),
+              input.completionEvidence,
+            )
+          : undefined;
         if (input.state === "completed") {
           const artifactsByNode = loadAllArtifactsByNode(
             writer,
@@ -8354,20 +8360,19 @@ export const WorkRepositoryLive = Layer.effect(
           taskWithTransitionState(current.task, input.state),
           input.taskPatch,
         );
-        const withoutEvidence =
-          input.state === "completed"
-            ? base
-            : (() => {
-                const { completionEvidence: _c, ...rest } = base;
-                return rest;
-              })();
+        const withoutEvidence = evidenceState
+          ? base
+          : (() => {
+              const { completionEvidence: _c, ...rest } = base;
+              return rest;
+            })();
         const task = Schema.decodeUnknownSync(Task, strictDecode)({
           ...withoutEvidence,
           history:
             message === undefined
               ? current.task.history
               : [...current.task.history, message],
-          ...(input.state === "completed" && evidence !== undefined
+          ...(evidenceState && evidence !== undefined
             ? { completionEvidence: evidence }
             : {}),
         });
