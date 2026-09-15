@@ -528,6 +528,8 @@ class Session {
   exitInfo: { code: number; signal?: number } | null = null;
   blocked = false;
   blockReason = "";
+  /** When true, never auto-reply to def.modals (trust-hold capture). */
+  holdModals = false;
   modalsReplied = new Set<string>();
   private promptTerminal: import("@xterm/headless").Terminal | undefined;
 
@@ -647,6 +649,7 @@ class Session {
   }
 
   private checkModal(): void {
+    if (this.holdModals) return;
     const text = tailText(this.currentBytes(), 3000).toLowerCase();
     for (const modal of this.def.modals ?? []) {
       if (this.modalsReplied.has(modal.when.source)) continue;
@@ -1719,6 +1722,93 @@ async function main(): Promise<void> {
     }
     console.log(`\nCHECK-ALL: ${allOk ? "PASS" : "FAIL"}`);
     process.exit(allOk ? 0 : 1);
+  }
+
+  if (args.includes("--trust-hold")) {
+    const def = HARNESSES.find((harness) => harness.name === "devin");
+    if (def === undefined) {
+      console.error("devin harness missing");
+      process.exit(2);
+    }
+    if (process.env.PTY_CAPTURE_OPERATOR_HOME === "1") {
+      console.error("refusing --trust-hold under PTY_CAPTURE_OPERATOR_HOME=1");
+      process.exit(2);
+    }
+    fs.mkdirSync(CAPTURE_ROOT, { recursive: true });
+    try {
+      console.log("\n========== trust-hold devin (isolated, no Enter) ==========");
+      const sess = new Session(def);
+      sess.holdModals = true;
+      const results: ScenarioResult[] = [];
+      try {
+        sess.spawn();
+        const deadline = Date.now() + 25_000;
+        let seen = false;
+        while (Date.now() < deadline) {
+          const tail = tailText(sess.currentBytes(), 20_000).toLowerCase();
+          if (tail.includes("trust") && tail.includes("author")) {
+            seen = true;
+            if (Date.now() - sess.lastDataAt >= QUIET_MS) break;
+          }
+          await sess.wait(200);
+        }
+        const end = sess.events.length;
+        const lines = sess.writeFixture(
+          0,
+          end,
+          path.join(CAPTURE_ROOT, def.name, "startup-trust.jsonl"),
+          "startup-trust",
+        );
+        results.push({
+          harness: def.name,
+          scenario: "startup-trust",
+          status: seen ? "complete" : "skip",
+          reason: seen ? "trust view captured before Enter" : "trust view never appeared",
+          observed: {
+            bytes: sess.bytes,
+            lines,
+            isolated: true,
+            isolatedHome: sess.home,
+            holdModals: true,
+            entered: false,
+          },
+          expectedScreen: expectedScreenFor(def, sess.currentBytes(), "isolated trust view before any Enter"),
+        });
+        console.log(`[devin] trust-hold ${seen ? "complete" : "skip"} bytes=${sess.bytes} entered=false`);
+      } catch (err) {
+        results.push({
+          harness: def.name, scenario: "startup-trust", status: "fail",
+          reason: String(err), observed: {}, expectedScreen: {},
+        });
+      } finally {
+        await sess.killTree();
+      }
+      writeManifests(def, results);
+      const src = path.join(CAPTURE_ROOT, def.name, "startup-trust.jsonl");
+      const destDir = path.join(OUT_ROOT, def.name);
+      fs.mkdirSync(destDir, { recursive: true });
+      if (fs.existsSync(src) && results[0]?.status === "complete") {
+        fs.copyFileSync(src, path.join(destDir, "startup-trust.jsonl"));
+        const destManifestPath = path.join(destDir, "manifest.json");
+        if (fs.existsSync(destManifestPath)) {
+          const dest = JSON.parse(fs.readFileSync(destManifestPath, "utf8")) as {
+            scenarios?: ScenarioResult[];
+          };
+          const scenarios = Array.isArray(dest.scenarios)
+            ? dest.scenarios.filter((row) => row.scenario !== "startup-trust")
+            : [];
+          const incoming = results.find((row) => row.scenario === "startup-trust");
+          if (incoming) scenarios.push(incoming);
+          dest.scenarios = scenarios;
+          fs.writeFileSync(destManifestPath, JSON.stringify(dest, null, 2) + "\n");
+        }
+        const receipt = certifyHarness(OUT_ROOT, def.name);
+        earnSanitizedStamp(OUT_ROOT, def.name, receipt);
+      }
+    } finally {
+      fs.rmSync(CAPTURE_ROOT, { recursive: true, force: true });
+    }
+    return;
   }
 
   if (args.includes("--mail-notice")) {

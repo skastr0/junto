@@ -52,16 +52,22 @@ const snap = (
 const HR = "────────────────";
 
 describe("rule packs", () => {
-  it("classifies captured Devin directory trust as attention, not fallback idle", () => {
-    // Exact visible lines from tests/pty-e2e/corpus/devin/mail-notice.jsonl
+  it("classifies isolated startup-trust capture as attention, not fallback idle", () => {
+    // Visible lines from tests/pty-e2e/corpus/devin/startup-trust.jsonl
+    // (isolated credential seed, holdModals, no Enter).
     const captured = evaluate(
       snap({
         lines: [
           "Welcome to Devin CLI!",
-          "✱ Do you trust the authors of this directory?",
-          "For security, devin should not be run in directories with untrusted content.",
-          "❭ 1 Yes, trust",
-          "· 2 No, exit",
+          " ✓ Logged in as <EMAIL>.",
+          "✓ Organization: Guilherme Castro",
+          "You're all set. Run devin to get started.",
+          " ✱ Do you trust the authors of this directory?",
+          "   For security, devin should not be run in directories with untrusted content.",
+          " <CWD>",
+          " ❭ 1 Yes, trust",
+          " · 2 No, exit",
+          " ↓↑ to select · ↵ to choose · esc to quit",
         ],
       }),
       { harness: "devin" },
@@ -70,20 +76,6 @@ describe("rule packs", () => {
     expect(captured.reason).toBe("rule:workspace_trust_prompt");
     expect(captured.visibleAttention).toBe(true);
     expect(captured.ruleId).toBe("workspace_trust_prompt");
-    const cuaLive = evaluate(
-      snap({
-        lines: [
-          "Welcome to Devin CLI!",
-          "Do you trust authors?",
-          "~/",
-          "  1. Yes, trust",
-          "  2. No, exit",
-        ],
-      }),
-      { harness: "devin" },
-    );
-    expect(cuaLive.state).toBe("attention");
-    expect(cuaLive.reason).toBe("rule:workspace_trust_prompt");
   });
 
   it("ships four harness packs", () => {

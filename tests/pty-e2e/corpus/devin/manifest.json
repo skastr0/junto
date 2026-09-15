@@ -211,12 +211,32 @@
         "composerPending": true,
         "workingVisible": true
       }
+    },
+    {
+      "harness": "devin",
+      "scenario": "startup-trust",
+      "status": "complete",
+      "reason": "trust view captured before Enter",
+      "observed": {
+        "bytes": 850,
+        "lines": 1,
+        "isolated": true,
+        "isolatedHome": "/tmp/vellum-capture-home/devin",
+        "holdModals": true,
+        "entered": false
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": "❭",
+        "description": "isolated trust view before any Enter"
+      }
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 5,
-    "decodedBytes": 185797,
+    "fixtures": 6,
+    "decodedBytes": 186603,
     "checks": [
       "home-path",
       "username",
