@@ -17,13 +17,11 @@
  *      for green) and the verdict chain tracks posted verdicts, ageing
  *      prior-epoch rows as send-backs bump the task epoch.
  */
-import { ulid } from "ulid";
 import { expect, launchVellum, test } from "../harness/launch";
 import {
   crewMailAttempts,
   crewManagesEdge,
   crewMessagesEdge,
-  crewMutateCanvas,
   crewOccupySeat,
   crewPlayFactory,
   crewReviewsEdge,
@@ -37,8 +35,6 @@ import {
 } from "../harness/crew-fixture";
 import {
   CREW_UI_SELECTORS,
-  crewMailMessage,
-  crewMailMetadata,
   messagesEdgeWithMask,
   requiresReviewRule,
 } from "../harness/crew-ui-fixtures";
@@ -67,36 +63,13 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 
 test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row", async () => {
   test.setTimeout(240_000);
-  // A seeded message enters through the real append path: the seat is dead
-  // at install, so the attempt refuses and the sender attribution resolves
-  // to the node itself. That row is the ledger's refused state.
-  const settledAt = Date.now() - 2 * 60 * 60_000;
-  const refusedId = ulid(settledAt);
-  const seatBWithMail = {
-    ...seatB,
-    ether: {
-      ...seatB.ether!,
-      messages: {
-        items: [
-          crewMailMessage({
-            messageId: refusedId,
-            text: "mail that arrived before the seat lived",
-            metadata: crewMailMetadata({
-              fromSeat: B,
-              queuedAt: new Date(settledAt).toISOString(),
-              generation: "seed-generation",
-            }),
-          }),
-        ],
-      },
-    },
-  };
-  // The seeded mailbox row ships without the edge: the sandbox attributes a
-  // seeded message to the one compiled actor adjacent to its node, and a
-  // drawn edge would leave two candidates. The operator draws the wire after
-  // boot; the durable mailbox row is unaffected by the authored edit.
   const vellum = await launchVellum({
-    seedCanvases: { [CANVAS]: crewDoc([seatA, seatBWithMail], []) },
+    seedCanvases: {
+      [CANVAS]: crewDoc(
+        [seatA, seatB],
+        [crewMessagesEdge("e-ab", A, B, [seatA, seatB])],
+      ),
+    },
     afterSeed: installCrewSeatHarness,
     extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
   });
@@ -104,13 +77,6 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     const { page, sandbox } = vellum;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
-    await crewMutateCanvas(page, CANVAS, (doc) => ({
-      ...doc,
-      edges: [
-        ...doc.edges,
-        crewMessagesEdge("e-ab", A, B, [seatA, seatBWithMail]),
-      ],
-    }));
 
     const seatAHandle = crewSeat(sandbox, CANVAS, A);
     const seatBHandle = crewSeat(sandbox, CANVAS, B);
@@ -127,16 +93,13 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
 
     const ledger = front.getByTestId(CREW_UI_SELECTORS.ledger);
     await expect(ledger).toBeVisible({ timeout: 15_000 });
-
-    // The seeded row tells the truth about its refusal — a write attempted
-    // while no seat lived is never laundered into delivered.
-    const refusedRow = ledger.locator(
-      `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${refusedId}"]`,
+    await expect(ledger.locator(".actor-ledger__empty")).toHaveText(
+      "No mail yet",
     );
-    await expect(refusedRow).toHaveAttribute("data-delivery", "refused");
-    await expect(refusedRow).not.toHaveAttribute("data-unresolved", "true");
 
-    // A send lands notified: one row, kind notice, not unresolved.
+    // Cold first contact: a transient not-settled refusal may coalesce on
+    // the same attempt row, but the landed write ranks above it — the row
+    // must tell the truth about the notification, not the earlier refusal.
     const send = await seatAHandle.op("msg.send", {
       target: B,
       text: "peer mail: ledger shows me",
@@ -203,6 +166,27 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     await expect(
       glance.getByTestId(CREW_UI_SELECTORS.seatUnresolvedMailTotal),
     ).toHaveText("1");
+
+    // A send the seat can never take is refused, not parked forever: kill
+    // the recipient and the consult stamps the refusal durably.
+    await seatBHandle.control({ exit: 0 });
+    const refused = await seatAHandle.op("msg.send", {
+      target: B,
+      text: "peer mail: seat is gone",
+    });
+    const refusedId = opData(refused).messageId as string;
+    await expect
+      .poll(async () =>
+        (await crewMailAttempts(page, CANVAS, B))
+          .find((entry) => entry.messageId === refusedId)?.refusedAt,
+        { timeout: 30_000 },
+      )
+      .not.toBeUndefined();
+    const refusedRow = ledger.locator(
+      `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${refusedId}"]`,
+    );
+    await expect(refusedRow).toHaveAttribute("data-delivery", "refused");
+    await expect(refusedRow).not.toHaveAttribute("data-unresolved", "true");
   } finally {
     await vellum.close();
   }
