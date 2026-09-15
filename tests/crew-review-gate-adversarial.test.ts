@@ -375,20 +375,28 @@ describe("evaluateReviewGate — completion gating", () => {
     expect(res.satisfied).toBe(true);
   });
 
-  it.fails(
-    "same-ms blocking and green: the blocking verdict must win the tie — " +
-      "latest-by-postedAtMs falls back to array order, letting a green mask " +
-      "a blocking filed in the same millisecond (needs a root ruling)",
-    () => {
-      const res = evaluateReviewGate(
-        gateInput([
-          verdict({ verdictId: "v-b", kind: "blocking", postedAtMs: 1000 }),
-          verdict({ verdictId: "v-g", kind: "green", postedAtMs: 1000 }),
-        ]),
-      );
-      expect(res.satisfied).toBe(false);
-    },
-  );
+  // Root ruling: same-ms ties resolve BLOCKING WINS, independent of array
+  // order (crew-repository's anyReviewerLatestGreen implements the same law
+  // on the durable side).
+  it("same-ms blocking and green: the blocking verdict wins the tie", () => {
+    const res = evaluateReviewGate(
+      gateInput([
+        verdict({ verdictId: "v-b", kind: "blocking", postedAtMs: 1000 }),
+        verdict({ verdictId: "v-g", kind: "green", postedAtMs: 1000 }),
+      ]),
+    );
+    expect(res.satisfied).toBe(false);
+  });
+
+  it("same-ms tie holds regardless of array order — green first still loses", () => {
+    const res = evaluateReviewGate(
+      gateInput([
+        verdict({ verdictId: "v-g", kind: "green", postedAtMs: 1000 }),
+        verdict({ verdictId: "v-b", kind: "blocking", postedAtMs: 1000 }),
+      ]),
+    );
+    expect(res.satisfied).toBe(false);
+  });
 });
 
 describe("reviews edges — effective grant, not raw verb", () => {
@@ -511,18 +519,12 @@ describe("planReceiptMail — the receipt feed", () => {
       });
       expect(res.mail[0]?.dedupeKeys).toHaveLength(1);
       expect(new Set(res.mail[0]?.dedupeKeys).size).toBe(1);
-    },
-  );
+    });
 
-  it.fails(
-    "receipt mail must be deliverable — planReceiptMail builds messages " +
-      "with makeAgentMessage (role 'agent'), so isForeignMessage is false " +
-      "and the reviewer's seat is never nudged; the receipt feed is dead mail",
-    () => {
-      const res = plan();
-      for (const m of res.mail) {
-        expect(m.message.role).toBe("user");
-      }
-    },
-  );
+  it("receipt mail is deliverable — foreign user-role in the reviewer's mailbox", () => {
+    const res = plan();
+    for (const m of res.mail) {
+      expect(m.message.role).toBe("user");
+    }
+  });
 });
