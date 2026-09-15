@@ -162,10 +162,9 @@ export type WritePromptOptions = {
    */
   readonly interruptIfBusy?: boolean;
   /**
-   * When false, a successful paste+CR resolves true without waiting for
-   * onTurnStart. Tier B firstTyped doctrine uses this: harnesses with empty
-   * or weak working chrome (Muse) never publish working, so stallWatch would
-   * force attention, leave firstTyped armed, and re-paste forever.
+   * When false, retain the extra firstTyped paint settles after paste+CR.
+   * Every accepted paste still needs positive submission evidence within
+   * the bounded acknowledgement wait; an empty composer alone proves none.
    * Defaults to the drive-level stallWatch constructor option.
    */
   readonly awaitTurnStart?: boolean;
@@ -204,10 +203,9 @@ export type ManagedTerminalDriveOptions = {
   readonly idleInterruptGapMs?: number;
   readonly queueTimeoutMs?: number;
   /**
-   * When true (default), a successful paste+CR is accepted only after
-   * onTurnStart. Missing acknowledgement resolves false and raises attention;
-   * the drive never retries physical input because a late retry could land
-   * mid-turn.
+   * Default recipe selection for awaitTurnStart. Both recipes require
+   * positive submission evidence. Missing acknowledgement resolves
+   * unresolved and holds later automatic delivery on this binding.
    */
   readonly stallWatch?: boolean;
   /**
@@ -578,9 +576,9 @@ export class ManagedTerminalDrive {
 
   /**
    * Deliver one submitted prompt when idle. Queues when the seat is busy;
-   * With stall watching enabled, the promise resolves submitted only after
-   * an explicit turn-start acknowledgement. It resolves refused on write
-   * failure, acknowledgement timeout, shutdown, or queue timeout; a
+   * The promise resolves submitted only after an explicit turn-start
+   * acknowledgement or a recognized command-specific acceptance event.
+   * It resolves refused on a pre-write failure, shutdown, or queue timeout; a
    * generation change after the paste landed resolves unresolved (written
    * uncertainty, never a pre-write refusal); and unresolved when bytes
    * reached the PTY without submission proof. Pre-write refusals carry zero
@@ -1208,7 +1206,6 @@ export class ManagedTerminalDrive {
         async (): Promise<
           | { readonly kind: "inactive" }
           | { readonly kind: "failed" }
-          | { readonly kind: "done"; readonly ok: boolean }
           | { readonly kind: "written"; readonly sentChipCr: boolean }
         > => {
           const ok = await this.writePasteAndCr(
@@ -1244,10 +1241,7 @@ export class ManagedTerminalDrive {
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             return { kind: "inactive" };
           }
-          if (awaitTurnStart) {
-            return { kind: "written", sentChipCr };
-          }
-          // awaitTurnStart false (firstTyped): never receipt a chip. The
+          // awaitTurnStart false (firstTyped) retains extra paint settles. The
           // observer snapshot on this tick still shows the text we just
           // pasted — wait after the recipe CR before deciding. Multiline
           // chips can paint one frame late: two settles, not one, so a
@@ -1255,19 +1249,14 @@ export class ManagedTerminalDrive {
           // next paint. Same-tick Ctrl+C would interrupt a submit that
           // has not painted yet (and raise prompt-stalled on doctrine).
           const firstTypedSettles = payloadMayChip(text) ? 2 : 1;
-          if (this.pendingText && this.pasteToCrSettleMs > 0) {
+          if (!awaitTurnStart && this.pendingText && this.pasteToCrSettleMs > 0) {
             for (let i = 0; i < firstTypedSettles; i += 1) {
               if (!(await this.settle(bindingId, generation, bindingGeneration, signal))) {
                 return { kind: "inactive" };
               }
             }
           }
-          if (this.pendingOnScreen(bindingId)) {
-            // Chip chrome only selects the extra-CR recipe. A literal draft
-            // is equally pending and cannot be receipted by its absence.
-            return { kind: "done", ok: false };
-          }
-          return { kind: "done", ok: true };
+          return { kind: "written", sentChipCr };
         },
       );
       if (physical.kind === "inactive") {
@@ -1283,11 +1272,6 @@ export class ManagedTerminalDrive {
         // nothing reached the PTY (retryable); with one, the text sits
         // unsubmitted on screen (unresolved, same generation must not replay).
         return pasteAccepted ? strandNow() : refuseNow("not-ready");
-      }
-      if (physical.kind === "done") {
-        if (physical.ok) return confirmSubmitted();
-        // Fast path (no turn-start wait): evidence still shows our text.
-        return strandNow();
       }
       const sentChipCr = physical.sentChipCr;
       // awaitTurnStart — observer delivery can race the CR writer's promise
@@ -1328,16 +1312,9 @@ export class ManagedTerminalDrive {
           evidence.wrote,
         );
       }
-      // FIRED-LAW (live duplicate fix): the stall window closed without a
-      // turn-start ack, but our text has already LEFT the composer — the
-      // paste submitted and only the working repaint is late. That is
-      // "Fired" per the product law: resolve TRUE, never clear, never
-      // attention, never false. Resolving false here is what made the
-      // delivery layer re-paste the same message on every idle (the live
-      // 4x duplicate report).
-      if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
-        return confirmSubmitted();
-      }
+      // Text absence cannot distinguish a submitted prompt from swallowed
+      // input. Without positive acknowledgement this remains written
+      // uncertainty; the binding hold prevents any automatic re-paste.
       // One bounded recovery belongs to this accepted paste, for literal text
       // as well as chips. Even an earlier chip CR can have been eaten. Never
       // re-paste, and never submit across operator input since the paste:
@@ -1404,9 +1381,6 @@ export class ManagedTerminalDrive {
           );
         }
         if (startedRetry) return confirmSubmitted();
-        if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
-          return confirmSubmitted();
-        }
       }
       this.traceState(bindingId, "recovery.exhausted", { sentChipCr });
       return strandNow();
