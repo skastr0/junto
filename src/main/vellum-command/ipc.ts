@@ -1496,12 +1496,17 @@ export const registerVellumIpc = (): void => {
             }
           }
           try {
-            const ok = await writeManagedPrompt(bindingId, text, {
+            const outcome = await writeManagedPrompt(bindingId, text, {
               ready: true,
             });
-            return ok
+            return outcome.status === "submitted"
               ? { ok: true as const }
-              : { ok: false as const, error: "prompt refused" };
+              : {
+                  ok: false as const,
+                  error: outcome.status === "unresolved" || outcome.reason === "written-unresolved"
+                    ? "Prompt submission is unconfirmed. Inspect the terminal before retrying."
+                    : `Prompt refused before writing: ${outcome.reason}`,
+                };
           } catch (error) {
             return {
               ok: false as const,

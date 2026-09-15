@@ -201,7 +201,15 @@ export const schedulerCanvasArgs = (
 export const lateBoundDrive = (): Pick<ManagedTerminalDrive, "writePrompt" | "interrupt"> => ({
   writePrompt: (bindingId, text, options) => {
     const drive = managedTerminalDriveForOverseer();
-    if (drive === undefined) return Promise.resolve(false);
+    if (drive === undefined) return Promise.resolve({
+      status: "refused" as const,
+      reason: "not-ready" as const,
+      bindingGeneration: 0,
+      writesBefore: 0,
+      writesAfter: 0,
+      pasteWrites: 0,
+      wrotePhysicalBytes: false,
+    });
     return drive.writePrompt(bindingId, text, options);
   },
   interrupt: (bindingId) => {

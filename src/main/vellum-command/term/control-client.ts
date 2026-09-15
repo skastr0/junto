@@ -21,6 +21,7 @@ import {
   type TermControlResponse,
 } from "@shared/term-control";
 import { isAgentSeatState } from "@shared/agent-seat-state";
+import { readManagedPromptOutcome } from "@shared/managed-prompt";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { Schema } from "effect";
 import { HostDirectorySnapshot } from "@shared/host-directory";
@@ -858,8 +859,19 @@ export class TermControlClient extends EventEmitter implements TermMaintenanceCo
         err instanceof Error ? err.message : String(err),
       );
     }
-    if (!res.ok) throw new Error(res.error);
-    return Boolean(res.data);
+    if (res.ok === false && typeof res.error === "string") throw new Error(res.error);
+    if (res.ok !== true) {
+      throw new TermControlTransportUncertainError("destination returned an invalid managed prompt envelope");
+    }
+    const outcome = readManagedPromptOutcome(res.data);
+    if (outcome === undefined) {
+      throw new TermControlTransportUncertainError("destination returned an invalid managed prompt receipt");
+    }
+    if (outcome.status === "submitted") return true;
+    if (outcome.status === "unresolved" || outcome.reason === "written-unresolved") {
+      throw new TermControlTransportUncertainError(`destination prompt remains unresolved: ${outcome.reason}`);
+    }
+    return false;
   }
 
   async resize(leaseId: string, cols: number, rows: number): Promise<boolean> {

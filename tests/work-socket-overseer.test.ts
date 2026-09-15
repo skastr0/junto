@@ -93,6 +93,17 @@ const call = (
 const overseerOp = "overseer" as WorkOpName;
 
 describe("overseer Work socket completion classification", () => {
+  it.each(["msg.send", "msg.prompt", "msg.reply", "verdict.post"] as const)(
+    "does not invite replay after a dispatched %s loses its receipt",
+    async (op) => {
+      const server = await startFakeWorkServer("disconnect");
+      const result = await call(op, { target: "peer", text: "Review ready" }, 1_000);
+      expect(server.invocations()).toBe(1);
+      expect(result).toMatchObject({
+        _tag: "Failure", failure: { type: "UncertainCompletion", details: { retryable: false, operation: op } },
+      });
+    },
+  );
   it.each<FailureMode>([
     "timeout",
     "disconnect",

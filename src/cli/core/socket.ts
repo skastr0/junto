@@ -80,7 +80,8 @@ const ndjsonCall = (
     let buffer = Buffer.alloc(0);
     let socket: Socket | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const mutatingOperation = mutatingOverseerOperation(op, args);
+    const mutatingOperation = mutatingOverseerOperation(op, args) ??
+      (["msg.send", "msg.prompt", "msg.reply", "verdict.post"].includes(op) ? op : undefined);
 
     const transportFailure = (
       type: string,
@@ -97,10 +98,13 @@ const ndjsonCall = (
       return new WireError({
         type: "UncertainCompletion",
         message:
-          `${message}; overseer operation ${mutatingOperation} may have completed`,
+          `${message}; operation ${mutatingOperation} may have completed`,
         details: {
           retryable: false,
           operation: mutatingOperation,
+          ...(["msg.send", "msg.prompt", "msg.reply"].includes(mutatingOperation)
+            ? { next_step: "inspect msg sent before retrying; reuse the existing messageId and never recreate uncertain mail" }
+            : {}),
         },
       });
     };

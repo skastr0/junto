@@ -468,10 +468,13 @@ const promptSeat = async (
 ): Promise<boolean | "uncertain"> => {
   if (ctx.managedDrive !== undefined && ctx.termPlane.router.isLocalHostId(hostId)) {
     // Non-retaining: a revoked overseer request must not land later via drainOne.
-    return ctx.managedDrive.writePrompt(bindingId, text, {
+    const outcome = await ctx.managedDrive.writePrompt(bindingId, text, {
       queueIfBusy: false,
       signal: ctx.signal,
     });
+    if (outcome.status === "submitted") return true;
+    if (outcome.status === "unresolved" || outcome.reason === "written-unresolved") return "uncertain";
+    return false;
   }
   if (ctx.termPlane.router.isLocalHostId(hostId)) return false;
   // Remote seats deliver through the destination's managed drive, never as
@@ -631,7 +634,7 @@ const handleAgent = async (
           delivered: false,
           uncertain: true,
           bindingId: binding.bindingId,
-          message: "prompt transport timed out; delivery unknown — do not repaste automatically",
+          message: "prompt submission is unconfirmed — inspect the terminal and do not repaste automatically",
         });
       }
       if (!delivered) return fail("RuntimeDown", "prompt submission was not confirmed");
