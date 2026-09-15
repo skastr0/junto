@@ -27,7 +27,9 @@ import {
   type WorkControlServerOptions,
 } from "../src/main/vellum-command/work/control";
 import { mailboxMessageReadId } from "../src/main/vellum-command/work/mailbox-receipts";
+import { messageDelivery } from "../src/main/vellum-command/work/message-delivery";
 import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import {
   ContentService,
   makeContentServiceLive,
@@ -42,6 +44,8 @@ import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engin
 import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import {
   StationFleetTargetRepositoryLive,
+  StationFleetTargetRepository,
+  StationFleetTargetIdentity,
 } from "../src/main/vellum-command/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
@@ -79,6 +83,7 @@ const makeWorkTestRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
+      CrewRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
@@ -222,6 +227,25 @@ const seedDoc = (): CanvasDoc => ({
     { id: "e3", fromNode: "agent", toNode: "artifacts" },
   ],
 });
+
+const addPromptPeer = async (runtime: ReturnType<typeof makeWorkTestRuntime>) => {
+  const canvases = await runtime.runPromise(CanvasesService);
+  const current = await runtime.runPromise(canvases.read("work-cli"));
+  await runtime.runPromise(canvases.write("work-cli", {
+    ...current.doc,
+    nodes: [...current.doc.nodes, {
+      id: "peer", type: "text", text: "Peer", x: 800, y: 0, width: 120, height: 48,
+      ether: {
+        entity: { kind: "agent", name: "local:peer" },
+        terminal: { bindingId: "bind-peer", harness: "claude", launch: { kind: "harness", argv: ["claude"] } },
+      },
+    }],
+    edges: [...current.doc.edges, {
+      id: "prompt-edge", fromNode: "agent", toNode: "peer", ether: { verb: "messages" },
+    }],
+  }));
+  return canvases;
+};
 
 const seedCanonicalWork = async (
   runtime: ReturnType<typeof makeWorkTestRuntime>,
@@ -1754,6 +1778,110 @@ describe("work control transport", () => {
     expect(raw).not.toContain(token());
   });
 
+  it("persists a prompt before transport and retries that same durable body", async () => {
+    const server = servers[0]!;
+    const runtime = runtimes.at(-1)!;
+    const canvases = await addPromptPeer(runtime);
+    const seen: string[] = [];
+    const prompt = vi.spyOn(messageDelivery, "prompt").mockImplementation(async (input) => {
+      const read = await runtime.runPromise(canvases.read("work-cli"));
+      const row = read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items.find((item) => item.messageId === input.messageId);
+      expect(row?.parts).toEqual([{ kind: "text", text: "Review the patch" }]);
+      expect(row?.metadata).toMatchObject({ mailKind: "prompt", senderNodeId: "agent" });
+      expect(row?.metadata?.fromSeat).toMatch(/^seat_[a-f0-9]{64}$/);
+      seen.push(input.messageId);
+      return {
+        policy: "immediate",
+        outcome: { status: "refused", reason: "seat-busy", bindingGeneration: 1,
+          writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false },
+      };
+    });
+    try {
+      const first = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", text: "Review the patch" },
+      }) as { ok: false; error: { type: string; details: { messageId: string } } };
+      expect(first.ok).toBe(false);
+      expect(first.error.type).toBe("SeatBusy");
+      const messageId = first.error.details.messageId;
+      expect(messageId).toEqual(expect.any(String));
+      const retry = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", messageId },
+      }) as { ok: false; error: { details: { messageId: string } } };
+      expect(retry.error.details.messageId).toBe(messageId);
+      expect(seen).toEqual([messageId, messageId]);
+      const read = await runtime.runPromise(canvases.read("work-cli"));
+      expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
+      const altered = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", messageId, text: "changed" },
+      }) as { ok: boolean };
+      expect(altered.ok).toBe(false);
+      expect(prompt).toHaveBeenCalledTimes(2);
+    } finally { prompt.mockRestore(); }
+  });
+
+  it("refuses a Remote-placed prompt recipient before creating mail", async () => {
+    const runtime = runtimes.at(-1)!;
+    const canvases = await addPromptPeer(runtime);
+    const targets = await runtime.runPromise(StationFleetTargetRepository);
+    await runtime.runPromise(targets.bind(Schema.decodeUnknownSync(StationFleetTargetIdentity)({
+      hostId: "remote-test", stationInstallationId: "remote-test-installation",
+    })));
+    const current = await runtime.runPromise(canvases.read("work-cli"));
+    await runtime.runPromise(canvases.write("work-cli", {
+      ...current.doc,
+      nodes: current.doc.nodes.map((node) => node.id === "peer" ? { ...node, ether: { ...node.ether, host: "remote-test" } } : node),
+    }));
+    const result = await call(servers[0]!.socketPath, {
+      token: token(), op: "msg.prompt", args: { target: "peer", text: "Review now" },
+    });
+    expect(result).toMatchObject({ ok: false, error: { type: "ScopeError", details: { reason: "crew-local-seat-only" } } });
+    const read = await runtime.runPromise(canvases.read("work-cli"));
+    expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items ?? []).toHaveLength(0);
+  });
+
+  it("revokes an in-flight prompt when its edge is removed and retains its durable row", async () => {
+    const server = servers[0]!;
+    const runtime = runtimes.at(-1)!;
+    const canvases = await addPromptPeer(runtime);
+    const started = deferred<{ messageId: string; signal?: AbortSignal }>();
+    const aborted = deferred<void>();
+    const prompt = vi.spyOn(messageDelivery, "prompt").mockImplementation((input) => {
+      started.resolve(input);
+      return new Promise((resolve) => {
+        const stop = () => {
+          aborted.resolve();
+          resolve({ policy: "immediate", outcome: {
+            status: "refused", reason: "cancelled", bindingGeneration: 1,
+            writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+          } });
+        };
+        if (input.signal?.aborted) stop();
+        else input.signal?.addEventListener("abort", stop, { once: true });
+      });
+    });
+    try {
+      const pending = call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", text: "Review the patch" },
+      });
+      const delivery = await started.promise;
+      const current = await runtime.runPromise(canvases.read("work-cli"));
+      await runtime.runPromise(canvases.write("work-cli", {
+        ...current.doc, edges: current.doc.edges.filter((edge) => edge.id !== "prompt-edge"),
+      }));
+      const result = await pending as { ok: false; error: { type: string; details: { messageId: string } } };
+      expect(result).toMatchObject({ ok: false, error: { type: "ScopeError", details: { messageId: delivery.messageId } } });
+      await aborted.promise;
+      expect(delivery.signal?.aborted).toBe(true);
+      const read = await runtime.runPromise(canvases.read("work-cli"));
+      expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
+      const denied = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", messageId: delivery.messageId },
+      }) as { ok: boolean };
+      expect(denied.ok).toBe(false);
+      expect(prompt).toHaveBeenCalledTimes(1);
+    } finally { prompt.mockRestore(); }
+  });
+
   it("msg.list own inbox marks listed mail read and surfaces sent readAt", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
@@ -1837,9 +1965,23 @@ describe("work control transport", () => {
     const sent = (await call(server.socketPath, {
       token: token(),
       op: "msg.send",
-      args: { target: "bravo", text: "from agent" },
+      args: { target: "bravo", text: "from agent", subject: "Review ready", refs: [{ kind: "commit", sha: "abc123" }] },
     })) as { ok: true; data: { messageId: string } };
     expect(sent.ok).toBe(true);
+
+    const sentView = (await call(server.socketPath, {
+      token: token(), op: "msg.sent", args: {},
+    })) as { ok: true; data: { items: Array<{ messageId: string; parts: unknown[]; metadata: Record<string, unknown> }> } };
+    expect(sentView.ok).toBe(true);
+    const authored = sentView.data.items.find((item) => item.messageId === sent.data.messageId)!;
+    expect(authored.parts).toEqual([{ kind: "text", text: "from agent" }]);
+    expect(authored.metadata).toMatchObject({
+      mailKind: "notice", subject: "Review ready", senderNodeId: "agent",
+      refs: [{ kind: "commit", sha: "abc123" }],
+    });
+    expect(authored.metadata.fromSeat).toMatch(/^seat_[a-f0-9]{64}$/);
+    expect(authored.metadata.senderGeneration).toEqual(expect.any(String));
+    expect(authored.metadata.readAt).toBeUndefined();
 
     const peerPeek = (await call(server.socketPath, {
       token: token(),
@@ -1924,6 +2066,13 @@ describe("work control transport", () => {
     };
     expect(reacted.ok).toBe(true);
     expect(reacted.data).toMatchObject({ messageId: "in-1", reaction: "ack" });
+
+    const fullRead = (await call(server.socketPath, {
+      token: token(), op: "msg.read", args: { messageId: "in-1" },
+    })) as { ok: true; data: { message: { messageId: string; parts: unknown[] } } };
+    expect(fullRead.ok).toBe(true);
+    expect(fullRead.data.message.messageId).toBe("in-1");
+    expect(fullRead.data.message.parts.length).toBeGreaterThan(0);
 
     const peerList = (await call(server.socketPath, {
       token: token(),

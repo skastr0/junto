@@ -53,6 +53,7 @@ import { FactoryPauseRepositoryLive } from "./vellum-command/pause/repository";
 import { SchedulerRepositoryLive } from "./vellum-command/scheduler/repository";
 import { WorkLive } from "./vellum-command/work/service";
 import { WorkRepositoryLive } from "./vellum-command/work/repository";
+import { CrewRepositoryLive } from "./vellum-command/work/crew-repository";
 import { makeContentServiceLive } from "./vellum-command/content/service";
 import { InstallOpsLive } from "./vellum-command/install-ops/engine";
 import { RegionRollupLive, RegionRollupService } from "./vellum-command/region-rollup";
@@ -127,6 +128,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     KernelStateRepositoryLive,
     FactoryPauseRepositoryLive,
     WorkRepositoryLive,
+    CrewRepositoryLive,
     // The usage plane reads operator provider credentials from settings, so
     // the memoized SettingsService instance feeds it here (same reference).
     Layer.provideMerge(UsageLive, SettingsLive),

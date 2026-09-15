@@ -14,6 +14,8 @@ import {
   templateFor,
   type HarnessId,
   type ManagedTerminalTemplate,
+  type MailTransportSpec,
+  type IsolationSpec,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import { configuredToolDirectories } from "../../adapters/exec";
@@ -25,6 +27,8 @@ export type HarnessInstallProbe = {
   readonly binary: string;
   /** True when an executable for the harness binary resolves. */
   readonly installed: boolean;
+  readonly mailTransport: MailTransportSpec;
+  readonly isolation: IsolationSpec;
 };
 
 const isExecutableFile = (path: string): boolean => {
@@ -125,6 +129,8 @@ const probeOne = (template: ManagedTerminalTemplate): HarnessInstallProbe => {
     displayName: template.displayName,
     binary,
     installed: harnessBinaryInstalled(template.harness, binary),
+    mailTransport: template.mailTransport,
+    isolation: template.isolation,
   };
 };
 

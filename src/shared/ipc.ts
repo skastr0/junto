@@ -42,6 +42,7 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
+import type { MailTransportSpec, IsolationSpec } from "./managed-terminal-templates";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type { GitLogResult, GitShowResult, GitStatusResult } from "./git";
@@ -418,6 +419,8 @@ export type WorkErrorCode =
   | "illegal_kind"
   | "illegal_transition"
   | "claim_contention"
+  | "reviewer_is_author"
+  | "scope_error"
   | "invalid"
   | "not_ready"
   | "unadmitted"
@@ -1110,6 +1113,8 @@ export interface ManagedTerminalHarnessOption {
   readonly displayName: string;
   readonly binary: string;
   readonly installed: boolean;
+  readonly mailTransport: MailTransportSpec;
+  readonly isolation: IsolationSpec;
 }
 
 export interface ManagedTerminalHarnessesResult {

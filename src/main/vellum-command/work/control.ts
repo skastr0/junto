@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
 import type { Artifact, CanvasDoc, CanvasNode, Message, Part } from "@shared/canvas";
-import { isManagedAgentNode } from "@shared/actor-surface";
+import { actorDeliverySurfaceOf, isManagedAgentNode } from "@shared/actor-surface";
 import {
   decodeOverseerArgs,
   decodeOverseerRequest,
@@ -32,6 +32,9 @@ import {
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
 import { sortMessagesNewestFirst } from "@shared/message-delivery";
+import { mailExtensionMetadata, type MailSenderStamp } from "@shared/crew";
+import { seatStateRuntime } from "../term/agent-state";
+import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";
 import {
   normalizePreambleText,
@@ -73,6 +76,11 @@ import {
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
+  MsgPromptArgs,
+  MsgSentArgs,
+  SeatWaitArgs,
+  SeatReadArgs,
+  TaskWaitArgs,
   PreambleArgs,
   RelayTriggerArgs,
   RequestEscalateArgs,
@@ -84,6 +92,7 @@ import {
   TasksRulesArgs,
   TasksShowArgs,
   TasksUpdateArgs,
+  VerdictPostArgs,
   WORK_MAX_FRAME_BYTES,
   WORK_PROTOCOL_VERSION,
   WorkOpName,
@@ -111,6 +120,9 @@ import {
 import { contentObjectPath } from "../content/paths";
 import { ContentStoreError } from "../content/store";
 import { WorkService, type WorkOpResult } from "./service";
+import { liveSeatObservation } from "./seat-observation-live";
+import { messageDelivery } from "./message-delivery";
+import { readMailExtension } from "@shared/crew";
 import { manualSchedulerFire } from "../kernel/cycle";
 import {
   liveSeatBlock,
@@ -131,6 +143,8 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "preamble",
   "msg.list",
   "msg.send",
+  "msg.prompt",
+  "verdict.post",
   "msg.read",
   "msg.reply",
   "msg.react",
@@ -162,6 +176,8 @@ const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
   "preamble",
   "msg.list",
   "msg.send",
+  "msg.prompt",
+  "verdict.post",
   "msg.read",
   "msg.reply",
   "msg.react",
@@ -367,6 +383,10 @@ const mapWorkCode = (
   details?: WorkErrorDetails,
 ): WorkErrorBody => {
   switch (code) {
+    case "reviewer_is_author":
+      return { type: "ReviewerIsAuthor", message, details: { ...details, retryable: false } };
+    case "scope_error":
+      return { type: "ScopeError", message, details: { ...details, retryable: false } };
     case "claim_contention":
       return {
         type: "ClaimConflict",
@@ -749,6 +769,27 @@ type WorkCaller = {
   readonly workHome: string;
   /** Occupant label for proof stamps / logs. */
   readonly occupant: string;
+  /** Main-derived process incarnation; no client-supplied generation claims. */
+  readonly generation: string;
+};
+
+const mailSenderStamp = (
+  board: CanvasDoc,
+  caller: WorkCaller,
+  actor: ActorRef,
+): MailSenderStamp => {
+  const node = findNode(board, caller.nodeId);
+  const terminal = node?.ether?.terminal;
+  const epoch = terminal?.bindingId === undefined
+    ? undefined
+    : seatStateRuntime.machine.getSlot(terminal.bindingId)?.epoch;
+  return {
+    fromSeat: actor.seatId,
+    senderGeneration: epoch ?? caller.generation,
+    senderHarness: terminal?.harness ?? "unknown",
+    senderNodeId: caller.nodeId,
+    senderName: node === undefined ? caller.nodeId : nodeTitle(node),
+  };
 };
 
 /**
@@ -807,6 +848,12 @@ const dispatchOp = (
     const work = yield* WorkService;
     const pausePlane = yield* PausePlane;
 
+    if (["msg.prompt", "msg.sent", "seat.wait", "seat.read", "tasks.wait", "verdict.post"].includes(op)) {
+      yield* work.crewAdmission.pipe(Effect.mapError((error) =>
+        mapWorkCode(error.code, error.message, error.details),
+      ));
+    }
+
     if (op === "ping") {
       return {
         pong: true,
@@ -831,6 +878,7 @@ const dispatchOp = (
         version,
         socket: "up",
         commands,
+        harnesses: probeManagedHarnessInstalls(),
       };
     }
 
@@ -899,6 +947,7 @@ const dispatchOp = (
       const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
       return {
         node: summarizeNode(self),
+        harnesses: probeManagedHarnessInstalls(),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
         tools: overseer ? [PREAMBLE_TOOL, OVERSEER_TOOL] : [PREAMBLE_TOOL],
@@ -1257,6 +1306,23 @@ const dispatchOp = (
             ? { handoffNote: decoded.success.handoffNote }
             : {}),
         },
+        mailSenderStamp(board, caller, actor.success),
+      );
+      const mapped = fromWorkResult(result);
+      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
+      return exposeWorkMutation(mapped.success);
+    }
+
+    if (op === "verdict.post") {
+      const decoded = decodeArgs(VerdictPostArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const reviewer = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(reviewer)) return yield* Effect.fail(reviewer.failure);
+      // The task sink is context, not the author. WorkService resolves the
+      // author and revalidates the directed reviews edge to that stable seat.
+      const { target, ...input } = decoded.success;
+      const result = yield* work.workVerdictPost(
+        caller.canvasName, target, input, reviewer.success,
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
@@ -1439,7 +1505,8 @@ const dispatchOp = (
         for (const node of board.nodes) {
           if (node.id === caller.nodeId) continue;
           for (const message of node.ether?.messages?.items ?? []) {
-            if (message.metadata?.fromSeat !== caller.nodeId) continue;
+            if (message.metadata?.fromSeat !== reader.success.seatId &&
+                message.metadata?.fromSeat !== caller.nodeId) continue;
             sent.push({ ...message, toNodeId: node.id });
           }
         }
@@ -1459,6 +1526,180 @@ const dispatchOp = (
       };
     }
 
+    if (op === "seat.wait") {
+      const decoded = decodeArgs(SeatWaitArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const seat = yield* liveSeatObservation();
+      return yield* seat.waitSeat(decoded.success, caller);
+    }
+    if (op === "seat.read") {
+      const decoded = decodeArgs(SeatReadArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const seat = yield* liveSeatObservation();
+      return yield* seat.readSeat(decoded.success, caller);
+    }
+    if (op === "tasks.wait") {
+      const decoded = decodeArgs(TaskWaitArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const seat = yield* liveSeatObservation();
+      return yield* seat.waitTask(decoded.success, caller);
+    }
+
+    if (op === "msg.prompt") {
+      const decoded = decodeArgs(MsgPromptArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const input = decoded.success;
+      const gate = requireTarget(board, caller.nodeId, input.target, op);
+      if ("type" in gate) return yield* Effect.fail(gate);
+      const surface = gate.node === undefined ? undefined : actorDeliverySurfaceOf(gate.node);
+      if (surface === undefined || surface.hostId !== "local") {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "ScopeError", message: "Immediate prompts require a local managed seat",
+          details: { target: input.target, reason: "crew-local-seat-only", retryable: false },
+        });
+      }
+      const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
+      let messageId: string;
+      if ("messageId" in input) {
+        messageId = input.messageId;
+        const existing = gate.node?.ether?.messages?.items.find((item) => item.messageId === messageId);
+        const extension = readMailExtension(existing?.metadata);
+        if (existing === undefined || extension?.mailKind !== "prompt" || extension.fromSeat !== sender.success.seatId) {
+          return yield* Effect.fail<WorkErrorBody>({
+            type: "ScopeError",
+            message: "A prompt retry must name a prompt created by this seat for this recipient",
+            details: { messageId, target: input.target, retryable: false },
+          });
+        }
+      } else {
+        const text = input.text.trim();
+        if (!text) return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError", message: "text must be non-empty", details: { path: "text", retryable: false },
+        });
+        messageId = ulid();
+        const message = makeUserMessage({
+          messageId, text, contextId: caller.canvasName,
+          metadata: {
+            factoryMail: true,
+            ...mailExtensionMetadata({
+              ...mailSenderStamp(board, caller, sender.success),
+              mailKind: "prompt",
+              ...(input.subject === undefined ? {} : { subject: input.subject }),
+              ...(input.refs === undefined ? {} : { refs: input.refs }),
+            }),
+          },
+        });
+        const appended = fromWorkResult(yield* work.workMessageAppend(
+          caller.canvasName, input.target, null, message, sender.success,
+        ));
+        if (Result.isFailure(appended)) return yield* Effect.fail(appended.failure);
+      }
+      const delivery = Effect.tryPromise({
+        try: (signal) => messageDelivery.prompt({
+          canvas: caller.canvasName, nodeId: input.target, messageId,
+          signal,
+          ...(input.fallback === undefined ? {} : { fallback: input.fallback }),
+        }),
+        catch: (): WorkErrorBody => ({
+          type: "RuntimeDown", message: "Prompt delivery did not return a confirmed result",
+          details: { messageId, retryable: false, next_step: "inspect msg sent and the recipient terminal before retrying" },
+        }),
+      });
+      const result = yield* Effect.scoped(Effect.gen(function* () {
+        let dirty = false;
+        let wake: (() => void) | undefined;
+        // Subscribe before the current-authority read. This also observes a
+        // grant removed while that read is pending, before transport starts.
+        yield* Effect.acquireRelease(
+          Effect.sync(() => canvases.subscribeChanges((name) => {
+            if (name !== caller.canvasName) return;
+            dirty = true;
+            wake?.();
+          })),
+          (stop) => Effect.sync(stop),
+        );
+        const authorize = Effect.gen(function* () {
+          const latest = yield* canvases.read(caller.canvasName, "work.control").pipe(
+            Effect.mapError((error): WorkErrorBody => ({ type: "StaleNodeRef", message: error.message })),
+          );
+          const admitted = requireTarget(latest.doc, caller.nodeId, input.target, op);
+          if ("type" in admitted) return yield* Effect.fail<WorkErrorBody>({
+            ...admitted,
+            details: { ...admitted.details, messageId, retryable: false },
+          });
+          const liveSurface = admitted.node === undefined ? undefined : actorDeliverySurfaceOf(admitted.node);
+          if (liveSurface === undefined || liveSurface.hostId !== "local") {
+            return yield* Effect.fail<WorkErrorBody>({
+              type: "ScopeError", message: "The prompt recipient is no longer a local managed seat",
+              details: { messageId, target: input.target, reason: "crew-local-seat-only", retryable: false },
+            });
+          }
+        });
+        // Drain changes during the read as well as the snapshot it returned.
+        do {
+          dirty = false;
+          yield* authorize;
+        } while (dirty);
+        const watchAuthority = Effect.gen(function* () {
+          while (true) {
+            yield* Effect.callback<void>((resume) => {
+              if (dirty) {
+                dirty = false;
+                resume(Effect.void);
+                return;
+              }
+              const notify = () => { dirty = false; resume(Effect.void); };
+              wake = notify;
+              return Effect.sync(() => { if (wake === notify) wake = undefined; });
+            });
+            yield* authorize;
+          }
+        });
+        return yield* Effect.raceFirst(watchAuthority, delivery);
+      }));
+      if ("unavailable" in result) {
+        if (result.unavailable === "settled") return { messageId, delivery: { state: "notified", reason: "already-settled" } };
+        return yield* Effect.fail<WorkErrorBody>({
+          type: result.unavailable === "paused" ? "Paused" : "SeatBusy",
+          message: "The recipient is not available for an immediate prompt",
+          details: { messageId, target: input.target, reason: result.unavailable, retryable: true,
+            next_step: `wait for this seat, then retry msg.prompt with messageId ${messageId}` },
+        });
+      }
+      const { outcome } = result;
+      if (outcome.status === "refused" && outcome.reason !== "written-unresolved") {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: outcome.reason === "over-limit" ? "InputError" : "SeatBusy",
+          message: outcome.reason === "over-limit" ? "Prompt exceeds the immediate body limit" : "The recipient cannot accept an immediate prompt yet",
+          details: { messageId, target: input.target, reason: outcome.reason, retryable: true,
+            next_step: `retry the same messageId ${messageId} when idle, or request fallback notice` },
+        });
+      }
+      return { messageId, policy: result.policy, delivery: {
+        state: outcome.status === "submitted" ? "notified" : "unresolved",
+        ...(outcome.status === "submitted" ? {} : { reason: outcome.reason }),
+      } };
+    }
+
+    if (op === "msg.sent") {
+      const decoded = decodeArgs(MsgSentArgs, args ?? {});
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
+      if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
+      const items: Array<Message & { readonly toNodeId: string }> = [];
+      for (const node of board.nodes) {
+        if (decoded.success.target !== undefined && node.id !== decoded.success.target) continue;
+        for (const message of node.ether?.messages?.items ?? []) {
+          if (message.metadata?.fromSeat !== sender.success.seatId &&
+              message.metadata?.fromSeat !== caller.nodeId) continue;
+          items.push({ ...message, toNodeId: node.id });
+        }
+      }
+      items.sort((a, b) => b.messageId.localeCompare(a.messageId));
+      return { target: caller.nodeId, items };
+    }
+
     if (op === "msg.send") {
       const decoded = decodeArgs(MsgSendArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
@@ -1472,22 +1713,27 @@ const dispatchOp = (
           details: { path: "text", retryable: false },
         });
       }
-      // Factory mail: deliver as *foreign* user text so the mailbox types it
-      // into the recipient's managed terminal. Own-echo still uses agent role
-      // for self-history; inter-seat mail must not use makeAgentMessage.
-      const messageId = ulid();
-      const contextId = caller.canvasName;
-      const from = caller.nodeId.trim() || "seat";
-      const body = `[factory mail from ${from}] ${text}`;
-      const message: Message = makeUserMessage({
-        messageId,
-        text: body,
-        contextId,
-        ...(decoded.success.taskId ? { taskId: decoded.success.taskId } : {}),
-        metadata: { factoryMail: true, fromSeat: from },
-      });
       const sentBy = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sentBy)) return yield* Effect.fail(sentBy.failure);
+      // Durable body first. The transport adds the authenticated sender
+      // envelope; storing it in the body would duplicate it on a retry.
+      const messageId = ulid();
+      const contextId = caller.canvasName;
+      const message: Message = makeUserMessage({
+        messageId,
+        text,
+        contextId,
+        ...(decoded.success.taskId ? { taskId: decoded.success.taskId } : {}),
+        metadata: {
+          factoryMail: true,
+          ...mailExtensionMetadata({
+            ...mailSenderStamp(board, caller, sentBy.success),
+            mailKind: "notice",
+            ...(decoded.success.subject === undefined ? {} : { subject: decoded.success.subject }),
+            ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
+          }),
+        },
+      });
       const result = yield* work.workMessageAppend(
         caller.canvasName,
         decoded.success.target,
@@ -1497,7 +1743,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
+      return { ...exposeWorkMutation(mapped.success), messageId };
     }
 
     if (op === "msg.read") {
@@ -1527,6 +1773,9 @@ const dispatchOp = (
       }
       const reader = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(reader)) return yield* Effect.fail(reader.failure);
+      const message = own.ether?.messages?.items.find(
+        (item) => item.messageId === decoded.success.messageId.trim(),
+      );
       const result = yield* work.workMessageMarkRead(
         caller.canvasName,
         caller.nodeId,
@@ -1535,7 +1784,7 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return exposeWorkMutation(mapped.success);
+      return { ...exposeWorkMutation(mapped.success), message };
     }
 
     if (op === "msg.react") {
@@ -1608,14 +1857,17 @@ const dispatchOp = (
       );
       const markedMapped = fromWorkResult(marked);
       if (Result.isFailure(markedMapped)) return yield* Effect.fail(markedMapped.failure);
-      const from = caller.nodeId.trim() || "seat";
       const message: Message = makeUserMessage({
         messageId: ulid(),
-        text: `[factory mail from ${from}] ${text}`,
+        text,
         contextId: caller.canvasName,
         metadata: {
           factoryMail: true,
-          fromSeat: from,
+          ...mailExtensionMetadata({
+            ...mailSenderStamp(board, caller, sentBy.success),
+            mailKind: "notice",
+            ...(decoded.success.refs === undefined ? {} : { refs: decoded.success.refs }),
+          }),
           inReplyTo,
         },
       });
@@ -2660,6 +2912,12 @@ export const startWorkControlServer = async (
             nodeId: callerResolved.caller.nodeId,
             workHome,
             occupant,
+            generation: createHash("sha256").update(JSON.stringify(
+              processMap.snapshot()
+                .filter((entry) => samePrincipalAnchors(entry.principal, admission.principal))
+                .map((entry) => [entry.pid, entry.startKey])
+                .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+            )).digest("hex"),
           };
           const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
             callerResolved.caller.node.ether.terminal.harness === "vellum-overseer";

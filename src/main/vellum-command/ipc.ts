@@ -52,6 +52,8 @@ import {
 } from "./work/mailbox-receipts";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
+import { CrewRepository } from "./work/crew-repository";
+import { makeMailAttemptStore } from "./work/mail-attempt-store";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
 import { registerTerminalIpc } from "./term/ipc";
 import { registerGitIpc } from "./git/ipc";
@@ -1674,7 +1676,22 @@ export const registerVellumIpc = (): void => {
       // Retry only on session-live / seat-idle (no polling store).
       // Shared recipe — the Node Remote configures the same transport
       // through its own destination drive (see factory-delivery-composition).
+      const crew = yield* CrewRepository;
+      // Reconcile only prior-process intents, before enabling any new writes.
+      // A delayed boot sweep must never mistake a live attempt for a crash.
+      yield* crew.reconcileUnresolvedAttempts(new Date().toISOString());
+      const attempts = makeMailAttemptStore({
+        repository: crew,
+        run: (effect) => AppRuntime.runPromise(effect),
+        resolveSeat: (canvas, nodeId) => AppRuntime.runPromise(Effect.gen(function* () {
+          const read = yield* canvases.read(canvas, "ipc.deliveryAccept");
+          const actors = read.actorRefs.filter((actor) => actor.canvasName === canvas && actor.nodeId === nodeId);
+          if (actors.length !== 1) return yield* Effect.fail(new Error("Mail recipient seat is unavailable"));
+          return actors[0]!;
+        })),
+      });
       messageDelivery.configure({
+        attempts,
         transport: factoryMailTransport({
           kernel,
           write: writeManagedPrompt,

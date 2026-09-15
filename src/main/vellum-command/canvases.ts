@@ -574,7 +574,7 @@ const readCommandCenterTopology = (
   return topology;
 };
 
-const readCommandCenterPortfolio = (
+export const readCommandCenterPortfolio = (
   reader: StateReader,
 ): ActivePortfolioSnapshot => {
   const snapshot = readStoredAuthority(reader);
