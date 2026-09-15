@@ -423,7 +423,7 @@ export const verdictSubjectHashPayload = (
   const artifactSeen = new Set<string>();
   const artifacts: Array<readonly [string, string]> = [];
   for (const ref of input.artifactRefs ?? []) {
-    const key = `${ref.nodeId} ${ref.artifactId}`;
+    const key = `${ref.nodeId}\u0000${ref.artifactId}`;
     if (artifactSeen.has(key)) continue;
     artifactSeen.add(key);
     artifacts.push([ref.nodeId, ref.artifactId]);
