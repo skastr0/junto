@@ -359,6 +359,70 @@ export const applyVerdictWrite = (
   );
 };
 
+/** Rows for the gate query, ordered so JS reduction sees each reviewer's history. */
+const gateRows = (
+  reader: StateReader,
+  input: {
+    readonly installationId: string;
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly taskId: string;
+    readonly epoch: number;
+    readonly subjectHash: string;
+    readonly excludingSeatId: string;
+  },
+): ReadonlyArray<{
+  readonly reviewer_seat_id: string;
+  readonly kind: string;
+  readonly posted_at_ms: number;
+}> =>
+  reader.all(
+    `SELECT reviewer_seat_id, kind, posted_at_ms
+       FROM work_review_verdicts
+     WHERE subject_kind = 'task'
+       AND subject_task_installation = ?
+       AND subject_task_canvas = ?
+       AND subject_task_node = ?
+       AND subject_task_item = ?
+       AND epoch = ?
+       AND subject_hash = ?
+       AND reviewer_seat_id <> ?`,
+    [
+      input.installationId,
+      input.canvasName,
+      input.nodeId,
+      input.taskId,
+      input.epoch,
+      input.subjectHash,
+      input.excludingSeatId,
+    ],
+  ) as ReadonlyArray<{
+    readonly reviewer_seat_id: string;
+    readonly kind: string;
+    readonly posted_at_ms: number;
+  }>;
+
+/**
+ * Writer-time review gate, the SAME rule as {@link CrewRepository.currentGreenExists}
+ * but callable synchronously inside a caller-owned transaction so the completion
+ * check and the completion write commit together — a concurrent blocking, new
+ * epoch, or changed subject that lands between a service preflight and the
+ * commit is caught here at write time. A distinct eligible reviewer's latest
+ * verdict on the exact identity + epoch + subject hash must be green.
+ */
+export const reviewGateSatisfiedWithin = (
+  reader: StateReader,
+  input: {
+    readonly installationId: string;
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly taskId: string;
+    readonly epoch: number;
+    readonly subjectHash: string;
+    readonly excludingSeatId: string;
+  },
+): boolean => anyReviewerLatestGreen(gateRows(reader, input));
+
 /**
  * Insert one review receipt via a caller-owned StateWriter, so the receipt
  * dedupe row commits in the same transaction as the task mutation that minted
@@ -733,36 +797,9 @@ export const CrewRepositoryLive = Layer.effect(
       input,
     ) =>
       state
-        .read("crew.currentGreenExists", (reader) => {
-          const rows = reader.all<{
-            readonly reviewer_seat_id: string;
-            readonly kind: string;
-            readonly posted_at_ms: number;
-            readonly verdict_id: string;
-          }>(
-            `SELECT reviewer_seat_id, kind, posted_at_ms, verdict_id
-               FROM work_review_verdicts
-             WHERE subject_kind = 'task'
-               AND subject_task_installation = ?
-               AND subject_task_canvas = ?
-               AND subject_task_node = ?
-               AND subject_task_item = ?
-               AND epoch = ?
-               AND subject_hash = ?
-               AND reviewer_seat_id <> ?
-             ORDER BY posted_at_ms, verdict_id`,
-            [
-              input.installationId,
-              input.canvasName,
-              input.nodeId,
-              input.taskId,
-              input.epoch,
-              input.subjectHash,
-              input.excludingSeatId,
-            ],
-          );
-          return anyReviewerLatestGreen(rows);
-        })
+        .read("crew.currentGreenExists", (reader) =>
+          reviewGateSatisfiedWithin(reader, input),
+        )
         .pipe(
           Effect.mapError((error) =>
             toCrewError("crew.currentGreenExists", error),

@@ -154,6 +154,7 @@ import {
 import {
   applyReviewReceiptWrite,
   applyVerdictWrite,
+  reviewGateSatisfiedWithin,
   type ReviewReceiptInput,
 } from "./crew-repository";
 import type { ReviewVerdict } from "../../../shared/crew";
@@ -948,6 +949,23 @@ export type TransitionTaskInput = LocalWorkInput & {
    * Omitted fields keep the durable row's bag; null clears a field.
    */
   readonly taskPatch?: TaskRecordPatch;
+  /**
+   * Writer-time review gate for a completion. When present and the transition
+   * is to `completed`, the transaction refuses unless a distinct eligible
+   * reviewer's latest verdict on this exact epoch + subject hash is green.
+   */
+  readonly reviewGate?: ReviewGateWithin;
+};
+
+/** The exact identity a writer-time review gate is evaluated against. */
+export type ReviewGateWithin = {
+  readonly installationId: string;
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly taskId: string;
+  readonly epoch: number;
+  readonly subjectHash: string;
+  readonly excludingSeatId: string;
 };
 
 export type TaskRecordPatch = {
@@ -8138,6 +8156,19 @@ export const WorkRepositoryLive = Layer.effect(
             throw authorityError(
               "invalid-transition",
               `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
+            );
+          }
+          if (
+            input.reviewGate !== undefined &&
+            !reviewGateSatisfiedWithin(writer, input.reviewGate)
+          ) {
+            // Writer-time gate: a distinct eligible reviewer's latest verdict on
+            // the exact epoch + subject hash must be green. Checked in the same
+            // transaction as the completion so a concurrent blocking, new epoch,
+            // or changed subject cannot pass a stale preflight then commit.
+            throw authorityError(
+              "invalid-transition",
+              "requires-review: no current green verdict from a distinct reviewer for this epoch and subject",
             );
           }
         }
