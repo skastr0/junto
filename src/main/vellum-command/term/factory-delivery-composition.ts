@@ -22,6 +22,7 @@
 
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { CanvasDoc } from "@shared/canvas";
+import { isPromptSubmitted, type ManagedPromptOutcome } from "@shared/managed-prompt";
 import { seatPaused, type CanvasPauseState } from "@shared/pause";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
@@ -43,7 +44,7 @@ export type FactoryDeliveryDrive = {
     bindingId: string,
     text: string,
     options: WritePromptOptions,
-  ) => Promise<boolean>;
+  ) => Promise<ManagedPromptOutcome>;
   readonly pasteWriteCount: (bindingId: string) => number;
 };
 
@@ -58,7 +59,7 @@ export type FactoryWritePrompt = (
   bindingId: string,
   text: string,
   options?: FactoryWritePromptOptions,
-) => Promise<boolean>;
+) => Promise<ManagedPromptOutcome>;
 
 /** Kernel seat starter for lazy managed seats (both runtimes). */
 export type FactoryDeliveryKernel = {
@@ -225,8 +226,10 @@ export const makeFactoryFirstTypedKick = (input: {
     void input
       .write(bindingId, arm.text, { awaitTurnStart: false })
       .then(
-        (ok) => {
-          if (ok) input.firstTyped.takeEntryIfCurrent(bindingId, arm.seq);
+        (outcome) => {
+          if (isPromptSubmitted(outcome)) {
+            input.firstTyped.takeEntryIfCurrent(bindingId, arm.seq);
+          }
         },
         () => {},
       )
@@ -254,7 +257,7 @@ export const factoryPulseTransport = (input: {
 }): ManagedPulseDeliver => {
   const deliver = makeManagedPulseDeliver(
     (bindingId, text, options) =>
-      input.drive.writePrompt(bindingId, text, options),
+      input.drive.writePrompt(bindingId, text, options).then(isPromptSubmitted),
     input.driveReady,
   );
   input.pulse.setDeliver(deliver);
@@ -269,7 +272,7 @@ export const factoryBoardTransport = (input: {
   wakeManagedSeat: (canvas, nodeId) =>
     input.kernel.wakeManagedSeat(canvas, nodeId),
   sendManagedTerminalPrompt: (bindingId, text, options) =>
-    input.write(bindingId, text, options),
+    input.write(bindingId, text, options).then(isPromptSubmitted),
 });
 
 /**
@@ -309,7 +312,9 @@ export const wireFactorySupervisor = (input: {
     listener: (snap: ObserverGridSnapshot) => void,
   ) => () => void;
 }): (() => void) => {
-  input.supervisor.setWriter((bindingId, text) => input.write(bindingId, text));
+  input.supervisor.setWriter((bindingId, text) =>
+    input.write(bindingId, text).then(isPromptSubmitted),
+  );
   input.supervisor.setEscalationHandler((bindingId, reason) =>
     input.escalate(bindingId, reason),
   );

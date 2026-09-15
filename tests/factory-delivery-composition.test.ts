@@ -5,8 +5,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WritePromptOptions } from "../src/main/vellum-command/term/drive";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
-import { makeManagedPulseDeliver } from "../src/main/vellum-command/term/managed-pulse-bridge";
 import { InjectionSupervisor } from "../src/main/vellum-command/term/injection-supervisor";
 import {
   armFirstTypedMessage,
@@ -36,9 +36,36 @@ type FakeDrive = {
     bindingId: string,
     text: string,
     options: WritePromptOptions,
-  ) => Promise<boolean>;
+  ) => Promise<ManagedPromptOutcome>;
   pasteWriteCount: (bindingId: string) => number;
 };
+
+const submitted = (): ManagedPromptOutcome => ({
+  status: "submitted",
+  bindingGeneration: 3,
+  writesBefore: 6,
+  writesAfter: 7,
+  pasteWrites: 1,
+  wrotePhysicalBytes: true,
+});
+const refused = (): ManagedPromptOutcome => ({
+  status: "refused",
+  reason: "seat-busy",
+  bindingGeneration: 3,
+  writesBefore: 7,
+  writesAfter: 7,
+  pasteWrites: 0,
+  wrotePhysicalBytes: false,
+});
+const unresolved = (): ManagedPromptOutcome => ({
+  status: "unresolved",
+  reason: "no-turn-start",
+  bindingGeneration: 3,
+  writesBefore: 6,
+  writesAfter: 7,
+  pasteWrites: 1,
+  wrotePhysicalBytes: true,
+});
 
 const fakeDrive = (): FakeDrive => {
   const writes: Array<{ bindingId: string; text: string; options: unknown }> =
@@ -47,7 +74,7 @@ const fakeDrive = (): FakeDrive => {
     writes,
     writePrompt: (bindingId, text, options) => {
       writes.push({ bindingId, text, options });
-      return Promise.resolve(true);
+      return Promise.resolve(submitted());
     },
     pasteWriteCount: () => 7,
   };
@@ -72,10 +99,20 @@ describe("makeFactoryWriteManagedPrompt", () => {
     await write("b1", "hello", { ready: true });
     expect(drive.writes[0]).toMatchObject({ options: { ready: true } });
   });
+
+  it.each([submitted(), refused(), unresolved()])(
+    "preserves the complete $status outcome",
+    async (outcome) => {
+      const drive = fakeDrive();
+      drive.writePrompt = () => Promise.resolve(outcome);
+      const write = makeFactoryWriteManagedPrompt(drive, () => true);
+      await expect(write("b1", "hello")).resolves.toBe(outcome);
+    },
+  );
 });
 
 describe("makeFactoryFirstTypedKick", () => {
-  it("consumes the armed doctrine only after a successful paste", async () => {
+  it("consumes the armed doctrine only after a submitted outcome", async () => {
     const drive = fakeDrive();
     let armed: string | undefined = "doctrine body";
     let seq = 1;
@@ -103,9 +140,9 @@ describe("makeFactoryFirstTypedKick", () => {
     expect(taken).toEqual(["b1"]);
   });
 
-  it("keeps the arm when the drive refuses", async () => {
+  it.each([refused(), unresolved()])("keeps the arm on $status", async (outcome) => {
     const drive = fakeDrive();
-    drive.writePrompt = () => Promise.resolve(false);
+    drive.writePrompt = () => Promise.resolve(outcome);
     let armed: string | undefined = "doctrine body";
     const seq = 1;
     let took = 0;
@@ -131,10 +168,10 @@ describe("makeFactoryFirstTypedKick", () => {
   it("holds one arm per binding while a kick is in flight", () => {
     const drive = fakeDrive();
     let calls = 0;
-    let resolveWrite!: (ok: boolean) => void;
+    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
     drive.writePrompt = () => {
       calls += 1;
-      return new Promise<boolean>((resolve) => {
+      return new Promise<ManagedPromptOutcome>((resolve) => {
         resolveWrite = resolve;
       });
     };
@@ -151,7 +188,7 @@ describe("makeFactoryFirstTypedKick", () => {
     kick("b1");
     expect(calls).toBe(1);
     expect(inFlight.has("b1")).toBe(true);
-    resolveWrite(true);
+    resolveWrite(submitted());
   });
 
   it("does nothing when the seat is not drive-ready", () => {
@@ -171,9 +208,9 @@ describe("makeFactoryFirstTypedKick", () => {
 
   it("late success never consumes a newer rearmed doctrine", async () => {
     const drive = fakeDrive();
-    let resolveWrite!: (ok: boolean) => void;
+    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
     drive.writePrompt = () =>
-      new Promise<boolean>((resolve) => {
+      new Promise<ManagedPromptOutcome>((resolve) => {
         resolveWrite = resolve;
       });
     let armed: string | undefined = "generation-one";
@@ -198,7 +235,7 @@ describe("makeFactoryFirstTypedKick", () => {
     // Generation replacement rearms mid-flight with newer doctrine.
     armed = "generation-two";
     seq = 2;
-    resolveWrite(true);
+    resolveWrite(submitted());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(taken).toEqual([]);
     expect(armed).toBe("generation-two");
@@ -207,7 +244,7 @@ describe("makeFactoryFirstTypedKick", () => {
     let secondCalls = 0;
     drive.writePrompt = () => {
       secondCalls += 1;
-      return Promise.resolve(true);
+      return Promise.resolve(submitted());
     };
     kick("b1");
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -220,9 +257,9 @@ describe("makeFactoryFirstTypedKick", () => {
     // IDENTICAL text. Text equality is not arm identity — the old success
     // must not consume the new arm.
     const drive = fakeDrive();
-    let resolveWrite!: (ok: boolean) => void;
+    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
     drive.writePrompt = () =>
-      new Promise<boolean>((resolve) => {
+      new Promise<ManagedPromptOutcome>((resolve) => {
         resolveWrite = resolve;
       });
     const { kick, inFlight } = makeFactoryFirstTypedKick({
@@ -238,7 +275,7 @@ describe("makeFactoryFirstTypedKick", () => {
     kick("rearm-b");
     clearDeliveredForBinding("rearm-b");
     armFirstTypedMessage("rearm-b", "identical doctrine");
-    resolveWrite(true);
+    resolveWrite(submitted());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(peekFirstTypedMessage("rearm-b")).toBe("identical doctrine");
     expect(inFlight.has("rearm-b")).toBe(false);
@@ -250,11 +287,11 @@ describe("makeFactoryFirstTypedKick", () => {
     // completion must neither consume the new arm nor strand it: exactly
     // one re-kick delivers the new arm.
     const drive = fakeDrive();
-    const resolvers: Array<(ok: boolean) => void> = [];
+    const resolvers: Array<(outcome: ManagedPromptOutcome) => void> = [];
     let calls = 0;
     drive.writePrompt = () => {
       calls += 1;
-      return new Promise<boolean>((resolve) => {
+      return new Promise<ManagedPromptOutcome>((resolve) => {
         resolvers.push(resolve);
       });
     };
@@ -274,10 +311,10 @@ describe("makeFactoryFirstTypedKick", () => {
     armFirstTypedMessage("live-b", "same body");
     kick("live-b");
     expect(calls).toBe(1);
-    resolvers[0](false);
+    resolvers[0](refused());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toBe(2);
-    resolvers[1](true);
+    resolvers[1](submitted());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(peekFirstTypedMessage("live-b")).toBeUndefined();
     expect(inFlight.has("live-b")).toBe(false);
@@ -286,10 +323,10 @@ describe("makeFactoryFirstTypedKick", () => {
   it("same-arm kicks while settling never retry-loop", async () => {
     const drive = fakeDrive();
     let calls = 0;
-    let resolveWrite!: (ok: boolean) => void;
+    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
     drive.writePrompt = () => {
       calls += 1;
-      return new Promise<boolean>((resolve) => {
+      return new Promise<ManagedPromptOutcome>((resolve) => {
         resolveWrite = resolve;
       });
     };
@@ -304,7 +341,7 @@ describe("makeFactoryFirstTypedKick", () => {
     });
     kick("b1");
     kick("b1");
-    resolveWrite(false);
+    resolveWrite(refused());
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toBe(1);
   });
@@ -337,6 +374,22 @@ describe("makeFactoryFirstTypedKick", () => {
 });
 
 describe("factoryPulseTransport", () => {
+  it.each([submitted(), refused(), unresolved()])(
+    "only receipts a submitted pulse, outcome $status",
+    async (outcome) => {
+      const drive = fakeDrive();
+      drive.writePrompt = () => Promise.resolve(outcome);
+      const deliver = factoryPulseTransport({
+        pulse: { setDeliver: () => {} },
+        drive,
+        driveReady: () => true,
+      });
+      await expect(deliver("b1", "pulse body")).resolves.toBe(
+        outcome.status === "submitted",
+      );
+    },
+  );
+
   it("routes pulses through the drive without the busy queue", async () => {
     const drive = fakeDrive();
     let delivered: ((b: string, m: string) => Promise<boolean>) | undefined;
@@ -399,6 +452,19 @@ describe("factoryPulseTransport", () => {
 });
 
 describe("factoryBoardTransport", () => {
+  it.each([submitted(), refused(), unresolved()])(
+    "only receipts a submitted board notice, outcome $status",
+    async (outcome) => {
+      const transport = factoryBoardTransport({
+        kernel: { wakeManagedSeat: () => true },
+        write: () => Promise.resolve(outcome),
+      });
+      await expect(
+        transport.sendManagedTerminalPrompt("b1", "megaphone"),
+      ).resolves.toBe(outcome.status === "submitted");
+    },
+  );
+
   it("wakes the seat then sends through the writer", async () => {
     const drive = fakeDrive();
     const woke: Array<[string, string]> = [];
@@ -420,6 +486,23 @@ describe("factoryBoardTransport", () => {
 });
 
 describe("factoryMailTransport", () => {
+  it.each([submitted(), refused(), unresolved()])(
+    "retains the full $status outcome for the durable mail ledger",
+    async (outcome) => {
+      const drive = fakeDrive();
+      drive.writePrompt = () => Promise.resolve(outcome);
+      const transport = factoryMailTransport({
+        kernel: { wakeManagedSeat: () => true },
+        write: makeFactoryWriteManagedPrompt(drive, () => true),
+        drive,
+        seatSnapshot: () => undefined,
+      });
+      await expect(
+        transport.sendManagedTerminalPrompt?.("b1", "mail body", {}),
+      ).resolves.toBe(outcome);
+    },
+  );
+
   it("refuses raw paste and gates managed sends on the drive", async () => {
     const drive = fakeDrive();
     const transport = factoryMailTransport({
@@ -443,6 +526,30 @@ describe("factoryMailTransport", () => {
 });
 
 describe("wireFactorySupervisor", () => {
+  it.each([submitted(), refused(), unresolved()])(
+    "only accepts a submitted supervisor notice, outcome $status",
+    async (outcome) => {
+      let writer: ((b: string, t: string) => boolean | Promise<boolean>) | undefined;
+      const dispose = wireFactorySupervisor({
+        supervisor: {
+          setWriter: (fn) => {
+            writer = fn;
+          },
+          setEscalationHandler: () => {},
+          noteSeatState: () => {},
+          onSnapshot: () => {},
+        },
+        write: () => Promise.resolve(outcome),
+        escalate: () => {},
+        subscribeSnapshots: () => () => {},
+      });
+      await expect(Promise.resolve(writer?.("b1", "notice"))).resolves.toBe(
+        outcome.status === "submitted",
+      );
+      dispose();
+    },
+  );
+
   it("re-delivers supervisory notices through the writer", async () => {
     const drive = fakeDrive();
     let writer: ((b: string, t: string) => Promise<boolean>) | undefined;
@@ -803,10 +910,11 @@ describe("real destination-drive composition", () => {
 
   it("routes the real pulse deliverable through the drive", async () => {
     const d = boot();
-    const deliver = makeManagedPulseDeliver(
-      (bindingId, text, options) => d.writePrompt(bindingId, text, options),
-      () => true,
-    );
+    const deliver = factoryPulseTransport({
+      pulse: { setDeliver: () => {} },
+      drive: d,
+      driveReady: () => true,
+    });
     const pending = deliver("real-b2", "pulse body");
     await new Promise((resolve) => setTimeout(resolve, 150));
     d.onTurnStart("real-b2");
