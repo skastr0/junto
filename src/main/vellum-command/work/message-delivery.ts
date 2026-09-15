@@ -8,10 +8,10 @@
 
 import type { CanvasDoc, CanvasNode, Message } from "@shared/canvas";
 import {
+  composeImmediatePromptPayload,
   composeMessageDeliveryPayload,
   composeMessageDeliverySummary,
   deliveryTargetOf,
-  isFactoryMailMessage,
   isMessageDelivered,
   isMessageRead,
   isPendingDelivery,
@@ -22,6 +22,16 @@ import {
   sanitizeDeliveryLine,
 } from "@shared/message-delivery";
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
+import {
+  mailAttemptReasonOfRefusal,
+  readMailExtension,
+  type DeliveryAttempt,
+  type MailAttemptReason,
+  type MailDeliveryPolicy,
+  type MailWriteEvidence,
+  type ManagedPromptOutcome,
+  type ManagedPromptRefusalReason,
+} from "@shared/managed-prompt";
 
 /**
  * Quiet time after a generation first becomes idle before mail may paste.
@@ -69,7 +79,15 @@ const GATE_DEADLINE_SPREAD_MS = 150;
 type GateRetryKind = "deadline" | "poll";
 
 export type SeatDeliveryGateResult =
-  | { readonly allow: true }
+  | {
+      readonly allow: true;
+      /**
+       * Opaque seat generation the gate observed, when the snapshot
+       * transport reports one. Durable attempt identity uses this string —
+       * never the drive terminal-epoch number, a distinct field.
+       */
+      readonly generationKey?: string;
+    }
   | {
       readonly allow: false;
       readonly reason: "not-idle" | "not-settled" | "operator-draft" | "unavailable";
@@ -86,13 +104,16 @@ export type MessageDeliveryTransport = {
   /**
    * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated by
    * default. Explicit factory mail may request one busy-turn interrupt.
-   * Returns true only after the managed seat acknowledges turn-start.
+   * Ordinary mail never interrupts. Resolves the discriminated attempt
+   * outcome: submitted (receiptable), refused-before-write (retryable, no
+   * bytes on the PTY), or written-unresolved (visible, same generation must
+   * not replay). Only submitted follows a turn-start acknowledgement.
    */
   readonly sendManagedTerminalPrompt?: (
     bindingId: string,
     text: string,
     options?: ManagedTerminalPromptOptions,
-  ) => Promise<boolean>;
+  ) => Promise<ManagedPromptOutcome>;
   /**
    * Monotonic paste-envelope counter from the managed drive. When a failed
    * attempt wrote NOTHING to the PTY (gate race, seat left idle), the
@@ -128,8 +149,90 @@ export type MessageDeliveryTransport = {
 export type ManagedTerminalPromptOptions = {
   /** Allow the drive to retain a prompt while a freshly-woken seat reaches idle. */
   readonly ready?: boolean;
-  /** Interrupt one active turn before the mailbox prompt is queued. */
+  /**
+   * Allow the drive to retain a busy prompt for a later idle transition.
+   * Immediate-policy prompts pass false so a busy seat refuses fast with a
+   * retryable SeatBusy instead of parking behind the ordinary queue.
+   */
+  readonly queueIfBusy?: boolean;
+  /**
+   * Retained for transport-struct compatibility only. Mail never sets it:
+   * ordinary mail and prompts never interrupt a live turn — a busy seat
+   * refuses retryable SeatBusy and the caller waits, then retries the same
+   * durable row.
+   */
   readonly interruptIfBusy?: boolean;
+};
+
+/**
+ * Explicit immediate-prompt request against one durable row. The row must
+ * already exist (the caller persists first); the same message id retries
+ * the same row. An explicit `"notice"` fallback downgrades this call to
+ * ordinary notice policy for the same row.
+ */
+export type PromptRequest = {
+  readonly canvas: string;
+  readonly nodeId: string;
+  readonly messageId: string;
+  readonly fallback?: "notice";
+};
+
+/** Rows the explicit path cannot attempt: nothing was touched. */
+export type PromptUnavailable =
+  | "gone"
+  | "paused"
+  | "settled"
+  | "parked"
+  | "unconfigured";
+
+export type PromptResult =
+  | {
+      readonly outcome: ManagedPromptOutcome;
+      readonly policy: MailDeliveryPolicy;
+    }
+  | { readonly unavailable: PromptUnavailable };
+
+/**
+ * Durable delivery-attempt ledger (storage lane, work/crew-repository.ts).
+ * Optional until that service lands: absent → legacy in-memory transport
+ * marks only. The delivery layer never invents the recipient ActorRef — it
+ * passes canvas, node, and the seat generation string, and the repository
+ * resolves the principal against the seat compilation it owns.
+ */
+export type MessageDeliveryAttemptStore = {
+  /**
+   * Durably queue one attempt BEFORE any transport action. Idempotent on
+   * (canvas, node, message, seat, generation): a queued row with no outcome
+   * fact is the in-progress uncertainty mark, so a crash cannot blindly
+   * replay the same generation.
+   */
+  readonly enqueueAttempt: (input: {
+    readonly canvas: string;
+    readonly nodeId: string;
+    readonly messageId: string;
+    readonly generation: string;
+    readonly policy: MailDeliveryPolicy;
+  }) => Promise<DeliveryAttempt>;
+  /**
+   * Record one outcome fact plus physical write evidence. Set-once per
+   * fact, monotonic, never overwrites: submitted maps to notifiedAt,
+   * written-unresolved to unresolvedAt, pre-write refusal to
+   * refusedAt plus refusedReason.
+   */
+  readonly recordAttempt: (input: {
+    readonly canvas: string;
+    readonly nodeId: string;
+    readonly messageId: string;
+    readonly generation: string;
+    readonly set:
+      | { readonly notifiedAt: string }
+      | { readonly unresolvedAt: string }
+      | {
+          readonly refusedAt: string;
+          readonly refusedReason: MailAttemptReason;
+        };
+    readonly write?: MailWriteEvidence;
+  }) => Promise<DeliveryAttempt>;
 };
 
 /**
@@ -277,6 +380,14 @@ export class MessageDeliveryService {
    */
   private readonly transportAccepted = new Set<string>();
   /**
+   * Same-generation uncertainty hold: a prior attempt wrote bytes without
+   * submission proof (here or, via the ledger row, in an earlier process).
+   * While held, re-drives do neither transport nor receipt — only a new
+   * recipient generation, an explicit resume, or operator action releases.
+   * Maps flight key to the seat generation string the attempt ran under.
+   */
+  private readonly transportUnresolved = new Map<string, string>();
+  /**
    * Immutable membership of each batch whose transport was accepted. A later
    * recovery may see newer pending mail on the same seat, but that mail was not
    * part of the accepted payload and must never receive its receipt here.
@@ -376,6 +487,7 @@ export class MessageDeliveryService {
   >();
   private transport: MessageDeliveryTransport | undefined;
   private store: MessageDeliveryStore | undefined;
+  private attempts: MessageDeliveryAttemptStore | undefined;
   private now: MessageDeliveryClock = () => Date.now();
   private suspended = false;
   private lifecycleGeneration = 0;
@@ -385,6 +497,11 @@ export class MessageDeliveryService {
   configure(input: {
     readonly transport: MessageDeliveryTransport;
     readonly store: MessageDeliveryStore;
+    /**
+     * Durable attempt ledger. Absent until the storage lane lands it —
+     * delivery then keeps legacy in-memory transport marks only.
+     */
+    readonly attempts?: MessageDeliveryAttemptStore;
     readonly now?: MessageDeliveryClock;
     /** Pause plane: a paused target keeps its messages pending (delivered on resume). */
     readonly seatPaused?: (canvas: string, doc: CanvasDoc, nodeId: string) => boolean;
@@ -395,6 +512,7 @@ export class MessageDeliveryService {
     if (this.suspended) return;
     this.transport = input.transport;
     this.store = input.store;
+    if (input.attempts) this.attempts = input.attempts;
     if (input.now) this.now = input.now;
     this.seatPausedLookup = input.seatPaused;
     if (input.timers) this.timers = input.timers;
@@ -406,6 +524,7 @@ export class MessageDeliveryService {
     this.lifecycleGeneration += 1;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.transportUnresolved.clear();
     this.acceptedBatchMembers.clear();
     this.pendingReadStamps.clear();
     this.transportAttempts.clear();
@@ -419,6 +538,7 @@ export class MessageDeliveryService {
     this.clearPendingIndex();
     this.transport = undefined;
     this.store = undefined;
+    this.attempts = undefined;
     this.now = () => Date.now();
     this.seatPausedLookup = undefined;
     this.timers = defaultTimers;
@@ -439,9 +559,11 @@ export class MessageDeliveryService {
     this.lifecycleGeneration += 1;
     this.transport = undefined;
     this.store = undefined;
+    this.attempts = undefined;
     this.seatPausedLookup = undefined;
     this.inFlight.clear();
     this.transportAccepted.clear();
+    this.transportUnresolved.clear();
     this.acceptedBatchMembers.clear();
     this.pendingReadStamps.clear();
     this.transportAttempts.clear();
@@ -604,12 +726,204 @@ export class MessageDeliveryService {
   }
 
   /**
+   * Explicit immediate prompt against one durable row. Bypasses the
+   * auto-notice machinery (no index, no batch, no interrupt, no drive
+   * queue): idle plus empty composer plus short body, else a retryable
+   * refusal the caller retries against the same message id. Submitted
+   * attempts receipt exactly like mail; unresolved sets the same-generation
+   * hold a later explicit retry will itself observe.
+   */
+  async prompt(input: PromptRequest): Promise<PromptResult> {
+    const generation = this.lifecycleGeneration;
+    const transport = this.transport;
+    const store = this.store;
+    if (this.suspended || !transport || !store) {
+      return { unavailable: "unconfigured" };
+    }
+    let doc: CanvasDoc | undefined;
+    try {
+      doc = await store.readDoc(input.canvas, "attempt");
+    } catch {
+      throw new Error(
+        `[delivery] prompt authority read failed for ${input.canvas}/${input.nodeId}/${input.messageId}`,
+      );
+    }
+    if (!this.active(generation)) return { unavailable: "unconfigured" };
+    const node = doc?.nodes.find((n) => n.id === input.nodeId);
+    if (!doc || !node) return { unavailable: "gone" };
+    if (this.seatPausedLookup?.(input.canvas, doc, input.nodeId)) {
+      return { unavailable: "paused" };
+    }
+    const live = node.ether?.messages?.items.find(
+      (m) => m.messageId === input.messageId,
+    );
+    if (!live) return { unavailable: "gone" };
+    if (!isPendingDelivery(live)) return { unavailable: "settled" };
+    const target = deliveryTargetOf(node);
+    if (!target) return { unavailable: "gone" };
+    const extension = readMailExtension(live.metadata);
+    const policy: MailDeliveryPolicy =
+      input.fallback === "notice"
+        ? "notice"
+        : extension?.mailKind === "prompt"
+          ? "immediate"
+          : "notice";
+    const key = flightKey(input.canvas, input.nodeId, input.messageId);
+    if (this.inFlight.has(key)) {
+      return {
+        outcome: this.refusedWithoutWrite("seat-busy"),
+        policy,
+      };
+    }
+    this.inFlight.add(key);
+    try {
+      if (!(await this.checkUnresolvedHold(target.bindingId, key))) {
+        return {
+          outcome: this.refusedWithoutWrite("written-unresolved"),
+          policy,
+        };
+      }
+      const woke = await this.wakeManagedSeat(
+        transport,
+        input.canvas,
+        input.nodeId,
+      );
+      if (!woke) {
+        return { outcome: this.refusedWithoutWrite("not-ready"), policy };
+      }
+      if (
+        (this.transportAttempts.get(key) ?? 0) >=
+        MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS
+      ) {
+        return { unavailable: "parked" };
+      }
+      const gate = await this.evaluateSeatGate(target.bindingId);
+      if (!gate.allow) {
+        const reason: ManagedPromptRefusalReason =
+          gate.reason === "operator-draft"
+            ? "composer-not-empty"
+            : gate.reason === "unavailable"
+              ? "not-ready"
+              : "seat-busy";
+        return { outcome: this.refusedWithoutWrite(reason), policy };
+      }
+      // Immediate prompts carry the full body under the server sender
+      // envelope and refuse fast on a busy seat; an explicit notice
+      // fallback uses the ordinary summary builder and may park.
+      const payload =
+        policy === "immediate"
+          ? composeImmediatePromptPayload(live)
+          : composeMessageDeliveryPayload(live);
+      const promptOptions =
+        policy === "immediate"
+          ? {
+              ...(transport.wakeManagedSeat ? { ready: true } : {}),
+              queueIfBusy: false,
+            }
+          : transport.wakeManagedSeat
+            ? { ready: true }
+            : undefined;
+      const seatGeneration = gate.generationKey;
+      if (seatGeneration !== undefined && this.attempts) {
+        let prior: DeliveryAttempt | undefined;
+        try {
+          prior = await this.attempts.enqueueAttempt({
+            canvas: input.canvas,
+            nodeId: input.nodeId,
+            messageId: live.messageId,
+            generation: seatGeneration,
+            policy,
+          });
+        } catch {
+          return { outcome: this.refusedWithoutWrite("not-ready"), policy };
+        }
+        if (
+          prior.facts.unresolvedAt !== undefined &&
+          prior.facts.notifiedAt === undefined
+        ) {
+          this.transportUnresolved.set(key, seatGeneration);
+          this.transportAccepted.add(key);
+          return {
+            outcome: this.refusedWithoutWrite("written-unresolved"),
+            policy,
+          };
+        }
+        if (prior.facts.notifiedAt !== undefined) {
+          this.transportAccepted.add(key);
+        }
+      }
+      this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
+      const writesBefore = transport.pasteWriteCount?.(target.bindingId);
+      let outcome: ManagedPromptOutcome | undefined;
+      try {
+        outcome = await this.deliver(
+          transport,
+          target,
+          payload,
+          live.messageId,
+          promptOptions,
+        );
+      } finally {
+        const wroteNothing =
+          outcome !== undefined &&
+          outcome.status === "refused" &&
+          !outcome.wrotePhysicalBytes;
+        if (
+          outcome === undefined ||
+          (wroteNothing &&
+            (writesBefore === undefined ||
+              transport.pasteWriteCount?.(target.bindingId) === writesBefore))
+        ) {
+          const charged = this.transportAttempts.get(key) ?? 0;
+          if (charged > 0) this.transportAttempts.set(key, charged - 1);
+        }
+      }
+      if (outcome === undefined) {
+        return { outcome: this.refusedWithoutWrite("not-ready"), policy };
+      }
+      await this.recordAttemptOutcome(
+        input.canvas,
+        input.nodeId,
+        live.messageId,
+        seatGeneration,
+        outcome,
+      );
+      if (outcome.status === "unresolved") {
+        this.transportAccepted.add(key);
+        this.transportUnresolved.set(key, seatGeneration ?? "");
+        return { outcome, policy };
+      }
+      if (outcome.status !== "submitted") return { outcome, policy };
+      this.transportAccepted.add(key);
+      const accepted = await this.acceptDeliveryAndMaybeRead(
+        store,
+        input.canvas,
+        input.nodeId,
+        live,
+      );
+      if (accepted) {
+        this.pendingReadStamps.delete(key);
+        this.clearAttemptBookkeeping(key);
+        this.forgetPending(input.canvas, input.nodeId, live.messageId);
+      }
+      return { outcome, policy };
+    } finally {
+      this.inFlight.delete(key);
+    }
+  }
+
+  /**
    * Called after a message lands on an actor node (WorkService append).
    * task-history appends never reach here (caller filters taskId !== null).
    */
   notifyAppended(canvas: string, nodeId: string, message: Message): void {
     if (this.suspended) return;
     if (!isPendingDelivery(message)) return;
+    // Prompt-kind rows are explicit-only: the auto-notice queue never takes
+    // them, so creation cannot race an explicit prompt attempt. A persisted
+    // fallback marker, when the storage lane defines one, will re-admit the
+    // row to the notice path; until then only prompt() attempts it.
+    if (readMailExtension(message.metadata)?.mailKind === "prompt") return;
     // Index first: if this attempt is refused, the seat's next transition is
     // what re-drives it, and that pass reads the index, not the world.
     this.rememberPending(canvas, nodeId, message);
@@ -677,6 +991,9 @@ export class MessageDeliveryService {
     if (this.suspended) return;
     // Operator action: release the bounded re-drive marks so every held
     // notice gets one fresh attempt (re-validated against the current doc).
+    // Resume explicitly releases the uncertainty hold — it is one of the
+    // three authorized new-attempt conditions.
+    this.transportUnresolved.clear();
     this.attemptedClaims.clear();
     this.transportAttempts.clear();
     this.wakeRetryCounts.clear();
@@ -805,14 +1122,14 @@ export class MessageDeliveryService {
               `[request resolved - ${pending.requestId}] — vellum-command msg list`,
             )
           : sanitizeDeliveryLine(raw);
-      const delivered = await this.deliver(
+      const outcome = await this.deliver(
         transport,
         target,
         payload,
         `request:${pending.requestId}`,
         promptOptions,
       );
-      if (delivered) this.pendingRequestResponses.delete(key);
+      if (outcome.status === "submitted") this.pendingRequestResponses.delete(key);
     } catch {
       // Leave pending for the next idle/attach/resume lifecycle event.
     } finally {
@@ -961,9 +1278,11 @@ export class MessageDeliveryService {
   }
 
   /**
-   * One seat's pending mail. Edge-map notices keep per-message attemptOne
-   * (topology bounds); ordinary mail (including factory mail) batches into one
-   * notify line on the same seat.
+   * One seat's pending mail. Prompt-kind rows are explicit-only and never
+   * attempted here — only prompt() attempts them, so creation cannot race
+   * an automatic attempt. Edge-map notices keep per-message attemptOne
+   * (topology bounds); ordinary mail (including factory mail) batches into
+   * one notify line on the same seat.
    */
   private async deliverGroup(
     generation: number,
@@ -975,7 +1294,9 @@ export class MessageDeliveryService {
     const ordinary: Message[] = [];
     for (const message of messages) {
       if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
-      else ordinary.push(message);
+      else if (readMailExtension(message.metadata)?.mailKind === "prompt") {
+        continue;
+      } else ordinary.push(message);
     }
     const latestFirst = sortMessagesNewestFirst(ordinary);
     if (latestFirst.length === 1) {
@@ -1088,7 +1409,7 @@ export class MessageDeliveryService {
       return { allow: false, reason: "operator-draft" };
     }
     this.gateRefusalStreak.delete(bindingId);
-    return { allow: true };
+    return { allow: true, generationKey: snap.generationKey };
   }
 
   private async acceptDeliveryAndMaybeRead(
@@ -1121,6 +1442,7 @@ export class MessageDeliveryService {
 
   private clearAttemptBookkeeping(key: string): void {
     this.transportAccepted.delete(key);
+    this.transportUnresolved.delete(key);
     this.attemptedClaims.delete(key);
     this.transportAttempts.delete(key);
     this.wakeRetryCounts.delete(key);
@@ -1210,11 +1532,13 @@ export class MessageDeliveryService {
         // Message gone — drop the bounded re-drive mark so a re-appended
         // message with this id starts fresh (at-most-once is moot).
         this.attemptedClaims.delete(key);
+        this.transportUnresolved.delete(key);
         this.forgetPending(canvas, nodeId, message.messageId);
         return;
       }
       if (isPendingDelivery(live) === false) {
         this.attemptedClaims.delete(key);
+        this.transportUnresolved.delete(key);
         // Read or already delivered — off the pending index either way.
         this.forgetPending(canvas, nodeId, message.messageId);
         // Listed = handled. Do not paste, and do not mint a fake notify receipt.
@@ -1242,6 +1566,11 @@ export class MessageDeliveryService {
 
       const target = deliveryTargetOf(node);
       if (!target) return;
+
+      // Same-generation uncertainty hold: a prior attempt wrote without
+      // proof. No transport, no receipt — the stamp-only path below must
+      // not launder it into a delivered receipt either.
+      if (!(await this.checkUnresolvedHold(target.bindingId, key))) return;
 
       const woke = await this.wakeManagedSeat(
         transport,
@@ -1300,23 +1629,63 @@ export class MessageDeliveryService {
           }
         }
 
-        const payload = composeMessageDeliveryPayload(live);
+        const extension = readMailExtension(live.metadata);
+        const policy: MailDeliveryPolicy =
+          extension?.mailKind === "prompt" ? "immediate" : "notice";
+        // Mail never interrupts a live turn — ordinary or prompt. A busy
+        // seat refuses retryable SeatBusy; immediate prompts additionally
+        // refuse fast instead of parking behind the ordinary queue.
         const promptOptions =
-          transport.wakeManagedSeat || isFactoryMailMessage(live)
+          transport.wakeManagedSeat || policy === "immediate"
             ? {
                 ...(transport.wakeManagedSeat ? { ready: true } : {}),
-                // Only explicit factory mail steers a live turn. System
-                // mailbox notices remain ordinary queued prompts.
-                ...(isFactoryMailMessage(live)
-                  ? { interruptIfBusy: true }
-                  : {}),
+                ...(policy === "immediate" ? { queueIfBusy: false } : {}),
               }
             : undefined;
+        const seatGeneration = gate.generationKey;
+        if (seatGeneration !== undefined && this.attempts) {
+          let prior: DeliveryAttempt | undefined;
+          try {
+            prior = await this.attempts.enqueueAttempt({
+              canvas,
+              nodeId,
+              messageId: live.messageId,
+              generation: seatGeneration,
+              policy,
+            });
+          } catch {
+            // Ledger write failed: fail closed without touching the PTY so
+            // the attempt cannot exist as transport without its queued row.
+            return;
+          }
+          if (
+            prior.facts.unresolvedAt !== undefined &&
+            prior.facts.notifiedAt === undefined
+          ) {
+            // Earlier process wrote without proof under this same
+            // generation: hold it here too — no transport, no receipt.
+            this.transportUnresolved.set(key, seatGeneration);
+            this.transportAccepted.add(key);
+            return;
+          }
+          if (prior.facts.notifiedAt !== undefined) {
+            // Ledger already holds the acceptance: stamp-only below, never
+            // a second paste.
+            this.transportAccepted.add(key);
+          }
+        }
+        // Immediate prompts carry the full body under the server sender
+        // envelope; ordinary notices keep the summary-plus-pointer shape
+        // (a prompt's explicit notice fallback uses the notice builder).
+        const payload =
+          policy === "immediate"
+            ? composeImmediatePromptPayload(live)
+            : composeMessageDeliveryPayload(live);
         this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
         const writesBefore = transport.pasteWriteCount?.(target.bindingId);
-        let delivered = false;
+        let outcome: ManagedPromptOutcome | undefined;
         try {
-          delivered = await this.deliver(
+          outcome = await this.deliver(
             transport,
             target,
             payload,
@@ -1324,22 +1693,72 @@ export class MessageDeliveryService {
             promptOptions,
           );
         } finally {
-          // A failure that never touched the PTY (drive refused at a gate
+          // A refusal that never touched the PTY (drive refused at a gate
           // race, or the transport threw/rejected before writing)
           // must not consume the bounded re-drive marks: nothing was pasted,
-          // so there is nothing a re-drive could duplicate. A failure that
-          // DID write (paste without ack — the live 4x class) keeps them.
+          // so there is nothing a re-drive could duplicate. The outcome's
+          // own physical-write facts are authoritative; the envelope counter
+          // is the fallback for transports that cannot report them. A
+          // written attempt (paste without ack — the live 4x class) keeps
+          // them, whatever the acknowledgement outcome.
+          const wroteNothing =
+            outcome !== undefined &&
+            outcome.status === "refused" &&
+            !outcome.wrotePhysicalBytes;
           if (
-            !delivered &&
-            writesBefore !== undefined &&
-            transport.pasteWriteCount?.(target.bindingId) === writesBefore
+            outcome === undefined ||
+            (wroteNothing &&
+              (writesBefore === undefined ||
+                transport.pasteWriteCount?.(target.bindingId) ===
+                  writesBefore))
           ) {
             if (claimSetThisPass) this.attemptedClaims.delete(key);
             const attempts = this.transportAttempts.get(key) ?? 0;
             if (attempts > 0) this.transportAttempts.set(key, attempts - 1);
           }
         }
-        if (!delivered) return;
+        if (outcome === undefined) return;
+        if (outcome.status !== "submitted") {
+          // Unresolved stays receiptless and pending with the no-replay
+          // marks below: neither transport nor receipt on the next idle —
+          // only a new generation, an explicit resume batch, or operator
+          // action authorizes another attempt. A clean pre-write refusal
+          // sets no mark at all: nothing was pasted, so a re-drive cannot
+          // duplicate, and the rolled-back attempt bounds stay retryable.
+          await this.recordAttemptOutcome(
+            canvas,
+            nodeId,
+            live.messageId,
+            seatGeneration,
+            outcome,
+          );
+          if (outcome.status === "unresolved") {
+            this.transportAccepted.add(key);
+            // Held with or without a ledger generation: without one the
+            // hold releases only on resume, removal, or a newly observed
+            // seat generation.
+            this.transportUnresolved.set(key, seatGeneration ?? "");
+          }
+          if (
+            outcome.status === "refused" &&
+            !outcome.wrotePhysicalBytes &&
+            this.isRetryableRefusal(outcome.reason)
+          ) {
+            this.scheduleGateRetry(
+              target.bindingId,
+              MESSAGE_DELIVERY_SETTLE_MS,
+              "poll",
+            );
+          }
+          return;
+        }
+        await this.recordAttemptOutcome(
+          canvas,
+          nodeId,
+          live.messageId,
+          seatGeneration,
+          outcome,
+        );
         this.transportAccepted.add(key);
       }
 
@@ -1459,6 +1878,8 @@ export class MessageDeliveryService {
       for (const message of livePending) {
         const key = flightKey(canvas, nodeId, message.messageId);
         if (this.inFlight.has(key)) continue;
+        // Individually held uncertainty never joins a fresh batch payload.
+        if (this.transportUnresolved.has(key)) continue;
         // Members of the accepted batch are settled below from the document.
         if (acceptedMembers?.has(message.messageId)) continue;
         if (this.transportAccepted.has(key)) {
@@ -1538,25 +1959,38 @@ export class MessageDeliveryService {
       const payload = composeMessageDeliverySummary(
         sortMessagesNewestFirst(unclaimed),
       );
-      const anyFactory = unclaimed.some((m) => isFactoryMailMessage(m));
-      const promptOptions =
-        transport.wakeManagedSeat || anyFactory
-          ? {
-              ...(transport.wakeManagedSeat ? { ready: true } : {}),
-              ...(anyFactory ? { interruptIfBusy: true } : {}),
-            }
-          : undefined;
+      // Mail never interrupts a live turn — batches are ordinary notices.
+      const promptOptions = transport.wakeManagedSeat
+        ? { ready: true }
+        : undefined;
+      const seatGeneration = gate.generationKey;
 
       const memberKeys = unclaimed.map((message) =>
         flightKey(canvas, nodeId, message.messageId),
       );
+      if (seatGeneration !== undefined && this.attempts) {
+        try {
+          for (const message of unclaimed) {
+            await this.attempts.enqueueAttempt({
+              canvas,
+              nodeId,
+              messageId: message.messageId,
+              generation: seatGeneration,
+              policy: "notice",
+            });
+          }
+        } catch {
+          // Ledger write failed: fail closed without touching the PTY.
+          return;
+        }
+      }
       for (const key of memberKeys) {
         this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
       }
       const writesBefore = transport.pasteWriteCount?.(target.bindingId);
-      let delivered = false;
+      let outcome: ManagedPromptOutcome | undefined;
       try {
-        delivered = await this.deliver(
+        outcome = await this.deliver(
           transport,
           target,
           payload,
@@ -1565,12 +1999,18 @@ export class MessageDeliveryService {
         );
       } finally {
         // Same law as attemptOne, including transport throws/rejections: a
-        // failure that never touched the PTY hands every member its attempt
+        // refusal that never touched the PTY hands every member its attempt
         // back. A paste without acceptance keeps the charge and stays pending.
+        const wroteNothing =
+          outcome !== undefined &&
+          outcome.status === "refused" &&
+          !outcome.wrotePhysicalBytes;
         if (
-          !delivered &&
-          writesBefore !== undefined &&
-          transport.pasteWriteCount?.(target.bindingId) === writesBefore
+          outcome === undefined ||
+          (wroteNothing &&
+            (writesBefore === undefined ||
+              transport.pasteWriteCount?.(target.bindingId) ===
+                writesBefore))
         ) {
           for (const key of memberKeys) {
             const attempts = this.transportAttempts.get(key) ?? 0;
@@ -1578,7 +2018,45 @@ export class MessageDeliveryService {
           }
         }
       }
-      if (!delivered) return;
+      if (outcome === undefined) return;
+      if (outcome.status !== "submitted") {
+        for (const message of unclaimed) {
+          await this.recordAttemptOutcome(
+            canvas,
+            nodeId,
+            message.messageId,
+            seatGeneration,
+            outcome,
+          );
+          if (outcome.status === "unresolved") {
+            const memberKey = flightKey(canvas, nodeId, message.messageId);
+            this.transportAccepted.add(memberKey);
+            this.transportUnresolved.set(memberKey, seatGeneration ?? "");
+          }
+        }
+        if (
+          outcome.status === "refused" &&
+          !outcome.wrotePhysicalBytes &&
+          outcome.reason !== undefined &&
+          this.isRetryableRefusal(outcome.reason)
+        ) {
+          this.scheduleGateRetry(
+            target.bindingId,
+            MESSAGE_DELIVERY_SETTLE_MS,
+            "poll",
+          );
+        }
+        return;
+      }
+      for (const message of unclaimed) {
+        await this.recordAttemptOutcome(
+          canvas,
+          nodeId,
+          message.messageId,
+          seatGeneration,
+          outcome,
+        );
+      }
       // Marker plus every member key land before the first await, so no
       // later pass can re-send any part of the accepted payload.
       this.transportAccepted.add(batchKey);
@@ -1671,12 +2149,163 @@ export class MessageDeliveryService {
     payload: string,
     messageId: string,
     options?: ManagedTerminalPromptOptions,
-  ): Promise<boolean> {
+  ): Promise<ManagedPromptOutcome> {
     // Managed drive (paste+CR) preferred; raw paste only for geography shells.
     if (transport.sendManagedTerminalPrompt) {
       return transport.sendManagedTerminalPrompt(target.bindingId, payload, options);
     }
-    return transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
+    const ok =
+      transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
+    // Raw-paste shells have no drive counter or generation tracking: the
+    // boolean acceptance is the whole fact, synthesized with zero evidence.
+    // The durable attempt identity still uses the seat generation string.
+    return ok
+      ? {
+          status: "submitted",
+          bindingGeneration: 0,
+          writesBefore: 0,
+          writesAfter: 0,
+          pasteWrites: 0,
+          wrotePhysicalBytes: true,
+        }
+      : {
+          status: "refused",
+          reason: "not-ready",
+          bindingGeneration: 0,
+          writesBefore: 0,
+          writesAfter: 0,
+          pasteWrites: 0,
+          wrotePhysicalBytes: false,
+        };
+  }
+
+  /**
+   * Record one transport outcome against the durable attempt ledger, when the
+   * ledger is configured and the gate observed a seat generation. Mapping:
+   * submitted to notifiedAt, written-unresolved to unresolvedAt, pre-write
+   * refusal to refusedAt plus the closed reason. Lifecycle cuts record
+   * nothing and leave the message pending.
+   */
+  private async recordAttemptOutcome(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    generation: string | undefined,
+    outcome: ManagedPromptOutcome,
+  ): Promise<void> {
+    const ledger = this.attempts;
+    if (!ledger || generation === undefined) return;
+    const at = new Date(this.now()).toISOString();
+    const write: MailWriteEvidence = {
+      writesBefore: outcome.writesBefore,
+      writesAfter: outcome.writesAfter,
+      at,
+    };
+    try {
+      if (outcome.status === "submitted") {
+        await ledger.recordAttempt({
+          canvas,
+          nodeId,
+          messageId,
+          generation,
+          set: { notifiedAt: at },
+          write,
+        });
+      } else if (outcome.status === "unresolved") {
+        await ledger.recordAttempt({
+          canvas,
+          nodeId,
+          messageId,
+          generation,
+          set: { unresolvedAt: at },
+          write,
+        });
+        console.error(
+          `[delivery] written-unresolved — ${canvas}/${nodeId}/${messageId} ` +
+            `generation ${generation} reason ${outcome.reason} ` +
+            `(same generation will not replay)`,
+        );
+      } else {
+        const refusedReason = mailAttemptReasonOfRefusal(outcome.reason);
+        if (refusedReason === undefined) return;
+        await ledger.recordAttempt({
+          canvas,
+          nodeId,
+          messageId,
+          generation,
+          set: { refusedAt: at, refusedReason },
+          write,
+        });
+      }
+    } catch {
+      // Ledger write failed after transport: the message stays pending and
+      // the in-memory no-replay marks below still suppress a same-generation
+      // re-paste. Make the gap loud — a silent missing fact is what let the
+      // same message re-paste in production.
+      console.error(
+        `[delivery] attempt record FAILED for ${canvas}/${nodeId}/${messageId} ` +
+          `(outcome ${outcome.status}; message stays pending; re-paste suppressed in-process)`,
+      );
+    }
+  }
+
+  /**
+   * A refusal for an attempt that never reached the drive: zero physical
+   * facts, generation untracked. Used by the explicit prompt path for
+   * pre-transport refusals (wake/gate/ledger/bound) so every return carries
+   * the full outcome shape.
+   */
+  private refusedWithoutWrite(
+    reason: ManagedPromptRefusalReason,
+  ): ManagedPromptOutcome {
+    return {
+      status: "refused",
+      reason,
+      bindingGeneration: 0,
+      writesBefore: 0,
+      writesAfter: 0,
+      pasteWrites: 0,
+      wrotePhysicalBytes: false,
+    };
+  }
+
+  /**
+   * Same-generation uncertainty hold. Returns true when clear to attempt:
+   * no hold, or a new seat generation released it (releasing also drops the
+   * no-replay mark so the fresh attempt can paste). A held key consults the
+   * gate once for a fresh generation read; anything else leaves it held —
+   * no transport, no receipt.
+   */
+  private async checkUnresolvedHold(
+    bindingId: string,
+    key: string,
+  ): Promise<boolean> {
+    const heldGeneration = this.transportUnresolved.get(key);
+    if (heldGeneration === undefined) return true;
+    const holdGate = await this.evaluateSeatGate(bindingId);
+    if (!holdGate.allow) return false;
+    const currentGeneration = this.lastGenerationKey.get(bindingId);
+    if (
+      currentGeneration === undefined ||
+      currentGeneration === heldGeneration
+    ) {
+      return false;
+    }
+    this.transportUnresolved.delete(key);
+    this.transportAccepted.delete(key);
+    return true;
+  }
+
+  /** Pre-write refusals worth a bounded gate re-drive (a wait may clear them). */
+  private isRetryableRefusal(reason: ManagedPromptRefusalReason): boolean {
+    return (
+      reason === "seat-busy" ||
+      reason === "composer-not-empty" ||
+      reason === "composer-unreadable" ||
+      reason === "operator-active" ||
+      reason === "not-ready" ||
+      reason === "queue-timeout"
+    );
   }
 
   private async wakeManagedSeat(

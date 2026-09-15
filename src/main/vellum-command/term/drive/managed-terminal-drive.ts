@@ -30,6 +30,21 @@ import {
   type PtyDeliveryTracer,
   type PtyTraceFields,
 } from "./pty-delivery-trace";
+import type {
+  ManagedPromptOutcome,
+  ManagedPromptRefusalReason,
+  ManagedPromptUnresolvedReason,
+} from "@shared/managed-prompt";
+
+export type {
+  MailDisplayState,
+  MailEvidenceRef,
+  MailKind,
+  ManagedPromptOutcome,
+  ManagedPromptOutcomeFacts,
+  ManagedPromptRefusalReason,
+  ManagedPromptUnresolvedReason,
+} from "@shared/managed-prompt";
 
 /** Returns true when the managed seat may accept a typed prompt. */
 export type SeatIdleLookup = (bindingId: string) => boolean;
@@ -164,7 +179,7 @@ type QueuedPrompt = {
   readonly signal: AbortSignal | undefined;
   readonly awaitTurnStart: boolean;
   readonly trace: PtyDeliveryTraceContext | undefined;
-  readonly resolve: (ok: boolean) => void;
+  readonly resolve: (outcome: ManagedPromptOutcome) => void;
   timer: ReturnType<typeof setTimeout> | undefined;
 };
 
@@ -336,6 +351,116 @@ export class ManagedTerminalDrive {
   }
 
   /**
+   * Attempt facts for one outcome: the terminal-epoch cut the attempt ran
+   * under, paste envelopes that reached the PTY writer during the attempt,
+   * and whether any prompt byte reached the PTY at all. Pre-write refusals
+   * always report zero writes — retryable without replay risk.
+   */
+  private promptFacts(
+    bindingId: string,
+    bindingGeneration: number,
+    writesBefore: number,
+    wrotePhysicalBytes: boolean,
+  ): {
+    readonly bindingGeneration: number;
+    readonly writesBefore: number;
+    readonly writesAfter: number;
+    readonly pasteWrites: number;
+    readonly wrotePhysicalBytes: boolean;
+  } {
+    const writesAfter = this.pasteWrites.get(bindingId) ?? 0;
+    return {
+      bindingGeneration,
+      writesBefore,
+      writesAfter,
+      pasteWrites: writesAfter - writesBefore,
+      wrotePhysicalBytes,
+    };
+  }
+
+  private refusePrompt(
+    bindingId: string,
+    bindingGeneration: number,
+    writesBefore: number,
+    reason: ManagedPromptRefusalReason,
+  ): ManagedPromptOutcome {
+    return {
+      status: "refused",
+      reason,
+      ...this.promptFacts(bindingId, bindingGeneration, writesBefore, false),
+    };
+  }
+
+  private submitPrompt(
+    bindingId: string,
+    bindingGeneration: number,
+    writesBefore: number,
+  ): ManagedPromptOutcome {
+    return {
+      status: "submitted",
+      ...this.promptFacts(bindingId, bindingGeneration, writesBefore, true),
+    };
+  }
+
+  private strandPrompt(
+    bindingId: string,
+    bindingGeneration: number,
+    writesBefore: number,
+  ): ManagedPromptOutcome {
+    const reason: ManagedPromptUnresolvedReason =
+      this.pendingText !== undefined && this.pendingOnScreen(bindingId)
+        ? "chip-pending"
+        : "no-turn-start";
+    return {
+      status: "unresolved",
+      reason,
+      ...this.promptFacts(bindingId, bindingGeneration, writesBefore, true),
+    };
+  }
+
+  /** Generation cut, shutdown, or abort — never a transport verdict. */
+  private inactivePrompt(
+    bindingId: string,
+    bindingGeneration: number,
+    writesBefore: number,
+  ): ManagedPromptOutcome {
+    return this.refusePrompt(
+      bindingId,
+      bindingGeneration,
+      writesBefore,
+      this.suspended ? "suspended" : "cancelled",
+    );
+  }
+
+  /**
+   * Map the live gate to the refusal reason without writing: busy seats
+   * (mid-turn, in-flight, or awaiting ack) refuse seat-busy; a visible
+   * draft holds the box; an unreadable composer is never writable; fresh
+   * operator input holds the write until the screen can prove a draft.
+   */
+  private gatePromptRefusal(
+    bindingId: string,
+    bindingGeneration: number,
+    writesBefore: number,
+  ): ManagedPromptRefusalReason {
+    if (this.writtenUnresolved.has(bindingId)) return "written-unresolved";
+    if (
+      !this.isSeatIdle(bindingId) ||
+      this.writing.has(bindingId) ||
+      this.pendingTurns.has(bindingId)
+    ) {
+      return "seat-busy";
+    }
+    if (this.composerBlocked(bindingId)) {
+      return this.composerVerdict?.(bindingId) === "draft"
+        ? "composer-not-empty"
+        : "composer-unreadable";
+    }
+    if (this.interlock.gateActive(bindingId)) return "operator-active";
+    return "seat-busy";
+  }
+
+  /**
    * True while a factory write must wait: the agent is mid-turn, a write is
    * already in flight, a turn is pending acknowledgement, the screen does
    * not prove an empty composer — or operator input arrived too recently for
@@ -401,7 +526,7 @@ export class ManagedTerminalDrive {
     if (this.suspended) return;
     this.suspended = true;
     this.lifecycleGeneration += 1;
-    this.clearTransientState();
+    this.clearTransientState("suspended");
   }
 
   private active(generation: number): boolean {
@@ -435,48 +560,73 @@ export class ManagedTerminalDrive {
 
   /**
    * Deliver one submitted prompt when idle. Queues when the seat is busy;
-   * With stall watching enabled, the promise resolves true only after an
-   * explicit turn-start acknowledgement. It resolves false on write failure,
-   * acknowledgement timeout, generation change, shutdown, or queue timeout.
-   * Returns false immediately for not-ready / clipboard-unsafe / write fail.
+   * With stall watching enabled, the promise resolves submitted only after
+   * an explicit turn-start acknowledgement. It resolves refused on write
+   * failure, acknowledgement timeout, generation change, shutdown, or queue
+   * timeout, and unresolved when bytes reached the PTY without submission
+   * proof. Pre-write refusals carry zero physical writes; immediate
+   * not-ready / clipboard-unsafe / write failures refuse the same way.
    */
   writePrompt(
     bindingId: string,
     text: string,
     opts: WritePromptOptions = {},
-  ): Promise<boolean> {
+  ): Promise<ManagedPromptOutcome> {
     if (this.tracer === undefined) return this.writePromptInternal(bindingId, text, opts);
-    return this.tracer.prompt(bindingId, text, () => this.harnessFor?.(bindingId), {
+    // The trace envelope still records a submitted boolean for continuity;
+    // the caller receives the full discriminated outcome.
+    let captured: ManagedPromptOutcome | undefined;
+    const body = (): Promise<boolean> =>
+      this.writePromptInternal(bindingId, text, opts).then((outcome) => {
+        captured = outcome;
+        return outcome.status === "submitted";
+      });
+    const traced = this.tracer.prompt(bindingId, text, () => this.harnessFor?.(bindingId), {
       ready: opts.ready ?? true,
       queueIfBusy: opts.queueIfBusy ?? true,
       awaitTurnStart: opts.awaitTurnStart ?? this.stallWatch,
-    }, () => this.writePromptInternal(bindingId, text, opts));
+    }, body);
+    return traced.then(() => captured ?? this.inactivePrompt(
+      bindingId,
+      this.bindingGenerations.get(bindingId) ?? 0,
+      this.pasteWrites.get(bindingId) ?? 0,
+    ));
   }
 
   private async writePromptInternal(
     bindingId: string,
     text: string,
     opts: WritePromptOptions = {},
-  ): Promise<boolean> {
+  ): Promise<ManagedPromptOutcome> {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    const writesBefore = this.pasteWrites.get(bindingId) ?? 0;
     const signal = opts.signal;
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-      return false;
+      return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
     }
-    if (this.refuseWrittenUnresolved(bindingId)) return false;
+    if (this.refuseWrittenUnresolved(bindingId)) {
+      return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
+    }
     const ready = opts.ready ?? true;
     const queueIfBusy = opts.queueIfBusy ?? true;
     const awaitTurnStart = opts.awaitTurnStart ?? this.stallWatch;
     if (this.refuseHermesMultiline(bindingId, text)) {
-      return false;
+      return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "multiline-refused");
     }
     if (!ready) {
       this.onAttention?.(bindingId, "not-ready");
-      return false;
+      return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "not-ready");
     }
 
-    if (!queueIfBusy && this.mustWait(bindingId)) return false;
+    if (!queueIfBusy && this.mustWait(bindingId)) {
+      return this.refusePrompt(
+        bindingId,
+        bindingGeneration,
+        writesBefore,
+        this.gatePromptRefusal(bindingId, bindingGeneration, writesBefore),
+      );
+    }
 
     const readyAfter =
       opts.readyAfterMs ?? this.readyAfter.get(bindingId) ?? 0;
@@ -485,13 +635,15 @@ export class ManagedTerminalDrive {
       this.traceState(bindingId, "gate", { gate: "ready-after", allowed: false, waitMs });
       // A non-queuing caller retains authorization context outside this
       // transport and will retry later. Never park its raw text in the drive.
-      if (!queueIfBusy) return false;
+      if (!queueIfBusy) {
+        return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "not-ready");
+      }
       await new Promise<void>((r) => {
         const t = setTimeout(r, waitMs);
         t.unref?.();
       });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return false;
+        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
       }
       this.readyAfter.delete(bindingId);
     }
@@ -504,19 +656,28 @@ export class ManagedTerminalDrive {
         safe = false;
       }
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return false;
+        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
       }
       if (!safe) {
         this.onAttention?.(bindingId, "clipboard-unsafe");
-        return false;
+        return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "clipboard-unsafe");
       }
     }
 
     // Readiness and clipboard preflight can outlive an earlier delivery.
     // Re-check before this call can interrupt a turn or retain more text.
-    if (this.refuseWrittenUnresolved(bindingId)) return false;
+    if (this.refuseWrittenUnresolved(bindingId)) {
+      return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
+    }
     if (this.mustWait(bindingId)) {
-      if (!queueIfBusy) return false;
+      if (!queueIfBusy) {
+        return this.refusePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          this.gatePromptRefusal(bindingId, bindingGeneration, writesBefore),
+        );
+      }
       if (
         opts.interruptIfBusy &&
         !this.isSeatIdle(bindingId) &&
@@ -542,20 +703,24 @@ export class ManagedTerminalDrive {
         if (interruption !== undefined) {
           const interrupted = await interruption;
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-            return false;
+            return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
           }
           if (!interrupted) {
             if (this.mailInterrupts.get(bindingId) === interruption) {
               this.mailInterrupts.delete(bindingId);
             }
-            return false;
+            // The steering write failed; the prompt itself never reached
+            // the PTY, so this stays a retryable pre-write refusal.
+            return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "seat-busy");
           }
         }
       }
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return false;
+        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
       }
-      if (this.refuseWrittenUnresolved(bindingId)) return false;
+      if (this.refuseWrittenUnresolved(bindingId)) {
+        return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
+      }
       // The interrupt can make the seat idle before its observer event is
       // delivered. Do not miss that boundary and strand the prompt in a queue
       // that was drained just before this call resumed.
@@ -570,9 +735,9 @@ export class ManagedTerminalDrive {
         );
       }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
-      return new Promise<boolean>((resolve) => {
+      return new Promise<ManagedPromptOutcome>((resolve) => {
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-          resolve(false);
+          resolve(this.inactivePrompt(bindingId, bindingGeneration, writesBefore));
           return;
         }
         const entry: QueuedPrompt = {
@@ -580,16 +745,16 @@ export class ManagedTerminalDrive {
           signal,
           awaitTurnStart,
           trace: this.tracer?.capture(),
-          resolve: (ok) => {
+          resolve: (outcome) => {
             if (entry.timer !== undefined) clearTimeout(entry.timer);
             entry.timer = undefined;
             signal?.removeEventListener("abort", cancel);
-            resolve(ok);
+            resolve(outcome);
           },
           timer: undefined,
         };
-        const cancel = () => {
-          // Drop this entry from the queue if still waiting.
+        // Drop this entry from the queue if still waiting.
+        const remove = () => {
           const q = this.queues.get(bindingId);
           if (q) {
             const idx = q.indexOf(entry);
@@ -599,13 +764,17 @@ export class ManagedTerminalDrive {
               else this.queues.set(bindingId, q);
             }
           }
-          entry.resolve(false);
+        };
+        const cancel = () => {
+          remove();
+          entry.resolve(this.refusePrompt(bindingId, bindingGeneration, writesBefore, "cancelled"));
         };
         entry.timer = setTimeout(() => {
           if (this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             this.onAttention?.(bindingId, "queue-timeout");
           }
-          cancel();
+          remove();
+          entry.resolve(this.refusePrompt(bindingId, bindingGeneration, writesBefore, "queue-timeout"));
         }, timeoutMs);
         entry.timer.unref?.();
         const q = this.queues.get(bindingId) ?? [];
@@ -766,14 +935,22 @@ export class ManagedTerminalDrive {
     }
   }
 
-  private clearTransientState(): void {
+  private clearTransientState(reason: "suspended" | "cancelled"): void {
     for (const [bindingId] of this.pendingTurns) {
       this.resolvePendingTurn(bindingId, false);
     }
-    for (const q of this.queues.values()) {
+    for (const [bindingId, q] of this.queues) {
       for (const item of q) {
         if (item.timer !== undefined) clearTimeout(item.timer);
-        item.resolve(false);
+        item.resolve({
+          status: "refused",
+          reason,
+          bindingGeneration: this.bindingGenerations.get(bindingId) ?? 0,
+          writesBefore: 0,
+          writesAfter: 0,
+          pasteWrites: 0,
+          wrotePhysicalBytes: false,
+        });
       }
     }
     this.queues.clear();
@@ -795,7 +972,15 @@ export class ManagedTerminalDrive {
       this.queues.delete(bindingId);
       for (const item of queue) {
         if (item.timer !== undefined) clearTimeout(item.timer);
-        item.resolve(false);
+        item.resolve({
+          status: "refused",
+          reason: "cancelled",
+          bindingGeneration: this.bindingGenerations.get(bindingId) ?? 0,
+          writesBefore: 0,
+          writesAfter: 0,
+          pasteWrites: 0,
+          wrotePhysicalBytes: false,
+        });
       }
     }
     this.writing.delete(bindingId);
@@ -811,7 +996,7 @@ export class ManagedTerminalDrive {
   /** Test seam — reset scheduling; unresolved writes still require a generation cut. */
   resetForTest(): void {
     this.lifecycleGeneration += 1;
-    this.clearTransientState();
+    this.clearTransientState("cancelled");
     this.suspended = false;
   }
 
@@ -860,8 +1045,8 @@ export class ManagedTerminalDrive {
       next.awaitTurnStart,
       next.signal,
     );
-    const ok = await (this.tracer === undefined ? execute() : this.tracer.run(next.trace, execute));
-    next.resolve(ok);
+    const outcome = await (this.tracer === undefined ? execute() : this.tracer.run(next.trace, execute));
+    next.resolve(outcome);
   }
 
   private async executePrompt(
@@ -871,26 +1056,33 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     awaitTurnStart: boolean = this.stallWatch,
     signal?: AbortSignal,
-  ): Promise<boolean> {
+  ): Promise<ManagedPromptOutcome> {
+    const writesBefore = this.pasteWrites.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-      return false;
+      return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
     }
-    if (this.refuseWrittenUnresolved(bindingId)) return false;
+    if (this.refuseWrittenUnresolved(bindingId)) {
+      return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
+    }
     // Re-check idle immediately before paste — observer can flip to dialog
     // after the outer gate and before the physical write.
     if (!this.isSeatIdle(bindingId)) {
       this.onAttention?.(bindingId, "not-ready");
-      return false;
+      return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "seat-busy");
     }
     this.writing.add(bindingId);
     const endTrace = this.tracer?.activate(bindingId);
     this.traceState(bindingId, "submission.begin");
     let pasteAccepted = false;
     let submitted = false;
-    const confirmSubmitted = (): true => {
+    const confirmSubmitted = (): ManagedPromptOutcome => {
       submitted = true;
-      return true;
+      return this.submitPrompt(bindingId, bindingGeneration, writesBefore);
     };
+    const refuseNow = (reason: ManagedPromptRefusalReason): ManagedPromptOutcome =>
+      this.refusePrompt(bindingId, bindingGeneration, writesBefore, reason);
+    const strandNow = (): ManagedPromptOutcome =>
+      this.strandPrompt(bindingId, bindingGeneration, writesBefore);
     try {
       // Second check under the writing lock: still refuse if seat left idle
       // or the composer stopped being provably empty (operator typing burst,
@@ -898,16 +1090,12 @@ export class ManagedTerminalDrive {
       // legitimately in the box.
       if (!this.isSeatIdle(bindingId)) {
         this.onAttention?.(bindingId, "not-ready");
-        return false;
+        return refuseNow("seat-busy");
       }
       if (this.composerBlocked(bindingId)) {
-        this.onAttention?.(
-          bindingId,
-          this.composerVerdict?.(bindingId) === "draft"
-            ? "not-ready"
-            : "composer-unreadable",
-        );
-        return false;
+        const draft = this.composerVerdict?.(bindingId) === "draft";
+        this.onAttention?.(bindingId, draft ? "not-ready" : "composer-unreadable");
+        return refuseNow(draft ? "composer-not-empty" : "composer-unreadable");
       }
       // The screen gates above can only see what has painted. Operator
       // keystrokes younger than the repaint live only in the interlock
@@ -924,7 +1112,17 @@ export class ManagedTerminalDrive {
           signal,
         ))
       ) {
-        return false;
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        }
+        if (this.composerBlocked(bindingId)) {
+          return refuseNow(
+            this.composerVerdict?.(bindingId) === "draft"
+              ? "composer-not-empty"
+              : "composer-unreadable",
+          );
+        }
+        return refuseNow("operator-active");
       }
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
       const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
@@ -996,12 +1194,19 @@ export class ManagedTerminalDrive {
           return { kind: "done", ok: true };
         },
       );
-      if (physical.kind === "inactive" || physical.kind === "failed") {
-        return false;
+      if (physical.kind === "inactive") {
+        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+      }
+      if (physical.kind === "failed") {
+        // The paste envelope never completed: without an accepted paste
+        // nothing reached the PTY (retryable); with one, the text sits
+        // unsubmitted on screen (unresolved, same generation must not replay).
+        return pasteAccepted ? strandNow() : refuseNow("not-ready");
       }
       if (physical.kind === "done") {
-        submitted = physical.ok;
-        return physical.ok;
+        if (physical.ok) return confirmSubmitted();
+        // Fast path (no turn-start wait): evidence still shows our text.
+        return strandNow();
       }
       const sentChipCr = physical.sentChipCr;
       // awaitTurnStart — observer delivery can race the CR writer's promise
@@ -1024,11 +1229,13 @@ export class ManagedTerminalDrive {
         bindingGeneration,
         signal,
       );
-      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
+      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+      }
       if (started) return confirmSubmitted();
       this.traceState(bindingId, "recovery.evaluate", { sentChipCr });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return false;
+        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
       }
       // FIRED-LAW (live duplicate fix): the stall window closed without a
       // turn-start ack, but our text has already LEFT the composer — the
@@ -1048,7 +1255,12 @@ export class ManagedTerminalDrive {
         this.interlock.resizeActive(bindingId) &&
         !(await this.awaitResizeQuiet(bindingId, generation, bindingGeneration, signal))
       ) {
-        return false;
+        // The accepted paste is already on the PTY; without submission
+        // proof the attempt is unresolved, never a silent retryable false.
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        }
+        return strandNow();
       }
       if (
         this.canContinueSubmission(bindingId) &&
@@ -1059,9 +1271,14 @@ export class ManagedTerminalDrive {
         if (
           !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal, "recovery-cr"))
         ) {
-          return false;
+          if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+            return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+          }
+          return strandNow();
         }
-        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        }
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
           return confirmSubmitted();
         }
@@ -1072,14 +1289,16 @@ export class ManagedTerminalDrive {
           bindingGeneration,
           signal,
         );
-        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
+        if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
+          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        }
         if (startedRetry) return confirmSubmitted();
         if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {
           return confirmSubmitted();
         }
       }
       this.traceState(bindingId, "recovery.exhausted", { sentChipCr });
-      return false;
+      return strandNow();
     } finally {
       const verdict = submitted ? "submitted" : pasteAccepted ? "written-unresolved" : "refused-before-write";
       this.traceState(bindingId, "delivery.verdict", { verdict });
@@ -1092,7 +1311,19 @@ export class ManagedTerminalDrive {
         this.writtenUnresolved.add(bindingId);
         const queued = this.queues.get(bindingId);
         this.queues.delete(bindingId);
-        for (const item of queued ?? []) item.resolve(false);
+        // Followers never wrote: they refuse against the unresolved composer
+        // and re-park from their own retry once it clears.
+        for (const item of queued ?? []) {
+          item.resolve({
+            status: "refused",
+            reason: "written-unresolved",
+            bindingGeneration,
+            writesBefore: 0,
+            writesAfter: 0,
+            pasteWrites: 0,
+            wrotePhysicalBytes: false,
+          });
+        }
       }
       this.traceState(bindingId, "submission.end");
       endTrace?.();
