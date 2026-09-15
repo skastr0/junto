@@ -1819,6 +1819,36 @@ describe("work control transport", () => {
     } finally { prompt.mockRestore(); }
   });
 
+  it("returns the recipient read receipt when a prompt is already settled", async () => {
+    const server = servers[0]!;
+    const runtime = runtimes.at(-1)!;
+    const canvases = await addPromptPeer(runtime);
+    const work = await runtime.runPromise(WorkService);
+    const prompt = vi.spyOn(messageDelivery, "prompt").mockImplementation(async (input) => {
+      const read = await runtime.runPromise(canvases.read("work-cli"));
+      const recipient = read.actorRefs.find((actor) => actor.nodeId === "peer")!;
+      const receipt = await runtime.runPromise(work.workMessageMarkRead(
+        "work-cli", "peer", input.messageId, recipient,
+      ));
+      expect(receipt.ok).toBe(true);
+      return { unavailable: "settled" };
+    });
+    try {
+      const sent = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", text: "Already read" },
+      }) as { ok: boolean; data: { messageId: string; delivery: { state: string } } };
+      expect(sent.ok).toBe(true);
+      expect(sent.data.delivery.state).toBe("read");
+      const retry = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", messageId: sent.data.messageId },
+      }) as { ok: boolean; data: { messageId: string; delivery: { state: string } } };
+      expect(retry.ok).toBe(true);
+      expect(retry.data).toMatchObject({ messageId: sent.data.messageId, delivery: { state: "read" } });
+      const read = await runtime.runPromise(canvases.read("work-cli"));
+      expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
+    } finally { prompt.mockRestore(); }
+  });
+
   it("refuses a Remote-placed prompt recipient before creating mail", async () => {
     const runtime = runtimes.at(-1)!;
     const canvases = await addPromptPeer(runtime);

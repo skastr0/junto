@@ -31,8 +31,8 @@ import {
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
-import { sortMessagesNewestFirst } from "@shared/message-delivery";
-import { mailExtensionMetadata, type MailSenderStamp } from "@shared/crew";
+import { mailDisplayFactsOf, sortMessagesNewestFirst } from "@shared/message-delivery";
+import { deriveMailDisplayState, mailExtensionMetadata, type MailSenderStamp } from "@shared/crew";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";
@@ -1659,7 +1659,22 @@ const dispatchOp = (
         return yield* Effect.raceFirst(watchAuthority, delivery);
       }));
       if ("unavailable" in result) {
-        if (result.unavailable === "settled") return { messageId, delivery: { state: "notified", reason: "already-settled" } };
+        if (result.unavailable === "settled") {
+          const latest = yield* canvases.read(caller.canvasName, "work.control").pipe(
+            Effect.mapError((error): WorkErrorBody => ({ type: "StaleNodeRef", message: error.message })),
+          );
+          const current = latest.doc.nodes.find((node) => node.id === input.target)
+            ?.ether?.messages?.items.find((message) => message.messageId === messageId);
+          if (current === undefined) return yield* Effect.fail<WorkErrorBody>({
+            type: "UnknownTarget", message: "The prompt message no longer exists",
+            details: { messageId, target: input.target, retryable: false },
+          });
+          const facts = mailDisplayFactsOf(current);
+          return { messageId, delivery: {
+            state: deriveMailDisplayState(facts), reason: "already-settled",
+            ...(facts.generation === undefined ? {} : { generation: facts.generation }),
+          } };
+        }
         return yield* Effect.fail<WorkErrorBody>({
           type: result.unavailable === "paused" ? "Paused" : "SeatBusy",
           message: "The recipient is not available for an immediate prompt",
