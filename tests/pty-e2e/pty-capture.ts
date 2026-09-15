@@ -59,12 +59,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  HARNESS_ISOLATION,
   isolatedCaptureEnv,
   isolatedSpawnRuntimeEnv,
   isHarnessId,
-  type HarnessId,
 } from "../../src/shared/managed-terminal-templates";
+import { seedIsolatedAuthFiles } from "../../src/main/vellum-command/term/isolated-harness-launch";
+
+export { seedIsolatedAuthFiles } from "../../src/main/vellum-command/term/isolated-harness-launch";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
@@ -469,47 +470,6 @@ type RawEvent = { t: number; buf: Buffer };
  * PTY_CAPTURE_OPERATOR_HOME=1 nothing is repointed or pinned — the parent env
  * is inherited as-is.
  */
-const AUTH_SEED_DENIED = /(?:^|\/)(?:sessions?|history|settings|config\.toml|transcripts|projects)(?:\/|$)/i;
-
-/** Copy only declared credential files into a throwaway home. Never history/settings. */
-export function seedIsolatedAuthFiles(input: {
-  readonly harness: HarnessId;
-  readonly isolatedHome: string;
-  readonly operatorHome: string;
-}): { readonly copied: readonly string[]; readonly skipped: readonly string[] } {
-  const copied: string[] = [];
-  const skipped: string[] = [];
-  if (input.operatorHome.length === 0 || input.isolatedHome === input.operatorHome) {
-    return { copied, skipped: ["operator-home"] };
-  }
-  const spec = HARNESS_ISOLATION[input.harness];
-  for (const file of spec.credentialFiles) {
-    if (
-      file.operatorRelative.includes("..") ||
-      file.isolatedRelative.includes("..") ||
-      AUTH_SEED_DENIED.test(file.operatorRelative) ||
-      AUTH_SEED_DENIED.test(file.isolatedRelative)
-    ) {
-      skipped.push(file.operatorRelative);
-      continue;
-    }
-    const source = path.join(input.operatorHome, file.operatorRelative);
-    const dest = path.join(input.isolatedHome, file.isolatedRelative);
-    if (!dest.startsWith(input.isolatedHome + path.sep) && dest !== input.isolatedHome) {
-      skipped.push(file.operatorRelative);
-      continue;
-    }
-    if (!fs.existsSync(source) || fs.statSync(source).isDirectory()) {
-      skipped.push(file.operatorRelative);
-      continue;
-    }
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(source, dest);
-    copied.push(file.isolatedRelative);
-  }
-  return { copied, skipped };
-}
-
 export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Record<string, string> {
   const operatorHome = process.env.PTY_CAPTURE_OPERATOR_HOME === "1";
   if (operatorHome) {
