@@ -11,6 +11,7 @@ import {
 } from "../src/main/vellum-command/pause-plane";
 import {
   PAUSED_CANVAS,
+  pauseWasResumed,
   type CanvasPauseState,
 } from "../src/shared/pause";
 
@@ -158,6 +159,30 @@ describe("PausePlane — born paused", () => {
 });
 
 describe("PausePlane — setPlaying", () => {
+  it("emits committed before/after states so only actual resume changes re-drive mail", async () => {
+    await withPlane({}, [], async (plane) => {
+      const resumes: string[] = [];
+      const seen: CanvasPauseState[] = [];
+      const stop = plane.subscribe((canvas, previous, current) => {
+        expect(plane.stateFor(canvas)).toEqual(current);
+        seen.push(previous);
+        if (pauseWasResumed(previous, current)) resumes.push(canvas);
+      });
+      await Effect.runPromise(plane.setPlaying("a", true));
+      await Effect.runPromise(plane.setPlaying("a", true));
+      await Effect.runPromise(plane.setScopePaused("a", { kind: "node", id: "n" }, true));
+      await Effect.runPromise(plane.setScopePaused("a", { kind: "node", id: "n" }, false));
+      await Effect.runPromise(plane.setScopePaused("a", { kind: "region", id: "r" }, true));
+      await Effect.runPromise(plane.setScopePaused("a", { kind: "region", id: "r" }, false));
+      await Effect.runPromise(plane.setPlaying("b", true));
+      expect(resumes).toEqual(["a", "a", "a", "b"]);
+      expect(seen[0]).toEqual(PAUSED_CANVAS);
+      expect(seen[2].pausedNodes).toEqual([]);
+      expect(seen[3].pausedNodes).toEqual(["n"]);
+      stop();
+    });
+  });
+
   it("playing stamps everPlayed, and the latch survives pausing again", async () => {
     const writes: Write[] = [];
     await withPlane({}, writes, async (plane) => {

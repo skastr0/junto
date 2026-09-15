@@ -18,6 +18,22 @@ export type CanvasPauseState = {
   readonly pausedRegions: ReadonlyArray<string>;
 };
 
+export type PauseChangeListener = (
+  canvas: string,
+  previous: CanvasPauseState,
+  current: CanvasPauseState,
+) => void;
+
+/** Only a released pause authorizes resuming held delivery. */
+export const pauseWasResumed = (
+  previous: CanvasPauseState,
+  current: CanvasPauseState,
+): boolean => current.playing && (
+  !previous.playing ||
+  previous.pausedNodes.some((id) => !current.pausedNodes.includes(id)) ||
+  previous.pausedRegions.some((id) => !current.pausedRegions.includes(id))
+);
+
 /** The born-paused default: not playing, never played, nothing overridden. */
 export const PAUSED_CANVAS: CanvasPauseState = {
   playing: false,

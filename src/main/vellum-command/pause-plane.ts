@@ -1,5 +1,5 @@
 import { Context, Effect, Result, Layer, Ref, Schema, Semaphore } from "effect";
-import { PAUSED_CANVAS, type CanvasPauseState, type PauseScope } from "@shared/pause";
+import { PAUSED_CANVAS, type CanvasPauseState, type PauseChangeListener, type PauseScope } from "@shared/pause";
 import { FactoryPauseRepository } from "./pause/repository";
 
 // Factory pause plane — the safety switch that decides whether the factory
@@ -37,7 +37,7 @@ export class PausePlane extends Context.Service<PausePlane,
       scope: PauseScope,
       paused: boolean,
     ) => Effect.Effect<void, PauseStateError>;
-    readonly subscribe: (listener: (canvas: string) => void) => () => void;
+    readonly subscribe: (listener: PauseChangeListener) => () => void;
   }>()("vellum/PausePlane") {}
 
 /**
@@ -69,7 +69,7 @@ export const PausePlaneLive = Layer.effect(
       canvases: new Map(),
       fault: undefined,
     });
-    const listeners = yield* Ref.make<ReadonlySet<(canvas: string) => void>>(new Set());
+    const listeners = yield* Ref.make<ReadonlySet<PauseChangeListener>>(new Set());
     // One permit preserves listener/memory ordering across concurrent writes.
     // Each repository operation is already one normalized SQLite transaction.
     const persistLock = yield* Semaphore.make(1);
@@ -130,7 +130,8 @@ export const PausePlaneLive = Layer.effect(
           }));
           const notify = yield* Ref.get(listeners);
           yield* Effect.sync(() => {
-            for (const listener of notify) listener(canvas);
+            const previous = current.canvases.get(canvas) ?? PAUSED_CANVAS;
+            for (const listener of notify) listener(canvas, previous, next);
           });
         }),
       );

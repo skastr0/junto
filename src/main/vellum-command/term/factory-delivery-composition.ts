@@ -23,7 +23,7 @@
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
 import type { CanvasDoc } from "@shared/canvas";
 import { isPromptSubmitted, type ManagedPromptOutcome } from "@shared/managed-prompt";
-import { seatPaused, type CanvasPauseState } from "@shared/pause";
+import { pauseWasResumed, seatPaused, type CanvasPauseState, type PauseChangeListener } from "@shared/pause";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
 import {
@@ -71,7 +71,7 @@ export type FactoryDeliveryKernel = {
 
 export type FactoryDeliveryPause = {
   readonly stateFor: (canvas: string) => CanvasPauseState;
-  readonly subscribe: (listener: (canvas: string) => void) => () => void;
+  readonly subscribe: (listener: PauseChangeListener) => () => void;
 };
 
 export type FactoryDeliverySeatSnapshot =
@@ -115,7 +115,7 @@ export type FactoryDeliveryMail = {
   }) => void;
   readonly onManagedTerminalIdle: (bindingId: string) => void;
   readonly onComposerEmpty: (bindingId: string) => void;
-  readonly onResumed: () => void;
+  readonly onResumedCanvas: (canvas: string) => void;
   readonly onBooted: () => void;
   readonly suspend: () => void;
 };
@@ -426,8 +426,8 @@ export const composeFactoryDelivery = (
       }),
     );
     unsubs.push(
-      input.pause.subscribe((canvas) => {
-        if (input.pause.stateFor(canvas).playing) mail.service.onResumed();
+      input.pause.subscribe((canvas, previous, current) => {
+        if (pauseWasResumed(previous, current)) mail.service.onResumedCanvas(canvas);
       }),
     );
 

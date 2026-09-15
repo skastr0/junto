@@ -7,7 +7,7 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
-import { type PauseScope } from "@shared/pause";
+import { pauseWasResumed, type PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
@@ -1789,8 +1789,8 @@ export const registerVellumIpc = (): void => {
       });
       // A canvas flipping to playing (or a node/region unpausing inside a
       // playing canvas) re-drives every message held pending while paused.
-      pause.subscribe((canvas) => {
-        if (pause.stateFor(canvas).playing) messageDelivery.onResumed();
+      pause.subscribe((canvas, previous, current) => {
+        if (pauseWasResumed(previous, current)) messageDelivery.onResumedCanvas(canvas);
       });
       // Boot rescan: pending mail from a previous process lifetime has no
       // attach/idle event left — deliver the durable backlog once the canvas

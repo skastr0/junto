@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WritePromptOptions } from "../src/main/vellum-command/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
+import { PAUSED_CANVAS, type PauseChangeListener } from "../src/shared/pause";
 import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
 import { InjectionSupervisor } from "../src/main/vellum-command/term/injection-supervisor";
 import {
@@ -616,7 +617,7 @@ describe("composeFactoryDelivery", () => {
     const drive = fakeDrive();
     const seatListeners: Array<(event: never) => void> = [];
     const composerListeners: Array<(bindingId: string) => void> = [];
-    const pauseListeners: Array<(canvas: string) => void> = [];
+    const pauseListeners: PauseChangeListener[] = [];
     const idle: string[] = [];
     const composerEmpty: string[] = [];
     const resumed: string[] = [];
@@ -672,8 +673,8 @@ describe("composeFactoryDelivery", () => {
         onComposerEmpty: (b) => {
           composerEmpty.push(b);
         },
-        onResumed: () => {
-          resumed.push("resumed");
+        onResumedCanvas: (canvas) => {
+          resumed.push(canvas);
         },
         onBooted: () => {
           booted.push("booted");
@@ -724,12 +725,12 @@ describe("composeFactoryDelivery", () => {
       state: "gone",
     } as never);
     h.composerListeners[0]("b1");
-    h.pauseListeners[0]("canvas");
+    h.pauseListeners[0]("canvas", PAUSED_CANVAS, { ...PAUSED_CANVAS, playing: true, everPlayed: true });
     expect(h.idle).toEqual(["b1"]);
     expect(h.noted).toHaveLength(2);
     expect(h.cleared).toEqual(["b2"]);
     expect(h.composerEmpty).toEqual(["b1"]);
-    expect(h.resumed).toEqual(["resumed"]);
+    expect(h.resumed).toEqual(["canvas"]);
     expect(h.booted).toEqual(["booted"]);
     expect(h.scheduled).toEqual([{ ms: 10_000 }]);
   });
@@ -738,6 +739,18 @@ describe("composeFactoryDelivery", () => {
     const h = harness();
     expect(h.composed).toBeDefined();
     expect(h.drive.writes).toHaveLength(0);
+  });
+
+  it("does not resume mail on repeated play or newly paused members", () => {
+    const h = harness();
+    const playing = { ...PAUSED_CANVAS, playing: true, everPlayed: true };
+    h.pauseListeners[0]("a", playing, playing);
+    const nodePaused = { ...playing, pausedNodes: ["n1"] };
+    h.pauseListeners[0]("a", playing, nodePaused);
+    h.pauseListeners[0]("a", nodePaused, PAUSED_CANVAS);
+    expect(h.resumed).toEqual([]);
+    h.pauseListeners[0]("b", nodePaused, playing);
+    expect(h.resumed).toEqual(["b"]);
   });
 
   it("dispose closes every subscription it opened", () => {
@@ -777,7 +790,7 @@ describe("composeFactoryDelivery", () => {
         configure: () => {},
         onManagedTerminalIdle: () => {},
         onComposerEmpty: () => {},
-        onResumed: () => {},
+        onResumedCanvas: () => {},
         onBooted: () => {},
         suspend: () => {},
       },
@@ -831,7 +844,7 @@ describe("composeFactoryDelivery", () => {
         configure: () => {},
         onManagedTerminalIdle: () => {},
         onComposerEmpty: () => {},
-        onResumed: () => {},
+        onResumedCanvas: () => {},
         onBooted: () => {},
         suspend: () => {},
       },
@@ -985,7 +998,7 @@ describe("real destination-drive composition", () => {
     });
     delivery.onManagedTerminalIdle("real-b4");
     delivery.onComposerEmpty("real-b4");
-    delivery.onResumed();
+    delivery.onResumedCanvas("canvas");
     await new Promise((resolve) => setTimeout(resolve, 50));
     // Empty world: nothing to send, and no raw write escapes the drive.
     expect(writes).toHaveLength(0);
