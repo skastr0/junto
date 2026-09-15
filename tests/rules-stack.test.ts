@@ -130,6 +130,16 @@ describe("rulesInForce", () => {
 });
 
 describe("evaluateRules", () => {
+  it("leaves review rules to the independent verdict gate while still requiring statement claims", () => {
+    const review = { ...rule("review"), kind: "requires-review" as const };
+    const rules = [
+      { rule: rule("statement"), provenance: { kind: "board" as const, boardId: "s1" } },
+      { rule: review, provenance: { kind: "board" as const, boardId: "s1" } },
+    ];
+    expect(evaluateRules({ rules, evidence: undefined })?.ruleId).toBe("statement");
+    expect(evaluateRules({ rules, evidence: evidence([{ ruleId: "statement", text: "done" }]) })).toBeUndefined();
+  });
+
   it("demands a claim for every rule in force", () => {
     const rules = [
       { rule: rule("r1"), provenance: { kind: "board" as const, boardId: "s1" } },
@@ -175,6 +185,12 @@ describe("claim liveness across defects", () => {
 });
 
 describe("evaluateForkWaivers", () => {
+  it("does not ask an author to waive an independent review", () => {
+    const task = baseTask("t1", { rules: [{ ...taskRule("review", "s3"), kind: "requires-review" }] });
+    const doc: CanvasDoc = { nodes: [board("s1"), board("s2"), board("s3")], edges: [flowEdge("e1", "s1", "s2")] };
+    expect(evaluateForkWaivers({ doc, boardId: "s1", task, next: "s2", evidence: undefined })).toBeUndefined();
+  });
+
   it("accepts a waiver only when the chosen path no longer reaches the rule's board", () => {
     const doc: CanvasDoc = {
       nodes: [board("s1"), board("s2"), board("s3")],
@@ -204,6 +220,12 @@ describe("evaluateForkWaivers", () => {
 });
 
 describe("evaluateTerminalClose", () => {
+  it("does not require a self-authored claim to discharge a review rule", () => {
+    const task = baseTask("t1", { rules: [{ ...taskRule("review", "s1"), kind: "requires-review" }] });
+    const doc: CanvasDoc = { nodes: [board("s1")], edges: [] };
+    expect(evaluateTerminalClose({ doc, boardId: "s1", task, evidence: undefined })).toBeUndefined();
+  });
+
   it("requires every task rule to be claimed or live-waived", () => {
     const doc: CanvasDoc = { nodes: [board("s1")], edges: [] };
     const task = baseTask("t1", { rules: [taskRule("r1", "s1")] });

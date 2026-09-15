@@ -90,7 +90,7 @@ const provenanceLabel = (provenance: RuleProvenance): string => {
   }
 };
 
-/** Every rule supplied to the gate needs an explicit claim. */
+/** Statement rules need claims; review rules are discharged by the verdict gate. */
 export const evaluateRules = (params: {
   readonly rules: ReadonlyArray<RuleInForce>;
   readonly evidence: CompletionEvidence | undefined;
@@ -100,6 +100,7 @@ export const evaluateRules = (params: {
   );
   for (let index = params.rules.length - 1; index >= 0; index -= 1) {
     const { rule, provenance } = params.rules[index]!;
+    if (rule.kind === "requires-review") continue;
     if (claimed.has(rule.id)) continue;
     return {
       missing: "claims",
@@ -227,7 +228,7 @@ export const claimedAtBoard = (
 
 /**
  * A task rule may be waived only when the selected path no longer reaches its
- * board. All other rules require claims.
+ * board. Review rules belong to the independent verdict gate, never a waiver.
  */
 export const evaluateForkWaivers = (params: {
   readonly doc: CanvasDoc;
@@ -248,6 +249,7 @@ export const evaluateForkWaivers = (params: {
     ...(params.evidence?.waivers ?? []).map((entry) => entry.ruleId),
   ]);
   for (const rule of rules) {
+    if (rule.kind === "requires-review") continue;
     if (reachable.has(rule.board)) continue;
     const answered =
       claimedAtBoard(recorded.claimed, rule.board, rule.id) ||
@@ -263,7 +265,7 @@ export const evaluateForkWaivers = (params: {
   return undefined;
 };
 
-/** Every task rule must have a claim at its board or a live fork waiver. */
+/** Every statement task rule needs a claim at its board or a live fork waiver. */
 export const evaluateTerminalClose = (params: {
   readonly doc: CanvasDoc;
   readonly boardId: string;
@@ -281,6 +283,7 @@ export const evaluateTerminalClose = (params: {
     ...(params.evidence?.waivers ?? []).map((entry) => entry.ruleId),
   ]);
   for (const rule of rules) {
+    if (rule.kind === "requires-review") continue;
     const answered =
       claimedAtBoard(recorded.claimed, rule.board, rule.id) ||
       (rule.board === params.boardId && localClaims.has(rule.id));
