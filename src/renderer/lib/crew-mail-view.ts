@@ -64,8 +64,9 @@ export const parseMailEvidenceRefs = (
 };
 
 /**
- * Receipt facts outrank transport. Unresolved outranks a later refusal so a
- * physical write cannot be hidden by a no-write retry.
+ * Single source: deriveMailDisplayState. Receipts outrank transport.
+ * Proven notification outranks unresolved and refused. Without notifiedAt,
+ * unresolved outranks a no-write refusal.
  */
 export const deriveMailDisplay = (
   facts: MailViewFacts,

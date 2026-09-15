@@ -170,7 +170,7 @@ describe("mailAttemptFactsOf via crewMailViewOf", () => {
     expect(named.displayReason).toBe("seat-busy");
   });
 
-  it("reads flat MailAttemptFacts names and keeps unresolved above refusal", () => {
+  it("reads flat MailAttemptFacts names and ranks notified above unresolved above refusal", () => {
     const view = crewMailViewOf(
       message({
         generation: "gen-1",
@@ -185,6 +185,15 @@ describe("mailAttemptFactsOf via crewMailViewOf", () => {
     expect(view.displayReason).toBeUndefined();
     expect(view.facts.generation).toBe("gen-1");
     expect(view.facts.refusedReason).toBe("written-no-evidence");
+    expect(
+      crewMailViewOf(
+        message({
+          ...view.facts,
+          notifiedAt: "2026-01-01T00:00:05.000Z",
+        }),
+        1,
+      ).display,
+    ).toBe("notified");
   });
 });
 
