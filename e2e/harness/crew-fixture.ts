@@ -250,44 +250,66 @@ fs.writeFileSync(
 ev("spawn", { argv: process.argv.slice(2) });
 
 // --- screen state (codex rule-pack literals) --------------------------------
-// idle      -> "› Ask Codex to do anything"      (empty_prompt_idle, empty)
-// draft     -> "› <text>"                        (composer_draft_idle, draft)
-// working   -> "• Working (esc to interrupt)"
-//              then a fresh empty "›" line below — the real codex keeps the
-//              composer under its status line; the pending-evidence region
-//              anchors on the LAST glyph line, so the pasted text leaves the
-//              prompt box exactly like a real submit.
-// attention -> "Allow command? [y/n]"            (weak_attention)
-// silent    -> nothing rule-matched              (state machine holds/unknown)
+// The fake models a composer, not a stack of printed screens: "composer"
+// is the unsubmitted draft text (paste bytes and typed bytes fill it, CR
+// submits it), "screen" is the ctl-driven base state, and "transcript"
+// holds lines that scrolled above the composer. Every repaint erases the
+// display first — a real codex redraws in place, and append-only paints
+// would leave a stale "• Working" inside the rule pack's bottom-N
+// windows after the spec flips the seat back to idle.
+//
+// idle      -> "› Ask Codex to do anything"   (empty_prompt_idle, empty)
+// draft     -> idle + composer text "› <text>" (composer_draft_idle, draft)
+// working   -> "• Working (esc to interrupt)" then the composer line —
+//              the pending-evidence region anchors on the LAST glyph line,
+//              so a submit that ends in a fresh empty composer makes the
+//              pasted text leave the prompt box exactly like a real turn.
+// attention -> "Allow command? [y/n]"          (weak_attention)
+// silent    -> nothing rule-matched            (state machine holds/unknown)
 let screen = { mode: "idle" };
+let composer = "";
 let submit = "ack"; // ack | hold | ignore
 let paste = "echo"; // echo | swallow
+const transcript = [];
 
 const GLYPH = "\\u203a";
-const paint = () => {
+// Repaint like a real TUI: erase the display, drop the cursor to the
+// bottom row, and let the frame scroll into place. The pending-evidence
+// scan anchors on a prompt glyph inside the bottom-10 tail — a frame
+// parked at the top of the viewport is invisible to it, so the composer
+// must sit at the bottom the way real codex paints it.
+const CLS = "\\x1b[2J\\x1b[999;1H";
+const composerLines = (text) => {
+  const parts = String(text).split("\\n");
+  return [GLYPH + " " + parts[0]].concat(
+    parts.slice(1).map((line) => "  " + line),
+  );
+};
+const frame = () => {
+  const lines = transcript.slice(-30);
+  const prompt =
+    composer.length > 0
+      ? composerLines(composer)
+      : [GLYPH + " Ask Codex to do anything"];
   switch (screen.mode) {
     case "idle":
-      process.stdout.write("\\n" + GLYPH + " Ask Codex to do anything\\n");
-      break;
-    case "draft":
-      process.stdout.write("\\n" + GLYPH + " " + (screen.text || "") + "\\n");
+      lines.push.apply(lines, prompt);
       break;
     case "working":
-      process.stdout.write(
-        "\\n\\u2022 Working (esc to interrupt)\\n\\n" +
-          GLYPH +
-          " Ask Codex to do anything\\n",
-      );
+      lines.push("\\u2022 Working (esc to interrupt)", "");
+      lines.push.apply(lines, prompt);
       break;
     case "attention":
-      process.stdout.write(
-        "\\n" + (screen.text || "Allow command? [y/n]") + "\\n",
-      );
+      lines.push(screen.text || "Allow command? [y/n]");
       break;
     case "silent":
-      process.stdout.write("\\n(unattended)\\n");
+      lines.push("(unattended)");
       break;
   }
+  return lines;
+};
+const paint = () => {
+  process.stdout.write(CLS + frame().join("\\r\\n") + "\\r\\n");
 };
 
 const applyControl = () => {
@@ -306,12 +328,33 @@ const applyControl = () => {
   if (
     c.screen &&
     typeof c.screen === "object" &&
-    typeof c.screen.mode === "string" &&
-    JSON.stringify(c.screen) !== JSON.stringify(screen)
+    typeof c.screen.mode === "string"
   ) {
-    screen = c.screen;
-    ev("screen", { mode: screen.mode });
-    paint();
+    // {mode:"draft",text} is sugar: a draft is an idle seat whose composer
+    // holds text. idle/working transitions clear the composer like a real
+    // submit does; attention keeps whatever was drafted underneath.
+    const m = c.screen.mode;
+    const next =
+      m === "draft"
+        ? { mode: "idle" }
+        : typeof c.screen.text === "string"
+          ? { mode: m, text: c.screen.text }
+          : { mode: m };
+    const nextComposer =
+      m === "draft"
+        ? String(c.screen.text || "")
+        : m === "idle" || m === "working"
+          ? ""
+          : composer;
+    if (
+      JSON.stringify(next) !== JSON.stringify(screen) ||
+      nextComposer !== composer
+    ) {
+      screen = next;
+      composer = nextComposer;
+      ev("screen", { mode: m });
+      paint();
+    }
   }
 };
 setInterval(applyControl, 50);
@@ -333,46 +376,83 @@ const drainFeed = () => {
     try {
       const entry = JSON.parse(line);
       if (typeof entry.print === "string") {
-        process.stdout.write("\\n" + entry.print + "\\n");
+        transcript.push(entry.print);
+        paint();
       }
     } catch {}
   }
 };
 setInterval(drainFeed, 60);
 
-// --- stdin: PTY input -> composer echo -> submit repaint ---------------------
-let buf = "";
+// --- stdin: PTY input -> composer -> submit ----------------------------------
+// Bracketed paste (\x1b[200~ ... \x1b[201~) fills the composer as ONE block —
+// a real TUI does not treat newlines inside a paste as submits. CR outside
+// the bracket submits the composer:
+//   ack     -> the text scrolls to the transcript, the composer empties and
+//              the Working status repaints (a real turn-start);
+//   hold    -> nothing clears: the pasted text stays pending in the composer
+//              (written-but-unacknowledged, the unresolved class);
+//   ignore  -> no answer at all — the bytes sit on screen, no repaint.
+let inPaste = false;
+const doSubmit = () => {
+  const line = composer;
+  ev("submit", { text: line.slice(0, 200) });
+  if (line.length === 0) return; // empty CR is a no-op on a real composer
+  if (submit === "ack") {
+    for (const l of line.split("\\n")) transcript.push(l);
+    composer = "";
+    screen = { mode: "working" };
+    paint();
+  } else if (submit === "hold") {
+    paint();
+  }
+};
 process.stdin.on("data", (chunk) => {
   const raw = chunk.toString("utf8");
   try {
     fs.appendFileSync(STDINLOG, Buffer.from(raw).toString("base64") + "\\n");
   } catch {}
-  const text = raw
-    .replace(/\\x1b\\[[0-9;?]*[a-zA-Z]/g, "")
-    .replace(/\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)/g, "");
-  buf += text;
-  let nl;
-  while ((nl = buf.search(/[\\r\\n]/)) >= 0) {
-    const line = buf.slice(0, nl);
-    buf = buf.slice(nl + 1);
-    ev("submit", { text: line.slice(0, 200) });
-    if (submit === "ack") {
-      // Real codex: submitted text leaves the composer for the transcript,
-      // the status line goes Working, a fresh empty composer sits below.
-      process.stdout.write("\\n" + line + "\\n");
-      screen = { mode: "working" };
-      paint();
-    } else if (submit === "hold") {
-      screen = { mode: "draft", text: line };
-      paint();
+  let dirty = false;
+  let i = 0;
+  while (i < raw.length) {
+    if (inPaste) {
+      if (raw.startsWith("\\x1b[201~", i)) {
+        inPaste = false;
+        i += 6;
+        continue;
+      }
+      if (paste === "echo") {
+        composer += raw[i];
+        dirty = true;
+      }
+      i += 1;
+      continue;
     }
-    // ignore: swallow the submission entirely (no turn-start evidence)
+    if (raw.startsWith("\\x1b[200~", i)) {
+      inPaste = true;
+      i += 6;
+      continue;
+    }
+    const esc =
+      /^\\x1b\\[[0-9;?]*[a-zA-Z]|^\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)/.exec(
+        raw.slice(i),
+      );
+    if (esc) {
+      i += esc[0].length;
+      continue;
+    }
+    const ch = raw[i];
+    i += 1;
+    if (ch === "\\r" || ch === "\\n") {
+      doSubmit();
+      continue;
+    }
+    composer += ch;
+    dirty = true;
   }
-  if (buf.length > 0 && paste === "echo" && screen.mode !== "working") {
-    // Unsubmitted bytes sit in the composer as a draft, like a real TUI.
-    screen = { mode: "draft", text: buf };
-    paint();
-  }
+  // Unsubmitted bytes repaint as a draft — only over the idle composer,
+  // never over a Working status or an attention form.
+  if (dirty && screen.mode === "idle") paint();
 });
 
 // --- work-control ops --------------------------------------------------------
