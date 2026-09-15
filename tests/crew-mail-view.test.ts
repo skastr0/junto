@@ -56,15 +56,28 @@ describe("deriveMailDisplay", () => {
 });
 
 describe("crewMailViewOf", () => {
-  it("keeps delivery facts independent of the mail extension and deliveredAt", () => {
-    const view = crewMailViewOf(
+  it("maps legacy deliveredAt to notifiedAt only, never from readAt", () => {
+    const legacy = crewMailViewOf(
       message({ deliveredAt: 10, mailKind: "prompt", subject: "Wake" }),
       1,
     );
-    expect(view.display).toBe("queued");
-    expect(view.kind).toBe("prompt");
-    expect(view.subject).toBe("Wake");
-    expect(view.facts.notifiedAt).toBeUndefined();
+    expect(legacy.display).toBe("notified");
+    expect(legacy.kind).toBe("prompt");
+    expect(legacy.subject).toBe("Wake");
+    expect(legacy.facts.notifiedAt).toBe(new Date(10).toISOString());
+    const transportWins = crewMailViewOf(
+      message({
+        generation: "g-live",
+        queuedAt: "2026-01-01T00:00:00.000Z",
+        notifiedAt: "2026-01-01T00:00:01.000Z",
+        deliveredAt: 99,
+      }),
+      1,
+    );
+    expect(transportWins.facts.notifiedAt).toBe("2026-01-01T00:00:01.000Z");
+    const readOnly = crewMailViewOf(message({ readAt: 20 }), 1);
+    expect(readOnly.display).toBe("read");
+    expect(readOnly.facts.notifiedAt).toBeUndefined();
     expect(crewMailViewOf(message({ mailKind: "nope" }), 1).kind).toBeUndefined();
   });
 
@@ -197,14 +210,21 @@ describe("resolveMailSenderNodeId", () => {
 });
 
 describe("stripMailEnvelope", () => {
-  it("strips both current and legacy envelopes", () => {
-    expect(stripMailEnvelope("mail from planner please read 01A")).toBe(
-      "please read 01A",
+  it("strips only a stamp-matched envelope and leaves ordinary body", () => {
+    const stamped = message({ fromSeat: "planner" });
+    expect(
+      stripMailEnvelope("mail from planner please read 01A", stamped),
+    ).toBe("please read 01A");
+    expect(
+      stripMailEnvelope("[factory mail from planner] please read 01A", stamped),
+    ).toBe("please read 01A");
+    expect(
+      stripMailEnvelope("mail from the future is here", stamped),
+    ).toBe("mail from the future is here");
+    expect(stripMailEnvelope("plain", stamped)).toBe("plain");
+    expect(stripMailEnvelope("[factory mail from planner] leftover")).toBe(
+      "leftover",
     );
-    expect(stripMailEnvelope("[factory mail from planner] please read 01A")).toBe(
-      "please read 01A",
-    );
-    expect(stripMailEnvelope("plain")).toBe("plain");
   });
 });
 

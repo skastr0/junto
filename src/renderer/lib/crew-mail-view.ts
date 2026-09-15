@@ -7,6 +7,7 @@
  */
 import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
+import { stripFactoryEnvelope } from "@shared/message-delivery";
 import {
   deriveMailDisplayState,
   normalizeDisplayTimestamp,
@@ -126,14 +127,11 @@ export const mailEvidenceLabel = (ref: MailEvidenceRef): string => {
   }
 };
 
-/** Compact notices name the sender. Legacy bracket envelope still strips. */
-export const stripMailEnvelope = (body: string): string => {
-  const legacy = /^\[factory mail from [^\]]+\]\s*/.exec(body);
-  if (legacy) return body.slice(legacy[0].length);
-  const current = /^mail from [^\n]+?\s+/i.exec(body);
-  if (current) return body.slice(current[0].length);
-  return body;
-};
+/** Compact notices name the sender. Stamp-aware — ordinary body is left alone. */
+export const stripMailEnvelope = (body: string, message?: Message): string =>
+  message === undefined
+    ? body.replace(/^\[factory mail from [^\]]*\]\s*/i, "")
+    : stripFactoryEnvelope(body, message);
 
 export const mailKindOf = (message: Message): MailKind | undefined => {
   const extension = readMailExtension(message.metadata);
@@ -169,10 +167,9 @@ const reactedReceiptOf = (meta: Message["metadata"]): string | undefined => {
 };
 
 /**
- * Transport facts come only from readMailAttemptFacts (flat ISO keys the
- * delivery projection stamps). Receipt stamps stay on the loadInbox plane
- * (`readAt`, `repliedAt`, `reactions`). `deliveredAt` is an independent ack
- * and is never rewritten into `notifiedAt`.
+ * Transport facts come from readMailAttemptFacts. Legacy loadInbox
+ * `deliveredAt` maps to `notifiedAt` only when the attempt row omitted it.
+ * Receipt stamps stay on the loadInbox plane. Read is never inferred.
  */
 export const mailAttemptFactsOf = (
   message: Message,
@@ -183,7 +180,7 @@ export const mailAttemptFactsOf = (
     readMailAttemptFacts(meta);
   return {
     queuedAt: transport?.queuedAt,
-    notifiedAt: transport?.notifiedAt,
+    notifiedAt: transport?.notifiedAt ?? receiptStamp(meta?.deliveredAt),
     unresolvedAt: transport?.unresolvedAt,
     refusedAt: transport?.refusedAt,
     refusedReason: transport?.refusedReason,

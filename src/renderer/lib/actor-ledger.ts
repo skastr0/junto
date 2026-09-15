@@ -69,7 +69,7 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
     resolveMailSenderNodeId(doc, message.metadata) ??
     resolveMailSenderStamp(message.metadata);
   const rawBody = textOfParts(message.parts);
-  const body = stripFactoryMailPrefix(rawBody);
+  const body = stripFactoryMailPrefix(rawBody, message);
   const sentAtMs = messageIdTimeMs(message.messageId);
   const view = crewMailViewOf(message, sentAtMs);
   const firstLine =

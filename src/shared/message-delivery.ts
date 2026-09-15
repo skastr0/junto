@@ -86,7 +86,7 @@ const factoryMailFromSeat = (message: Message): string | undefined => {
 };
 
 /** Strip only a recognized envelope; sender text elsewhere remains the body. */
-const stripFactoryEnvelope = (text: string, message: Message): string => {
+export const stripFactoryEnvelope = (text: string, message: Message): string => {
   const body = text.replace(/^\[factory mail from [^\]]*\]\s*/i, "").trim();
   const labels = [message.metadata?.senderName, message.metadata?.senderNodeId, message.metadata?.fromSeat]
     .filter((value): value is string => typeof value === "string")
