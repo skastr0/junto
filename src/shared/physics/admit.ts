@@ -65,12 +65,17 @@ export type CapabilityView = {
   readonly connected: HashMap.HashMap<NodeId, HashSet.HashSet<NodeId>>;
   readonly regionPeers: HashMap.HashMap<NodeId, HashSet.HashSet<NodeId>>;
   readonly edgePortMask: HashMap.HashMap<string, HashSet.HashSet<Port>>;
+  /** Directional grants do not gain authority from the reverse edge. */
+  readonly directedEdgePortMask?: HashMap.HashMap<string, HashSet.HashSet<Port>>;
   readonly placement: HashMap.HashMap<NodeId, NodePlacement>;
 };
 
 /** Stable undirected edge key for port-mask lookup. */
 export const undirectedEdgeKey = (a: string, b: string): string =>
   a < b ? `${a}\0${b}` : `${b}\0${a}`;
+
+export const directedEdgeKey = (from: string, to: string): string =>
+  JSON.stringify([from, to]);
 
 const denial = (
   reason: ScopeDenialReason,
@@ -239,11 +244,16 @@ export const admitPure = (
     );
   }
 
-  const maskKey = undirectedEdgeKey(caller, target);
-  const maskOpt = HashMap.get(view.edgePortMask, maskKey);
+  const directional = port === "verdict.post";
+  const maskOpt = directional
+    ? HashMap.get(
+        view.directedEdgePortMask ?? HashMap.empty<string, HashSet.HashSet<Port>>(),
+        directedEdgeKey(caller, target),
+      )
+    : HashMap.get(view.edgePortMask, undirectedEdgeKey(caller, target));
   const grant = selectGrant(
     law,
-    Option.isSome(maskOpt) ? maskOpt.value : undefined,
+    Option.isSome(maskOpt) ? maskOpt.value : directional ? HashSet.empty<Port>() : undefined,
   );
 
   const offers = offersOf(targetSpec);

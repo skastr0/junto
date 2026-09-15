@@ -121,6 +121,7 @@ export type EdgeEffect = typeof EdgeEffect.Type;
 
 export const Verb = Schema.Literals([
   "messages",
+  "reviews",
   "manages",
   "contributes",
   "works",
@@ -189,7 +190,7 @@ type VerbTable = {
  */
 export const VERB_TABLE = {
   agent: {
-    agent: ["messages"],
+    agent: ["messages", "reviews"],
     task: ["manages", "contributes"],
     requests: ["escalates"],
     artifacts: ["publishes"],
@@ -303,7 +304,9 @@ export type VerbGrant = {
   readonly chain?: boolean;
 };
 
-const MSG_PORTS = ["msg.list", "msg.send"] as const satisfies ReadonlyArray<Port>;
+const MSG_PORTS = [
+  "msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read",
+] as const satisfies ReadonlyArray<Port>;
 
 const MANAGE_PORTS = [
   "tasks.create",
@@ -401,6 +404,8 @@ export const compileVerb = (
       return target === "board"
         ? { ports: BOARD_MESSAGE_PORTS, wake: false }
         : { ports: MSG_PORTS };
+    case "reviews":
+      return { ports: ["verdict.post"] };
     case "manages":
       return { ports: MANAGE_PORTS };
     case "contributes":
@@ -580,6 +585,7 @@ const inferCandidate = (
  */
 export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   messages: "--wire-verb-messages",
+  reviews: "--wire-verb-reviews",
   manages: "--wire-verb-manages",
   contributes: "--wire-verb-contributes",
   works: "--wire-verb-works",

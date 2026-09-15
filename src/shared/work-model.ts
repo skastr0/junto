@@ -146,6 +146,8 @@ const ruleFields = {
   /** ULID minted at authoring. */
   id: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   text: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  /** Omitted is a prose statement; review rules also arm an independent gate. */
+  kind: Schema.optionalKey(Schema.Literals(["statement", "requires-review"])),
 } as const;
 
 /**

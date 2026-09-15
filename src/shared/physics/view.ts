@@ -7,7 +7,7 @@ import {
 } from "../canvas";
 import { groupMembers, isGroup } from "../graph";
 import type { CapabilityView, NodeMeta } from "./admit";
-import { undirectedEdgeKey } from "./admit";
+import { directedEdgeKey, undirectedEdgeKey } from "./admit";
 import {
   DEFAULT_PLACEMENT_TOPOLOGY,
   placementMapFromDoc,
@@ -18,8 +18,8 @@ import { asNodeId, type NodeId, type Port } from "./schema";
 
 // Pure canvas → CapabilityView adapter. No Node, no live process-bind.
 //
-// Ports are not read off the document: the edge's verb plus the two endpoint
-// kinds compile them (`physics/verbs.ts`). An edge with no verb — one that
+// The verb plus endpoint kinds compile ports; an operator mask may only
+// remove them (`canvas.ts`). An edge with no verb — one that
 // never went through the document scrub — grants nothing, the same fail-closed
 // answer an empty mask has always given.
 
@@ -86,6 +86,7 @@ export const canvasDocToCapabilityView = (
   // the union can never smuggle a port the target does not offer.
   const kinds = edgeKindIndex(doc);
   const pairPorts = new Map<string, HashSet.HashSet<Port>>();
+  let directedEdgePortMask = HashMap.empty<string, HashSet.HashSet<Port>>();
   let claimable = HashSet.empty<string>();
 
   for (const edge of doc.edges) {
@@ -96,7 +97,18 @@ export const canvasDocToCapabilityView = (
 
     const key = undirectedEdgeKey(edge.fromNode, edge.toNode);
     const grant = compileEdgeGrant(edge, kinds);
-    const ports = HashSet.fromIterable(grant?.ports ?? []);
+    const ports = HashSet.fromIterable(
+      (grant?.ports ?? []).filter((port) => port !== "verdict.post"),
+    );
+    if (edge.ether?.verb === "reviews" && grant?.ports.includes("verdict.post")) {
+      const directedKey = directedEdgeKey(edge.fromNode, edge.toNode);
+      const prior = HashMap.get(directedEdgePortMask, directedKey);
+      directedEdgePortMask = HashMap.set(
+        directedEdgePortMask,
+        directedKey,
+        HashSet.add(Option.getOrElse(prior, () => HashSet.empty<Port>()), "verdict.post"),
+      );
+    }
     const prev = pairPorts.get(key);
     pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
     if (grant?.claimable === true) {
@@ -132,7 +144,7 @@ export const canvasDocToCapabilityView = (
     options?.placement ??
     placementMapFromDoc(doc, options?.topology ?? DEFAULT_PLACEMENT_TOPOLOGY);
 
-  return { nodeMeta, connected, regionPeers, edgePortMask, claimable, placement };
+  return { nodeMeta, connected, regionPeers, edgePortMask, directedEdgePortMask, claimable, placement };
 };
 
 /** Whether the relationship between two nodes lets the tick claim work. */

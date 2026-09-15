@@ -101,7 +101,7 @@ describe("verb table", () => {
       if (verbs.length > 0) matrix[`${pair[0]}>${pair[1]}`] = verbs;
     }
     expect(matrix).toEqual({
-      "agent>agent": ["messages"],
+      "agent>agent": ["messages", "reviews"],
       "agent>task": ["manages", "contributes"],
       "agent>requests": ["escalates"],
       "agent>artifacts": ["publishes"],
@@ -269,6 +269,7 @@ describe("compiled grants", () => {
     // staying inside the endpoints' offers.
     const grants: ReadonlyArray<readonly [Verb, WellKnownKind, WellKnownKind]> = [
       ["messages", "agent", "agent"],
+      ["reviews", "agent", "agent"],
       ["messages", "agent", "board"],
       ["manages", "agent", "task"],
       ["contributes", "agent", "task"],
@@ -296,7 +297,10 @@ describe("compiled grants", () => {
       );
     }
     expect(compiled).toEqual({
-      "messages @ agent>agent": { ports: ["msg.list", "msg.send"] },
+      "messages @ agent>agent": {
+        ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"],
+      },
+      "reviews @ agent>agent": { ports: ["verdict.post"] },
       "messages @ agent>board": {
         ports: ["board.list", "board.post", "board.mark_read"],
         wake: false,

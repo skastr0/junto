@@ -29,6 +29,10 @@ const emptyOffers: HashSet.HashSet<Port> = HashSet.empty();
 export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
   "msg.list",
   "msg.send",
+  "msg.prompt",
+  "seat.wait",
+  "terminal.read",
+  "verdict.post",
 ];
 
 const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);

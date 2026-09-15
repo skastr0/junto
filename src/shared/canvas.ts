@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
 import { EtherSheet } from "./sheet";
+import { Port } from "./physics/schema";
 import {
   compileVerb,
   inferVerb,
@@ -376,15 +377,17 @@ export const EtherNodeExtension = Schema.Struct({
 export type EtherNodeExtension = typeof EtherNodeExtension.Type;
 
 /**
- * The one authored fact on an edge: what the relationship **is**.
+ * The authored relationship and optional operator attenuation.
  *
  * Ports, claimability, board wake, watch predicates, fire actions, task-path
  * flow, and scheduler chaining are compiled from the verb plus the two endpoint
- * kinds (`physics/verbs.ts`) — never stored, never mirrored. `fromNode` is
- * always the verb's source end, whichever way the operator dragged.
+ * kinds (`physics/verbs.ts`) — never mirrored. The optional mask can only
+ * remove compiled ports. `fromNode` is the verb's semantic source end.
  */
 export const EtherEdgeExtension = Schema.Struct({
   verb: Verb,
+  /** Operator attenuation only. Omitted grants the verb's compiled ports. */
+  mask: Schema.optionalKey(Schema.Array(Port)),
 });
 export type EtherEdgeExtension = typeof EtherEdgeExtension.Type;
 
@@ -481,7 +484,12 @@ export const compileEdgeGrant = (
 ): VerbGrant | undefined => {
   const verb = edge.ether?.verb;
   if (verb === undefined) return undefined;
-  return compileVerb(verb, kinds.get(edge.fromNode), kinds.get(edge.toNode));
+  const grant = compileVerb(verb, kinds.get(edge.fromNode), kinds.get(edge.toNode));
+  if (grant === undefined) return undefined;
+  const mask = edge.ether?.mask;
+  return mask === undefined
+    ? grant
+    : { ...grant, ports: grant.ports.filter((port) => mask.includes(port)) };
 };
 
 /** One-off compile. Loops over edges should hoist `edgeKindIndex` instead. */
@@ -733,7 +741,12 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         if (nextToSide !== undefined) next.toSide = nextToSide;
         if (nextFromEnd !== undefined) next.fromEnd = nextFromEnd;
         if (nextToEnd !== undefined) next.toEnd = nextToEnd;
-        next.ether = { verb };
+        // Preserve attenuation verbatim for strict decode. Dropping an invalid
+        // mask would accidentally restore all ports on the relationship.
+        next.ether = {
+          verb,
+          ...(eth?.mask !== undefined ? { mask: eth.mask } : {}),
+        };
         return [next];
       })
     : raw.edges;
