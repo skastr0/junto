@@ -18,14 +18,14 @@
  * Control channel per seat (all under `<sandbox home>/.vellum-command/
  * crew-seats/<canvas>--<nodeId>/`):
  *   ready.json    fake's identity report (pid, nodeRef, seat, argv)
- *   control.json  desired screen/submit/paste/exit — polled ~50ms
+ *   control.json  one-shot screen request + submit/paste/exit — polled ~50ms
  *   feed.ndjson   append-only lines the fake prints to its PTY
  *   ops/<id>.req.json -> ops/<id>.res.json   work-control socket calls
  *   events.ndjson spawn/screen/submit/op audit log
  *   stdin.log     base64 raw PTY input the seat received (paste evidence)
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -331,6 +331,7 @@ const paint = () => {
   process.stdout.write(CLS + frame().join("\\r\\n") + "\\r\\n");
 };
 
+let appliedScreenRequest;
 const applyControl = () => {
   let c;
   try {
@@ -349,6 +350,11 @@ const applyControl = () => {
     typeof c.screen === "object" &&
     typeof c.screen.mode === "string"
   ) {
+    // A screen request is an operator action, not a persistent composer
+    // constraint. Consume even an already-idle request before bytes arrive.
+    const request = JSON.stringify([c.screenRequestId, c.screen]);
+    if (request === appliedScreenRequest) return;
+    appliedScreenRequest = request;
     // {mode:"draft",text} is sugar: a draft is an idle seat whose composer
     // holds text. idle/working transitions clear the composer like a real
     // submit does; attention keeps whatever was drafted underneath.
@@ -365,15 +371,10 @@ const applyControl = () => {
         : m === "idle" || m === "working"
           ? ""
           : composer;
-    if (
-      JSON.stringify(next) !== JSON.stringify(screen) ||
-      nextComposer !== composer
-    ) {
-      screen = next;
-      composer = nextComposer;
-      ev("screen", { mode: m });
-      paint();
-    }
+    screen = next;
+    composer = nextComposer;
+    paint();
+    ev("screen", { mode: m, requestId: c.screenRequestId });
   }
 };
 setInterval(applyControl, 50);
@@ -687,7 +688,7 @@ export class CrewSeat {
     throw new Error(`fake seat never registered: ${this.dir}`);
   }
 
-  /** Merge-patch the seat's control object (screen/submit/paste/exit). */
+  /** Patch behavior; an explicit screen request applies once before resolving. */
   async control(patch: {
     readonly screen?: CrewScreen;
     readonly submit?: "ack" | "hold" | "ignore";
@@ -696,7 +697,19 @@ export class CrewSeat {
   }): Promise<void> {
     const path = join(this.dir, "control.json");
     const prior = (await readJsonFile<Record<string, unknown>>(path)) ?? {};
-    await writeFile(path, JSON.stringify({ ...prior, ...patch }), "utf8");
+    const screenRequestId = patch.screen === undefined ? undefined : randomUUID();
+    await writeFile(path, JSON.stringify({
+      ...prior,
+      ...patch,
+      ...(screenRequestId === undefined ? {} : { screenRequestId }),
+    }), "utf8");
+    if (screenRequestId === undefined) return;
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      if ((await this.events()).some((event) => event.event === "screen" && event.requestId === screenRequestId)) return;
+      await sleep(20);
+    }
+    throw new Error(`seat screen request ${screenRequestId} was not applied`);
   }
 
   /** Append lines for the seat to print into its PTY transcript. */
