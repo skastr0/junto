@@ -17,7 +17,7 @@ import { Schema } from "effect";
 import type { Page } from "@playwright/test";
 import { promptBoxBody } from "../../src/main/vellum-command/term/observer/regions";
 import type { Message } from "../../src/shared/work-model";
-import { readMailAttemptFacts } from "../../src/shared/crew";
+import { readMailAttemptFacts, type MailAttemptFacts } from "../../src/shared/crew";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { SeatReadResult } from "../../src/shared/seat-control";
 import { transportLogDirectory } from "../../src/shared/transport-trace";
@@ -140,10 +140,10 @@ const outcomeOf = (message: Message | undefined) => {
     if (typeof readAt !== "number" || !Number.isFinite(readAt) || readAt <= 0) throw new Error("Invalid projected readAt receipt");
     return { kind: "read" as const, readAt };
   }
-  if (attempt?.unresolvedAt !== undefined) return { kind: "unresolved" as const, at: attempt.unresolvedAt, generation: attempt.generation };
-  // Refusals are independent historical facts. A later notifiedAt supersedes
-  // their diagnostic outcome; it still needs a real read receipt for this probe.
+  // Proven notification supersedes historical uncertainty and refusal, while
+  // still requiring a separate read receipt for this probe.
   if (attempt?.notifiedAt !== undefined) return { kind: "awaiting-read" as const, notifiedAt: attempt.notifiedAt };
+  if (attempt?.unresolvedAt !== undefined) return { kind: "unresolved" as const, at: attempt.unresolvedAt, generation: attempt.generation };
   if (attempt?.refusedAt !== undefined && attempt.refusedReason !== undefined) {
     return { kind: "refused" as const, at: attempt.refusedAt, reason: attempt.refusedReason, generation: attempt.generation };
   }
@@ -155,12 +155,31 @@ const observed = async <T>(body: () => Promise<T>) => {
   catch (error) { return { ok: false as const, error: String(error) }; }
 };
 
+test("isolated Devin evidence: notification supersedes uncertainty without implying read", () => {
+  const stamp = "2026-09-15T11:00:00.000Z";
+  const attempt = {
+    generation: "recipient-generation", queuedAt: stamp,
+    unresolvedAt: stamp, refusedAt: stamp, refusedReason: "not-settled",
+  } satisfies MailAttemptFacts;
+  const message: Message = {
+    messageId: "rank-proof", role: "user", parts: [{ kind: "text", text: "Check notification ranking" }],
+    metadata: attempt,
+  };
+  expect(outcomeOf(message).kind).toBe("unresolved");
+  const notified = { ...message, metadata: { ...attempt, notifiedAt: stamp } };
+  expect(outcomeOf(notified)).toEqual({ kind: "awaiting-read", notifiedAt: stamp });
+  expect(notified.metadata.unresolvedAt).toBe(stamp);
+  expect(notified.metadata.refusedAt).toBe(stamp);
+  expect(outcomeOf({ ...notified, metadata: { ...notified.metadata, readAt: 1 } }))
+    .toEqual({ kind: "read", readAt: 1 });
+});
+
 test("isolated Devin [real-harness]: settled seat reaches readAt or a durable named failure", async () => {
   if (!Number.isFinite(HOLD_MS) || HOLD_MS < 0 || HOLD_MS > 600_000) throw new Error("ISOLATED_DEVIN_HOLD_MS must be between 0 and 600000");
   test.setTimeout((HOLD ? HOLD_MS : 0) + 420_000);
   if (!existsSync(operatorCred)) test.skip(true, "no operator Devin credentials.toml to seed");
   if (resolveOperatorDevinBinary(process.env.PATH ?? "") === undefined) test.skip(true, "real devin binary not on PATH");
-  expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
+  const qualificationAtStart = HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified;
   if (HOLD) process.env.VELLUM_COMMAND_E2E_SHOW = "1";
 
   const provenance = runtimeProvenance();
@@ -193,7 +212,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       bindingId: occupied?.bindingId, epoch: occupied?.epoch, cwd: occupied?.cwd,
       sandboxHome: sandbox.homeDir, canvas: ISOLATED_DEVIN_MAIL_CANVAS, messageId,
       window: HOLD ? "visible" : "offscreen", holdMs: HOLD ? HOLD_MS : 0,
-      typedNoticeQualified: false, ...extra,
+      typedNoticeQualified: qualificationAtStart, ...extra,
     };
     json(HOLD_NOTE, body);
     return body;
@@ -323,7 +342,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       at: new Date().toISOString(), messageId, mail, outcome: finalOutcome, session,
       physicalPastes: pasteCount.ok ? pasteCount.value : null, pasteEvidence: pasteCount,
       correlation: { bindingId: DEVIN_BINDING, payloadSha256: payload.ok && payload.value !== undefined ? createHash("sha256").update(payload.value).digest("hex") : undefined, payloadError: payload.ok ? undefined : payload.error, scope: "one fresh message, unchanged recipient generation" },
-      typedNoticeQualified: false,
+      typedNoticeQualified: qualificationAtStart,
     };
     json(artifact("seat-read-final.json"), grid);
     json(artifact("mail-facts-final.json"), facts);
@@ -346,7 +365,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     expect(["read", "unresolved", "refused"]).toContain(finalOutcome?.kind);
     if (finalOutcome?.kind === "unresolved") expect(pasteCount.value).toBe(1);
     if (finalOutcome?.kind === "refused") expect(pasteCount.value).toBe(0);
-    expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
+    expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(qualificationAtStart);
   } finally {
     await vellum.close();
   }
