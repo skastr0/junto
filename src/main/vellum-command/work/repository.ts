@@ -9033,6 +9033,33 @@ export const WorkRepositoryLive = Layer.effect(
               "checkout receipt author no longer matches the current task claimant",
             );
           }
+          // Provenance CAS across the whole batch, BEFORE any mail: a sha first
+          // seen under another author stays owned by that author (firstAuthorForSha
+          // and its commit verdict remain pinned to A). Re-stamping the current
+          // claimant B would mint a receipt no one can action at its sender, so a
+          // batch containing any conflicting sha is refused atomically — nothing
+          // is written, and a fresh sha in the same batch gains no provenance.
+          for (const sha of input.shas) {
+            const norm = sha.trim().toLowerCase();
+            if (norm.length === 0) continue;
+            // A commit sha is globally unique, so its author is global: the same
+            // provenance firstAuthorForSha and the commit-verdict branch read.
+            // A sha first attributed to another author stays theirs, or a receipt
+            // stamped under the current claimant could never be actioned at its
+            // sender. Any conflicting sha refuses the whole batch atomically.
+            const prior = writer.get<{ readonly author_seat_id: string }>(
+              `SELECT author_seat_id FROM work_review_receipts
+               WHERE ref_sha = ? ORDER BY created_at, source_id LIMIT 1`,
+              [norm],
+            );
+            if (prior !== undefined && prior.author_seat_id !== authorSeat) {
+              throw authorityError(
+                "authority-mismatch",
+                `commit ${norm} is already attributed to a different author; ` +
+                  "refusing to re-stamp it under the current claimant",
+              );
+            }
+          }
           const portfolio = readCommandCenterPortfolio(writer);
           const doc = portfolio.documents.get(input.canvasName)?.doc;
           if (doc === undefined) return [];
