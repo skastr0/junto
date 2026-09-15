@@ -352,12 +352,15 @@ export class ManagedTerminalDrive {
 
   /**
    * Attempt facts for one outcome: the terminal-epoch cut the attempt ran
-   * under, paste envelopes that reached the PTY writer during the attempt,
-   * and whether any prompt byte reached the PTY at all. Pre-write refusals
+   * under, this attempt's own paste envelopes, and whether any prompt byte
+   * it wrote reached the PTY. Attempt-owned by construction: the after-count
+   * derives from the entry basis plus this attempt's own single envelope,
+   * never from the live binding counter — a generation cut plus replacement
+   * writes must not inflate another generation's evidence, and an
+   * interleaved attempt must not borrow this one's. Pre-write refusals
    * always report zero writes — retryable without replay risk.
    */
   private promptFacts(
-    bindingId: string,
     bindingGeneration: number,
     writesBefore: number,
     wrotePhysicalBytes: boolean,
@@ -368,7 +371,7 @@ export class ManagedTerminalDrive {
     readonly pasteWrites: number;
     readonly wrotePhysicalBytes: boolean;
   } {
-    const writesAfter = this.pasteWrites.get(bindingId) ?? 0;
+    const writesAfter = writesBefore + (wrotePhysicalBytes ? 1 : 0);
     return {
       bindingGeneration,
       writesBefore,
@@ -387,7 +390,7 @@ export class ManagedTerminalDrive {
     return {
       status: "refused",
       reason,
-      ...this.promptFacts(bindingId, bindingGeneration, writesBefore, false),
+      ...this.promptFacts(bindingGeneration, writesBefore, false),
     };
   }
 
@@ -398,7 +401,7 @@ export class ManagedTerminalDrive {
   ): ManagedPromptOutcome {
     return {
       status: "submitted",
-      ...this.promptFacts(bindingId, bindingGeneration, writesBefore, true),
+      ...this.promptFacts(bindingGeneration, writesBefore, true),
     };
   }
 
@@ -414,16 +417,31 @@ export class ManagedTerminalDrive {
     return {
       status: "unresolved",
       reason,
-      ...this.promptFacts(bindingId, bindingGeneration, writesBefore, true),
+      ...this.promptFacts(bindingGeneration, writesBefore, true),
     };
   }
 
-  /** Generation cut, shutdown, or abort — never a transport verdict. */
+  /**
+   * Generation cut, shutdown, or abort — preserving physical truth. A cut
+   * after this attempt's paste envelope reached the writer is written
+   * uncertainty (unresolved/no-turn-start: no submission proof exists for
+   * these bytes and the dead generation cannot supply it), never a pre-write
+   * refusal. Only a cut before any write of this attempt refuses
+   * cancelled/suspended.
+   */
   private inactivePrompt(
     bindingId: string,
     bindingGeneration: number,
     writesBefore: number,
+    wrotePhysicalBytes = false,
   ): ManagedPromptOutcome {
+    if (wrotePhysicalBytes) {
+      return {
+        status: "unresolved",
+        reason: "no-turn-start",
+        ...this.promptFacts(bindingGeneration, writesBefore, true),
+      };
+    }
     return this.refusePrompt(
       bindingId,
       bindingGeneration,
@@ -562,22 +580,32 @@ export class ManagedTerminalDrive {
    * Deliver one submitted prompt when idle. Queues when the seat is busy;
    * With stall watching enabled, the promise resolves submitted only after
    * an explicit turn-start acknowledgement. It resolves refused on write
-   * failure, acknowledgement timeout, generation change, shutdown, or queue
-   * timeout, and unresolved when bytes reached the PTY without submission
-   * proof. Pre-write refusals carry zero physical writes; immediate
-   * not-ready / clipboard-unsafe / write failures refuse the same way.
+   * failure, acknowledgement timeout, shutdown, or queue timeout; a
+   * generation change after the paste landed resolves unresolved (written
+   * uncertainty, never a pre-write refusal); and unresolved when bytes
+   * reached the PTY without submission proof. Pre-write refusals carry zero
+   * physical writes; immediate not-ready / clipboard-unsafe / write failures
+   * refuse the same way.
    */
   writePrompt(
     bindingId: string,
     text: string,
     opts: WritePromptOptions = {},
   ): Promise<ManagedPromptOutcome> {
-    if (this.tracer === undefined) return this.writePromptInternal(bindingId, text, opts);
+    // Attempt-owned write evidence: bumped only by this attempt's own paste
+    // accept, read by every outcome this attempt constructs — a cut plus
+    // replacement writes can never rewrite it.
+    const evidence = { wrote: false };
+    const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    const writesBefore = this.pasteWrites.get(bindingId) ?? 0;
+    if (this.tracer === undefined) {
+      return this.writePromptInternal(bindingId, text, opts, evidence);
+    }
     // The trace envelope still records a submitted boolean for continuity;
     // the caller receives the full discriminated outcome.
     let captured: ManagedPromptOutcome | undefined;
     const body = (): Promise<boolean> =>
-      this.writePromptInternal(bindingId, text, opts).then((outcome) => {
+      this.writePromptInternal(bindingId, text, opts, evidence).then((outcome) => {
         captured = outcome;
         return outcome.status === "submitted";
       });
@@ -588,8 +616,9 @@ export class ManagedTerminalDrive {
     }, body);
     return traced.then(() => captured ?? this.inactivePrompt(
       bindingId,
-      this.bindingGenerations.get(bindingId) ?? 0,
-      this.pasteWrites.get(bindingId) ?? 0,
+      bindingGeneration,
+      writesBefore,
+      evidence.wrote,
     ));
   }
 
@@ -597,13 +626,19 @@ export class ManagedTerminalDrive {
     bindingId: string,
     text: string,
     opts: WritePromptOptions = {},
+    evidence: { wrote: boolean },
   ): Promise<ManagedPromptOutcome> {
     const generation = this.lifecycleGeneration;
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     const writesBefore = this.pasteWrites.get(bindingId) ?? 0;
     const signal = opts.signal;
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-      return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+      return this.inactivePrompt(
+        bindingId,
+        bindingGeneration,
+        writesBefore,
+        evidence.wrote,
+      );
     }
     if (this.refuseWrittenUnresolved(bindingId)) {
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
@@ -643,7 +678,12 @@ export class ManagedTerminalDrive {
         t.unref?.();
       });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        return this.inactivePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          evidence.wrote,
+        );
       }
       this.readyAfter.delete(bindingId);
     }
@@ -656,7 +696,12 @@ export class ManagedTerminalDrive {
         safe = false;
       }
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        return this.inactivePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          evidence.wrote,
+        );
       }
       if (!safe) {
         this.onAttention?.(bindingId, "clipboard-unsafe");
@@ -703,7 +748,12 @@ export class ManagedTerminalDrive {
         if (interruption !== undefined) {
           const interrupted = await interruption;
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-            return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+            return this.inactivePrompt(
+              bindingId,
+              bindingGeneration,
+              writesBefore,
+              evidence.wrote,
+            );
           }
           if (!interrupted) {
             if (this.mailInterrupts.get(bindingId) === interruption) {
@@ -716,7 +766,12 @@ export class ManagedTerminalDrive {
         }
       }
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        return this.inactivePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          evidence.wrote,
+        );
       }
       if (this.refuseWrittenUnresolved(bindingId)) {
         return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
@@ -732,6 +787,7 @@ export class ManagedTerminalDrive {
           bindingGeneration,
           awaitTurnStart,
           signal,
+          evidence,
         );
       }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
@@ -792,6 +848,7 @@ export class ManagedTerminalDrive {
       bindingGeneration,
       awaitTurnStart,
       signal,
+      evidence,
     );
   }
 
@@ -1044,6 +1101,9 @@ export class ManagedTerminalDrive {
       bindingGeneration,
       next.awaitTurnStart,
       next.signal,
+      // Attempt-owned evidence for the dequeued attempt: the queue never
+      // holds an in-flight write, so this starts unwritten.
+      { wrote: false },
     );
     const outcome = await (this.tracer === undefined ? execute() : this.tracer.run(next.trace, execute));
     next.resolve(outcome);
@@ -1056,10 +1116,16 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     awaitTurnStart: boolean = this.stallWatch,
     signal?: AbortSignal,
+    evidence: { wrote: boolean } = { wrote: false },
   ): Promise<ManagedPromptOutcome> {
     const writesBefore = this.pasteWrites.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-      return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+      return this.inactivePrompt(
+        bindingId,
+        bindingGeneration,
+        writesBefore,
+        evidence.wrote,
+      );
     }
     if (this.refuseWrittenUnresolved(bindingId)) {
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
@@ -1113,7 +1179,12 @@ export class ManagedTerminalDrive {
         ))
       ) {
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+          return this.inactivePrompt(
+            bindingId,
+            bindingGeneration,
+            writesBefore,
+            evidence.wrote,
+          );
         }
         if (this.composerBlocked(bindingId)) {
           return refuseNow(
@@ -1146,7 +1217,12 @@ export class ManagedTerminalDrive {
             generation,
             bindingGeneration,
             signal,
-            () => { pasteAccepted = true; },
+            () => {
+              pasteAccepted = true;
+              // Attempt-owned: only this attempt's own accept flips this.
+              // A cut plus replacement writes can never rewrite it.
+              evidence.wrote = true;
+            },
           );
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             return { kind: "inactive" };
@@ -1195,7 +1271,12 @@ export class ManagedTerminalDrive {
         },
       );
       if (physical.kind === "inactive") {
-        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        return this.inactivePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          evidence.wrote,
+        );
       }
       if (physical.kind === "failed") {
         // The paste envelope never completed: without an accepted paste
@@ -1230,12 +1311,22 @@ export class ManagedTerminalDrive {
         signal,
       );
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        return this.inactivePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          evidence.wrote,
+        );
       }
       if (started) return confirmSubmitted();
       this.traceState(bindingId, "recovery.evaluate", { sentChipCr });
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-        return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+        return this.inactivePrompt(
+          bindingId,
+          bindingGeneration,
+          writesBefore,
+          evidence.wrote,
+        );
       }
       // FIRED-LAW (live duplicate fix): the stall window closed without a
       // turn-start ack, but our text has already LEFT the composer — the
@@ -1258,7 +1349,12 @@ export class ManagedTerminalDrive {
         // The accepted paste is already on the PTY; without submission
         // proof the attempt is unresolved, never a silent retryable false.
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+          return this.inactivePrompt(
+            bindingId,
+            bindingGeneration,
+            writesBefore,
+            evidence.wrote,
+          );
         }
         return strandNow();
       }
@@ -1272,12 +1368,22 @@ export class ManagedTerminalDrive {
           !(await this.writeSubmitCr(bindingId, generation, bindingGeneration, signal, "recovery-cr"))
         ) {
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-            return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+            return this.inactivePrompt(
+              bindingId,
+              bindingGeneration,
+              writesBefore,
+              evidence.wrote,
+            );
           }
           return strandNow();
         }
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+          return this.inactivePrompt(
+            bindingId,
+            bindingGeneration,
+            writesBefore,
+            evidence.wrote,
+          );
         }
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
           return confirmSubmitted();
@@ -1290,7 +1396,12 @@ export class ManagedTerminalDrive {
           signal,
         );
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
-          return this.inactivePrompt(bindingId, bindingGeneration, writesBefore);
+          return this.inactivePrompt(
+            bindingId,
+            bindingGeneration,
+            writesBefore,
+            evidence.wrote,
+          );
         }
         if (startedRetry) return confirmSubmitted();
         if (this.pendingText !== undefined && !this.pendingOnScreen(bindingId)) {

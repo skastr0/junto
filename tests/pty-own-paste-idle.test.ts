@@ -18,6 +18,7 @@ import {
   promptStillPending,
 } from "../src/main/vellum-command/term/drive/prompt-evidence";
 import { encodeBracketedPaste } from "../src/main/vellum-command/term/drive/typing";
+import { isPromptSubmitted } from "../src/shared/managed-prompt";
 import { SessionObserver } from "../src/main/vellum-command/term/observer/session-observer";
 import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
 import pendingFrame from "./fixtures/pty-own-paste-pending-frame.json";
@@ -106,7 +107,7 @@ const createSeat = () => {
     expect(runtime.composerVerdict(bindingId)).toBe("empty");
     const result: { value: boolean | undefined } = { value: undefined };
     const delivery = drive.writePrompt(bindingId, text, { queueIfBusy: false });
-    void delivery.then((value) => { result.value = value; });
+    void delivery.then((outcome) => { result.value = isPromptSubmitted(outcome); });
     await vi.advanceTimersByTimeAsync(0);
     expect(writes).toEqual([{ data: encodeBracketedPaste(text), at: 0, strictIdle: true }]);
     expect(drive.pasteWriteCount(bindingId)).toBe(1);
@@ -145,7 +146,7 @@ describe("own paste replaces Devin idle chrome", () => {
 
     const submitted = await seat.observe(variant("❭", WORKING));
     expect(promptStillPending(submitted, PAYLOAD)).toBe(false);
-    await expect(delivery).resolves.toBe(true);
+    await expect(delivery).resolves.toMatchObject({ status: "submitted" });
     expect(seat.writes).toHaveLength(3);
     expect(seat.attention).toEqual([]);
   });
@@ -161,11 +162,25 @@ describe("own paste replaces Devin idle chrome", () => {
     expect(seat.runtime.getState(seat.bindingId)).toBe(state);
     expect(promptStillPending(pending, PAYLOAD)).toBe(true);
     await vi.advanceTimersByTimeAsync(52);
-    await expect(delivery).resolves.toBe(false);
+    // The paste landed but the chip never cleared: written uncertainty with
+    // the attempt's own single envelope — never a re-pasteable false.
+    await expect(delivery).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "chip-pending",
+      writesBefore: 0,
+      writesAfter: 1,
+      pasteWrites: 1,
+      wrotePhysicalBytes: true,
+    });
     expect(seat.writes.map(({ data }) => data)).toEqual([encodeBracketedPaste(PAYLOAD)]);
     expect(seat.attention).toContain("prompt-stalled");
     // The accepted, unresolved paste must not be pasted again by a caller retry.
-    await expect(seat.drive.writePrompt(seat.bindingId, PAYLOAD, { queueIfBusy: false })).resolves.toBe(false);
+    await expect(seat.drive.writePrompt(seat.bindingId, PAYLOAD, { queueIfBusy: false })).resolves.toMatchObject({
+      status: "refused",
+      reason: "written-unresolved",
+      wrotePhysicalBytes: false,
+      pasteWrites: 0,
+    });
     expect(seat.writes).toHaveLength(1);
   });
 
@@ -190,7 +205,7 @@ describe("own paste replaces Devin idle chrome", () => {
     expect(result.value).toBeUndefined();
     const submitted = await seat.observe(variant("❭", WORKING));
     expect(promptStillPending(submitted, text)).toBe(false);
-    await expect(delivery).resolves.toBe(true);
+    await expect(delivery).resolves.toMatchObject({ status: "submitted" });
     expect(seat.drive.pasteWriteCount(seat.bindingId)).toBe(1);
     expect(seat.writes).toHaveLength(3);
     expect(seat.attention).toEqual([]);

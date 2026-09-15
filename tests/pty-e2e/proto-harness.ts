@@ -301,7 +301,7 @@ export class ProtoHarness {
         if (this.loop && this.loop.bindingId === bindingId) {
           return this.loop.drive.writePrompt(bindingId, text, { ready: true });
         }
-        return false;
+        return { status: "refused", reason: "seat-busy", bindingGeneration: 0, writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false };
       },
     };
     this.loop = options.loop

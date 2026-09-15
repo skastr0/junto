@@ -24,6 +24,7 @@ import {
   INTERRUPT_BYTE,
 } from "../../../src/main/vellum-command/term/drive";
 import { DriveLoop, ScriptedTui, type DriveLoopOptions } from "../scripted-tui";
+import { isPromptSubmitted } from "../../../src/shared/managed-prompt";
 
 const BINDING = "seat-b1";
 
@@ -149,7 +150,7 @@ describe("D1 — paste+CR on the Claude chip model", () => {
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.runtime.getState(BINDING)).toBe("idle");
     let settled: boolean | null = null;
-    void p.then((ok) => { settled = ok; });
+    void p.then((outcome) => { settled = isPromptSubmitted(outcome); });
     // The first timeout permits one recovery CR for the same pending paste.
     await advance(5_000);
     await flush();
@@ -159,7 +160,7 @@ describe("D1 — paste+CR on the Claude chip model", () => {
     // Exhausting that recovery returns false and preserves the chip.
     await advance(5_000);
     await flush();
-    await expect(p).resolves.toBe(false);
+    await expect(p).resolves.toMatchObject({ status: "unresolved" });
     expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
     expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
@@ -212,8 +213,8 @@ describe("D2 — false-working must not resolve awaitTurnStart on an unsubmitted
     await flush();
     expect(loop.runtime.getState(BINDING)).toBe("idle");
     let settled: boolean | null = null;
-    void p.then((ok) => {
-      settled = ok;
+    void p.then((outcome) => {
+      settled = isPromptSubmitted(outcome);
     });
     await flush();
     expect(settled).toBeNull();
@@ -260,7 +261,7 @@ describe("D3 — unresolved delivery must never Ctrl+C a working agent", () => {
     // repaint is late. That is "Fired" per the product law → the drive
     // resolves TRUE (never false), so the delivery layer receipts the
     // message and can never re-paste it on a later idle.
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toMatchObject({ status: "submitted" });
 
     // PRODUCT LAW: delivery recovery must not interrupt the working agent.
     expect(ctrlC(loop)).toEqual([]);
@@ -298,7 +299,7 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     const ok = await p;
     // PRODUCT LAW: never return true while a paste chip sits in the composer
     // (firstTyped arm is consumed on resolve → gate closes → chip stays).
-    expect(ok).toBe(false);
+    expect(ok).toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(loop.tui.chipPending()).toBe(true);
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
@@ -324,7 +325,7 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     await flush();
     const snap = loop.observer.snapshotNow();
     expect(snap.lines.some((l) => l.includes("[Pasted text"))).toBe(true);
-    await expect(p).resolves.toBe(false);
+    await expect(p).resolves.toMatchObject({ status: "unresolved" });
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     loop.dispose();
@@ -346,7 +347,7 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     await flush();
     await advance(40);
     await flush();
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toMatchObject({ status: "submitted" });
     expect(ctrlC(loop)).toEqual([]);
     expect(loop.tui.chipPending()).toBe(false);
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
@@ -376,7 +377,7 @@ describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (
     await advance(5_000); // stall closes without an ack
     await flush();
     // FIRED-LAW: our text is no longer in the composer → delivered.
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toMatchObject({ status: "submitted" });
     expect(ctrlC(loop)).toEqual([]);
     // Attention belongs to a final failure, not an intermediate ACK timeout.
     expect(loop.attention).toEqual([]);
@@ -399,7 +400,7 @@ describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (
     expect(loop.tui.chipPending()).toBe(false);
     await advance(1);
     await flush();
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toMatchObject({ status: "submitted" });
     expect(loop.attention).toEqual([]);
     expect(loop.events.filter((e) => e.state === "working").length).toBeGreaterThan(0);
 
@@ -426,7 +427,7 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     await flush();
     await advance(10_000); // original ACK wait plus one recovery ACK wait
     await flush();
-    await expect(p).resolves.toBe(false);
+    await expect(p).resolves.toMatchObject({ status: "unresolved" });
     expect(ctrlC(loop)).toHaveLength(0);
     expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
@@ -447,13 +448,13 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     await flush();
     await advance(900); // original ACK wait plus one recovery ACK wait
     await flush();
-    await expect(p1).resolves.toBe(false);
+    await expect(p1).resolves.toMatchObject({ status: "unresolved" });
     expect(ctrlC(loop)).toHaveLength(0);
     expect(loop.tui.getPhase()).toBe("idle");
     expect(loop.tui.chipPending()).toBe(true);
 
     // message-delivery style immediate retry on the idle event
-    await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toBe(false);
+    await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     loop.drive.onSeatIdle(BINDING);
     await advance(450);
     await flush();
@@ -477,13 +478,13 @@ describe("D6 — an unresolved paste stops automatic writes on the binding", () 
     await flush();
     await advance(2_200); // original ACK wait plus one recovery ACK wait
     await flush();
-    await expect(p1).resolves.toBe(false);
+    await expect(p1).resolves.toMatchObject({ status: "unresolved" });
     expect(ctrlC(loop)).toHaveLength(0);
 
     // Waiting beyond the former idle-interrupt gap must not reopen admission.
     await advance(1_100);
     await flush();
-    await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toBe(false);
+    await expect(loop.drive.writePrompt(BINDING, "c\nd")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
     expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
     expect(ctrlC(loop)).toHaveLength(0);
@@ -505,7 +506,7 @@ describe("D8 — Codex snapshot evidence must not send a chip-submit CR", () => 
     await flush();
     const p = loop.drive.writePrompt(BINDING, "one\ntwo");
     let settled: boolean | null = null;
-    void p.then((ok) => { settled = ok; });
+    void p.then((outcome) => { settled = isPromptSubmitted(outcome); });
     await advance(40);
     await flush();
     // Chip-CR path waits one more settle when chrome is absent.
@@ -524,7 +525,7 @@ describe("D8 — Codex snapshot evidence must not send a chip-submit CR", () => 
     // Only the delayed working paint clears pending evidence and permits success.
     await advance(1_100);
     await flush();
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toMatchObject({ status: "submitted" });
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
     expect(loop.attention).toEqual([]);
@@ -546,7 +547,7 @@ describe("D9 — Grok history footer is not a chip-submit CR", () => {
     expect(loop.runtime.getState(BINDING)).toBe("idle");
     const p = loop.drive.writePrompt(BINDING, "one\ntwo");
     let settled: boolean | null = null;
-    void p.then((ok) => { settled = ok; });
+    void p.then((outcome) => { settled = isPromptSubmitted(outcome); });
     await advance(40);
     await flush();
     await advance(40);
@@ -564,7 +565,7 @@ describe("D9 — Grok history footer is not a chip-submit CR", () => {
     expect(loop.attention).toEqual([]);
     await advance(1_100);
     await flush();
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toMatchObject({ status: "submitted" });
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     expect(loop.drive.pasteWriteCount(BINDING)).toBe(1);
     expect(loop.attention).toEqual([]);

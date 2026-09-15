@@ -18,6 +18,7 @@ import {
   scheduleManagedPulseReady,
   subscribeManagedPulseReady,
 } from "../src/main/vellum-command/term/managed-pulse-bridge";
+import { isPromptSubmitted } from "../src/shared/managed-prompt";
 import type { PtyDeliveryTraceEvent } from "../src/main/vellum-command/term/drive/pty-delivery-trace";
 
 describe("typing recipe", () => {
@@ -95,7 +96,7 @@ describe("ManagedTerminalDrive", () => {
     drive = makeDrive();
     const controller = new AbortController();
     controller.abort();
-    expect(await drive.writePrompt("b1", "obsolete", { signal: controller.signal })).toBe(false);
+    expect(await drive.writePrompt("b1", "obsolete", { signal: controller.signal })).toMatchObject({ status: "refused", reason: "cancelled" });
     expect(writes).toEqual([]);
   });
 
@@ -111,8 +112,52 @@ describe("ManagedTerminalDrive", () => {
     expect(writes).toEqual([{ bindingId: "b1", data: encodeBracketedPaste("obsolete") }]);
     controller.abort();
     releasePaste(true);
-    expect(await result).toBe(false);
+    // The paste landed before the abort: written uncertainty, never a
+    // pre-write refusal — the bytes are on the PTY with no ack.
+    expect(await result).toMatchObject({
+      status: "unresolved",
+      wrotePhysicalBytes: true,
+      pasteWrites: 1,
+    });
     expect(writes).toHaveLength(1);
+  });
+
+  it("a generation cut after the accepted paste resolves unresolved with own-attempt writes", async () => {
+    let releasePaste!: (ok: boolean) => void;
+    const paste = new Promise<boolean>((resolve) => { releasePaste = resolve; });
+    drive = makeDrive({
+      write: (bindingId, data) => { writes.push({ bindingId, data }); return paste; },
+    });
+    const old = drive.writePrompt("b1", "old");
+    await flushMicrotasks(10);
+    expect(writes).toEqual([{ bindingId: "b1", data: encodeBracketedPaste("old") }]);
+    drive.invalidateBinding("b1");
+    releasePaste(true);
+    // The old generation's paste landed: unresolved/no-turn-start with its
+    // own single envelope — never refused/cancelled with wrotePhysicalBytes
+    // false, which would launder written uncertainty into a re-pasteable
+    // pre-write refusal.
+    await expect(old).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "no-turn-start",
+      bindingGeneration: 0,
+      writesBefore: 0,
+      writesAfter: 1,
+      pasteWrites: 1,
+      wrotePhysicalBytes: true,
+    });
+    // The replacement generation owns exactly its own envelope: the shared
+    // counter stays monotonic (2 total) while each outcome counts one.
+    const current = await drive.writePrompt("b1", "new");
+    expect(current).toMatchObject({
+      status: "submitted",
+      bindingGeneration: 1,
+      writesBefore: 1,
+      writesAfter: 2,
+      pasteWrites: 1,
+      wrotePhysicalBytes: true,
+    });
+    expect(writes).toHaveLength(3);
   });
 
   it("drops a cancelled queued prompt before the worker becomes idle", async () => {
@@ -122,7 +167,7 @@ describe("ManagedTerminalDrive", () => {
     const result = drive.writePrompt("b1", "obsolete", { signal: controller.signal });
     expect(drive.queuedCount("b1")).toBe(1);
     controller.abort();
-    expect(await result).toBe(false);
+    expect(await result).toMatchObject({ status: "refused", reason: "cancelled" });
     expect(drive.queuedCount("b1")).toBe(0);
     idle = true;
     drive.onSeatIdle("b1");
@@ -137,14 +182,21 @@ describe("ManagedTerminalDrive", () => {
     await flushMicrotasks(10);
     expect(writes.map(({ data }) => data)).toEqual([encodeBracketedPaste("obsolete"), CR]);
     controller.abort();
-    expect(await result).toBe(false);
+    // Paste and CR both landed: the abort ends the wait as written
+    // uncertainty, never a pre-write refusal — and writes no recovery CR.
+    expect(await result).toMatchObject({
+      status: "unresolved",
+      reason: "no-turn-start",
+      wrotePhysicalBytes: true,
+      pasteWrites: 1,
+    });
     expect(writes).toHaveLength(2);
   });
 
   it("writePrompt issues paste then separate CR", async () => {
     drive = makeDrive();
     const ok = await drive.writePrompt("b1", "do work");
-    expect(ok).toBe(true);
+    expect(ok).toMatchObject({ status: "submitted" });
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("do work") },
       { bindingId: "b1", data: CR },
@@ -163,7 +215,7 @@ describe("ManagedTerminalDrive", () => {
       pendingText: () => true,
       pasteChip: () => false,
     });
-    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(false);
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(local.map((w) => w.data)).toEqual([
       encodeBracketedPaste("one\ntwo"),
       CR,
@@ -184,7 +236,7 @@ describe("ManagedTerminalDrive", () => {
       },
       pendingText: () => pending,
     });
-    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toMatchObject({ status: "submitted" });
     expect(local.map((w) => w.data)).toEqual([
       encodeBracketedPaste("one\ntwo"),
       CR,
@@ -198,14 +250,14 @@ describe("ManagedTerminalDrive", () => {
       harnessFor: () => "hermes",
       onAttention: (_id, reason) => attention.push(reason),
     });
-    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toBe(false);
+    await expect(drive.writePrompt("b1", "one\ntwo")).resolves.toMatchObject({ status: "refused", reason: "multiline-refused" });
     expect(writes).toEqual([]);
     expect(attention).toEqual(["multiline-refused"]);
   });
 
   it("hermes still accepts a one-line paste", async () => {
     drive = makeDrive({ harnessFor: () => "hermes" });
-    await expect(drive.writePrompt("b1", "do work")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "do work")).resolves.toMatchObject({ status: "submitted" });
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("do work") },
       { bindingId: "b1", data: CR },
@@ -247,7 +299,7 @@ describe("ManagedTerminalDrive", () => {
     await flushMicrotasks();
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(40); // firstTyped settle 2 — chip painted
-    await expect(p).resolves.toBe(false);
+    await expect(p).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(local.map((w) => w.data)).toEqual([
       encodeBracketedPaste("one\ntwo"),
       CR,
@@ -269,14 +321,14 @@ describe("ManagedTerminalDrive", () => {
     });
     await expect(
       drive.writePrompt("b1", "one\ntwo", { awaitTurnStart: false }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(local.map((w) => w.data)).toEqual([
       encodeBracketedPaste("one\ntwo"),
       CR,
       CR,
     ]);
     expect(pending).toBe(true);
-    await expect(drive.writePrompt("b1", "another prompt")).resolves.toBe(false);
+    await expect(drive.writePrompt("b1", "another prompt")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(local).toHaveLength(3);
   });
 
@@ -290,7 +342,7 @@ describe("ManagedTerminalDrive", () => {
 
     idle = true;
     drive.onSeatIdle("b1");
-    await expect(p1).resolves.toBe(true);
+    await expect(p1).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("first"),
       CR,
@@ -299,7 +351,7 @@ describe("ManagedTerminalDrive", () => {
 
     // Still one turn at a time — second waits for next idle pulse.
     drive.onSeatIdle("b1");
-    await expect(p2).resolves.toBe(true);
+    await expect(p2).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("first"),
       CR,
@@ -321,7 +373,7 @@ describe("ManagedTerminalDrive", () => {
 
     idle = true;
     drive.onSeatIdle("b1");
-    await expect(first).resolves.toBe(true);
+    await expect(first).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       INTERRUPT_BYTE,
       encodeBracketedPaste("mail one"),
@@ -329,7 +381,7 @@ describe("ManagedTerminalDrive", () => {
     ]);
 
     drive.onSeatIdle("b1");
-    await expect(second).resolves.toBe(true);
+    await expect(second).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       INTERRUPT_BYTE,
       encodeBracketedPaste("mail one"),
@@ -343,7 +395,7 @@ describe("ManagedTerminalDrive", () => {
     drive = makeDrive();
     await expect(
       drive.writePrompt("b1", "mail", { interruptIfBusy: true }),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ status: "submitted" });
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("mail") },
       { bindingId: "b1", data: CR },
@@ -370,7 +422,7 @@ describe("ManagedTerminalDrive", () => {
     idle = true;
     drive.onSeatIdle("b1");
     releaseInterrupt(true);
-    await expect(mail).resolves.toBe(true);
+    await expect(mail).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       INTERRUPT_BYTE,
       encodeBracketedPaste("mail"),
@@ -384,7 +436,7 @@ describe("ManagedTerminalDrive", () => {
 
     await expect(
       drive.writePrompt("b1", "scheduled pulse", { queueIfBusy: false }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ status: "refused", reason: "seat-busy" });
     expect(drive.queuedCount("b1")).toBe(0);
     expect(writes).toEqual([]);
 
@@ -484,7 +536,7 @@ describe("ManagedTerminalDrive", () => {
       onAttention: (_id, reason) => attention.push(reason),
     });
     const ok = await drive.writePrompt("b1", "nope");
-    expect(ok).toBe(false);
+    expect(ok).toMatchObject({ status: "refused", reason: "clipboard-unsafe" });
     expect(writes).toEqual([]);
     expect(attention).toEqual(["clipboard-unsafe"]);
   });
@@ -492,7 +544,7 @@ describe("ManagedTerminalDrive", () => {
   it("not-ready aborts without writing (Hermes positive-signal gate)", async () => {
     drive = makeDrive();
     const ok = await drive.writePrompt("b1", "early", { ready: false });
-    expect(ok).toBe(false);
+    expect(ok).toMatchObject({ status: "refused", reason: "not-ready" });
     expect(writes).toEqual([]);
   });
 
@@ -690,7 +742,7 @@ describe("ManagedTerminalDrive", () => {
 
     // No chip evidence authorizes another CR; uncertainty never authorizes Ctrl+C.
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toMatchObject({ status: "unresolved", reason: "no-turn-start" });
     expect(attention).toEqual(["prompt-stalled"]);
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("stalled") },
@@ -719,7 +771,7 @@ describe("ManagedTerminalDrive", () => {
     await flushMicrotasks(4);
     expect(writes).toHaveLength(3); // recovery CR
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(writes.map((write) => write.data)).toEqual([
       encodeBracketedPaste("one\ntwo"), CR, CR,
     ]);
@@ -744,7 +796,7 @@ describe("ManagedTerminalDrive", () => {
     expect(settled).toBe(false);
 
     drive.onTurnStart("b1");
-    await expect(delivered).resolves.toBe(true);
+    await expect(delivered).resolves.toMatchObject({ status: "submitted" });
     vi.advanceTimersByTime(10_000);
     await flushMicrotasks();
     expect(writes).toHaveLength(2);
@@ -762,7 +814,7 @@ describe("ManagedTerminalDrive", () => {
       },
     });
 
-    await expect(drive.writePrompt("b1", "fast turn")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "fast turn")).resolves.toMatchObject({ status: "submitted" });
     expect(writes).toHaveLength(2);
   });
 
@@ -772,7 +824,7 @@ describe("ManagedTerminalDrive", () => {
     const compact = drive.writePrompt("b1", "/compact");
     await flushMicrotasks();
     drive.onCompactNoop("b1");
-    await expect(compact).resolves.toBe(true);
+    await expect(compact).resolves.toMatchObject({ status: "submitted" });
 
     const task = drive.writePrompt("b1", "[factory claim] task-1");
     await flushMicrotasks();
@@ -784,7 +836,7 @@ describe("ManagedTerminalDrive", () => {
     await flushMicrotasks();
     expect(settled).toBe(false);
     drive.onTurnStart("b1");
-    await expect(task).resolves.toBe(true);
+    await expect(task).resolves.toMatchObject({ status: "submitted" });
   });
 
   it("does not lose a compact no-op that races the CR writer completion", async () => {
@@ -797,7 +849,7 @@ describe("ManagedTerminalDrive", () => {
       },
     });
 
-    await expect(drive.writePrompt("b1", "/compact")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "/compact")).resolves.toMatchObject({ status: "submitted" });
     expect(writes).toHaveLength(2);
   });
 
@@ -810,7 +862,7 @@ describe("ManagedTerminalDrive", () => {
       });
       const pulse = makeManagedPulseDeliver(
         (bindingId, text, options) =>
-          drive.writePrompt(bindingId, text, options),
+          drive.writePrompt(bindingId, text, options).then(isPromptSubmitted),
         () => true,
       );
 
@@ -844,8 +896,15 @@ describe("ManagedTerminalDrive", () => {
       expect(drive.queuedCount("b1")).toBe(1);
 
       drive.invalidateBinding("b1");
-      await expect(awaitingTurn).resolves.toBe(false);
-      await expect(queued).resolves.toBe(false);
+      // The awaiting-ack paste landed: written uncertainty, never a
+      // pre-write refusal. The queued prompt never wrote: still refused.
+      await expect(awaitingTurn).resolves.toMatchObject({
+        status: "unresolved",
+        reason: "no-turn-start",
+        wrotePhysicalBytes: true,
+        pasteWrites: 1,
+      });
+      await expect(queued).resolves.toMatchObject({ status: "refused", reason: "cancelled" });
       expect(drive.queuedCount("b1")).toBe(0);
 
       idle = true;
@@ -856,7 +915,7 @@ describe("ManagedTerminalDrive", () => {
       const newGeneration = drive.writePrompt("b1", "new generation");
       await flushMicrotasks();
       drive.onTurnStart("b1");
-      await expect(newGeneration).resolves.toBe(true);
+      await expect(newGeneration).resolves.toMatchObject({ status: "submitted" });
       expect(writes.slice(2)).toEqual([
         { bindingId: "b1", data: encodeBracketedPaste("new generation") },
         { bindingId: "b1", data: CR },
@@ -883,7 +942,15 @@ describe("ManagedTerminalDrive", () => {
     drive.invalidateBinding("b1");
     releasePaste(true);
 
-    await expect(writing).resolves.toBe(false);
+    await expect(writing).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "no-turn-start",
+      bindingGeneration: 0,
+      writesBefore: 0,
+      writesAfter: 1,
+      pasteWrites: 1,
+      wrotePhysicalBytes: true,
+    });
     expect(writes).toEqual([
       { bindingId: "b1", data: encodeBracketedPaste("old generation") },
     ]);
@@ -905,16 +972,25 @@ describe("ManagedTerminalDrive", () => {
       expect(drive.queuedCount("b1")).toBe(1);
 
       drive.suspend();
-      await expect(awaitingTurn).resolves.toBe(false);
-      await expect(queued).resolves.toBe(false);
+      // The awaiting-ack paste landed before suspend: written uncertainty.
+      // The queued prompt never wrote: still refused. Suspend itself writes
+      // nothing new.
+      await expect(awaitingTurn).resolves.toMatchObject({
+        status: "unresolved",
+        reason: "no-turn-start",
+        wrotePhysicalBytes: true,
+        pasteWrites: 1,
+      });
+      await expect(queued).resolves.toMatchObject({ status: "refused", reason: "suspended" });
       expect(drive.queuedCount("b1")).toBe(0);
 
       idle = true;
       drive.onSeatIdle("b1");
       await vi.advanceTimersByTimeAsync(10_000);
-      await expect(drive.writePrompt("b1", "late")).resolves.toBe(
-        false,
-      );
+      await expect(drive.writePrompt("b1", "late")).resolves.toMatchObject({
+        status: "refused",
+        reason: "suspended",
+      });
       await expect(drive.interrupt("b1")).resolves.toBe(false);
       expect(writes).toHaveLength(2);
     } finally {
@@ -946,7 +1022,12 @@ describe("ManagedTerminalDrive", () => {
     drive.suspend();
     releasePaste(true);
 
-    await expect(writing).resolves.toBe(false);
+    await expect(writing).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "no-turn-start",
+      wrotePhysicalBytes: true,
+      pasteWrites: 1,
+    });
     expect(writes).toHaveLength(1);
   });
 });
@@ -978,7 +1059,7 @@ describe("composer verdict gate (screen truth)", () => {
 
   it("proven-empty composer types", async () => {
     drive = makeDrive();
-    await expect(drive.writePrompt("b1", "notice")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "notice")).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("notice"),
       CR,
@@ -995,7 +1076,7 @@ describe("composer verdict gate (screen truth)", () => {
     // Operator submits or clears; the screen proves empty; delivery flows.
     verdict = "empty";
     drive.onComposerClear("b1");
-    await expect(pending).resolves.toBe(true);
+    await expect(pending).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("notice"),
       CR,
@@ -1010,7 +1091,7 @@ describe("composer verdict gate (screen truth)", () => {
     expect(drive.queuedCount("b1")).toBe(1);
     verdict = "empty";
     drive.onComposerClear("b1");
-    await expect(pending).resolves.toBe(true);
+    await expect(pending).resolves.toMatchObject({ status: "submitted" });
   });
 
   it("non-queuing callers are refused outright while the composer is not proven empty", async () => {
@@ -1018,7 +1099,7 @@ describe("composer verdict gate (screen truth)", () => {
     drive = makeDrive();
     await expect(
       drive.writePrompt("b1", "pulse", { queueIfBusy: false }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ status: "refused", reason: "composer-not-empty" });
     expect(writes).toEqual([]);
     expect(drive.queuedCount("b1")).toBe(0);
   });
@@ -1035,7 +1116,7 @@ describe("composer verdict gate (screen truth)", () => {
     idle = true;
     verdict = "empty";
     drive.onComposerClear("b1");
-    await expect(pending).resolves.toBe(true);
+    await expect(pending).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("mail"),
       CR,
@@ -1062,7 +1143,7 @@ describe("composer verdict gate (screen truth)", () => {
     });
     await expect(
       gated.writePrompt("b1", "notice", { queueIfBusy: false }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ status: "refused", reason: "composer-not-empty" });
     expect(seen).toEqual([]);
     gated.resetForTest();
   });
@@ -1129,7 +1210,7 @@ describe("operator interlock", () => {
         return true;
       },
     });
-    await expect(drive.writePrompt("b1", "doctrine")).resolves.toBe(true);
+    await expect(drive.writePrompt("b1", "doctrine")).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("doctrine"),
       CR,
@@ -1146,7 +1227,7 @@ describe("operator interlock", () => {
     expect(interlock.holding("b1")).toBe(true);
     operatorTypes("b1", "x");
     expect(interlock.heldCount("b1")).toBe(1);
-    await expect(pending).resolves.toBe(true);
+    await expect(pending).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("doctrine"),
       CR,
@@ -1168,7 +1249,7 @@ describe("operator interlock", () => {
         return true;
       },
     });
-    await expect(drive.writePrompt("b1", "doctrine")).resolves.toBe(false);
+    await expect(drive.writePrompt("b1", "doctrine")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("doctrine"),
       CR,
@@ -1183,7 +1264,7 @@ describe("operator interlock", () => {
     drive = makeDrive();
     await expect(
       drive.writePrompt("b1", "notice", { queueIfBusy: false }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ status: "refused", reason: "operator-active" });
     expect(writes).toEqual([]);
   });
 
@@ -1197,7 +1278,7 @@ describe("operator interlock", () => {
     expect(drive.queuedCount("b1")).toBe(1);
     clock += OPERATOR_INPUT_LATCH_MS + 1;
     drive.onSeatIdle("b1");
-    await expect(pending).resolves.toBe(true);
+    await expect(pending).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("mail"),
       CR,
@@ -1210,7 +1291,7 @@ describe("operator interlock", () => {
     drive = makeDrive();
     await expect(
       drive.writePrompt("b1", "notice", { queueIfBusy: false }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ status: "refused", reason: "operator-active" });
     expect(writes).toEqual([]);
   });
 
@@ -1220,7 +1301,7 @@ describe("operator interlock", () => {
     drive = makeDrive();
     await expect(
       drive.writePrompt("b2", "other seat", { queueIfBusy: false }),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ status: "submitted" });
     expect(writes.map((w) => w.bindingId)).toEqual(["b2", "b2"]);
   });
 
@@ -1241,7 +1322,7 @@ describe("operator interlock", () => {
     ]);
     // Operator starts typing during the stall watch — before recovery.
     interlock.noteInput("b1");
-    await expect(pending).resolves.toBe(false);
+    await expect(pending).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(attention).toContain("prompt-stalled");
     // No Ctrl+C to wipe their sentence.
     expect(writes.map((w) => w.data)).toEqual([
@@ -1267,7 +1348,7 @@ describe("operator interlock", () => {
       chipPainted = true;
       interlock.noteInput("b1");
     }, 10).unref();
-    await expect(pending).resolves.toBe(false);
+    await expect(pending).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(attention).toContain("prompt-stalled");
     // Recipe CR only: no chip CR (chrome had not painted), no recovery CR
     // (operator live), no Ctrl+C (their draft is real).
@@ -1295,7 +1376,7 @@ describe("operator interlock", () => {
     await expect(drive.interrupt("b1")).resolves.toBe(false);
     expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
     releasePaste(true);
-    await expect(prompt).resolves.toBe(true);
+    await expect(prompt).resolves.toMatchObject({ status: "submitted" });
     expect(interlock.holding("b1")).toBe(false);
   });
 
@@ -1323,7 +1404,7 @@ describe("operator interlock", () => {
       CR,
     ]);
     // The chip remains pending: no receipt, destructive cleanup, or repaste.
-    await expect(pending).resolves.toBe(false);
+    await expect(pending).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(writes.map((write) => write.data)).toEqual([
       encodeBracketedPaste("a\nb"), CR, CR, CR,
     ]);
@@ -1341,7 +1422,7 @@ describe("operator interlock", () => {
     // cannot shadow a replacement seat.
     await expect(
       drive.writePrompt("b1", "next gen", { queueIfBusy: false }),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ status: "submitted" });
   });
 });
 
@@ -1383,9 +1464,9 @@ describe("written-unresolved submission guard", () => {
     });
     const result = drive.writePrompt("seat", "factory notice", { awaitTurnStart });
     await vi.advanceTimersByTimeAsync(20);
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     drive.onSeatIdle("seat");
-    await expect(drive.writePrompt("seat", "factory notice")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "factory notice")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("factory notice"), CR, ...(awaitTurnStart ? [CR] : [])]);
     expect(trace).toContainEqual(expect.objectContaining({
       event: "delivery.verdict",
@@ -1418,13 +1499,13 @@ describe("written-unresolved submission guard", () => {
     });
     const result = drive.writePrompt("seat", "one\ntwo");
     await vi.advanceTimersByTimeAsync(20);
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(trace).toContainEqual(expect.objectContaining({
       event: "turn.start.refused",
       fields: expect.objectContaining({ reason: "text-pending" }),
     }));
     expect(trace).not.toContainEqual(expect.objectContaining({ event: "turn.start.accepted" }));
-    await expect(drive.writePrompt("seat", "one\ntwo")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "one\ntwo")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(drive.pasteWriteCount("seat")).toBe(1);
     expect(writes).not.toContain(INTERRUPT_BYTE);
   });
@@ -1439,7 +1520,7 @@ describe("written-unresolved submission guard", () => {
       pendingText: () => pending,
       onTrace: (event) => trace.push(event),
     });
-    await expect(drive.writePrompt("stalled", "first\nprompt")).resolves.toBe(false);
+    await expect(drive.writePrompt("stalled", "first\nprompt")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(writes.map(({ data }) => data)).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR]);
 
     pending = false;
@@ -1449,13 +1530,13 @@ describe("written-unresolved submission guard", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     drive.suspend();
     drive.resetForTest();
-    await expect(drive.writePrompt("stalled", "retry", { interruptIfBusy: true })).resolves.toBe(false);
+    await expect(drive.writePrompt("stalled", "retry", { interruptIfBusy: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toHaveLength(3);
-    await expect(drive.writePrompt("unrelated", "still works")).resolves.toBe(true);
+    await expect(drive.writePrompt("unrelated", "still works")).resolves.toMatchObject({ status: "submitted" });
     expect(writes.slice(3).map(({ bindingId }) => bindingId)).toEqual(["unrelated", "unrelated"]);
 
     drive.invalidateBinding("stalled");
-    await expect(drive.writePrompt("stalled", "new generation")).resolves.toBe(true);
+    await expect(drive.writePrompt("stalled", "new generation")).resolves.toMatchObject({ status: "submitted" });
     expect(writes.slice(5).map(({ data }) => data)).toEqual([encodeBracketedPaste("new generation"), CR]);
     expect(writes.map(({ data }) => data)).not.toContain(INTERRUPT_BYTE);
     expect(trace).toContainEqual(expect.objectContaining({ event: "delivery.verdict", fields: expect.objectContaining({ verdict: "written-unresolved" }) }));
@@ -1477,7 +1558,11 @@ describe("written-unresolved submission guard", () => {
     const third = drive.writePrompt("seat", "third");
     expect(drive.queuedCount("seat")).toBe(2);
     await vi.advanceTimersByTimeAsync(20);
-    await expect(Promise.all([first, second, third])).resolves.toEqual([false, false, false]);
+    await expect(Promise.all([first, second, third])).resolves.toEqual([
+      expect.objectContaining({ status: "unresolved", reason: "chip-pending" }),
+      expect.objectContaining({ status: "refused", reason: "written-unresolved" }),
+      expect.objectContaining({ status: "refused", reason: "written-unresolved" }),
+    ]);
     expect(drive.queuedCount("seat")).toBe(0);
     drive.onSeatIdle("seat");
     await flush();
@@ -1498,8 +1583,8 @@ describe("written-unresolved submission guard", () => {
     });
     const first = drive.writePrompt("seat", "accepted paste");
     if (failure === "threw") await expect(first).rejects.toThrow("submit failed");
-    else await expect(first).resolves.toBe(false);
-    await expect(drive.writePrompt("seat", "never repaste")).resolves.toBe(false);
+    else await expect(first).resolves.toMatchObject({ status: "unresolved", reason: "no-turn-start" });
+    await expect(drive.writePrompt("seat", "never repaste")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("accepted paste"), CR]);
   });
 
@@ -1509,10 +1594,10 @@ describe("written-unresolved submission guard", () => {
     const drive = makeDrive({
       write: (_bindingId, data) => { writes.push(data); return admit; },
     });
-    await expect(drive.writePrompt("seat", "retryable")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "retryable")).resolves.toMatchObject({ status: "refused", reason: "not-ready" });
     expect(drive.pasteWriteCount("seat")).toBe(0);
     admit = true;
-    await expect(drive.writePrompt("seat", "retryable")).resolves.toBe(true);
+    await expect(drive.writePrompt("seat", "retryable")).resolves.toMatchObject({ status: "submitted" });
     expect(drive.pasteWriteCount("seat")).toBe(1);
     expect(writes).toEqual([encodeBracketedPaste("retryable"), encodeBracketedPaste("retryable"), CR]);
   });
@@ -1530,10 +1615,10 @@ describe("written-unresolved submission guard", () => {
       write: (_bindingId, data) => { writes.push(data); return true; },
     });
     const waiting = drive.writePrompt("seat", "waiting mail", { interruptIfBusy: true });
-    await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     idle = false;
     finishPreflight(true);
-    await expect(waiting).resolves.toBe(false);
+    await expect(waiting).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(drive.queuedCount("seat")).toBe(0);
     expect(writes).toEqual([encodeBracketedPaste("first\nprompt"), CR, CR]);
   });
@@ -1550,8 +1635,8 @@ describe("written-unresolved submission guard", () => {
     });
     const first = drive.writePrompt("seat", "already working");
     await vi.advanceTimersByTimeAsync(10);
-    await expect(first).resolves.toBe(false);
-    await expect(drive.writePrompt("seat", "mail", { interruptIfBusy: true })).resolves.toBe(false);
+    await expect(first).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
+    await expect(drive.writePrompt("seat", "mail", { interruptIfBusy: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("already working")]);
   });
 
@@ -1566,9 +1651,14 @@ describe("written-unresolved submission guard", () => {
     await flush();
     drive.suspend();
     await vi.advanceTimersByTimeAsync(10);
-    await expect(first).resolves.toBe(false);
+    await expect(first).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "no-turn-start",
+      wrotePhysicalBytes: true,
+      pasteWrites: 1,
+    });
     drive.resetForTest();
-    await expect(drive.writePrompt("seat", "retry")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "retry")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("in flight")]);
   });
 
@@ -1578,9 +1668,9 @@ describe("written-unresolved submission guard", () => {
       pendingText: () => true,
       write: (_bindingId, data) => { writes.push(data); return true; },
     });
-    await expect(drive.writePrompt("seat", "unresolved")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "unresolved")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     await expect(drive.interrupt("seat")).resolves.toBe(true);
-    await expect(drive.writePrompt("seat", "retry")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "retry")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("unresolved"), CR, INTERRUPT_BYTE]);
   });
 
@@ -1596,10 +1686,25 @@ describe("written-unresolved submission guard", () => {
     });
     const old = drive.writePrompt("seat", "old");
     drive.invalidateBinding("seat");
-    await expect(drive.writePrompt("seat", "replacement")).resolves.toBe(true);
+    await expect(drive.writePrompt("seat", "replacement")).resolves.toMatchObject({
+      status: "submitted",
+      bindingGeneration: 1,
+      writesBefore: 0,
+      writesAfter: 1,
+      pasteWrites: 1,
+      wrotePhysicalBytes: true,
+    });
     finishOld(true);
-    await expect(old).resolves.toBe(false);
-    await expect(drive.writePrompt("seat", "still usable")).resolves.toBe(true);
+    await expect(old).resolves.toMatchObject({
+      status: "unresolved",
+      reason: "no-turn-start",
+      bindingGeneration: 0,
+      writesBefore: 0,
+      writesAfter: 1,
+      pasteWrites: 1,
+      wrotePhysicalBytes: true,
+    });
+    await expect(drive.writePrompt("seat", "still usable")).resolves.toMatchObject({ status: "submitted" });
     expect(writes).toEqual([encodeBracketedPaste("old"), encodeBracketedPaste("replacement"), CR, encodeBracketedPaste("still usable"), CR]);
   });
 });
