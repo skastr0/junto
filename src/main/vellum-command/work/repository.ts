@@ -160,16 +160,31 @@ import {
 import { unjournaledWorkMutation } from "./mutation-seam";
 import {
   agentNodeForSeat,
+  planReceiptMail,
+  receiptDedupeKey,
+  receiptSourceForRecord,
+  receiptSourceId,
   reviewAuthorSeat,
   reviewSubjectProjection,
   reviewsEdgeExists,
+  reviewersOfAuthor,
 } from "./reviews";
 import { readCommandCenterPortfolio } from "../canvases";
 import {
   mailAttemptFactsMetadata,
+  readMailExtension,
   type MailAttemptFacts,
+  type MailSenderStamp,
   type ReviewVerdict,
 } from "../../../shared/crew";
+import { ulid } from "ulid";
+
+/** A receipt-mail record produced in a task-transition transaction. */
+export type ReviewReceiptRecord = {
+  readonly canvas: string;
+  readonly nodeId: string;
+  readonly message: MessageValue;
+};
 
 /**
  * Result of a live-validated verdict post: the stored verdict, or a typed
@@ -980,6 +995,13 @@ export type TransitionTaskInput = LocalWorkInput & {
    * reviewer's latest verdict on this exact epoch + subject hash is green.
    */
   readonly reviewGate?: ReviewGateWithin;
+  /**
+   * Author stamp for the receipt feed. When present, receipt mail for the
+   * committed task's commit refs is minted to the author's current reviewers in
+   * the same transaction; the created records come back in
+   * `LocalFactResult.reviewReceipts`.
+   */
+  readonly receiptAuthor?: MailSenderStamp;
 };
 
 /** The exact identity a writer-time review gate is evaluated against. */
@@ -1027,6 +1049,8 @@ export type SendOnTaskInput = LocalWorkInput & {
    * subject hash is green.
    */
   readonly reviewGate?: ReviewGateWithin;
+  /** Author stamp for the receipt feed (see {@link TransitionTaskInput.receiptAuthor}). */
+  readonly receiptAuthor?: MailSenderStamp;
 };
 
 export type SendBackTaskInput = LocalWorkInput & {
@@ -1154,6 +1178,12 @@ export type LocalFactResult<A> = {
   readonly value: A;
   readonly record: WorkFactValue;
   readonly snapshot: WorkSnapshotValue;
+  /**
+   * Receipt mail minted in the same transaction as a task transition (see
+   * `receiptAuthor`). The caller notifies delivery for each record AFTER the
+   * commit succeeds; a rolled-back transaction returns none.
+   */
+  readonly reviewReceipts?: ReadonlyArray<ReviewReceiptRecord>;
 };
 
 export type RecordsAfterInput = {
@@ -8376,7 +8406,7 @@ export const WorkRepositoryLive = Layer.effect(
             ? { completionEvidence: evidence }
             : {}),
         });
-        return commitLocalFact(writer, {
+        const factResult = commitLocalFact(writer, {
           localInstallationId,
           sink: input.sink,
           basis: input.basis,
@@ -8388,6 +8418,22 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
+        if (input.receiptAuthor === undefined) return factResult;
+        const reviewReceipts = mintReviewReceipts(
+          writer,
+          localInstallationId,
+          input.basis,
+          input.sink.canvasName,
+          input.sink,
+          factResult.value,
+          factResult.record,
+          input.receiptAuthor,
+          originAt,
+          receivedAt,
+        );
+        return reviewReceipts.length > 0
+          ? { ...factResult, reviewReceipts }
+          : factResult;
       });
     };
 
@@ -8639,10 +8685,26 @@ export const WorkRepositoryLive = Layer.effect(
             receivedAt,
           });
         }
+        const reviewReceipts =
+          input.receiptAuthor === undefined
+            ? []
+            : mintReviewReceipts(
+                writer,
+                localInstallationId,
+                input.basis,
+                input.sink.canvasName,
+                input.sink,
+                completed,
+                sourceFact.record,
+                input.receiptAuthor,
+                originAt,
+                receivedAt,
+              );
         return {
           value: { completed, next: nextTask },
           record: sourceFact.record,
           snapshot: loadSnapshot(writer, input.sink),
+          ...(reviewReceipts.length > 0 ? { reviewReceipts } : {}),
         };
       });
     };
@@ -8789,6 +8851,142 @@ export const WorkRepositoryLive = Layer.effect(
       });
     };
 
+    const mintReviewReceipts = (
+      writer: StateWriter,
+      installationId: InstallationId,
+      basis: IntentFactBasisValue,
+      canvasName: string,
+      taskSink: SinkRefValue,
+      committedTask: TaskValue,
+      committedRecord: WorkFactValue,
+      receiptAuthor: MailSenderStamp,
+      originAt: DisplayTimestampValue,
+      receivedAt: DisplayTimestampValue,
+    ): ReadonlyArray<ReviewReceiptRecord> => {
+      // The explicit author stamp must match the committed task's live author
+      // seat. A claim flip between the caller's preflight and this commit is an
+      // authority refusal that rolls the whole transaction back — never a silent
+      // drop that would mutate a fresh claimant's task without its receipt.
+      const authorSeat = reviewAuthorSeat(committedTask);
+      if (authorSeat === undefined || receiptAuthor.fromSeat !== authorSeat) {
+        throw authorityError(
+          "authority-mismatch",
+          "receipt author no longer matches the current task claimant",
+        );
+      }
+      const portfolio = readCommandCenterPortfolio(writer);
+      const doc = portfolio.documents.get(canvasName)?.doc;
+      if (doc === undefined) return [];
+      // Stable seats span canvases; resolve the author's AGENT node in this
+      // canvas (reviews edges end at the agent, not the task board).
+      const refsHere = portfolio.actorRefs.filter(
+        (ref) => ref.canvasName === canvasName,
+      );
+      const authorNode = agentNodeForSeat(refsHere, authorSeat);
+      if (authorNode === undefined) return [];
+      const reviewers = reviewersOfAuthor({
+        doc,
+        authorNodeId: authorNode.nodeId,
+        actorRefs: refsHere,
+      });
+      if (reviewers.length === 0) return [];
+      const projection = reviewSubjectProjection({
+        installationId,
+        canvasName,
+        nodeId: taskSink.nodeId,
+        task: committedTask,
+      });
+      if (projection.refs.length === 0) return [];
+      const source = receiptSourceForRecord({ id: committedRecord.id });
+      const sourceIdStr = receiptSourceId(source);
+      const existing = writer.all<{
+        readonly ref_sha: string;
+        readonly reviewer_seat_id: string;
+      }>(
+        `SELECT ref_sha, reviewer_seat_id FROM work_review_receipts
+         WHERE canvas_name = ? AND source_kind = ? AND source_id = ?`,
+        [canvasName, source.kind, sourceIdStr],
+      );
+      const sent = new Set(
+        existing.map((row) =>
+          receiptDedupeKey({
+            canvasName,
+            source,
+            refSha: row.ref_sha,
+            reviewerSeatId: row.reviewer_seat_id as ActorSeatId,
+          }),
+        ),
+      );
+      const authorRef = {
+        seatId: authorSeat,
+        canvasName,
+        nodeId: authorNode.nodeId,
+      };
+      const plan = planReceiptMail({
+        canvasName,
+        nodeId: taskSink.nodeId,
+        task: committedTask,
+        refs: projection.refs,
+        source,
+        reviewers,
+        author: {
+          seatId: receiptAuthor.fromSeat,
+          generation: receiptAuthor.senderGeneration,
+          harness: receiptAuthor.senderHarness,
+        },
+        contextId: canvasName,
+        projection,
+        alreadySent: (key) => sent.has(key),
+        messageId: () => ulid(),
+      });
+      const records: ReviewReceiptRecord[] = [];
+      for (const mail of plan.mail) {
+        const reviewerSink = { canvasName, nodeId: mail.reviewerNodeId };
+        // Admit once so the returned record is byte-identical to the row the
+        // writer persists (senderNodeId stamped, forged facts stripped).
+        const message = admitMailboxMessage(mail.message, authorRef);
+        commitLocalFact(writer, {
+          localInstallationId: installationId,
+          sink: reviewerSink,
+          basis,
+          item: item("message", message.messageId, reviewerSink),
+          operation: "message.append",
+          predecessor: null,
+          body: {
+            operation: "message.append",
+            message,
+            sentBy: authorRef,
+            destination: { kind: "mailbox" },
+          },
+          value: message,
+          originAt,
+          receivedAt,
+        });
+        const freshShas = (readMailExtension(message.metadata)?.refs ?? [])
+          .filter((ref) => ref.kind === "commit")
+          .map((ref) => (ref.kind === "commit" ? ref.sha : ""));
+        for (const sha of freshShas) {
+          applyReviewReceiptWrite(writer, {
+            canvasName,
+            sourceKind: source.kind,
+            sourceId: sourceIdStr,
+            refSha: sha,
+            reviewerSeatId: mail.reviewerSeatId,
+            authorSeatId: authorSeat,
+            taskId: committedTask.id,
+            messageId: message.messageId,
+            createdAt: receivedAt,
+          });
+        }
+        records.push({
+          canvas: canvasName,
+          nodeId: mail.reviewerNodeId,
+          message,
+        });
+      }
+      return records;
+    };
+
     const postReviewVerdict = (
       verdict: ReviewVerdict,
       opts: {
@@ -8798,9 +8996,11 @@ export const WorkRepositoryLive = Layer.effect(
     ): Effect.Effect<PostReviewVerdictResult, RepositoryFailure> => {
       const subject = verdict.subject;
       if (subject.kind === "commit") {
-        // A commit subject carries no live task to compare against; store the
-        // immutable verdict (idempotent by id). Task rejection needs an
-        // explicit task subject, so a commit blocking has no work consequence.
+        // A commit subject carries no live task to CAS, but still requires live
+        // authority: the author is the durable first-seen-sha provenance, the
+        // reviewer may not be that author, and a current directed reviews edge
+        // reviewer->author must hold verdict.post. Only the task epoch/hash CAS
+        // and the work-side effect are omitted (a sha may belong to many tasks).
         return transaction(
           "work.review.post-verdict",
           {
@@ -8808,6 +9008,36 @@ export const WorkRepositoryLive = Layer.effect(
             nodeId: verdict.reviewerNodeId ?? "review",
           },
           (writer): PostReviewVerdictResult => {
+            const provenance = writer.get<{ readonly author_seat_id: string }>(
+              `SELECT author_seat_id FROM work_review_receipts
+               WHERE ref_sha = ? ORDER BY created_at, source_id LIMIT 1`,
+              [subject.sha.trim().toLowerCase()],
+            );
+            if (provenance === undefined) {
+              return { rejected: "reviews-edge-missing" };
+            }
+            const authorSeat = provenance.author_seat_id as ActorSeatId;
+            if (verdict.reviewerSeatId === authorSeat) {
+              return { rejected: "reviewer-is-author" };
+            }
+            const portfolio = readCommandCenterPortfolio(writer);
+            const doc = portfolio.documents.get(opts.canvasName)?.doc;
+            const refsHere = portfolio.actorRefs.filter(
+              (ref) => ref.canvasName === opts.canvasName,
+            );
+            const reviewerNode = agentNodeForSeat(
+              refsHere,
+              verdict.reviewerSeatId,
+            );
+            const authorNode = agentNodeForSeat(refsHere, authorSeat);
+            if (
+              doc === undefined ||
+              reviewerNode === undefined ||
+              authorNode === undefined ||
+              !reviewsEdgeExists(doc, reviewerNode.nodeId, authorNode.nodeId)
+            ) {
+              return { rejected: "reviews-edge-missing" };
+            }
             const before = writer.get<{ readonly verdict_id: string }>(
               `SELECT verdict_id FROM work_review_verdicts WHERE verdict_id = ?`,
               [verdict.verdictId],
