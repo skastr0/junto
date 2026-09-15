@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { ActorSeatId } from "../src/shared/actor-seat";
+import type { ReviewVerdict } from "../src/shared/crew";
 import type { Rule, Task, TaskRule } from "../src/shared/work-model";
 import {
   boardReviewGate,
@@ -9,16 +11,11 @@ import {
   withRequiresReviewRule,
 } from "../src/renderer/lib/crew-review-view";
 
-const seat = (n: string): Task["claimedBy"] =>
-  `seat_${n.repeat(64)}` as Task["claimedBy"];
+const seat = (n: string): ActorSeatId =>
+  `seat_${n.repeat(64)}` as ActorSeatId;
 
 /** Canvas projection: task.verdicts + task.subjectHash. Not metadata. */
-const projectedTask = (
-  overrides: Partial<Task> & {
-    readonly verdicts?: unknown;
-    readonly subjectHash?: string;
-  } = {},
-): Task =>
+const projectedTask = (overrides: Partial<Task> = {}): Task =>
   ({
     id: "task-1",
     state: "working",
@@ -37,14 +34,14 @@ const reviewTaskRule = (id = "r-review"): TaskRule => ({
 
 const canonicalVerdict = (input: {
   readonly verdictId: string;
-  readonly kind: "green" | "blocking";
-  readonly reviewerSeatId: Task["claimedBy"];
-  readonly authorSeatId: Task["claimedBy"];
+  readonly kind: ReviewVerdict["kind"];
+  readonly reviewerSeatId: ActorSeatId;
+  readonly authorSeatId: ActorSeatId;
   readonly epoch: number;
   readonly subjectHash: string;
   readonly reviewerNodeId?: string;
   readonly postedAtMs?: number;
-}) => ({
+}): ReviewVerdict => ({
   verdictId: input.verdictId,
   kind: input.kind,
   reviewerSeatId: input.reviewerSeatId,
@@ -53,7 +50,7 @@ const canonicalVerdict = (input: {
     : { reviewerNodeId: input.reviewerNodeId }),
   authorSeatId: input.authorSeatId,
   subject: {
-    kind: "task" as const,
+    kind: "task",
     installationId: "inst-1",
     canvasName: "ops",
     nodeId: "tasks",
@@ -63,8 +60,8 @@ const canonicalVerdict = (input: {
   },
   subjectHash: input.subjectHash,
   epoch: input.epoch,
-  findings: [] as string[],
-  refs: [] as const,
+  findings: [],
+  refs: [],
   postedAtMs: input.postedAtMs ?? 10,
 });
 
