@@ -92,8 +92,10 @@ describe("mailboxRows", () => {
         fromSeat: "bravo",
         mailKind: "notice",
         subject: "Standup",
-        notifiedAt: T0 + 10,
-        unresolvedAt: T0 + 20,
+        generation: "gen-1",
+        queuedAt: "2026-01-01T00:00:00.000Z",
+        notifiedAt: "2026-01-01T00:00:10.000Z",
+        unresolvedAt: "2026-01-01T00:00:20.000Z",
       },
     });
     const doc = docOf([agent("hub", "Hub", [notice])]);
@@ -108,9 +110,20 @@ describe("mailboxRows", () => {
 
   it("maps delivery receipts and roles", () => {
     const unread = mail(T0, {});
-    const deliveredUnread = mail(T0 + 1000, { metadata: { deliveredAt: T0 + 2000 } });
+    const deliveredUnread = mail(T0 + 1000, {
+      metadata: {
+        generation: "gen-1",
+        queuedAt: "2026-01-01T00:00:00.000Z",
+        notifiedAt: "2026-01-01T00:00:02.000Z",
+      },
+    });
     const read = mail(T0 + 2000, {
-      metadata: { deliveredAt: T0 + 3000, readAt: T0 + 4000 },
+      metadata: {
+        generation: "gen-1",
+        queuedAt: "2026-01-01T00:00:00.000Z",
+        notifiedAt: "2026-01-01T00:00:03.000Z",
+        readAt: T0 + 4000,
+      },
     });
     const note = mail(T0 + 3000, { role: "agent" });
     const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);

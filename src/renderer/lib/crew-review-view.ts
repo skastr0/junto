@@ -1,23 +1,28 @@
 /**
- * Operator review projection — requires-review authoring and the verdict
- * chain. Verdicts are immutable facts; this module only reads them.
+ * Operator review projection. Verdicts are immutable facts from p15/p1F;
+ * this module only decodes the exported ReviewVerdict and Rule.kind.
  */
 import { Schema } from "effect";
 import {
   ReviewVerdict as SharedReviewVerdict,
+  VerdictSubject as SharedVerdictSubject,
   type MailEvidenceRef,
   type ReviewVerdict as CanonicalReviewVerdict,
+  type VerdictKind,
   type VerdictSubject,
 } from "@shared/crew";
 import type { Rule, Task, TasksContract } from "@shared/work-model";
-import { parseMailEvidenceRefs } from "./crew-mail-view";
 
-export const REVIEW_VERDICT_KINDS = ["green", "blocking"] as const;
-export type ReviewVerdictKind = (typeof REVIEW_VERDICT_KINDS)[number];
+export type ReviewVerdictKind = VerdictKind;
 
 export type ReviewSubject =
-  | { readonly kind: "task"; readonly taskId: string; readonly epoch: number }
-  | { readonly kind: "commit"; readonly sha: string };
+  | {
+      readonly kind: "task";
+      readonly taskId: string;
+      readonly epoch: number;
+      readonly subjectHash: string;
+    }
+  | { readonly kind: "commit"; readonly sha: string; readonly subjectHash: string };
 
 export type ReviewVerdict = {
   readonly verdictId: string;
@@ -25,16 +30,17 @@ export type ReviewVerdict = {
   readonly reviewerSeatId: string;
   readonly reviewerNodeId: string | undefined;
   readonly reviewerLabel: string;
-  readonly authorSeatId: string | undefined;
+  readonly authorSeatId: string;
   readonly subject: ReviewSubject;
-  readonly subjectHash: string | undefined;
+  readonly subjectHash: string;
   readonly epoch: number;
   readonly findings: ReadonlyArray<string>;
   readonly refs: ReadonlyArray<MailEvidenceRef>;
-  readonly postedAtMs: number | undefined;
+  readonly postedAtMs: number;
 };
 
 const decodeCanonicalVerdict = Schema.decodeUnknownOption(SharedReviewVerdict);
+const decodeVerdictSubject = Schema.decodeUnknownOption(SharedVerdictSubject);
 
 export type ReviewGate = {
   readonly required: boolean;
@@ -48,39 +54,15 @@ export type ReviewGate = {
 const nonempty = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
-const finiteInt = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
-
-const isVerdictKind = (value: unknown): value is ReviewVerdictKind =>
-  value === "green" || value === "blocking";
-
 const flattenSubject = (subject: VerdictSubject): ReviewSubject =>
   subject.kind === "task"
-    ? { kind: "task", taskId: subject.task.itemId, epoch: subject.epoch }
-    : { kind: "commit", sha: subject.sha };
-
-const parseSubject = (value: unknown): ReviewSubject | undefined => {
-  if (value === null || typeof value !== "object") return undefined;
-  const record = value as Record<string, unknown>;
-  if (record.kind === "task") {
-    const nested = record.task;
-    const nestedId =
-      nested !== null && typeof nested === "object"
-        ? nonempty((nested as { readonly itemId?: unknown }).itemId)
-        : undefined;
-    const taskId = nestedId ?? nonempty(record.taskId);
-    const epoch = finiteInt(record.epoch);
-    if (taskId === undefined || epoch === undefined || epoch < 0) {
-      return undefined;
-    }
-    return { kind: "task", taskId, epoch };
-  }
-  if (record.kind === "commit") {
-    const sha = nonempty(record.sha);
-    return sha === undefined ? undefined : { kind: "commit", sha };
-  }
-  return undefined;
-};
+    ? {
+        kind: "task",
+        taskId: subject.taskId,
+        epoch: subject.epoch,
+        subjectHash: subject.subjectHash,
+      }
+    : { kind: "commit", sha: subject.sha, subjectHash: subject.subjectHash };
 
 const viewFromCanonical = (
   verdict: CanonicalReviewVerdict,
@@ -99,48 +81,12 @@ const viewFromCanonical = (
   postedAtMs: verdict.postedAtMs,
 });
 
-const parseFindings = (value: unknown): ReadonlyArray<string> => {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => nonempty(entry))
-    .filter((entry): entry is string => entry !== undefined);
-};
-
+/** Projection only. Compact or guessed shapes are dropped. */
 export const parseReviewVerdict = (
   value: unknown,
 ): ReviewVerdict | undefined => {
   const canonical = decodeCanonicalVerdict(value);
-  if (canonical._tag === "Some") return viewFromCanonical(canonical.value);
-  if (value === null || typeof value !== "object") return undefined;
-  const record = value as Record<string, unknown>;
-  const verdictId = nonempty(record.verdictId);
-  const reviewerSeatId = nonempty(record.reviewerSeatId);
-  const subject = parseSubject(record.subject);
-  const epoch = finiteInt(record.epoch);
-  if (
-    verdictId === undefined ||
-    !isVerdictKind(record.kind) ||
-    reviewerSeatId === undefined ||
-    subject === undefined ||
-    epoch === undefined ||
-    epoch < 0
-  ) {
-    return undefined;
-  }
-  return {
-    verdictId,
-    kind: record.kind,
-    reviewerSeatId,
-    reviewerNodeId: nonempty(record.reviewerNodeId),
-    reviewerLabel: nonempty(record.reviewerLabel) ?? reviewerSeatId,
-    authorSeatId: nonempty(record.authorSeatId),
-    subject,
-    subjectHash: nonempty(record.subjectHash),
-    epoch,
-    findings: parseFindings(record.findings),
-    refs: parseMailEvidenceRefs(record.refs),
-    postedAtMs: finiteInt(record.postedAtMs),
-  };
+  return canonical._tag === "Some" ? viewFromCanonical(canonical.value) : undefined;
 };
 
 export const parseReviewVerdicts = (
@@ -201,46 +147,28 @@ export const verdictsOnTask = (task: Task): ReadonlyArray<ReviewVerdict> => {
 
 const subjectMatches = (
   verdict: ReviewVerdict,
-  subject: ReviewSubject | undefined,
   epoch: number,
   subjectHash: string | undefined,
 ): boolean => {
   if (verdict.epoch !== epoch) return false;
-  if (
-    subjectHash !== undefined &&
-    verdict.subjectHash !== undefined &&
-    verdict.subjectHash !== subjectHash
-  ) {
-    return false;
-  }
-  if (subject === undefined) return verdict.subject.kind === "task";
-  if (subject.kind === "task") {
-    return (
-      verdict.subject.kind === "task" &&
-      verdict.subject.taskId === subject.taskId &&
-      verdict.subject.epoch === subject.epoch
-    );
-  }
-  return (
-    verdict.subject.kind === "commit" && verdict.subject.sha === subject.sha
-  );
+  if (subjectHash === undefined) return false;
+  return verdict.subjectHash === subjectHash;
 };
 
 export const currentReviewSubject = (
   task: Task,
 ): ReviewSubject | undefined => {
-  const fromMeta = parseSubject(task.metadata?.reviewSubject);
-  if (fromMeta !== undefined) return fromMeta;
-  return { kind: "task", taskId: task.id, epoch: taskEpochOf(task) };
+  const decoded = decodeVerdictSubject(task.metadata?.reviewSubject);
+  return decoded._tag === "Some" ? flattenSubject(decoded.value) : undefined;
 };
 
 export const currentReviewSubjectHash = (task: Task): string | undefined =>
-  nonempty(task.metadata?.reviewSubjectHash);
+  nonempty(task.metadata?.reviewSubjectHash) ??
+  currentReviewSubject(task)?.subjectHash;
 
 /**
- * Green must come from a distinct seat on the current epoch and subject.
- * An older green cannot bless newly submitted commit refs. When both sides
- * carry a subject hash, that hash is the binding — not a bare task id.
+ * Green must come from a distinct seat on the current epoch and subject hash.
+ * No hash, no satisfy — a bare task id is not an identity.
  */
 export const reviewGateOf = (
   task: Task,
@@ -253,7 +181,7 @@ export const reviewGateOf = (
   const currentHash = currentReviewSubjectHash(task);
   const chain = verdictsOnTask(task);
   const current = chain.filter((verdict) =>
-    subjectMatches(verdict, currentSubject, currentEpoch, currentHash),
+    subjectMatches(verdict, currentEpoch, currentHash),
   );
   const latestGreen = [...current]
     .reverse()

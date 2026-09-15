@@ -56,14 +56,15 @@ describe("deriveMailDisplay", () => {
 });
 
 describe("crewMailViewOf", () => {
-  it("maps legacy deliveredAt to notified and refuses invented kinds", () => {
+  it("keeps delivery facts independent of the mail extension and deliveredAt", () => {
     const view = crewMailViewOf(
       message({ deliveredAt: 10, mailKind: "prompt", subject: "Wake" }),
       1,
     );
-    expect(view.display).toBe("notified");
+    expect(view.display).toBe("queued");
     expect(view.kind).toBe("prompt");
     expect(view.subject).toBe("Wake");
+    expect(view.facts.notifiedAt).toBeUndefined();
     expect(crewMailViewOf(message({ mailKind: "nope" }), 1).kind).toBeUndefined();
   });
 
@@ -93,6 +94,8 @@ describe("mailAttemptFactsOf via crewMailViewOf", () => {
   it("ignores refuseReason and only reads refusedReason", () => {
     const ignored = crewMailViewOf(
       message({
+        generation: "gen-1",
+        queuedAt: "2026-01-01T00:00:00.000Z",
         refusedAt: "2026-01-01T00:00:04.000Z",
         refuseReason: "seat-busy",
       }),
@@ -103,6 +106,8 @@ describe("mailAttemptFactsOf via crewMailViewOf", () => {
     expect(ignored.facts.refusedReason).toBeUndefined();
     const named = crewMailViewOf(
       message({
+        generation: "gen-1",
+        queuedAt: "2026-01-01T00:00:00.000Z",
         refusedAt: "2026-01-01T00:00:04.000Z",
         refusedReason: "seat-busy",
       }),

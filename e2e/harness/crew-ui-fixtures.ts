@@ -100,17 +100,34 @@ export const compactReviewVerdict = (input: {
   readonly verdictId: string;
   readonly kind: "green" | "blocking";
   readonly reviewerSeatId: string;
-  readonly reviewerLabel?: string;
+  readonly authorSeatId: string;
   readonly taskId: string;
   readonly epoch: number;
+  readonly subjectHash: string;
+  readonly installationId?: string;
+  readonly canvasName?: string;
+  readonly nodeId?: string;
+  readonly reviewerNodeId?: string;
   readonly findings?: ReadonlyArray<string>;
 }): ReadonlyArray<Record<string, unknown>> => [
   {
     verdictId: input.verdictId,
     kind: input.kind,
     reviewerSeatId: input.reviewerSeatId,
-    reviewerLabel: input.reviewerLabel ?? input.reviewerSeatId,
-    subject: { kind: "task", taskId: input.taskId, epoch: input.epoch },
+    ...(input.reviewerNodeId === undefined
+      ? {}
+      : { reviewerNodeId: input.reviewerNodeId }),
+    authorSeatId: input.authorSeatId,
+    subject: {
+      kind: "task",
+      installationId: input.installationId ?? "local",
+      canvasName: input.canvasName ?? "ops",
+      nodeId: input.nodeId ?? "tasks",
+      taskId: input.taskId,
+      epoch: input.epoch,
+      subjectHash: input.subjectHash,
+    },
+    subjectHash: input.subjectHash,
     epoch: input.epoch,
     findings: [...(input.findings ?? [])],
     refs: [],

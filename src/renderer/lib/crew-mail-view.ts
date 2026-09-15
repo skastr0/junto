@@ -9,11 +9,10 @@ import { Schema } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
-  MailAttemptFacts as MailAttemptFactsSchema,
-  MailAttemptReason as MailAttemptReasonSchema,
   MailEvidenceRef as MailEvidenceRefSchema,
   deriveMailDisplayState,
   normalizeDisplayTimestamp,
+  readMailAttemptFacts,
   readMailExtension,
   type MailAttemptFacts as CanonicalMailAttemptFacts,
   type MailAttemptReason,
@@ -49,8 +48,6 @@ const isMailKind = (value: unknown): value is MailKind =>
   value === "notice" || value === "prompt" || value === "receipt";
 
 const decodeEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRefSchema);
-const decodeAttemptFacts = Schema.decodeUnknownOption(MailAttemptFactsSchema);
-const decodeAttemptReason = Schema.decodeUnknownOption(MailAttemptReasonSchema);
 
 export const parseMailEvidenceRef = (
   value: unknown,
@@ -158,34 +155,26 @@ const stampOf = (value: unknown): number | string | undefined => {
 };
 
 /**
- * Transport facts are the flat MailAttemptFacts keys p15 projects from
- * work_mail_attempts. Receipt stamps stay on the existing plane. The only
- * reason key is refusedReason.
+ * Transport facts come only from readMailAttemptFacts. Receipt stamps stay
+ * on the existing plane. The two are never mixed or rewritten.
  */
 export const mailAttemptFactsOf = (
   message: Message,
-  queuedAt: number | undefined,
+  _queuedAt: number | undefined,
 ): MailViewFacts => {
   const meta = message.metadata;
-  const decoded = decodeAttemptFacts(meta);
   const transport: CanonicalMailAttemptFacts | undefined =
-    decoded._tag === "Some" ? decoded.value : undefined;
-  const refused = decodeAttemptReason(meta?.refusedReason);
+    readMailAttemptFacts(meta);
   return {
-    queuedAt: transport?.queuedAt ?? stampOf(meta?.queuedAt) ?? queuedAt,
-    notifiedAt:
-      transport?.notifiedAt ??
-      stampOf(meta?.notifiedAt) ??
-      stampOf(meta?.deliveredAt),
-    unresolvedAt: transport?.unresolvedAt ?? stampOf(meta?.unresolvedAt),
-    refusedAt: transport?.refusedAt ?? stampOf(meta?.refusedAt),
-    refusedReason:
-      transport?.refusedReason ??
-      (refused._tag === "Some" ? refused.value : undefined),
+    queuedAt: transport?.queuedAt,
+    notifiedAt: transport?.notifiedAt,
+    unresolvedAt: transport?.unresolvedAt,
+    refusedAt: transport?.refusedAt,
+    refusedReason: transport?.refusedReason,
     readAt: stampOf(meta?.readAt),
     repliedAt: stampOf(meta?.repliedAt),
     reactedAt: stampOf(meta?.reactedAt),
-    generation: transport?.generation ?? nonempty(meta?.generation),
+    generation: transport?.generation,
   };
 };
 

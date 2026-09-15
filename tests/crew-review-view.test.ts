@@ -19,6 +19,40 @@ const taskOf = (overrides: Partial<Task> = {}): Task => ({
   ...overrides,
 });
 
+const hash = "subject-hash-current";
+
+const canonicalVerdict = (input: {
+  readonly verdictId: string;
+  readonly kind: "green" | "blocking";
+  readonly reviewerSeatId: Task["claimedBy"];
+  readonly authorSeatId: Task["claimedBy"];
+  readonly epoch: number;
+  readonly subjectHash: string;
+  readonly reviewerNodeId?: string;
+}) => ({
+  verdictId: input.verdictId,
+  kind: input.kind,
+  reviewerSeatId: input.reviewerSeatId,
+  ...(input.reviewerNodeId === undefined
+    ? {}
+    : { reviewerNodeId: input.reviewerNodeId }),
+  authorSeatId: input.authorSeatId,
+  subject: {
+    kind: "task" as const,
+    installationId: "inst-1",
+    canvasName: "ops",
+    nodeId: "tasks",
+    taskId: "task-1",
+    epoch: input.epoch,
+    subjectHash: input.subjectHash,
+  },
+  subjectHash: input.subjectHash,
+  epoch: input.epoch,
+  findings: [] as string[],
+  refs: [] as const,
+  postedAtMs: 10,
+});
+
 describe("requires-review projection", () => {
   it("reads typed rule kind and contract flag, never a free-text guess", () => {
     const statement: Rule = { id: "r1", text: "Requires a distinct reviewer" };
@@ -47,29 +81,24 @@ describe("reviewGateOf", () => {
       claimedBy: author,
       rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
       metadata: {
+        reviewSubjectHash: hash,
         verdicts: [
-          {
+          canonicalVerdict({
             verdictId: "v1",
             kind: "green",
             reviewerSeatId: reviewer,
-            reviewerLabel: "Reviewer",
-            subject: { kind: "task", taskId: "task-1", epoch: 1 },
+            authorSeatId: author,
             epoch: 1,
-            findings: [],
-            refs: [],
-            postedAtMs: 10,
-          },
-          {
+            subjectHash: "subject-hash-old",
+          }),
+          canonicalVerdict({
             verdictId: "v2",
             kind: "green",
             reviewerSeatId: author,
-            reviewerLabel: "Author",
-            subject: { kind: "task", taskId: "task-1", epoch: 2 },
+            authorSeatId: author,
             epoch: 2,
-            findings: [],
-            refs: [],
-            postedAtMs: 20,
-          },
+            subjectHash: hash,
+          }),
         ],
       },
     });
@@ -80,7 +109,7 @@ describe("reviewGateOf", () => {
     expect(verdictsOnTask(task)).toHaveLength(2);
   });
 
-  it("satisfies only a distinct reviewer green on the current subject", () => {
+  it("satisfies only a distinct reviewer green on the current subject hash", () => {
     const author = seat("a");
     const reviewer = seat("b");
     const task = taskOf({
@@ -88,18 +117,17 @@ describe("reviewGateOf", () => {
       claimedBy: author,
       rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
       metadata: {
+        reviewSubjectHash: hash,
         verdicts: [
-          {
+          canonicalVerdict({
             verdictId: "v3",
             kind: "green",
             reviewerSeatId: reviewer,
-            reviewerLabel: "Reviewer",
-            subject: { kind: "task", taskId: "task-1", epoch: 1 },
+            authorSeatId: author,
             epoch: 1,
-            findings: [],
-            refs: [{ kind: "commit", sha: "deadbeefcafebabe" }],
-            postedAtMs: 30,
-          },
+            subjectHash: hash,
+            reviewerNodeId: "reviewer",
+          }),
         ],
       },
     });
@@ -110,10 +138,19 @@ describe("reviewGateOf", () => {
 
   it("drops malformed verdicts instead of inventing them", () => {
     expect(parseReviewVerdict({ kind: "green" })).toBeUndefined();
+    expect(
+      parseReviewVerdict({
+        verdictId: "v-guess",
+        kind: "green",
+        reviewerSeatId: seat("b"),
+        subject: { kind: "task", taskId: "task-1", epoch: 1 },
+        epoch: 1,
+      }),
+    ).toBeUndefined();
     expect(boardReviewGate(undefined).required).toBe(false);
   });
 
-  it("reads the storage TaskRef subject and binds on subject hash", () => {
+  it("binds on subject hash, never a bare task id", () => {
     const author = seat("a");
     const reviewer = seat("b");
     const task = taskOf({
@@ -121,29 +158,17 @@ describe("reviewGateOf", () => {
       claimedBy: author,
       rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
       metadata: {
-        reviewSubjectHash: "hash-current",
+        reviewSubjectHash: hash,
         verdicts: [
-          {
+          canonicalVerdict({
             verdictId: "v-canonical",
             kind: "green",
             reviewerSeatId: reviewer,
-            reviewerNodeId: "reviewer",
             authorSeatId: author,
-            subject: {
-              kind: "task",
-              task: {
-                kind: "task",
-                itemId: "task-1",
-                sink: { canvasName: "ops", nodeId: "tasks" },
-              },
-              epoch: 1,
-            },
-            subjectHash: "hash-other",
             epoch: 1,
-            findings: ["looks good"],
-            refs: [],
-            postedAtMs: 40,
-          },
+            subjectHash: "hash-other",
+            reviewerNodeId: "reviewer",
+          }),
         ],
       },
     });
@@ -151,6 +176,7 @@ describe("reviewGateOf", () => {
       kind: "task",
       taskId: "task-1",
       epoch: 1,
+      subjectHash: "hash-other",
     });
     expect(reviewGateOf(task, undefined, author).satisfied).toBe(false);
   });
