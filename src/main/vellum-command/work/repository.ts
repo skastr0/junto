@@ -157,9 +157,34 @@ import {
   reviewGateSatisfiedWithin,
   type ReviewReceiptInput,
 } from "./crew-repository";
-import type { ReviewVerdict } from "../../../shared/crew";
 import { unjournaledWorkMutation } from "./mutation-seam";
+import {
+  agentNodeForSeat,
+  reviewAuthorSeat,
+  reviewSubjectProjection,
+  reviewsEdgeExists,
+} from "./reviews";
+import { readCommandCenterPortfolio } from "../canvases";
+import {
+  mailAttemptFactsMetadata,
+  type MailAttemptFacts,
+  type ReviewVerdict,
+} from "../../../shared/crew";
+
+/**
+ * Result of a live-validated verdict post: the stored verdict, or a typed
+ * refusal the service maps without parsing a message.
+ */
+export type PostReviewVerdictResult =
+  | { readonly verdict: ReviewVerdict; readonly created: boolean }
+  | {
+      readonly rejected:
+        | "reviewer-is-author"
+        | "stale-subject"
+        | "reviews-edge-missing";
+    };
 import { canonicalJson } from "./canonical-json";
+import { taskReviewSubjectHash } from "./review-subject-hash";
 import {
   allocateSequence,
   appendPendingCommand,
@@ -2869,6 +2894,70 @@ const taskFromRow = (
   };
 };
 
+/** All epochs and subjects for this sink's exact task identities, in one query. */
+const loadTaskVerdictsMap = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlyMap<string, ReadonlyArray<ReviewVerdict>> => {
+  const rows = reader.all<StateRow & {
+    readonly verdict_id: string;
+    readonly kind: ReviewVerdict["kind"];
+    readonly reviewer_seat_id: ReviewVerdict["reviewerSeatId"];
+    readonly reviewer_node_id: string | null;
+    readonly author_seat_id: ReviewVerdict["authorSeatId"];
+    readonly subject_task_installation: string;
+    readonly subject_task_item: string;
+    readonly subject_epoch: number;
+    readonly subject_hash: string;
+    readonly epoch: number;
+    readonly findings_json: string;
+    readonly refs_json: string;
+    readonly posted_at_ms: number;
+  }>(
+    `SELECT verdict.*
+     FROM work_review_verdicts AS verdict
+     JOIN work_tasks AS task
+       ON task.canvas_name = verdict.subject_task_canvas
+      AND task.node_id = verdict.subject_task_node
+      AND task.task_id = verdict.subject_task_item
+      AND task.entity_home = verdict.subject_task_installation
+     WHERE verdict.subject_kind = 'task'
+       AND verdict.subject_task_canvas = ? AND verdict.subject_task_node = ?
+     ORDER BY verdict.subject_task_item, verdict.posted_at_ms, verdict.verdict_id`,
+    [sink.canvasName, sink.nodeId],
+  );
+  const map = new Map<string, ReviewVerdict[]>();
+  for (const row of rows) {
+    // Like the other lane loaders, construct the projection from rows whose
+    // writer validated the canonical schema and whose columns have SQL domains.
+    const verdict: ReviewVerdict = {
+      verdictId: row.verdict_id,
+      kind: row.kind,
+      reviewerSeatId: row.reviewer_seat_id,
+      ...(row.reviewer_node_id === null ? {} : { reviewerNodeId: row.reviewer_node_id }),
+      authorSeatId: row.author_seat_id,
+      subject: {
+        kind: "task",
+        installationId: row.subject_task_installation,
+        canvasName: sink.canvasName,
+        nodeId: sink.nodeId,
+        taskId: row.subject_task_item,
+        epoch: row.subject_epoch,
+        subjectHash: row.subject_hash,
+      },
+      subjectHash: row.subject_hash,
+      epoch: row.epoch,
+      findings: parseJson(row.findings_json) as ReviewVerdict["findings"],
+      refs: parseJson(row.refs_json) as ReviewVerdict["refs"],
+      postedAtMs: row.posted_at_ms,
+    };
+    const chain = map.get(row.subject_task_item);
+    if (chain === undefined) map.set(row.subject_task_item, [verdict]);
+    else chain.push(verdict);
+  }
+  return map;
+};
+
 const loadLaneTasks = (
   reader: StateReader,
   sink: SinkRefValue,
@@ -2880,6 +2969,8 @@ const loadLaneTasks = (
     lane === "task" ? loadTaskDependsOnMap(reader, sink) : undefined;
   const finishMap =
     lane === "task" ? loadTaskFinishMap(reader, sink) : undefined;
+  const verdictsMap =
+    lane === "task" ? loadTaskVerdictsMap(reader, sink) : undefined;
   const threads = loadThreadsByItem(reader, sink, lane);
   // Requests: newest first (operator triage). Tasks keep oldest-first claim order.
   const orderBy =
@@ -2910,8 +3001,8 @@ const loadLaneTasks = (
       `,
       [sink.canvasName, sink.nodeId],
     )
-    .map((row) =>
-      taskFromRow(
+    .map((row) => {
+      const task = taskFromRow(
         reader,
         sink,
         lane,
@@ -2919,8 +3010,20 @@ const loadLaneTasks = (
         dependsMap?.get(row.item_id),
         finishMap?.get(row.item_id),
         threads.get(row.item_id) ?? [],
-      ),
-    );
+      );
+      return lane === "task"
+        ? {
+            ...task,
+            verdicts: verdictsMap?.get(row.item_id) ?? [],
+            subjectHash: taskReviewSubjectHash({
+              installationId: row.entity_home,
+              canvasName: sink.canvasName,
+              nodeId: sink.nodeId,
+              task,
+            }),
+          }
+        : task;
+    });
 };
 
 /**
@@ -2962,11 +3065,54 @@ const loadMessageReceiptAcceptedAtMap = (
   return map;
 };
 
+/**
+ * The newest durably queued recipient generation for each message, in one
+ * sink query. A late update to an older generation cannot replace a newer
+ * attempt: generation selection uses its original queued stamp, not updated_at.
+ */
+const loadMessageAttemptFactsMap = (
+  reader: StateReader,
+  sink: SinkRefValue,
+): ReadonlyMap<string, MailAttemptFacts> => {
+  const rows = reader.all<StateRow & {
+    readonly message_id: string;
+    readonly recipient_generation: string;
+    readonly queued_at: string;
+    readonly attempted_at: string | null;
+    readonly notified_at: string | null;
+    readonly unresolved_at: string | null;
+    readonly refused_at: string | null;
+    readonly refused_reason: MailAttemptFacts["refusedReason"] | null;
+  }>(
+    `SELECT message_id, recipient_generation, queued_at, attempted_at,
+            notified_at, unresolved_at, refused_at, refused_reason
+     FROM work_mail_attempts
+     WHERE canvas_name = ? AND node_id = ?
+     ORDER BY message_id, queued_at DESC, recipient_generation DESC, recipient_seat_id DESC`,
+    [sink.canvasName, sink.nodeId],
+  );
+  const map = new Map<string, MailAttemptFacts>();
+  for (const row of rows) {
+    if (map.has(row.message_id)) continue;
+    map.set(row.message_id, {
+      generation: row.recipient_generation,
+      queuedAt: row.queued_at,
+      ...(row.attempted_at === null ? {} : { attemptedAt: row.attempted_at }),
+      ...(row.notified_at === null ? {} : { notifiedAt: row.notified_at }),
+      ...(row.unresolved_at === null ? {} : { unresolvedAt: row.unresolved_at }),
+      ...(row.refused_at === null ? {} : { refusedAt: row.refused_at }),
+      ...(row.refused_reason === null ? {} : { refusedReason: row.refused_reason }),
+    });
+  }
+  return map;
+};
+
 const loadInbox = (
   reader: StateReader,
   sink: SinkRefValue,
 ): ReadonlyArray<MessageValue> => {
   const receipts = loadMessageReceiptAcceptedAtMap(reader, sink);
+  const attempts = loadMessageAttemptFactsMap(reader, sink);
   return reader
     .all<MessageRow>(
       `
@@ -2986,6 +3132,7 @@ const loadInbox = (
     )
     .map((row) => {
       const message = messageFromRow(row);
+      const attempt = attempts.get(row.message_id);
       const deliveredAt = receipts.get(
         mailboxMessageDeliveryId(sink.canvasName, sink.nodeId, row.message_id),
       );
@@ -3001,6 +3148,7 @@ const loadInbox = (
         ),
       );
       if (
+        attempt === undefined &&
         deliveredAt === undefined &&
         readAt === undefined &&
         ackAt === undefined
@@ -3011,6 +3159,7 @@ const loadInbox = (
         ...message,
         metadata: {
           ...(message.metadata ?? {}),
+          ...(attempt === undefined ? {} : mailAttemptFactsMetadata(attempt)),
           ...(deliveredAt !== undefined ? { deliveredAt } : {}),
           ...(readAt !== undefined ? { readAt } : {}),
           ...(ackAt !== undefined
@@ -7617,6 +7766,19 @@ export interface WorkRepositoryShape {
       RepositoryFailure
     >;
     /**
+     * Post a review verdict with live-task authority, validated and inserted in
+     * one transaction: recompute the subject from the live task, refuse a
+     * self-review, a moved epoch/hash/author, or a missing directed reviews
+     * edge, then store the immutable verdict.
+     */
+    readonly postReviewVerdict: (
+      verdict: ReviewVerdict,
+      opts: {
+        readonly basis: IntentFactBasisValue;
+        readonly canvasName: string;
+      },
+    ) => Effect.Effect<PostReviewVerdictResult, RepositoryFailure>;
+    /**
      * Approve a task waiting at an `approval` board: epoch-scoped operator
      * stamp at metadata["vellum.tasks.approvedEpoch"] (same-state
      * task.transition fact).
@@ -8620,6 +8782,106 @@ export const WorkRepositoryLive = Layer.effect(
           snapshot: loadSnapshot(writer, input.sink),
         };
       });
+    };
+
+    const postReviewVerdict = (
+      verdict: ReviewVerdict,
+      opts: {
+        readonly basis: IntentFactBasisValue;
+        readonly canvasName: string;
+      },
+    ): Effect.Effect<PostReviewVerdictResult, RepositoryFailure> => {
+      const subject = verdict.subject;
+      if (subject.kind === "commit") {
+        // A commit subject carries no live task to compare against; store the
+        // immutable verdict (idempotent by id). Task rejection needs an
+        // explicit task subject, so a commit blocking has no work consequence.
+        return transaction(
+          "work.review.post-verdict",
+          {
+            canvasName: opts.canvasName,
+            nodeId: verdict.reviewerNodeId ?? "review",
+          },
+          (writer): PostReviewVerdictResult => {
+            const before = writer.get<{ readonly verdict_id: string }>(
+              `SELECT verdict_id FROM work_review_verdicts WHERE verdict_id = ?`,
+              [verdict.verdictId],
+            );
+            unjournaledWorkMutation("crew.review-verdict", () =>
+              applyVerdictWrite(writer, verdict),
+            );
+            return { verdict, created: before === undefined };
+          },
+        );
+      }
+      const sink = { canvasName: opts.canvasName, nodeId: subject.nodeId };
+      return transaction(
+        "work.review.post-verdict",
+        sink,
+        (writer): PostReviewVerdictResult => {
+          const { installationId } = canonicalLocalWorkAuthority(writer);
+          const current = loadTask(writer, "task", sink, subject.taskId);
+          if (current === undefined) {
+            return { rejected: "stale-subject" };
+          }
+          // Recompute the subject from the live task's canonical completion
+          // refs — never a cached derived hash.
+          const projection = reviewSubjectProjection({
+            installationId,
+            canvasName: opts.canvasName,
+            nodeId: subject.nodeId,
+            task: current.task,
+          });
+          const authorSeat = reviewAuthorSeat(current.task);
+          if (authorSeat === undefined) {
+            // No live author to target: no reviews edge can hold.
+            return { rejected: "reviews-edge-missing" };
+          }
+          // Self-review: the reviewer is (or has become) the current author.
+          if (verdict.reviewerSeatId === authorSeat) {
+            return { rejected: "reviewer-is-author" };
+          }
+          // Stale: the live epoch, subject hash, or author moved since the
+          // verdict was formed.
+          if (
+            projection.epoch !== verdict.epoch ||
+            projection.subjectHash !== verdict.subjectHash ||
+            verdict.authorSeatId !== authorSeat
+          ) {
+            return { rejected: "stale-subject" };
+          }
+          // A current directed reviews edge reviewer→author holding verdict.post
+          // in this canvas, re-read in the same writer (mask respected).
+          const portfolio = readCommandCenterPortfolio(writer);
+          const doc = portfolio.documents.get(opts.canvasName)?.doc;
+          // Stable seats span canvases; scope the actor refs to this canvas
+          // before resolving nodes, or the helper finds a ref in another one.
+          const refsHere = portfolio.actorRefs.filter(
+            (ref) => ref.canvasName === opts.canvasName,
+          );
+          const reviewerNode = agentNodeForSeat(
+            refsHere,
+            verdict.reviewerSeatId,
+          );
+          const authorNode = agentNodeForSeat(refsHere, authorSeat);
+          if (
+            doc === undefined ||
+            reviewerNode === undefined ||
+            authorNode === undefined ||
+            !reviewsEdgeExists(doc, reviewerNode.nodeId, authorNode.nodeId)
+          ) {
+            return { rejected: "reviews-edge-missing" };
+          }
+          const before = writer.get<{ readonly verdict_id: string }>(
+            `SELECT verdict_id FROM work_review_verdicts WHERE verdict_id = ?`,
+            [verdict.verdictId],
+          );
+          unjournaledWorkMutation("crew.review-verdict", () =>
+            applyVerdictWrite(writer, verdict),
+          );
+          return { verdict, created: before === undefined };
+        },
+      );
     };
 
     const promoteTask = (
@@ -10060,6 +10322,7 @@ export const WorkRepositoryLive = Layer.effect(
       claimLocalTask,
       sendTaskOn,
       sendTaskBack,
+      postReviewVerdict,
       promoteTask,
       recordCheckResults,
       createRequest,
