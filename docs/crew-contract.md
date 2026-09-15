@@ -60,6 +60,13 @@ pre-write refusal, submitted notification and written-unresolved, with a
 reason and physical write evidence. Public managed submission must not return
 a boolean that collapses these outcomes.
 
+A submitted notification requires positive acceptance evidence: an observed
+turn start, or a harness-defined acknowledgement for the submitted command.
+Text disappearing from the composer is not proof of acceptance. If the
+acknowledgement deadline expires after a physical write, retain an unresolved
+attempt and its reason; do not invent success to suppress a retry. The durable
+attempt hold prevents automatic same-generation re-pasting.
+
 Each physical attempt first opens a durable intent with an increasing attempt
 sequence. A terminal outcome closes that sequence. Boot recovery marks an
 unclosed intent unresolved, including a retry after an earlier refusal; a
