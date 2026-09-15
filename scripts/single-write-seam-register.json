@@ -149,6 +149,18 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/vellum-command/work/crew-repository.ts",
+      "kind": "debt",
+      "tables": [
+        "work_mail_attempts",
+        "work_review_checkout_observations",
+        "work_review_receipts",
+        "work_review_verdicts"
+      ],
+      "reason": "Crew durable store: mail delivery attempts and review verdicts over the one product StateEngine, receiving its StateWriter from the engine that owns the transaction. An attempt is enqueued before any transport action and stamped set-once afterwards, so no fact clears another; verdicts are immutable rows keyed by verdict id, task identity, epoch and subject hash. No other seam writes these four tables.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the crew projection and this file's only write is the journal append."
+    },
+    {
       "path": "src/main/vellum-command/canvas/records.ts",
       "kind": "debt",
       "tables": [
@@ -1193,6 +1205,28 @@
         "wire"
       ],
       "reason": "Decodes the external Responses API result and its function-call items before the native controller can dispatch any provider-produced tool call."
+    },
+    {
+      "path": "src/main/vellum-command/work/crew-repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Rebuilds DeliveryAttempt and ReviewVerdict from the crew rows this process wrote, so a retained attempt or verdict is read back as the domain value the gate query judges.",
+      "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
+    },
+    {
+      "path": "src/shared/crew.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "The canonical mail codec: it defines the Message metadata extension and the attempt facts, stamps them, and reads them back from an open metadata record. One module owns the shape and both directions of it, so the ledger and the delivery path cannot drift."
+    },
+    {
+      "path": "src/shared/managed-prompt.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Validates an immediate-prompt outcome payload arriving from the managed drive before any counter or status is believed; a payload that proves nothing decodes to undefined rather than to a fabricated acceptance."
     },
     {
       "path": "src/shared/overseer-host-control.ts",
