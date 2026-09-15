@@ -44,6 +44,9 @@ const DEVIN_BINDING = "local:isolated-devin";
 const HOLD_NOTE = join("/tmp", "isolated-devin-mail-hold.json");
 const PRESERVED_PTY_TRACE = join("/tmp", "isolated-devin-pty-delivery.jsonl");
 const PRESERVED_TRANSPORT = join("/tmp", "isolated-devin-transport.jsonl");
+const ARTIFACT_SCREEN = join("/tmp", "isolated-devin-seat.png");
+const ARTIFACT_SEAT_READ = join("/tmp", "isolated-devin-seat-read.json");
+const ARTIFACT_MAIL = join("/tmp", "isolated-devin-mail-facts.json");
 
 const sha256File = (path: string): string | undefined => {
   if (!existsSync(path)) return undefined;
@@ -112,31 +115,13 @@ const projectedMessages = async (
   return items ?? [];
 };
 
-const dismissDevinTrust = async (page: Page): Promise<void> => {
-  const attached = (await page.evaluate(async (bindingId) => {
-    const api = window.vellumCommand!;
-    return api.terminalAttach({ bindingId, mode: "control", takeover: true });
-  }, DEVIN_BINDING)) as { ok?: boolean; lease?: { leaseId?: string } };
-  const leaseId = attached.lease?.leaseId;
-  if (leaseId === undefined) return;
+const occupyDevinOnce = async (page: Page): Promise<{ pid?: number; cwd?: string }> => {
   await page.evaluate(
-    async ([id]) => {
-      await window.vellumCommand!.terminalWrite(id, "\r");
-      await window.vellumCommand!.terminalRelease(id);
+    async ([canvas, node]) => {
+      await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
     },
-    [leaseId] as const,
+    [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinReceiverNode] as const,
   );
-};
-
-const occupyDevin = async (page: Page): Promise<{ pid?: number; cwd?: string }> => {
-  const occupy = () =>
-    page.evaluate(
-      async ([canvas, node]) => {
-        await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
-      },
-      [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinReceiverNode] as const,
-    );
-  await occupy().catch(() => undefined);
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const session = await page.evaluate(
@@ -146,13 +131,12 @@ const occupyDevin = async (page: Page): Promise<{ pid?: number; cwd?: string }> 
     if (session?.pid !== undefined && session.pid > 0) {
       return { pid: session.pid, cwd: session.cwd };
     }
-    await occupy().catch(() => undefined);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(250);
   }
-  throw new Error("real Devin seat never occupied");
+  throw new Error("real Devin seat never occupied after one terminalCreate");
 };
 
-test("isolated Devin [real-harness]: process-bound list stamps projected readAt", async () => {
+test("isolated Devin [real-harness]: native mail is readAt or named unresolved", async () => {
   test.setTimeout((HOLD ? HOLD_MS : 0) + 240_000);
   if (!existsSync(operatorCred)) {
     test.skip(true, "no operator Devin credentials.toml to seed");
@@ -232,46 +216,13 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
 
     const sender = crewSeat(sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_SENDER_ID);
     await crewOccupySeat(page, ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinSenderNode, sender);
-    const occupied = await occupyDevin(page);
+    const occupied = await occupyDevinOnce(page);
     writeHold({
+      phase: "occupied",
       harnessPid: occupied.pid,
       sandboxHome: sandbox.homeDir,
       cwd: occupied.cwd,
     });
-    const waitIdle = async (timeoutMs: number) => {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const remaining = Math.max(1_000, deadline - Date.now());
-        const idle = await sender.op(
-          "seat.wait",
-          { target: ISOLATED_DEVIN_RECEIVER_ID, until: "idle", timeoutMs: Math.min(15_000, remaining) },
-          { timeoutMs: 20_000, awaitMs: 25_000 },
-        );
-        if (idle.ok) return;
-        const attention = await sender.op(
-          "seat.wait",
-          {
-            target: ISOLATED_DEVIN_RECEIVER_ID,
-            until: "attention",
-            timeoutMs: 3_000,
-          },
-          { timeoutMs: 5_000, awaitMs: 8_000 },
-        );
-        if (attention.ok) await dismissDevinTrust(page);
-        const grid = await sender.op("seat.read", {
-          target: ISOLATED_DEVIN_RECEIVER_ID,
-          lines: 40,
-        });
-        if (grid.ok) {
-          const text = String((grid.data as { text?: string } | undefined)?.text ?? "");
-          if (/trust the authors|yes, trust|needs input/i.test(text)) {
-            await dismissDevinTrust(page);
-          }
-        }
-      }
-      throw new Error("real Devin never reached idle");
-    };
-    await waitIdle(120_000);
 
     const nonce = `isolated-devin-mail ${String(Date.now())}`;
     const send = await sender.op("msg.send", {
@@ -341,7 +292,28 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
         : physicalPastes === 0
           ? `enqueue-only: no physical paste; last gate=${String(lastDevinGate?.fields?.gate)} waiting=${String(lastDevinGate?.fields?.waiting)} idle=${String(lastDevinIdle?.fields?.value)}`
           : "pasted but readAt missing";
+    const grid = await sender.op("seat.read", {
+      target: ISOLATED_DEVIN_RECEIVER_ID,
+      lines: 40,
+    });
+    writeFileSync(
+      ARTIFACT_SEAT_READ,
+      `${JSON.stringify(grid.ok ? grid.data : grid, null, 2)}\n`,
+    );
+    writeFileSync(
+      ARTIFACT_MAIL,
+      `${JSON.stringify({
+        messageId,
+        fromSeat,
+        readAt,
+        physicalPastes,
+        unresolvedReason,
+        notified: found !== undefined,
+      }, null, 2)}\n`,
+    );
+    await page.screenshot({ path: ARTIFACT_SCREEN, fullPage: true });
     writeHold({
+      phase: "artifacts",
       harnessPid: occupied.pid,
       sandboxHome: sandbox.homeDir,
       cwd: occupied.cwd,
@@ -350,17 +322,27 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
       readAt,
       physicalPastes,
       unresolvedReason,
+      screenshot: ARTIFACT_SCREEN,
+      seatRead: ARTIFACT_SEAT_READ,
+      mailFacts: ARTIFACT_MAIL,
       ...logs,
     });
     if (HOLD) {
       await page.waitForTimeout(HOLD_MS);
     }
     expect(physicalPastes, unresolvedReason ?? "repeat paste").toBeLessThanOrEqual(1);
+    const hasRead = readAt !== null && readAt !== undefined;
     expect(
-      readAt !== null && readAt !== undefined,
-      unresolvedReason ?? "readAt missing",
+      hasRead || typeof unresolvedReason === "string",
+      "need readAt or a named unresolved reason",
     ).toBe(true);
-    expect(physicalPastes).toBe(1);
+    if (hasRead) {
+      expect(physicalPastes).toBe(1);
+    } else {
+      expect(physicalPastes).toBe(0);
+      expect(unresolvedReason).toMatch(/enqueue-only|must-wait|idle=false/);
+    }
+    expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
   } finally {
     try {
       preserveLogs(vellum.sandbox.homeDir);

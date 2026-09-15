@@ -70,7 +70,10 @@ export const seedIsolatedDevinAppHome = async (
   operatorHome: string,
   operatorPath: string,
 ): Promise<ReturnType<typeof prepareIsolatedHarnessLaunch>> => {
-  await installCrewSeatHarness(sandbox);
+  const fakeCodex = join(seededHarnessBinDir(sandbox), "codex");
+  if (!existsSync(fakeCodex)) {
+    await installCrewSeatHarness(sandbox);
+  }
   const prepared = prepareIsolatedHarnessLaunch({
     harness: "devin",
     isolatedHome: sandbox.homeDir,
