@@ -60,9 +60,20 @@ const runtimeProvenance = () => {
   } catch {
     /* ignore */
   }
+  let sourceDiffSha256 = "clean";
+  try {
+    const diff = execFileSync("git", ["diff", "HEAD"], { encoding: "buffer" });
+    if (diff.length > 0) {
+      sourceDiffSha256 = createHash("sha256").update(diff).digest("hex");
+    }
+  } catch {
+    sourceDiffSha256 = "unknown";
+  }
   return {
     sourceCommit,
+    sourceDiffSha256,
     outMainSha256: sha256File(join(process.cwd(), "out", "main", "index.js")),
+    outPreloadSha256: sha256File(join(process.cwd(), "out", "preload", "index.cjs")),
     outRendererSha256:
       rendererIndex === undefined
         ? undefined
@@ -150,6 +161,7 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
   if (HOLD) process.env.VELLUM_COMMAND_E2E_SHOW = "1";
 
   const provenance = runtimeProvenance();
+  writeFileSync(HOLD_NOTE, `${JSON.stringify({ phase: "prelaunch", ...provenance })}\n`);
   const vellum = await launchVellum({
     seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
     afterSeed: async (sandbox) => {
