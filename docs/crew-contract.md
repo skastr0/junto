@@ -1,14 +1,15 @@
 # Local crew communication and reviews
 
-Implementation contract for the operator's 2026-09-15 brief. The five product
-rulings below are adopted. Interface details are being checked against the
-current services before the implementation lanes share them.
+Implementation contract for the operator's 2026-09-15 brief. These are the
+required behaviors, not a claim that every qualification gate has passed.
 
 ## Product rulings
 
 - `messages` offers `msg.prompt`, `seat.wait`, and `terminal.read` alongside
   mail. The operator may attenuate each independently. Observe is granted by
-  default on an unmasked messages edge. A mask can only remove compiled ports.
+  default on an unmasked messages edge. `ether.mask` is an allow-list over
+  compiled ports: omitted means all, an empty list means none. It cannot add
+  a port the verb does not offer.
 - New peer envelopes say `mail from <seat>`. Sender identity comes from the
   admitted process and current seat generation, never client-supplied stamps.
 - This iteration is local Command Center only. Remote delivery is explicitly
@@ -59,20 +60,32 @@ pre-write refusal, submitted notification and written-unresolved, with a
 reason and physical write evidence. Public managed submission must not return
 a boolean that collapses these outcomes.
 
+Each physical attempt first opens a durable intent with an increasing attempt
+sequence. A terminal outcome closes that sequence. Boot recovery marks an
+unclosed intent unresolved, including a retry after an earlier refusal; a
+clean enqueue without a write intent remains safe to attempt. Reconciliation
+finishes before live delivery is configured. Batch membership is persisted
+before the common physical write and retained during receipt recovery.
+
 Expose queued, notified, unresolved, refused, read, replied and reacted with
 reasons. Transport state and read/reply/reaction facts must not erase one
 another: preserve their timestamps and derive the displayed state. A later
 receipt failure cannot turn an accepted notification into an eligible fresh
 paste. Equal text with distinct message ids remains distinct mail.
+Display precedence is reacted, replied, read, unresolved, refused, notified,
+queued. `refusedReason` is the reason key. Historical `deliveredAt` proves
+notification only and never implies read.
 
 An unresolved attempt is not automatically retried in its generation. A new
 generation, explicit resume batch or operator retry authorizes a new attempt;
 mere idle transitions, pulse ticks and subscriber remounts do not.
 
-`msg send --prompt <seat> <text>` persists kind prompt with immediate policy.
-Short full-body delivery requires idle and an empty composer. Busy or draft
+`msg send <seat> <text> --prompt` calls `msg.prompt` and persists kind prompt
+with immediate policy. Full-body delivery of at most 160 body characters
+(excluding the server sender envelope) requires idle and an empty composer. Busy or draft
 returns retryable SeatBusy with the durable message id and a next step. Retry
-must address that same id, not silently create another message. Oversize
+uses `msg send <seat> --prompt --retry <messageId>` and cannot replace the
+durable body or silently create another message. Oversize
 immediate bodies refuse with an explicit input reason. `--fallback notice`
 retains the same row and switches to ordinary notice policy.
 
@@ -95,16 +108,24 @@ generation and event time, or a typed timeout. Register before checking the
 current value so transitions cannot be lost. Any means currently authorized
 peer seats, never all seats on the machine.
 
-`tasks wait <id> --until completed|input-required|rejected` uses work change
+`tasks wait <id> --target <task-sink> --until completed|input-required|rejected` uses work change
 events and current task-edge authority. Cancellation and timeout release all
 subscriptions. Normal response is within 250 ms of the observed transition.
 
-`seat read <seat> --lines N --since <seq> --follow --max-seconds S` reads a
+`seat read <seat> --lines N --since <seq> --since-generation <generation>
+--follow --max-seconds S` reads a
 settled observer grid and bounded scrollback. Return sequence, generation,
 seat state and text. Sequence belongs to a generation; a replacement is
 explicit, never concatenated into the old generation's stream. Follow has
 duration and output-byte bounds. The read port grants no write, resize or
 signal operation.
+
+The wire ops are `seat.wait`, `seat.read`, and `tasks.wait`, with canvas node
+ids as targets. `since` requires `sinceGeneration`. Read defaults to 40 lines,
+caps at 2,000 lines and 65,536 UTF-8 bytes, and follows for 30 seconds by
+default, at most 600. Wait defaults to 60 seconds, at most 600. Seat epoch
+identifies the observer generation; task epoch is a separate numeric counter.
+Explicit Remote-placed peers refuse; `--any` considers authorized local peers.
 
 ## Reviews
 
@@ -115,8 +136,11 @@ commits in a shared checkout were authored by a particular seat.
 
 Verdicts are immutable, seat-stamped, bound to task epoch and exact subject
 refs. Posting requires a current reviewer-to-author edge and distinct seats.
-Task and commit subjects retain enough receipt provenance to derive the
-author and relevant task epoch; client assertions do not establish either.
+Task subjects carry an expected epoch and subject hash; the writer re-reads
+the current task, author and edge before accepting that comparison. A commit
+subject uses durable commit-author provenance and epoch zero. It does not
+infer a task from a SHA or reject a task: task effects require an explicit
+task subject. Client assertions never establish authorship.
 
 An operator-authored requires-review rule on a task or board gates completion
 on a distinct eligible reviewer's green verdict for the current epoch and
@@ -124,6 +148,16 @@ review subject. An old green cannot bless newly submitted commit refs. A
 blocking verdict stores findings/refs and invokes existing rejection rules
 atomically with the epoch change. Stale concurrent verdicts cannot move the
 new epoch. The operator task view and digest expose the whole verdict chain.
+
+An author stages completion evidence while the task remains working, so a
+reviewer can judge the exact candidate before completion. Receipt mail carries
+the server-derived task subject (task id, epoch, subject hash) and target sink;
+a reviewer needs no unrelated task-read grant to post a verdict. Completion
+and send-on recheck the current green inside their transaction. Receipt mail
+and its deduplication record commit with the task fact. A same-millisecond
+green/blocking tie resolves to blocking, independent of read order. On a first
+board, blocking rehomes the task on that board, advances its epoch and releases
+the claim, so it can be fixed and reviewed again.
 
 ## Evidence and delivery sequence
 
