@@ -7,15 +7,21 @@ import type { Message, Rule } from "../../src/shared/work-model";
 import { verbEdge } from "./sandbox";
 
 export const CREW_UI_SELECTORS = {
+  seatUnresolvedMail: "seat-unresolved-mail",
+  seatUnresolvedMailTotal: "seat-unresolved-mail-total",
+  edgesGlance: "actor-edges-glance",
   mailRow: "actor-ledger-mail-row",
   mailUnresolved: "actor-ledger-mail-unresolved",
   mailFolded: "actor-ledger-mail-folded",
+  ledger: "actor-ledger",
+  taskDetail: "task-detail",
   edgePortMask: "edge-port-mask",
   edgePortMaskChip: "edge-port-mask-chip",
   requiresReview: "requires-review-authoring",
   verdictChain: "verdict-chain",
   verdictChainEntry: "verdict-chain-entry",
-  edgesUnresolved: "actor-edges-unresolved",
+  canvasDigest: "canvas-digest",
+  canvasDigestBody: "canvas-digest-body",
 } as const;
 
 export const CREW_UI_COMMITS = [

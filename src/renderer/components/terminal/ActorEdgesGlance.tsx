@@ -211,7 +211,8 @@ function EdgeCard({
               {unresolvedFromPeer > 0 ? (
                 <span
                   className="actor-edges-glance__mail-count"
-                  data-testid="actor-edges-unresolved"
+                  data-testid="seat-unresolved-mail"
+                  data-peer-id={row.peerId}
                   title={`${unresolvedFromPeer} unresolved write${unresolvedFromPeer === 1 ? "" : "s"} from ${row.peerTitle}`}
                 >
                   {unresolvedFromPeer}
@@ -300,6 +301,8 @@ export function ActorEdgesGlance({
 
   const listId = `actor-connections-list-${node.id}`;
   const hasMirrors = rows.some((row) => isMirrorablePeer(peersById.get(row.peerId)));
+  let unresolvedTotal = 0;
+  for (const count of unresolvedByPeer.values()) unresolvedTotal += count;
 
   return (
     <aside
@@ -330,6 +333,15 @@ export function ActorEdgesGlance({
             <span className="actor-edges-glance__count" aria-hidden>
               {rows.length}
             </span>
+            {unresolvedTotal > 0 ? (
+              <span
+                className="actor-edges-glance__mail-count"
+                data-testid="seat-unresolved-mail-total"
+                title={`${unresolvedTotal} unresolved writes`}
+              >
+                {unresolvedTotal}
+              </span>
+            ) : null}
           </>
         ) : (
           <IconButton

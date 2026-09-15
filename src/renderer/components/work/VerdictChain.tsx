@@ -62,6 +62,8 @@ export function VerdictChain({
                 data-testid="verdict-chain-entry"
                 data-verdict={verdict.kind}
                 data-epoch={String(verdict.epoch)}
+                data-reviewer-seat={verdict.reviewerSeatId}
+                data-reviewer-node={verdict.reviewerNodeId}
                 data-current={current ? "true" : "false"}
               >
                 <div className="verdict-chain__entry-head">

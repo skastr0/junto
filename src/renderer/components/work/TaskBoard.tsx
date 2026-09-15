@@ -1888,7 +1888,11 @@ function TaskDetailPanel({
   const reviewVerdicts = verdictsOnTask(task);
 
   return (
-    <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
+    <aside
+      className="task-detail-panel"
+      data-testid="task-detail"
+      aria-label={`Details for ${taskTitle(task)}`}
+    >
       <header className="task-detail-panel__header">
         <div>
           <div className="task-detail-panel__chips">

@@ -41,9 +41,9 @@ export function DigestPanel() {
   const { copied, copy } = useDigestCopy(digest?.digest);
 
   return <AnimatePresence>
-    {open && digest ? <motion.aside key="digest" role="dialog" aria-label="Canvas digest" aria-modal="true" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }} className="absolute right-0 top-0 z-50 flex h-full w-[440px] max-w-[90vw] flex-col border-l" style={{ borderColor: "var(--color-overlay-4)", background: "color-mix(in oklab, var(--color-ground) 97%, transparent)" }}>
+    {open && digest ? <motion.aside key="digest" role="dialog" aria-label="Canvas digest" aria-modal="true" data-testid="canvas-digest" initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }} className="absolute right-0 top-0 z-50 flex h-full w-[440px] max-w-[90vw] flex-col border-l" style={{ borderColor: "var(--color-overlay-4)", background: "color-mix(in oklab, var(--color-ground) 97%, transparent)" }}>
       <DigestHeader path={digest.path} copied={copied} onCopy={copy} onClose={() => state$.digestOpen.set(false)} />
-      <pre className="flex-1 overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-[11px] leading-relaxed" style={{ color: INK }}>{digest.digest}</pre>
+      <pre className="flex-1 overflow-auto whitespace-pre-wrap px-4 py-3 font-mono text-[11px] leading-relaxed" data-testid="canvas-digest-body" style={{ color: INK }}>{digest.digest}</pre>
     </motion.aside> : null}
   </AnimatePresence>;
 }
