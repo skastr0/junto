@@ -1,6 +1,7 @@
 import { type Context, Effect } from "effect";
 import { actorDeliverySurfaceOf, type ManagedAgentSurface } from "@shared/actor-surface";
 import type { MailSenderStamp } from "@shared/crew";
+import { resolveSpec } from "@shared/physics";
 import { boardContractOf } from "@shared/rules";
 import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type { TerminalSessionSummary } from "@shared/terminal";
@@ -113,10 +114,11 @@ export const makeCheckoutWatchComposition = (
     }
     const claims: ProvenClaim[] = [];
     for (const node of canvas.read.doc.nodes) {
-      if (node.ether?.entity?.kind !== "task") continue;
+      const spec = resolveSpec({ isGroup: node.type === "group", kind: node.ether?.entity?.kind });
+      if (spec._tag !== "Sink" || spec.kind !== "task") continue;
       const context = claimContextFrom({
         canvasName,
-        boards: [{ nodeId: node.id, tasks: node.ether.tasks?.items ?? [], contract: boardContractOf(node) }],
+        boards: [{ nodeId: node.id, tasks: node.ether?.tasks?.items ?? [], contract: boardContractOf(node) }],
         actorRefs: actors.filter((actor) => processes.has(actor.nodeId)),
         nodes: canvas.read.doc.nodes,
         checkoutKeyFor: (nodeId) => processes.get(nodeId)?.checkoutKey,
