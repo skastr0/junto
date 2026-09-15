@@ -17,7 +17,7 @@ export const ISOLATED_DEVIN_SENDER_ID = "seat-sender";
 export const ISOLATED_DEVIN_RECEIVER_ID = "seat-devin";
 export const ISOLATED_DEVIN_CREDENTIAL_REL = ".local/share/devin/credentials.toml";
 
-const sender = agentTextNode({
+export const isolatedDevinSenderNode = agentTextNode({
   id: ISOLATED_DEVIN_SENDER_ID,
   key: "local:isolated-sender",
   label: "sender",
@@ -26,7 +26,7 @@ const sender = agentTextNode({
   y: 40,
 });
 
-const receiver = agentTextNode({
+export const isolatedDevinReceiverNode = agentTextNode({
   id: ISOLATED_DEVIN_RECEIVER_ID,
   key: "local:isolated-devin",
   label: "devin",
@@ -36,7 +36,7 @@ const receiver = agentTextNode({
 });
 
 export const isolatedDevinMailDoc = (): CanvasDoc => {
-  const nodes = [sender, receiver];
+  const nodes = [isolatedDevinSenderNode, isolatedDevinReceiverNode];
   return {
     nodes,
     edges: [
