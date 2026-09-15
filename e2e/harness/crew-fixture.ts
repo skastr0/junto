@@ -224,6 +224,7 @@ const fs = require("fs");
 const path = require("path");
 const net = require("net");
 const cp = require("child_process");
+const crypto = require("crypto");
 
 const workHome =
   process.env.VELLUM_COMMAND_WORK_HOME ||
@@ -412,9 +413,14 @@ setInterval(drainFeed, 60);
 //              (written-but-unacknowledged, the unresolved class);
 //   ignore  -> no answer at all — the bytes sit on screen, no repaint.
 let inPaste = false;
+let inputTail = "";
 const doSubmit = () => {
   const line = composer;
-  ev("submit", { text: line.slice(0, 200) });
+  ev("submit", {
+    text: line.slice(0, 200),
+    textLength: line.length,
+    textSha256: crypto.createHash("sha256").update(line).digest("hex"),
+  });
   if (line.length === 0) return; // empty CR is a no-op on a real composer
   if (submit === "ack") {
     for (const l of line.split("\\n")) transcript.push(l);
@@ -425,11 +431,17 @@ const doSubmit = () => {
     paint();
   }
 };
+// Native Codex owns raw input. Cooked PTY input would echo on its behalf
+// and withhold the final pasted line/paste-end until CR, falsifying the
+// composer that the observer and drive are meant to exercise.
+if (process.stdin.isTTY) process.stdin.setRawMode(true);
+process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
-  const raw = chunk.toString("utf8");
+  const incoming = chunk.toString("utf8");
   try {
-    fs.appendFileSync(STDINLOG, Buffer.from(raw).toString("base64") + "\\n");
+    fs.appendFileSync(STDINLOG, Buffer.from(incoming).toString("base64") + "\\n");
   } catch {}
+  const raw = inputTail + incoming;
   let dirty = false;
   let i = 0;
   while (i < raw.length) {
@@ -439,6 +451,8 @@ process.stdin.on("data", (chunk) => {
         i += 6;
         continue;
       }
+      // PTY reads may split a bracket marker across data callbacks.
+      if ("\\x1b[201~".startsWith(raw.slice(i))) break;
       if (paste === "echo") {
         composer += raw[i];
         dirty = true;
@@ -446,6 +460,7 @@ process.stdin.on("data", (chunk) => {
       i += 1;
       continue;
     }
+    if ("\\x1b[200~".startsWith(raw.slice(i))) break;
     if (raw.startsWith("\\x1b[200~", i)) {
       inPaste = true;
       i += 6;
@@ -468,6 +483,7 @@ process.stdin.on("data", (chunk) => {
     composer += ch;
     dirty = true;
   }
+  inputTail = raw.slice(i);
   // Unsubmitted bytes repaint as a draft — only over the idle composer,
   // never over a Working status or an attention form.
   if (dirty && screen.mode === "idle") paint();
@@ -589,6 +605,9 @@ setInterval(drainOps, 50);
 process.on("SIGTERM", () => process.exit(0));
 process.on("SIGINT", () => process.exit(0));
 setInterval(() => {}, 60000); // keep alive
+// Recorded Codex startup enables bracketed paste and sets an idle title;
+// multiline text remains literal, as in corpus/codex/paste-chip.jsonl.
+process.stdout.write("\\x1b[?2004h\\x1b]0;codex\\x07");
 paint();
 ev("ready", { nodeRef });
 `;
