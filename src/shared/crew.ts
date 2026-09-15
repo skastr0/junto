@@ -1,8 +1,8 @@
 /**
  * Canonical crew domain: mail evidence refs, mail facts and delivery-attempt
- * outcomes, and review verdicts. Owned by the storage lane (CRW-002); every
- * other lane consumes these exports and the repository projection rather than
- * minting parallel metadata keys.
+ * outcomes, and review verdicts. This module is the single home for these
+ * schemas; every other lane consumes these exports and the repository
+ * projection rather than minting parallel metadata keys.
  *
  * Three durable planes meet here and are kept independent:
  *
@@ -16,15 +16,16 @@
  *    prior unresolved physical write. Read/reply/react remain in the existing
  *    receipt plane and are projected alongside for display.
  *  - Review verdicts: immutable, seat-stamped, epoch-bound green/blocking
- *    judgements on a task or commit subject.
+ *    judgements bound to the exact full task identity and a canonical subject
+ *    hash.
  *
- * `epoch` (task/review, a monotonic integer) and `generation` (a recipient
- * seat's terminal generation, an opaque string) are distinct fields and never
- * interchangeable.
+ * `epoch` (a task epoch, a monotonic integer) and `generation` (a recipient
+ * seat's terminal generation key from the seat delivery snapshot, an opaque
+ * string) are distinct fields and never interchangeable.
  */
 
 import { Schema } from "effect";
-import { ActorRef } from "./work-reference";
+import { ActorRef, TaskRef } from "./work-reference";
 import { ActorSeatId } from "./actor-seat";
 
 /** ISO display timestamp, matching the durable receipt columns (<=64 chars). */
@@ -69,10 +70,15 @@ export type MailDeliveryPolicy = typeof MailDeliveryPolicy.Type;
 
 /**
  * Server-stamped sender identity, taken from the admitted process and the
- * current seat generation — never a client-supplied stamp.
+ * current live canvas — never a client-supplied stamp. `fromSeat` is the
+ * stable seat id; `senderNodeId` and `senderName` are the readable canvas
+ * handle and display name so a notice or ledger link never truncates to a
+ * `seat_` hash. Control stamps all four; a client cannot supply any.
  */
 export const MailSenderStamp = Schema.Struct({
   fromSeat: ActorSeatId,
+  senderNodeId: Schema.optionalKey(Schema.String),
+  senderName: Schema.optionalKey(Schema.String),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
 });
@@ -89,6 +95,8 @@ export const MailExtension = Schema.Struct({
   subject: Schema.optionalKey(Schema.String),
   refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
   fromSeat: ActorSeatId,
+  senderNodeId: Schema.optionalKey(Schema.String),
+  senderName: Schema.optionalKey(Schema.String),
   senderGeneration: Schema.String,
   senderHarness: Schema.String,
 });
@@ -116,9 +124,30 @@ export const mailExtensionMetadata = (
   ...(ext.subject !== undefined ? { subject: ext.subject } : {}),
   ...(ext.refs !== undefined ? { refs: ext.refs } : {}),
   fromSeat: ext.fromSeat,
+  ...(ext.senderNodeId !== undefined ? { senderNodeId: ext.senderNodeId } : {}),
+  ...(ext.senderName !== undefined ? { senderName: ext.senderName } : {}),
   senderGeneration: ext.senderGeneration,
   senderHarness: ext.senderHarness,
 });
+
+/**
+ * Canonical timestamp conversion between the two planes. Delivery-attempt
+ * facts are stored ISO; the read/reply/react receipt stamps surface in a live
+ * Message's metadata as numeric epoch milliseconds. Normalize those to ISO for
+ * display without ever rewriting the historical receipt bytes.
+ */
+export const crewTimestampFromEpochMs = (ms: number): string =>
+  new Date(ms).toISOString();
+
+/** Accept a numeric-ms or ISO stamp (or undefined) and return ISO (or undefined). */
+export const normalizeDisplayTimestamp = (
+  value: number | string | undefined,
+): string | undefined =>
+  value === undefined
+    ? undefined
+    : typeof value === "number"
+      ? crewTimestampFromEpochMs(value)
+      : value;
 
 // ---- Delivery attempt facts (transport truth, independent timestamps) ----
 
@@ -155,7 +184,9 @@ export type MailWriteEvidence = typeof MailWriteEvidence.Type;
 
 /**
  * A recipient generation: the stable seat plus the exact terminal generation
- * an attempt targeted. `generation` is an opaque string, never a task epoch.
+ * an attempt targeted. `generation` is the `generationKey` from the seat
+ * delivery snapshot — an opaque, stable per-binding generation, never a task
+ * epoch.
  */
 export const RecipientGeneration = Schema.Struct({
   seat: ActorRef,
@@ -180,16 +211,34 @@ export type MailAttemptFacts = typeof MailAttemptFacts.Type;
 
 /**
  * One durable delivery attempt, keyed by message id plus recipient seat plus
- * recipient generation. Enqueued (queued) before any transport action.
+ * recipient generation. Enqueued (queued) before any transport action. When it
+ * was delivered as part of one batched notify, `batchId` records the exact
+ * membership persisted before the external write.
  */
 export const DeliveryAttempt = Schema.Struct({
   messageId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   recipient: RecipientGeneration,
   policy: MailDeliveryPolicy,
+  batchId: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
   facts: MailAttemptFacts,
   write: Schema.optionalKey(MailWriteEvidence),
 });
 export type DeliveryAttempt = typeof DeliveryAttempt.Type;
+
+/**
+ * Whether a message may be attempted for a fresh recipient generation.
+ * `notified` and `read` suppress across generations (a delivered or read
+ * message is never re-typed); an `unresolved` prior attempt allows exactly one
+ * attempt on a new generation; `none` means never attempted.
+ */
+export const MailAttemptDisposition = Schema.Literals([
+  "none",
+  "queued",
+  "notified",
+  "unresolved",
+  "refused",
+]);
+export type MailAttemptDisposition = typeof MailAttemptDisposition.Type;
 
 /**
  * Full display state for the actor ledger, derived from transport facts and
@@ -241,37 +290,70 @@ export const VerdictKind = Schema.Literals(["green", "blocking"]);
 export type VerdictKind = typeof VerdictKind.Type;
 
 /**
- * The exact subject a verdict binds to. A task subject carries the epoch it
- * judged; a commit subject carries the commit sha. `epoch` here is a task
- * epoch (integer), distinct from a recipient generation.
+ * The exact subject a verdict binds to. A task subject carries the full
+ * {@link TaskRef} (sink canvas, node and item id) plus the task epoch it
+ * judged — never a bare task id. A commit subject carries the commit sha and
+ * optional checkout. The authoritative binding is {@link ReviewVerdict.subjectHash}.
  */
 export const VerdictSubject = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("task"),
-    taskId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    task: TaskRef,
     epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   }),
   Schema.Struct({
     kind: Schema.Literal("commit"),
     sha: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    checkout: Schema.optionalKey(Schema.String),
   }),
 ]);
 export type VerdictSubject = typeof VerdictSubject.Type;
 
 /**
- * An immutable, seat-stamped verdict. `epoch` is the task epoch the verdict is
- * bound to; a stale verdict from an older epoch cannot move a newer one, and
- * an old green cannot bless newly submitted commit refs.
+ * An immutable, seat-stamped verdict. `verdictId` is a unique per-posting
+ * idempotency key: a reviewer may post blocking then later green on a revised
+ * subject, so each posting is its own immutable row. `epoch` is the task epoch
+ * the verdict is bound to; a stale verdict from an older epoch cannot move a
+ * newer one, and an old green cannot bless newly submitted refs because the
+ * gate matches both `epoch` and `subjectHash`. `authorSeatId` records the
+ * author for unambiguous reviewer-distinctness.
  */
 export const ReviewVerdict = Schema.Struct({
   verdictId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   kind: VerdictKind,
   reviewerSeatId: ActorSeatId,
   reviewerNodeId: Schema.optionalKey(Schema.String),
+  authorSeatId: ActorSeatId,
   subject: VerdictSubject,
+  subjectHash: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   findings: Schema.Array(Schema.String),
   refs: Schema.Array(MailEvidenceRef),
   postedAtMs: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
 export type ReviewVerdict = typeof ReviewVerdict.Type;
+
+/**
+ * Deterministic canonical string over a verdict's exact subject and refs. The
+ * repository hashes this to produce `subjectHash`; every lane must derive the
+ * hash from this same serialization so the gate compares identical bytes.
+ * Object keys are emitted in sorted order; ref array order is preserved as
+ * authored (the exact refs, not a set).
+ */
+export const canonicalSubjectString = (input: {
+  readonly subject: VerdictSubject;
+  readonly refs: ReadonlyArray<MailEvidenceRef>;
+}): string => stableStringify({ subject: input.subject, refs: input.refs });
+
+const stableStringify = (value: unknown): string => {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+    .join(",")}}`;
+};
