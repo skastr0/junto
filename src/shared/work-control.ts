@@ -329,8 +329,9 @@ export const TasksUpdateArgs = Schema.Struct({
 }).pipe(
   Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
     completionEvidence === undefined ||
+    state === "working" ||
     state === "completed" ||
-    "completionEvidence is only allowed when state is completed",)),
+    "completionEvidence is only allowed when state is working or completed",)),
   Schema.check(Schema.makeFilter(({ state, next }) =>
     next === undefined ||
     state === "completed" ||
@@ -363,8 +364,9 @@ export const TasksUpdateCliArgs = Schema.Struct({
 }).pipe(
   Schema.check(Schema.makeFilter(({ state, completionEvidence }) =>
     completionEvidence === undefined ||
+    state === "working" ||
     state === "completed" ||
-    "completionEvidence is only allowed when state is completed",)),
+    "completionEvidence is only allowed when state is working or completed",)),
   Schema.check(Schema.makeFilter(({ state, next }) =>
     next === undefined ||
     state === "completed" ||

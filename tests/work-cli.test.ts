@@ -261,7 +261,7 @@ describe("tasks update state-conditional filters", () => {
     Result.isSuccess(Schema.decodeUnknownResult(schema as never)(item));
 
   it.each([
-    ["completionEvidence", { target: "n7", task: "t1", state: "working", completionEvidence: { artifacts: [] } }],
+    ["completionEvidence", { target: "n7", task: "t1", state: "submitted", completionEvidence: { artifacts: [] } }],
     ["next", { target: "n7", task: "t1", state: "working", next: "n8" }],
     ["defect", { target: "n7", task: "t1", state: "completed", defect: { summary: "no" } }],
   ] as const)("rejects %s off its required state on the wire schema", (_name, item) => {
@@ -303,7 +303,7 @@ describe("tasks update state-conditional filters", () => {
   // carry the same state-conditional guards or the CLI accepts combinations
   // the daemon would reject.
   it.each([
-    ["completionEvidence", { target: "n7", task: "t1", state: "working", completionEvidence: { artifacts: [] } }],
+    ["completionEvidence", { target: "n7", task: "t1", state: "submitted", completionEvidence: { artifacts: [] } }],
     ["next", { target: "n7", task: "t1", state: "working", next: "n8" }],
     ["defect", { target: "n7", task: "t1", state: "completed", defect: { summary: "no" } }],
     ["waitFor", { target: "n7", task: "t1", state: "working", waitFor: "12h" }],
@@ -331,6 +331,19 @@ describe("tasks update state-conditional filters", () => {
       }),
     ).toBe(true);
   });
+
+  it.each([TasksUpdateArgs, TasksUpdateCliArgs])(
+    "accepts staged review evidence while working without granting a path transition",
+    (schema) => {
+      const staged = {
+        target: "n7", task: "t1", state: "working",
+        completionEvidence: { artifacts: [], git: { commits: ["a".repeat(40)] } },
+      };
+      expect(decode(schema, staged)).toBe(true);
+      expect(decode(schema, { ...staged, next: "n8" })).toBe(false);
+      expect(decode(schema, { ...staged, state: "rejected" })).toBe(false);
+    },
+  );
 });
 
 describe("schema/examples from validating schemas", () => {
