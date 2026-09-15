@@ -9,6 +9,8 @@ import {
   StopRequest,
 } from "../../shared/browser-control";
 import { BROWSER_ENABLED } from "../../shared/features";
+import { MANAGED_PROMPT_IMMEDIATE_MAX } from "../../shared/managed-prompt";
+import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
 import {
   ArtifactPublishCliArgs,
   BoardListArgs,
@@ -25,10 +27,12 @@ import {
   ContentStatArgs,
   EmptyArgs,
   MsgListArgs,
+  MsgPromptArgs,
   MsgReactArgs,
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
+  MsgSentArgs,
   PreambleArgs,
   RequestEscalateArgs,
   RulingsArgs,
@@ -140,6 +144,29 @@ const PAD_PATCH_INVOCATION: CapabilityInvocation = {
   discover: "vellum-command schema show pad.patch",
 };
 
+const CREW_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
+  {
+    port: "msg.prompt",
+    command: "vellum-command msg prompt",
+    discover: "vellum-command schema show msg.prompt",
+  },
+  {
+    port: "seat.wait",
+    command: "vellum-command seat wait",
+    discover: "vellum-command schema show seat.wait",
+  },
+  {
+    port: "terminal.read",
+    command: "vellum-command seat read",
+    discover: "vellum-command schema show seat.read",
+  },
+  {
+    port: "verdict.post",
+    command: "vellum-command verdict post",
+    discover: "vellum-command verdict post --help",
+  },
+];
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -147,6 +174,7 @@ const invocationsForConnected = (value: unknown): unknown => {
   if (!Array.isArray(value)) return value;
   return value.map((entry) => {
     if (!isRecord(entry) || !Array.isArray(entry.grants)) return entry;
+    const grants = entry.grants;
     const invocations: CapabilityInvocation[] = [];
     if (BROWSER_ENABLED && entry.grants.includes("browser.automate")) {
       invocations.push(BROWSER_INVOCATION);
@@ -160,6 +188,9 @@ const invocationsForConnected = (value: unknown): unknown => {
     if (entry.grants.includes("sheet.read")) {
       invocations.push(SHEET_READ_INVOCATION);
     }
+    invocations.push(
+      ...CREW_INVOCATIONS.filter((invocation) => grants.includes(invocation.port)),
+    );
     return invocations.length > 0 ? { ...entry, invocations } : entry;
   });
 };
@@ -247,6 +278,16 @@ export const tasksShowSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const tasksWaitSchema: CommandSchemaContract = {
+  command_id: "tasks.wait",
+  command: "tasks wait",
+  schema_id: "tasks.wait.input/v1",
+  description:
+    "Wait for one authorized task to become completed, input-required, or rejected. timeoutMs bounds the wait to at most 600000 ms.",
+  schema: TaskWaitArgs,
+  input_modes: inputModes,
+};
+
 export const tasksRulesSchema: CommandSchemaContract = {
   command_id: "tasks.rules",
   command: "tasks rules",
@@ -294,6 +335,46 @@ export const msgSendSchema: CommandSchemaContract = {
   description: "Append a message to a connected node.",
   schema: MsgSendArgs,
   accepts_batch: true,
+  input_modes: inputModes,
+};
+
+export const msgPromptSchema: CommandSchemaContract = {
+  command_id: "msg.prompt",
+  command: "msg prompt",
+  schema_id: "msg.prompt.input/v1",
+  description:
+    `Request immediate full-body delivery through msg.prompt, without automatic interruption. Bodies over ${MANAGED_PROMPT_IMMEDIATE_MAX} characters return InputError (oversize), unless fallback: notice is explicit. Create with text, or retry the existing messageId without replacing its body. A timeout after dispatch is uncertain: inspect msg sent before retrying; never recreate blindly.`,
+  schema: MsgPromptArgs,
+  input_modes: inputModes,
+};
+
+export const msgSentSchema: CommandSchemaContract = {
+  command_id: "msg.sent",
+  command: "msg sent",
+  schema_id: "msg.sent.input/v1",
+  description:
+    "Read this sender's delivery and read receipts, optionally filtered by target. Does not mark the recipient's mailbox read.",
+  schema: MsgSentArgs,
+  input_modes: inputModes,
+};
+
+export const seatWaitSchema: CommandSchemaContract = {
+  command_id: "seat.wait",
+  command: "seat wait",
+  schema_id: "seat.wait.input/v1",
+  description:
+    "Wait for one target seat or any currently authorized peer to reach until. Choose target or any: true; timeoutMs bounds the wait to at most 600000 ms.",
+  schema: SeatWaitArgs,
+  input_modes: inputModes,
+};
+
+export const seatReadSchema: CommandSchemaContract = {
+  command_id: "seat.read",
+  command: "seat read",
+  schema_id: "seat.read.input/v1",
+  description:
+    "Read an authorized peer's settled terminal window through terminal.read. Reads are bounded to 2000 lines and 64 KiB; follow is bounded to 600 seconds. since requires sinceGeneration; replacements are explicit. Grants no input, resize, or signal authority.",
+  schema: SeatReadArgs,
   input_modes: inputModes,
 };
 
@@ -565,14 +646,19 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksClaimSchema,
   tasksUpdateSchema,
   tasksShowSchema,
+  tasksWaitSchema,
   tasksRulesSchema,
   tasksCheckSchema,
   rulingsSchema,
   msgListSchema,
   msgSendSchema,
+  msgPromptSchema,
+  msgSentSchema,
   msgReadSchema,
   msgReplySchema,
   msgReactSchema,
+  seatWaitSchema,
+  seatReadSchema,
   preambleSchema,
   requestEscalateSchema,
   artifactPublishSchema,
@@ -750,6 +836,13 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     args: ["tasks", "show", '{"target":"n7","task":"t1"}'],
   },
   {
+    command_id: "tasks.wait",
+    command: "tasks wait",
+    name: "wait for task completion",
+    input: { target: "n7", taskId: "t1", until: "completed", timeoutMs: 30000 },
+    args: ["tasks", "wait", '{"target":"n7","taskId":"t1","until":"completed","timeoutMs":30000}'],
+  },
+  {
     command_id: "tasks.rules",
     command: "tasks rules",
     name: "rules in force",
@@ -796,6 +889,94 @@ export const allExamples: ReadonlyArray<CommandExample> = [
     name: "note on task",
     input: { target: "n7", text: "working", taskId: "t1" },
     args: ["msg", "send", '{"target":"n7","text":"working","taskId":"t1"}'],
+  },
+  {
+    command_id: "msg.prompt",
+    command: "msg prompt",
+    name: "request a short immediate prompt",
+    description: "Requires msg.prompt and an idle seat with an empty composer; never interrupts.",
+    input: { target: "seat-b", text: "Please review the API contract." },
+    args: ["msg", "prompt", '{"target":"seat-b","text":"Please review the API contract."}'],
+  },
+  {
+    command_id: "msg.prompt",
+    command: "msg prompt",
+    name: "retry an existing prompt",
+    description: "After a pre-write refusal, wait for readiness and retry the returned messageId. Do not send a replacement body.",
+    input: { target: "seat-b", messageId: "msg_01" },
+    args: ["msg", "prompt", '{"target":"seat-b","messageId":"msg_01"}'],
+  },
+  {
+    command_id: "msg.prompt",
+    command: "msg prompt",
+    name: "explicitly allow notice fallback",
+    input: { target: "seat-b", text: "Please review the API contract.", fallback: "notice" },
+    args: ["msg", "prompt", '{"target":"seat-b","text":"Please review the API contract.","fallback":"notice"}'],
+  },
+  {
+    command_id: "msg.sent",
+    command: "msg sent",
+    name: "inspect own sent receipts",
+    input: {},
+    args: ["msg", "sent"],
+  },
+  {
+    command_id: "msg.sent",
+    command: "msg sent",
+    name: "inspect receipts for a peer",
+    input: { target: "seat-b" },
+    args: ["msg", "sent", '{"target":"seat-b"}'],
+  },
+  {
+    command_id: "seat.wait",
+    command: "seat wait",
+    name: "wait for an idle peer with JSON",
+    input: { target: "seat-b", until: "idle", timeoutMs: 30000 },
+    args: ["seat", "wait", '{"target":"seat-b","until":"idle","timeoutMs":30000}'],
+  },
+  {
+    command_id: "seat.wait",
+    command: "seat wait",
+    name: "wait for an idle peer with flags",
+    input: { target: "seat-b", until: "idle", timeoutMs: 30000 },
+    args: ["seat", "wait", "seat-b", "--until", "idle", "--timeout", "30s"],
+  },
+  {
+    command_id: "seat.wait",
+    command: "seat wait",
+    name: "wait for attention on any authorized peer",
+    description: "--any watches only peers whose live edges grant seat.wait.",
+    input: { any: true, until: "attention", timeoutMs: 30000 },
+    args: ["seat", "wait", "--any", "--until", "attention", "--timeout", "30s"],
+  },
+  {
+    command_id: "seat.read",
+    command: "seat read",
+    name: "read a settled peer window with JSON",
+    input: { target: "seat-b", lines: 40 },
+    args: ["seat", "read", '{"target":"seat-b","lines":40}'],
+  },
+  {
+    command_id: "seat.read",
+    command: "seat read",
+    name: "read a settled peer window with flags",
+    input: { target: "seat-b", lines: 40 },
+    args: ["seat", "read", "seat-b", "--lines", "40"],
+  },
+  {
+    command_id: "seat.read",
+    command: "seat read",
+    name: "follow a peer for at most five seconds",
+    input: { target: "seat-b", follow: true, maxSeconds: 5 },
+    args: ["seat", "read", "seat-b", "--follow", "--max-seconds", "5"],
+  },
+  {
+    command_id: "seat.read",
+    command: "seat read",
+    name: "follow from a generation-bound cursor",
+    description: "Use seq and generation from the preceding read. A replaced generation is reported explicitly.",
+    input: { target: "seat-b", since: 12, sinceGeneration: "generation-1", follow: true, maxSeconds: 5 },
+    args: ["seat", "read", '{"target":"seat-b","since":12,"sinceGeneration":"generation-1","follow":true,"maxSeconds":5}'],
   },
   {
     command_id: "msg.read",
@@ -1197,6 +1378,14 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     examples: allExamples.filter((e) => e.command_id === "tasks.show"),
   },
   {
+    command_id: "tasks.wait",
+    command: "tasks wait",
+    category: "workflow",
+    description: "Wait for an authorized task state with a bounded deadline.",
+    schemas: [tasksWaitSchema],
+    examples: allExamples.filter((e) => e.command_id === "tasks.wait"),
+  },
+  {
     command_id: "tasks.rules",
     command: "tasks rules",
     category: "workflow",
@@ -1255,6 +1444,38 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
       default_concurrency: DEFAULT_BATCH_CONCURRENCY,
       supports_concurrency_option: true,
     },
+  },
+  {
+    command_id: "msg.prompt",
+    command: "msg prompt",
+    category: "workflow",
+    description: "Attempt a short immediate prompt or retry its existing messageId, without automatic interruption.",
+    schemas: [msgPromptSchema],
+    examples: allExamples.filter((e) => e.command_id === "msg.prompt"),
+  },
+  {
+    command_id: "msg.sent",
+    command: "msg sent",
+    category: "workflow",
+    description: "Inspect the admitted sender's receipts without marking recipient mail read.",
+    schemas: [msgSentSchema],
+    examples: allExamples.filter((e) => e.command_id === "msg.sent"),
+  },
+  {
+    command_id: "seat.wait",
+    command: "seat wait",
+    category: "workflow",
+    description: "Wait for one authorized peer or any authorized peer to reach a named seat state.",
+    schemas: [seatWaitSchema],
+    examples: allExamples.filter((e) => e.command_id === "seat.wait"),
+  },
+  {
+    command_id: "seat.read",
+    command: "seat read",
+    category: "workflow",
+    description: "Read or follow a bounded settled terminal window through a live terminal.read grant.",
+    schemas: [seatReadSchema],
+    examples: allExamples.filter((e) => e.command_id === "seat.read"),
   },
   {
     command_id: "msg.reply",
