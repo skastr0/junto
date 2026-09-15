@@ -417,8 +417,12 @@ export const Task = Schema.Struct({
     ) {
       return `${state} tasks require claimedBy`;
     }
-    if (completionEvidence !== undefined && state !== "completed") {
-      return "completionEvidence is only valid on completed tasks";
+    if (
+      completionEvidence !== undefined &&
+      state !== "completed" &&
+      state !== "working"
+    ) {
+      return "completionEvidence is only valid on completed or working tasks (staged review evidence)";
     }
     if (dependsOn !== undefined) {
       const seen = new Set<string>();
