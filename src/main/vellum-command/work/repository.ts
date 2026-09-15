@@ -995,6 +995,13 @@ export type SendOnTaskInput = LocalWorkInput & {
   readonly next: SinkRefValue;
   /** Policy-built submitted successor at the next board (same task id). */
   readonly nextTask: TaskValue;
+  /**
+   * Writer-time review gate for the complete-here step of a send-on. Same
+   * contract as {@link TransitionTaskInput.reviewGate}: refuses in-transaction
+   * unless a distinct eligible reviewer's latest verdict on this exact epoch and
+   * subject hash is green.
+   */
+  readonly reviewGate?: ReviewGateWithin;
 };
 
 export type SendBackTaskInput = LocalWorkInput & {
@@ -8363,6 +8370,18 @@ export const WorkRepositoryLive = Layer.effect(
             `finish criteria unsatisfied [${gate.missing}]: ${gate.message} (next: ${gate.next_step})`,
           );
         }
+        if (
+          input.reviewGate !== undefined &&
+          !reviewGateSatisfiedWithin(writer, input.reviewGate)
+        ) {
+          // Writer-time gate for the complete-here step, same rule and reason
+          // as transitionTask so a concurrent blocking or epoch change cannot
+          // pass a stale preflight then commit the send-on.
+          throw authorityError(
+            "invalid-transition",
+            "requires-review: no current green verdict from a distinct reviewer for this epoch and subject",
+          );
+        }
         const completed = Schema.decodeUnknownSync(Task, strictDecode)({
           ...taskWithTransitionState(current.task, "completed"),
           history:
@@ -8562,6 +8581,18 @@ export const WorkRepositoryLive = Layer.effect(
           receivedAt,
         });
         if (input.review !== undefined) {
+          // CAS against the loaded current task: a blocking verdict is bound to
+          // the epoch it judged. If the task was reclaimed and its epoch moved
+          // since the verdict was formed, this write is stale and must not land
+          // — otherwise a delayed old-epoch blocking would kill a fresh claim.
+          const currentEpoch = current.task.epoch ?? 0;
+          if (input.review.verdict.epoch !== currentEpoch) {
+            throw authorityError(
+              "invalid-transition",
+              `stale review: verdict epoch ${String(input.review.verdict.epoch)} ` +
+                `no longer matches the current task epoch ${String(currentEpoch)}`,
+            );
+          }
           // Immutable blocking verdict in the same transaction as the reject.
           applyVerdictWrite(writer, input.review.verdict);
           const receipt = input.review.receipt;
