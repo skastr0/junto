@@ -46,7 +46,16 @@ export const liveSeatObservation = (): Effect.Effect<
       subscribeCanvasChanges: (listener) =>
         canvases.subscribeChanges((name) => listener(name)),
       seatStates: {
-        current: () => seatStateRuntime.machine.currentEvents(),
+        // Live bindings first, then the last published event of each retired
+        // generation: a seat that exited before the wait started is absent from
+        // the live projection by construction, and `unbind` is the only place
+        // its terminal `gone` event exists. The observation layer stamps each
+        // event with its generation and ignores a tombstone whose generation is
+        // no longer the binding's session, so a replacement is never shadowed.
+        current: () => [
+          ...seatStateRuntime.machine.currentEvents(),
+          ...seatStateRuntime.machine.retiredEvents(),
+        ],
         subscribe: (listener) => seatStateRuntime.subscribe(listener),
       },
       subscribeWorkChanges: (listener) =>

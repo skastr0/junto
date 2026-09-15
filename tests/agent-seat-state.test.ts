@@ -814,6 +814,57 @@ describe("SeatStateMachine — transitions without flapping", () => {
       )?.state,
     ).toBe("idle");
   });
+
+  it("retains the published exit of a retired generation for post-exit observation", () => {
+    const m = new SeatStateMachine({ now: () => 5_000 });
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+    m.force("b1", "working", "turn_active");
+    const published = m.unbind("b1", { epoch: "e1", reason: "generation_exited" });
+
+    // The binding is gone from the live projection...
+    expect(m.getState("b1")).toBeUndefined();
+    expect(m.currentEvents()).toEqual([]);
+    // ...but its terminal event survives, with the generation that exited.
+    expect(m.retiredEvents()).toEqual([published]);
+    expect(m.retiredEvents()[0]).toMatchObject({
+      bindingId: "b1",
+      epoch: "e1",
+      state: "gone",
+      reason: "generation_exited",
+      confidence: "high",
+    });
+  });
+
+  it("a late exit from a replaced generation writes no tombstone", () => {
+    const m = new SeatStateMachine({ now: () => 6_000 });
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+    m.bind("b1", { harness: "claude", epoch: "e2" });
+    expect(m.unbind("b1", { epoch: "e1", reason: "late_old_exit" })).toBeNull();
+    expect(m.retiredEvents()).toEqual([]);
+
+    m.unbind("b1", { epoch: "e2", reason: "generation_exited" });
+    expect(m.retiredEvents().map((event) => event.epoch)).toEqual(["e2"]);
+  });
+
+  it("binding again supersedes the tombstone, and one binding keeps one", () => {
+    const m = new SeatStateMachine({ now: () => 7_000 });
+    m.bind("b1", { harness: "claude", epoch: "e1" });
+    m.unbind("b1", { epoch: "e1", reason: "generation_exited" });
+    m.bind("b1", { harness: "claude", epoch: "e2" });
+    expect(m.retiredEvents()).toEqual([]);
+
+    m.unbind("b1", { epoch: "e2", reason: "generation_exited" });
+    m.bind("b1", { harness: "claude", epoch: "e3" });
+    m.bind("b2", { harness: "claude", epoch: "e1" });
+    m.unbind("b1", { epoch: "e3", reason: "generation_exited" });
+    m.unbind("b2", { epoch: "e1", reason: "generation_exited" });
+    expect(
+      m.retiredEvents().map((event) => [event.bindingId, event.epoch]),
+    ).toEqual([
+      ["b1", "e3"],
+      ["b2", "e1"],
+    ]);
+  });
 });
 
 describe("ruleMatches unit", () => {

@@ -105,6 +105,12 @@ type Harness = {
   readonly setDoc: (next: CanvasDoc) => void;
   readonly emitCanvas: (name: string) => void;
   readonly emitSeat: (event: AgentSeatStateEvent) => void;
+  /**
+   * Model the seat state machine retiring a generation: the binding leaves the
+   * live projection and its published exit survives as a tombstone, which is
+   * exactly what production `current()` now merges.
+   */
+  readonly retireSeat: (bindingId: string, reason?: string) => void;
   readonly emitGrid: (snapshot: ObserverGridSnapshot) => void;
   readonly emitWork: (canvasName?: string, nodeId?: string) => void;
   readonly setWindow: (window: ObserverGridWindow | undefined) => void;
@@ -123,6 +129,7 @@ const makeHarness = (input: {
 }): Harness => {
   let currentDoc = input.doc;
   let seatEvents = [...(input.seatEvents ?? [])];
+  let retiredSeats: AgentSeatStateEvent[] = [];
   let window = input.window;
   let gridReads = 0;
   let seatSubscribed = false;
@@ -141,7 +148,7 @@ const makeHarness = (input: {
       return () => canvasListeners.delete(listener);
     },
     seatStates: {
-      current: () => seatEvents,
+      current: () => [...seatEvents, ...retiredSeats],
       subscribe: (listener) => {
         seatSubscribed = true;
         seatListeners.add(listener);
@@ -185,6 +192,19 @@ const makeHarness = (input: {
       seatEvents = [...seatEvents.filter((entry) => entry.bindingId !== event.bindingId), event];
       for (const listener of seatListeners) listener(event);
     },
+    retireSeat: (bindingId, reason = "generation_exited") => {
+      const prior = seatEvents.find((entry) => entry.bindingId === bindingId);
+      seatEvents = seatEvents.filter((entry) => entry.bindingId !== bindingId);
+      const gone: AgentSeatStateEvent = {
+        ...(prior ?? seatEvent()),
+        bindingId,
+        state: "gone",
+        reason,
+        confidence: "high",
+      };
+      retiredSeats = [...retiredSeats.filter((entry) => entry.bindingId !== bindingId), gone];
+      for (const listener of seatListeners) listener(gone);
+    },
     emitGrid: (snapshot) => {
       for (const listener of gridListeners) listener(snapshot);
     },
@@ -227,6 +247,46 @@ describe("seat.wait", () => {
         at: 1_000,
       });
     }
+  });
+
+  it("resolves a wait that starts after the seat already exited", async () => {
+    // The E2E shape: B's process exits before the wait is issued. `unbind`
+    // publishes `gone` and drops the binding, so only the retained tombstone
+    // can answer — and it must carry the evidence of the generation that left.
+    const harness = makeHarness({ doc: peerDoc() });
+    harness.emitSeat(seatEvent({ state: "working", reason: "turn_active" }));
+    harness.retireSeat("bind-peer");
+
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat({ target: "peer", until: "gone", timeoutMs: 1_000 }, caller),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value).toEqual({
+        target: "peer",
+        state: "gone",
+        reason: "generation_exited",
+        confidence: "high",
+        generation: "e1",
+        epoch: "e1",
+        at: 1_000,
+      });
+    }
+  });
+
+  it("ignores a retired generation's exit once a replacement owns the binding", async () => {
+    const harness = makeHarness({ doc: peerDoc(), sessionEpoch: "e2" });
+    harness.emitSeat(seatEvent({ epoch: "e1", state: "working" }));
+    harness.retireSeat("bind-peer");
+
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat({ target: "peer", until: "gone", timeoutMs: 60 }, caller),
+    );
+    const error = failure(exit);
+    expect(error?.type).toBe("Timeout");
+    expect(error?.details?.from).toBeUndefined();
+    expect(error?.details?.to).toBe("gone");
+    expect(error?.details?.hint).toContain("replaced generation");
   });
 
   it("answers from the current projection after registering its subscription", async () => {

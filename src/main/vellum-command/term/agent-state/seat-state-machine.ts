@@ -69,6 +69,20 @@ export type SeatStateListener = (event: AgentSeatStateEvent) => void;
 
 export class SeatStateMachine {
   private readonly slots = new Map<string, BindingSlot>();
+  /**
+   * Last published event of a retired generation, per binding.
+   *
+   * `unbind` publishes `gone` and then drops the slot, so the published event
+   * is the only surviving record that a generation exited. Retaining it here is
+   * what lets a post-exit observation answer at all: a wait that starts after
+   * the exit would otherwise have nothing to match and could only time out.
+   *
+   * One tombstone per binding, replaced by the next retirement, and cleared by
+   * `bind` — a live generation is never shadowed by its predecessor. A late
+   * exit from an already-replaced generation is refused by `unbind` and writes
+   * no tombstone.
+   */
+  private readonly retired = new Map<string, AgentSeatStateEvent>();
   private readonly listeners = new Set<SeatStateListener>();
   private readonly now: () => number;
   private readonly onEvent?: (event: AgentSeatStateEvent) => void;
@@ -115,6 +129,8 @@ export class SeatStateMachine {
       lastEval: null,
     };
     this.slots.set(bindingId, slot);
+    // A live generation supersedes its predecessor's tombstone.
+    this.retired.delete(bindingId);
     this.maybePublish(
       slot,
       bindingId,
@@ -154,6 +170,10 @@ export class SeatStateMachine {
       ),
       true,
     );
+    // Retain the published exit before dropping the slot: the event is the
+    // only record of this generation's terminal state, and a wait that starts
+    // after it must still be able to observe it.
+    if (event !== null) this.retired.set(bindingId, event);
     this.slots.delete(bindingId);
     return event;
   }
@@ -190,6 +210,20 @@ export class SeatStateMachine {
         at: slot.lastPublishedAt,
         harness: slot.harness,
       }));
+  }
+
+  /**
+   * Last published event of each retired generation, in binding order.
+   *
+   * A retired binding is absent from {@link currentEvents} by construction, so
+   * this is how a caller that must observe an exit *after* it happened (the
+   * seat wait/observe lane) still sees the published `gone` event with its
+   * epoch, reason and confidence.
+   */
+  retiredEvents(): ReadonlyArray<AgentSeatStateEvent> {
+    return [...this.retired.values()].sort((left, right) =>
+      left.bindingId.localeCompare(right.bindingId),
+    );
   }
 
   getSlot(
