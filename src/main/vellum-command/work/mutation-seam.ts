@@ -85,6 +85,13 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_messages", "projection"],
     ["work_artifacts", "projection"],
     ["work_delivery_receipts", "projection"],
+    // Crew mail/review stores: durable Command Center-local operational state
+    // written directly (never materialized from the replicated journal), so
+    // every write declares an unjournaledWorkMutation(...) reason below.
+    ["work_mail_attempts", "projection"],
+    ["work_review_verdicts", "projection"],
+    ["work_review_receipts", "projection"],
+    ["work_review_checkout_observations", "projection"],
     ["work_board_topics", "projection"],
     ["work_board_posts", "projection"],
     ["work_pad_meta", "projection"],
@@ -145,6 +152,43 @@ export const UNJOURNALED_WORK_REASONS = {
     retire:
       "Never — but `bun run lint:single-write-seam` forbids this reason under " +
       "src/, so it can only ever appear in tests and fixtures.",
+  },
+  "crew.mail-attempt": {
+    why:
+      "Mail delivery attempts (work_mail_attempts) are Command Center-local " +
+      "transport state — queued/attempted/notified/unresolved/refused per " +
+      "recipient generation. They mint no fact because a delivery attempt is " +
+      "not a work transition and must never replicate to another installation.",
+    retire:
+      "Never while mail delivery is Command Center-homed; if attempts ever " +
+      "replicate, mint a delivery-attempt fact and materialize it instead.",
+  },
+  "crew.review-verdict": {
+    why:
+      "Review verdicts (work_review_verdicts) are a Command Center-local " +
+      "immutable judgement journal keyed by verdict id. A blocking verdict's " +
+      "EFFECT (task send-back) is journaled by that transition; the verdict " +
+      "row itself records the judgement and mints no separate fact.",
+    retire:
+      "Mint a review.verdict fact and materialize it if verdicts ever need to " +
+      "replicate, then delete this reason.",
+  },
+  "crew.review-receipt": {
+    why:
+      "Review receipts (work_review_receipts) are a Command Center-local " +
+      "dedupe and first-seen-sha provenance store for the receipt feed. They " +
+      "mint no fact; the mail they gate is the journaled artifact.",
+    retire:
+      "Mint a review.receipt fact and materialize it if the feed ever " +
+      "replicates, then delete this reason.",
+  },
+  "crew.checkout-observation": {
+    why:
+      "Checkout observations (work_review_checkout_observations) record commit " +
+      "sightings in a shared checkout for author attribution. They are local " +
+      "watcher state, not a work transition, and must not replicate.",
+    retire:
+      "Never while checkout watching is Command Center-local.",
   },
 } as const;
 

@@ -14,6 +14,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/vellum-command/state/engine";
+import { unjournaledWorkMutation } from "../src/main/vellum-command/work/mutation-seam";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import type { ReviewVerdict } from "../src/shared/crew";
 
@@ -539,7 +540,8 @@ describe("crew review verdicts", () => {
     const v = verdict({ verdictId: "tx-1", kind: "blocking", subjectHash: "hash-tx", reviewerSeatId: SEAT_REVIEWER_2 });
     // A caller opens ONE transaction and writes the verdict plus a receipt.
     await runtime.runPromise(
-      state.transaction("test.compose", (writer) => {
+      state.transaction("test.compose", (writer) =>
+        unjournaledWorkMutation("crew.review-verdict", () => {
         applyVerdictWrite(writer, v);
         writer.run(
           `INSERT OR IGNORE INTO work_review_receipts(
@@ -548,7 +550,8 @@ describe("crew review verdicts", () => {
            ) VALUES ('factory','task-fact','f1:1','sha-tx', ?, ?, ?)`,
           [SEAT_REVIEWER_2, SEAT_AUTHOR, iso(60)],
         );
-      }),
+        }),
+      ),
     );
     const chain = await runtime.runPromise(
       crew.verdictsForSubject({
@@ -566,13 +569,15 @@ describe("crew review verdicts", () => {
     // A throw inside the caller transaction rolls back BOTH writes.
     await runtime
       .runPromise(
-        state.transaction("test.compose-rollback", (writer) => {
-          applyVerdictWrite(
-            writer,
-            verdict({ verdictId: "tx-2", kind: "green", subjectHash: "hash-tx" }),
-          );
-          throw new Error("caller aborted");
-        }),
+        state.transaction("test.compose-rollback", (writer) =>
+          unjournaledWorkMutation("crew.review-verdict", () => {
+            applyVerdictWrite(
+              writer,
+              verdict({ verdictId: "tx-2", kind: "green", subjectHash: "hash-tx" }),
+            );
+            throw new Error("caller aborted");
+          }),
+        ),
       )
       .catch(() => undefined);
     const afterRollback = await runtime.runPromise(

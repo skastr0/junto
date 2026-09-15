@@ -24,6 +24,10 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { StateEngine } from "../state/engine";
 import type { StateReader, StateWriter } from "../state/service";
 import {
+  unjournaledWorkMutation,
+  type UnjournaledWorkReason,
+} from "./mutation-seam";
+import {
   DeliveryAttempt,
   MailAttemptReason,
   MailDeliveryPolicy,
@@ -535,6 +539,17 @@ export const CrewRepositoryLive = Layer.effect(
   Effect.gen(function* () {
     const state = yield* StateEngine;
 
+    // Every crew write is a Command Center-local operational mutation that
+    // mints no replicated work fact, so it runs inside one transaction under a
+    // declared journal-free reason (see work/mutation-seam.ts).
+    const writeTx = <A>(
+      op: string,
+      body: (writer: StateWriter) => A,
+    ): Effect.Effect<A, CrewRepositoryError> =>
+      state
+        .transaction(op, body)
+        .pipe(Effect.mapError((error) => toCrewError(op, error)));
+
     const insertQueued = (writer: StateWriter, input: EnqueueAttemptInput): void => {
       writer.run(
         `INSERT OR IGNORE INTO work_mail_attempts(
@@ -556,8 +571,8 @@ export const CrewRepositoryLive = Layer.effect(
     };
 
     const enqueueAttempt: CrewRepositoryShape["enqueueAttempt"] = (input) =>
-      state
-        .transaction("crew.enqueueAttempt", (writer) => {
+      writeTx("crew.enqueueAttempt", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
           const before = readAttemptRow(writer, input);
           insertQueued(writer, input);
           const row = readAttemptRow(writer, input);
@@ -565,12 +580,11 @@ export const CrewRepositoryLive = Layer.effect(
             throw new Error("attempt row missing after enqueue");
           }
           return { attempt: attemptFromRow(row), created: before === undefined };
-        })
-        .pipe(Effect.mapError((error) => toCrewError("crew.enqueueAttempt", error)));
+        }));
 
     const enqueueBatch: CrewRepositoryShape["enqueueBatch"] = (input) =>
-      state
-        .transaction("crew.enqueueBatch", (writer) => {
+      writeTx("crew.enqueueBatch", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
           const out: Array<typeof DeliveryAttempt.Type> = [];
           for (const member of input.members) {
             insertQueued(writer, member);
@@ -602,12 +616,11 @@ export const CrewRepositoryLive = Layer.effect(
             out.push(attemptFromRow(row));
           }
           return out;
-        })
-        .pipe(Effect.mapError((error) => toCrewError("crew.enqueueBatch", error)));
+        }));
 
     const markAttempted: CrewRepositoryShape["markAttempted"] = (input) =>
-      state
-        .transaction("crew.markAttempted", (writer) => {
+      writeTx("crew.markAttempted", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
           writer.run(
             `UPDATE work_mail_attempts
                SET attempt_seq = attempt_seq + 1,
@@ -625,12 +638,11 @@ export const CrewRepositoryLive = Layer.effect(
               input.recipientGeneration,
             ],
           );
-        })
-        .pipe(Effect.mapError((error) => toCrewError("crew.markAttempted", error)));
+        }));
 
     const recordAttempt: CrewRepositoryShape["recordAttempt"] = (input) =>
-      state
-        .transaction("crew.recordAttempt", (writer) => {
+      writeTx("crew.recordAttempt", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
           const outcome = input.outcome;
           const notifiedAt = outcome.kind === "notified" ? outcome.at : null;
           const unresolvedAt = outcome.kind === "unresolved" ? outcome.at : null;
@@ -671,8 +683,7 @@ export const CrewRepositoryLive = Layer.effect(
             throw new Error("attempt row missing on recordAttempt");
           }
           return attemptFromRow(row);
-        })
-        .pipe(Effect.mapError((error) => toCrewError("crew.recordAttempt", error)));
+        }));
 
     const attempt: CrewRepositoryShape["attempt"] = (key) =>
       state
@@ -723,8 +734,8 @@ export const CrewRepositoryLive = Layer.effect(
 
     const reconcileUnresolvedAttempts: CrewRepositoryShape["reconcileUnresolvedAttempts"] =
       (at) =>
-        state
-          .transaction("crew.reconcileUnresolvedAttempts", (writer) => {
+        writeTx("crew.reconcileUnresolvedAttempts", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
             // An open physical intent (attempt_seq > resolved_seq) that never
             // recorded an outcome is a crash: reopen it as unresolved and close
             // it, WITHOUT clearing a prior refused_at fact. A clean queued row
@@ -738,24 +749,18 @@ export const CrewRepositoryLive = Layer.effect(
               [at, at],
             );
             return Number(result.changes ?? 0);
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              toCrewError("crew.reconcileUnresolvedAttempts", error),
-            ),
-          );
+          }));
 
     const postVerdict: CrewRepositoryShape["postVerdict"] = (verdict) =>
-      state
-        .transaction("crew.postVerdict", (writer) => {
+      writeTx("crew.postVerdict", (writer) =>
+        unjournaledWorkMutation("crew.review-verdict", () => {
           const before = writer.get<{ readonly verdict_id: string }>(
             `SELECT verdict_id FROM work_review_verdicts WHERE verdict_id = ?`,
             [verdict.verdictId],
           );
           applyVerdictWrite(writer, verdict);
           return { verdict, created: before === undefined };
-        })
-        .pipe(Effect.mapError((error) => toCrewError("crew.postVerdict", error)));
+        }));
 
     const verdictsForSubject: CrewRepositoryShape["verdictsForSubject"] = (
       subject,
@@ -809,8 +814,8 @@ export const CrewRepositoryLive = Layer.effect(
     const recordReviewReceipt: CrewRepositoryShape["recordReviewReceipt"] = (
       input,
     ) =>
-      state
-        .transaction("crew.recordReviewReceipt", (writer) => {
+      writeTx("crew.recordReviewReceipt", (writer) =>
+        unjournaledWorkMutation("crew.review-receipt", () => {
           const before = writer.get<{ readonly n: number }>(
             `SELECT count(*) AS n FROM work_review_receipts
              WHERE canvas_name = ? AND source_kind = ? AND source_id = ?
@@ -825,17 +830,12 @@ export const CrewRepositoryLive = Layer.effect(
           );
           applyReviewReceiptWrite(writer, input);
           return (before?.n ?? 0) === 0;
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            toCrewError("crew.recordReviewReceipt", error),
-          ),
-        );
+        }));
 
     const recordCheckoutObservation: CrewRepositoryShape["recordCheckoutObservation"] =
       (input) =>
-        state
-          .transaction("crew.recordCheckoutObservation", (writer) => {
+        writeTx("crew.recordCheckoutObservation", (writer) =>
+        unjournaledWorkMutation("crew.checkout-observation", () => {
             const result = writer.run(
               `INSERT OR IGNORE INTO work_review_checkout_observations(
                  checkout_key, sha, seat_id, task_id, attributed_via, observed_at
@@ -850,12 +850,7 @@ export const CrewRepositoryLive = Layer.effect(
               ],
             );
             return Number(result.changes ?? 0) > 0;
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              toCrewError("crew.recordCheckoutObservation", error),
-            ),
-          );
+          }));
 
     const firstAuthorForSha: CrewRepositoryShape["firstAuthorForSha"] = (
       refSha,
