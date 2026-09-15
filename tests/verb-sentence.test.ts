@@ -7,6 +7,12 @@ describe("verbSentence", () => {
     expect(verbSentence("works", "Intake", "Devin")).toBe("Intake works Devin");
   });
 
+  it("reads reviews in reviewer-to-author order", () => {
+    expect(verbSentence("reviews", "Reviewer", "Author")).toBe(
+      "Reviewer reviews Author",
+    );
+  });
+
   it("keeps every verb as from-then-to", () => {
     for (const verb of VERBS) {
       const sentence = verbSentence(verb, "Alpha", "Beta");

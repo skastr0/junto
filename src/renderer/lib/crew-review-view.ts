@@ -116,8 +116,13 @@ export const parseReviewVerdicts = (
   return verdicts;
 };
 
-export const isRequiresReviewRule = (rule: Rule): boolean =>
-  rule.kind === "requires-review";
+export const isRequiresReviewRule = (rule: Rule): boolean => {
+  if (rule.kind === "requires-review") return true;
+  return (
+    (rule as Rule & { readonly requiresReview?: unknown }).requiresReview ===
+    true
+  );
+};
 
 export const contractRequiresReview = (
   contract: TasksContract | undefined,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { CanvasEdge } from "../src/shared/canvas";
 import {
+  authoredPortMaskOf,
   crewPortLabel,
   edgePortMaskView,
   parsePortMask,
@@ -15,6 +17,12 @@ describe("edgePortMaskView", () => {
     );
     expect(full.allowed).toBeUndefined();
     expect(full.chips.every((chip) => chip.granted)).toBe(true);
+  });
+
+  it("treats an empty allow-list as granting none", () => {
+    const none = edgePortMaskView(["msg.send", "verdict.post"], [], "reviews");
+    expect(none.allowed).toEqual([]);
+    expect(none.chips.every((chip) => !chip.granted)).toBe(true);
   });
 
   it("subtracts only compiled ports and never grants a masked invention", () => {
@@ -43,6 +51,34 @@ describe("toggleAllowedPort", () => {
     expect(toggleAllowedPort(["msg.send"], ["msg.send"], "msg.send")).toEqual([]);
     expect(toggleAllowedPort(["msg.send"], [], "msg.send")).toBeUndefined();
     expect(toggleAllowedPort(["msg.send"], undefined, "msg.prompt")).toBeUndefined();
+  });
+});
+
+describe("authoredPortMaskOf", () => {
+  const wire = (
+    ether: CanvasEdge["ether"] | { verb: "messages"; portMask?: readonly string[] },
+  ): CanvasEdge =>
+    ({
+      id: "e1",
+      fromNode: "a",
+      toNode: "b",
+      ether,
+    }) as CanvasEdge;
+
+  it("prefers portMask, treats omit and empty as distinct, and still reads retired mask", () => {
+    expect(authoredPortMaskOf(wire({ verb: "messages" }))).toBeUndefined();
+    expect(authoredPortMaskOf(wire({ verb: "messages", portMask: [] }))).toEqual([]);
+    expect(
+      authoredPortMaskOf(wire({ verb: "messages", portMask: ["msg.send", "ghost"] })),
+    ).toEqual(["msg.send", "ghost"]);
+    expect(
+      authoredPortMaskOf({
+        id: "e1",
+        fromNode: "a",
+        toNode: "b",
+        ether: { verb: "messages", mask: ["seat.wait"] },
+      } as CanvasEdge),
+    ).toEqual(["seat.wait"]);
   });
 });
 

@@ -38,7 +38,7 @@ import { compileVerb, verbsForPair, type PortName, type Verb } from "@shared/phy
 import { isTaskSinkNode } from "@shared/flow-graph";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
 import { verbSentence as formatWireSentence } from "../../lib/verb-sentence";
-import { toggleAllowedPort } from "../../lib/crew-port-mask";
+import { authoredPortMaskOf, toggleAllowedPort } from "../../lib/crew-port-mask";
 import { setEdgePortMask } from "../../lib/edge-mutations";
 import { EdgePortMask } from "./EdgePortMask";
 import {
@@ -276,7 +276,7 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
     view.verb === undefined
       ? []
       : (compileVerb(view.verb, fromKind, toKind)?.ports ?? []);
-  const allowed = edge.ether?.mask;
+  const allowed = authoredPortMaskOf(edge);
 
   return (
     <div className="rts-panel rts-panel--cmd">

@@ -44,13 +44,29 @@ export const parsePortMask = (value: unknown): ReadonlyArray<CrewPortName> => {
   return ports;
 };
 
-/** Read a subtract-only mask if the relation already carries one. */
+type AuthoredPortMask = {
+  readonly portMask?: unknown;
+  readonly mask?: unknown;
+};
+
+/**
+ * Allow-list on the relation. `portMask` is the live field; omitted means the
+ * full compile. Empty grants none. A retired `mask` key is read only until
+ * the document scrub finishes dropping it.
+ */
+export const authoredPortMaskOf = (
+  edge: CanvasEdge,
+): ReadonlyArray<CrewPortName> | undefined => {
+  const ether = edge.ether as AuthoredPortMask | undefined;
+  const raw = ether?.portMask ?? ether?.mask;
+  if (raw === undefined) return undefined;
+  return parsePortMask(raw);
+};
+
+/** @deprecated use authoredPortMaskOf — empty and omitted are different. */
 export const edgePortMaskOf = (
   edge: CanvasEdge,
-): ReadonlyArray<CrewPortName> => {
-  const ether = edge.ether as { readonly mask?: unknown } | undefined;
-  return parsePortMask(ether?.mask);
-};
+): ReadonlyArray<CrewPortName> => authoredPortMaskOf(edge) ?? [];
 
 export type EdgePortMaskChip = {
   readonly port: CrewPortName;
@@ -68,8 +84,8 @@ export type EdgePortMaskView = {
 };
 
 /**
- * `ether.mask` is the remaining allow-list. Omitted grants every compiled
- * port. Names that were never compiled are dropped, not granted.
+ * `ether.portMask` is the remaining allow-list. Omitted grants every compiled
+ * port. Empty grants none. Names that were never compiled are dropped.
  */
 export const edgePortMaskView = (
   compiled: ReadonlyArray<string>,

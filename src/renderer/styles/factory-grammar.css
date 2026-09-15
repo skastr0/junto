@@ -146,9 +146,10 @@
      everything else was fitted around them.
    - WARM (participates, flags, fires, wakes). Real consequence off the task
      line: the same warm hues at roughly half the chroma.
-   - COLD (messages, reads, edits, navigates, escalates, publishes, announces,
-     chains). Nothing here leaves the canvas world, so nothing is warm: teal
-     through violet, several of them near-grey.
+   - COLD (messages, reviews, reads, edits, navigates, escalates, publishes,
+     announces, chains). Nothing here leaves the canvas world, so nothing is
+     warm: teal through violet, several of them near-grey. reviews shares the
+     agent-to-agent pair with messages, so it sits in violet against that blue.
 
    Crimson stays reserved for blockers. Every verb sits at least 0.14 OKLab
    from it, and a blocked wire takes crimson outright (set in EtherEdge).
@@ -189,6 +190,7 @@
   --wire-verb-navigates: oklch(0.5 0.02 190);
   --wire-verb-reads: oklch(0.62 0.07 252);
   --wire-verb-messages: oklch(0.68 0.065 240);
+  --wire-verb-reviews: oklch(0.58 0.1 305);
   --wire-verb-publishes: oklch(0.7 0.07 160);
   --wire-verb-chains: oklch(0.72 0.05 291);
   --wire-verb-edits: oklch(0.78 0.07 232);
@@ -218,6 +220,7 @@ html[data-theme="bright"] {
   --wire-verb-chains: oklch(0.46 0.045 279);
   --wire-verb-publishes: oklch(0.49 0.035 162);
   --wire-verb-messages: oklch(0.53 0.07 236);
+  --wire-verb-reviews: oklch(0.4 0.09 305);
   --wire-verb-escalates: oklch(0.59 0.07 275);
   --wire-verb-edits: oklch(0.62 0.04 202);
 

@@ -26,6 +26,11 @@ describe("requires-review projection", () => {
     expect(contractRequiresReview({ rules: [statement] })).toBe(false);
     expect(contractRequiresReview({ rules: [typed] })).toBe(true);
     expect(
+      contractRequiresReview({
+        rules: [{ id: "r3", text: "Review", requiresReview: true } as Rule],
+      }),
+    ).toBe(true);
+    expect(
       withRequiresReviewRule([statement], true, () => "r-new").some(
         (rule) => rule.kind === "requires-review",
       ),

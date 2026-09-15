@@ -155,10 +155,10 @@ export const deleteEdges = (ids: ReadonlyArray<string>): void => {
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
 };
 
-/** Subtract-only attenuation: omitted mask restores the verb's full compile. */
+/** Allow-list attenuation. Omitted restores the verb's full compile. */
 export const setEdgePortMask = (
   id: string,
-  mask: ReadonlyArray<PortName> | undefined,
+  portMask: ReadonlyArray<PortName> | undefined,
 ): void => {
   const doc = state$.doc.peek();
   commitDoc({
@@ -167,10 +167,10 @@ export const setEdgePortMask = (
       if (edge.id !== id || edge.ether?.verb === undefined) return edge;
       return {
         ...edge,
-        ether:
-          mask === undefined
-            ? { verb: edge.ether.verb }
-            : { verb: edge.ether.verb, mask },
+        ether: {
+          verb: edge.ether.verb,
+          ...(portMask === undefined ? {} : { portMask }),
+        } as typeof edge.ether,
       };
     }),
   });
