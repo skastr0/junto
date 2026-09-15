@@ -9,6 +9,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { WritePromptOptions } from "../src/main/vellum-command/term/drive";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { factoryPulseTransport } from "../src/main/vellum-command/term/factory-delivery-composition";
 import {
   managedPulseDeliver,
@@ -17,7 +18,7 @@ import {
 
 type FakeDrive = {
   writes: Array<{ bindingId: string; text: string }>;
-  writePrompt: (b: string, t: string, o: WritePromptOptions) => Promise<boolean>;
+  writePrompt: (b: string, t: string, o: WritePromptOptions) => Promise<ManagedPromptOutcome>;
   pasteWriteCount: (b: string) => number;
 };
 
@@ -26,10 +27,18 @@ const fakeDrive = (): FakeDrive => {
   return {
     writes,
     writePrompt: (bindingId, text) => {
+      const writesBefore = writes.filter((write) => write.bindingId === bindingId).length;
       writes.push({ bindingId, text });
-      return Promise.resolve(true);
+      return Promise.resolve({
+        status: "submitted",
+        bindingGeneration: 1,
+        writesBefore,
+        writesAfter: writesBefore + 1,
+        pasteWrites: 1,
+        wrotePhysicalBytes: true,
+      });
     },
-    pasteWriteCount: () => 0,
+    pasteWriteCount: (bindingId) => writes.filter((write) => write.bindingId === bindingId).length,
   };
 };
 
