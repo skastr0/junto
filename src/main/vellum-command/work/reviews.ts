@@ -574,7 +574,10 @@ const edgeHoldsVerdictPost = (
  * Reviewers currently holding a `verdict.post` grant toward `authorNodeId`:
  * edge source is the reviewer, target the author (the edge is directed).
  * Seats resolve through the live actor refs; an edge whose reviewer node
- * has no live seat contributes nothing.
+ * has no live seat contributes nothing. Parallel eligible edges that share
+ * one stable seat (a reviewer with two live nodes) collapse to the FIRST
+ * edge in document order — downstream mail plans per seat and a duplicate
+ * entry would double-send receipts.
  */
 export const reviewersOfAuthor = (input: {
   readonly doc: CanvasDoc;
@@ -586,10 +589,12 @@ export const reviewersOfAuthor = (input: {
 }> => {
   const { doc, authorNodeId, actorRefs } = input;
   const out: Array<{ nodeId: string; seatId: ActorSeatId }> = [];
+  const seenSeats = new Set<ActorSeatId>();
   for (const edge of doc.edges) {
     if (!edgeHoldsVerdictPost(edge) || edge.toNode !== authorNodeId) continue;
     const seat = actorRefs.find((actor) => actor.nodeId === edge.fromNode);
-    if (seat === undefined) continue;
+    if (seat === undefined || seenSeats.has(seat.seatId)) continue;
+    seenSeats.add(seat.seatId);
     out.push({ nodeId: edge.fromNode, seatId: seat.seatId });
   }
   return out;

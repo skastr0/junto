@@ -14,6 +14,7 @@ import {
   receiptSourceId,
   resolveTaskSubject,
   reviewSubjectProjection,
+  reviewersOfAuthor,
   reviewsEdgeExists,
   REVIEW_REASON_AUTHOR_UNRESOLVED,
   REVIEW_REASON_EDGE_MISSING,
@@ -802,5 +803,53 @@ describe("checkout receipt feed — standalone commit subjects", () => {
 
   it("blank shas never reach a reviewer", () => {
     expect(plan({ shas: ["", "   "] }).mail).toHaveLength(0);
+  });
+});
+
+describe("reviewersOfAuthor — stable-seat dedupe", () => {
+  const docWith = (...edges: ReadonlyArray<CanvasDoc["edges"][number]>): CanvasDoc => ({
+    nodes: [agentNode("reviewer-node-a"), agentNode("reviewer-node-b"), agentNode("author-node")],
+    edges: [...edges],
+  });
+  const twoNodeRefs = [
+    actorRefOf(REVIEWER, "reviewer-node-a"),
+    actorRefOf(REVIEWER, "reviewer-node-b"),
+  ];
+
+  it("parallel eligible edges sharing one stable seat collapse to the first edge in doc order", () => {
+    const doc = docWith(
+      reviewsEdge("reviewer-node-a", "author-node"),
+      reviewsEdge("reviewer-node-b", "author-node"),
+    );
+    expect(
+      reviewersOfAuthor({ doc, authorNodeId: "author-node", actorRefs: twoNodeRefs }),
+    ).toEqual([{ nodeId: "reviewer-node-a", seatId: REVIEWER }]);
+  });
+
+  it("an ineligible parallel edge does not shadow the reviewer", () => {
+    const doc = docWith(
+      reviewsEdge("reviewer-node-a", "author-node", []), // mask removes verdict.post
+      reviewsEdge("reviewer-node-b", "author-node"),
+    );
+    expect(
+      reviewersOfAuthor({ doc, authorNodeId: "author-node", actorRefs: twoNodeRefs }),
+    ).toEqual([{ nodeId: "reviewer-node-b", seatId: REVIEWER }]);
+  });
+
+  it("distinct seats keep one entry each", () => {
+    const doc = docWith(
+      reviewsEdge("reviewer-node-a", "author-node"),
+      reviewsEdge("reviewer-node-b", "author-node"),
+    );
+    const OTHER = `seat_${"c".repeat(64)}` as ActorSeatId;
+    const reviewers = reviewersOfAuthor({
+      doc,
+      authorNodeId: "author-node",
+      actorRefs: [actorRefOf(REVIEWER, "reviewer-node-a"), actorRefOf(OTHER, "reviewer-node-b")],
+    });
+    expect(reviewers).toEqual([
+      { nodeId: "reviewer-node-a", seatId: REVIEWER },
+      { nodeId: "reviewer-node-b", seatId: OTHER },
+    ]);
   });
 });
