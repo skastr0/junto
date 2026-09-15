@@ -13,7 +13,7 @@ import { makeSeatObservation } from "../src/main/vellum-command/work/seat-observ
 // from a fresh live document before an event is accepted and before every
 // return; subscriptions register before the current value is checked.
 
-const agentNode = (id: string, bindingId: string): CanvasNode => ({
+const agentNode = (id: string, bindingId: string, host?: string): CanvasNode => ({
   id,
   type: "text",
   text: id,
@@ -24,6 +24,7 @@ const agentNode = (id: string, bindingId: string): CanvasNode => ({
   ether: {
     entity: { kind: "agent", name: `local:${id}` },
     terminal: { bindingId, harness: "claude" },
+    ...(host !== undefined ? { host } : {}),
   },
 });
 
@@ -157,7 +158,9 @@ const makeHarness = (input: {
   };
 };
 
-const failureOf = (exit: Exit.Exit<unknown, { type?: string }>): { type?: string } | undefined => {
+const failureOf = (
+  exit: Exit.Exit<unknown, { type?: string; details?: { reason?: string } }>,
+): { type?: string; details?: { reason?: string } } | undefined => {
   if (!Exit.isFailure(exit)) return undefined;
   const found = Cause.findFail(exit.cause);
   if (found._tag !== "Success") return undefined;
@@ -387,6 +390,42 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     if (Exit.isFailure(exit)) {
       const error = failureOf(exit);
       expect(error?.type).toBe("ScopeError");
+    }
+  });
+
+  // A local seat whose delivery surface flips to another host mid-wait stops
+  // being observable here — the same resolver runs on every revalidation, so
+  // the wait must fail closed rather than keep waiting on a grid this process
+  // no longer owns.
+  it("seat.wait fails closed when the seat's surface flips to a remote host mid-wait", async () => {
+    const local = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [messagesEdge],
+    );
+    const remote = docWith(
+      [
+        agentNode("caller", "bind-caller"),
+        agentNode("peer", "bind-peer", "station-b"),
+      ],
+      [messagesEdge],
+    );
+    const harness = makeHarness({ doc: local, sessionEpoch: "e1" });
+    const pending = Effect.runPromiseExit(
+      harness.service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 5_000 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    await settle(60);
+    expect(harness.seatSubscribed()).toBe(true);
+    harness.setDoc(remote);
+    harness.emitCanvas("c");
+    const exit = await pending;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("ScopeError");
+      expect(error?.details?.reason).toBe("crew-local-seat-only");
     }
   });
 
