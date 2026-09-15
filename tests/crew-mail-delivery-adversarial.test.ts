@@ -593,17 +593,26 @@ describe("crew mail delivery — process-boundary adversarial", () => {
   );
 
   // Contract ruling: peer envelopes say "mail from <seat>", not
-  // "[factory mail from <seat>]". The preview stripper removes both forms.
+  // "[factory mail from <seat>]". The preview stripper removes both
+  // stamped forms but preserves sender-like prose that is not the
+  // server-stamped label.
   it(
-    "notice previews strip the current peer envelope, not only the legacy one",
+    "notice previews strip only the stamped envelope, preserving sender-like prose",
     () => {
-      const summary = composeMessageDeliverySummary([
+      const stamped = composeMessageDeliverySummary([
         userMsg("env-1", "mail from seat-a do the thing", {
           metadata: { factoryMail: true, fromSeat: "seat-a" },
         }),
       ]);
-      expect(summary).not.toContain("mail from seat-a do the thing");
-      expect(summary).toContain("do the thing");
+      expect(stamped).not.toContain("mail from seat-a do the thing");
+      expect(stamped).toContain("do the thing");
+
+      const prose = composeMessageDeliverySummary([
+        userMsg("env-2", "mail from seat-b is just prose, keep it", {
+          metadata: { factoryMail: true, fromSeat: "seat-a" },
+        }),
+      ]);
+      expect(prose).toContain("mail from seat-b is just prose");
     },
   );
 
