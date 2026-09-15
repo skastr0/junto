@@ -1,28 +1,28 @@
 /**
- * Isolated real-Devin mail notice [real-harness] — disjoint from fake-tui
- * crew mail/prompt/wait specs (p1H) and reviews E2E (root).
+ * Isolated real-Devin mail observation [real-harness]. A real settled prompt
+ * precedes fresh mail; the app projection must eventually report a read or a
+ * durable refusal/unresolved fact. A queued row alone never passes.
  *
- * Occupy fake sender + real Devin, send fresh durable mail, then Devin
- * process-bound lists/reads. Assert readAt via readCanvas work projection
- * (no SQLite second opener). typedNoticeQualified stays false.
- *
- * Hold for Computer Use: ISOLATED_DEVIN_HOLD=1 (visible window, bounded
- * inspect then always close). ISOLATED_DEVIN_HOLD_MS defaults to 90000.
- * Does not write ~/.vellum-command/state/vellum-command.db.
+ * ISOLATED_DEVIN_HOLD=1 exposes the live app for Computer Use after observation
+ * (also on failure). Final evidence is collected after the bounded hold and
+ * before teardown. The latest run and its PIDs are in /tmp/isolated-devin-mail-hold.json.
+ * This probe never qualifies typed notices or opens the running app database.
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { transportLogDirectory } from "../../src/shared/transport-trace";
+import { Schema } from "effect";
 import type { Page } from "@playwright/test";
+import { promptBoxBody } from "../../src/main/vellum-command/term/observer/regions";
+import type { Message } from "../../src/shared/work-model";
+import { readMailAttemptFacts } from "../../src/shared/crew";
+import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
+import { SeatReadResult } from "../../src/shared/seat-control";
+import { transportLogDirectory } from "../../src/shared/transport-trace";
 import { expect, launchVellum, test } from "../harness/launch";
-import {
-  crewOccupySeat,
-  crewPlayFactory,
-  crewSeat,
-} from "../harness/crew-fixture";
+import { crewMessagePasteWrites, crewPlayFactory, crewSeat, type CrewSeat } from "../harness/crew-fixture";
 import { HARNESS_MAIL_TRANSPORT } from "../../src/shared/managed-terminal-templates";
 import {
   ISOLATED_DEVIN_CREDENTIAL_REL,
@@ -40,13 +40,10 @@ const operatorHome = homedir();
 const operatorCred = join(operatorHome, ISOLATED_DEVIN_CREDENTIAL_REL);
 const HOLD = process.env.ISOLATED_DEVIN_HOLD === "1";
 const HOLD_MS = Number.parseInt(process.env.ISOLATED_DEVIN_HOLD_MS ?? "90000", 10);
+const READY_MS = 120_000;
+const OBSERVE_MS = 90_000;
 const DEVIN_BINDING = "local:isolated-devin";
 const HOLD_NOTE = join("/tmp", "isolated-devin-mail-hold.json");
-const PRESERVED_PTY_TRACE = join("/tmp", "isolated-devin-pty-delivery.jsonl");
-const PRESERVED_TRANSPORT = join("/tmp", "isolated-devin-transport.jsonl");
-const ARTIFACT_SCREEN = join("/tmp", "isolated-devin-seat.png");
-const ARTIFACT_SEAT_READ = join("/tmp", "isolated-devin-seat-read.json");
-const ARTIFACT_MAIL = join("/tmp", "isolated-devin-mail-facts.json");
 
 const sha256File = (path: string): string | undefined => {
   if (!existsSync(path)) return undefined;
@@ -55,357 +52,302 @@ const sha256File = (path: string): string | undefined => {
 
 const runtimeProvenance = () => {
   const rendererDir = join(process.cwd(), "out", "renderer", "assets");
-  const rendererIndex = existsSync(rendererDir)
-    ? readdirSync(rendererDir).find((name) => /^index-.*\.js$/.test(name))
-    : undefined;
-  let sourceCommit = "unknown";
+  const rendererAssets = existsSync(rendererDir)
+    ? readdirSync(rendererDir).filter((name) => /\.(js|css)$/.test(name)).sort()
+    : [];
+  let checkoutCommit = "unknown";
   try {
-    sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    checkoutCommit = execFileSync("git", ["rev-parse", "HEAD"], {
       encoding: "utf8",
     }).trim();
   } catch {
     /* ignore */
   }
-  let sourceDiffSha256 = "clean";
+  let checkoutDiffSha256 = "clean";
   try {
     const diff = execFileSync("git", ["diff", "HEAD"], { encoding: "buffer" });
     if (diff.length > 0) {
-      sourceDiffSha256 = createHash("sha256").update(diff).digest("hex");
+      checkoutDiffSha256 = createHash("sha256").update(diff).digest("hex");
     }
   } catch {
-    sourceDiffSha256 = "unknown";
+    checkoutDiffSha256 = "unknown";
   }
   return {
-    sourceCommit,
-    sourceDiffSha256,
+    builtSourceCorrespondence: "unverified-by-spec",
+    checkoutCommit,
+    checkoutDiffSha256,
     outMainSha256: sha256File(join(process.cwd(), "out", "main", "index.js")),
     outPreloadSha256: sha256File(join(process.cwd(), "out", "preload", "index.cjs")),
-    outRendererSha256:
-      rendererIndex === undefined
-        ? undefined
-        : sha256File(join(rendererDir, rendererIndex)),
-    outRendererFile: rendererIndex,
+    outRendererIndexSha256: sha256File(join(process.cwd(), "out", "renderer", "index.html")),
+    outRendererAssets: rendererAssets.map((name) => ({ name, sha256: sha256File(join(rendererDir, name)) })),
   };
 };
 
-type ProjectedMessage = {
-  readonly messageId?: string;
-  readonly parts?: ReadonlyArray<{ readonly kind?: string; readonly text?: string }>;
-  readonly metadata?: {
-    readonly readAt?: unknown;
-    readonly fromSeat?: unknown;
-  };
+const projectedMessages = async (page: Page): Promise<ReadonlyArray<Message>> => {
+  const read = await page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), ISOLATED_DEVIN_MAIL_CANVAS);
+  const node = read.doc.nodes.find((entry) => entry.id === ISOLATED_DEVIN_RECEIVER_ID);
+  if (node === undefined) throw new Error("The isolated Devin mailbox sink is missing from readCanvas");
+  return node.ether?.messages?.items ?? [];
 };
 
-const projectedMessages = async (
-  page: Page,
-  canvas: string,
-  nodeId: string,
-): Promise<ReadonlyArray<ProjectedMessage>> => {
-  const doc = await page.evaluate(async (name) => {
-    const read = await window.vellumCommand!.readCanvas(name);
-    return read.doc;
-  }, canvas);
-  const node = doc.nodes.find((entry) => entry.id === nodeId);
-  const items = (
-    node as {
-      ether?: { messages?: { items?: ReadonlyArray<ProjectedMessage> } };
-    } | undefined
-  )?.ether?.messages?.items;
-  return items ?? [];
+const readDevin = async (sender: CrewSeat): Promise<SeatReadResult> => {
+  const result = await sender.op("seat.read", { target: ISOLATED_DEVIN_RECEIVER_ID, lines: 120 });
+  if (!result.ok) throw new Error(`seat.read failed: ${JSON.stringify(result.error)}`);
+  return Schema.decodeUnknownSync(SeatReadResult)(result.data);
 };
 
-const occupyDevinOnce = async (page: Page): Promise<{ pid?: number; cwd?: string }> => {
-  await page.evaluate(
-    async ([canvas, node]) => {
-      await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
-    },
-    [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinReceiverNode] as const,
+const selectedTrustPrompt = (grid: SeatReadResult): boolean => {
+  if (grid.replaced || grid.epoch !== grid.generation || grid.state !== "attention" ||
+      grid.confidence !== "high" || grid.reason !== "rule:workspace_trust_prompt") return false;
+  const tail = grid.text.split("\n").filter((line) => line.trim().length > 0).slice(-16).join("\n");
+  return /do you trust the authors of this directory\?/i.test(tail) &&
+    /^\s*❭\s*1\s+Yes, trust\b/im.test(tail) &&
+    /^\s*(?:\u00b7\s*)?2\s+No, exit\b/im.test(tail) && /to choose/i.test(tail);
+};
+
+const eligiblePrompt = (grid: SeatReadResult): boolean => {
+  if (grid.replaced || grid.generation.length === 0 || grid.epoch !== grid.generation ||
+      grid.state !== "idle" || grid.confidence !== "high" ||
+      !["rule:welcome_prompt_footer", "rule:live_prompt_footer"].includes(grid.reason)) return false;
+  const lines = grid.text.split("\n");
+  const tail = lines.filter((line) => line.trim().length > 0).slice(-8);
+  const text = tail.join("\n");
+  if (/do you trust|approve once|esc cancel|running tools|esc to interrupt|guide devin while it works/i.test(text)) return false;
+  const composer = promptBoxBody(lines).join("\n");
+  return (
+    /^\s*❭ Ask Devin to build features, fix bugs, or work on your code\s*$/.test(composer) ||
+    (/^\s*❭\s*$/.test(composer) && /context:/i.test(text))
   );
+};
+
+const occupyDevinOnce = async (page: Page) => {
+  await page.evaluate(async ([canvas, node]) => {
+    await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
+  }, [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinReceiverNode] as const);
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const session = await page.evaluate(
-      async (bindingId) => window.vellumCommand!.terminalGet(bindingId),
-      DEVIN_BINDING,
-    );
-    if (session?.pid !== undefined && session.pid > 0) {
-      return { pid: session.pid, cwd: session.cwd };
-    }
+    const session = await page.evaluate(async (bindingId) => window.vellumCommand!.terminalGet(bindingId), DEVIN_BINDING);
+    if (session?.status === "running" && session.pid !== undefined && session.pid > 0) return session;
     await page.waitForTimeout(250);
   }
-  throw new Error("real Devin seat never occupied after one terminalCreate");
+  throw new Error("Real Devin never ran after one terminalCreate");
 };
 
-test("isolated Devin [real-harness]: native mail is readAt or named unresolved", async () => {
-  test.setTimeout((HOLD ? HOLD_MS : 0) + 240_000);
-  if (!existsSync(operatorCred)) {
-    test.skip(true, "no operator Devin credentials.toml to seed");
+const outcomeOf = (message: Message | undefined) => {
+  const readAt = message?.metadata?.readAt;
+  const attempt = readMailAttemptFacts(message?.metadata);
+  if (readAt !== undefined) {
+    if (typeof readAt !== "number" || !Number.isFinite(readAt) || readAt <= 0) throw new Error("Invalid projected readAt receipt");
+    return { kind: "read" as const, readAt };
   }
-  if (resolveOperatorDevinBinary(process.env.PATH ?? "") === undefined) {
-    test.skip(true, "real devin binary not on PATH");
+  if (attempt?.unresolvedAt !== undefined) return { kind: "unresolved" as const, at: attempt.unresolvedAt, generation: attempt.generation };
+  // Refusals are independent historical facts. A later notifiedAt supersedes
+  // their diagnostic outcome; it still needs a real read receipt for this probe.
+  if (attempt?.notifiedAt !== undefined) return { kind: "awaiting-read" as const, notifiedAt: attempt.notifiedAt };
+  if (attempt?.refusedAt !== undefined && attempt.refusedReason !== undefined) {
+    return { kind: "refused" as const, at: attempt.refusedAt, reason: attempt.refusedReason, generation: attempt.generation };
   }
+  return { kind: message === undefined ? "missing-message" as const : "pending" as const };
+};
+
+const observed = async <T>(body: () => Promise<T>) => {
+  try { return { ok: true as const, value: await body() }; }
+  catch (error) { return { ok: false as const, error: String(error) }; }
+};
+
+test("isolated Devin [real-harness]: settled seat reaches readAt or a durable named failure", async () => {
+  if (!Number.isFinite(HOLD_MS) || HOLD_MS < 0 || HOLD_MS > 600_000) throw new Error("ISOLATED_DEVIN_HOLD_MS must be between 0 and 600000");
+  test.setTimeout((HOLD ? HOLD_MS : 0) + 420_000);
+  if (!existsSync(operatorCred)) test.skip(true, "no operator Devin credentials.toml to seed");
+  if (resolveOperatorDevinBinary(process.env.PATH ?? "") === undefined) test.skip(true, "real devin binary not on PATH");
   expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
   if (HOLD) process.env.VELLUM_COMMAND_E2E_SHOW = "1";
 
   const provenance = runtimeProvenance();
-  writeFileSync(HOLD_NOTE, `${JSON.stringify({ phase: "prelaunch", ...provenance })}\n`);
+  const artifacts = mkdtempSync(join("/tmp", "isolated-devin-mail-evidence-"));
+  const artifact = (name: string) => join(artifacts, name);
+  const json = (path: string, value: unknown) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  json(HOLD_NOTE, { phase: "prelaunch", at: new Date().toISOString(), artifacts, ...provenance });
   const vellum = await launchVellum({
     seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
     extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
     afterSeed: async (sandbox) => {
-      const prepared = await seedIsolatedDevinAppHome(
-        sandbox,
-        operatorHome,
-        process.env.PATH ?? "",
-      );
+      const prepared = await seedIsolatedDevinAppHome(sandbox, operatorHome, process.env.PATH ?? "");
       if (!prepared.ok) throw new Error(prepared.limitation);
       expect(prepared.seeded.copied).toContain(ISOLATED_DEVIN_CREDENTIAL_REL);
-      expect(
-        existsSync(join(sandbox.homeDir, ".local/share/devin/cli/sessions.db")),
-      ).toBe(false);
+      expect(existsSync(join(sandbox.homeDir, ".local/share/devin/cli/sessions.db"))).toBe(false);
     },
   });
-
-  const preserveLogs = (sandboxHome: string) => {
-    const logs = transportLogDirectory(sandboxHome);
-    const pty = join(logs, "pty-delivery.jsonl");
-    const transport = join(logs, "transport.jsonl");
-    if (existsSync(pty)) copyFileSync(pty, PRESERVED_PTY_TRACE);
-    if (existsSync(transport)) copyFileSync(transport, PRESERVED_TRANSPORT);
-    return {
-      ptyTracePath: existsSync(PRESERVED_PTY_TRACE) ? PRESERVED_PTY_TRACE : null,
-      transportPath: existsSync(PRESERVED_TRANSPORT) ? PRESERVED_TRANSPORT : null,
-      ptyTraceBytes: existsSync(PRESERVED_PTY_TRACE)
-        ? readFileSync(PRESERVED_PTY_TRACE).length
-        : 0,
-    };
-  };
+  const { page, sandbox } = vellum;
+  const sender = crewSeat(sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_SENDER_ID);
+  let occupied: Awaited<ReturnType<typeof occupyDevinOnce>> | undefined;
+  let messageId: string | undefined;
+  let ready: SeatReadResult | undefined;
+  let failure: unknown;
+  let trustConfirmed = false;
 
   const writeHold = (extra: Record<string, unknown>) => {
-    const electronMainPid = vellum.app.process().pid;
     const body = {
-      ...provenance,
-      ...extra,
-      electronMainPid,
-      canvas: ISOLATED_DEVIN_MAIL_CANVAS,
-      window: HOLD ? "visible" : "offscreen",
-      holdMs: HOLD ? HOLD_MS : 0,
+      ...provenance, at: new Date().toISOString(), artifacts,
+      electronMainPid: vellum.app.process().pid, harnessPid: occupied?.pid,
+      bindingId: occupied?.bindingId, epoch: occupied?.epoch, cwd: occupied?.cwd,
+      sandboxHome: sandbox.homeDir, canvas: ISOLATED_DEVIN_MAIL_CANVAS, messageId,
+      window: HOLD ? "visible" : "offscreen", holdMs: HOLD ? HOLD_MS : 0,
+      typedNoticeQualified: false, ...extra,
     };
-    writeFileSync(HOLD_NOTE, `${JSON.stringify(body)}\n`);
-    console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify(body)}`);
+    json(HOLD_NOTE, body);
+    return body;
+  };
+
+  const preserveLogs = () => {
+    const logs = transportLogDirectory(sandbox.homeDir);
+    return ["pty-delivery.jsonl", "pty-delivery.jsonl.1", "transport.jsonl", "transport.jsonl.1"].map((name) => {
+      const source = join(logs, name);
+      if (!existsSync(source)) return { name, available: false as const };
+      const path = artifact(name);
+      copyFileSync(source, path);
+      return { name, available: true as const, path, bytes: readFileSync(path).length, sha256: sha256File(path) };
+    });
   };
 
   try {
-    const { page, sandbox, app } = vellum;
-    if (HOLD) {
-      await app.evaluate(({ BrowserWindow }) => {
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) {
-            win.show();
-            win.focus();
+    try {
+      if (HOLD) await vellum.app.evaluate(({ BrowserWindow }) => {
+        for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) { win.show(); win.focus(); }
+      });
+      console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify(writeHold({ phase: "launched" }))}`);
+      await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+      await crewPlayFactory(page);
+      await page.evaluate(async ([canvas, node]) => {
+        await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
+      }, [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinSenderNode] as const);
+      await sender.ready(45_000);
+      occupied = await occupyDevinOnce(page);
+      writeHold({ phase: "waiting-ready" });
+      // This occupied-seat gesture activates its view; it must not create a
+      // second process. Every observation below keeps the original epoch.
+      await page.locator(`.react-flow__node[data-id="${ISOLATED_DEVIN_RECEIVER_ID}"]`).dblclick();
+      const front = page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
+      await expect(front).toBeVisible({ timeout: 30_000 });
+      const deadline = Date.now() + READY_MS;
+      let stable = "";
+      let stableSince = 0;
+      while (Date.now() < deadline) {
+        const grid = await readDevin(sender);
+        json(artifact("readiness-latest.json"), grid);
+        if (grid.replaced || grid.epoch !== occupied.epoch) throw new Error("Devin generation changed during readiness");
+        if (selectedTrustPrompt(grid)) {
+          stable = "";
+          if (!trustConfirmed) {
+            await front.locator(".xterm-screen").click();
+            await page.screenshot({ path: artifact("trust-before-enter.png"), fullPage: true });
+            const current = await readDevin(sender);
+            if (current.epoch === occupied.epoch && selectedTrustPrompt(current)) {
+              json(artifact("trust-before-enter.json"), current);
+              await page.keyboard.press("Enter");
+              trustConfirmed = true;
+              writeHold({ phase: "trust-confirmed", trustEvidence: artifact("trust-before-enter.json") });
+            }
           }
-        }
-      });
-    }
-    writeHold({
-      phase: "launched",
-      sandboxHome: sandbox.homeDir,
-    });
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await crewPlayFactory(page);
+        } else if (eligiblePrompt(grid)) {
+          const key = `${grid.epoch}:${grid.reason}:${grid.text}`;
+          if (key !== stable) { stable = key; stableSince = Date.now(); }
+          if (Date.now() - stableSince >= 2_500) { ready = grid; break; }
+        } else { stable = ""; }
+        await page.waitForTimeout(500);
+      }
+      if (ready === undefined) throw new Error("Devin never reached a stable, high-confidence empty prompt; no mail was sent");
+      json(artifact("ready-before-send.json"), ready);
+      const live = await page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING);
+      if (live?.pid !== occupied.pid || live?.epoch !== occupied.epoch) throw new Error("Opening Devin replaced its occupied process");
 
-    const sender = crewSeat(sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_SENDER_ID);
-    await crewOccupySeat(page, ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinSenderNode, sender);
-    const occupied = await occupyDevinOnce(page);
-    writeHold({
-      phase: "occupied",
-      harnessPid: occupied.pid,
-      sandboxHome: sandbox.homeDir,
-      cwd: occupied.cwd,
-    });
-
-    const readGrid = async () => {
-      const grid = await sender.op("seat.read", {
-        target: ISOLATED_DEVIN_RECEIVER_ID,
-        lines: 40,
-      });
-      const text = String(
-        (grid.ok ? (grid.data as { text?: string } | undefined)?.text : "") ?? "",
-      );
-      const state = grid.ok
-        ? String((grid.data as { state?: string; reason?: string }).state ?? "")
-        : "";
-      const reason = grid.ok
-        ? String((grid.data as { reason?: string }).reason ?? "")
-        : "";
-      const trustPrompt =
-        /do you trust (the )?authors/i.test(text) &&
-        /yes,?\s*trust|\b1[\.)]?\s*yes/i.test(text);
-      const typeableIdle = /❭/.test(text) && !trustPrompt;
-      return { ok: grid.ok, text, state, reason, trustPrompt, typeableIdle, raw: grid };
-    };
-
-    const dismissExactTrustOnce = async () => {
-      const attached = (await page.evaluate(async (bindingId) => {
-        const api = window.vellumCommand!;
-        return api.terminalAttach({ bindingId, mode: "control", takeover: true });
-      }, DEVIN_BINDING)) as { ok?: boolean; lease?: { leaseId?: string } };
-      const leaseId = attached.lease?.leaseId;
-      if (leaseId === undefined) return;
-      await page.evaluate(
-        async ([id]) => {
-          await window.vellumCommand!.terminalWrite(id, "\r");
-          await window.vellumCommand!.terminalRelease(id);
-        },
-        [leaseId] as const,
-      );
-    };
-
-    let grid = await readGrid();
-    if (grid.trustPrompt) {
-      await dismissExactTrustOnce();
-      await page.waitForTimeout(1_500);
-      grid = await readGrid();
-    }
-    writeHold({
-      phase: "post-trust-inspect",
-      harnessPid: occupied.pid,
-      sandboxHome: sandbox.homeDir,
-      gridState: grid.state,
-      gridReason: grid.reason,
-      trustPrompt: grid.trustPrompt,
-      typeableIdle: grid.typeableIdle,
-    });
-    if (grid.trustPrompt || (!grid.typeableIdle && /welcome to devin/i.test(grid.text))) {
-      // Do not treat fallback idle as typeable. Send still runs so ledger
-      // enqueue vs paste can be compared; unresolvedReason records the grid.
+      const nonce = `isolated-devin-mail ${Date.now()}`;
+      const send = await sender.op("msg.send", { target: ISOLATED_DEVIN_RECEIVER_ID, text: nonce });
+      if (!send.ok) throw new Error(`Fresh msg.send failed: ${JSON.stringify(send.error)}`);
+      messageId = (send.data as { messageId?: string } | undefined)?.messageId;
+      if (typeof messageId !== "string" || messageId.length === 0) throw new Error("Fresh msg.send did not return a messageId");
+      writeHold({ phase: "observing-mail", readyEvidence: artifact("ready-before-send.json") });
+      const until = Date.now() + OBSERVE_MS;
+      let outcome: ReturnType<typeof outcomeOf> = { kind: "pending" };
+      while (Date.now() < until) {
+        outcome = outcomeOf((await projectedMessages(page)).find((item) => item.messageId === messageId));
+        writeHold({ phase: "observing-mail", outcome });
+        if (outcome.kind === "read" || outcome.kind === "unresolved") break;
+        // A pre-write refusal can be followed by a successful readiness retry.
+        // Give the full observation window before accepting that durable fact.
+        await page.waitForTimeout(500);
+      }
+      if (!["read", "unresolved", "refused"].includes(outcome.kind)) {
+        throw new Error(`No read receipt or durable named failure after ${OBSERVE_MS}ms: ${JSON.stringify(outcome)}`);
+      }
+    } catch (error) {
+      failure = error;
+      writeHold({ phase: "observation-failed", error: String(error) });
     }
 
-    const nonce = `isolated-devin-mail ${String(Date.now())}`;
-    const send = await sender.op("msg.send", {
-      target: ISOLATED_DEVIN_RECEIVER_ID,
-      text: nonce,
-    });
-    expect(send.ok, JSON.stringify(send)).toBe(true);
-    if (!send.ok) throw new Error("unreachable");
-    const messageId = (send.data as { messageId?: string } | undefined)?.messageId;
-    expect(typeof messageId).toBe("string");
-    writeHold({
-      phase: "submitted",
-      harnessPid: occupied.pid,
-      sandboxHome: sandbox.homeDir,
-      cwd: occupied.cwd,
-      messageId,
-    });
-
-    await expect
-      .poll(
-        async () =>
-          (await projectedMessages(page, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID))
-            .some((item) => item.messageId === messageId),
-        { timeout: 90_000 },
-      )
-      .toBe(true);
-
-    const items = await projectedMessages(
-      page,
-      ISOLATED_DEVIN_MAIL_CANVAS,
-      ISOLATED_DEVIN_RECEIVER_ID,
-    );
-    const found = items.find((item) => item.messageId === messageId);
-    const readAt = found?.metadata?.readAt ?? null;
-    const fromSeat = found?.metadata?.fromSeat ?? null;
-    expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
-    const logs = preserveLogs(sandbox.homeDir);
-    const traceEvents = existsSync(PRESERVED_PTY_TRACE)
-      ? readFileSync(PRESERVED_PTY_TRACE, "utf8")
-          .split("\n")
-          .filter((line) => line.length > 0)
-          .map((line) => JSON.parse(line) as {
-            event?: string;
-            bindingId?: string;
-            fields?: { waiting?: boolean; probe?: string; value?: unknown; gate?: string; ok?: boolean };
-          })
-      : [];
-    const physicalPastes = traceEvents.filter(
-      (event) =>
-        event.bindingId === DEVIN_BINDING &&
-        (event.event === "write.end" || event.event === "delivery.begin"),
-    ).length;
-    const lastDevinGate = [...traceEvents]
-      .reverse()
-      .find((event) => event.bindingId === DEVIN_BINDING && event.event === "gate");
-    const lastDevinIdle = [...traceEvents]
-      .reverse()
-      .find(
-        (event) =>
-          event.bindingId === DEVIN_BINDING &&
-          event.event === "evidence" &&
-          event.fields?.probe === "idle",
-      );
-    const unresolvedReason =
-      readAt !== null && readAt !== undefined
-        ? null
-        : physicalPastes === 0
-          ? `enqueue-only: no physical paste; last gate=${String(lastDevinGate?.fields?.gate)} waiting=${String(lastDevinGate?.fields?.waiting)} idle=${String(lastDevinIdle?.fields?.value)}`
-          : "pasted but readAt missing";
-    const grid = await sender.op("seat.read", {
-      target: ISOLATED_DEVIN_RECEIVER_ID,
-      lines: 40,
-    });
-    writeFileSync(
-      ARTIFACT_SEAT_READ,
-      `${JSON.stringify(grid.ok ? grid.data : grid, null, 2)}\n`,
-    );
-    writeFileSync(
-      ARTIFACT_MAIL,
-      `${JSON.stringify({
-        messageId,
-        fromSeat,
-        readAt,
-        physicalPastes,
-        unresolvedReason,
-        notified: found !== undefined,
-      }, null, 2)}\n`,
-    );
-    await page.screenshot({ path: ARTIFACT_SCREEN, fullPage: true });
-    writeHold({
-      phase: "artifacts",
-      harnessPid: occupied.pid,
-      sandboxHome: sandbox.homeDir,
-      cwd: occupied.cwd,
-      messageId,
-      senderFromSeat: fromSeat,
-      readAt,
-      physicalPastes,
-      unresolvedReason,
-      screenshot: ARTIFACT_SCREEN,
-      seatRead: ARTIFACT_SEAT_READ,
-      mailFacts: ARTIFACT_MAIL,
-      ...logs,
-    });
     if (HOLD) {
-      await page.waitForTimeout(HOLD_MS);
+      try {
+        console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify(writeHold({ phase: "holding", error: failure === undefined ? undefined : String(failure) }))}`);
+        const until = Date.now() + HOLD_MS;
+        while (Date.now() < until) {
+          const mail = await observed(async () => (await projectedMessages(page)).find((item) => item.messageId === messageId));
+          writeHold({ phase: "holding", mail, error: failure === undefined ? undefined : String(failure) });
+          await page.waitForTimeout(Math.min(1_000, Math.max(0, until - Date.now())));
+        }
+      } catch (error) {
+        failure ??= error;
+      }
     }
-    expect(physicalPastes, unresolvedReason ?? "repeat paste").toBeLessThanOrEqual(1);
-    const hasRead = readAt !== null && readAt !== undefined;
-    expect(
-      hasRead || typeof unresolvedReason === "string",
-      "need readAt or a named unresolved reason",
-    ).toBe(true);
-    if (hasRead) {
-      expect(physicalPastes).toBe(1);
-    } else {
-      expect(physicalPastes).toBe(0);
-      expect(unresolvedReason).toMatch(/enqueue-only|must-wait|idle=false/);
-    }
+
+    // END evidence: every source is read after observation/hold, while the
+    // app still owns its database. Failed sources stay explicit, never empty.
+    const [mail, grid, session, pasteCount, screenshot] = await Promise.all([
+      observed(async () => (await projectedMessages(page)).find((item) => item.messageId === messageId)),
+      observed(() => readDevin(sender)),
+      observed(() => page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING)),
+      observed(async () => {
+        if (messageId === undefined) throw new Error("No message was sent");
+        return crewMessagePasteWrites(page, sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID, messageId);
+      }),
+      observed(async () => {
+        const path = artifact("seat-final.png");
+        await page.screenshot({ path, fullPage: true });
+        return path;
+      }),
+    ]);
+    const logs = await observed(async () => preserveLogs());
+    const outcome = await observed(async () => mail.ok ? outcomeOf(mail.value) : undefined);
+    const finalOutcome = outcome.ok ? outcome.value : undefined;
+    const payload = await observed(async () => mail.ok && mail.value !== undefined ? composeMessageDeliveryPayload(mail.value) : undefined);
+    const facts = {
+      at: new Date().toISOString(), messageId, mail, outcome: finalOutcome, session,
+      physicalPastes: pasteCount.ok ? pasteCount.value : null, pasteEvidence: pasteCount,
+      correlation: { bindingId: DEVIN_BINDING, payloadSha256: payload.ok && payload.value !== undefined ? createHash("sha256").update(payload.value).digest("hex") : undefined, payloadError: payload.ok ? undefined : payload.error, scope: "one fresh message, unchanged recipient generation" },
+      typedNoticeQualified: false,
+    };
+    json(artifact("seat-read-final.json"), grid);
+    json(artifact("mail-facts-final.json"), facts);
+    json(artifact("run-final.json"), writeHold({
+      phase: "final-before-close", outcome, failure: failure === undefined ? undefined : String(failure),
+      mailFacts: artifact("mail-facts-final.json"), seatRead: artifact("seat-read-final.json"), screenshot, logs,
+    }));
+    if (failure !== undefined) throw failure;
+    expect(ready).toBeDefined();
+    expect(mail.ok, JSON.stringify(mail)).toBe(true);
+    expect(grid.ok, JSON.stringify(grid)).toBe(true);
+    expect(outcome.ok, JSON.stringify(outcome)).toBe(true);
+    expect(payload.ok, JSON.stringify(payload)).toBe(true);
+    expect(screenshot.ok, JSON.stringify(screenshot)).toBe(true);
+    expect(logs.ok, JSON.stringify(logs)).toBe(true);
+    expect(session.ok && session.value?.epoch).toBe(occupied!.epoch);
+    expect(pasteCount.ok, JSON.stringify(pasteCount)).toBe(true);
+    if (!pasteCount.ok) throw new Error(pasteCount.error);
+    expect(pasteCount.value, "Repeated accepted paste of the same fresh mail").toBeLessThanOrEqual(1);
+    expect(["read", "unresolved", "refused"]).toContain(finalOutcome?.kind);
+    if (finalOutcome?.kind === "unresolved") expect(pasteCount.value).toBe(1);
+    if (finalOutcome?.kind === "refused") expect(pasteCount.value).toBe(0);
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
   } finally {
-    try {
-      preserveLogs(vellum.sandbox.homeDir);
-    } catch {
-      /* keep close */
-    }
     await vellum.close();
   }
 });
