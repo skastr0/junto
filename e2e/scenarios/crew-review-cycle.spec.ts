@@ -1,4 +1,8 @@
 /** Generated canvas, real process-bound work ops and SQLite owner, fake TUI seats. */
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { expect, launchVellum, test } from "../harness/launch";
 import {
   crewDoc, crewOccupySeat, crewPlayFactory, crewReviewsEdge, crewRule,
@@ -11,7 +15,8 @@ import type { Message, Task } from "../../src/shared/work-model";
 import type { WorkTaskShowView } from "../../src/main/vellum-command/work/service";
 import type { VerdictPostArgs } from "../../src/shared/work-control";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
-import type { Page } from "@playwright/test";
+import { transportLogDirectory } from "../../src/shared/transport-trace";
+import type { Page, TestInfo } from "@playwright/test";
 import type { Sandbox } from "../harness/sandbox";
 
 const CANVAS = "crew-reviews";
@@ -57,6 +62,112 @@ const claim = async (author: CrewSeat): Promise<void> => {
 
 const evidence = (sha: string) => ({ artifacts: [], git: { commits: [sha] } });
 
+/** Checkout identity is not proof of which source produced existing out bytes. */
+const launchProvenance = async () => {
+  const hash = (body: Buffer) => createHash("sha256").update(body).digest("hex");
+  const checkout = (() => {
+    try {
+      return {
+        commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+        diffSha256: hash(execFileSync("git", ["diff", "HEAD"])),
+      };
+    } catch (error) { return { error: String(error) }; }
+  })();
+  const rendererDirectory = join(process.cwd(), "out", "renderer", "assets");
+  const assets = await readdir(rendererDirectory).then(
+    (names) => ({ ok: true as const, names: names.filter((name) => /\.(js|css)$/.test(name)).sort() }),
+    (error: unknown) => ({ ok: false as const, error: String(error) }),
+  );
+  const files = [
+    "out/main/index.js", "out/preload/index.cjs", "out/renderer/index.html",
+    ...(assets.ok ? assets.names.map((name) => `out/renderer/assets/${name}`) : []),
+  ];
+  const bundles = await Promise.all(files.map(async (file) => {
+    try {
+      const body = await readFile(join(process.cwd(), file));
+      return { file, bytes: body.length, sha256: hash(body) };
+    } catch (error) { return { file, error: String(error) }; }
+  }));
+  return {
+    capturedAt: new Date().toISOString(), checkout, bundles,
+    rendererAssets: assets,
+    builtSourceCorrespondence: "unverified-by-spec",
+  };
+};
+
+const preserveFinalEvidence = async (
+  app: Awaited<ReturnType<typeof launchVellum>>,
+  testInfo: TestInfo,
+  provenance: Awaited<ReturnType<typeof launchProvenance>>,
+) => {
+  const { page, sandbox } = app;
+  const capturedAt = new Date().toISOString();
+  const boundedAppRead = async <T>(read: () => Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        read(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Final app evidence read timed out after 10000ms")), 10_000);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+  const capture = async (
+    name: string,
+    contentType: string,
+    read: () => Promise<Buffer | string>,
+    optional = false,
+  ) => {
+    try {
+      const body = await read();
+      const path = testInfo.outputPath(name);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, body);
+      await testInfo.attach(name, { path, contentType });
+      return {
+        name, path, status: "preserved" as const,
+        bytes: Buffer.byteLength(body), sha256: createHash("sha256").update(body).digest("hex"),
+      };
+    } catch (error) {
+      if (optional && error !== null && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+        return { name, status: "not-present" as const };
+      }
+      return { name, status: "failed" as const, error: String(error) };
+    }
+  };
+  const logs = transportLogDirectory(sandbox.homeDir);
+  const artifacts = await Promise.all([
+    capture("pty-delivery.jsonl", "application/x-ndjson", () => readFile(join(logs, "pty-delivery.jsonl"))),
+    capture("pty-delivery.jsonl.1", "application/x-ndjson", () => readFile(join(logs, "pty-delivery.jsonl.1")), true),
+    ...[AUTHOR, REVIEWER].map((nodeId) => capture(`${nodeId}-events.ndjson`, "application/x-ndjson",
+      () => readFile(join(crewSeat(sandbox, CANVAS, nodeId).dir, "events.ndjson")))),
+    capture("canvas-final.json", "application/json", async () => JSON.stringify(
+      await boundedAppRead(() => page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), CANVAS)), null, 2)),
+    capture("runtime-final.json", "application/json", async () => {
+      const sessions = await boundedAppRead(() => page.evaluate(async (canvas) =>
+        (await window.vellumCommand!.terminalList()).filter((session) => session.canvasName === canvas), CANVAS));
+      return JSON.stringify({
+        capturedAt, provenance, mainPid: app.app.process().pid,
+        home: sandbox.homeDir, canvas: CANVAS, sessions,
+      }, null, 2);
+    }),
+  ]);
+  const manifest = {
+    capturedAt, phase: "final-before-close", provenance,
+    mainPid: app.app.process().pid, home: sandbox.homeDir, canvas: CANVAS,
+    artifacts,
+  };
+  const manifestPath = testInfo.outputPath("evidence-final.json");
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await testInfo.attach("final-evidence", { path: manifestPath, contentType: "application/json" });
+  const failures = artifacts.filter((entry) => entry.status === "failed");
+  if (failures.length > 0) throw new Error(`Final review evidence is incomplete: ${JSON.stringify(failures)}`);
+};
+
 const receiptSubject = async (
   page: Page,
   sandbox: Sandbox,
@@ -95,11 +206,13 @@ const receiptSubject = async (
 
 test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the live verdict chain", async ({}, testInfo) => {
   test.setTimeout(240_000);
+  const provenance = await launchProvenance();
   const app = await launchVellum({
     seedCanvases: { [CANVAS]: doc },
     afterSeed: installCrewSeatHarness,
     extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
   });
+  let testFailed = false;
   try {
     const { page, sandbox } = app;
     const runtime = { mainPid: app.app.process().pid, home: sandbox.homeDir, canvas: CANVAS };
@@ -193,7 +306,24 @@ test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the liv
     await page.getByTestId("canvas-digest").screenshot({ path: digestScreenshot });
     await testInfo.attach("review-digest", { path: digestScreenshot, contentType: "image/png" });
     if (process.env.CREW_REVIEW_VISUAL_HOLD === "1") await page.waitForTimeout(60_000);
+  } catch (error) {
+    testFailed = true;
+    throw error;
   } finally {
-    await app.close();
+    try {
+      await preserveFinalEvidence(app, testInfo, provenance);
+    } catch (error) {
+      // Keep the original assertion failure. Preservation errors remain in the
+      // manifest and console; an otherwise successful run must fail on them.
+      if (!testFailed) throw error;
+      console.error("CREW_REVIEW_EVIDENCE_ERROR", String(error));
+    } finally {
+      try {
+        await app.close();
+      } catch (error) {
+        if (!testFailed) throw error;
+        console.error("CREW_REVIEW_CLOSE_ERROR", String(error));
+      }
+    }
   }
 });
