@@ -361,9 +361,15 @@ describe("crew reviews through the real WorkService", () => {
     expect(mail).toHaveLength(1);
     expect(mail[0]?.taskId).toBe(f.taskId);
     expect(readMailExtension(mail[0]?.metadata)).toMatchObject({
-      mailKind: "receipt", refs: [{ kind: "commit", sha: SHA_A }],
+      mailKind: "receipt", refs: [{ kind: "task", taskId: f.taskId }, { kind: "commit", sha: SHA_A }],
       fromSeat: f.author.seatId, senderGeneration: sender.senderGeneration, senderHarness: sender.senderHarness,
     });
+    expect(mail[0]?.metadata?.reviewSubject).toEqual(expectedSubject(persisted));
+    const receiptText = mail[0]!.parts
+      .flatMap((part) => part.kind === "text" ? [part.text] : [])
+      .join("\n");
+    expect(receiptText).toContain("at tasks");
+    expect(receiptText).toContain(persisted.reviewSubject.subjectHash);
     const committedRows = await durableRows();
     expect(committedRows.facts.length).toBeGreaterThan(originalRows.facts.length);
     expect(committedRows.receipts).toEqual([expect.objectContaining({
@@ -438,5 +444,136 @@ describe("crew reviews through the real WorkService", () => {
       scheduling.mockRestore();
       await Promise.allSettled(attempts);
     }
+  });
+
+  it("refuses a green verdict when the task refs change after service preflight", async () => {
+    const f = await fixture("crew-review-green-stale-refs");
+    const before = await f.show();
+    let reachedWriter!: () => void;
+    let release!: () => void;
+    let barrierTimer: ReturnType<typeof setTimeout> | undefined;
+    const arrived = new Promise<void>((resolve, reject) => {
+      reachedWriter = resolve;
+      barrierTimer = setTimeout(() => reject(new Error("Green verdict preflight did not reach postVerdict")), 3_000);
+    });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const original = crew.postVerdict.bind(crew);
+    const scheduling = vi.spyOn(crew, "postVerdict").mockImplementation((...args) => {
+      const write = original(...args);
+      return Effect.promise(async () => {
+        reachedWriter();
+        await released;
+      }).pipe(Effect.flatMap(() => write));
+    });
+    const posting = runtime.runPromise(work.workVerdictPost(f.canvas, "tasks", {
+      subject: expectedSubject(before), kind: "green",
+    }, f.reviewer));
+    try {
+      await arrived;
+      const evidenceB: CompletionEvidence = { artifacts: [], git: { commits: [SHA_B] } };
+      applied(await runtime.runPromise(work.workTaskTransition(
+        f.canvas, "tasks", f.taskId, "working", undefined, evidenceB,
+      )));
+      const staged = await f.snapshot();
+      expect(staged).toMatchObject({ state: "working", claimedBy: f.author.seatId, completionEvidence: evidenceB });
+      const current = await f.show();
+      expect(current.reviewSubject.epoch).toBe(before.reviewSubject.epoch);
+      expect(current.reviewSubject.subjectHash).not.toBe(before.reviewSubject.subjectHash);
+
+      release();
+      const stale = await posting;
+      expect(stale.ok).toBe(false);
+      expect(await f.snapshot()).toEqual(staged);
+      expect((await f.show()).verdicts).toEqual([]);
+    } finally {
+      if (barrierTimer !== undefined) clearTimeout(barrierTimer);
+      release();
+      scheduling.mockRestore();
+      await Promise.allSettled([posting]);
+    }
+  });
+
+  it("refuses a send-on when review authority is revoked after completion preflight", async () => {
+    const f = await fixture("crew-review-send-on-revoked", true);
+    const before = await f.show();
+    const approved = applied(await runtime.runPromise(work.workVerdictPost(f.canvas, "tasks", {
+      subject: expectedSubject(before), kind: "green",
+    }, f.reviewer)));
+    const originalTask = await f.snapshot();
+    let reachedWriter!: () => void;
+    let release!: () => void;
+    let barrierTimer: ReturnType<typeof setTimeout> | undefined;
+    const arrived = new Promise<void>((resolve, reject) => {
+      reachedWriter = resolve;
+      barrierTimer = setTimeout(() => reject(new Error("Completion preflight did not reach sendTaskOn")), 3_000);
+    });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const original = repository.sendTaskOn.bind(repository);
+    const scheduling = vi.spyOn(repository, "sendTaskOn").mockImplementation((...args) => {
+      const write = original(...args);
+      return Effect.promise(async () => {
+        reachedWriter();
+        await released;
+      }).pipe(Effect.flatMap(() => write));
+    });
+    const sending = runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "completed", undefined, evidence(),
+    ));
+    try {
+      await arrived;
+      await f.replaceReviewEdge(undefined);
+      const revoked = await runtime.runPromise(canvases.read(f.canvas));
+      expect(revoked.doc.edges.some((edge) => edge.id === reviewEdge.id)).toBe(false);
+
+      release();
+      const refused = await sending;
+      expect(refused.ok).toBe(false);
+      expect(await f.snapshot()).toEqual(originalTask);
+      const next = await runtime.runPromise(repository.readSnapshot(f.canvas, "next"));
+      expect(next.tasks.items).toEqual([]);
+      expect((await f.show()).verdicts.map((verdict) => verdict.verdictId)).toEqual([approved.verdictId]);
+    } finally {
+      if (barrierTimer !== undefined) clearTimeout(barrierTimer);
+      release();
+      scheduling.mockRestore();
+      await Promise.allSettled([sending]);
+    }
+  });
+
+  it("keeps a standalone commit verdict separate from its provenance task", async () => {
+    const f = await fixture("crew-review-standalone-commit");
+    const sha = "c".repeat(40);
+    const originalTask = await f.snapshot();
+    await runtime.runPromise(crew.recordReviewReceipt({
+      canvasName: f.canvas,
+      sourceKind: "checkout",
+      sourceId: "crew-review-standalone-checkout",
+      refSha: sha,
+      reviewerSeatId: f.reviewer.seatId,
+      authorSeatId: f.author.seatId,
+      taskId: f.taskId,
+      createdAt: "2026-09-15T00:00:00.000Z",
+    }));
+    const input = {
+      subject: { kind: "commit" as const, sha },
+      kind: "blocking" as const,
+      findings: ["This commit needs another pass"],
+    };
+    const wrongAuthor = await runtime.runPromise(work.workVerdictPost(
+      f.canvas, "reviewer", input, f.reviewer,
+    ));
+    expect(wrongAuthor).toMatchObject({ ok: false, details: { reason: "commit-author-mismatch" } });
+    expect(await runtime.runPromise(crew.verdictsForSubject({ kind: "commit", sha }))).toEqual([]);
+
+    const posted = applied(await runtime.runPromise(work.workVerdictPost(
+      f.canvas, "author", input, f.reviewer,
+    )));
+    expect(posted).toMatchObject({ effect: "none", epoch: 0, authorSeatId: f.author.seatId });
+    expect(posted.newEpoch).toBeUndefined();
+    expect(await f.snapshot()).toEqual(originalTask);
+    expect((await f.show()).verdicts).toEqual([]);
+    expect(await runtime.runPromise(crew.verdictsForSubject({ kind: "commit", sha }))).toEqual([
+      expect.objectContaining({ verdictId: posted.verdictId, kind: "blocking", epoch: 0 }),
+    ]);
   });
 });
