@@ -230,18 +230,12 @@ test("crew ui: the relation surface paints granted and masked ports from ether.m
       timeout: 30_000,
     });
 
-    // Double-click the wire midpoint: the RTS relation surface opens.
-    const source = page.getByTestId(`rf__node-${A}`);
-    const target = page.getByTestId(`rf__node-${B}`);
-    const sourceBox = await source.boundingBox();
-    const targetBox = await target.boundingBox();
-    expect(sourceBox).toBeTruthy();
-    expect(targetBox).toBeTruthy();
-    if (!sourceBox || !targetBox) return;
-    await page.mouse.dblclick(
-      (sourceBox.x + sourceBox.width + targetBox.x) / 2,
-      (sourceBox.y + sourceBox.height / 2 + targetBox.y + targetBox.height / 2) / 2,
-    );
+    // The wire's midpoint is a covered hit target; its keyboard affordance
+    // ("Select edge") opens the same RTS relation card deterministically.
+    await page
+      .getByRole("button", { name: /^Select edge -/ })
+      .first()
+      .press("Enter");
 
     const mask = page.getByTestId(CREW_UI_SELECTORS.edgePortMask);
     await expect(mask).toBeVisible({ timeout: 10_000 });
