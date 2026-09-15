@@ -99,6 +99,19 @@ export const crewWorksEdge = (
   nodes: ReadonlyArray<CanvasNode>,
 ): CanvasEdge => verbEdge(id, sinkNode, seatNode, "works" as Verb, nodes);
 
+/**
+ * manages edge — agent -> task sink. Grants tasks.list/create/update (so
+ * tasks.show and tasks.wait admit) but never tasks.claim and never marks the
+ * seat claimable — the factory claim cycle cannot assign work through it.
+ * The reviewer seat uses this so authored tasks stay the author's alone.
+ */
+export const crewManagesEdge = (
+  id: string,
+  agentNode: string,
+  sinkNode: string,
+  nodes: ReadonlyArray<CanvasNode>,
+): CanvasEdge => verbEdge(id, agentNode, sinkNode, "manages" as Verb, nodes);
+
 /** A Tasks sink carrying an operator contract (rules incl. `requires-review`). */
 export const crewTasksNode = (input: {
   readonly id: string;
