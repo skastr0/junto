@@ -3,12 +3,16 @@ import { expect, launchVellum, test } from "../harness/launch";
 import {
   crewDoc, crewOccupySeat, crewPlayFactory, crewReviewsEdge, crewRule,
   crewSeat, crewSeatNode, crewTasksNode, crewWorksEdge, installCrewSeatHarness,
+  crewMessagePasteWrites, crewReceipts,
   type CrewSeat, type WorkEnvelope,
 } from "../harness/crew-fixture";
 import { taskItem } from "../harness/sandbox";
 import type { Message, Task } from "../../src/shared/work-model";
 import type { WorkTaskShowView } from "../../src/main/vellum-command/work/service";
 import type { VerdictPostArgs } from "../../src/shared/work-control";
+import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
+import type { Page } from "@playwright/test";
+import type { Sandbox } from "../harness/sandbox";
 
 const CANVAS = "crew-reviews";
 const AUTHOR = "author";
@@ -54,18 +58,35 @@ const claim = async (author: CrewSeat): Promise<void> => {
 const evidence = (sha: string) => ({ artifacts: [], git: { commits: [sha] } });
 
 const receiptSubject = async (
+  page: Page,
+  sandbox: Sandbox,
   reviewer: CrewSeat,
   epoch: number,
+  pasteCounts: Map<string, number>,
 ): Promise<Extract<VerdictPostArgs["subject"], { kind: "task" }>> => {
   let found: Message | undefined;
   await expect.poll(async () => {
-    const inbox = data<{ items: Message[] }>(await reviewer.op("msg.list", {}));
-    found = inbox.items.find((message) => {
+    const inbox = await page.evaluate(async ({ canvas, nodeId }) => {
+      const read = await window.vellumCommand!.readCanvas(canvas);
+      return read.doc.nodes.find((node) => node.id === nodeId)?.ether?.messages?.items ?? [];
+    }, { canvas: CANVAS, nodeId: REVIEWER });
+    found = inbox.find((message) => {
       const subject = message.metadata?.reviewSubject as { taskId?: string; epoch?: number } | undefined;
       return message.metadata?.mailKind === "receipt" && subject?.taskId === TASK && subject.epoch === epoch;
     });
     return found !== undefined;
   }, { timeout: 15_000 }).toBe(true);
+  // A durable mailbox row alone cannot qualify the PTY delivery path.
+  await expect.poll(async () => (await crewReceipts(page, CANVAS, REVIEWER))
+    .some((receipt) => receipt.messageId === found!.messageId && receipt.deliveredAt !== undefined),
+  { timeout: 30_000 }).toBe(true);
+  const payload = composeMessageDeliveryPayload(found!);
+  const count = await crewMessagePasteWrites(page, sandbox, CANVAS, REVIEWER, found!.messageId);
+  // Distinct messages may produce identical compact notices; compare each
+  // sequential review turn with the prior count for that exact payload.
+  expect(count - (pasteCounts.get(payload) ?? 0)).toBe(1);
+  pasteCounts.set(payload, count);
+  data(await reviewer.op("msg.list", {}));
   const subject = found!.metadata!.reviewSubject as Extract<VerdictPostArgs["subject"], { kind: "task" }>;
   expect(subject.subjectHash).toMatch(/^[a-f0-9]{64}$/);
   expect(found!.metadata!.fromSeat).toBeTruthy();
@@ -88,12 +109,16 @@ test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the liv
     await crewPlayFactory(page);
     const author = crewSeat(sandbox, CANVAS, AUTHOR);
     const reviewer = crewSeat(sandbox, CANVAS, REVIEWER);
+    const pasteCounts = new Map<string, number>();
     await crewOccupySeat(page, CANVAS, authorNode, author);
     await crewOccupySeat(page, CANVAS, reviewerNode, reviewer);
+    await expect.poll(async () => (await author.events())
+      .filter((event) => event.event === "submit" && typeof event.text === "string" && event.text.length > 0)
+      .length, { timeout: 30_000 }).toBeGreaterThan(0);
     await claim(author);
 
     data(await author.op("tasks.update", { target: BOARD, task: TASK, state: "working", completionEvidence: evidence(SHA_A) }));
-    const firstSubject = await receiptSubject(reviewer, 0);
+    const firstSubject = await receiptSubject(page, sandbox, reviewer, 0, pasteCounts);
     expect((await show(author)).reviewSubject.subjectHash).toBe(firstSubject.subjectHash);
 
     // A reviews edge grants verdicts, not task reads or terminal input/observation.
@@ -126,9 +151,11 @@ test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the liv
     const stale = await reviewer.op("verdict.post", { target: BOARD, subject: firstSubject, kind: "green" });
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.error.details?.reason).toBe("stale-subject");
+    await author.control({ screen: { mode: "idle" } });
+    await reviewer.control({ screen: { mode: "idle" } });
     await claim(author);
     data(await author.op("tasks.update", { target: BOARD, task: TASK, state: "working", completionEvidence: evidence(SHA_B) }));
-    const repairedSubject = await receiptSubject(reviewer, 1);
+    const repairedSubject = await receiptSubject(page, sandbox, reviewer, 1, pasteCounts);
     expect(repairedSubject.subjectHash).not.toBe(firstSubject.subjectHash);
     data(await reviewer.op("verdict.post", { target: BOARD, subject: repairedSubject, kind: "green", refs: [{ kind: "commit", sha: SHA_B }] }));
     data(await author.op("tasks.update", { target: BOARD, task: TASK, state: "completed", completionEvidence: evidence(SHA_B) }));
