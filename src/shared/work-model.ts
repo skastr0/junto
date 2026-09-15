@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { ActorSeatId } from "./actor-seat";
 import { ActorRef, TaskRef } from "./work-reference";
 import { ContentPart } from "./content";
+import { ReviewVerdict } from "./crew";
 
 // ContentRef is the portable binary-media contract. RawPart remains in the
 // Part union so installed non-Tasks history and the content migration can read
@@ -398,6 +399,10 @@ export const Task = Schema.Struct({
   raisedBy: Schema.optionalKey(ActorRef),
   /** The operator's answer (first-class, stamped on resolve). */
   response: Schema.optionalKey(Schema.String),
+  /** Projection of the immutable verdict chain for this exact task identity. */
+  verdicts: Schema.optionalKey(Schema.Array(ReviewVerdict)),
+  /** Projection recomputed from the current task epoch and exact evidence refs. */
+  subjectHash: Schema.optionalKey(Schema.String),
 }).pipe(
   Schema.check(Schema.makeFilter(({ id, state, claimedBy, metadata, dependsOn, completionEvidence }) => {
     if (
