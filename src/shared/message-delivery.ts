@@ -79,17 +79,31 @@ const shortMessageId = (messageId: string): string =>
   messageId.length > 12 ? messageId.slice(0, 12) : messageId;
 
 const factoryMailFromSeat = (message: Message): string | undefined => {
-  const raw = message.metadata?.fromSeat;
+  const raw = message.metadata?.senderName ?? message.metadata?.senderNodeId ?? message.metadata?.fromSeat;
   if (typeof raw !== "string") return undefined;
   const trimmed = sanitizeDeliveryLine(raw);
   return trimmed.length > 0 ? trimmed.slice(0, 32) : undefined;
 };
 
-/** Strip the `[factory mail from …]` envelope so the preview is useful. */
+/** Installed messages may still carry the old envelope in their body. */
 const briefWithoutFactoryEnvelope = (message: Message): string =>
   messageBriefText(message)
     .replace(/^\[factory mail from [^\]]*\]\s*/i, "")
     .trim();
+
+/** Full-body prompt policy has its own composer; notices never choose it. */
+export const composeImmediatePromptPayload = (message: Message): string => {
+  const from = factoryMailFromSeat(message) ?? "seat";
+  const body = message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .replace(/^\[factory mail from [^\]]*\]\s*/i, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "")
+    .trim();
+  return `mail from ${from}\n${body}`;
+};
 
 /**
  * Pulse-style one-liner for a single message.
@@ -125,10 +139,8 @@ export const composeMessageDeliverySummary = (
     if (!shouldSummarizeMessageForPty(message)) {
       return composeMessageDeliveryPayload(message);
     }
-    const sender = messageSenderLabel(message);
-    const id = shortMessageId(message.messageId);
+    const id = sanitizeDeliveryLine(message.messageId);
     const from = factoryMailFromSeat(message);
-    const kind = isFactoryMailMessage(message) ? "factory mail" : "mail";
     const fromBit = from ? ` from ${from}` : "";
     const previewRaw = briefWithoutFactoryEnvelope(message);
     const preview =
@@ -137,12 +149,11 @@ export const composeMessageDeliverySummary = (
         : previewRaw;
     const previewBit = preview.length > 0 ? ` — ${preview}` : "";
     return sanitizeDeliveryLine(
-      `[message - ${sender}] ${kind}${fromBit} — ${id}${previewBit} — vellum-command msg list`,
+      `mail${fromBit}${previewBit} — vellum-command msg read ${id}`,
     );
   }
-  const factoryCount = ordered.filter((m) => isFactoryMailMessage(m)).length;
-  const factoryBit =
-    factoryCount > 0 ? ` (${String(factoryCount)} factory mail)` : "";
+  const senders = [...new Set(ordered.map(factoryMailFromSeat).filter((from) => from !== undefined))];
+  const fromBit = senders.length > 0 ? ` from ${senders.slice(0, 3).join(", ")}` : "";
   const ids = ordered
     .slice(0, 3)
     .map((m) => shortMessageId(m.messageId))
@@ -150,7 +161,7 @@ export const composeMessageDeliverySummary = (
   const more =
     ordered.length > 3 ? ` +${String(ordered.length - 3)}` : "";
   return sanitizeDeliveryLine(
-    `[message - user] ${String(ordered.length)} unread${factoryBit} — ${ids}${more} — vellum-command msg list`,
+    `mail${fromBit} — ${String(ordered.length)} unread — ${ids}${more} — vellum-command msg list`,
   );
 };
 

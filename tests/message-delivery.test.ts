@@ -3,6 +3,7 @@ import { ulid } from "ulid";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import {
   composeMessageDeliveryPayload,
+  composeImmediatePromptPayload,
   composeMessageDeliverySummary,
   deliveryTargetOf,
   isFactoryMailMessage,
@@ -49,6 +50,17 @@ const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"]
 });
 
 describe("message-delivery pure helpers", () => {
+  it("preserves a prompt body and attributes it to the server-stamped sender", () => {
+    const message = userMsg({
+      metadata: { factoryMail: true, mailKind: "prompt", fromSeat: "seat_hash", senderName: "Reviewer" },
+      parts: [{ kind: "text", text: "Read the patch.\nCheck the failing case." }],
+    });
+    expect(composeImmediatePromptPayload(message)).toBe(
+      "mail from Reviewer\nRead the patch.\nCheck the failing case.",
+    );
+    expect(composeMessageDeliveryPayload(message)).toContain("vellum-command msg read m1");
+  });
+
   it("formats one-line payload with role and optional taskId", () => {
     expect(composeMessageDeliveryPayload(userMsg())).toBe("[message - user] ping the lane");
     expect(
@@ -80,11 +92,12 @@ describe("message-delivery pure helpers", () => {
     expect(isFactoryMailMessage(factory)).toBe(true);
     expect(shouldSummarizeMessageForPty(factory)).toBe(true);
     const line = composeMessageDeliveryPayload(factory);
-    expect(line.startsWith("[message - user] factory mail from agent-01KZRZK09851NV4407M2499WJM")).toBe(
+    expect(line.startsWith("mail from agent-01KZRZK09851NV4407M2499WJM")).toBe(
       true,
     );
     expect(line).toContain("01KZSM4A84AS");
-    expect(line).toContain("vellum-command msg list");
+    expect(line).toContain("vellum-command msg read 01KZSM4A84ASFRTZ77YAQ09CVH");
+    expect(line).not.toContain("[factory mail from");
     // Essay body is not dumped — only a short preview + CLI pointer.
     expect(line.includes("\n")).toBe(false);
     expect(line.length).toBeLessThan(220);
@@ -110,7 +123,7 @@ describe("message-delivery pure helpers", () => {
       userMsg({ messageId: newest, parts: [{ kind: "text", text: "three" }] }),
     ]);
     expect(batch).toContain("3 unread");
-    expect(batch).toContain("1 factory mail");
+    expect(batch).not.toContain("factory mail");
     expect(batch).toContain("vellum-command msg list");
     expect(batch.includes("\n")).toBe(false);
     const newestIdx = batch.indexOf(newest.slice(0, 12));
