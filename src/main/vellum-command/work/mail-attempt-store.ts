@@ -79,5 +79,34 @@ export const makeMailAttemptStore = (deps: {
       ));
     },
     reconcileUnresolvedAttempts: (at) => deps.run(deps.repository.reconcileUnresolvedAttempts(at)),
+    grantHeldAttempt: async (input) => {
+      const key = await keyFor(input);
+      return deps.run(deps.repository.grantHeldAttempt({
+        ...key, at: input.at ?? now(),
+      }));
+    },
+    listHeldAttempts: async (canvas) => deps.run(deps.repository.listHeldAttempts(canvas)),
+    grantNoticeFallback: async (input) => {
+      const seat = await deps.resolveSeat(input.canvas, input.nodeId);
+      if (seat.canvasName !== input.canvas || seat.nodeId !== input.nodeId) {
+        throw new Error("Mail recipient does not match the compiled seat");
+      }
+      return deps.run(deps.repository.grantNoticeFallback({
+        sink: { canvasName: input.canvas, nodeId: input.nodeId },
+        messageId: input.messageId,
+        recipientSeatId: seat.seatId,
+        reason: input.reason,
+        at: input.at ?? now(),
+      }));
+    },
+    hasNoticeFallback: async (input) => {
+      const seat = await deps.resolveSeat(input.canvas, input.nodeId);
+      if (seat.canvasName !== input.canvas || seat.nodeId !== input.nodeId) {
+        throw new Error("Mail recipient does not match the compiled seat");
+      }
+      return deps.run(deps.repository.hasNoticeFallback(
+        { canvasName: input.canvas, nodeId: input.nodeId }, input.messageId, seat.seatId,
+      ));
+    },
   };
 };

@@ -313,6 +313,41 @@ export type MessageDeliveryAttemptStore = {
    * Called once at boot before the first sweep.
    */
   readonly reconcileUnresolvedAttempts: (at: string) => Promise<number>;
+  /**
+   * Operator-authorized fresh attempt for a same-generation held row: opens
+   * a new intent without clearing any fact. True when a grant was issued.
+   * Optional: older stores omit it, and the hold then never releases (the
+   * pre-grant behavior). The product composition always provides it.
+   */
+  readonly grantHeldAttempt?: (input: {
+    readonly canvas: string;
+    readonly nodeId: string;
+    readonly messageId: string;
+    readonly generation: string;
+    readonly at?: string;
+  }) => Promise<boolean>;
+  /** Held (unresolved, un-notified) rows for one canvas. Optional, as above. */
+  readonly listHeldAttempts?: (
+    canvas: string,
+  ) => Promise<ReadonlyArray<DeliveryAttempt>>;
+  /**
+   * Persist a notice-fallback marker (idempotent): an authorizing deferral
+   * re-admits an explicit-only prompt-kind row to the ordinary notice path.
+   * Optional, as above.
+   */
+  readonly grantNoticeFallback?: (input: {
+    readonly canvas: string;
+    readonly nodeId: string;
+    readonly messageId: string;
+    readonly reason: string;
+    readonly at?: string;
+  }) => Promise<boolean>;
+  /** True when a fallback marker exists for this message and seat. */
+  readonly hasNoticeFallback?: (input: {
+    readonly canvas: string;
+    readonly nodeId: string;
+    readonly messageId: string;
+  }) => Promise<boolean>;
 };
 
 /**
@@ -586,13 +621,14 @@ export class MessageDeliveryService {
   private lifecycleGeneration = 0;
 
   private seatPausedLookup: ((canvas: string, doc: CanvasDoc, nodeId: string) => boolean) | undefined;
+  private releaseSeatHold: ((bindingId: string) => void) | undefined;
 
   configure(input: {
     readonly transport: MessageDeliveryTransport;
     readonly store: MessageDeliveryStore;
     /**
-     * Durable attempt ledger. Absent until the storage lane lands it —
-     * delivery then keeps legacy in-memory transport marks only.
+     * Durable attempt ledger. Absent in unit doubles — delivery then keeps
+     * legacy in-memory transport marks only (no grants, no fallback).
      */
     readonly attempts?: MessageDeliveryAttemptStore;
     readonly now?: MessageDeliveryClock;
@@ -601,6 +637,14 @@ export class MessageDeliveryService {
     readonly timers?: MessageDeliveryTimers;
     /** Jitter seam — injectable so retry spread is deterministic in tests. */
     readonly random?: () => number;
+    /**
+     * Same-generation resume authorization outlet: after the service grants
+     * held rows on an explicit resume, it releases the drive's
+     * written-unresolved hold per granted binding so the authorized retry
+     * can actually paste. The composition wires the drive's release here;
+     * the service never touches the drive directly.
+     */
+    readonly releaseSeatHold?: (bindingId: string) => void;
   }): void {
     if (this.suspended) return;
     this.transport = input.transport;
@@ -610,6 +654,7 @@ export class MessageDeliveryService {
     this.seatPausedLookup = input.seatPaused;
     if (input.timers) this.timers = input.timers;
     if (input.random) this.random = input.random;
+    this.releaseSeatHold = input.releaseSeatHold;
   }
 
   /** Test seam — drop all in-flight marks and deps. */
@@ -634,6 +679,7 @@ export class MessageDeliveryService {
     this.transport = undefined;
     this.store = undefined;
     this.attempts = undefined;
+    this.releaseSeatHold = undefined;
     this.now = () => Date.now();
     this.seatPausedLookup = undefined;
     this.timers = defaultTimers;
@@ -656,6 +702,7 @@ export class MessageDeliveryService {
     this.store = undefined;
     this.attempts = undefined;
     this.seatPausedLookup = undefined;
+    this.releaseSeatHold = undefined;
     this.inFlight.clear();
     this.transportAccepted.clear();
     this.transportUnresolved.clear();
@@ -905,6 +952,21 @@ export class MessageDeliveryService {
         (this.transportAttempts.get(key) ?? 0) >=
         MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS
       ) {
+        // Parked after MAX prompt attempts: persist a fallback marker so a
+        // restart (which clears the RAM park) can still deliver this as
+        // notice. Same-process notice scans park on the same counter.
+        if (
+          extension?.mailKind === "prompt" &&
+          input.fallback !== "notice" &&
+          this.attempts
+        ) {
+          await this.grantPromptFallback(
+            input.canvas,
+            input.nodeId,
+            live.messageId,
+            "parked",
+          );
+        }
         return { unavailable: "parked" };
       }
       const gate = await this.evaluateSeatGate(target.bindingId);
@@ -922,6 +984,25 @@ export class MessageDeliveryService {
             : gate.reason === "unavailable"
               ? "not-ready"
               : "seat-busy";
+        // Gate deferral ("not now", not "never"): persist the operator's
+        // prompt intent as a notice-fallback marker BEFORE returning, so a
+        // crash cannot lose it and the next idle scan re-admits the row.
+        // Verdicts (over-limit/cancelled/held/gone) never grant — nor does
+        // not-settled, which is prompt()'s own pacing (the caller retries
+        // after settle; the notice path would hit the same settle wall).
+        if (
+          extension?.mailKind === "prompt" &&
+          input.fallback !== "notice" &&
+          this.attempts &&
+          gate.reason !== "not-settled"
+        ) {
+          await this.grantPromptFallback(
+            input.canvas,
+            input.nodeId,
+            live.messageId,
+            reason,
+          );
+        }
         return { outcome: this.refusedWithoutWrite(reason), policy };
       }
       // Immediate prompts carry the full body under the server sender
@@ -1053,7 +1134,24 @@ export class MessageDeliveryService {
         this.transportUnresolved.set(key, seatGeneration ?? "");
         return { outcome, policy };
       }
-      if (outcome.status !== "submitted") return { outcome, policy };
+      if (outcome.status !== "submitted") {
+        // Transport-level busy: same write-ahead fallback as the gate path.
+        // Any other transport verdict stands without a marker.
+        if (
+          outcome.reason === "seat-busy" &&
+          extension?.mailKind === "prompt" &&
+          input.fallback !== "notice" &&
+          this.attempts
+        ) {
+          await this.grantPromptFallback(
+            input.canvas,
+            input.nodeId,
+            live.messageId,
+            "seat-busy",
+          );
+        }
+        return { outcome, policy };
+      }
       this.transportAccepted.add(key);
       const accepted = await this.acceptDeliveryAndMaybeRead(
         store,
@@ -1079,13 +1177,11 @@ export class MessageDeliveryService {
   notifyAppended(canvas: string, nodeId: string, message: Message): void {
     if (this.suspended) return;
     if (!isPendingDelivery(message)) return;
-    // Prompt-kind rows are explicit-only: the auto-notice queue never takes
-    // them, so creation cannot race an explicit prompt attempt. A persisted
-    // fallback marker, when the storage lane defines one, will re-admit the
-    // row to the notice path; until then only prompt() attempts it.
-    if (readMailExtension(message.metadata)?.mailKind === "prompt") return;
     // Index first: if this attempt is refused, the seat's next transition is
     // what re-drives it, and that pass reads the index, not the world.
+    // Prompt-kind rows stay explicit-only inside attemptOne unless a durable
+    // notice-fallback marker re-admitted them, so creation still cannot race
+    // an explicit prompt attempt.
     this.rememberPending(canvas, nodeId, message);
     void this.attemptOne(canvas, nodeId, message);
   }
@@ -1169,10 +1265,10 @@ export class MessageDeliveryService {
    * Explicit resume transition (or operator retry) for ONE canvas — re-drive
    * only what pause held on that canvas. Narrow by construction: callers must
    * invoke this solely on a real resume transition, never on every
-   * pause-state change while playing; other canvases are untouched. The
-   * DURABLE unresolved hold is never cleared here — the next prepareAttempt
-   * re-reads the ledger row and holds again until a durable retry grant
-   * lands (open storage-lane item).
+   * pause-state change while playing; other canvases are untouched. Held
+   * rows get exactly one operator-authorized fresh intent each (granted
+   * durably before the sweep); rows the grant does not cover re-hold on
+   * their ledger truth.
    */
   onResumedCanvas(canvas: string): void {
     if (this.suspended) return;
@@ -1231,6 +1327,66 @@ export class MessageDeliveryService {
   }
 
   /**
+   * Same-generation explicit-resume authorization: open exactly one fresh
+   * intent per held row on this canvas — durably, BEFORE any transport —
+   * then release the drive hold so the authorized retry can actually paste.
+   * Idle and pulse scans never grant; only this explicit path does. Rows
+   * already notified, already open, or gone from the document grant nothing.
+   * A crash between grant and transport leaves an open intent that boot
+   * reconciliation closes back into the hold (never a blind replay).
+   */
+  private async grantResumeRetries(
+    canvas: string,
+    generation: number,
+  ): Promise<void> {
+    const ledger = this.attempts;
+    if (ledger?.listHeldAttempts === undefined) return;
+    if (ledger?.grantHeldAttempt === undefined) return;
+    let held;
+    try {
+      held = await ledger.listHeldAttempts(canvas);
+    } catch {
+      return;
+    }
+    if (!this.active(generation) || held.length === 0) return;
+    let doc;
+    try {
+      doc = await this.store?.readDoc(canvas, "scan");
+    } catch {
+      return;
+    }
+    if (!this.active(generation) || !doc) return;
+    const releasedBindings = new Set<string>();
+    for (const row of held) {
+      if (!this.active(generation)) return;
+      const node = doc.nodes.find((n) => n.id === row.recipient.seat.nodeId);
+      const live = node?.ether?.messages?.items.find(
+        (m) => m.messageId === row.messageId,
+      );
+      // Grant only rows still live and pending: a removed or receipted row
+      // owes nothing, and granting it would open a dead intent.
+      if (!node || !live || !isPendingDelivery(live)) continue;
+      let granted = false;
+      try {
+        granted = await ledger.grantHeldAttempt({
+          canvas,
+          nodeId: row.recipient.seat.nodeId,
+          messageId: row.messageId,
+          generation: row.recipient.generation,
+        });
+      } catch {
+        continue;
+      }
+      if (!granted) continue;
+      const bindingId = deliveryTargetOf(node)?.bindingId;
+      if (bindingId !== undefined && !releasedBindings.has(bindingId)) {
+        releasedBindings.add(bindingId);
+        this.releaseSeatHold?.(bindingId);
+      }
+    }
+  }
+
+  /**
    * Re-settle this canvas's seats (so mail does not fire mid-resume paint),
    * then re-drive the canvas alone. Generation-keyed settle state cannot be
    * scoped synchronously, so this canvas's bindings resolve from the
@@ -1238,6 +1394,8 @@ export class MessageDeliveryService {
    */
   private async resumeCanvasSweep(canvas: string): Promise<void> {
     const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return;
+    await this.grantResumeRetries(canvas, generation);
     if (!this.active(generation)) return;
     try {
       const doc = await this.store?.readDoc(canvas, "scan");
@@ -1553,12 +1711,92 @@ export class MessageDeliveryService {
   }
 
   /**
-   * One seat's pending mail. Prompt-kind rows are explicit-only and never
-   * attempted here — only prompt() attempts them, so creation cannot race
-   * an automatic attempt. Edge-map notices keep per-message attemptOne
-   * (topology bounds); ordinary mail (including factory mail) batches into
-   * one notify line on the same seat.
+   * One seat's pending mail. Marker-less prompt-kind rows are explicit-only
+   * and never attempted here — only prompt() attempts them, so creation
+   * cannot race an automatic attempt; rows with a durable notice-fallback
+   * marker rejoin as ordinary mail. Edge-map notices keep per-message
+   * attemptOne (topology bounds); ordinary mail (including factory mail)
+   * batches into one notify line on the same seat.
    */
+  /**
+   * Whether the ledger holds an operator-opened intent for this row: a
+   * same-generation explicit-resume grant the sweep has not consumed yet.
+   * A granted retry bypasses the turn budget (explicit authorization, like
+   * prompt()) but still passes every other gate. Never throws: ledger
+   * trouble fails closed to budgeted.
+   */
+  private async isGrantOpenForRetry(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    generation: string | undefined,
+  ): Promise<boolean> {
+    if (generation === undefined) return false;
+    try {
+      const row = await this.attempts?.attempt?.({
+        canvas,
+        nodeId,
+        messageId,
+        generation,
+      });
+      return (
+        (row?.attemptSeq ?? 0) > (row?.resolvedSeq ?? 0)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Durable notice fallback: an explicit-only prompt-kind row rejoins the
+   * ordinary notice path once an authorizing deferral persisted its marker.
+   * Marker-less rows (or a marker-less store) stay explicit-only. Never
+   * throws: ledger trouble fails closed to explicit-only.
+   */
+  private async hasNoticeFallback(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+  ): Promise<boolean> {
+    try {
+      return (
+        (await this.attempts?.hasNoticeFallback?.({
+          canvas,
+          nodeId,
+          messageId,
+        })) ?? false
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Durable notice-fallback grant: persist the operator's prompt intent as a
+   * notice-path marker BEFORE the deferral returns, so a crash cannot lose
+   * it and the next idle scan re-admits the row. Write-ahead, idempotent,
+   * best-effort: a grant failure still returns the refusal it was
+   * accompanying — the marker is simply absent and the row stays
+   * explicit-only.
+   */
+  private async grantPromptFallback(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.attempts?.grantNoticeFallback?.({
+        canvas,
+        nodeId,
+        messageId,
+        reason,
+      });
+    } catch {
+      // Fall through: the refusal stands without the marker.
+    }
+  }
+
   private async deliverGroup(
     generation: number,
     canvas: string,
@@ -1570,7 +1808,12 @@ export class MessageDeliveryService {
     for (const message of messages) {
       if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
       else if (readMailExtension(message.metadata)?.mailKind === "prompt") {
-        continue;
+        // Explicit-only — unless a durable fallback marker re-admitted it.
+        if (
+          await this.hasNoticeFallback(canvas, nodeId, message.messageId)
+        ) {
+          ordinary.push(message);
+        }
       } else ordinary.push(message);
     }
     const latestFirst = sortMessagesNewestFirst(ordinary);
@@ -1847,6 +2090,25 @@ export class MessageDeliveryService {
       const target = deliveryTargetOf(node);
       if (!target) return;
 
+      // Prompt-kind rows are explicit-only: the auto-notice queue never
+      // takes them — unless a durable notice-fallback marker re-admitted
+      // this row. Skipped rows leave the pending index; the world (not the
+      // index) re-derives them, so a later grant still finds them.
+      const mailKindIsPrompt =
+        readMailExtension(live.metadata)?.mailKind === "prompt";
+      let noticeFallback = false;
+      if (mailKindIsPrompt) {
+        noticeFallback = await this.hasNoticeFallback(
+          canvas,
+          nodeId,
+          live.messageId,
+        );
+        if (!noticeFallback) {
+          this.forgetPending(canvas, nodeId, live.messageId);
+          return;
+        }
+      }
+
       // Same-generation uncertainty hold: a prior attempt wrote without
       // proof. No transport, no receipt — the stamp-only path below must
       // not launder it into a delivered receipt either.
@@ -1920,7 +2182,9 @@ export class MessageDeliveryService {
 
         const extension = readMailExtension(live.metadata);
         const policy: MailDeliveryPolicy =
-          extension?.mailKind === "prompt" ? "immediate" : "notice";
+          extension?.mailKind === "prompt" && !noticeFallback
+            ? "immediate"
+            : "notice";
         // Mail never interrupts a live turn — ordinary or prompt. A busy
         // seat refuses retryable SeatBusy; immediate prompts additionally
         // refuse fast instead of parking behind the ordinary queue.
@@ -1936,10 +2200,17 @@ export class MessageDeliveryService {
         // for the next observed turn-start — no ledger write, no refusal
         // fact, no spend. Post-gate on purpose: the gate is what detects a
         // generation cut and resets the window. The explicit prompt() path
-        // is exempt.
+        // is exempt, as is an operator-granted retry whose fresh intent is
+        // still open (exactly one bypass per grant).
         if (
           policy === "notice" &&
-          this.isTurnBudgetSpent(target.bindingId)
+          this.isTurnBudgetSpent(target.bindingId) &&
+          !(await this.isGrantOpenForRetry(
+            canvas,
+            nodeId,
+            live.messageId,
+            seatGeneration,
+          ))
         ) {
           return;
         }
@@ -2281,8 +2552,26 @@ export class MessageDeliveryService {
       // One-notice-per-turn: one batched payload is one notice. A spent
       // window leaves the members pending — checked before the durable
       // enqueue, so no ledger write is burned on a deferred batch. The
-      // finally below releases the reservations this return skips.
-      if (this.isTurnBudgetSpent(target.bindingId)) return;
+      // finally below releases the reservations this return skips. An
+      // operator-granted retry bypasses like a single (exactly one bypass
+      // per grant).
+      if (this.isTurnBudgetSpent(target.bindingId)) {
+        let granted = false;
+        for (const unclaimedMember of unclaimed) {
+          if (
+            await this.isGrantOpenForRetry(
+              canvas,
+              nodeId,
+              unclaimedMember.messageId,
+              seatGeneration,
+            )
+          ) {
+            granted = true;
+            break;
+          }
+        }
+        if (!granted) return;
+      }
       // Charge window, captured at admission (see attemptOne).
       const chargeEpoch = this.turnEpochByBinding.get(target.bindingId) ?? 0;
 
@@ -2701,6 +2990,11 @@ export class MessageDeliveryService {
    * Gate refusals otherwise leave no ledger trace (no transport ran), so a
    * busy composer would be invisible. Best-effort: a ledger failure keeps
    * the message pending exactly as before.
+   *
+   * A refusal that never reached the transport must not spend an
+   * operator-opened grant: recording would close the open intent
+   * (`resolved_seq = attempt_seq`) and the authorized retry would never
+   * run. The message stays pending and the unspent grant stays open.
    */
   private async recordGateRefusal(
     canvas: string,
@@ -2713,6 +3007,22 @@ export class MessageDeliveryService {
     if (!ledger) return;
     const generation = this.lastGenerationKey.get(bindingId);
     if (generation === undefined) return;
+    try {
+      const prior = await ledger.attempt?.({
+        canvas,
+        nodeId,
+        messageId: live.messageId,
+        generation,
+      });
+      if (
+        (prior?.attemptSeq ?? 0) > (prior?.resolvedSeq ?? 0)
+      ) {
+        return;
+      }
+    } catch {
+      // Fall through and record: visibility outranks grant preservation
+      // when the ledger cannot be read.
+    }
     const policy: MailDeliveryPolicy =
       readMailExtension(live.metadata)?.mailKind === "prompt"
         ? "immediate"
@@ -2783,9 +3093,18 @@ export class MessageDeliveryService {
     } catch {
       return "ledgerDown";
     }
+    // Same-generation uncertainty holds — unless an operator grant opened a
+    // fresh intent (attemptSeq > resolvedSeq) after the uncertainty was
+    // recorded. Rows read through older doubles carry no seqs and hold, the
+    // pre-grant behavior.
+    const grantOpen =
+      prior.attemptSeq !== undefined &&
+      prior.resolvedSeq !== undefined &&
+      prior.attemptSeq > prior.resolvedSeq;
     if (
       prior.facts.unresolvedAt !== undefined &&
-      prior.facts.notifiedAt === undefined
+      prior.facts.notifiedAt === undefined &&
+      !grantOpen
     ) {
       this.transportUnresolved.set(key, generation);
       this.transportAccepted.add(key);

@@ -1,7 +1,7 @@
 /**
  * Durable schema for the crew mail/review additions (state version 24).
  *
- * Two additive tables, created identically on a fresh install (via
+ * Three additive tables, created identically on a fresh install (via
  * `STATE_SCHEMA_FRAGMENTS`) and on the 23 -> 24 upgrade (via the migration).
  * Neither touches an existing table: `work_messages`, `work_delivery_receipts`
  * and every prior definition and row survive unchanged.
@@ -11,6 +11,9 @@
  *    (`queued_at`, `notified_at`, `unresolved_at`, `refused_at`) plus a refusal
  *    reason and physical write evidence. A later refusal never clears a prior
  *    `unresolved_at`, so an accepted-then-failed write stays visible.
+ *  - `work_mail_notice_fallback`: one marker per (message, recipient seat)
+ *    recording an authorizing deferral that re-admits an explicit-only
+ *    prompt-kind row to the ordinary notice path.
  *  - `work_review_verdicts`: immutable, seat-stamped, epoch-bound green/blocking
  *    verdicts on a task or commit subject. The primary key is the deterministic
  *    verdict id, so a re-post at the same (subject, reviewer, epoch) conflicts
@@ -85,6 +88,32 @@ export const CREW_STATE_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS work_mail_attempts_message
     ON work_mail_attempts (canvas_name, node_id, message_id);
+
+  -- Durable notice fallback: a prompt-kind row is explicit-only until an
+  -- authorizing deferral (a failed explicit prompt attempt) persists this
+  -- marker, which re-admits the row to the ordinary notice path. Seat-scoped
+  -- (no generation): the operator's intent follows the message until it is
+  -- notified, and the notified check still suppresses every re-paste.
+  CREATE TABLE IF NOT EXISTS work_mail_notice_fallback (
+    canvas_name TEXT NOT NULL CHECK (length(canvas_name) BETWEEN 1 AND 256),
+    node_id TEXT NOT NULL CHECK (length(node_id) BETWEEN 1 AND 256),
+    message_id TEXT NOT NULL CHECK (length(message_id) BETWEEN 1 AND 256),
+    recipient_seat_id TEXT NOT NULL
+      CHECK (
+        length(recipient_seat_id) = 69
+        AND substr(recipient_seat_id, 1, 5) = 'seat_'
+        AND substr(recipient_seat_id, 6) NOT GLOB '*[^a-f0-9]*'
+      ),
+    reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 64),
+    granted_at TEXT NOT NULL CHECK (length(granted_at) BETWEEN 1 AND 64),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) BETWEEN 1 AND 64),
+    PRIMARY KEY (
+      canvas_name,
+      node_id,
+      message_id,
+      recipient_seat_id
+    )
+  ) STRICT, WITHOUT ROWID;
 
   CREATE TABLE IF NOT EXISTS work_review_verdicts (
     verdict_id TEXT NOT NULL CHECK (length(verdict_id) BETWEEN 1 AND 256),

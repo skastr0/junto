@@ -196,6 +196,8 @@ type AttemptRow = {
 const attemptFromRow = (row: AttemptRow): typeof DeliveryAttempt.Type =>
   decodeAttempt({
     messageId: row.message_id,
+    attemptSeq: row.attempt_seq,
+    resolvedSeq: row.resolved_seq,
     recipient: {
       seat: {
         seatId: row.recipient_seat_id,
@@ -468,6 +470,40 @@ export type CrewRepositoryShape = {
   readonly reconcileUnresolvedAttempts: (
     at: string,
   ) => Effect.Effect<number, CrewRepositoryError>;
+  /**
+   * Operator-authorized fresh attempt for a same-generation held row: opens
+   * a new intent (attempt_seq += 1) WITHOUT clearing any fact, so history
+   * stays visible. Only a closed held row grants (unresolved, un-notified,
+   * attempt_seq = resolved_seq); returns whether a grant was issued. The
+   * next attempt closes the opened intent with its outcome.
+   */
+  readonly grantHeldAttempt: (
+    input: AttemptKey & { readonly at: string },
+  ) => Effect.Effect<boolean, CrewRepositoryError>;
+  /** Held (unresolved, un-notified) rows for one canvas, oldest first. */
+  readonly listHeldAttempts: (
+    canvasName: string,
+  ) => Effect.Effect<ReadonlyArray<typeof DeliveryAttempt.Type>, CrewRepositoryError>;
+  /**
+   * Persist a notice-fallback marker (idempotent): an authorizing deferral
+   * re-admits an explicit-only prompt-kind row to the ordinary notice path.
+   * Returns whether the marker was created.
+   */
+  readonly grantNoticeFallback: (
+    input: {
+      readonly sink: CrewSink;
+      readonly messageId: string;
+      readonly recipientSeatId: string;
+      readonly reason: string;
+      readonly at: string;
+    },
+  ) => Effect.Effect<boolean, CrewRepositoryError>;
+  /** True when a fallback marker exists for this message and seat. */
+  readonly hasNoticeFallback: (
+    sink: CrewSink,
+    messageId: string,
+    recipientSeatId: string,
+  ) => Effect.Effect<boolean, CrewRepositoryError>;
   /** Post a verdict in its own transaction. Immutable, idempotent by id. */
   readonly postVerdict: (
     verdict: typeof ReviewVerdict.Type,
@@ -724,6 +760,106 @@ export const CrewRepositoryLive = Layer.effect(
             return Number(result.changes ?? 0);
           }));
 
+    const grantHeldAttempt: CrewRepositoryShape["grantHeldAttempt"] = (input) =>
+      writeTx("crew.grantHeldAttempt", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
+          // Open exactly one fresh intent on a closed held row. No fact is
+          // cleared: the prior uncertainty stays visible, and the next
+          // attempt's outcome closes the opened intent. Already-open,
+          // notified, or non-held rows grant nothing (changes = 0).
+          const result = writer.run(
+            `UPDATE work_mail_attempts
+               SET attempt_seq = attempt_seq + 1,
+                   updated_at = ?
+             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+               AND recipient_seat_id = ? AND recipient_generation = ?
+               AND unresolved_at IS NOT NULL
+               AND notified_at IS NULL
+               AND attempt_seq = resolved_seq`,
+            [
+              input.at,
+              input.sink.canvasName,
+              input.sink.nodeId,
+              input.messageId,
+              input.recipientSeatId,
+              input.recipientGeneration,
+            ],
+          );
+          return Number(result.changes ?? 0) === 1;
+        }));
+
+    const listHeldAttempts: CrewRepositoryShape["listHeldAttempts"] = (canvasName) =>
+      state
+        .read("crew.listHeldAttempts", (reader) =>
+          reader
+            .all<AttemptRow>(
+              `SELECT * FROM work_mail_attempts
+               WHERE canvas_name = ? AND unresolved_at IS NOT NULL
+                 AND notified_at IS NULL
+               ORDER BY updated_at, message_id`,
+              [canvasName],
+            )
+            .map(attemptFromRow),
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            toCrewError("crew.listHeldAttempts", error),
+          ),
+        );
+
+    const grantNoticeFallback: CrewRepositoryShape["grantNoticeFallback"] = (input) =>
+      writeTx("crew.grantNoticeFallback", (writer) =>
+        unjournaledWorkMutation("crew.mail-attempt", () => {
+          const before = writer.get<{ readonly message_id: string }>(
+            `SELECT message_id FROM work_mail_notice_fallback
+             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+               AND recipient_seat_id = ?`,
+            [
+              input.sink.canvasName,
+              input.sink.nodeId,
+              input.messageId,
+              input.recipientSeatId,
+            ],
+          );
+          writer.run(
+            `INSERT OR IGNORE INTO work_mail_notice_fallback(
+               canvas_name, node_id, message_id, recipient_seat_id,
+               reason, granted_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              input.sink.canvasName,
+              input.sink.nodeId,
+              input.messageId,
+              input.recipientSeatId,
+              input.reason,
+              input.at,
+              input.at,
+            ],
+          );
+          return before === undefined;
+        }));
+
+    const hasNoticeFallback: CrewRepositoryShape["hasNoticeFallback"] = (
+      sink,
+      messageId,
+      recipientSeatId,
+    ) =>
+      state
+        .read("crew.hasNoticeFallback", (reader) => {
+          const row = reader.get<{ readonly message_id: string }>(
+            `SELECT message_id FROM work_mail_notice_fallback
+             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+               AND recipient_seat_id = ?`,
+            [sink.canvasName, sink.nodeId, messageId, recipientSeatId],
+          );
+          return row !== undefined;
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            toCrewError("crew.hasNoticeFallback", error),
+          ),
+        );
+
     const postVerdict: CrewRepositoryShape["postVerdict"] = (verdict) =>
       writeTx("crew.postVerdict", (writer) =>
         unjournaledWorkMutation("crew.review-verdict", () => {
@@ -850,6 +986,10 @@ export const CrewRepositoryLive = Layer.effect(
       attemptsForMessage,
       hasNotifiedAcrossGenerations,
       reconcileUnresolvedAttempts,
+      grantHeldAttempt,
+      listHeldAttempts,
+      grantNoticeFallback,
+      hasNoticeFallback,
       postVerdict,
       verdictsForSubject,
       currentGreenExists,

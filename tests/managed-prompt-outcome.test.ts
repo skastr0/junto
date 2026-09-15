@@ -361,27 +361,48 @@ const makeLedger = (): MessageDeliveryAttemptStore & {
   const records: Array<{ messageId: string; set: object }> = [];
   const notified = new Set<string>();
   const unresolved = new Set<string>();
+  // Open/close intent versioning per message: enqueue leaves (0, 0),
+  // markAttempted opens (attempt += 1), recordAttempt closes
+  // (resolved = attempt) — mirroring work_mail_attempts.
+  const seqs = new Map<string, { attempt: number; resolved: number }>();
+  const seqFor = (messageId: string) => {
+    const existing = seqs.get(messageId);
+    if (existing) return existing;
+    const fresh = { attempt: 0, resolved: 0 };
+    seqs.set(messageId, fresh);
+    return fresh;
+  };
+  const seen = new Map<
+    string,
+    { canvas: string; nodeId: string; generation: string; policy: MailDeliveryPolicy }
+  >();
+  const markers = new Set<string>();
   const rowFor = (
     canvas: string,
     nodeId: string,
     messageId: string,
     generation: string,
     policy: MailDeliveryPolicy,
-  ) => ({
-    messageId,
-    recipient: { seat: { seatId: `seat_${"b".repeat(64)}` as ActorSeatId, canvasName: canvas, nodeId }, generation },
-    policy,
-    facts: {
-      generation,
-      queuedAt: new Date(0).toISOString(),
-      ...(notified.has(messageId)
-        ? { notifiedAt: new Date(1).toISOString() }
-        : {}),
-      ...(unresolved.has(messageId) && !notified.has(messageId)
-        ? { unresolvedAt: new Date(2).toISOString() }
-        : {}),
-    },
-  });
+  ) => {
+    const seq = seqFor(messageId);
+    return {
+      messageId,
+      recipient: { seat: { seatId: `seat_${"b".repeat(64)}` as ActorSeatId, canvasName: canvas, nodeId }, generation },
+      policy,
+      facts: {
+        generation,
+        queuedAt: new Date(0).toISOString(),
+        ...(notified.has(messageId)
+          ? { notifiedAt: new Date(1).toISOString() }
+          : {}),
+        ...(unresolved.has(messageId) && !notified.has(messageId)
+          ? { unresolvedAt: new Date(2).toISOString() }
+          : {}),
+      },
+      attemptSeq: seq.attempt,
+      resolvedSeq: seq.resolved,
+    };
+  };
   return {
     calls,
     records,
@@ -390,6 +411,14 @@ const makeLedger = (): MessageDeliveryAttemptStore & {
     },
     enqueueAttempt: async (input) => {
       calls.push(`enqueue:${input.messageId}`);
+      if (!seen.has(input.messageId)) {
+        seen.set(input.messageId, {
+          canvas: input.canvas,
+          nodeId: input.nodeId,
+          generation: input.generation,
+          policy: input.policy,
+        });
+      }
       return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, input.policy);
     },
     enqueueBatch: async (input) => {
@@ -400,24 +429,65 @@ const makeLedger = (): MessageDeliveryAttemptStore & {
     },
     markAttempted: async (input) => {
       calls.push(`mark:${input.messageId}`);
+      seqFor(input.messageId).attempt += 1;
       return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, "notice");
     },
     recordAttempt: async (input) => {
       calls.push(`record:${input.messageId}`);
       records.push({ messageId: input.messageId, set: input.set });
       // Faithful double: a recorded unresolved fact persists, so a later
-      // enqueueAttempt in the same generation re-reads the hold.
+      // enqueueAttempt in the same generation re-reads the hold; recording
+      // closes the opened intent.
       if (
         "unresolvedAt" in (input.set as Record<string, unknown>) &&
         (input.set as Record<string, unknown>).unresolvedAt !== undefined
       ) {
         unresolved.add(input.messageId);
       }
+      seqFor(input.messageId).resolved = seqFor(input.messageId).attempt;
       return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, "notice");
     },
-    attempt: async () => undefined,
+    attempt: async (input) => {
+      calls.push(`attempt:${input.messageId}`);
+      const at = seen.get(input.messageId);
+      if (!at) return undefined;
+      return rowFor(at.canvas, at.nodeId, input.messageId, input.generation, at.policy);
+    },
     hasNotifiedAcrossGenerations: async () => false,
     reconcileUnresolvedAttempts: async () => 0,
+    listHeldAttempts: async (canvas: string) => {
+      calls.push(`listHeld:${canvas}`);
+      const out = [];
+      for (const [messageId, at] of seen) {
+        if (at.canvas !== canvas) continue;
+        if (!unresolved.has(messageId) || notified.has(messageId)) continue;
+        out.push(rowFor(at.canvas, at.nodeId, messageId, at.generation, at.policy));
+      }
+      return out;
+    },
+    grantHeldAttempt: async (input) => {
+      calls.push(`grant:${input.messageId}`);
+      // Strict WHERE mirroring the repository: only a closed held row
+      // opens (unresolved, un-notified, attempt == resolved).
+      if (!unresolved.has(input.messageId) || notified.has(input.messageId)) {
+        return false;
+      }
+      const seq = seqFor(input.messageId);
+      if (seq.attempt !== seq.resolved) return false;
+      seq.attempt += 1;
+      return true;
+    },
+    grantNoticeFallback: async (input) => {
+      calls.push(`fallback:${input.messageId}`);
+      const key = `${input.canvas}::${input.nodeId}::${input.messageId}`;
+      if (markers.has(key)) return false;
+      markers.add(key);
+      return true;
+    },
+    hasNoticeFallback: async (input) => {
+      calls.push(`hasFallback:${input.messageId}`);
+      return markers.has(`${input.canvas}::${input.nodeId}::${input.messageId}`);
+    },
   };
 };
 
@@ -453,10 +523,11 @@ describe("MessageDeliveryService outcome policy", () => {
     );
   });
 
-  it("scoped resume never releases ledger-held uncertainty without a durable grant", async () => {
+  it("scoped resume grants exactly one retry per held row, then silence", async () => {
     const store = makeStore({ c: agentDoc([userMsg("m1")]) });
     const ledger = makeLedger();
     let calls = 0;
+    const released: string[] = [];
     const transport: MessageDeliveryTransport = {
       sendManagedTerminalPrompt: async () => {
         calls += 1;
@@ -478,7 +549,16 @@ describe("MessageDeliveryService outcome policy", () => {
     };
     let clock = 100_000;
     const service = new MessageDeliveryService();
-    service.configure({ transport, store, attempts: ledger, now: () => clock });
+    service.configure({
+      transport,
+      store,
+      attempts: ledger,
+      now: () => clock,
+      timers: { set: () => ({}), clear: () => {} },
+      releaseSeatHold: (bindingId) => {
+        released.push(bindingId);
+      },
+    });
     // One wrote-physical attempt with no acknowledgement: the ledger holds
     // the uncertainty durably. The flush lets the first consult start the
     // settle clock before it is advanced.
@@ -495,15 +575,163 @@ describe("MessageDeliveryService outcome policy", () => {
           "unresolvedAt" in (record.set as Record<string, unknown>),
       ),
     ).toBe(true);
-    // A scoped resume clears process-local marks, but the next attempt
-    // re-reads the ledger row and holds again — no second paste without a
-    // durable retry grant (open storage-lane item).
-    service.onResumedCanvas("c");
-    await flushDelivery();
+    // Idle scans never grant: the hold stands with no new transport.
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
     expect(calls).toBe(1);
+    expect(ledger.calls.some((call) => call.startsWith("grant:"))).toBe(
+      false,
+    );
+    // An explicit resume opens exactly one fresh intent and releases the
+    // seat hold. Resume re-settles the seats (no paste mid-resume paint),
+    // so the immediate sweep cannot spend the grant yet; the next settled
+    // re-drive spends it on exactly one retry — then silence again.
+    service.onResumedCanvas("c");
+    await flushDelivery();
+    expect(ledger.calls).toContain("grant:m1");
+    expect(released).toEqual(["bind-profile-13"]);
+    expect(calls).toBe(1);
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(2);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "m1")).toBe(
+      false,
+    );
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(2);
+    // A second explicit resume authorizes exactly one more retry.
+    service.onResumedCanvas("c");
+    await flushDelivery();
+    expect(calls).toBe(2);
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(3);
+  });
+
+  it("prompt() gate deferral persists a fallback marker the notice path delivers", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", " please review", {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    const ledger = makeLedger();
+    let busy = true;
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      wakeManagedSeat: async () => true,
+      seatDeliverySnapshot: async () => ({
+        idle: !busy,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport,
+      store,
+      attempts: ledger,
+      now: () => clock,
+      timers: { set: () => ({}), clear: () => {} },
+    });
+    // The seat is working: the explicit prompt defers retryable seat-busy
+    // and persists the fallback marker write-ahead.
+    const deferred = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(deferred).toMatchObject({
+      policy: "immediate",
+      outcome: { status: "refused", reason: "seat-busy" },
+    });
+    expect(ledger.calls).toContain("fallback:p1");
+    expect(calls).toBe(0);
+    // The seat idles: the first idle observation starts the settle clock,
+    // so the notice path re-admits the marked row but cannot paste yet.
+    busy = false;
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(0);
+    // Settled: the notice path delivers the marked row exactly once — the
+    // explicit-only rule held until the grant.
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(1);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
+      true,
+    );
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(1);
+  });
+
+  it("over-limit prompt verdicts never persist a fallback marker", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", "x".repeat(200), {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    const ledger = makeLedger();
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      wakeManagedSeat: async () => true,
+      seatDeliverySnapshot: async () => ({
+        idle: true,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport,
+      store,
+      attempts: ledger,
+      now: () => clock,
+      timers: { set: () => ({}), clear: () => {} },
+    });
+    await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
+    clock += 2_000;
+    const refused = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(refused).toMatchObject({
+      outcome: { status: "refused", reason: "over-limit" },
+    });
+    expect(ledger.calls.some((call) => call.startsWith("fallback:"))).toBe(
+      false,
+    );
+    // No marker, no notice: the verdict stands and the scan stays silent.
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
       false,
     );
   });

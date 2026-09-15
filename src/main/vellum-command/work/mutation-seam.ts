@@ -89,6 +89,7 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     // written directly (never materialized from the replicated journal), so
     // every write declares an unjournaledWorkMutation(...) reason below.
     ["work_mail_attempts", "projection"],
+    ["work_mail_notice_fallback", "projection"],
     ["work_review_verdicts", "projection"],
     ["work_review_receipts", "projection"],
     ["work_review_checkout_observations", "projection"],
@@ -155,10 +156,13 @@ export const UNJOURNALED_WORK_REASONS = {
   },
   "crew.mail-attempt": {
     why:
-      "Mail delivery attempts (work_mail_attempts) are Command Center-local " +
+      "Mail delivery attempts (work_mail_attempts) and notice-fallback " +
+      "markers (work_mail_notice_fallback) are Command Center-local " +
       "transport state — queued/attempted/notified/unresolved/refused per " +
-      "recipient generation. They mint no fact because a delivery attempt is " +
-      "not a work transition and must never replicate to another installation.",
+      "recipient generation, plus the authorizing deferral that re-admits " +
+      "an explicit-only prompt row to the notice path. They mint no fact " +
+      "because a delivery attempt is not a work transition and must never " +
+      "replicate to another installation.",
     retire:
       "Never while mail delivery is Command Center-homed; if attempts ever " +
       "replicate, mint a delivery-attempt fact and materialize it instead.",

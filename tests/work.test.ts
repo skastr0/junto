@@ -1958,7 +1958,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return true;
+          return { status: "submitted", bindingGeneration: 0, writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true };
         },
       },
       store: deliveryStore(name),
@@ -2000,7 +2000,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return true;
+          return { status: "submitted", bindingGeneration: 0, writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true };
         },
       },
       store: deliveryStore(name),

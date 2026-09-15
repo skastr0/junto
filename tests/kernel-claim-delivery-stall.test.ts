@@ -41,6 +41,7 @@ import {
 } from "../src/main/vellum-command/term/drive";
 import { OperatorInterlock } from "../src/main/vellum-command/term/drive/operator-interlock";
 import { makeManagedPulseDeliver, setManagedPulseDeliver } from "../src/main/vellum-command/term/managed-pulse-bridge";
+import { isPromptSubmitted } from "../src/shared/managed-prompt";
 import { SessionObserver } from "../src/main/vellum-command/term/observer";
 import { termPlane } from "../src/main/vellum-command/term/plane";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
@@ -201,7 +202,8 @@ const startFixture = async (stuck: boolean, initialReady = true) => {
     await runtime.runPromise(pause.setPlaying(CANVAS, true));
 
     setManagedPulseDeliver(makeManagedPulseDeliver(
-      (bindingId, text, options) => drive.writePrompt(bindingId, text, options),
+      (bindingId, text, options) =>
+        drive.writePrompt(bindingId, text, options).then(isPromptSubmitted),
       () => ready,
     ));
     kernel = await runtime.runPromise(KernelService);

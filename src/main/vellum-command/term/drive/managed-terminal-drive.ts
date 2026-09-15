@@ -1518,6 +1518,23 @@ export class ManagedTerminalDrive {
     return true;
   }
 
+  /**
+   * Same-generation explicit-resume authorization outlet: release this
+   * binding's written-unresolved hold so one operator-authorized retry can
+   * paste. The caller guarantees a durable retry grant opened a new ledger
+   * intent first — this never fires on idle, pulse, or ordinary scans.
+   * Returns whether a hold was actually held.
+   */
+  releaseWrittenUnresolved(bindingId: string): boolean {
+    if (!this.writtenUnresolved.has(bindingId)) return false;
+    this.writtenUnresolved.delete(bindingId);
+    this.traceState(bindingId, "delivery.verdict", {
+      verdict: "resumed-authorized-retry",
+      reason: "written-unresolved",
+    });
+    return true;
+  }
+
   private async writePasteAndCr(
     bindingId: string,
     text: string,

@@ -276,6 +276,14 @@ export const DeliveryAttempt = Schema.Struct({
   batchId: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMinLength(1)))),
   facts: MailAttemptFacts,
   write: Schema.optionalKey(MailWriteEvidence),
+  /**
+   * Open/close intent versioning for the same-generation hold. A held row
+   * (unresolved, un-notified) authorizes a fresh attempt only when an
+   * operator grant opened a new intent (attemptSeq > resolvedSeq); a closed
+   * held row never auto-retries. Absent on rows read through older doubles.
+   */
+  attemptSeq: Schema.optionalKey(Schema.Int),
+  resolvedSeq: Schema.optionalKey(Schema.Int),
 });
 export type DeliveryAttempt = typeof DeliveryAttempt.Type;
 
