@@ -795,6 +795,7 @@ export type MailAttemptRow = {
   readonly policy: string;
   readonly batch_id: string | null;
   readonly queued_at: string;
+  readonly attempted_at: string | null;
   readonly notified_at: string | null;
   readonly unresolved_at: string | null;
   readonly refused_at: string | null;
@@ -851,3 +852,27 @@ export const crewMessageCount = (
     "SELECT count(*) AS n FROM work_messages WHERE canvas_name = ? AND node_id = ?",
     [canvas, nodeId],
   )[0]?.n ?? 0;
+
+export type ReceiptRow = {
+  readonly delivery_id: string;
+  readonly delivered_canvas_name: string;
+  readonly delivered_node_id: string;
+  readonly delivered_item_kind: string;
+  readonly accepted_at: string;
+};
+
+/** Mailbox delivery/read receipts accepted on one sink (durable truth). */
+export const crewReceipts = (
+  sandbox: Sandbox,
+  canvas: string,
+  nodeId: string,
+): ReadonlyArray<ReceiptRow> =>
+  crewQuery<ReceiptRow>(
+    sandbox,
+    `SELECT delivery_id, delivered_canvas_name, delivered_node_id,
+            delivered_item_kind, accepted_at
+       FROM work_delivery_receipts
+      WHERE delivered_canvas_name = ? AND delivered_node_id = ?
+      ORDER BY accepted_at`,
+    [canvas, nodeId],
+  );
