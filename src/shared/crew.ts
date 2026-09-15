@@ -25,7 +25,7 @@
  */
 
 import { Schema } from "effect";
-import { ActorRef, TaskRef } from "./work-reference";
+import { ActorRef } from "./work-reference";
 import { ActorSeatId } from "./actor-seat";
 
 /** ISO display timestamp, matching the durable receipt columns (<=64 chars). */
@@ -210,6 +210,36 @@ export const MailAttemptFacts = Schema.Struct({
 export type MailAttemptFacts = typeof MailAttemptFacts.Type;
 
 /**
+ * The delivery projection stamps the current-generation attempt facts as FLAT
+ * keys on a mailbox Message's metadata, using the {@link MailAttemptFacts}
+ * field names directly (`queuedAt`, `notifiedAt`, `unresolvedAt`, `refusedAt`,
+ * `refusedReason`, `generation`). The ledger reads them via
+ * {@link readMailAttemptFacts}; the reason key is `refusedReason` only.
+ */
+const decodeMailAttemptFacts = Schema.decodeUnknownOption(MailAttemptFacts);
+
+/** Read the current-generation attempt facts a projection stamped, if any. */
+export const readMailAttemptFacts = (
+  metadata: unknown,
+): MailAttemptFacts | undefined => {
+  if (metadata === null || typeof metadata !== "object") return undefined;
+  const option = decodeMailAttemptFacts(metadata);
+  return option._tag === "Some" ? option.value : undefined;
+};
+
+/** The flat metadata fragment a projection merges to carry the attempt facts. */
+export const mailAttemptFactsMetadata = (
+  facts: MailAttemptFacts,
+): Record<string, unknown> => ({
+  generation: facts.generation,
+  queuedAt: facts.queuedAt,
+  ...(facts.notifiedAt !== undefined ? { notifiedAt: facts.notifiedAt } : {}),
+  ...(facts.unresolvedAt !== undefined ? { unresolvedAt: facts.unresolvedAt } : {}),
+  ...(facts.refusedAt !== undefined ? { refusedAt: facts.refusedAt } : {}),
+  ...(facts.refusedReason !== undefined ? { refusedReason: facts.refusedReason } : {}),
+});
+
+/**
  * One durable delivery attempt, keyed by message id plus recipient seat plus
  * recipient generation. Enqueued (queued) before any transport action. When it
  * was delivered as part of one batched notify, `batchId` records the exact
@@ -290,33 +320,41 @@ export const VerdictKind = Schema.Literals(["green", "blocking"]);
 export type VerdictKind = typeof VerdictKind.Type;
 
 /**
- * The exact subject a verdict binds to. A task subject carries the full
- * {@link TaskRef} (sink canvas, node and item id) plus the task epoch it
- * judged — never a bare task id. A commit subject carries the commit sha and
- * optional checkout. The authoritative binding is {@link ReviewVerdict.subjectHash}.
+ * The exact subject a verdict binds to. A task subject carries the full task
+ * identity — installation home, canvas, node, task id — plus the task epoch it
+ * judged, never a bare task id. A commit subject carries the commit sha. Both
+ * arms carry `subjectHash`, the authoritative canonical binding computed
+ * server-side over the identity (see {@link verdictSubjectHashPayload}); the
+ * gate compares that hash, so an old green cannot bless newly submitted refs.
  */
 export const VerdictSubject = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("task"),
-    task: TaskRef,
+    installationId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    canvasName: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    nodeId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+    taskId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
     epoch: Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+    subjectHash: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   }),
   Schema.Struct({
     kind: Schema.Literal("commit"),
     sha: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-    checkout: Schema.optionalKey(Schema.String),
+    subjectHash: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   }),
 ]);
 export type VerdictSubject = typeof VerdictSubject.Type;
 
 /**
- * An immutable, seat-stamped verdict. `verdictId` is a unique per-posting
- * idempotency key: a reviewer may post blocking then later green on a revised
- * subject, so each posting is its own immutable row. `epoch` is the task epoch
- * the verdict is bound to; a stale verdict from an older epoch cannot move a
+ * An immutable, seat-stamped verdict. `verdictId` is a unique per-posting id
+ * (a ULID minted at post); a reviewer may post blocking then later green on the
+ * same binding, and each posting is its own immutable row, ordered by
+ * `postedAtMs`. `epoch` is the task epoch the verdict is bound to (0 for an
+ * unbound commit subject); a stale verdict from an older epoch cannot move a
  * newer one, and an old green cannot bless newly submitted refs because the
- * gate matches both `epoch` and `subjectHash`. `authorSeatId` records the
- * author for unambiguous reviewer-distinctness.
+ * gate matches both `epoch` and `subjectHash`. `authorSeatId` and `subjectHash`
+ * are server-derived at post, never client-supplied; `subjectHash` is also the
+ * indexed gate key.
  */
 export const ReviewVerdict = Schema.Struct({
   verdictId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
@@ -333,27 +371,43 @@ export const ReviewVerdict = Schema.Struct({
 });
 export type ReviewVerdict = typeof ReviewVerdict.Type;
 
-/**
- * Deterministic canonical string over a verdict's exact subject and refs. The
- * repository hashes this to produce `subjectHash`; every lane must derive the
- * hash from this same serialization so the gate compares identical bytes.
- * Object keys are emitted in sorted order; ref array order is preserved as
- * authored (the exact refs, not a set).
- */
-export const canonicalSubjectString = (input: {
-  readonly subject: VerdictSubject;
-  readonly refs: ReadonlyArray<MailEvidenceRef>;
-}): string => stableStringify({ subject: input.subject, refs: input.refs });
+/** Domain separator for the subject hash, so hashes never collide across kinds. */
+export const VERDICT_SUBJECT_HASH_DOMAIN = "vellum/crew/verdict-subject/v1";
 
-const stableStringify = (value: unknown): string => {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+/**
+ * The ordered, canonical payload the subject hash is computed over. The
+ * repository applies sha256 to this string to produce `subjectHash`; every
+ * lane must build the hash from this same function so the gate compares
+ * identical bytes. Commit shas passed for a task subject are normalized
+ * (lowercased, sorted, de-duplicated) so ref order never changes the identity.
+ */
+export const verdictSubjectHashPayload = (
+  input:
+    | {
+        readonly kind: "task";
+        readonly installationId: string;
+        readonly canvasName: string;
+        readonly nodeId: string;
+        readonly taskId: string;
+        readonly epoch: number;
+        readonly commitShas?: ReadonlyArray<string>;
+      }
+    | { readonly kind: "commit"; readonly sha: string },
+): string => {
+  if (input.kind === "commit") {
+    return JSON.stringify([VERDICT_SUBJECT_HASH_DOMAIN, "commit", input.sha]);
   }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return `{${entries
-    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
-    .join(",")}}`;
+  const commitShas = [
+    ...new Set((input.commitShas ?? []).map((sha) => sha.toLowerCase())),
+  ].sort();
+  return JSON.stringify([
+    VERDICT_SUBJECT_HASH_DOMAIN,
+    "task",
+    input.installationId,
+    input.canvasName,
+    input.nodeId,
+    input.taskId,
+    input.epoch,
+    ...commitShas,
+  ]);
 };
