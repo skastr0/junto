@@ -121,13 +121,20 @@ const evidence = (commits: readonly string[] = []): CompletionEvidence => ({
   claims: [{ ruleId: REVIEW_RULE, text: "The independent verdict is available" }],
 });
 
-const fixture = async (canvas: string, withNextBoard = false) => {
+const fixture = async (canvas: string, withNextBoard = false, withSecondReviewer = false) => {
   const doc: CanvasDoc = {
-    nodes: [agent("author", canvas), agent("reviewer", canvas), board("tasks", true), ...(withNextBoard ? [board("next")] : [])],
+    nodes: [
+      agent("author", canvas), agent("reviewer", canvas), board("tasks", true),
+      ...(withNextBoard ? [board("next")] : []),
+      ...(withSecondReviewer ? [agent("second-reviewer", canvas)] : []),
+    ],
     edges: [
       { id: "claim", fromNode: "tasks", toNode: "author", ether: { verb: "works" } },
       reviewEdge,
       ...(withNextBoard ? [{ id: "path", fromNode: "tasks", toNode: "next", ether: { verb: "feeds" as const } }] : []),
+      ...(withSecondReviewer ? [{
+        id: "second-review", fromNode: "second-reviewer", toNode: "author", ether: { verb: "reviews" as const },
+      }] : []),
     ],
   };
   await runtime.runPromise(canvases.write(canvas, doc));
@@ -155,7 +162,10 @@ const fixture = async (canvas: string, withNextBoard = false) => {
     ...doc,
     edges: [...doc.edges.filter((entry) => entry.id !== "review"), ...(edge === undefined ? [] : [edge])],
   }));
-  return { canvas, taskId: task.id, author, reviewer, show, snapshot, replaceReviewEdge };
+  return {
+    canvas, taskId: task.id, author, reviewer, show, snapshot, replaceReviewEdge,
+    secondReviewer: withSecondReviewer ? actor("second-reviewer") : undefined,
+  };
 };
 
 const expectedSubject = (shown: WorkTaskShowView) => ({
@@ -575,5 +585,58 @@ describe("crew reviews through the real WorkService", () => {
     expect(await runtime.runPromise(crew.verdictsForSubject({ kind: "commit", sha }))).toEqual([
       expect.objectContaining({ verdictId: posted.verdictId, kind: "blocking", epoch: 0 }),
     ]);
+  });
+
+  it("does not complete a reclaimed epoch using a prior epoch's surviving green", async () => {
+    const f = await fixture("crew-review-complete-stale-epoch", false, true);
+    const before = await f.show();
+    const subject = expectedSubject(before);
+    applied(await runtime.runPromise(work.workVerdictPost(
+      f.canvas, "tasks", { subject, kind: "green" }, f.reviewer,
+    )));
+    let reachedWriter!: () => void;
+    let release!: () => void;
+    let barrierTimer: ReturnType<typeof setTimeout> | undefined;
+    const arrived = new Promise<void>((resolve, reject) => {
+      reachedWriter = resolve;
+      barrierTimer = setTimeout(() => reject(new Error("Completion preflight did not reach transitionTask")), 3_000);
+    });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const original = repository.transitionTask.bind(repository);
+    const scheduling = vi.spyOn(repository, "transitionTask").mockImplementation((...args) => {
+      const write = original(...args);
+      return Effect.promise(async () => {
+        reachedWriter();
+        await released;
+      }).pipe(Effect.flatMap(() => write));
+    });
+    const completing = runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "completed", undefined, evidence(),
+    ));
+    try {
+      await arrived;
+      applied(await runtime.runPromise(work.workVerdictPost(f.canvas, "tasks", {
+        subject, kind: "blocking", findings: ["A second reviewer found a defect"],
+      }, f.secondReviewer!)));
+      applied(await runtime.runPromise(work.workTaskClaim(f.canvas, "tasks", f.taskId, f.author)));
+      const reclaimed = await f.snapshot();
+      expect(reclaimed).toMatchObject({ state: "working", epoch: 1, claimedBy: f.author.seatId });
+      const verdicts = (await f.show()).verdicts;
+      expect(verdicts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "green", epoch: 0, reviewerSeatId: f.reviewer.seatId }),
+        expect.objectContaining({ kind: "blocking", epoch: 0, reviewerSeatId: f.secondReviewer!.seatId }),
+      ]));
+
+      release();
+      const stale = await completing;
+      expect(stale.ok).toBe(false);
+      expect(await f.snapshot()).toEqual(reclaimed);
+      expect((await f.show()).verdicts).toEqual(verdicts);
+    } finally {
+      if (barrierTimer !== undefined) clearTimeout(barrierTimer);
+      release();
+      scheduling.mockRestore();
+      await Promise.allSettled([completing]);
+    }
   });
 });
