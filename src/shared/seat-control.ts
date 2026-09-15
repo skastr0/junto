@@ -32,6 +32,8 @@ export const SEAT_READ_MAX_BYTES = 64 * 1024;
 /** Longest bounded follow. */
 export const SEAT_READ_MAX_SECONDS = 600;
 export const SEAT_READ_DEFAULT_FOLLOW_SECONDS = 30;
+/** Budget a single (non-follow) read gets before the transport gives up. */
+export const SEAT_READ_DEFAULT_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -209,11 +211,16 @@ export type SeatWaitResult = typeof SeatWaitResult.Type;
  * One bounded read of a settled observer grid.
  *
  * `seq` is the observer journal sequence of the grid the text came from, and
- * `epoch` is that grid's generation. `generation` is the seat's current
- * session generation, and `replaced` is true only when the caller's cursor
- * belonged to a different generation — a replacement is explicit, never
- * concatenated. `truncated` means the retained window or the byte bound clipped
- * the result: this is the settled tail, never a claim of the full transcript.
+ * `epoch` is that grid's generation. `generation` is the generation the
+ * returned window belongs to — it equals the seat's current session generation
+ * whenever the window is current, and the window's own generation when the seat
+ * was replaced while the read was in flight. `replaced` is true when the
+ * returned window is not the caller's cursor generation, either because the
+ * caller's cursor generation is gone or because the seat has since moved to a
+ * new one: a replacement is explicit, never concatenated, and the text always
+ * belongs to the generation the result names. `truncated` means the retained
+ * window or the byte bound clipped the result: this is the settled tail, never
+ * a claim of the full transcript.
  */
 export const SeatReadResult = Schema.Struct({
   target: Schema.String,
@@ -297,7 +304,10 @@ export const clipReadText = (
   let truncated = false;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index]!;
-    const cost = utf8ByteLength(line) + 1;
+    const lineBytes = utf8ByteLength(line);
+    // The separator is charged only between two kept lines, which is exactly
+    // what the joined text costs: N lines carry N-1 newlines.
+    const cost = kept.length === 0 ? lineBytes : lineBytes + 1;
     if (bytes + cost > maxBytes) {
       truncated = true;
       break;
@@ -307,11 +317,10 @@ export const clipReadText = (
   }
   if (kept.length === 0 && lines.length > 0) {
     // One line longer than the whole budget: return it clipped to the budget
-    // rather than returning nothing, and say the result was clipped.
-    return {
-      lines: [clipLineToBytes(lines[lines.length - 1]!, maxBytes)],
-      truncated: true,
-    };
+    // rather than returning nothing, and report whether the clip actually cut.
+    const only = lines[lines.length - 1]!;
+    const clipped = clipLineToBytes(only, maxBytes);
+    return { lines: [clipped], truncated: clipped.length < only.length };
   }
-  return { lines: kept, truncated: truncated || kept.length < lines.length };
+  return { lines: kept, truncated };
 };
