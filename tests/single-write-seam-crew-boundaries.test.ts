@@ -39,7 +39,13 @@ type JournalFreeEntry = {
 
 type Register = {
   readonly mutationSeams: ReadonlyArray<SeamEntry>;
-  readonly sharedTableExceptions: ReadonlyArray<{ readonly table: string }>;
+  readonly sharedTableExceptions: ReadonlyArray<{
+    readonly table: string;
+    readonly owner: string;
+    readonly alsoWrittenBy: ReadonlyArray<string>;
+    readonly reason: string;
+    readonly retire: string;
+  }>;
   readonly decodeBoundaries: ReadonlyArray<DecodeEntry>;
   readonly journalFreeMutations: ReadonlyArray<JournalFreeEntry>;
 };
@@ -48,15 +54,19 @@ const register = JSON.parse(readFileSync(REGISTER, "utf8")) as Register;
 
 const CREW_TABLES = [
   "work_mail_attempts",
+  "work_mail_notice_fallback",
   "work_review_checkout_observations",
   "work_review_receipts",
   "work_review_verdicts",
 ] as const;
 
 const crewRepository = "src/main/vellum-command/work/crew-repository.ts";
+const crewSchema = "src/main/vellum-command/work/crew-schema.ts";
+const workSchema = "src/main/vellum-command/work/state-schema.ts";
+const workRepository = "src/main/vellum-command/work/repository.ts";
 
 describe("crew boundaries in the single-write-seam register", () => {
-  it("registers the crew repository as the one writer of its four tables", () => {
+  it("registers the crew repository as the one writer of its five tables", () => {
     const seams = register.mutationSeams.filter((entry) => entry.path === crewRepository);
     expect(seams).toHaveLength(1);
     const seam = seams[0]!;
@@ -78,6 +88,26 @@ describe("crew boundaries in the single-write-seam register", () => {
         table,
       ).toEqual([]);
     }
+  });
+
+  it("limits crew DDL's shared writer declaration to the derived revision counter", () => {
+    const seams = register.mutationSeams.filter((entry) => entry.path === crewSchema);
+    expect(seams).toHaveLength(1);
+    expect(seams[0]!.kind).toBe("permanent");
+    expect(seams[0]!.tables).toEqual(["work_canvas_revisions"]);
+    expect(seams[0]!.reason).toContain("SQLite triggers");
+
+    const shared = register.sharedTableExceptions.filter(
+      (entry) => entry.table === "work_canvas_revisions",
+    );
+    expect(shared).toHaveLength(1);
+    expect(shared[0]!.owner).toBe(workSchema);
+    expect(shared[0]!.alsoWrittenBy).toEqual([crewSchema]);
+    expect(shared[0]!.reason).toContain("refuses every application write");
+    expect(shared[0]!.retire).toContain("preserving frozen migration SQL");
+    expect(register.mutationSeams.filter((entry) =>
+      entry.tables.includes("work_canvas_revisions"),
+    ).map((entry) => entry.path).sort()).toEqual([crewSchema, workSchema].sort());
   });
 
   it("registers the crew row decode and the two crew codec boundaries", () => {
@@ -114,6 +144,21 @@ describe("crew boundaries in the single-write-seam register", () => {
       "crew.review-verdict",
     ]);
     expect(entries[0]!.retire.trim().length).toBeGreaterThan(0);
+  });
+
+  it("registers only verdict posting as the work repository's crew journal-free reason", () => {
+    const entries = register.journalFreeMutations.filter((entry) => entry.path === workRepository);
+    expect(entries).toHaveLength(1);
+    expect([...entries[0]!.reasons].sort()).toEqual([
+      "crew.review-verdict",
+      "work.artifact.delete",
+      "work.artifact.set_archived",
+    ]);
+    expect(entries[0]!.reason).toContain("crew-repository.applyVerdictWrite");
+    expect(entries[0]!.reason).toContain("blocking task transition remains journaled");
+    expect(entries[0]!.retire).toContain("review.verdict facts");
+    const seam = register.mutationSeams.find((entry) => entry.path === workRepository);
+    expect(seam?.tables).not.toContain("work_review_verdicts");
   });
 
   it("points every crew entry at a file that exists", () => {

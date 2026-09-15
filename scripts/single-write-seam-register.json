@@ -81,6 +81,14 @@
       "reason": "Work-plane DDL. The only INSERTs are inside AFTER INSERT/UPDATE/DELETE triggers that bump the projection revision counter, so the write is SQLite's and local to the row, which is exactly why no call path can bypass it."
     },
     {
+      "path": "src/main/vellum-command/work/crew-schema.ts",
+      "kind": "permanent",
+      "tables": [
+        "work_canvas_revisions"
+      ],
+      "reason": "Crew DDL contributes exactly three revision-counter INSERTs inside SQLite triggers: mail-attempt INSERT, mail-attempt UPDATE, and task-verdict INSERT. Each invalidates the affected canvas projection in the same transaction as its crew row. No application statement writes the derived counter, and this declaration owns no crew storage table."
+    },
+    {
       "path": "src/main/vellum-command/work/journal.ts",
       "kind": "debt",
       "tables": [
@@ -153,11 +161,12 @@
       "kind": "debt",
       "tables": [
         "work_mail_attempts",
+        "work_mail_notice_fallback",
         "work_review_checkout_observations",
         "work_review_receipts",
         "work_review_verdicts"
       ],
-      "reason": "Crew durable store: mail delivery attempts and review verdicts over the one product StateEngine, receiving its StateWriter from the engine that owns the transaction. An attempt is enqueued before any transport action and stamped set-once afterwards, so no fact clears another; verdicts are immutable rows keyed by verdict id, task identity, epoch and subject hash. No other seam writes these four tables.",
+      "reason": "Crew durable store: mail delivery attempts, explicit notice-fallback grants and review verdicts over the one product StateEngine, receiving its StateWriter from the engine that owns the transaction. An attempt is enqueued before any transport action and stamped set-once afterwards, so no fact clears another. A notice-fallback grant persists the authorized deferral for one message and recipient seat across generations. Verdicts are immutable rows keyed by verdict id, task identity, epoch and subject hash. No other seam writes these five tables.",
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the crew projection and this file's only write is the journal append."
     },
     {
@@ -442,6 +451,15 @@
     }
   ],
   "sharedTableExceptions": [
+    {
+      "table": "work_canvas_revisions",
+      "owner": "src/main/vellum-command/work/state-schema.ts",
+      "alsoWrittenBy": [
+        "src/main/vellum-command/work/crew-schema.ts"
+      ],
+      "reason": "Both DDL modules declare SQLite triggers for the same derived canvas revision counter. Work DDL covers journal-backed projections; crew DDL adds only mail-attempt insert/update and task-verdict insert invalidation. The runtime mutation seam still refuses every application write to this table.",
+      "retire": "Consolidate current revision-trigger declarations under work/state-schema.ts while preserving frozen migration SQL, then remove this exception when crew-schema.ts no longer contains these trigger bodies."
+    },
     {
       "table": "box_resources",
       "owner": "src/main/vellum-command/box/repository.ts",
@@ -1240,11 +1258,12 @@
     {
       "path": "src/main/vellum-command/work/repository.ts",
       "reasons": [
+        "crew.review-verdict",
         "work.artifact.delete",
         "work.artifact.set_archived"
       ],
-      "reason": "Two operator artifact operations mutate the projection and mint no fact: set_archived rewrites metadata_json in place, delete removes the row with no tombstone. Neither replicates, and a rebuild from the journal loses the archive flag and resurrects the deleted artifact.",
-      "retire": "Mint artifact.archive and artifact.retract facts and materialize them like every other operation, then delete both reasons from UNJOURNALED_WORK_REASONS."
+      "reason": "Two operator artifact operations mutate the projection and mint no fact: set_archived rewrites metadata_json in place, delete removes the row with no tombstone. Neither replicates, and a rebuild from the journal loses the archive flag and resurrects the deleted artifact. Atomic task and standalone-commit verdict admission also delegates to crew-repository.applyVerdictWrite under crew.review-verdict: only the immutable Command Center-local work_review_verdicts row escapes the work journal, after live subject, author and reviews-edge checks. A blocking task transition remains journaled; crew-repository retains sole ownership of the verdict INSERT.",
+      "retire": "Mint artifact.archive and artifact.retract facts and materialize them, then delete those two reasons. Remove crew.review-verdict from this call-site entry if verdict admission no longer posts journal-free rows; if verdicts ever replicate, mint review.verdict facts and materialize them before retiring the closed reason."
     },
     {
       "path": "src/main/vellum-command/content/inline-media-migration.ts",
@@ -1262,7 +1281,7 @@
         "crew.review-receipt",
         "crew.review-verdict"
       ],
-      "reason": "The crew durable store writes Command Center-local operational state that must never replicate: per-generation mail delivery attempts, immutable seat-stamped review verdicts, receipt-feed dedupe rows, and coalesced checkout commit observations. None is a work transition, so each write declares the reason it escapes under at its call site.",
+      "reason": "The crew durable store writes Command Center-local operational state that must never replicate: per-generation mail delivery attempts, durable message-and-seat notice-fallback grants under the same crew.mail-attempt reason, immutable seat-stamped review verdicts, receipt-feed dedupe rows, and coalesced checkout commit observations. None is a work transition, so each write declares the reason it escapes under at its call site.",
       "retire": "Never while the crew stores are Command Center-homed; if any of them ever replicates, mint its fact and materialize it, then shrink this entry to the reasons that remain."
     }
   ]
