@@ -165,8 +165,8 @@
       },
       {
         "scenario": "mail-notice",
-        "status": "skip",
-        "reason": "blocked: auth: login required"
+        "status": "complete",
+        "reason": "adapter evidence only; typedNoticeQualified stays false"
       }
     ],
     "session": {

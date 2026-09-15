@@ -13,7 +13,7 @@ import {
   mailTransportTiers,
   templateFor,
 } from "../src/shared/managed-terminal-templates";
-import { buildSpawnEnv } from "./pty-e2e/pty-capture";
+import { buildSpawnEnv, seedIsolatedAuthFiles } from "./pty-e2e/pty-capture";
 
 describe("harness mail transport facts", () => {
   it("every harness is pull-only and none claims an unproven native channel", () => {
@@ -220,6 +220,45 @@ describe("isolated capture home", () => {
     );
     expect(claude.HOME).toBe(isolated);
     expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(isolated, ".claude"));
+  });
+
+  it("seeds only declared credential files, never history or settings", () => {
+    expect(HARNESS_ISOLATION.claude.credentialFiles).toEqual([]);
+    expect(HARNESS_ISOLATION.codex.credentialFiles).toEqual([]);
+    expect(HARNESS_ISOLATION.devin.credentialFiles).toEqual([
+      {
+        operatorRelative: ".local/share/devin/credentials.toml",
+        isolatedRelative: ".local/share/devin/credentials.toml",
+      },
+    ]);
+    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-op-auth-"));
+    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-iso-auth-"));
+    const credRel = ".local/share/devin/credentials.toml";
+    const credSrc = path.join(operator, credRel);
+    fs.mkdirSync(path.dirname(credSrc), { recursive: true });
+    fs.writeFileSync(credSrc, "windsurf_api_key = \"redacted\"\n");
+    const history = path.join(operator, ".local/share/devin/cli/sessions.db");
+    fs.mkdirSync(path.dirname(history), { recursive: true });
+    fs.writeFileSync(history, "session-bytes");
+    const before = fs.statSync(credSrc);
+    const seeded = seedIsolatedAuthFiles({
+      harness: "devin",
+      isolatedHome: isolated,
+      operatorHome: operator,
+    });
+    expect(seeded.copied).toEqual([credRel]);
+    expect(fs.existsSync(path.join(isolated, credRel))).toBe(true);
+    expect(fs.existsSync(path.join(isolated, ".local/share/devin/cli/sessions.db"))).toBe(false);
+    const after = fs.statSync(credSrc);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(after.size).toBe(before.size);
+    expect(seedIsolatedAuthFiles({
+      harness: "codex",
+      isolatedHome: isolated,
+      operatorHome: operator,
+    }).copied).toEqual([]);
+    fs.rmSync(operator, { recursive: true, force: true });
+    fs.rmSync(isolated, { recursive: true, force: true });
   });
 
   it("isolated spawn env does not inherit operator auth keys", () => {

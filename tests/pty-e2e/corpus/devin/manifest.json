@@ -190,29 +190,33 @@
     {
       "harness": "devin",
       "scenario": "mail-notice",
-      "status": "skip",
-      "reason": "blocked: auth: login required",
+      "status": "complete",
+      "reason": "adapter evidence only; typedNoticeQualified stays false",
       "observed": {
-        "bytes": 958,
+        "bytes": 8452,
         "lines": 1,
         "cliVersion": "devin 3000.10.27 (bcbe88c7)",
         "isolated": true,
         "isolatedHome": "/tmp/vellum-capture-home/devin",
-        "composerPending": false,
-        "workingVisible": false
+        "composerPending": true,
+        "workingVisible": true,
+        "exited": false
       },
       "expectedScreen": {
-        "title": "",
+        "title": "devin: Inspect capture-seat mailbox message lis",
         "osc9": "",
         "promptGlyph": "❭",
-        "description": "isolated typed-notice blocked before composer"
+        "description": "isolated typed-notice paste of mail from capture-seat",
+        "envelope": "mail from capture-seat\ninspect mailbox with msg list",
+        "composerPending": true,
+        "workingVisible": true
       }
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
     "fixtures": 5,
-    "decodedBytes": 178379,
+    "decodedBytes": 185797,
     "checks": [
       "home-path",
       "username",
@@ -225,11 +229,11 @@
     "account plan and quota line -> <account plan and quota redacted>"
   ],
   "mailNoticeAdapterEvidence": {
-    "capturedAt": "2026-09-15T09:35:53.021Z",
+    "capturedAt": "2026-09-15T09:48:02.323Z",
     "harnessVersion": "devin 3000.10.27 (bcbe88c7)",
     "isolated": true,
     "typedNoticeQualified": false,
-    "status": "skip",
-    "reason": "blocked: auth: login required"
+    "status": "complete",
+    "reason": "adapter evidence only; typedNoticeQualified stays false"
   }
 }

@@ -396,13 +396,23 @@ export type IsolationHomePin = {
 };
 
 /**
+ * One operator-home relative file that may be copied into a throwaway home.
+ * Directories, settings, sessions, and history are not representable here.
+ */
+export type IsolationCredentialFile = {
+  readonly operatorRelative: string;
+  readonly isolatedRelative: string;
+};
+
+/**
  * How a disposable capture/test home relocates this harness's config and
- * session state. Tests inherit only `credentialEnv` from the operator process;
- * they never copy history or settings files.
+ * session state. Tests inherit only `credentialEnv` and `credentialFiles`
+ * from the operator process; they never copy history or settings files.
  */
 export type IsolationSpec = {
   readonly homePins: readonly IsolationHomePin[];
   readonly credentialEnv: readonly string[];
+  readonly credentialFiles: readonly IsolationCredentialFile[];
   readonly captureHome: "isolated" | "unsupported";
   readonly limitation?: string;
 };
@@ -424,6 +434,7 @@ const MAIL_T2_UNAVAILABLE: MailTransportSpec = {
 const HOME_ONLY_ISOLATION: IsolationSpec = {
   homePins: [],
   credentialEnv: [],
+  credentialFiles: [],
   captureHome: "isolated",
 };
 
@@ -450,14 +461,18 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
   claude: {
     homePins: [{ envKey: "CLAUDE_CONFIG_DIR", homeRelative: ".claude" }],
     credentialEnv: [],
+    credentialFiles: [],
     captureHome: "isolated",
-    limitation: "auth is keychain; isolated home has no operator session history",
+    limitation:
+      "isolated CLAUDE_CONFIG_DIR paints a login picker; ~/.claude/.credentials.json is absent; keychain service Claude Code-credentials is not consumed by that isolated TUI; ANTHROPIC_API_KEY is unset. Do not copy ~/.claude.json (settings/projects) or run TUI login (may write the live keychain item).",
   },
   codex: {
     homePins: [{ envKey: "CODEX_HOME", homeRelative: ".codex" }],
     credentialEnv: [],
+    credentialFiles: [],
     captureHome: "isolated",
-    limitation: "isolated CODEX_HOME has no auth.json; login is an explicit block",
+    limitation:
+      "isolated CODEX_HOME has no auth.json. Operator auth.json carries tokens.refresh_token; copying it into a live CLI can rotate the refresh token server-side and strand the operator file. OPENAI_API_KEY is unset. Do not copy config.toml, sessions, or history.",
   },
   grok: {
     ...HOME_ONLY_ISOLATION,
@@ -473,6 +488,7 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
       { envKey: "PI_CODING_AGENT_SESSION_DIR", homeRelative: ".pi/agent/sessions" },
     ],
     credentialEnv: [],
+    credentialFiles: [],
     captureHome: "isolated",
     limitation: "PI_CODING_AGENT_DIR is resolved before HOME; pin it or operator config leaks",
   },
@@ -490,7 +506,14 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
   },
   devin: {
     ...HOME_ONLY_ISOLATION,
-    limitation: "native factory uses named sessions; capture HOME still must not copy operator history",
+    credentialFiles: [
+      {
+        operatorRelative: ".local/share/devin/credentials.toml",
+        isolatedRelative: ".local/share/devin/credentials.toml",
+      },
+    ],
+    limitation:
+      "seed only ~/.local/share/devin/credentials.toml; never sessions.db, transcripts, or ~/.config/devin/config.json. DEVIN_BEARER_TOKEN is unset; do not copy Chrome localStorage.",
   },
   cursor: {
     ...HOME_ONLY_ISOLATION,
@@ -514,12 +537,14 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
       { envKey: "PI_CODING_AGENT_SESSION_DIR", homeRelative: ".pi/agent/sessions" },
     ],
     credentialEnv: [],
+    credentialFiles: [],
     captureHome: "isolated",
     limitation: "isolated HOME is a provider picker; operator-home T2 was a disposable cwd",
   },
   "vellum-overseer": {
     homePins: [],
     credentialEnv: [],
+    credentialFiles: [],
     captureHome: "unsupported",
     limitation: "structured host, not a TUI paste channel",
   },
