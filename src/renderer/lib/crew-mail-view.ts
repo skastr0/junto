@@ -5,14 +5,13 @@
  * one another. The chip the ledger paints is derived from those facts.
  * Nothing here invents a status the document did not record.
  */
-import { Schema } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
-  MailEvidenceRef as MailEvidenceRefSchema,
   deriveMailDisplayState,
   normalizeDisplayTimestamp,
   readMailAttemptFacts,
+  readMailEvidenceRef,
   readMailExtension,
   type MailAttemptFacts as CanonicalMailAttemptFacts,
   type MailAttemptReason,
@@ -47,14 +46,9 @@ const nonempty = (value: unknown): string | undefined =>
 const isMailKind = (value: unknown): value is MailKind =>
   value === "notice" || value === "prompt" || value === "receipt";
 
-const decodeEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRefSchema);
-
 export const parseMailEvidenceRef = (
   value: unknown,
-): MailEvidenceRef | undefined => {
-  const decoded = decodeEvidenceRef(value);
-  return decoded._tag === "Some" ? decoded.value : undefined;
-};
+): MailEvidenceRef | undefined => readMailEvidenceRef(value);
 
 export const parseMailEvidenceRefs = (
   value: unknown,

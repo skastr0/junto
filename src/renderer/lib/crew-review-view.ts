@@ -7,10 +7,9 @@
  * ether items. `metadata.verdicts` is a legacy fallback only. Bare
  * `task.subjectHash` is not a store.
  */
-import { Schema } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
 import {
-  ReviewVerdict as SharedReviewVerdict,
+  readReviewVerdict,
   type MailEvidenceRef,
   type ReviewVerdict as CanonicalReviewVerdict,
   type VerdictKind,
@@ -56,8 +55,6 @@ export type ReviewVerdict = {
   readonly refs: ReadonlyArray<MailEvidenceRef>;
   readonly postedAtMs: number;
 };
-
-const decodeCanonicalVerdict = Schema.decodeUnknownOption(SharedReviewVerdict);
 
 const recordOf = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object"
@@ -118,8 +115,8 @@ const viewFromCanonical = (
 export const parseReviewVerdict = (
   value: unknown,
 ): ReviewVerdict | undefined => {
-  const canonical = decodeCanonicalVerdict(value);
-  return canonical._tag === "Some" ? viewFromCanonical(canonical.value) : undefined;
+  const canonical = readReviewVerdict(value);
+  return canonical === undefined ? undefined : viewFromCanonical(canonical);
 };
 
 export const parseReviewVerdicts = (
