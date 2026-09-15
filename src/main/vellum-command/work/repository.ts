@@ -160,6 +160,7 @@ import {
 import { unjournaledWorkMutation } from "./mutation-seam";
 import {
   agentNodeForSeat,
+  planCheckoutReceiptMail,
   planReceiptMail,
   receiptDedupeKey,
   receiptSourceForRecord,
@@ -7811,6 +7812,22 @@ export interface WorkRepositoryShape {
       },
     ) => Effect.Effect<PostReviewVerdictResult, RepositoryFailure>;
     /**
+     * Atomic checkout-watch receipt writer: fresh-reads the task and its live
+     * claimant (refusing a changed author), the current masked reviews edges,
+     * and the intent basis, then composes commit-subject receipt mail for the
+     * newly observed shas and their dedupe rows in one transaction. Returns the
+     * created records for the caller to notify after commit.
+     */
+    readonly publishCheckoutReceipts: (input: {
+      readonly basis: IntentFactBasisValue;
+      readonly canvasName: string;
+      readonly nodeId: string;
+      readonly taskId: string;
+      readonly checkoutKey: string;
+      readonly author: MailSenderStamp;
+      readonly shas: ReadonlyArray<string>;
+    }) => Effect.Effect<ReadonlyArray<ReviewReceiptRecord>, RepositoryFailure>;
+    /**
      * Approve a task waiting at an `approval` board: epoch-scoped operator
      * stamp at metadata["vellum.tasks.approvedEpoch"] (same-state
      * task.transition fact).
@@ -8985,6 +9002,143 @@ export const WorkRepositoryLive = Layer.effect(
         });
       }
       return records;
+    };
+
+    const publishCheckoutReceipts = (input: {
+      readonly basis: IntentFactBasisValue;
+      readonly canvasName: string;
+      readonly nodeId: string;
+      readonly taskId: string;
+      readonly checkoutKey: string;
+      readonly author: MailSenderStamp;
+      readonly shas: ReadonlyArray<string>;
+    }): Effect.Effect<ReadonlyArray<ReviewReceiptRecord>, RepositoryFailure> => {
+      const sink = { canvasName: input.canvasName, nodeId: input.nodeId };
+      return transaction(
+        "work.review.publish-checkout-receipts",
+        sink,
+        (writer): ReadonlyArray<ReviewReceiptRecord> => {
+          const authority = canonicalLocalWorkAuthority(writer);
+          assertCurrentIntentBasis(writer, authority, sink, input.basis);
+          const installationId = authority.installationId;
+          const current = loadTask(writer, "task", sink, input.taskId);
+          // Task gone: the trigger's group is stale — no receipts, no failure.
+          if (current === undefined) return [];
+          const authorSeat = reviewAuthorSeat(current.task);
+          // A claim flip since the observation is an authority refusal, not a
+          // silent drop: the whole transaction rolls back.
+          if (authorSeat === undefined || input.author.fromSeat !== authorSeat) {
+            throw authorityError(
+              "authority-mismatch",
+              "checkout receipt author no longer matches the current task claimant",
+            );
+          }
+          const portfolio = readCommandCenterPortfolio(writer);
+          const doc = portfolio.documents.get(input.canvasName)?.doc;
+          if (doc === undefined) return [];
+          const refsHere = portfolio.actorRefs.filter(
+            (ref) => ref.canvasName === input.canvasName,
+          );
+          const authorNode = agentNodeForSeat(refsHere, authorSeat);
+          if (authorNode === undefined) return [];
+          const reviewers = reviewersOfAuthor({
+            doc,
+            authorNodeId: authorNode.nodeId,
+            actorRefs: refsHere,
+          });
+          if (reviewers.length === 0) return [];
+          const source = {
+            kind: "checkout" as const,
+            checkoutKey: input.checkoutKey,
+          };
+          const sourceIdStr = receiptSourceId(source);
+          const existing = writer.all<{
+            readonly ref_sha: string;
+            readonly reviewer_seat_id: string;
+          }>(
+            `SELECT ref_sha, reviewer_seat_id FROM work_review_receipts
+             WHERE canvas_name = ? AND source_kind = 'checkout' AND source_id = ?`,
+            [input.canvasName, sourceIdStr],
+          );
+          const sent = new Set(
+            existing.map((row) =>
+              receiptDedupeKey({
+                canvasName: input.canvasName,
+                source,
+                refSha: row.ref_sha,
+                reviewerSeatId: row.reviewer_seat_id as ActorSeatId,
+              }),
+            ),
+          );
+          const authorRef = {
+            seatId: authorSeat,
+            canvasName: input.canvasName,
+            nodeId: authorNode.nodeId,
+          };
+          const plan = planCheckoutReceiptMail({
+            canvasName: input.canvasName,
+            checkoutKey: input.checkoutKey,
+            shas: input.shas,
+            reviewers,
+            author: {
+              seatId: input.author.fromSeat,
+              generation: input.author.senderGeneration,
+              harness: input.author.senderHarness,
+            },
+            contextId: input.canvasName,
+            alreadySent: (key) => sent.has(key),
+            messageId: () => ulid(),
+          });
+          const records: ReviewReceiptRecord[] = [];
+          for (const mail of plan.mail) {
+            const reviewerSink = {
+              canvasName: input.canvasName,
+              nodeId: mail.reviewerNodeId,
+            };
+            const message = admitMailboxMessage(mail.message, authorRef);
+            const at = now();
+            commitLocalFact(writer, {
+              localInstallationId: installationId,
+              sink: reviewerSink,
+              basis: input.basis,
+              item: item("message", message.messageId, reviewerSink),
+              operation: "message.append",
+              predecessor: null,
+              body: {
+                operation: "message.append",
+                message,
+                sentBy: authorRef,
+                destination: { kind: "mailbox" },
+              },
+              value: message,
+              originAt: at,
+              receivedAt: at,
+            });
+            const freshShas = (readMailExtension(message.metadata)?.refs ?? [])
+              .filter((ref) => ref.kind === "commit")
+              .map((ref) => (ref.kind === "commit" ? ref.sha : ""));
+            for (const sha of freshShas) {
+              applyReviewReceiptWrite(writer, {
+                canvasName: input.canvasName,
+                sourceKind: "checkout",
+                sourceId: sourceIdStr,
+                refSha: sha,
+                reviewerSeatId: mail.reviewerSeatId,
+                authorSeatId: authorSeat,
+                taskId: input.taskId,
+                messageId: message.messageId,
+                createdAt: at,
+              });
+            }
+            records.push({
+              canvas: input.canvasName,
+              nodeId: mail.reviewerNodeId,
+              message,
+            });
+          }
+          return records;
+        },
+      );
     };
 
     const postReviewVerdict = (
@@ -10558,6 +10712,7 @@ export const WorkRepositoryLive = Layer.effect(
       sendTaskOn,
       sendTaskBack,
       postReviewVerdict,
+      publishCheckoutReceipts,
       promoteTask,
       recordCheckResults,
       createRequest,
