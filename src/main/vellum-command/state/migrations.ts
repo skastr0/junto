@@ -307,7 +307,7 @@ export const STATE_SCHEMA_V23_IDENTITY = {
  */
 export const STATE_SCHEMA_V24_IDENTITY = {
   actualSchemaSha256:
-    "a01b7e0de833fef80fc8c482b535344faeddca9e89647663fb3853e74b336d4a",
+    "b6512c8119e6730cd4fd20aee797076fe173bd971e8569561fbee98466847fb9",
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**

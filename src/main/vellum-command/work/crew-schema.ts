@@ -200,4 +200,37 @@ export const CREW_STATE_SCHEMA_SQL = `
     observed_at TEXT NOT NULL CHECK (length(observed_at) BETWEEN 1 AND 64),
     PRIMARY KEY (checkout_key, sha)
   ) STRICT, WITHOUT ROWID;
+
+  -- Canvas-revision invalidation: a mail attempt or a task verdict changes what
+  -- the seat's canvas projection reads, so bump work_canvas_revisions for that
+  -- sink and the warm Canvases cache re-reads. Attempts key on their recipient
+  -- sink; a task verdict keys on its subject task's sink (a commit verdict has
+  -- no canvas and does not fire).
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_mail_attempts_insert
+    AFTER INSERT ON work_mail_attempts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_mail_attempts_update
+    AFTER UPDATE ON work_mail_attempts
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.canvas_name, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS work_canvas_revision_review_verdicts_insert
+    AFTER INSERT ON work_review_verdicts
+    WHEN NEW.subject_kind = 'task'
+    BEGIN
+      INSERT INTO work_canvas_revisions(canvas_name, revision)
+      VALUES (NEW.subject_task_canvas, 1)
+      ON CONFLICT(canvas_name) DO UPDATE
+        SET revision = work_canvas_revisions.revision + 1;
+    END;
 `;

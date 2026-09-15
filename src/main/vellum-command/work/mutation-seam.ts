@@ -518,12 +518,14 @@ export const CANVAS_REVISION_TABLES: ReadonlySet<string> = new Set([
   "work_board_topics",
   "work_delivery_receipts",
   "work_events",
+  "work_mail_attempts",
   "work_messages",
   "work_pad_meta",
   "work_pad_posts",
   "work_pad_read_cursors",
   "work_pad_shapes",
   "work_requests",
+  "work_review_verdicts",
   "work_task_dependencies",
   "work_task_finish",
   "work_task_messages",
@@ -546,6 +548,11 @@ const SINK_COLUMNS: ReadonlyMap<
   [
     "work_delivery_receipts",
     ["delivered_canvas_name", "delivered_node_id"] as const,
+  ],
+  // A task verdict's sink is the subject task's canvas/node, not the verdict row.
+  [
+    "work_review_verdicts",
+    ["subject_task_canvas", "subject_task_node"] as const,
   ],
 ]);
 
