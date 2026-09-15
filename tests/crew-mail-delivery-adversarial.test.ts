@@ -519,6 +519,98 @@ describe("crew mail delivery — process-boundary adversarial", () => {
     },
   );
 
+  // Contract: delivery identity is (messageId, recipient seat, generation)
+  // — never text. Two identical bodies must carry independent attempt rows
+  // and independent receipts; one member's durable acceptance must not
+  // settle the other, and an un-receipted member must not re-paste.
+  it.fails(
+    "identical bodies keep independent attempt identity across a restart",
+    async () => {
+      const msgs = [userMsg("dup-a", "same words"), userMsg("dup-b", "same words")];
+      let docs!: Map<string, CanvasDoc>;
+      const store = makeStore(
+        { c: agentDoc(msgs) },
+        {
+          acceptMessage: (id) => id === "dup-a",
+          onDocs: (current) => {
+            docs = current;
+          },
+        },
+      );
+      const ledger = makeAttemptLedger();
+      const sends: string[] = [];
+      let now = 1_000_000;
+      const first = new MessageDeliveryService();
+      try {
+        first.configure({
+          transport: {
+            seatDeliverySnapshot: () => ({
+              idle: true,
+              generationKey: "g1",
+              operatorDraft: false,
+            }),
+            sendManagedTerminalPrompt: async (_b, text) => {
+              sends.push(text);
+              return submittedOutcome(sends.length);
+            },
+          },
+          store,
+          attempts: ledger.store,
+          now: () => now,
+          timers: parkedTimers(),
+        });
+        first.onBooted();
+        await settle(30);
+        now += 60_000;
+        first.onManagedTerminalIdle("bind-profile-13");
+        await waitUntil(() => sends.length === 1);
+        // dup-a receipted; dup-b notified but un-receipted: still pending.
+        expect(
+          await store.hasAcceptedMessageDelivery("c", "agent", "dup-a"),
+        ).toBe(true);
+        expect(
+          await store.hasAcceptedMessageDelivery("c", "agent", "dup-b"),
+        ).toBe(false);
+      } finally {
+        first.suspend();
+      }
+
+      // Restart: dup-b owes only a receipt stamp. Its notifiedAt fact
+      // suppresses any second paste — the transport must stay silent.
+      const second = new MessageDeliveryService();
+      try {
+        second.configure({
+          transport: {
+            seatDeliverySnapshot: () => ({
+              idle: true,
+              generationKey: "g1",
+              operatorDraft: false,
+            }),
+            sendManagedTerminalPrompt: async (_b, text) => {
+              sends.push(text);
+              return submittedOutcome(sends.length);
+            },
+          },
+          store,
+          attempts: ledger.store,
+          now: () => now,
+          timers: parkedTimers(),
+        });
+        second.onBooted();
+        await settle(30);
+        now += 60_000;
+        second.onManagedTerminalIdle("bind-profile-13");
+        await settle(80);
+        expect(sends).toHaveLength(1);
+        expect(
+          await store.hasAcceptedMessageDelivery("c", "agent", "dup-b"),
+        ).toBe(true);
+      } finally {
+        second.suspend();
+      }
+    },
+  );
+
   it("a batch line carries both ids when two messages share identical text", () => {
     const summary = composeMessageDeliverySummary([
       userMsg("dup-1", "same words"),
