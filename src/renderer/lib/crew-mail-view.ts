@@ -154,9 +154,31 @@ const receiptStamp = (value: unknown): string | undefined =>
     ? normalizeDisplayTimestamp(value)
     : undefined;
 
+/** loadInbox stamps react as `reactions: [{ kind: "ack", at }]`. */
+const reactedReceiptOf = (meta: Message["metadata"]): string | undefined => {
+  const reactions = meta?.reactions;
+  if (Array.isArray(reactions)) {
+    for (const entry of reactions) {
+      if (
+        entry !== null &&
+        typeof entry === "object" &&
+        "kind" in entry &&
+        entry.kind === "ack" &&
+        "at" in entry
+      ) {
+        const stamp = receiptStamp(entry.at);
+        if (stamp !== undefined) return stamp;
+      }
+    }
+  }
+  return receiptStamp(meta?.reactedAt);
+};
+
 /**
- * Transport facts come only from readMailAttemptFacts (ISO). Receipt stamps
- * stay on the existing plane and are normalized to ISO for display only.
+ * Transport facts come only from readMailAttemptFacts (flat ISO keys the
+ * delivery projection stamps). Receipt stamps stay on the loadInbox plane
+ * (`readAt`, `repliedAt`, `reactions`). `deliveredAt` is an independent ack
+ * and is never rewritten into `notifiedAt`.
  */
 export const mailAttemptFactsOf = (
   message: Message,
@@ -173,7 +195,7 @@ export const mailAttemptFactsOf = (
     refusedReason: transport?.refusedReason,
     readAt: receiptStamp(meta?.readAt),
     repliedAt: receiptStamp(meta?.repliedAt),
-    reactedAt: receiptStamp(meta?.reactedAt),
+    reactedAt: reactedReceiptOf(meta),
     generation: transport?.generation,
   };
 };

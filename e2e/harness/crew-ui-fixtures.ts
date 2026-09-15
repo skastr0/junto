@@ -69,6 +69,7 @@ export const crewMailMetadata = (input: {
   readonly unresolvedAt?: string;
   readonly refusedAt?: string;
   readonly refusedReason?: string;
+  readonly generation?: string;
   readonly readAt?: number | string;
   readonly refs?: ReadonlyArray<{ readonly kind: "commit"; readonly sha: string }>;
 }): NonNullable<Message["metadata"]> => ({
@@ -82,6 +83,7 @@ export const crewMailMetadata = (input: {
   ...(input.unresolvedAt === undefined ? {} : { unresolvedAt: input.unresolvedAt }),
   ...(input.refusedAt === undefined ? {} : { refusedAt: input.refusedAt }),
   ...(input.refusedReason === undefined ? {} : { refusedReason: input.refusedReason }),
+  ...(input.generation === undefined ? {} : { generation: input.generation }),
   ...(input.readAt === undefined ? {} : { readAt: input.readAt }),
   ...(input.refs === undefined ? {} : { refs: input.refs }),
 });
@@ -97,17 +99,54 @@ export const crewMailMessage = (input: {
   metadata: input.metadata,
 });
 
-/** Seed `task.verdicts` plus the reviewSubjectProjection hash on tasks.show. */
+/**
+ * WorkService tasks.show overlay. p1H generated-canvas must attach these
+ * extra keys on the ether task item until p1F projects them onto CanvasDoc.
+ * Requires-review save is BoardSettings → contract.rules kind=requires-review.
+ * Masks save is RTS EdgePortMask → ether.mask.
+ */
+export const taskReviewShow = (input: {
+  readonly subjectHash: string;
+  readonly epoch: number;
+  readonly taskId: string;
+  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
+}): {
+  readonly reviewSubject: {
+    readonly installationId: string;
+    readonly canvasName: string;
+    readonly nodeId: string;
+    readonly taskId: string;
+    readonly state: "working";
+    readonly epoch: number;
+    readonly subjectHash: string;
+    readonly refs: readonly [];
+  };
+  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
+} => ({
+  reviewSubject: {
+    installationId: "local",
+    canvasName: "ops",
+    nodeId: "tasks",
+    taskId: input.taskId,
+    state: "working",
+    epoch: input.epoch,
+    subjectHash: input.subjectHash,
+    refs: [],
+  },
+  verdicts: input.verdicts,
+});
+
+/** @deprecated use taskReviewShow — WorkService siblings, not task.subjectHash. */
 export const taskReviewProjection = (input: {
   readonly subjectHash: string;
   readonly verdicts: ReadonlyArray<Record<string, unknown>>;
-}): {
-  readonly subjectHash: string;
-  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
-} => ({
-  subjectHash: input.subjectHash,
-  verdicts: input.verdicts,
-});
+}): ReturnType<typeof taskReviewShow> =>
+  taskReviewShow({
+    subjectHash: input.subjectHash,
+    epoch: 0,
+    taskId: "task-1",
+    verdicts: input.verdicts,
+  });
 
 /** Canonical ReviewVerdict rows for `task.verdicts` (ascending postedAtMs). */
 export const compactReviewVerdict = (input: {

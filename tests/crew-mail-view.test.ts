@@ -68,6 +68,28 @@ describe("crewMailViewOf", () => {
     expect(crewMailViewOf(message({ mailKind: "nope" }), 1).kind).toBeUndefined();
   });
 
+  it("reads loadInbox reactions as the react receipt and attempt facts when stamped", () => {
+    const receipts = crewMailViewOf(
+      message({
+        reactions: [{ kind: "ack", at: 1_704_067_200_000 }],
+        readAt: 1_704_067_100_000,
+      }),
+      1,
+    );
+    expect(receipts.display).toBe("reacted");
+    expect(receipts.facts.readAt).toBe(new Date(1_704_067_100_000).toISOString());
+    const transport = crewMailViewOf(
+      message({
+        generation: "g-live",
+        queuedAt: "2026-01-01T00:00:00.000Z",
+        notifiedAt: "2026-01-01T00:00:01.000Z",
+      }),
+      1,
+    );
+    expect(transport.display).toBe("notified");
+    expect(transport.facts.generation).toBe("g-live");
+  });
+
   it("parses typed refs and drops unknown shapes", () => {
     const view = crewMailViewOf(
       message({

@@ -2,13 +2,13 @@
  * Operator review projection. Verdicts are immutable facts from p15/p1F;
  * this module only decodes the exported ReviewVerdict and Rule.kind.
  *
- * Chain field is `task.verdicts` (canonical ReviewVerdict[], ascending
- * postedAtMs, composed service-side). `metadata.verdicts` is a legacy
- * fallback only. Current `subjectHash` and `epoch` come from the
- * reviewSubjectProjection overlay on tasks.show / ether task items —
- * never invented metadata keys.
+ * WorkService tasks.show exposes `reviewSubject` + `verdicts` as siblings
+ * of `task`. The same overlay is what p1F must project onto CanvasDoc
+ * ether items. `metadata.verdicts` is a legacy fallback only. Bare
+ * `task.subjectHash` is not a store.
  */
 import { Schema } from "effect";
+import type { CanvasDoc } from "@shared/canvas";
 import {
   ReviewVerdict as SharedReviewVerdict,
   type MailEvidenceRef,
@@ -18,10 +18,17 @@ import {
 } from "@shared/crew";
 import type { Rule, Task, TasksContract } from "@shared/work-model";
 
-/** Service overlay composed onto a Task. Root owns the mint. */
-export type TaskReviewProjection = Task & {
+/** WorkService tasks.show overlay. Also the CanvasDoc item extra keys. */
+export type TaskReviewShow = {
+  readonly reviewSubject?: unknown;
   readonly verdicts?: unknown;
-  readonly subjectHash?: unknown;
+};
+
+export type ReviewSubjectProjectionView = {
+  readonly epoch: number;
+  readonly subjectHash: string;
+  readonly taskId: string | undefined;
+  readonly authorSeatId: string | undefined;
 };
 
 export type ReviewVerdictKind = VerdictKind;
@@ -52,8 +59,21 @@ export type ReviewVerdict = {
 
 const decodeCanonicalVerdict = Schema.decodeUnknownOption(SharedReviewVerdict);
 
-const asReviewProjection = (task: Task): TaskReviewProjection =>
-  task as TaskReviewProjection;
+const recordOf = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+
+export const reviewShowOf = (
+  source: unknown,
+  overlay?: TaskReviewShow,
+): TaskReviewShow => {
+  const record = recordOf(source);
+  return {
+    reviewSubject: overlay?.reviewSubject ?? record?.reviewSubject,
+    verdicts: overlay?.verdicts ?? record?.verdicts,
+  };
+};
 
 export type ReviewGate = {
   readonly required: boolean;
@@ -150,9 +170,33 @@ export const taskRequiresReview = (
 
 export const taskEpochOf = (task: Task): number => task.epoch ?? 0;
 
-export const verdictsOnTask = (task: Task): ReadonlyArray<ReviewVerdict> => {
-  const composed = asReviewProjection(task).verdicts;
-  if (Array.isArray(composed)) return parseReviewVerdicts(composed);
+export const parseReviewSubjectProjection = (
+  value: unknown,
+): ReviewSubjectProjectionView | undefined => {
+  const record = recordOf(value);
+  if (record === undefined) return undefined;
+  const subjectHash = nonempty(record.subjectHash);
+  const epoch =
+    typeof record.epoch === "number" &&
+    Number.isInteger(record.epoch) &&
+    record.epoch >= 0
+      ? record.epoch
+      : undefined;
+  if (subjectHash === undefined || epoch === undefined) return undefined;
+  return {
+    epoch,
+    subjectHash,
+    taskId: nonempty(record.taskId),
+    authorSeatId: nonempty(record.authorSeatId),
+  };
+};
+
+export const verdictsOnTask = (
+  task: Task,
+  overlay?: TaskReviewShow,
+): ReadonlyArray<ReviewVerdict> => {
+  const show = reviewShowOf(task, overlay);
+  if (Array.isArray(show.verdicts)) return parseReviewVerdicts(show.verdicts);
   return parseReviewVerdicts(task.metadata?.verdicts);
 };
 
@@ -166,55 +210,100 @@ const subjectMatches = (
   return verdict.subjectHash === subjectHash;
 };
 
-export const currentReviewSubjectHash = (task: Task): string | undefined =>
-  nonempty(asReviewProjection(task).subjectHash);
+export const currentReviewSubjectProjection = (
+  task: Task,
+  overlay?: TaskReviewShow,
+): ReviewSubjectProjectionView | undefined =>
+  parseReviewSubjectProjection(reviewShowOf(task, overlay).reviewSubject);
+
+export const currentReviewSubjectHash = (
+  task: Task,
+  overlay?: TaskReviewShow,
+): string | undefined => currentReviewSubjectProjection(task, overlay)?.subjectHash;
 
 export const currentReviewSubject = (
   task: Task,
+  overlay?: TaskReviewShow,
 ): ReviewSubject | undefined => {
-  const subjectHash = currentReviewSubjectHash(task);
-  if (subjectHash === undefined) return undefined;
+  const projection = currentReviewSubjectProjection(task, overlay);
+  if (projection === undefined) return undefined;
   return {
     kind: "task",
-    taskId: task.id,
-    epoch: taskEpochOf(task),
-    subjectHash,
+    taskId: projection.taskId ?? task.id,
+    epoch: projection.epoch,
+    subjectHash: projection.subjectHash,
   };
 };
 
+/** Latest verdict per reviewer on one binding. Blocking wins a postedAtMs tie. */
+const latestByReviewer = (
+  current: ReadonlyArray<ReviewVerdict>,
+): ReadonlyMap<string, ReviewVerdict> => {
+  const map = new Map<string, ReviewVerdict>();
+  for (const verdict of current) {
+    const prior = map.get(verdict.reviewerSeatId);
+    if (
+      prior === undefined ||
+      verdict.postedAtMs > prior.postedAtMs ||
+      (verdict.postedAtMs === prior.postedAtMs &&
+        ((prior.kind === "green" && verdict.kind === "blocking") ||
+          (prior.kind === verdict.kind &&
+            verdict.verdictId > prior.verdictId)))
+    ) {
+      map.set(verdict.reviewerSeatId, verdict);
+    }
+  }
+  return map;
+};
+
+/** reviews edge holds verdict.post: omitted mask is full compile, [] is none. */
+export const reviewsEdgeHoldsVerdictPost = (
+  edge: CanvasDoc["edges"][number],
+): boolean =>
+  edge.ether?.verb === "reviews" &&
+  (edge.ether.mask === undefined || edge.ether.mask.includes("verdict.post"));
+
 /**
- * Green must come from a distinct seat on the current epoch and subject hash.
- * No hash, no satisfy — a bare task id is not an identity.
+ * Green must come from a distinct seat on the current epoch and subject hash,
+ * and a current reviews edge must still hold verdict.post — same as
+ * evaluateReviewGate. No hash, no satisfy.
  */
 export const reviewGateOf = (
   task: Task,
   contract: TasksContract | undefined,
   authorSeatId: string | undefined,
+  options?: {
+    readonly show?: TaskReviewShow;
+    readonly reviewerHasCurrentEdge?: (reviewerSeatId: string) => boolean;
+  },
 ): ReviewGate => {
   const required = taskRequiresReview(task, contract);
-  const currentEpoch = taskEpochOf(task);
-  const currentSubject = currentReviewSubject(task);
-  const currentHash = currentReviewSubjectHash(task);
-  const chain = verdictsOnTask(task);
+  const projection = currentReviewSubjectProjection(task, options?.show);
+  const currentEpoch = projection?.epoch ?? taskEpochOf(task);
+  const currentSubject = currentReviewSubject(task, options?.show);
+  const currentHash = projection?.subjectHash;
+  const chain = verdictsOnTask(task, options?.show);
   const current = chain.filter((verdict) =>
     subjectMatches(verdict, currentEpoch, currentHash),
   );
-  const latestGreen = [...current]
-    .reverse()
-    .find((verdict) => verdict.kind === "green");
-  const blocking = [...current]
-    .reverse()
-    .find((verdict) => verdict.kind === "blocking");
-  const satisfied =
-    latestGreen !== undefined &&
-    (authorSeatId === undefined || latestGreen.reviewerSeatId !== authorSeatId);
+  const latest = latestByReviewer(current);
+  const latestGreen = [...latest.values()].find(
+    (verdict) =>
+      verdict.kind === "green" &&
+      (authorSeatId === undefined || verdict.reviewerSeatId !== authorSeatId) &&
+      (options?.reviewerHasCurrentEdge === undefined ||
+        options.reviewerHasCurrentEdge(verdict.reviewerSeatId)),
+  );
+  const blocking = [...latest.values()].find(
+    (verdict) => verdict.kind === "blocking",
+  );
   return {
     required,
     currentEpoch,
     currentSubject,
-    satisfied,
+    satisfied: latestGreen !== undefined,
     blocking,
-    latestGreen: satisfied ? latestGreen : undefined,
+    latestGreen,
   };
 };
 

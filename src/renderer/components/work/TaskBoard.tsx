@@ -66,6 +66,8 @@ import { RequiresReviewControl } from "./RequiresReviewControl";
 import { VerdictChain } from "./VerdictChain";
 import {
   reviewGateOf,
+  reviewsEdgeHoldsVerdictPost,
+  reviewShowOf,
   verdictsOnTask,
 } from "../../lib/crew-review-view";
 import { ApprovalMark, OutgoingGroupHeader } from "./TaskPathMarks";
@@ -1803,6 +1805,8 @@ function TaskDetailPanel({
   seatName,
   nodeName,
   contract,
+  actorRefs,
+  doc,
   operatorPanel,
   onClose,
   onSaveTitle,
@@ -1823,6 +1827,8 @@ function TaskDetailPanel({
   readonly seatName: (seatId: string) => string | undefined;
   readonly nodeName: (nodeId: string) => string | undefined;
   readonly contract: TasksContract | undefined;
+  readonly actorRefs: ReadonlyArray<{ readonly seatId: string; readonly nodeId: string }>;
+  readonly doc: CanvasDoc;
   /** Operator panel for an operator-admission board; absent elsewhere. */
   readonly operatorPanel?: ReactNode;
   readonly onClose: () => void;
@@ -1884,8 +1890,24 @@ function TaskDetailPanel({
       ];
   const queueLaneLabel =
     lanes.find((lane) => lane.state === "submitted")?.label ?? "Queue";
-  const reviewGate = reviewGateOf(task, contract, claimedByOf(task));
-  const reviewVerdicts = verdictsOnTask(task);
+  const reviewShow = reviewShowOf(task);
+  const authorSeatId = claimedByOf(task);
+  const authorNodeId = actorRefs.find((actor) => actor.seatId === authorSeatId)?.nodeId;
+  const reviewGate = reviewGateOf(task, contract, authorSeatId, {
+    show: reviewShow,
+    reviewerHasCurrentEdge: (reviewerSeatId) => {
+      if (authorNodeId === undefined) return false;
+      const reviewerNodeId = actorRefs.find((actor) => actor.seatId === reviewerSeatId)?.nodeId;
+      if (reviewerNodeId === undefined) return false;
+      return doc.edges.some(
+        (edge) =>
+          reviewsEdgeHoldsVerdictPost(edge) &&
+          edge.fromNode === reviewerNodeId &&
+          edge.toNode === authorNodeId,
+      );
+    },
+  });
+  const reviewVerdicts = verdictsOnTask(task, reviewShow);
 
   return (
     <aside
@@ -3266,6 +3288,8 @@ export function TaskBoard({
               seatName={seatName}
               nodeName={nodeName}
               contract={node.ether?.tasks?.contract}
+              actorRefs={actorRefs}
+              doc={doc}
               operatorPanel={
                 operatorOwned &&
                 !TERMINAL_STATES.has(selectedTask.state) ? (
