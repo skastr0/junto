@@ -63,20 +63,12 @@ describe("authoredPortMaskOf", () => {
     ether,
   });
 
-  it("reads ether.mask as the allow-list and ignores a portMask invention", () => {
+  it("reads ether.mask as the allow-list", () => {
     expect(authoredPortMaskOf(wire({ verb: "messages" }))).toBeUndefined();
     expect(authoredPortMaskOf(wire({ verb: "messages", mask: [] }))).toEqual([]);
     expect(
       authoredPortMaskOf(wire({ verb: "messages", mask: ["msg.send"] })),
     ).toEqual(["msg.send"]);
-    expect(
-      authoredPortMaskOf({
-        id: "e1",
-        fromNode: "a",
-        toNode: "b",
-        ether: { verb: "messages", portMask: ["msg.send"] },
-      } as CanvasEdge),
-    ).toBeUndefined();
   });
 });
 

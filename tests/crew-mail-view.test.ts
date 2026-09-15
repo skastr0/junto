@@ -22,12 +22,12 @@ const message = (metadata: Message["metadata"], text = "hello"): Message => ({
 describe("deriveMailDisplay", () => {
   it("keeps transport and receipt facts distinct, receipt winning the chip", () => {
     const facts = {
-      queuedAt: 1,
-      notifiedAt: 2,
-      unresolvedAt: 3,
+      queuedAt: "2026-01-01T00:00:01.000Z",
+      notifiedAt: "2026-01-01T00:00:02.000Z",
+      unresolvedAt: "2026-01-01T00:00:03.000Z",
       refusedAt: undefined,
       refusedReason: undefined,
-      readAt: 4,
+      readAt: "2026-01-01T00:00:04.000Z",
       repliedAt: undefined,
       reactedAt: undefined,
       generation: "g1",
@@ -38,7 +38,7 @@ describe("deriveMailDisplay", () => {
       deriveMailDisplay({
         ...facts,
         readAt: undefined,
-        refusedAt: 5,
+        refusedAt: "2026-01-01T00:00:05.000Z",
       }),
     ).toBe("unresolved");
     expect(deriveMailDisplay({ ...facts, unresolvedAt: undefined, readAt: undefined })).toBe(

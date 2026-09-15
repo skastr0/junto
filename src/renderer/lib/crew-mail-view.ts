@@ -25,16 +25,16 @@ import {
 export type { MailEvidenceRef, MailKind };
 export type MailDeliveryDisplay = MailDisplayState;
 
-/** Ledger view: transport attempt plus receipt-plane stamps. Not a schema. */
+/** Ledger view: ISO transport stamps plus ISO receipt stamps. Not a schema. */
 export type MailViewFacts = {
-  readonly queuedAt: number | string | undefined;
-  readonly notifiedAt: number | string | undefined;
-  readonly unresolvedAt: number | string | undefined;
-  readonly refusedAt: number | string | undefined;
+  readonly queuedAt: string | undefined;
+  readonly notifiedAt: string | undefined;
+  readonly unresolvedAt: string | undefined;
+  readonly refusedAt: string | undefined;
   readonly refusedReason: MailAttemptReason | undefined;
-  readonly readAt: number | string | undefined;
-  readonly repliedAt: number | string | undefined;
-  readonly reactedAt: number | string | undefined;
+  readonly readAt: string | undefined;
+  readonly repliedAt: string | undefined;
+  readonly reactedAt: string | undefined;
   readonly generation: string | undefined;
 };
 
@@ -76,13 +76,13 @@ export const deriveMailDisplay = (
   facts: MailViewFacts,
 ): MailDeliveryDisplay =>
   deriveMailDisplayState({
-    queuedAt: normalizeDisplayTimestamp(facts.queuedAt),
-    notifiedAt: normalizeDisplayTimestamp(facts.notifiedAt),
-    unresolvedAt: normalizeDisplayTimestamp(facts.unresolvedAt),
-    refusedAt: normalizeDisplayTimestamp(facts.refusedAt),
-    readAt: normalizeDisplayTimestamp(facts.readAt),
-    repliedAt: normalizeDisplayTimestamp(facts.repliedAt),
-    reactedAt: normalizeDisplayTimestamp(facts.reactedAt),
+    queuedAt: facts.queuedAt,
+    notifiedAt: facts.notifiedAt,
+    unresolvedAt: facts.unresolvedAt,
+    refusedAt: facts.refusedAt,
+    readAt: facts.readAt,
+    repliedAt: facts.repliedAt,
+    reactedAt: facts.reactedAt,
   } satisfies MailDisplayFacts);
 
 export const mailDisplayLabel = (display: MailDeliveryDisplay): string => {
@@ -149,14 +149,14 @@ export const mailKindOf = (message: Message): MailKind | undefined => {
   return undefined;
 };
 
-const stampOf = (value: unknown): number | string | undefined => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  return nonempty(value);
-};
+const receiptStamp = (value: unknown): string | undefined =>
+  typeof value === "number" || typeof value === "string"
+    ? normalizeDisplayTimestamp(value)
+    : undefined;
 
 /**
- * Transport facts come only from readMailAttemptFacts. Receipt stamps stay
- * on the existing plane. The two are never mixed or rewritten.
+ * Transport facts come only from readMailAttemptFacts (ISO). Receipt stamps
+ * stay on the existing plane and are normalized to ISO for display only.
  */
 export const mailAttemptFactsOf = (
   message: Message,
@@ -171,9 +171,9 @@ export const mailAttemptFactsOf = (
     unresolvedAt: transport?.unresolvedAt,
     refusedAt: transport?.refusedAt,
     refusedReason: transport?.refusedReason,
-    readAt: stampOf(meta?.readAt),
-    repliedAt: stampOf(meta?.repliedAt),
-    reactedAt: stampOf(meta?.reactedAt),
+    readAt: receiptStamp(meta?.readAt),
+    repliedAt: receiptStamp(meta?.repliedAt),
+    reactedAt: receiptStamp(meta?.reactedAt),
     generation: transport?.generation,
   };
 };

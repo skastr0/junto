@@ -63,12 +63,12 @@ export const crewMailMetadata = (input: {
   readonly senderName?: string;
   readonly mailKind?: "notice" | "prompt" | "receipt";
   readonly subject?: string;
-  readonly queuedAt?: number;
-  readonly notifiedAt?: number;
-  readonly unresolvedAt?: number;
-  readonly refusedAt?: number;
+  readonly queuedAt?: string;
+  readonly notifiedAt?: string;
+  readonly unresolvedAt?: string;
+  readonly refusedAt?: string;
   readonly refusedReason?: string;
-  readonly readAt?: number;
+  readonly readAt?: number | string;
   readonly refs?: ReadonlyArray<{ readonly kind: "commit"; readonly sha: string }>;
 }): NonNullable<Message["metadata"]> => ({
   fromSeat: input.fromSeat,
