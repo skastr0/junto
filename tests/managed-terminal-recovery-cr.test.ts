@@ -41,7 +41,10 @@ describe("recovery CR (harness-owned selector submit)", () => {
     await expect(drive.submitRecoveryCr("seat")).resolves.toBe(true);
     expect(writes).toEqual([CR]);
     // No turn was opened: a prompt afterwards still delivers normally.
-    await expect(drive.writePrompt("seat", "hello")).resolves.toBe(true);
+    await expect(drive.writePrompt("seat", "hello")).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(writes).toEqual([CR, encodeBracketedPaste("hello"), CR]);
   });
 
@@ -53,13 +56,19 @@ describe("recovery CR (harness-owned selector submit)", () => {
       pendingText: () => true,
       onAttention: (_bindingId, reason) => { attention.push(reason); },
     });
-    await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toEqual({
+      status: "unresolved", reason: "chip-pending", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     const before = writes.length;
     await expect(drive.submitRecoveryCr("seat")).resolves.toBe(false);
     expect(writes).toHaveLength(before);
     expect(attention).toContain("prompt-stalled");
     // The wedge is preserved, not papered over: later prompts still refuse.
-    await expect(drive.writePrompt("seat", "retry")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "retry")).resolves.toEqual({
+      status: "refused", reason: "written-unresolved", bindingGeneration: 0,
+      writesBefore: 1, writesAfter: 1, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     expect(writes).toHaveLength(before);
   });
 
@@ -77,7 +86,10 @@ describe("recovery CR (harness-owned selector submit)", () => {
     await Promise.resolve();
     await expect(drive.submitRecoveryCr("seat")).resolves.toBe(false);
     releasePaste(true);
-    await expect(prompt).resolves.toBe(true);
+    await expect(prompt).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(writes).toEqual([encodeBracketedPaste("in flight"), CR]);
   });
 });

@@ -59,7 +59,10 @@ describe("submission recovery ownership", () => {
     await vi.advanceTimersByTimeAsync(OPERATOR_RESIZE_LATCH_MS - 1);
     expect(crs).toBe(phase === "paste" ? 0 : 1);
     await vi.advanceTimersByTimeAsync(2);
-    await expect(result).resolves.toBe(true);
+    await expect(result).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(writes.filter(({ data }) => data === CR).every(({ resizeActive }) => !resizeActive)).toBe(true);
   });
 
@@ -89,7 +92,10 @@ describe("submission recovery ownership", () => {
     });
     const result = drive.writePrompt("seat", chip ? "one\ntwo" : "factory notice");
     await vi.advanceTimersByTimeAsync(30);
-    await expect(result).resolves.toBe(true);
+    await expect(result).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(crs).toBe(chip ? 3 : 2);
     expect(drive.pasteWriteCount("seat")).toBe(1);
     expect(attention).toEqual([]);
@@ -114,7 +120,10 @@ describe("submission recovery ownership", () => {
     interlock.noteInput("seat");
     await vi.advanceTimersByTimeAsync(1100);
     expect(interlock.inputActive("seat")).toBe(false);
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toEqual({
+      status: "unresolved", reason: "chip-pending", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(writes).toEqual([encodeBracketedPaste("factory notice"), CR]);
   });
 
@@ -141,7 +150,10 @@ describe("submission recovery ownership", () => {
     expect(settled).toBe(false);
     pending = false;
     drive.onTurnStart("seat");
-    await expect(result).resolves.toBe(true);
+    await expect(result).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
   });
 
   it("late cleanup from a replaced generation cannot unlock or overwrite the current submission", async () => {
@@ -164,11 +176,25 @@ describe("submission recovery ownership", () => {
     drive.invalidateBinding("seat");
     const current = drive.writePrompt("seat", "current", { queueIfBusy: false });
     release[0]!(true);
-    await expect(old).resolves.toBe(false);
+    // Replacement revokes acknowledgement authority, but cannot erase the
+    // accepted bytes or turn this into a safe pre-write retry.
+    await expect(old).resolves.toEqual({
+      status: "unresolved", reason: "no-turn-start", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(interlock.holding("seat")).toBe(true);
-    await expect(drive.writePrompt("seat", "third", { queueIfBusy: false })).resolves.toBe(false);
+    const blocked = await drive.writePrompt("seat", "third", { queueIfBusy: false });
+    expect(blocked).toMatchObject({
+      status: "refused", reason: "seat-busy", bindingGeneration: 1,
+      pasteWrites: 0, wrotePhysicalBytes: false,
+    });
+    expect(blocked.writesAfter).toBe(blocked.writesBefore);
     release[1]!(true);
-    await expect(current).resolves.toBe(true);
+    const accepted = await current;
+    expect(accepted).toMatchObject({
+      status: "submitted", bindingGeneration: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
+    expect(accepted.writesAfter - accepted.writesBefore).toBe(1);
     expect(writes).toEqual([encodeBracketedPaste("old"), encodeBracketedPaste("current"), CR]);
   });
 
@@ -205,7 +231,10 @@ describe("submission recovery ownership", () => {
         releaseRecovery(true);
       }
     }
-    await expect(old).resolves.toBe(false);
+    await expect(old).resolves.toEqual({
+      status: "unresolved", reason: "no-turn-start", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
   });
 
 });

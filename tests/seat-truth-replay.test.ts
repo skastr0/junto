@@ -250,8 +250,11 @@ describe("replay - paste re-check", () => {
       stallWatch: false,
     });
 
-    const ok = await drive2.writePrompt("b1", "should not paste");
-    expect(ok).toBe(false);
+    const outcome = await drive2.writePrompt("b1", "should not paste");
+    expect(outcome).toEqual({
+      status: "refused", reason: "seat-busy", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     expect(writes).toEqual([]);
     expect(attention).toContain("not-ready");
     drive.resetForTest();
@@ -313,8 +316,11 @@ describe("replay - sticky working clearance", () => {
 
     seatIdle = true;
     drive.onSeatIdle("b1");
-    await expect(queued).resolves.toBe(true);
-    expect(writes.length).toBeGreaterThanOrEqual(2);
+    await expect(queued).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
+    expect(writes).toEqual(["\u001b[200~after sticky\u001b[201~", "\r"]);
     drive.resetForTest();
   });
 
@@ -384,7 +390,10 @@ describe("replay - happy-path working→idle drain", () => {
 
     idle = true;
     drive.onSeatIdle("b1");
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(writes.length).toBe(2);
     drive.resetForTest();
   });

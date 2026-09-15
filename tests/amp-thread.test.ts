@@ -338,7 +338,10 @@ describe("AC-7: mail waits for a verified idle Amp seat", () => {
     seatIdle = evaluate(IDLE, { harness: "amp" }).state === "idle";
     expect(seatIdle).toBe(true);
     drive.onSeatIdle("b1");
-    expect(await delivery).toBe(true);
+    expect(await delivery).toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(writes).toEqual([
       "\u001b[200~mail body\u001b[201~",
       "\r",
