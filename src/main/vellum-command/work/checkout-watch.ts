@@ -153,32 +153,52 @@ export class CheckoutWatcher {
    */
   async scan(): Promise<ReadonlyArray<CheckoutObservation>> {
     const out: CheckoutObservation[] = [];
-    for (const { checkoutKey, worktree } of this.tracked.values()) {
-      const head = await this.probe.head(worktree);
-      if (head === undefined) continue;
-      const seen = this.lastSeen.get(checkoutKey);
-      this.lastSeen.set(checkoutKey, head.head);
-      if (seen === undefined || seen === head.head) continue;
-      const commits = await this.probe.newCommits(worktree, seen, head.head);
-      if (commits.length === 0) continue;
-      const binding = this.attribution.attribute(checkoutKey);
-      for (const raw of commits) {
-        const sha = raw.trim().toLowerCase();
-        if (sha.length === 0) continue;
-        out.push({
-          checkoutKey,
-          sha,
-          ...(binding !== undefined
-            ? {
-                seatId: binding.seatId,
-                taskId: binding.taskId,
-                attributedVia: binding.via,
-              }
-            : {}),
-        });
+    // lastSeen advances ONLY after the range was actually enumerated and
+    // emitted. A rev-list or downstream throw leaves the watermark where it
+    // was, so the next scan retries the exact range instead of silently
+    // skipping commits (re-emission is safe: dedupe sits at the durable
+    // natural key, not here).
+    const advance: Array<readonly [string, string]> = [];
+    try {
+      for (const { checkoutKey, worktree } of this.tracked.values()) {
+        const head = await this.probe.head(worktree);
+        if (head === undefined) continue;
+        const seen = this.lastSeen.get(checkoutKey);
+        if (seen === undefined) {
+          advance.push([checkoutKey, head.head]);
+          continue;
+        }
+        if (seen === head.head) continue;
+        const commits = await this.probe.newCommits(worktree, seen, head.head);
+        advance.push([checkoutKey, head.head]);
+        if (commits.length === 0) continue;
+        const binding = this.attribution.attribute(checkoutKey);
+        for (const raw of commits) {
+          const sha = raw.trim().toLowerCase();
+          if (sha.length === 0) continue;
+          out.push({
+            checkoutKey,
+            sha,
+            ...(binding !== undefined
+              ? {
+                  seatId: binding.seatId,
+                  taskId: binding.taskId,
+                  attributedVia: binding.via,
+                }
+              : {}),
+          });
+        }
       }
+      if (out.length > 0) this.onObservations(out);
+    } catch (error) {
+      // Emission is the commit point: a rev-list or downstream throw leaves
+      // every watermark where it was, so all affected ranges retry next
+      // scan. Re-emission is safe — dedupe sits at the durable natural key.
+      throw error;
     }
-    if (out.length > 0) this.onObservations(out);
+    for (const [key, head] of advance) {
+      this.lastSeen.set(key, head);
+    }
     return out;
   }
 

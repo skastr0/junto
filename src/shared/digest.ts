@@ -19,6 +19,8 @@ import { requestsNodeName } from "./requests-node-identity";
 import { boardNodeName } from "./board-node-identity";
 import { isAttentionTaskState } from "./task";
 import { deriveRegionRollups } from "./region-rollup";
+import { readReviewVerdict, type ReviewVerdict } from "./crew";
+import { rulesInForce, taskEpoch } from "./rules";
 
 // Deterministic text projection of a canvas + snapshots for agent consumption.
 // Contract: same doc + same actor projection + same snapshots/live views ->
@@ -410,6 +412,71 @@ export const digestCanvas = (
       impactLines.push(`  ${ranked.clearAction}`);
     }
     sections.push(impactLines);
+  }
+
+  // reviews — the durable verdict chain a task carries plus whether a
+  // board/task-provenance requires-review rule arms it. Projection, never
+  // judgment: the completion gate stays service-side, so the digest shows
+  // the exact binding (epoch + subject hash prefix) each verdict addresses
+  // and marks entries stale vs the task's CURRENT projected binding. No
+  // timestamps (digest contract); chain order is postedAtMs then id.
+  const reviewLines = ["reviews"];
+  for (const node of doc.nodes) {
+    const items = node.ether?.tasks?.items ?? [];
+    if (items.length === 0) continue;
+    const boardLines: string[] = [];
+    for (const task of items) {
+      const armed = rulesInForce(doc, node.id, task).some(
+        ({ rule, provenance }) =>
+          rule.kind === "requires-review" && provenance.kind !== "region",
+      );
+      const verdicts = [...(task.verdicts ?? [])]
+        .map(readReviewVerdict)
+        .filter((v): v is ReviewVerdict => v !== undefined)
+        .sort(
+          (a: ReviewVerdict, b: ReviewVerdict) =>
+            a.postedAtMs - b.postedAtMs ||
+            (a.verdictId < b.verdictId ? -1 : a.verdictId > b.verdictId ? 1 : 0),
+        );
+      const currentHash =
+        task.subjectHash !== undefined && task.subjectHash.length > 0
+          ? task.subjectHash
+          : undefined;
+      if (!armed && verdicts.length === 0) continue;
+      const epoch = taskEpoch(task);
+      const taskTitle =
+        task.history[0]?.parts
+          .filter((part) => part.kind === "text")
+          .map((part) => ("text" in part ? part.text : ""))
+          .join(" ")
+          .trim() || task.id;
+      const head = [
+        taskTitle,
+        `epoch ${epoch}`,
+        `subject ${currentHash !== undefined ? currentHash.slice(0, 12) : "-"}`,
+        `author ${task.claimedBy ?? "-"}`,
+        armed ? "review required" : "review -",
+      ].join(" :: ");
+      boardLines.push(head);
+      verdicts.forEach((verdict, index) => {
+        const markers = [
+          verdict.epoch === epoch
+            ? verdict.subjectHash === currentHash
+              ? "current"
+              : "stale refs"
+            : "old epoch",
+        ];
+        boardLines.push(
+          `  #${index + 1} ${verdict.kind} ${verdict.reviewerSeatId} -> ${verdict.authorSeatId} epoch ${verdict.epoch} subject ${verdict.subjectHash.slice(0, 12)} (${markers[0]})${verdict.findings.length > 0 ? ` - ${verdict.findings.join("; ")}` : ""}`,
+        );
+      });
+    }
+    if (boardLines.length > 0) {
+      reviewLines.push(`${titleOf(node)}`, ...boardLines);
+    }
+  }
+  if (reviewLines.length > 1) {
+    sections.push(reviewLines);
   }
 
   // seeds

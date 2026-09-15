@@ -549,7 +549,7 @@ describe("send-back target validation", () => {
     return { doc: atS3.doc, taskId: created.task.id };
   };
 
-  it("stays a terminal reject at the origin board (no prior visit)", () => {
+  it("re-homes in place at the origin board (no prior visit)", () => {
     const doc = docWith(
       [boardNode("s1"), boardNode("s2")],
       [flowEdge("e1", "s1", "s2")],
@@ -566,8 +566,23 @@ describe("send-back target validation", () => {
       undefined,
       { defect: { summary: "not viable" } },
     );
-    expect(rejected.sentBack).toBeUndefined();
+    // Source row closes rejected; the successor re-homes on the same board:
+    // epoch bump, defect logged, claims released, evidence stripped.
     expect(rejected.task.state).toBe("rejected");
+    expect(rejected.sentBack?.nodeId).toBe("s1");
+    const row = rejected.sentBack?.task;
+    expect(row?.state).toBe("submitted");
+    expect(row?.epoch).toBe(1);
+    expect(row?.defects).toEqual([
+      { epoch: 1, target: "s1", at: expect.any(String) },
+    ]);
+    expect(row?.claimedBy).toBeUndefined();
+    expect(row?.completionEvidence).toBeUndefined();
+    expect(row?.visits?.at(-2)).toMatchObject({
+      board: "s1",
+      exit: "sent-back",
+      next: "s1",
+    });
   });
 
   it("refuses a target the task never visited, naming the visited boards", () => {
