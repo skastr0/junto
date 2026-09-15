@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   extractSessionIdFromText,
   recordCapturedSessionId,
@@ -10,12 +10,15 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import {
   GROK_MIN_POST_SPAWN_MS,
   ManagedTerminalDrive,
+  CR,
+  encodeBracketedPaste,
 } from "../src/main/vellum-command/term/drive";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
 const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
 
 afterEach(() => {
+  vi.useRealTimers();
   if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
   else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
 });
@@ -272,24 +275,10 @@ describe("session id parsing + authorial pin", () => {
 
 describe("Grok post-spawn delay", () => {
   it("markSpawned delays writePrompt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
     const writes: string[] = [];
-    let now = 1_000;
     const drive = new ManagedTerminalDrive({
-      pasteToCrSettleMs: 0,
-      write: (_id, data) => {
-        writes.push(data);
-        return true;
-      },
-      isSeatIdle: () => true,
-      now: () => now,
-      stallWatch: false,
-    });
-    drive.markSpawned("g1", GROK_MIN_POST_SPAWN_MS);
-    const p = drive.writePrompt("g1", "hi");
-    // Advance past delay via real timers — use short delay for test
-    drive.resetForTest();
-    // Re-test with 0 delay mark equivalent
-    const drive2 = new ManagedTerminalDrive({
       pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
@@ -299,9 +288,19 @@ describe("Grok post-spawn delay", () => {
       now: () => Date.now(),
       stallWatch: false,
     });
-    drive2.markSpawned("g2", 0);
-    await expect(drive2.writePrompt("g2", "hi")).resolves.toBe(true);
-    expect(writes.length).toBeGreaterThan(0);
-    void p;
+    drive.markSpawned("g1", GROK_MIN_POST_SPAWN_MS);
+    try {
+      const pending = drive.writePrompt("g1", "hi");
+      await vi.advanceTimersByTimeAsync(GROK_MIN_POST_SPAWN_MS - 1);
+      expect(writes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toEqual({
+        status: "submitted", bindingGeneration: 0,
+        writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+      });
+      expect(writes).toEqual([encodeBracketedPaste("hi"), CR]);
+    } finally {
+      drive.resetForTest();
+    }
   });
 });

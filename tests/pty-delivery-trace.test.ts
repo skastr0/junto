@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
 import { CR, ManagedTerminalDrive, OperatorInterlock, encodeBracketedPaste } from "../src/main/vellum-command/term/drive";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
   createPtyDeliveryTracer,
   makePtyDeliveryTraceJournal,
@@ -14,6 +15,10 @@ import {
 } from "../src/main/vellum-command/term/drive/pty-delivery-trace";
 
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+const submittedOutcome = (writesBefore = 0): ManagedPromptOutcome => ({
+  status: "submitted", bindingGeneration: 0,
+  writesBefore, writesAfter: writesBefore + 1, pasteWrites: 1, wrotePhysicalBytes: true,
+});
 const microtasks = async (): Promise<void> => {
   for (let i = 0; i < 30; i += 1) await Promise.resolve();
 };
@@ -67,7 +72,7 @@ describe("PTY delivery trace", () => {
       },
     });
 
-    expect(await drive.writePrompt("binding-1", prompt)).toBe(true);
+    expect(await drive.writePrompt("binding-1", prompt)).toEqual(submittedOutcome());
     expect(writes).toEqual([encodeBracketedPaste(prompt), CR, operatorBytes]);
     expect(events.find((event) => event.event === "delivery.begin")).toMatchObject({
       bindingId: "binding-1",
@@ -107,14 +112,14 @@ describe("PTY delivery trace", () => {
     await microtasks();
     expect(writes).toEqual([encodeBracketedPaste("first queued prompt"), CR]);
     drive.onTurnStart("binding-1");
-    expect(await first).toBe(true);
+    expect(await first).toEqual(submittedOutcome());
     expect(drive.queuedCount("binding-1")).toBe(1);
     expect(events.filter((event) => event.event === "delivery.end").map((event) => event.deliveryId)).toEqual([firstId]);
 
     drive.onSeatIdle("binding-1");
     await microtasks();
     drive.onTurnStart("binding-1");
-    expect(await second).toBe(true);
+    expect(await second).toEqual(submittedOutcome(1));
     expect(writes).toEqual([
       encodeBracketedPaste("first queued prompt"), CR,
       encodeBracketedPaste("second queued prompt"), CR,
@@ -142,15 +147,18 @@ describe("PTY delivery trace", () => {
         onTrace,
         write: (_bindingId, data) => { writes.push(data); return accepted; },
       });
-      const ok = await drive.writePrompt("binding-1", "same delivery");
-      return { writes, ok };
+      const outcome = await drive.writePrompt("binding-1", "same delivery");
+      return { writes, outcome };
     };
     const baseline = await run();
     let observed = 0;
     const traced = await run(() => { observed += 1; throw new Error("broken diagnostic sink"); });
     expect(observed).toBeGreaterThan(0);
     expect(traced).toEqual(baseline);
-    expect(traced.ok).toBe(accepted);
+    expect(traced.outcome).toEqual(accepted ? submittedOutcome() : {
+      status: "refused", reason: "not-ready", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     expect(traced.writes).toEqual(accepted ? [encodeBracketedPaste("same delivery"), CR] : [encodeBracketedPaste("same delivery")]);
   });
 
@@ -162,7 +170,10 @@ describe("PTY delivery trace", () => {
       write,
       composerVerdict: () => "draft",
     });
-    expect(await drive.writePrompt("binding-1", "blocked delivery", { queueIfBusy: false })).toBe(false);
+    expect(await drive.writePrompt("binding-1", "blocked delivery", { queueIfBusy: false })).toEqual({
+      status: "refused", reason: "composer-not-empty", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     expect(write).not.toHaveBeenCalled();
     expect(events).toContainEqual(expect.objectContaining({ event: "evidence", fields: { probe: "composer", value: "draft" } }));
     expect(events).toContainEqual(expect.objectContaining({ event: "gate", fields: expect.objectContaining({ gate: "must-wait", waiting: true }) }));
@@ -185,7 +196,7 @@ describe("PTY delivery trace", () => {
     expect(events.filter((event) => event.event === "delivery.end")).toEqual([]);
     pending = false;
     drive.onTurnStart("binding-1");
-    expect(await delivery).toBe(true);
+    expect(await delivery).toEqual(submittedOutcome());
     expect(events).toContainEqual(expect.objectContaining({ event: "evidence", fields: { probe: "pending-text", value: false } }));
     expect(events).toContainEqual(expect.objectContaining({ event: "turn.start.accepted" }));
   });
@@ -230,7 +241,7 @@ describe("PTY delivery trace", () => {
     vi.stubEnv("VELLUM_COMMAND_PTY_TRACE", setting);
     __resetVellumCommandHomeCache();
     expect(createPtyDeliveryTracer()).toBeUndefined();
-    expect(await makeDrive().writePrompt("binding-1", "ordinary delivery")).toBe(true);
+    expect(await makeDrive().writePrompt("binding-1", "ordinary delivery")).toEqual(submittedOutcome());
     expect(existsSync(ptyDeliveryTracePath())).toBe(false);
   });
 
@@ -239,7 +250,7 @@ describe("PTY delivery trace", () => {
     vi.stubEnv("VELLUM_COMMAND_HOME", root);
     vi.stubEnv("VELLUM_COMMAND_PTY_TRACE", "1");
     __resetVellumCommandHomeCache();
-    expect(await makeDrive().writePrompt("binding-1", "private opt-in prompt")).toBe(true);
+    expect(await makeDrive().writePrompt("binding-1", "private opt-in prompt")).toEqual(submittedOutcome());
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
     const path = join(root, ".vellum-command", "logs", "pty-delivery.jsonl");
     expect(ptyDeliveryTracePath()).toBe(path);
