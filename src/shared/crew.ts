@@ -58,16 +58,6 @@ export const MailEvidenceRef = Schema.Union([
 ]);
 export type MailEvidenceRef = typeof MailEvidenceRef.Type;
 
-const decodeMailEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRef);
-
-/** Read one typed evidence ref, or undefined when the shape is unknown. */
-export const readMailEvidenceRef = (
-  value: unknown,
-): MailEvidenceRef | undefined => {
-  const option = decodeMailEvidenceRef(value);
-  return option._tag === "Some" ? option.value : undefined;
-};
-
 // ---- Mail kind, policy, sender stamp, and the Message metadata extension ----
 
 /** notice = ordinary mail, prompt = immediate full-body turn, receipt = review feed. */
@@ -123,6 +113,20 @@ export const readMailExtension = (
 ): MailExtension | undefined => {
   if (metadata === null || typeof metadata !== "object") return undefined;
   const option = decodeMailExtension(metadata);
+  return option._tag === "Some" ? option.value : undefined;
+};
+
+const decodeMailEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRef);
+
+/**
+ * Decode one mail evidence ref, or undefined when it does not validate. This is
+ * the single codec boundary for evidence refs: the renderer delegates here
+ * rather than decoding metadata itself.
+ */
+export const readMailEvidenceRef = (
+  value: unknown,
+): MailEvidenceRef | undefined => {
+  const option = decodeMailEvidenceRef(value);
   return option._tag === "Some" ? option.value : undefined;
 };
 
@@ -393,7 +397,11 @@ export type ReviewVerdict = typeof ReviewVerdict.Type;
 
 const decodeReviewVerdict = Schema.decodeUnknownOption(ReviewVerdict);
 
-/** Read one canonical verdict, or undefined when the shape is unknown. */
+/**
+ * Decode one canonical verdict, or undefined when it does not validate. The
+ * single codec boundary for verdicts: the renderer delegates here rather than
+ * decoding a verdict projection itself.
+ */
 export const readReviewVerdict = (
   value: unknown,
 ): ReviewVerdict | undefined => {
