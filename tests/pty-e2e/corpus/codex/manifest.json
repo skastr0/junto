@@ -191,12 +191,31 @@
       "reason": "composer never ready",
       "observed": {},
       "expectedScreen": {}
+    },
+    {
+      "harness": "codex",
+      "scenario": "mail-notice",
+      "status": "skip",
+      "reason": "timebox or composer never ready",
+      "observed": {
+        "bytes": 277,
+        "lines": 1,
+        "cliVersion": "codex-cli 0.154.0",
+        "isolated": true,
+        "isolatedHome": "/tmp/vellum-capture-home/codex"
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": null,
+        "description": "isolated typed-notice composer never ready"
+      }
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 4,
-    "decodedBytes": 203214,
+    "fixtures": 5,
+    "decodedBytes": 203455,
     "checks": [
       "home-path",
       "username",
@@ -211,5 +230,13 @@
     "account usage-limit notice redacted",
     "MCP server names -> <redacted>",
     "session-start hook context (plugin text) redacted"
-  ]
+  ],
+  "mailNoticeAdapterEvidence": {
+    "capturedAt": "2026-09-15T09:35:48.753Z",
+    "harnessVersion": "codex-cli 0.154.0",
+    "isolated": true,
+    "typedNoticeQualified": false,
+    "status": "skip",
+    "reason": "timebox or composer never ready"
+  }
 }

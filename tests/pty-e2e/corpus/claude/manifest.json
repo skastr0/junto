@@ -211,12 +211,33 @@
       "reason": "a real permission dialog was not observed",
       "observed": {},
       "expectedScreen": {}
+    },
+    {
+      "harness": "claude",
+      "scenario": "mail-notice",
+      "status": "skip",
+      "reason": "blocked: auth: login required",
+      "observed": {
+        "bytes": 4953,
+        "lines": 1,
+        "cliVersion": "2.1.272 (Claude Code)",
+        "isolated": true,
+        "isolatedHome": "/tmp/vellum-capture-home/claude",
+        "composerPending": false,
+        "workingVisible": false
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": "❯",
+        "description": "isolated typed-notice blocked"
+      }
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 4,
-    "decodedBytes": 65504,
+    "fixtures": 5,
+    "decodedBytes": 70457,
     "checks": [
       "home-path",
       "username",
@@ -228,5 +249,13 @@
   "redactions": [
     "operator display name in welcome banner -> <REDACTED>",
     "subscription plan tier label neutralized"
-  ]
+  ],
+  "mailNoticeAdapterEvidence": {
+    "capturedAt": "2026-09-15T09:40:30.823Z",
+    "harnessVersion": "2.1.272 (Claude Code)",
+    "isolated": true,
+    "typedNoticeQualified": false,
+    "status": "skip",
+    "reason": "blocked: auth: login required"
+  }
 }

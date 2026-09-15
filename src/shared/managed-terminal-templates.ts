@@ -361,7 +361,8 @@ export type MailTypedNoticeSupport = "working" | "unavailable-setup";
  * T1 `nativeChannel` is true only when an implemented transport proves
  * acceptance — false everywhere today. T2 `typedNotice` is support;
  * `typedNoticeQualified` is live isolated notice/prompt proof and stays
- * false until a mail-notice corpus exists. Every harness is T3 pull-only.
+ * false until a durable mail app receipt run. A mail-notice.jsonl capture
+ * is adapter evidence only. Every harness is T3 pull-only.
  * Mail facts (queuedAt, notifiedAt, unresolvedAt, refusedAt, refusedReason,
  * readAt, repliedAt, reactedAt, generation) live on the message attempt,
  * never here. Legacy deliveredAt maps to notifiedAt only.

@@ -64,6 +64,11 @@
         "scenario": "permission-returns-idle",
         "status": "skip",
         "reason": "a real permission dialog was not observed"
+      },
+      {
+        "scenario": "mail-notice",
+        "status": "skip",
+        "reason": "blocked: auth: login required"
       }
     ],
     "session": {
@@ -108,6 +113,11 @@
         "scenario": "permission-returns-idle",
         "status": "skip",
         "reason": "composer never ready"
+      },
+      {
+        "scenario": "mail-notice",
+        "status": "skip",
+        "reason": "timebox or composer never ready"
       }
     ],
     "session": {
@@ -152,6 +162,11 @@
         "scenario": "permission-returns-idle",
         "status": "skip",
         "reason": "a real permission dialog was not observed"
+      },
+      {
+        "scenario": "mail-notice",
+        "status": "skip",
+        "reason": "blocked: auth: login required"
       }
     ],
     "session": {

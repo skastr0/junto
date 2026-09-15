@@ -16,6 +16,9 @@
  *   node tests/pty-e2e/pty-capture.ts                # capture all shipped harnesses
  *   node tests/pty-e2e/pty-capture.ts <harness>      # capture one shipped or composer-lane harness
  *   node tests/pty-e2e/pty-capture.ts <harness> --core-only # startup/type/paste/working only
+ *   node tests/pty-e2e/pty-capture.ts --mail-notice [claude|codex|devin]
+ *     isolated typed-notice paste; merges mail-notice.jsonl into existing corpus
+ *     without replacing other fixtures. Adapter evidence — not qualification.
  *   node tests/pty-e2e/pty-capture.ts list           # list shipped harnesses
  *   node tests/pty-e2e/pty-capture.ts list all       # include composer-lane defs
  *   node tests/pty-e2e/pty-capture.ts verify         # decode + scrub-gate corpus
@@ -74,6 +77,9 @@ const FAKE_UUID = "00000000-0000-4000-8000-000000000000"; // fallback; random pe
 const COLS = 120;
 const ROWS = 32;
 const HARNESS_TIMEOUT_MS = 210_000; // hard timebox per harness
+const MAIL_NOTICE_TIMEOUT_MS = 90_000;
+const MAIL_NOTICE_ENVELOPE = "mail from capture-seat\ninspect mailbox with msg list";
+const MAIL_NOTICE_HARNESSES = new Set(["claude", "codex", "devin"]);
 const IDLE_WAIT_CAP_MS = 50_000;   // startup idle wait cap
 const TURN_WAIT_CAP_MS = 30_000;   // post-CR idle-return cap
 const WORKING_WAIT_CAP_MS = 20_000; // working-signal wait cap
@@ -698,12 +704,14 @@ class Session {
 
   /** Blocking/auth detection on the first ~20s of output. */
   detectBlock(): string | null {
-    const t = tailText(this.currentBytes(), 4000).toLowerCase();
+    const t = tailText(this.currentBytes(), 50_000).toLowerCase();
     const hits: [RegExp, string][] = [
       [/not logged in/, "auth: not logged in"],
       [/please run \/login/, "auth: /login required"],
       [/device code|device_code/, "auth: device-code flow"],
       [/login to continue|log in to continue|sign in to continue|to get started.*sign up/i, "auth: login required"],
+      [/selectloginmethod|select login method|claude account with subscription|claudeaccountwithsubscription/i, "auth: login required"],
+      [/how would you like to log in|log in with browser/i, "auth: login required"],
       [/no api key found|would you like to log in/i, "auth: login required"],
       [/choose a provider|provider setup|select.*provider/i, "auth: provider picker"],
       [/enter your api key/i, "auth: api key prompt"],
@@ -1106,6 +1114,121 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   });
 }
 
+async function scenarioMailNotice(ctx: Ctx, s0: number): Promise<void> {
+  const { def, sess, results, remaining } = ctx;
+  const cliVersion = probeHarnessVersion(def.name);
+  const isolated = sess.home !== HOME && !sess.home.startsWith(HOME + path.sep);
+  const envHome = buildSpawnEnv(def, sess.cwd, sess.home).HOME;
+  if (!isolated || envHome === HOME) {
+    results.push({
+      harness: def.name, scenario: "mail-notice", status: "fail",
+      reason: "spawn env pointed at operator home",
+      observed: { isolatedHome: sess.home, operatorHome: HOME, envHome, cliVersion },
+      expectedScreen: {},
+    });
+    return;
+  }
+  const settleStart = Date.now();
+  let idleOk = false;
+  let block: string | null = null;
+  while (Date.now() - settleStart < Math.min(18_000, remaining())) {
+    block = sess.detectBlock();
+    if (block) break;
+    if (sess.promptVisible(true) && Date.now() - sess.lastDataAt >= QUIET_MS) {
+      idleOk = true;
+      break;
+    }
+    await sess.wait(200);
+  }
+  if (!block) {
+    await sess.wait(3000);
+    block = sess.detectBlock();
+  }
+  if (block) {
+    sess.blocked = true;
+    sess.blockReason = block;
+    const end = sess.events.length;
+    const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "mail-notice.jsonl"), "mail-notice-blocked");
+    results.push({
+      harness: def.name, scenario: "mail-notice", status: "skip",
+      reason: `blocked: ${block}`,
+      observed: {
+        bytes: sess.bytes, lines, cliVersion, isolated: true,
+        isolatedHome: sess.home, composerPending: false, workingVisible: false,
+      },
+      expectedScreen: expectedScreenFor(def, sess.currentBytes(), "isolated typed-notice blocked before composer"),
+    });
+    return;
+  }
+  if (!idleOk || remaining() < 6000) {
+    const end = sess.events.length;
+    const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "mail-notice.jsonl"), "mail-notice-unready");
+    results.push({
+      harness: def.name, scenario: "mail-notice", status: "skip",
+      reason: "timebox or composer never ready",
+      observed: { bytes: sess.bytes, lines, cliVersion, isolated: true, isolatedHome: sess.home },
+      expectedScreen: expectedScreenFor(def, sess.currentBytes(), "isolated typed-notice composer never ready"),
+    });
+    return;
+  }
+  sess.write("\u0015");
+  await sess.wait(200);
+  const paste = `\x1b[200~${MAIL_NOTICE_ENVELOPE}\x1b[201~`;
+  sess.write(paste);
+  await sess.wait(500);
+  const pendingTail = tailText(sess.currentBytes(), 4000);
+  const composerPending = pendingTail.includes("mail from capture-seat") || pendingTail.includes("inspect mailbox");
+  sess.write("\r");
+  const workingVisible = await (async () => {
+    const start = Date.now();
+    const baseline = extractSignals(sess.currentBytes());
+    const baseTitles = new Set(baseline.titles);
+    while (Date.now() - start < Math.min(WORKING_WAIT_CAP_MS, remaining())) {
+      const sig = extractSignals(sess.currentBytes());
+      if (sig.osc9s.includes("4;3")) return true;
+      if (sig.titles.some((title) => !baseTitles.has(title))) return true;
+      if (/\bworking\b|waiting for response|\bthinking\b|esc to interrupt|\u23f3/.test(tailText(sess.currentBytes(), 2000).toLowerCase())) return true;
+      await sess.wait(120);
+    }
+    return false;
+  })();
+  if (workingVisible) {
+    sess.write("\u0003");
+    await sess.wait(800);
+  }
+  const lateBlock = sess.detectBlock();
+  if (lateBlock) {
+    sess.blocked = true;
+    sess.blockReason = lateBlock;
+    const end = sess.events.length;
+    const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "mail-notice.jsonl"), "mail-notice-blocked");
+    results.push({
+      harness: def.name, scenario: "mail-notice", status: "skip",
+      reason: `blocked: ${lateBlock}`,
+      observed: {
+        bytes: sess.bytes, lines, cliVersion, isolated: true,
+        isolatedHome: sess.home, composerPending, workingVisible: false,
+      },
+      expectedScreen: expectedScreenFor(def, sess.currentBytes(), "isolated typed-notice blocked"),
+    });
+    return;
+  }
+  const end = Math.min(sess.events.length, sess.sliceIndexAt(Date.now() + 400));
+  const bytes = Buffer.concat(sess.events.slice(s0, end).map((e) => e.buf));
+  const lines = sess.writeFixture(s0, end, path.join(CAPTURE_ROOT, def.name, "mail-notice.jsonl"), "mail-notice");
+  results.push({
+    harness: def.name, scenario: "mail-notice", status: "complete",
+    reason: "adapter evidence only; typedNoticeQualified stays false",
+    observed: {
+      bytes: sess.bytes, lines, cliVersion, isolated: true,
+      isolatedHome: sess.home, composerPending, workingVisible, exited: sess.exited,
+    },
+    expectedScreen: expectedScreenFor(def, bytes, "isolated typed-notice paste of mail from capture-seat", {
+      envelope: MAIL_NOTICE_ENVELOPE, composerPending, workingVisible,
+    }),
+  });
+}
+
 async function scenarioOsc9EmptyComposer(ctx: Ctx, s0: number): Promise<void> {
   const { def, sess, results, remaining } = ctx;
   if (remaining() < 12_000 || !(await sess.waitPrompt(Math.min(15_000, remaining())))) {
@@ -1359,6 +1482,95 @@ function earnSanitizedStamp(root: string, harness: string, receipt: ScrubReceipt
   fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
 }
 
+function promoteMailNotice(harness: string, results: ScenarioResult[]): void {
+  const source = path.join(CAPTURE_ROOT, harness);
+  const destination = path.join(OUT_ROOT, harness);
+  fs.mkdirSync(destination, { recursive: true });
+  const fixture = path.join(source, "mail-notice.jsonl");
+  if (fs.existsSync(fixture)) {
+    fs.copyFileSync(fixture, path.join(destination, "mail-notice.jsonl"));
+  }
+  const srcManifestPath = path.join(source, "manifest.json");
+  const destManifestPath = path.join(destination, "manifest.json");
+  const incoming = results.find((result) => result.scenario === "mail-notice");
+  if (fs.existsSync(destManifestPath)) {
+    const dest = JSON.parse(fs.readFileSync(destManifestPath, "utf8")) as {
+      scenarios?: ScenarioResult[];
+      mailNoticeAdapterEvidence?: Record<string, unknown>;
+    };
+    const scenarios = Array.isArray(dest.scenarios) ? dest.scenarios.filter((row) => row.scenario !== "mail-notice") : [];
+    if (incoming) scenarios.push(incoming);
+    dest.scenarios = scenarios;
+    dest.mailNoticeAdapterEvidence = {
+      capturedAt: new Date().toISOString(),
+      harnessVersion: incoming?.observed.cliVersion ?? probeHarnessVersion(harness),
+      isolated: true,
+      typedNoticeQualified: false,
+      status: incoming?.status ?? "skip",
+      reason: incoming?.reason ?? null,
+    };
+    fs.writeFileSync(destManifestPath, JSON.stringify(dest, null, 2) + "\n");
+  } else if (fs.existsSync(srcManifestPath)) {
+    fs.copyFileSync(srcManifestPath, destManifestPath);
+  }
+  if (fs.existsSync(path.join(destination, "mail-notice.jsonl"))) {
+    const receipt = certifyHarness(OUT_ROOT, harness);
+    earnSanitizedStamp(OUT_ROOT, harness, receipt);
+  }
+}
+
+function mergeCorpusIndexMailNotice(harness: string, results: ScenarioResult[]): void {
+  const file = path.join(OUT_ROOT, "index.json");
+  let index: Record<string, unknown> = {};
+  if (fs.existsSync(file)) {
+    const decoded = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (typeof decoded === "object" && decoded !== null && !Array.isArray(decoded)) {
+      index = decoded as Record<string, unknown>;
+    }
+  }
+  const prior = index[harness];
+  const priorScenarios = (
+    prior && typeof prior === "object" && Array.isArray((prior as { scenarios?: unknown }).scenarios)
+      ? (prior as { scenarios: Array<{ scenario: string }> }).scenarios
+      : []
+  ).filter((row) => row.scenario !== "mail-notice");
+  const notice = results
+    .filter((result) => result.scenario === "mail-notice")
+    .map((result) => ({ scenario: result.scenario, status: result.status, reason: result.reason ?? null }));
+  index[harness] = {
+    ...(prior && typeof prior === "object" ? prior : {}),
+    scenarios: [...priorScenarios, ...notice],
+  };
+  const ordered = Object.fromEntries(Object.entries(index).sort(([left], [right]) => left.localeCompare(right)));
+  fs.writeFileSync(file, JSON.stringify(ordered, null, 2) + "\n");
+}
+
+async function runMailNoticeHarness(def: HarnessDef): Promise<ScenarioResult[]> {
+  const results: ScenarioResult[] = [];
+  const tStart = Date.now();
+  const deadline = tStart + MAIL_NOTICE_TIMEOUT_MS;
+  const remaining = () => deadline - Date.now();
+  const sess = new Session(def);
+  try {
+    sess.spawn();
+    await scenarioMailNotice({ def, sess, results, remaining }, 0);
+  } catch (err) {
+    results.push({
+      harness: def.name, scenario: "mail-notice", status: "fail",
+      reason: String(err), observed: {}, expectedScreen: {},
+    });
+  } finally {
+    await sess.killTree();
+    results.push({
+      harness: def.name, scenario: "__session__",
+      status: sess.exited ? "complete" : "killed",
+      observed: { bytes: sess.bytes, elapsedMs: Date.now() - tStart, isolatedHome: sess.home },
+      expectedScreen: {},
+    });
+  }
+  return results;
+}
+
 function promoteHarness(harness: string): void {
   fs.mkdirSync(OUT_ROOT, { recursive: true });
   const source = path.join(CAPTURE_ROOT, harness);
@@ -1496,6 +1708,35 @@ async function main(): Promise<void> {
     }
     console.log(`\nCHECK-ALL: ${allOk ? "PASS" : "FAIL"}`);
     process.exit(allOk ? 0 : 1);
+  }
+
+  if (args.includes("--mail-notice")) {
+    const names = args.filter((arg) => arg !== "--mail-notice" && !arg.startsWith("-"));
+    const wanted = names.length > 0 ? names : [...MAIL_NOTICE_HARNESSES];
+    const defs = HARNESSES.filter((harness) => wanted.includes(harness.name));
+    if (defs.length === 0) {
+      console.error("usage: --mail-notice [claude|codex|devin]");
+      process.exit(2);
+    }
+    if (process.env.PTY_CAPTURE_OPERATOR_HOME === "1") {
+      console.error("refusing --mail-notice under PTY_CAPTURE_OPERATOR_HOME=1");
+      process.exit(2);
+    }
+    fs.mkdirSync(CAPTURE_ROOT, { recursive: true });
+    try {
+      for (const def of defs) {
+        console.log(`\n========== mail-notice ${def.name} (isolated) ==========`);
+        const results = await runMailNoticeHarness(def);
+        writeManifests(def, results);
+        promoteMailNotice(def.name, results);
+        mergeCorpusIndexMailNotice(def.name, results);
+        const notice = results.find((row) => row.scenario === "mail-notice");
+        console.log(`[${def.name}] mail-notice ${notice?.status ?? "missing"} ${notice?.reason ?? ""} bytes=${String(notice?.observed.bytes ?? 0)} pending=${String(notice?.observed.composerPending ?? false)} working=${String(notice?.observed.workingVisible ?? false)} version=${String(notice?.observed.cliVersion ?? "unknown")}`);
+      }
+    } finally {
+      fs.rmSync(CAPTURE_ROOT, { recursive: true, force: true });
+    }
+    return;
   }
 
   // capture mode — default stays shipped; named composer-lane harnesses are opt-in

@@ -186,12 +186,33 @@
       "reason": "a real permission dialog was not observed",
       "observed": {},
       "expectedScreen": {}
+    },
+    {
+      "harness": "devin",
+      "scenario": "mail-notice",
+      "status": "skip",
+      "reason": "blocked: auth: login required",
+      "observed": {
+        "bytes": 958,
+        "lines": 1,
+        "cliVersion": "devin 3000.10.27 (bcbe88c7)",
+        "isolated": true,
+        "isolatedHome": "/tmp/vellum-capture-home/devin",
+        "composerPending": false,
+        "workingVisible": false
+      },
+      "expectedScreen": {
+        "title": "",
+        "osc9": "",
+        "promptGlyph": "❭",
+        "description": "isolated typed-notice blocked before composer"
+      }
     }
   ],
   "sanitization": {
     "method": "decoded-jsonl-scan",
-    "fixtures": 4,
-    "decodedBytes": 177421,
+    "fixtures": 5,
+    "decodedBytes": 178379,
     "checks": [
       "home-path",
       "username",
@@ -202,5 +223,13 @@
   },
   "redactions": [
     "account plan and quota line -> <account plan and quota redacted>"
-  ]
+  ],
+  "mailNoticeAdapterEvidence": {
+    "capturedAt": "2026-09-15T09:35:53.021Z",
+    "harnessVersion": "devin 3000.10.27 (bcbe88c7)",
+    "isolated": true,
+    "typedNoticeQualified": false,
+    "status": "skip",
+    "reason": "blocked: auth: login required"
+  }
 }

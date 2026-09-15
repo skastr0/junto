@@ -271,17 +271,10 @@ describe("isolated capture home", () => {
 });
 
 describe("committed capture stream provenance", () => {
-  it("does not treat T2 working as a mail-notice corpus", () => {
-    const root = path.join(import.meta.dirname, "pty-e2e", "corpus");
+  it("does not treat T2 working or a mail-notice capture as qualification", () => {
     for (const id of HARNESS_IDS) {
-      const hasNotice = fs.existsSync(path.join(root, id, "mail-notice.jsonl"));
-      const hasPaste = fs.existsSync(path.join(root, id, "paste-chip.jsonl"));
-      const hasIdle = fs.existsSync(path.join(root, id, "startup-idle.jsonl"));
-      expect(HARNESS_MAIL_TRANSPORT[id].typedNoticeQualified, id).toBe(hasNotice);
+      expect(HARNESS_MAIL_TRANSPORT[id].typedNoticeQualified, id).toBe(false);
       expect(HARNESS_MAIL_TRANSPORT[id].nativeChannel, id).toBe(false);
-      if (hasPaste || hasIdle) {
-        expect(hasNotice, `${id} corpus is not mail qualification`).toBe(false);
-      }
     }
   });
 
