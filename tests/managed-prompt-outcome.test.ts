@@ -5,6 +5,7 @@ import {
   deriveMailDisplayState,
   mailAttemptReasonOfRefusal,
   readManagedPromptOutcome,
+  type MailDeliveryPolicy,
   type ManagedPromptOutcome,
 } from "../src/shared/managed-prompt";
 import type { ActorSeatId } from "../src/shared/actor-seat";
@@ -346,28 +347,43 @@ const makeLedger = (): MessageDeliveryAttemptStore & {
 } => {
   const calls: Array<string> = [];
   const records: Array<{ messageId: string; set: object }> = [];
+  const rowFor = (
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    generation: string,
+    policy: MailDeliveryPolicy,
+  ) => ({
+    messageId,
+    recipient: { seat: { seatId: `seat_${"b".repeat(64)}` as ActorSeatId, canvasName: canvas, nodeId }, generation },
+    policy,
+    facts: { generation, queuedAt: new Date(0).toISOString() },
+  });
   return {
     calls,
     records,
     enqueueAttempt: async (input) => {
       calls.push(`enqueue:${input.messageId}`);
-      return {
-        messageId: input.messageId,
-        recipient: { seat: { seatId: `seat_${"b".repeat(64)}` as ActorSeatId, canvasName: input.canvas, nodeId: input.nodeId }, generation: input.generation },
-        policy: input.policy,
-        facts: { generation: input.generation, queuedAt: new Date(0).toISOString() },
-      };
+      return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, input.policy);
+    },
+    enqueueBatch: async (input) => {
+      calls.push(`enqueueBatch:${input.batchId}`);
+      return input.members.map((member) =>
+        rowFor(input.canvas, input.nodeId, member.messageId, member.generation, member.policy),
+      );
+    },
+    markAttempted: async (input) => {
+      calls.push(`mark:${input.messageId}`);
+      return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, "notice");
     },
     recordAttempt: async (input) => {
       calls.push(`record:${input.messageId}`);
       records.push({ messageId: input.messageId, set: input.set });
-      return {
-        messageId: input.messageId,
-        recipient: { seat: { seatId: `seat_${"b".repeat(64)}` as ActorSeatId, canvasName: input.canvas, nodeId: input.nodeId }, generation: input.generation },
-        policy: "notice" as const,
-        facts: { generation: input.generation, queuedAt: new Date(0).toISOString() },
-      };
+      return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, "notice");
     },
+    attempt: async () => undefined,
+    hasNotifiedAcrossGenerations: async () => false,
+    reconcileUnresolvedAttempts: async () => 0,
   };
 };
 
@@ -452,6 +468,10 @@ describe("MessageDeliveryService outcome policy", () => {
           seen.push("enqueue");
           return ledger.enqueueAttempt(input);
         },
+        markAttempted: async (input) => {
+          seen.push("mark");
+          return ledger.markAttempted(input);
+        },
       },
       now: () => clock,
     });
@@ -469,7 +489,8 @@ describe("MessageDeliveryService outcome policy", () => {
     clock += 2_000;
     service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 50));
-    expect(seen).toEqual(["enqueue", "enqueue", "transport"]);
+    // Intent witness lands immediately before the physical write.
+    expect(seen).toEqual(["enqueue", "enqueue", "mark", "transport"]);
     expect(ledger.records).toEqual([
       {
         messageId: "m1",

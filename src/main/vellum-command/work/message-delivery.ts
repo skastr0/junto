@@ -23,6 +23,7 @@ import {
 } from "@shared/message-delivery";
 import type { SurfaceDeliveryTarget } from "@shared/actor-surface";
 import {
+  admitImmediatePrompt,
   mailAttemptReasonOfRefusal,
   readMailExtension,
   type DeliveryAttempt,
@@ -162,6 +163,8 @@ export type ManagedTerminalPromptOptions = {
    * durable row.
    */
   readonly interruptIfBusy?: boolean;
+  /** Caller abort, threaded through to the drive's own abort handling. */
+  readonly signal?: AbortSignal;
 };
 
 /**
@@ -175,6 +178,12 @@ export type PromptRequest = {
   readonly nodeId: string;
   readonly messageId: string;
   readonly fallback?: "notice";
+  /**
+   * Caller abort (e.g. live edge revocation racing the attempt). An
+   * already-aborted signal refuses cancelled before touching anything;
+   * mid-attempt aborts resolve through the drive as cancelled.
+   */
+  readonly signal?: AbortSignal;
 };
 
 /** Rows the explicit path cannot attempt: nothing was touched. */
@@ -193,46 +202,117 @@ export type PromptResult =
   | { readonly unavailable: PromptUnavailable };
 
 /**
- * Durable delivery-attempt ledger (storage lane, work/crew-repository.ts).
- * Optional until that service lands: absent → legacy in-memory transport
- * marks only. The delivery layer never invents the recipient ActorRef — it
- * passes canvas, node, and the seat generation string, and the repository
- * resolves the principal against the seat compilation it owns.
+ * Durable delivery-attempt ledger (storage lane: work/mail-attempt-store.ts
+ * adapts work/crew-repository.ts to this seam). The delivery layer never
+ * invents the recipient ActorRef — it passes canvas, node, message, and the
+ * seat generation string, and the adapter resolves the seat principal
+ * against the seat compilation it owns. Agreed call order per attempt:
+ * enqueue (batch: enqueueBatch, atomic membership) before any transport
+ * action, markAttempted immediately before the physical write, recordAttempt
+ * after the outcome. A clean queued row (no intent witness, no outcome) is
+ * safe — nothing was written yet. Uncertainty is attempted-with-no-outcome:
+ * the intent witness proves a write may have happened, so boot
+ * reconciliation turns those rows unresolved and a crash cannot blindly
+ * replay the same generation.
  */
+export type AttemptMemberInput = {
+  readonly messageId: string;
+  readonly generation: string;
+  readonly policy: MailDeliveryPolicy;
+};
+
 export type MessageDeliveryAttemptStore = {
   /**
    * Durably queue one attempt BEFORE any transport action. Idempotent on
-   * (canvas, node, message, seat, generation): a queued row with no outcome
-   * fact is the in-progress uncertainty mark, so a crash cannot blindly
-   * replay the same generation.
+   * (canvas, node, message, seat, generation). A clean queued row is safe;
+   * uncertainty begins at the intent witness (markAttempted).
    */
-  readonly enqueueAttempt: (input: {
-    readonly canvas: string;
-    readonly nodeId: string;
-    readonly messageId: string;
-    readonly generation: string;
-    readonly policy: MailDeliveryPolicy;
-  }) => Promise<DeliveryAttempt>;
+  readonly enqueueAttempt: (
+    input: {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly messageId: string;
+      readonly generation: string;
+      readonly policy: MailDeliveryPolicy;
+      readonly at?: string;
+    },
+  ) => Promise<DeliveryAttempt>;
+  /**
+   * Durably commit one batch's membership BEFORE any member transport
+   * action. Atomic: either every member row exists or none does. The
+   * batchId is the delivery batch key shared by the members' payload.
+   */
+  readonly enqueueBatch: (
+    input: {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly batchId: string;
+      readonly members: ReadonlyArray<AttemptMemberInput>;
+      readonly at?: string;
+    },
+  ) => Promise<ReadonlyArray<DeliveryAttempt>>;
+  /**
+   * Stamp the attempted_at intent witness immediately before the physical
+   * write. A row left attempted with no outcome fact is a crashed intent:
+   * boot reconciliation turns it unresolved, never a blind replay.
+   */
+  readonly markAttempted: (
+    input: {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly messageId: string;
+      readonly generation: string;
+      readonly at?: string;
+    },
+  ) => Promise<DeliveryAttempt>;
   /**
    * Record one outcome fact plus physical write evidence. Set-once per
    * fact, monotonic, never overwrites: submitted maps to notifiedAt,
    * written-unresolved to unresolvedAt, pre-write refusal to
    * refusedAt plus refusedReason.
    */
-  readonly recordAttempt: (input: {
-    readonly canvas: string;
-    readonly nodeId: string;
-    readonly messageId: string;
-    readonly generation: string;
-    readonly set:
-      | { readonly notifiedAt: string }
-      | { readonly unresolvedAt: string }
-      | {
-          readonly refusedAt: string;
-          readonly refusedReason: MailAttemptReason;
-        };
-    readonly write?: MailWriteEvidence;
-  }) => Promise<DeliveryAttempt>;
+  readonly recordAttempt: (
+    input: {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly messageId: string;
+      readonly generation: string;
+      readonly set:
+        | { readonly notifiedAt: string }
+        | { readonly unresolvedAt: string }
+        | {
+            readonly refusedAt: string;
+            readonly refusedReason: MailAttemptReason;
+          };
+      readonly write?: MailWriteEvidence;
+    },
+  ) => Promise<DeliveryAttempt>;
+  /** Read one attempt row, if the adapter has it. */
+  readonly attempt: (
+    input: {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly messageId: string;
+      readonly generation: string;
+    },
+  ) => Promise<DeliveryAttempt | undefined>;
+  /**
+   * True when any generation holds a notified fact for this message and
+   * seat. Gates cross-generation suppression: a notified row without a
+   * durable receipt stamps only, never repastes.
+   */
+  readonly hasNotifiedAcrossGenerations: (
+    input: {
+      readonly canvas: string;
+      readonly nodeId: string;
+      readonly messageId: string;
+    },
+  ) => Promise<boolean>;
+  /**
+   * Turn crashed intents (attempted, no outcome fact) into unresolved rows.
+   * Called once at boot before the first sweep.
+   */
+  readonly reconcileUnresolvedAttempts: (at: string) => Promise<number>;
 };
 
 /**
@@ -769,6 +849,12 @@ export class MessageDeliveryService {
           ? "immediate"
           : "notice";
     const key = flightKey(input.canvas, input.nodeId, input.messageId);
+    if (input.signal?.aborted) {
+      return {
+        outcome: this.refusedWithoutWrite("cancelled"),
+        policy,
+      };
+    }
     if (this.inFlight.has(key)) {
       return {
         outcome: this.refusedWithoutWrite("seat-busy"),
@@ -778,18 +864,27 @@ export class MessageDeliveryService {
     this.inFlight.add(key);
     try {
       if (!(await this.checkUnresolvedHold(target.bindingId, key))) {
+        // Prior attempt in this generation wrote without proof. An
+        // ordinary same-id retry stays non-replayable: only a new
+        // generation, an explicit resume batch, or operator action
+        // authorizes another paste.
         return {
           outcome: this.refusedWithoutWrite("written-unresolved"),
           policy,
         };
       }
-      const woke = await this.wakeManagedSeat(
-        transport,
-        input.canvas,
-        input.nodeId,
-      );
-      if (!woke) {
-        return { outcome: this.refusedWithoutWrite("not-ready"), policy };
+      // Immediate policy never starts a stopped seat to satisfy itself:
+      // only a currently idle, empty seat is admitted, otherwise SeatBusy.
+      // The ordinary notice fallback keeps the wake (mail may start seats).
+      if (policy !== "immediate") {
+        const woke = await this.wakeManagedSeat(
+          transport,
+          input.canvas,
+          input.nodeId,
+        );
+        if (!woke) {
+          return { outcome: this.refusedWithoutWrite("not-ready"), policy };
+        }
       }
       if (
         (this.transportAttempts.get(key) ?? 0) >=
@@ -799,6 +894,13 @@ export class MessageDeliveryService {
       }
       const gate = await this.evaluateSeatGate(target.bindingId);
       if (!gate.allow) {
+        await this.recordGateRefusal(
+          input.canvas,
+          input.nodeId,
+          live,
+          target.bindingId,
+          gate.reason,
+        );
         const reason: ManagedPromptRefusalReason =
           gate.reason === "operator-draft"
             ? "composer-not-empty"
@@ -816,70 +918,105 @@ export class MessageDeliveryService {
           : composeMessageDeliveryPayload(live);
       const promptOptions =
         policy === "immediate"
-          ? {
-              ...(transport.wakeManagedSeat ? { ready: true } : {}),
-              queueIfBusy: false,
-            }
+          ? { queueIfBusy: false, signal: input.signal }
           : transport.wakeManagedSeat
-            ? { ready: true }
-            : undefined;
+            ? { ready: true, signal: input.signal }
+            : input.signal
+              ? { signal: input.signal }
+              : undefined;
       const seatGeneration = gate.generationKey;
-      if (seatGeneration !== undefined && this.attempts) {
-        let prior: DeliveryAttempt | undefined;
-        try {
-          prior = await this.attempts.enqueueAttempt({
-            canvas: input.canvas,
-            nodeId: input.nodeId,
-            messageId: live.messageId,
-            generation: seatGeneration,
-            policy,
-          });
-        } catch {
+      const prep = await this.prepareAttempt(
+        input.canvas,
+        input.nodeId,
+        live.messageId,
+        key,
+        seatGeneration,
+        policy,
+      );
+      if (prep === "ledgerDown") {
+        return { outcome: this.refusedWithoutWrite("not-ready"), policy };
+      }
+      if (prep === "held") {
+        return {
+          outcome: this.refusedWithoutWrite("written-unresolved"),
+          policy,
+        };
+      }
+      const stampOnly = prep === "stampOnly";
+      if (
+        policy === "immediate" &&
+        admitImmediatePrompt({
+          idle: true,
+          composerEmpty: true,
+          bodyChars: payload.length,
+        }).admitted === false
+      ) {
+        // Over-limit bodies never type: refuse with the durable oversize
+        // reason instead of pasting a truncated turn.
+        const overLimit: ManagedPromptOutcome = {
+          status: "refused",
+          reason: "over-limit",
+          bindingGeneration: 0,
+          writesBefore: 0,
+          writesAfter: 0,
+          pasteWrites: 0,
+          wrotePhysicalBytes: false,
+        };
+        await this.recordAttemptOutcome(
+          input.canvas,
+          input.nodeId,
+          live.messageId,
+          seatGeneration,
+          overLimit,
+        );
+        return { outcome: overLimit, policy };
+      }
+      let outcome: ManagedPromptOutcome | undefined;
+      if (stampOnly) {
+        // Acceptance evidence already durable: stamp-only with zero
+        // new-write facts, no paste, no charge.
+        outcome = this.stampedOnlyOutcome();
+      } else {
+        if (
+          !(await this.markAttempt(
+            input.canvas,
+            input.nodeId,
+            live.messageId,
+            seatGeneration,
+          ))
+        ) {
           return { outcome: this.refusedWithoutWrite("not-ready"), policy };
         }
-        if (
-          prior.facts.unresolvedAt !== undefined &&
-          prior.facts.notifiedAt === undefined
-        ) {
-          this.transportUnresolved.set(key, seatGeneration);
-          this.transportAccepted.add(key);
-          return {
-            outcome: this.refusedWithoutWrite("written-unresolved"),
-            policy,
-          };
+        this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
+        const writesBefore = transport.pasteWriteCount?.(target.bindingId);
+        try {
+          outcome = await this.deliver(
+            transport,
+            target,
+            payload,
+            live.messageId,
+            promptOptions,
+          );
+        } finally {
+          const counterEqual =
+            writesBefore !== undefined &&
+            transport.pasteWriteCount?.(target.bindingId) === writesBefore;
+          const wroteNothing =
+            outcome !== undefined &&
+            outcome.status === "refused" &&
+            !outcome.wrotePhysicalBytes;
+          if (
+            (outcome === undefined && counterEqual) ||
+            (wroteNothing &&
+              (writesBefore === undefined || counterEqual))
+          ) {
+            const charged = this.transportAttempts.get(key) ?? 0;
+            if (charged > 0) this.transportAttempts.set(key, charged - 1);
+          }
         }
-        if (prior.facts.notifiedAt !== undefined) {
-          this.transportAccepted.add(key);
+        if (outcome === undefined) {
+          return { outcome: this.refusedWithoutWrite("not-ready"), policy };
         }
-      }
-      this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
-      const writesBefore = transport.pasteWriteCount?.(target.bindingId);
-      let outcome: ManagedPromptOutcome | undefined;
-      try {
-        outcome = await this.deliver(
-          transport,
-          target,
-          payload,
-          live.messageId,
-          promptOptions,
-        );
-      } finally {
-        const wroteNothing =
-          outcome !== undefined &&
-          outcome.status === "refused" &&
-          !outcome.wrotePhysicalBytes;
-        if (
-          outcome === undefined ||
-          (wroteNothing &&
-            (writesBefore === undefined ||
-              transport.pasteWriteCount?.(target.bindingId) === writesBefore))
-        ) {
-          const charged = this.transportAttempts.get(key) ?? 0;
-          if (charged > 0) this.transportAttempts.set(key, charged - 1);
-        }
-      }
-      if (outcome === undefined) {
-        return { outcome: this.refusedWithoutWrite("not-ready"), policy };
       }
       await this.recordAttemptOutcome(
         input.canvas,
@@ -991,8 +1128,11 @@ export class MessageDeliveryService {
     if (this.suspended) return;
     // Operator action: release the bounded re-drive marks so every held
     // notice gets one fresh attempt (re-validated against the current doc).
-    // Resume explicitly releases the uncertainty hold — it is one of the
-    // three authorized new-attempt conditions.
+    // NOTE: clearing RAM cannot release the DURABLE unresolved hold — the
+    // next prepareAttempt re-reads the ledger row and holds again. A durable
+    // retry grant (operator-authorized new attempt per held message) is an
+    // open storage-lane item; until it lands, resume re-arms refused and
+    // parked mail, not ledger-held uncertainty.
     this.transportUnresolved.clear();
     this.attemptedClaims.clear();
     this.transportAttempts.clear();
@@ -1014,6 +1154,9 @@ export class MessageDeliveryService {
   onBooted(): void {
     if (this.suspended) return;
     void this.retryRequestResponses();
+    // Boot reconciliation runs once in startup composition BEFORE configure:
+    // a delayed reconcile here could misclassify a CURRENT in-flight attempt
+    // as a crashed intent. Delivery only ever reads attempt rows.
     void this.sweepAllCanvases(() => true);
   }
 
@@ -1606,7 +1749,16 @@ export class MessageDeliveryService {
         // Gate failure is not a transport failure — do not burn attempts or
         // edge-map claims (claim is recorded only after the gate allows).
         const gate = await this.evaluateSeatGate(target.bindingId);
-        if (!gate.allow) return;
+        if (!gate.allow) {
+          await this.recordGateRefusal(
+            canvas,
+            nodeId,
+            live,
+            target.bindingId,
+            gate.reason,
+          );
+          return;
+        }
 
         // Edge-map notice law (bounded re-drive + stale re-validation):
         // AFTER the gate so a not-settled first consult cannot burn the claim.
@@ -1643,56 +1795,49 @@ export class MessageDeliveryService {
               }
             : undefined;
         const seatGeneration = gate.generationKey;
-        if (seatGeneration !== undefined && this.attempts) {
-          let prior: DeliveryAttempt | undefined;
-          try {
-            prior = await this.attempts.enqueueAttempt({
+        const prep = await this.prepareAttempt(
+          canvas,
+          nodeId,
+          live.messageId,
+          key,
+          seatGeneration,
+          policy,
+        );
+        if (prep === "ledgerDown" || prep === "held") return;
+        let outcome: ManagedPromptOutcome | undefined;
+        if (prep === "stampOnly") {
+          // Acceptance evidence already durable: fall through to the
+          // receipt stamp with no new write.
+          outcome = this.stampedOnlyOutcome();
+        } else {
+          // Immediate prompts carry the full body under the server sender
+          // envelope; ordinary notices keep the summary-plus-pointer shape
+          // (a prompt's explicit notice fallback uses the notice builder).
+          const payload =
+            policy === "immediate"
+              ? composeImmediatePromptPayload(live)
+              : composeMessageDeliveryPayload(live);
+          if (
+            !(await this.markAttempt(
               canvas,
               nodeId,
-              messageId: live.messageId,
-              generation: seatGeneration,
-              policy,
-            });
-          } catch {
-            // Ledger write failed: fail closed without touching the PTY so
-            // the attempt cannot exist as transport without its queued row.
-            return;
-          }
-          if (
-            prior.facts.unresolvedAt !== undefined &&
-            prior.facts.notifiedAt === undefined
+              live.messageId,
+              seatGeneration,
+            ))
           ) {
-            // Earlier process wrote without proof under this same
-            // generation: hold it here too — no transport, no receipt.
-            this.transportUnresolved.set(key, seatGeneration);
-            this.transportAccepted.add(key);
             return;
           }
-          if (prior.facts.notifiedAt !== undefined) {
-            // Ledger already holds the acceptance: stamp-only below, never
-            // a second paste.
-            this.transportAccepted.add(key);
-          }
-        }
-        // Immediate prompts carry the full body under the server sender
-        // envelope; ordinary notices keep the summary-plus-pointer shape
-        // (a prompt's explicit notice fallback uses the notice builder).
-        const payload =
-          policy === "immediate"
-            ? composeImmediatePromptPayload(live)
-            : composeMessageDeliveryPayload(live);
-        this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
-        const writesBefore = transport.pasteWriteCount?.(target.bindingId);
-        let outcome: ManagedPromptOutcome | undefined;
-        try {
-          outcome = await this.deliver(
-            transport,
-            target,
-            payload,
-            live.messageId,
-            promptOptions,
-          );
-        } finally {
+          this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
+          const writesBefore = transport.pasteWriteCount?.(target.bindingId);
+          try {
+            outcome = await this.deliver(
+              transport,
+              target,
+              payload,
+              live.messageId,
+              promptOptions,
+            );
+          } finally {
           // A refusal that never touched the PTY (drive refused at a gate
           // race, or the transport threw/rejected before writing)
           // must not consume the bounded re-drive marks: nothing was pasted,
@@ -1701,30 +1846,62 @@ export class MessageDeliveryService {
           // is the fallback for transports that cannot report them. A
           // written attempt (paste without ack — the live 4x class) keeps
           // them, whatever the acknowledgement outcome.
+          // The outcome's own physical-write facts are authoritative, but
+          // a throw leaves no outcome at all: then only the envelope
+          // counter can prove a clean refusal, and an absent counter keeps
+          // the charge conservatively.
+          const counterEqual =
+            writesBefore !== undefined &&
+            transport.pasteWriteCount?.(target.bindingId) === writesBefore;
           const wroteNothing =
             outcome !== undefined &&
             outcome.status === "refused" &&
             !outcome.wrotePhysicalBytes;
           if (
-            outcome === undefined ||
+            (outcome === undefined && counterEqual) ||
             (wroteNothing &&
-              (writesBefore === undefined ||
-                transport.pasteWriteCount?.(target.bindingId) ===
-                  writesBefore))
+              (writesBefore === undefined || counterEqual))
           ) {
             if (claimSetThisPass) this.attemptedClaims.delete(key);
             const attempts = this.transportAttempts.get(key) ?? 0;
             if (attempts > 0) this.transportAttempts.set(key, attempts - 1);
           }
         }
-        if (outcome === undefined) return;
-        if (outcome.status !== "submitted") {
-          // Unresolved stays receiptless and pending with the no-replay
-          // marks below: neither transport nor receipt on the next idle —
-          // only a new generation, an explicit resume batch, or operator
-          // action authorizes another attempt. A clean pre-write refusal
-          // sets no mark at all: nothing was pasted, so a re-drive cannot
-          // duplicate, and the rolled-back attempt bounds stay retryable.
+          if (outcome === undefined) return;
+          if (outcome.status !== "submitted") {
+            // Unresolved stays receiptless and pending with the no-replay
+            // marks below: neither transport nor receipt on the next idle —
+            // only a new generation, an explicit resume batch, or operator
+            // action authorizes another attempt. A clean pre-write refusal
+            // sets no mark at all: nothing was pasted, so a re-drive cannot
+            // duplicate, and the rolled-back attempt bounds stay retryable.
+            await this.recordAttemptOutcome(
+              canvas,
+              nodeId,
+              live.messageId,
+              seatGeneration,
+              outcome,
+            );
+            if (outcome.status === "unresolved") {
+              this.transportAccepted.add(key);
+              // Held with or without a ledger generation: without one the
+              // hold releases only on resume, removal, or a newly observed
+              // seat generation.
+              this.transportUnresolved.set(key, seatGeneration ?? "");
+            }
+            if (
+              outcome.status === "refused" &&
+              !outcome.wrotePhysicalBytes &&
+              this.isRetryableRefusal(outcome.reason)
+            ) {
+              this.scheduleGateRetry(
+                target.bindingId,
+                MESSAGE_DELIVERY_SETTLE_MS,
+                "poll",
+              );
+            }
+            return;
+          }
           await this.recordAttemptOutcome(
             canvas,
             nodeId,
@@ -1732,34 +1909,8 @@ export class MessageDeliveryService {
             seatGeneration,
             outcome,
           );
-          if (outcome.status === "unresolved") {
-            this.transportAccepted.add(key);
-            // Held with or without a ledger generation: without one the
-            // hold releases only on resume, removal, or a newly observed
-            // seat generation.
-            this.transportUnresolved.set(key, seatGeneration ?? "");
-          }
-          if (
-            outcome.status === "refused" &&
-            !outcome.wrotePhysicalBytes &&
-            this.isRetryableRefusal(outcome.reason)
-          ) {
-            this.scheduleGateRetry(
-              target.bindingId,
-              MESSAGE_DELIVERY_SETTLE_MS,
-              "poll",
-            );
-          }
-          return;
+          this.transportAccepted.add(key);
         }
-        await this.recordAttemptOutcome(
-          canvas,
-          nodeId,
-          live.messageId,
-          seatGeneration,
-          outcome,
-        );
-        this.transportAccepted.add(key);
       }
 
       const accepted = await this.acceptDeliveryAndMaybeRead(
@@ -1956,34 +2107,104 @@ export class MessageDeliveryService {
       const gate = await this.evaluateSeatGate(target.bindingId);
       if (!gate.allow) return;
 
-      const payload = composeMessageDeliverySummary(
-        sortMessagesNewestFirst(unclaimed),
-      );
       // Mail never interrupts a live turn — batches are ordinary notices.
       const promptOptions = transport.wakeManagedSeat
         ? { ready: true }
         : undefined;
       const seatGeneration = gate.generationKey;
 
-      const memberKeys = unclaimed.map((message) =>
-        flightKey(canvas, nodeId, message.messageId),
-      );
+      // Durable membership before any member transport: atomic commit,
+      // then partition out held (same-generation uncertainty) and
+      // already-accepted members so neither joins a fresh payload.
+      let members = unclaimed;
       if (seatGeneration !== undefined && this.attempts) {
+        let priors: ReadonlyArray<DeliveryAttempt> = [];
         try {
-          for (const message of unclaimed) {
-            await this.attempts.enqueueAttempt({
-              canvas,
-              nodeId,
+          priors = await this.attempts.enqueueBatch({
+            canvas,
+            nodeId,
+            batchId: batchKey,
+            members: unclaimed.map((message) => ({
               messageId: message.messageId,
               generation: seatGeneration,
-              policy: "notice",
-            });
-          }
+              policy: "notice" as const,
+            })),
+          });
         } catch {
           // Ledger write failed: fail closed without touching the PTY.
           return;
         }
+        const priorById = new Map(priors.map((prior) => [prior.messageId, prior]));
+        const transportable: Message[] = [];
+        const stampNow: Message[] = [];
+        for (const message of unclaimed) {
+          const key = flightKey(canvas, nodeId, message.messageId);
+          const prior = priorById.get(message.messageId);
+          if (
+            prior?.facts.unresolvedAt !== undefined &&
+            prior.facts.notifiedAt === undefined
+          ) {
+            this.transportUnresolved.set(key, seatGeneration);
+            this.transportAccepted.add(key);
+            continue;
+          }
+          if (prior?.facts.notifiedAt === undefined) {
+            let notifiedElsewhere = false;
+            try {
+              notifiedElsewhere =
+                await this.attempts.hasNotifiedAcrossGenerations({
+                  canvas,
+                  nodeId,
+                  messageId: message.messageId,
+                });
+            } catch {
+              return;
+            }
+            if (!notifiedElsewhere) {
+              transportable.push(message);
+              continue;
+            }
+          }
+          stampNow.push(message);
+        }
+        // Already-accepted members stamp individually — never folded into
+        // a fresh payload and sent again.
+        for (const message of stampNow) {
+          const key = flightKey(canvas, nodeId, message.messageId);
+          this.transportAccepted.add(key);
+          const accepted = await this.acceptDeliveryAndMaybeRead(
+            store,
+            canvas,
+            nodeId,
+            message,
+          );
+          if (accepted) {
+            this.pendingReadStamps.delete(key);
+            this.clearAttemptBookkeeping(key);
+            this.forgetPending(canvas, nodeId, message.messageId);
+          }
+        }
+        members = transportable;
+        if (members.length === 0) return;
       }
+      const memberKeys = members.map((message) =>
+        flightKey(canvas, nodeId, message.messageId),
+      );
+      for (const message of members) {
+        if (
+          !(await this.markAttempt(
+            canvas,
+            nodeId,
+            message.messageId,
+            seatGeneration,
+          ))
+        ) {
+          return;
+        }
+      }
+      const payload = composeMessageDeliverySummary(
+        sortMessagesNewestFirst(members),
+      );
       for (const key of memberKeys) {
         this.transportAttempts.set(key, (this.transportAttempts.get(key) ?? 0) + 1);
       }
@@ -2001,16 +2222,17 @@ export class MessageDeliveryService {
         // Same law as attemptOne, including transport throws/rejections: a
         // refusal that never touched the PTY hands every member its attempt
         // back. A paste without acceptance keeps the charge and stays pending.
+        const counterEqual =
+          writesBefore !== undefined &&
+          transport.pasteWriteCount?.(target.bindingId) === writesBefore;
         const wroteNothing =
           outcome !== undefined &&
           outcome.status === "refused" &&
           !outcome.wrotePhysicalBytes;
         if (
-          outcome === undefined ||
+          (outcome === undefined && counterEqual) ||
           (wroteNothing &&
-            (writesBefore === undefined ||
-              transport.pasteWriteCount?.(target.bindingId) ===
-                writesBefore))
+            (writesBefore === undefined || counterEqual))
         ) {
           for (const key of memberKeys) {
             const attempts = this.transportAttempts.get(key) ?? 0;
@@ -2020,7 +2242,7 @@ export class MessageDeliveryService {
       }
       if (outcome === undefined) return;
       if (outcome.status !== "submitted") {
-        for (const message of unclaimed) {
+        for (const message of members) {
           await this.recordAttemptOutcome(
             canvas,
             nodeId,
@@ -2048,7 +2270,7 @@ export class MessageDeliveryService {
         }
         return;
       }
-      for (const message of unclaimed) {
+      for (const message of members) {
         await this.recordAttemptOutcome(
           canvas,
           nodeId,
@@ -2062,7 +2284,7 @@ export class MessageDeliveryService {
       this.transportAccepted.add(batchKey);
       this.acceptedBatchMembers.set(
         batchKey,
-        new Set(unclaimed.map((message) => message.messageId)),
+        new Set(members.map((message) => message.messageId)),
       );
       for (const key of memberKeys) this.transportAccepted.add(key);
 
@@ -2294,6 +2516,158 @@ export class MessageDeliveryService {
     this.transportUnresolved.delete(key);
     this.transportAccepted.delete(key);
     return true;
+  }
+
+  /**
+   * Durably record a gate refusal when the gate observed a seat generation.
+   * Gate refusals otherwise leave no ledger trace (no transport ran), so a
+   * busy composer would be invisible. Best-effort: a ledger failure keeps
+   * the message pending exactly as before.
+   */
+  private async recordGateRefusal(
+    canvas: string,
+    nodeId: string,
+    live: Message,
+    bindingId: string,
+    reason: "not-idle" | "not-settled" | "operator-draft" | "unavailable",
+  ): Promise<void> {
+    const ledger = this.attempts;
+    if (!ledger) return;
+    const generation = this.lastGenerationKey.get(bindingId);
+    if (generation === undefined) return;
+    const policy: MailDeliveryPolicy =
+      readMailExtension(live.metadata)?.mailKind === "prompt"
+        ? "immediate"
+        : "notice";
+    const refusedReason: MailAttemptReason =
+      reason === "operator-draft"
+        ? "composer-draft"
+        : reason === "unavailable"
+          ? "no-lease"
+          : reason;
+    const at = new Date(this.now()).toISOString();
+    const counter = this.transport?.pasteWriteCount?.(bindingId);
+    try {
+      await ledger.enqueueAttempt({
+        canvas,
+        nodeId,
+        messageId: live.messageId,
+        generation,
+        policy,
+      });
+      await ledger.recordAttempt({
+        canvas,
+        nodeId,
+        messageId: live.messageId,
+        generation,
+        set: { refusedAt: at, refusedReason },
+        ...(counter === undefined
+          ? {}
+          : {
+              write: {
+                writesBefore: counter,
+                writesAfter: counter,
+                at,
+              },
+            }),
+      });
+    } catch {
+      // Observability only; the message stays pending.
+    }
+  }
+
+  /**
+   * Durable pre-transport gate for one attempt. Enqueues before any write
+   * (fail-closed on ledger failure), then reads back the row: a
+   * same-generation uncertainty without acceptance holds (no transport, no
+   * receipt), a same- or cross-generation acceptance stamps only (never a
+   * second paste). Returns proceed when this call may attempt transport.
+   */
+  private async prepareAttempt(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    key: string,
+    generation: string | undefined,
+    policy: MailDeliveryPolicy,
+  ): Promise<"proceed" | "held" | "stampOnly" | "ledgerDown"> {
+    const ledger = this.attempts;
+    if (!ledger || generation === undefined) return "proceed";
+    let prior: DeliveryAttempt | undefined;
+    try {
+      prior = await ledger.enqueueAttempt({
+        canvas,
+        nodeId,
+        messageId,
+        generation,
+        policy,
+      });
+    } catch {
+      return "ledgerDown";
+    }
+    if (
+      prior.facts.unresolvedAt !== undefined &&
+      prior.facts.notifiedAt === undefined
+    ) {
+      this.transportUnresolved.set(key, generation);
+      this.transportAccepted.add(key);
+      return "held";
+    }
+    if (prior.facts.notifiedAt !== undefined) {
+      this.transportAccepted.add(key);
+      return "stampOnly";
+    }
+    let notifiedElsewhere = false;
+    try {
+      notifiedElsewhere = await ledger.hasNotifiedAcrossGenerations({
+        canvas,
+        nodeId,
+        messageId,
+      });
+    } catch {
+      return "ledgerDown";
+    }
+    if (notifiedElsewhere) {
+      this.transportAccepted.add(key);
+      return "stampOnly";
+    }
+    return "proceed";
+  }
+
+  /**
+   * Stamp the attempted_at intent witness immediately before the physical
+   * write. False (ledger failure) fails the attempt closed: no transport
+   * without its intent row.
+   */
+  private async markAttempt(
+    canvas: string,
+    nodeId: string,
+    messageId: string,
+    generation: string | undefined,
+  ): Promise<boolean> {
+    const ledger = this.attempts;
+    if (!ledger || generation === undefined) return true;
+    try {
+      await ledger.markAttempted({ canvas, nodeId, messageId, generation });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Synthesized submitted outcome for the stamp-only path: acceptance
+   * evidence is already durable, so no new write happened in this call.
+   */
+  private stampedOnlyOutcome(): ManagedPromptOutcome {
+    return {
+      status: "submitted",
+      bindingGeneration: 0,
+      writesBefore: 0,
+      writesAfter: 0,
+      pasteWrites: 0,
+      wrotePhysicalBytes: false,
+    };
   }
 
   /** Pre-write refusals worth a bounded gate re-drive (a wait may clear them). */

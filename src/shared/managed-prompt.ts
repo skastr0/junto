@@ -131,17 +131,17 @@ const ManagedPromptOutcomeUnion = Schema.Union([
   }),
 ]);
 
+const countersCoherent = Schema.makeFilter(
+  (outcome: typeof ManagedPromptOutcomeUnion.Type): boolean =>
+    outcome.writesAfter >= outcome.writesBefore &&
+    outcome.pasteWrites === outcome.writesAfter - outcome.writesBefore,
+);
+
 export const ManagedPromptOutcome = ManagedPromptOutcomeUnion.pipe(
   // Counter coherence, matching the documented facts: an envelope delta
   // cannot go backwards, and the per-attempt count is exactly the delta.
   // A submitted receipt with contradictory counters proves nothing.
-  Schema.refine(
-    (
-      outcome,
-    ): outcome is typeof ManagedPromptOutcomeUnion.Type =>
-      outcome.writesAfter >= outcome.writesBefore &&
-      outcome.pasteWrites === outcome.writesAfter - outcome.writesBefore,
-  ),
+  Schema.check(countersCoherent),
 );
 export type ManagedPromptOutcome = typeof ManagedPromptOutcome.Type;
 

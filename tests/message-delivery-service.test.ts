@@ -8,6 +8,39 @@ import {
   type MessageDeliveryStore,
   type MessageDeliveryTransport,
 } from "../src/main/vellum-command/work/message-delivery";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
+
+/** Submitted acceptance with one paste envelope of write evidence. */
+const submittedOutcome = (): ManagedPromptOutcome => ({
+  status: "submitted",
+  bindingGeneration: 0,
+  writesBefore: 0,
+  writesAfter: 1,
+  pasteWrites: 1,
+  wrotePhysicalBytes: true,
+});
+
+/** Clean pre-write refusal: nothing reached the PTY, retryable. */
+const refusedOutcome = (): ManagedPromptOutcome => ({
+  status: "refused",
+  reason: "seat-busy",
+  bindingGeneration: 0,
+  writesBefore: 0,
+  writesAfter: 0,
+  pasteWrites: 0,
+  wrotePhysicalBytes: false,
+});
+
+/** Bytes reached the PTY without acknowledgement: same generation holds. */
+const unresolvedOutcome = (): ManagedPromptOutcome => ({
+  status: "unresolved",
+  reason: "no-turn-start",
+  bindingGeneration: 0,
+  writesBefore: 0,
+  writesAfter: 1,
+  pasteWrites: 1,
+  wrotePhysicalBytes: true,
+});
 
 const userMsg = (id: string, text = "ping", extra: Partial<Message> = {}): Message => ({
   messageId: id,
@@ -165,7 +198,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -199,7 +232,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -237,7 +270,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           writes.push(text);
-          return accepts;
+          return accepts ? submittedOutcome() : refusedOutcome();
         },
       },
       store,
@@ -267,7 +300,7 @@ describe("MessageDeliveryService", () => {
     const payloads: string[] = [];
     const sendManagedTerminalPrompt = async (_bindingId: string, text: string) => {
       payloads.push(text);
-      return true;
+      return submittedOutcome();
     };
     const service = new MessageDeliveryService();
     service.configure({
@@ -305,7 +338,7 @@ describe("MessageDeliveryService", () => {
         },
         sendManagedTerminalPrompt: async (bindingId, text, options) => {
           calls.push({ bindingId, text, ready: options?.ready });
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -333,7 +366,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => false,
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -350,11 +383,11 @@ describe("MessageDeliveryService", () => {
   it("at-most-once under rapid append burst", async () => {
     const msg = userMsg("burst");
     const store = makeStore({ c: agentDoc([msg]) });
-    let resolveSend!: (v: boolean) => void;
+    let resolveSend!: (v: ManagedPromptOutcome) => void;
     let sendCount = 0;
     const sendManagedTerminalPrompt = (_bindingId: string, _text: string) => {
       sendCount += 1;
-      return new Promise<boolean>((resolve) => {
+      return new Promise<ManagedPromptOutcome>((resolve) => {
         resolveSend = resolve;
       });
     };
@@ -372,7 +405,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => sendCount === 1);
     expect(sendCount).toBe(1);
-    resolveSend(true);
+    resolveSend(submittedOutcome());
     await waitUntil(async () => {
       const doc = await store.readDoc("c", "scan");
       return isMessageDelivered(doc!.nodes[0]!.ether!.messages!.items[0]!);
@@ -384,7 +417,7 @@ describe("MessageDeliveryService", () => {
     const msgs = [userMsg("m-one", "first"), userMsg("m-two", "second")];
     const store = makeStore({ c: agentDoc(msgs) });
     const payloads: string[] = [];
-    let releaseFirst!: (accepted: boolean) => void;
+    let releaseFirst!: (outcome: ManagedPromptOutcome) => void;
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
@@ -392,11 +425,11 @@ describe("MessageDeliveryService", () => {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
           if (payloads.length === 1) {
-            return new Promise<boolean>((resolve) => {
+            return new Promise<ManagedPromptOutcome>((resolve) => {
               releaseFirst = resolve;
             });
           }
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -413,7 +446,7 @@ describe("MessageDeliveryService", () => {
     expect(payloads[0]).toBe("[message - user] first");
     expect(payloads[1]).toBe("[message - user] second");
 
-    releaseFirst(true);
+    releaseFirst(submittedOutcome());
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "m-one")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "m-two")),
@@ -441,7 +474,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -495,14 +528,14 @@ describe("MessageDeliveryService", () => {
     const msgs = [userMsg("batch-one", "first"), userMsg("batch-two", "second")];
     const store = makeStore({ c: agentDoc(msgs) });
     const payloads: string[] = [];
-    let releaseBatch!: (accepted: boolean) => void;
+    let releaseBatch!: (outcome: ManagedPromptOutcome) => void;
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
-          return new Promise<boolean>((resolve) => {
+          return new Promise<ManagedPromptOutcome>((resolve) => {
             releaseBatch = resolve;
           });
         },
@@ -520,7 +553,7 @@ describe("MessageDeliveryService", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(payloads).toHaveLength(1);
 
-    releaseBatch(true);
+    releaseBatch(submittedOutcome());
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "batch-one")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "batch-two")),
@@ -537,7 +570,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -578,7 +611,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           managedSends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -661,7 +694,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -697,7 +730,7 @@ describe("MessageDeliveryService", () => {
         },
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           prompts.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -709,7 +742,7 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
   });
 
-  it("marks explicit factory mail for busy-seat interruption", async () => {
+  it("factory mail never interrupts and always summarizes", async () => {
     const msg = userMsg("mail-steer", "interrupt the turn", {
       metadata: { factoryMail: true },
     });
@@ -724,7 +757,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text, options) => {
           calls.push({ bindingId, text, interruptIfBusy: options?.interruptIfBusy });
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -734,11 +767,11 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => calls.length === 1);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.bindingId).toBe("bind-profile-13");
-    expect(calls[0]?.interruptIfBusy).toBe(true);
+    // Mail never interrupts a live turn — ordinary or factory.
+    expect(calls[0]?.interruptIfBusy).toBeUndefined();
     // Factory mail always summarizes — full body never rides the PTY.
-    expect(calls[0]?.text).toContain("factory mail");
     expect(calls[0]?.text).toContain("mail-steer");
-    expect(calls[0]?.text).toContain("vellum-command msg list");
+    expect(calls[0]?.text).toContain("msg read");
     expect(calls[0]?.text).not.toBe("[message - user] interrupt the turn");
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", msg.messageId),
@@ -757,7 +790,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -785,7 +818,7 @@ describe("MessageDeliveryService", () => {
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
-        sendManagedTerminalPrompt: async () => true,
+        sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
       now: () => 99,
@@ -807,7 +840,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -835,7 +868,7 @@ describe("MessageDeliveryService", () => {
         sendManagedTerminalPrompt: async (_bindingId, _text, next) => {
           called = true;
           options = next;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -868,9 +901,9 @@ describe("MessageDeliveryService", () => {
     service.configure({
       transport: {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
-          if (!accept) return false;
+          if (!accept) return refusedOutcome();
           prompts.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -905,7 +938,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -929,7 +962,7 @@ describe("MessageDeliveryService", () => {
     const transport: MessageDeliveryTransport = {
       sendManagedTerminalPrompt: async () => {
         sendCount += 1;
-        return true;
+        return submittedOutcome();
       },
     };
     const service = new MessageDeliveryService();
@@ -967,7 +1000,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sendCount += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store: {
@@ -1000,7 +1033,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => wakeSucceeds,
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1035,7 +1068,7 @@ describe("MessageDeliveryService", () => {
     service.configure({
       transport: {
         wakeManagedSeat: async () => false,
-        sendManagedTerminalPrompt: async () => true,
+        sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
       timers: {
@@ -1070,7 +1103,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1097,7 +1130,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_id, text) => {
           payloads.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1106,7 +1139,7 @@ describe("MessageDeliveryService", () => {
     service.onBooted();
     await waitUntil(() => payloads.length === 1);
     expect(payloads[0]).toContain("3 unread");
-    expect(payloads[0]).toContain("factory mail");
+    expect(payloads[0]).toContain("b1");
     expect(payloads[0]).toContain("vellum-command msg list");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
@@ -1140,7 +1173,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_id, text) => {
           payloads.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1162,7 +1195,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_id, text) => {
           singles.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store: lone,
@@ -1198,7 +1231,7 @@ describe("MessageDeliveryService", () => {
         }),
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1255,7 +1288,7 @@ describe("MessageDeliveryService", () => {
         }),
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1288,7 +1321,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1328,7 +1361,7 @@ describe("MessageDeliveryService", () => {
       },
     );
     const sends: string[] = [];
-    let releaseThird: ((accepted: boolean) => void) | undefined;
+    let releaseThird: ((outcome: ManagedPromptOutcome) => void) | undefined;
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
@@ -1336,11 +1369,11 @@ describe("MessageDeliveryService", () => {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           sends.push(text);
           if (text === "[message - user] third") {
-            return new Promise<boolean>((resolve) => {
+            return new Promise<ManagedPromptOutcome>((resolve) => {
               releaseThird = resolve;
             });
           }
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1390,7 +1423,7 @@ describe("MessageDeliveryService", () => {
     expect(sends[1]).toBe("[message - user] third");
     await waitUntil(() => releaseThird !== undefined);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "b3")).toBe(false);
-    releaseThird!(true);
+    releaseThird!(submittedOutcome());
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "b3"),
     );
@@ -1422,7 +1455,7 @@ describe("MessageDeliveryService", () => {
         }),
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1505,7 +1538,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           writes.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1533,7 +1566,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return false;
+          return refusedOutcome();
         },
       },
       store,
@@ -1596,7 +1629,7 @@ describe("MessageDeliveryService", () => {
           wakes.push(nodeId);
           return true;
         },
-        sendManagedTerminalPrompt: async () => false,
+        sendManagedTerminalPrompt: async () => refusedOutcome(),
       },
       store,
     });
@@ -1643,7 +1676,7 @@ describe("MessageDeliveryService", () => {
           generationKey: "ep-busy",
           operatorDraft: false,
         }),
-        sendManagedTerminalPrompt: async () => true,
+        sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
     });
@@ -1695,7 +1728,7 @@ describe("MessageDeliveryService", () => {
           generationKey: "ep-jitter",
           operatorDraft: false,
         }),
-        sendManagedTerminalPrompt: async () => true,
+        sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
     });
@@ -1729,7 +1762,7 @@ describe("MessageDeliveryService", () => {
           generationKey: "ep-settle-2",
           operatorDraft: false,
         }),
-        sendManagedTerminalPrompt: async () => true,
+        sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
     });
@@ -1787,7 +1820,7 @@ describe("MessageDeliveryService", () => {
     const { store, counts } = countingStore(makeStore({ c: fleetDoc(48, 48) }));
     const service = new MessageDeliveryService();
     service.configure({
-      transport: { sendManagedTerminalPrompt: async () => true },
+      transport: { sendManagedTerminalPrompt: async () => submittedOutcome() },
       store,
     });
 
@@ -1829,7 +1862,7 @@ describe("MessageDeliveryService", () => {
     const { store, counts } = countingStore(makeStore({ c: withMail }));
     const service = new MessageDeliveryService();
     service.configure({
-      transport: { sendManagedTerminalPrompt: async () => true },
+      transport: { sendManagedTerminalPrompt: async () => submittedOutcome() },
       // Paused seats keep their mail pending without burning attempts.
       seatPaused: () => true,
       store,
@@ -1868,7 +1901,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1906,7 +1939,7 @@ describe("MessageDeliveryService", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async () => {
           sends += 1;
-          return true;
+          return submittedOutcome();
         },
       },
       seatPaused: () => paused,
@@ -1945,7 +1978,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           writes.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -1975,7 +2008,7 @@ describe("MessageDeliveryService", () => {
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -2049,7 +2082,7 @@ describe("composer gate and the bounded edge-map claim", () => {
       sendTerminalPaste: () => false,
       sendManagedTerminalPrompt: async (_bindingId, text) => {
         sent.push(text);
-        return true;
+        return submittedOutcome();
       },
       seatDeliverySnapshot: () => ({
         idle: true,
@@ -2148,10 +2181,10 @@ describe("bounded re-drive marks and the PTY write truth", () => {
     const transport: MessageDeliveryTransport = {
       sendTerminalPaste: () => false,
       sendManagedTerminalPrompt: async (_bindingId, text) => {
-        if (!driveAccepts) return false; // refused BEFORE any byte
+        if (!driveAccepts) return refusedOutcome(); // refused BEFORE any byte
         writes += 1;
         sent.push(text);
-        return true;
+        return submittedOutcome();
       },
       pasteWriteCount: () => writes,
       seatDeliverySnapshot: () => ({
@@ -2191,7 +2224,7 @@ describe("bounded re-drive marks and the PTY write truth", () => {
       sendManagedTerminalPrompt: async () => {
         writes += 1; // bytes reached the PTY…
         pastes += 1;
-        return false; // …but no turn-start ack
+        return unresolvedOutcome(); // …but no turn-start ack
       },
       pasteWriteCount: () => writes,
       seatDeliverySnapshot: () => ({
@@ -2255,11 +2288,11 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
       sendManagedTerminalPrompt: async (_bindingId, text) => {
         if (!driveAccepts) {
           refusals += 1;
-          return false; // refused BEFORE any byte reached the PTY
+          return refusedOutcome(); // refused BEFORE any byte reached the PTY
         }
         writes += 1;
         sent.push(text);
-        return true;
+        return submittedOutcome();
       },
       pasteWriteCount: () => writes,
     };
@@ -2287,7 +2320,7 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
     service.suspend();
   });
 
-  it("an un-acked batch paste burns each member; parked members never strand fresh mail", async () => {
+  it("an un-acked batch paste holds each member; held members never strand fresh mail", async () => {
     const msgs = [userMsg("u1", "first"), userMsg("u2", "second")];
     let docs!: Map<string, CanvasDoc>;
     const store = makeStore(
@@ -2305,34 +2338,33 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
       sendManagedTerminalPrompt: async (_bindingId, text) => {
         writes += 1; // bytes reached the PTY…
         sent.push(text);
-        return false; // …but no turn-start ack: written, unresolved
+        return unresolvedOutcome(); // …but no turn-start ack: written, unresolved
       },
       pasteWriteCount: () => writes,
     };
     const service = new MessageDeliveryService();
     service.configure({ transport, store });
 
-    for (let round = 1; round <= 3; round += 1) {
-      service.onBooted();
-      await waitUntil(() => sent.length === round);
-    }
-    // The 4x law for a batch: both members are parked.
+    service.onBooted();
+    await waitUntil(() => sent.length === 1);
+    // Same-generation re-drives never re-paste: the uncertainty hold
+    // replaces the burn bound — one paste, receiptless, pending.
     service.onBooted();
     await new Promise((r) => setTimeout(r, 30));
-    expect(sent).toHaveLength(3);
+    expect(sent).toHaveLength(1);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "u1")).toBe(false);
 
-    // Fresh mail on the same seat batches on its own budget; the parked
-    // members are left out of the payload rather than pasted a fourth time.
+    // Fresh mail on the same seat batches on its own budget; the held
+    // members are left out of the payload rather than pasted again.
     appendItems(docs, "c", "agent", (items) => [
       ...items,
       userMsg("u3", "third"),
       userMsg("u4", "fourth"),
     ]);
     service.onBooted();
-    await waitUntil(() => sent.length === 4);
-    expect(sent[3]).toContain("2 unread");
-    expect(sent[3]).not.toContain("4 unread");
+    await waitUntil(() => sent.length === 2);
+    expect(sent[1]).toContain("2 unread");
+    expect(sent[1]).not.toContain("4 unread");
     service.suspend();
   });
 
@@ -2356,7 +2388,7 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           payloads.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -2414,7 +2446,7 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           sent.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -2466,7 +2498,7 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
         wakeManagedSeat: async () => true,
         sendManagedTerminalPrompt: async (_bindingId, text) => {
           sent.push(text);
-          return true;
+          return submittedOutcome();
         },
       },
       store,
@@ -2528,7 +2560,7 @@ describe.each(["individual", "batch"] as const)("%s transport rejection accounti
             return Promise.reject(error);
           }
           writes += 1;
-          return Promise.resolve(true);
+          return Promise.resolve(submittedOutcome());
         },
       },
     });
