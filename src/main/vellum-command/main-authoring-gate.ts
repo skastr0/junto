@@ -45,6 +45,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.pad-patch",
   "delivery.message-stamp",
   "delivery.board-wake",
+  "review.checkout",
   "kernel.flag-mirror",
   "kernel.phase-mirror",
 ] as const;
