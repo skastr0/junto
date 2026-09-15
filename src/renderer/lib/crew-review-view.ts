@@ -2,9 +2,9 @@
  * Operator review projection. Verdicts are immutable facts from p15/p1F;
  * this module only decodes the exported ReviewVerdict and Rule.kind.
  *
- * Canvas projection is `task.verdicts` + `task.subjectHash`. WorkTaskShow
- * still carries sibling `reviewSubject` / `verdicts` until p15 stamps those
- * fields onto the ether item. There is no metadata.verdicts store.
+ * Canvas / loadTaskMap projection is `task.verdicts` + `task.subjectHash`.
+ * Those are schema fields on Task, never metadata.reviewSubject,
+ * metadata.verdicts, or a WorkTaskShow overlay.
  */
 import type { CanvasDoc } from "@shared/canvas";
 import {
@@ -16,9 +16,9 @@ import {
 } from "@shared/crew";
 import type { Rule, Task, TasksContract } from "@shared/work-model";
 
-/** WorkService tasks.show overlay. Also the CanvasDoc item extra keys. */
-export type TaskReviewShow = {
-  readonly reviewSubject?: unknown;
+/** Exact fields the batched task projection must stamp. */
+export type TaskReviewProjection = {
+  readonly subjectHash?: string;
   readonly verdicts?: unknown;
 };
 
@@ -60,24 +60,11 @@ const recordOf = (value: unknown): Record<string, unknown> | undefined =>
     ? (value as Record<string, unknown>)
     : undefined;
 
-export const reviewShowOf = (
-  source: unknown,
-  overlay?: TaskReviewShow,
-): TaskReviewShow => {
-  const record = recordOf(source);
-  return {
-    reviewSubject: overlay?.reviewSubject ?? record?.reviewSubject,
-    verdicts: overlay?.verdicts ?? record?.verdicts,
-  };
-};
-
-const canvasTaskReviewOf = (
-  task: Task,
-): { readonly verdicts: unknown; readonly subjectHash: unknown } => {
+const canvasTaskReviewOf = (task: Task): TaskReviewProjection => {
   const record = recordOf(task);
   return {
     verdicts: record?.verdicts,
-    subjectHash: record?.subjectHash,
+    subjectHash: nonempty(record?.subjectHash),
   };
 };
 
@@ -199,13 +186,9 @@ export const parseReviewSubjectProjection = (
 
 export const verdictsOnTask = (
   task: Task,
-  overlay?: TaskReviewShow,
 ): ReadonlyArray<ReviewVerdict> => {
   const canvas = canvasTaskReviewOf(task).verdicts;
-  if (Array.isArray(canvas)) return parseReviewVerdicts(canvas);
-  const show = reviewShowOf(task, overlay).verdicts;
-  if (Array.isArray(show)) return parseReviewVerdicts(show);
-  return [];
+  return Array.isArray(canvas) ? parseReviewVerdicts(canvas) : [];
 };
 
 const subjectMatches = (
@@ -220,32 +203,25 @@ const subjectMatches = (
 
 export const currentReviewSubjectProjection = (
   task: Task,
-  overlay?: TaskReviewShow,
 ): ReviewSubjectProjectionView | undefined => {
-  const subjectHash = nonempty(canvasTaskReviewOf(task).subjectHash);
-  if (subjectHash !== undefined) {
-    return {
-      epoch: taskEpochOf(task),
-      subjectHash,
-      taskId: task.id,
-      authorSeatId: task.claimedBy,
-    };
-  }
-  return parseReviewSubjectProjection(
-    reviewShowOf(task, overlay).reviewSubject,
-  );
+  const subjectHash = canvasTaskReviewOf(task).subjectHash;
+  if (subjectHash === undefined) return undefined;
+  return {
+    epoch: taskEpochOf(task),
+    subjectHash,
+    taskId: task.id,
+    authorSeatId: task.claimedBy,
+  };
 };
 
 export const currentReviewSubjectHash = (
   task: Task,
-  overlay?: TaskReviewShow,
-): string | undefined => currentReviewSubjectProjection(task, overlay)?.subjectHash;
+): string | undefined => currentReviewSubjectProjection(task)?.subjectHash;
 
 export const currentReviewSubject = (
   task: Task,
-  overlay?: TaskReviewShow,
 ): ReviewSubject | undefined => {
-  const projection = currentReviewSubjectProjection(task, overlay);
+  const projection = currentReviewSubjectProjection(task);
   if (projection === undefined) return undefined;
   return {
     kind: "task",
@@ -293,16 +269,15 @@ export const reviewGateOf = (
   contract: TasksContract | undefined,
   authorSeatId: string | undefined,
   options?: {
-    readonly show?: TaskReviewShow;
     readonly reviewerHasCurrentEdge?: (reviewerSeatId: string) => boolean;
   },
 ): ReviewGate => {
   const required = taskRequiresReview(task, contract);
-  const projection = currentReviewSubjectProjection(task, options?.show);
+  const projection = currentReviewSubjectProjection(task);
   const currentEpoch = projection?.epoch ?? taskEpochOf(task);
-  const currentSubject = currentReviewSubject(task, options?.show);
+  const currentSubject = currentReviewSubject(task);
   const currentHash = projection?.subjectHash;
-  const chain = verdictsOnTask(task, options?.show);
+  const chain = verdictsOnTask(task);
   const current = chain.filter((verdict) =>
     subjectMatches(verdict, currentEpoch, currentHash),
   );

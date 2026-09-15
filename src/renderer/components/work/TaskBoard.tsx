@@ -67,7 +67,6 @@ import { VerdictChain } from "./VerdictChain";
 import {
   reviewGateOf,
   reviewsEdgeHoldsVerdictPost,
-  reviewShowOf,
   verdictsOnTask,
 } from "../../lib/crew-review-view";
 import { ApprovalMark, OutgoingGroupHeader } from "./TaskPathMarks";
@@ -1890,11 +1889,9 @@ function TaskDetailPanel({
       ];
   const queueLaneLabel =
     lanes.find((lane) => lane.state === "submitted")?.label ?? "Queue";
-  const reviewShow = reviewShowOf(task);
   const authorSeatId = claimedByOf(task);
   const authorNodeId = actorRefs.find((actor) => actor.seatId === authorSeatId)?.nodeId;
   const reviewGate = reviewGateOf(task, contract, authorSeatId, {
-    show: reviewShow,
     reviewerHasCurrentEdge: (reviewerSeatId) => {
       if (authorNodeId === undefined) return false;
       const reviewerNodeId = actorRefs.find((actor) => actor.seatId === reviewerSeatId)?.nodeId;
@@ -1907,7 +1904,7 @@ function TaskDetailPanel({
       );
     },
   });
-  const reviewVerdicts = verdictsOnTask(task, reviewShow);
+  const reviewVerdicts = verdictsOnTask(task);
 
   return (
     <aside

@@ -7,7 +7,6 @@ import {
   reviewGateOf,
   verdictsOnTask,
   withRequiresReviewRule,
-  type TaskReviewShow,
 } from "../src/renderer/lib/crew-review-view";
 
 const seat = (n: string): Task["claimedBy"] =>
@@ -294,32 +293,28 @@ describe("reviewGateOf", () => {
     ).toBe(true);
   });
 
-  it("still reads a WorkTaskShow overlay until the canvas item is stamped", () => {
+  it("ignores metadata.reviewSubject and sibling reviewSubject", () => {
     const author = seat("a");
     const reviewer = seat("b");
-    const task = projectedTask({
+    const green = canonicalVerdict({
+      verdictId: "v-meta",
+      kind: "green",
+      reviewerSeatId: reviewer,
+      authorSeatId: author,
+      epoch: 1,
+      subjectHash: hash,
+    });
+    const invented = projectedTask({
       epoch: 1,
       claimedBy: author,
       rules: [reviewTaskRule()],
-    });
-    const show: TaskReviewShow = {
-      reviewSubject: {
-        epoch: 1,
-        subjectHash: hash,
-        taskId: "task-1",
+      metadata: {
+        reviewSubject: { epoch: 1, subjectHash: hash, taskId: "task-1" },
+        verdicts: [green],
       },
-      verdicts: [
-        canonicalVerdict({
-          verdictId: "v-show",
-          kind: "green",
-          reviewerSeatId: reviewer,
-          authorSeatId: author,
-          epoch: 1,
-          subjectHash: hash,
-        }),
-      ],
-    };
-    expect(reviewGateOf(task, undefined, author, { show }).satisfied).toBe(true);
-    expect(verdictsOnTask(task, show)[0]?.verdictId).toBe("v-show");
+      reviewSubject: { epoch: 1, subjectHash: hash, taskId: "task-1" },
+    } as Partial<Task> & { readonly reviewSubject: unknown });
+    expect(verdictsOnTask(invented)).toEqual([]);
+    expect(reviewGateOf(invented, undefined, author).satisfied).toBe(false);
   });
 });

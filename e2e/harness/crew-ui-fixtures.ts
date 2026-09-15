@@ -100,9 +100,8 @@ export const crewMailMessage = (input: {
 });
 
 /**
- * Canvas task projection: `task.verdicts` + `task.subjectHash`.
- * p15 repository must stamp these on ether.tasks.items. WorkTaskShow still
- * has sibling reviewSubject/verdicts — do not seed metadata.verdicts.
+ * Canvas / loadTaskMap stamp: `task.verdicts` + `task.subjectHash`.
+ * Never seed metadata.reviewSubject or metadata.verdicts.
  */
 export const taskReviewProjection = (input: {
   readonly subjectHash: string;
@@ -112,38 +111,6 @@ export const taskReviewProjection = (input: {
   readonly verdicts: ReadonlyArray<Record<string, unknown>>;
 } => ({
   subjectHash: input.subjectHash,
-  verdicts: input.verdicts,
-});
-
-/** WorkTaskShow siblings — only until p15 stamps the canvas item. */
-export const taskReviewShow = (input: {
-  readonly subjectHash: string;
-  readonly epoch: number;
-  readonly taskId: string;
-  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
-}): {
-  readonly reviewSubject: {
-    readonly installationId: string;
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly taskId: string;
-    readonly state: "working";
-    readonly epoch: number;
-    readonly subjectHash: string;
-    readonly refs: readonly [];
-  };
-  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
-} => ({
-  reviewSubject: {
-    installationId: "local",
-    canvasName: "ops",
-    nodeId: "tasks",
-    taskId: input.taskId,
-    state: "working",
-    epoch: input.epoch,
-    subjectHash: input.subjectHash,
-    refs: [],
-  },
   verdicts: input.verdicts,
 });
 
