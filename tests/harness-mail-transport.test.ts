@@ -7,6 +7,7 @@ import {
   HARNESS_IDS,
   HARNESS_ISOLATION,
   HARNESS_MAIL_TRANSPORT,
+  buildIsolatedHarnessLaunch,
   isolatedCaptureEnv,
   templateFor,
 } from "../src/shared/managed-terminal-templates";
@@ -79,6 +80,39 @@ describe("isolated capture home", () => {
     }
   });
 
+  it("buildIsolatedHarnessLaunch is an overlay, never operator HOME or cwd", () => {
+    const operator = os.homedir();
+    const isolatedHome = path.join(os.tmpdir(), "vellum-isolated-home");
+    const cwd = path.join(os.tmpdir(), "vellum-isolated-cwd");
+    const launch = buildIsolatedHarnessLaunch({
+      harness: "claude",
+      isolatedHome,
+      cwd,
+      ambient: {
+        HOME: operator,
+        CLAUDE_CONFIG_DIR: path.join(operator, ".claude"),
+        SECRET_HISTORY: "must-not-copy",
+      },
+    });
+    expect(launch.harness).toBe("claude");
+    expect(launch.captureHome).toBe("isolated");
+    expect(launch.isolatedHome).toBe(isolatedHome);
+    expect(launch.cwd).toBe(cwd);
+    expect(launch.env.HOME).toBe(isolatedHome);
+    expect(launch.env.HOME).not.toBe(operator);
+    expect(launch.env.PWD).toBe(cwd);
+    expect(launch.env.CLAUDE_CONFIG_DIR).toBe(`${isolatedHome}/.claude`);
+    expect(launch.env.SECRET_HISTORY).toBeUndefined();
+    expect(HARNESS_ISOLATION["vellum-overseer"].captureHome).toBe("unsupported");
+    const overseer = buildIsolatedHarnessLaunch({
+      harness: "vellum-overseer",
+      isolatedHome,
+      cwd,
+    });
+    expect(overseer.captureHome).toBe("unsupported");
+    expect(overseer.env.HOME).toBe(isolatedHome);
+  });
+
   it("capture spawn overlay relocates Claude and Pi config dirs", () => {
     const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
     const claude = buildSpawnEnv(
@@ -98,6 +132,14 @@ describe("isolated capture home", () => {
 });
 
 describe("committed capture stream provenance", () => {
+  it("does not treat T2 working as a mail-notice corpus", () => {
+    const root = path.join(import.meta.dirname, "pty-e2e", "corpus");
+    for (const id of HARNESS_IDS) {
+      expect(fs.existsSync(path.join(root, id, "mail-notice.jsonl")), id).toBe(false);
+      expect(HARNESS_MAIL_TRANSPORT[id].nativeChannel, id).toBe(false);
+    }
+  });
+
   it("startup-idle fixtures keep a complete prefix, not an empty tail", () => {
     const root = path.join(import.meta.dirname, "pty-e2e", "corpus");
     const harnesses = fs.readdirSync(root).filter((name) => {

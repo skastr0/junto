@@ -503,17 +503,23 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
 };
 
 /**
- * Build a capture/test environment that never points HOME or harness config
- * at the operator's real home. Inherits only declared credential keys.
+ * Overlay for a disposable capture or generated-canvas real-harness spawn.
+ * `env` is HOME / XDG / config pins / declared credential keys only — merge
+ * onto the sandbox process env. Never copy operator history or settings.
  */
-/** Fixture shape for generated-canvas / real-harness launchers. */
 export type IsolatedHarnessLaunch = {
   readonly harness: HarnessId;
   readonly isolatedHome: string;
   readonly cwd: string;
   readonly env: Record<string, string>;
+  readonly captureHome: IsolationSpec["captureHome"];
+  readonly limitation?: string;
 };
 
+/**
+ * Build a capture/test environment that never points HOME or harness config
+ * at the operator's real home. Inherits only declared credential keys.
+ */
 export const isolatedCaptureEnv = (
   harness: HarnessId,
   isolatedHome: string,
@@ -535,6 +541,29 @@ export const isolatedCaptureEnv = (
     env[pin.envKey] = `${isolatedHome}/${pin.homeRelative}`;
   }
   return { env, limitation: spec.limitation };
+};
+
+/** Constructor for generated-canvas / pty-capture. `cwd` and `isolatedHome` must be throwaway. */
+export const buildIsolatedHarnessLaunch = (input: {
+  readonly harness: HarnessId;
+  readonly isolatedHome: string;
+  readonly cwd: string;
+  readonly ambient?: NodeJS.Dict<string | undefined>;
+}): IsolatedHarnessLaunch => {
+  const spec = HARNESS_ISOLATION[input.harness];
+  const { env, limitation } = isolatedCaptureEnv(
+    input.harness,
+    input.isolatedHome,
+    input.ambient,
+  );
+  return {
+    harness: input.harness,
+    isolatedHome: input.isolatedHome,
+    cwd: input.cwd,
+    env: { ...env, PWD: input.cwd },
+    captureHome: spec.captureHome,
+    limitation,
+  };
 };
 
 // ── Template ───────────────────────────────────────────────────────────────
