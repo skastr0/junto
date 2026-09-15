@@ -30,14 +30,22 @@
  * 5. The read port grants no write, resize, or signal operation — the only
  *    screen access here is `readWindow`, read-only by construction.
  *
- * Remote seats are out of this iteration (local Command Center only): a wait
- * answers from this process's own seat state machine, so a remote seat's
- * transitions are not observed here rather than guessed at.
+ * Remote seats are out of this iteration (local Command Center only), and that
+ * is enforced rather than assumed: a managed seat whose canonical delivery
+ * surface is not this host is refused with `crew-local-seat-only`, because this
+ * process holds no grid and no live state for it. `--any` considers only local
+ * authorized peers. Nothing here falls back to a stale grid or a `gone` state
+ * for a seat that runs on another machine.
  */
 
 import { Effect, Result } from "effect";
-import { isManagedAgentNode, type ManagedAgentNode } from "@shared/actor-surface";
-import type { CanvasDoc } from "@shared/canvas";
+import {
+  actorDeliverySurfaceOf,
+  isManagedAgentNode,
+  type ManagedAgentNode,
+} from "@shared/actor-surface";
+import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { DEFAULT_STATION_HOST_ID } from "@shared/station";
 import type { AgentSeatState, AgentSeatStateEvent } from "@shared/agent-seat-state";
 import {
   SEAT_WAIT_DEFAULT_MS,
@@ -179,6 +187,37 @@ const noLiveGrid = (targetId: string): WorkErrorBody => ({
   },
 });
 
+/**
+ * A managed seat that runs on another host. This Command Center holds no grid
+ * and no live seat state for it, so a wait or read is refused up front rather
+ * than answered from a stale local projection.
+ */
+const remoteSeatOnly = (targetId: string, hostId: string): WorkErrorBody => ({
+  type: "ScopeError",
+  message: `seat "${targetId}" runs on host "${hostId}"; this Command Center observes local seats only`,
+  details: {
+    target: targetId,
+    received: hostId,
+    reason: "crew-local-seat-only",
+    hint: "wait and observe are local-iteration operations; another host's screen is not on this machine",
+    retryable: false,
+    next_step: "run the wait or read from the Command Center that hosts that seat",
+  },
+});
+
+/** No authorized peer runs locally, though authorized peers exist elsewhere. */
+const noLocalAuthorizedPeer = (callerId: string, remoteCount: number): WorkErrorBody => ({
+  type: "ScopeError",
+  message: `${remoteCount} authorized peer seat(s) run on another host; none run on this Command Center`,
+  details: {
+    caller: callerId,
+    reason: "crew-local-seat-only",
+    hint: "any waits on the local peer seats a drawn edge authorizes, never a seat on another machine",
+    retryable: false,
+    next_step: "run the wait from the Command Center that hosts those seats",
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Subscription helpers
 
@@ -253,11 +292,26 @@ const seatTargetOf = (node: ManagedAgentNode): SeatTarget => ({
 });
 
 /**
+ * Whether this managed seat runs on this Command Center.
+ *
+ * The canonical delivery surface carries the host, and it is the same witness
+ * the delivery path uses to decide which machine owns the PTY. A seat on
+ * another host has no grid and no live state here, so it is not observable.
+ */
+const isLocalSeat = (node: ManagedAgentNode): boolean =>
+  actorDeliverySurfaceOf(node)?.hostId === DEFAULT_STATION_HOST_ID;
+
+/** The host a managed seat's canonical surface names, for the refusal message. */
+const seatHostOf = (node: CanvasNode): string =>
+  actorDeliverySurfaceOf(node)?.hostId ?? DEFAULT_STATION_HOST_ID;
+
+/**
  * Resolve the seats a wait may address under current authority.
  *
- * An explicit target must hold the port on the caller's edge; `any` is every
- * connected actor node whose edge holds the port. The caller is never a
- * candidate for `any` — a seat waiting on itself would always succeed.
+ * An explicit target must hold the port on the caller's edge and run locally;
+ * `any` is every connected actor node whose edge holds the port and that runs
+ * locally. The caller is never a candidate for `any` — a seat waiting on itself
+ * would always succeed.
  */
 const resolveSeatTargets = (
   doc: CanvasDoc,
@@ -271,18 +325,24 @@ const resolveSeatTargets = (
     if (!isManagedAgentNode(node)) {
       return Result.fail(notASeat(args.target, nodeKind(node)));
     }
+    if (!isLocalSeat(node)) {
+      return Result.fail(remoteSeatOnly(args.target, seatHostOf(node)));
+    }
     return Result.succeed([seatTargetOf(node)]);
   }
-  const peers = connectedCapabilities(doc, callerId)
+  const authorized = connectedCapabilities(doc, callerId)
     .filter((peer) => peer.role === "actor" && peer.grants.includes("seat.wait"))
     .map((peer) => findNode(doc, peer.id))
-    .filter((node): node is ManagedAgentNode => node !== undefined && isManagedAgentNode(node))
-    .map(seatTargetOf);
-  if (peers.length === 0) return Result.fail(noAuthorizedPeer(callerId));
-  return Result.succeed(peers);
+    .filter((node): node is ManagedAgentNode => node !== undefined && isManagedAgentNode(node));
+  if (authorized.length === 0) return Result.fail(noAuthorizedPeer(callerId));
+  const local = authorized.filter(isLocalSeat).map(seatTargetOf);
+  if (local.length === 0) {
+    return Result.fail(noLocalAuthorizedPeer(callerId, authorized.length));
+  }
+  return Result.succeed(local);
 };
 
-/** One explicit read target: same authority rule, port `terminal.read`. */
+/** One explicit read target: same authority and locality rule, port `terminal.read`. */
 const resolveReadTarget = (
   doc: CanvasDoc,
   callerId: string,
@@ -293,6 +353,9 @@ const resolveReadTarget = (
   const node = admitted.success.node;
   if (!isManagedAgentNode(node)) {
     return Result.fail(notASeat(targetId, nodeKind(node)));
+  }
+  if (!isLocalSeat(node)) {
+    return Result.fail(remoteSeatOnly(targetId, seatHostOf(node)));
   }
   return Result.succeed(seatTargetOf(node));
 };

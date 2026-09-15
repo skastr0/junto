@@ -17,7 +17,7 @@ import {
 // service's contract is about authority, ordering and bounds, none of which
 // needs a real PTY.
 
-const agentNode = (id: string, bindingId: string): CanvasNode => ({
+const agentNode = (id: string, bindingId: string, host?: string): CanvasNode => ({
   id,
   type: "text",
   text: id,
@@ -28,6 +28,7 @@ const agentNode = (id: string, bindingId: string): CanvasNode => ({
   ether: {
     entity: { kind: "agent", name: `local:${id}` },
     terminal: { bindingId, harness: "claude" },
+    ...(host !== undefined ? { host } : {}),
   },
 });
 
@@ -473,6 +474,68 @@ describe("seat.wait", () => {
     );
     expect(failure(exit)?.type).toBe("UnknownTarget");
   });
+
+  it("refuses a managed seat that runs on another host", async () => {
+    const harness = makeHarness({
+      doc: doc(
+        [
+          agentNode("caller", "bind-caller"),
+          agentNode("peer", "bind-peer", "station-b"),
+        ],
+        [edge("messages", "caller", "peer")],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [seatEvent({ state: "idle" })],
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat({ target: "peer", until: "idle", timeoutMs: 1_000 }, caller),
+    );
+    const error = failure(exit);
+    expect(error?.type).toBe("ScopeError");
+    expect(error?.details?.reason).toBe("crew-local-seat-only");
+    expect(error?.details?.received).toBe("station-b");
+  });
+
+  it("refuses --any when every authorized peer is on another host", async () => {
+    const harness = makeHarness({
+      doc: doc(
+        [
+          agentNode("caller", "bind-caller"),
+          agentNode("peer", "bind-peer", "station-b"),
+        ],
+        [edge("messages", "caller", "peer")],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [seatEvent({ state: "idle" })],
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat({ any: true, until: "idle", timeoutMs: 60 }, caller),
+    );
+    const error = failure(exit);
+    expect(error?.type).toBe("ScopeError");
+    expect(error?.details?.reason).toBe("crew-local-seat-only");
+  });
+
+  it("ignores a remote peer's matching state for --any", async () => {
+    const harness = makeHarness({
+      doc: doc(
+        [
+          agentNode("caller", "bind-caller"),
+          agentNode("local-peer", "bind-local"),
+          agentNode("remote-peer", "bind-remote", "station-b"),
+        ],
+        [edge("messages", "caller", "local-peer"), edge("messages", "caller", "remote-peer")],
+      ),
+      sessionEpoch: "e1",
+      seatEvents: [seatEvent({ bindingId: "bind-remote", state: "idle" })],
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.waitSeat({ any: true, until: "idle", timeoutMs: 60 }, caller),
+    );
+    // The remote seat is authorized but not observable here, so the wait times
+    // out rather than answering from another host's state.
+    expect(failure(exit)?.type).toBe("Timeout");
+  });
 });
 
 describe("seat.read", () => {
@@ -651,6 +714,28 @@ describe("seat.read", () => {
       expect(exit.value.epoch).toBe("e2");
       expect(exit.value.text).toBe("replacement");
     }
+  });
+
+  it("refuses to read a managed seat that runs on another host", async () => {
+    const harness = makeHarness({
+      doc: doc(
+        [
+          agentNode("caller", "bind-caller"),
+          agentNode("peer", "bind-peer", "station-b"),
+        ],
+        [edge("messages", "caller", "peer")],
+      ),
+      sessionEpoch: "e1",
+      window: gridWindow({ lines: ["remote screen"] }),
+    });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer" }, caller),
+    );
+    const error = failure(exit);
+    expect(error?.type).toBe("ScopeError");
+    expect(error?.details?.reason).toBe("crew-local-seat-only");
+    // Nothing was read: the refusal is up front, not a fallback to a stale grid.
+    expect(harness.gridReads()).toBe(0);
   });
 
   it("clips the window to the byte bound and says so", async () => {
