@@ -15,8 +15,12 @@ export const devinRules: SeatRulePack = {
   harness: "devin",
   version: "2026.08.06.1",
   rules: [
-    // First-run workspace trust: "do you trust the authors of this
-    // directory?" + "with untrusted content." + "yes, trust <dir>".
+    // First-run workspace trust. Captured isolated mail-notice.jsonl:
+    // "✱ Do you trust the authors of this directory?"
+    // "For security, devin should not be run in directories with untrusted content."
+    // "❭ 1 Yes, trust" / "· 2 No, exit"
+    // The old AND required "yes, trust " (trailing space) and missed the
+    // captured line, so evaluate fell through to fallback idle.
     {
       id: "workspace_trust_prompt",
       state: "attention",
@@ -29,12 +33,12 @@ export const devinRules: SeatRulePack = {
           {
             contains: [
               "do you trust the authors of this directory?",
-              "with untrusted content.",
-              "yes, trust ",
+              "untrusted content",
+              "yes, trust",
             ],
           },
           { contains: ["do you trust the authors", "yes, trust"] },
-          { contains: ["do you trust authors", "yes", "exit"] },
+          { contains: ["do you trust authors", "yes, trust"] },
         ],
       },
     },

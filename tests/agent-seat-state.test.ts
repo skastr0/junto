@@ -52,23 +52,25 @@ const snap = (
 const HR = "────────────────";
 
 describe("rule packs", () => {
-  it("classifies Devin directory trust as attention, not fallback idle", () => {
-    const longForm = evaluate(
+  it("classifies captured Devin directory trust as attention, not fallback idle", () => {
+    // Exact visible lines from tests/pty-e2e/corpus/devin/mail-notice.jsonl
+    const captured = evaluate(
       snap({
         lines: [
           "Welcome to Devin CLI!",
-          "Do you trust the authors of this directory?",
-          "with untrusted content.",
-          "  1. Yes, trust ~/work",
-          "  2. No, exit",
+          "✱ Do you trust the authors of this directory?",
+          "For security, devin should not be run in directories with untrusted content.",
+          "❭ 1 Yes, trust",
+          "· 2 No, exit",
         ],
       }),
       { harness: "devin" },
     );
-    expect(longForm.state).toBe("attention");
-    expect(longForm.reason).toBe("rule:workspace_trust_prompt");
-    expect(longForm.visibleAttention).toBe(true);
-    const cuaFrame = evaluate(
+    expect(captured.state).toBe("attention");
+    expect(captured.reason).toBe("rule:workspace_trust_prompt");
+    expect(captured.visibleAttention).toBe(true);
+    expect(captured.ruleId).toBe("workspace_trust_prompt");
+    const cuaLive = evaluate(
       snap({
         lines: [
           "Welcome to Devin CLI!",
@@ -80,9 +82,8 @@ describe("rule packs", () => {
       }),
       { harness: "devin" },
     );
-    expect(cuaFrame.state).toBe("attention");
-    expect(cuaFrame.reason).toBe("rule:workspace_trust_prompt");
-    expect(cuaFrame.visibleAttention).toBe(true);
+    expect(cuaLive.state).toBe("attention");
+    expect(cuaLive.reason).toBe("rule:workspace_trust_prompt");
   });
 
   it("ships four harness packs", () => {
