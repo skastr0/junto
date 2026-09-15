@@ -578,10 +578,8 @@ describe("crew mail delivery — process-boundary adversarial", () => {
   );
 
   // Contract ruling: peer envelopes say "mail from <seat>", not
-  // "[factory mail from <seat>]". The preview stripper only removes the
-  // bracketed legacy envelope; a body written under the new ruling echoes
-  // its own envelope inside the notice preview.
-  it.fails(
+  // "[factory mail from <seat>]". The preview stripper removes both forms.
+  it(
     "notice previews strip the current peer envelope, not only the legacy one",
     () => {
       const summary = composeMessageDeliverySummary([
