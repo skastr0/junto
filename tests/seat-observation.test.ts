@@ -111,6 +111,8 @@ type Harness = {
    * exactly what production `current()` now merges.
    */
   readonly retireSeat: (bindingId: string, reason?: string) => void;
+  /** Model the terminal host dropping (or gaining) the session record. */
+  readonly setSession: (epoch: string | undefined) => void;
   readonly emitGrid: (snapshot: ObserverGridSnapshot) => void;
   readonly emitWork: (canvasName?: string, nodeId?: string) => void;
   readonly setWindow: (window: ObserverGridWindow | undefined) => void;
@@ -130,6 +132,7 @@ const makeHarness = (input: {
   let currentDoc = input.doc;
   let seatEvents = [...(input.seatEvents ?? [])];
   let retiredSeats: AgentSeatStateEvent[] = [];
+  let sessionEpoch = input.sessionEpoch;
   let window = input.window;
   let gridReads = 0;
   let seatSubscribed = false;
@@ -160,9 +163,9 @@ const makeHarness = (input: {
       return () => workListeners.delete(listener);
     },
     sessionOf: () =>
-      input.sessionEpoch === undefined
+      sessionEpoch === undefined
         ? undefined
-        : { epoch: input.sessionEpoch, status: "running" },
+        : { epoch: sessionEpoch, status: "running" },
     readGrid: async () => {
       gridReads += 1;
       input.onReadGrid?.(() => harness);
@@ -191,6 +194,9 @@ const makeHarness = (input: {
     emitSeat: (event) => {
       seatEvents = [...seatEvents.filter((entry) => entry.bindingId !== event.bindingId), event];
       for (const listener of seatListeners) listener(event);
+    },
+    setSession: (next) => {
+      sessionEpoch = next;
     },
     retireSeat: (bindingId, reason = "generation_exited") => {
       const prior = seatEvents.find((entry) => entry.bindingId === bindingId);
@@ -699,6 +705,93 @@ describe("seat.read", () => {
       expect(exit.value.seq).toBe(6);
     }
     expect(harness.activeListeners()).toBe(0);
+  });
+
+  it("ends a follow with a terminal result when the seat exits mid-stream", async () => {
+    // The defect: a mid-follow exit detached the grid, so no advancement ever
+    // arrived, the follow burned its whole duration, and the answer was a
+    // missing-grid failure instead of the terminal truth.
+    const harness = makeHarness({
+      doc: peerDoc(),
+      sessionEpoch: "e1",
+      window: gridWindow({ seq: 4n, lines: ["last settled line"] }),
+    });
+    const started = Date.now();
+    const pending = Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer", follow: true, maxSeconds: 30 }, caller),
+    );
+    await settle();
+    expect(harness.gridSubscribed()).toBe(true);
+
+    // The process exits: the seat machine publishes gone (retained as the
+    // tombstone), the terminal host drops the session, and the grid is gone.
+    harness.setWindow(undefined);
+    harness.setSession(undefined);
+    harness.retireSeat("bind-peer");
+
+    const exit = await pending;
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.stopped).toBe("gone");
+      expect(exit.value.state).toBe("gone");
+      expect(exit.value.reason).toBe("generation_exited");
+      expect(exit.value.confidence).toBe("high");
+      // The last settled text of the generation that left, not an empty answer
+      // and never a claim about a generation that does not exist.
+      expect(exit.value.text).toBe("last settled line");
+      expect(exit.value.seq).toBe(4);
+      expect(exit.value.epoch).toBe("e1");
+      expect(exit.value.replaced).toBe(false);
+    }
+    // Resolved on the exit, not on the deadline.
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(harness.activeListeners()).toBe(0);
+  });
+
+  it("reports gone when the exit lands between the advancement signal and the settled read", async () => {
+    // Output advances and the seat exits in the same tick: the follow wakes on
+    // the advancement, and the settled read after the signal finds the grid
+    // already detached. That must report the exit, not a missing grid.
+    let gridReads = 0;
+    const harness = makeHarness({
+      doc: peerDoc(),
+      sessionEpoch: "e1",
+      window: gridWindow({ seq: 4n, lines: ["before"] }),
+      onReadGrid: (self) => {
+        gridReads += 1;
+        if (gridReads >= 2) self().setWindow(undefined);
+      },
+    });
+    const pending = Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer", follow: true, maxSeconds: 5 }, caller),
+    );
+    await settle();
+    harness.setSession(undefined);
+    harness.retireSeat("bind-peer");
+    harness.emitGrid(gridSnapshot({ seq: 5n }));
+
+    const exit = await pending;
+    expect(gridReads).toBeGreaterThanOrEqual(2);
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.stopped).toBe("gone");
+      expect(exit.value.state).toBe("gone");
+      expect(exit.value.reason).toBe("generation_exited");
+    }
+    expect(harness.activeListeners()).toBe(0);
+  });
+
+  it("still fails on a missing grid when the seat published no exit", async () => {
+    // A seat whose terminal has produced no screen is not the same thing as a
+    // seat that left: without a published exit the follow keeps its deadline
+    // and reports the missing grid honestly.
+    const harness = makeHarness({ doc: peerDoc(), sessionEpoch: "e1" });
+    const exit = await Effect.runPromiseExit(
+      harness.service.readSeat({ target: "peer", follow: true, maxSeconds: 1 }, caller),
+    );
+    const error = failure(exit);
+    expect(error?.type).toBe("UnknownTarget");
+    expect(error?.details?.hint).toContain("no live screen");
   });
 
   it("follow returns immediately when output already settled past the cursor", async () => {

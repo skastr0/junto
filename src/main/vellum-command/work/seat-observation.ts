@@ -414,6 +414,22 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
   };
 
   /**
+   * Whether the binding's seat has published a terminal exit for the generation
+   * that owns its grid — the live `gone` event or the tombstone the machine
+   * retains after the binding is dropped, with no live session contradicting it.
+   *
+   * This is what distinguishes "the seat left" from "there is no grid to read
+   * yet": only an explicit published exit counts, so a seat whose terminal has
+   * not produced a screen is still waited on rather than declared gone.
+   */
+  const seatExited = (bindingId: string): boolean => {
+    const seat = seatStateOf(deps.seatStates.current(), bindingId);
+    if (seat === undefined || seat.state !== "gone") return false;
+    const session = deps.sessionOf(bindingId);
+    return session === undefined || session.epoch === seat.epoch;
+  };
+
+  /**
    * The seat's current observation, with whether it belongs to the live
    * generation.
    *
@@ -669,7 +685,12 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         yield* authorize();
         return build(first, "not-following", cursorIsCurrent(args, first));
       }
-      if (first === undefined) return yield* Effect.fail(noLiveGrid(target.nodeId));
+      if (first === undefined) {
+        // A seat that already published its exit has no grid and never will in
+        // this generation: report the terminal truth instead of a missing grid.
+        if (seatExited(target.bindingId)) return build(undefined, "gone", false);
+        return yield* Effect.fail(noLiveGrid(target.nodeId));
+      }
       if (args.sinceGeneration !== undefined && first.epoch !== args.sinceGeneration) {
         // A replacement is explicit: the caller's cursor died with the old
         // generation, so this is the new stream's first window.
@@ -681,6 +702,7 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
       type FollowSignal =
         | { readonly _tag: "advanced" | "replaced" }
         | { readonly _tag: "canvas" }
+        | { readonly _tag: "gone" }
         | { readonly _tag: "duration" };
 
       for (;;) {
@@ -740,9 +762,30 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
           now,
         ).pipe(Effect.map((): FollowSignal => ({ _tag: "duration" })));
 
+        /**
+         * The seat's terminal exit. Without this arm a mid-follow exit is
+         * invisible to the loop — the grid is detached, so no advancement ever
+         * arrives — and the follow would burn its whole duration before failing
+         * as if no grid had ever existed. The subscription is installed before
+         * the current-state check, so an exit that landed during registration
+         * still ends the follow now.
+         */
+        const exit: Effect.Effect<FollowSignal, WorkErrorBody> = Effect.raceFirst(
+          awaitSelected(
+            deps.seatStates.subscribe,
+            (event: AgentSeatStateEvent) =>
+              event.bindingId === target.bindingId && event.state === "gone",
+          ).pipe(Effect.map((): FollowSignal => ({ _tag: "gone" }))),
+          Effect.suspend(() =>
+            seatExited(target.bindingId)
+              ? Effect.succeed({ _tag: "gone" } as FollowSignal)
+              : Effect.never as Effect.Effect<FollowSignal, WorkErrorBody>,
+          ),
+        );
+
         const signal = yield* Effect.raceFirst(
           Effect.raceFirst(advancement, currentSignal),
-          Effect.raceFirst(revocation, expiry),
+          Effect.raceFirst(revocation, Effect.raceFirst(exit, expiry)),
         );
 
         if (signal._tag === "canvas") {
@@ -753,19 +796,34 @@ export const makeSeatObservation = (deps: SeatObservationDeps): SeatObservation 
         }
 
         const settled = yield* windowNow();
-        if (settled === undefined) return yield* Effect.fail(noLiveGrid(target.nodeId));
+        if (settled === undefined && signal._tag !== "gone") {
+          // The grid died between the signal and this read. When the seat has
+          // published its exit that is the truth to report; otherwise there is
+          // genuinely nothing left to read in this generation.
+          if (seatExited(target.bindingId)) {
+            yield* authorize();
+            return build(first, "gone", cursorIsCurrent(args, first));
+          }
+          return yield* Effect.fail(noLiveGrid(target.nodeId));
+        }
         yield* authorize();
         // The final settled read is the truth: a generation that replaced
         // between the signal and this read is reported as a replacement, and
         // the override only ever asserts `true` — never overwrites the
         // cursor-derived replacement with `false`.
         const replacedNow =
-          settled.epoch !== first.epoch ||
-          (args.sinceGeneration !== undefined && settled.epoch !== args.sinceGeneration);
+          settled !== undefined &&
+          (settled.epoch !== first.epoch ||
+            (args.sinceGeneration !== undefined && settled.epoch !== args.sinceGeneration));
+        // A follow that ends because the generation left reports the last
+        // settled text of that generation, and says so when it is the text the
+        // caller's cursor already covered.
+        const empty =
+          signal._tag === "gone" && cursorIsCurrent(args, settled ?? first);
         return build(
-          settled,
+          settled ?? first,
           replacedNow ? "replaced" : signal._tag,
-          false,
+          empty,
           replacedNow ? true : undefined,
         );
       }

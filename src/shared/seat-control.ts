@@ -91,6 +91,12 @@ export const SeatReadStopped = Schema.Literals([
   "duration",
   /** The generation was replaced, so the old stream is over. */
   "replaced",
+  /**
+   * The seat's generation exited while the follow was running, so the stream
+   * ended. This is a terminal result, not a missing grid: the returned window
+   * is the last settled text of the generation that left.
+   */
+  "gone",
 ]);
 export type SeatReadStopped = typeof SeatReadStopped.Type;
 
@@ -220,7 +226,9 @@ export type SeatWaitResult = typeof SeatWaitResult.Type;
  * new one: a replacement is explicit, never concatenated, and the text always
  * belongs to the generation the result names. `truncated` means the retained
  * window or the byte bound clipped the result: this is the settled tail, never
- * a claim of the full transcript.
+ * a claim of the full transcript. `stopped: "gone"` ends a follow whose seat
+ * exited mid-stream: the window is the last settled text of the generation that
+ * left, and the terminal state and reason describe that exit.
  */
 export const SeatReadResult = Schema.Struct({
   target: Schema.String,
