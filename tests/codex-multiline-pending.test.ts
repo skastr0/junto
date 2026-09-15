@@ -41,7 +41,8 @@ describe("recorded Codex multiline composer", () => {
         observer.feed(frame, BigInt(index + 1));
         const snapshot = await observer.snapshot();
         runtime.observe(snapshot);
-        const glyph = snapshot.lines.findLastIndex((line) => /^\s*›/u.test(line));
+        let glyph = snapshot.lines.length - 1;
+        while (glyph >= 0 && !/^\s*›/u.test(snapshot.lines[glyph]!)) glyph -= 1;
         if (glyph >= 0 && snapshot.lines[glyph]!.includes("PASTE_LINE_00")) {
           pendingFrames += 1;
           expect(glyph).toBeLessThan(snapshot.lines.length - 10);
