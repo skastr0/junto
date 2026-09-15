@@ -181,6 +181,7 @@ test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY pa
 test("crew mail [fake-tui]: unacknowledged paste is unresolved and never re-pasted", async () => {
   test.setTimeout(240_000);
   const vellum = await launch();
+  const wakeLog = mainLogOf(vellum);
   try {
     const { page, sandbox } = vellum;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -215,7 +216,27 @@ test("crew mail [fake-tui]: unacknowledged paste is unresolved and never re-past
           ).length,
         { timeout: 90_000, intervals: [500, 1_000, 2_000] },
       )
-      .toBe(1);
+      .toBe(1)
+      .catch(async (cause: unknown) => {
+        const sources = ["seat.read B", "events B", "stdin B", "receipts B"];
+        const evidence = await Promise.allSettled([
+          seatAHandle.op("seat.read", { target: B, lines: 30 }),
+          seatBHandle.events(),
+          seatBHandle.stdinLog(),
+          crewReceipts(page, CANVAS, B),
+        ]);
+        const diagnostics = evidence.map((result, index) => ({
+          source: sources[index],
+          ...(result.status === "fulfilled"
+            ? { status: result.status, value: result.value }
+            : { status: result.status, error: String(result.reason) }),
+        }));
+        throw new Error(
+          `attempt never stamped unresolved.\n[delivery log]\n${wakeLog()}\n` +
+            `[diagnostics]\n${JSON.stringify(diagnostics, null, 2)}`,
+          { cause },
+        );
+      });
     const [attempt] = (await crewMailAttempts(page, CANVAS, B)).filter(
       (row) => row.messageId === messageId,
     );

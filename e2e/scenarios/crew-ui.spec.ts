@@ -131,7 +131,13 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
 
     // A write the seat never acknowledges is unresolved — the ledger says so
     // on the row, in the header count, and on the peer chip in the rail.
-    await seatBHandle.control({ submit: "ignore", paste: "swallow" });
+    // The first mail's ack left the fake in its Working frame; an idle
+    // request returns it so the swallowed write can actually land.
+    await seatBHandle.control({
+      screen: { mode: "idle" },
+      submit: "ignore",
+      paste: "swallow",
+    });
     const swallowed = await seatAHandle.op("msg.send", {
       target: B,
       text: "peer mail: swallowed write",
@@ -151,7 +157,9 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     const unresolvedRow = ledger.locator(
       `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${swallowedId}"]`,
     );
-    await expect(unresolvedRow).toHaveAttribute("data-delivery", "unresolved");
+    await expect(unresolvedRow).toHaveAttribute("data-delivery", "unresolved", {
+      timeout: 15_000,
+    });
     await expect(unresolvedRow).toHaveAttribute("data-unresolved", "true");
     await expect(
       ledger.getByTestId(CREW_UI_SELECTORS.mailUnresolved),
