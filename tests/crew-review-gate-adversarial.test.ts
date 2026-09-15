@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActorSeatId } from "../src/shared/actor-seat";
-import type { ReviewVerdict, VerdictSubject } from "../src/shared/crew";
+import type { MailEvidenceRef, ReviewVerdict, VerdictSubject } from "../src/shared/crew";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { RuleInForce } from "../src/shared/rules";
 import type { Task } from "../src/shared/work-model";
@@ -149,7 +149,7 @@ describe("planVerdictPost — admission", () => {
     subject?: ResolvedReviewSubject;
     kind?: "green" | "blocking";
     findings?: ReadonlyArray<string>;
-    refs?: ReadonlyArray<never>;
+    refs?: ReadonlyArray<MailEvidenceRef>;
     edge?: boolean;
     callerSeat?: ActorSeatId;
   }) =>
@@ -267,7 +267,7 @@ describe("planVerdictPost — admission", () => {
       refs: [
         { kind: "commit", sha: "abc123" },
         { kind: "file", path: "src/x.ts" },
-      ] as ReadonlyArray<never>,
+      ],
     });
     expect(res.ok).toBe(true);
     if (res.ok && res.effect.kind === "blocking") {
@@ -463,7 +463,12 @@ describe("planReceiptMail — the receipt feed", () => {
         { kind: "commit", sha: "abc123" },
         { kind: "file", path: "src/x.ts" },
       ],
-      source: { kind: "task-fact", entity: "completion", seq: 7 },
+      source: {
+        kind: "task-fact",
+        eventHome: "inst-1",
+        entityHome: "inst-1",
+        seq: "7",
+      },
       reviewers: [
         { nodeId: "rev-node", seatId: REVIEWER },
         { nodeId: "other-node", seatId: OTHER },
@@ -510,7 +515,12 @@ describe("planReceiptMail — the receipt feed", () => {
           { kind: "commit", sha: "ABC123" },
           { kind: "commit", sha: "abc123" },
         ],
-        source: { kind: "task-fact", entity: "completion", seq: 7 },
+        source: {
+          kind: "task-fact",
+          eventHome: "inst-1",
+          entityHome: "inst-1",
+          seq: "7",
+        },
         reviewers: [{ nodeId: "rev-node", seatId: REVIEWER }],
         author: { seatId: AUTHOR, generation: "gen-1", harness: "devin" },
         contextId: "ctx",

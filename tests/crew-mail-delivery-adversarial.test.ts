@@ -109,7 +109,14 @@ const makeAttemptLedger = () => {
     batchId?: string;
   }): DeliveryAttempt => ({
     messageId: input.messageId,
-    recipient: { seat: { installationId: "i1", nodeId: input.nodeId }, generation: input.generation },
+    recipient: {
+      seat: {
+        seatId: "seat_recipient" as DeliveryAttempt["recipient"]["seat"]["seatId"],
+        canvasName: input.canvas,
+        nodeId: input.nodeId,
+      },
+      generation: input.generation,
+    },
     policy: input.policy,
     ...(input.batchId !== undefined ? { batchId: input.batchId } : {}),
     facts: { generation: input.generation, queuedAt: new Date().toISOString() },

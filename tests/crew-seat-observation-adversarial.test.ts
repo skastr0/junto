@@ -28,7 +28,20 @@ const agentNode = (id: string, bindingId: string): CanvasNode => ({
 });
 
 const taskSinkNode = (
-  items: ReadonlyArray<{ id: string; state: string; epoch?: number }>,
+  items: ReadonlyArray<{
+    id: string;
+    state:
+      | "submitted"
+      | "working"
+      | "input-required"
+      | "completed"
+      | "canceled"
+      | "failed"
+      | "rejected"
+      | "auth-required"
+      | "archived";
+    epoch?: number;
+  }>,
 ): CanvasNode => ({
   id: "sink",
   type: "text",
@@ -187,7 +200,7 @@ describe("crew seat observation — adversarial authority and ordering", () => {
   it(
     "tasks.wait does not lose a transition landing between check and subscribe",
     async () => {
-      let taskState = "working";
+      let taskState: "working" | "completed" = "working";
       const doc = () =>
         docWith(
           [agentNode("caller", "bind-caller"), taskSinkNode([{ id: "t1", state: taskState, epoch: 1 }])],

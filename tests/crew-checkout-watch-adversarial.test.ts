@@ -36,7 +36,7 @@ describe("checkout attribution — proven context only", () => {
     a.bind({ checkoutKey: "co-1", seatId: SEAT_A, taskId: "t1", via: "claim-context" });
     a.bind({ checkoutKey: "co-1", seatId: SEAT_B, taskId: "t2", via: "claim-context" });
     expect(a.attribute("co-1")).toBeUndefined();
-    expect(a.seatsFor("co-1").sort()).toEqual([SEAT_A, SEAT_B].sort());
+    expect([...a.seatsFor("co-1")].sort()).toEqual([SEAT_A, SEAT_B].sort());
   });
 
   it("one seat's re-bind moves forward; the seat stays single", () => {
