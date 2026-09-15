@@ -6,7 +6,7 @@ import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
 import { readMailExtension, type MailSenderStamp } from "../src/shared/crew";
-import type { CompletionEvidence } from "../src/shared/work-model";
+import type { CompletionEvidence, TaskRule } from "../src/shared/work-model";
 import type { ActorRef } from "../src/shared/work-reference";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
 import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
@@ -121,7 +121,6 @@ const applied = <T>(result: WorkOpResult<T>): T => {
 const evidence = (commits: readonly string[] = []): CompletionEvidence => ({
   artifacts: [],
   git: { commits },
-  claims: [{ ruleId: REVIEW_RULE, text: "The independent verdict is available" }],
 });
 
 const fixture = async (canvas: string, withNextBoard = false, withSecondReviewer = false) => {
@@ -178,7 +177,163 @@ const expectedSubject = (shown: WorkTaskShowView) => ({
   subjectHash: shown.reviewSubject.subjectHash,
 });
 
+const pathFixture = async (canvas: string, ruleBoard: "tasks" | "skipped") => {
+  const rule: TaskRule = {
+    id: "carried-review", text: "Review the final change", kind: "requires-review", board: ruleBoard,
+  };
+  const boards = ["tasks", "final", ...(ruleBoard === "skipped" ? ["skipped"] : [])];
+  await runtime.runPromise(canvases.write(canvas, {
+    nodes: [agent("author", canvas), agent("reviewer", canvas), ...boards.map((id) => board(id))],
+    edges: [
+      reviewEdge,
+      ...boards.map((id): CanvasEdge => ({
+        id: `claim-${id}`, fromNode: id, toNode: "author", ether: { verb: "works" },
+      })),
+      { id: "path-final", fromNode: "tasks", toNode: "final", ether: { verb: "feeds" } },
+      ...(ruleBoard === "skipped" ? [{
+        id: "path-skipped", fromNode: "tasks", toNode: "skipped", ether: { verb: "feeds" as const },
+      }] : []),
+    ],
+  }));
+  const read = await runtime.runPromise(canvases.read(canvas));
+  const actor = (nodeId: string): ActorRef => {
+    const found = read.actorRefs.find((ref) => ref.nodeId === nodeId);
+    if (found === undefined) throw new Error(`Missing actor ref for ${nodeId}`);
+    return found;
+  };
+  const author = actor("author");
+  const reviewer = actor("reviewer");
+  const task = applied(await runtime.runPromise(work.workTaskCreate(
+    canvas, "tasks", "Review the final path result", { details: "Carry review across the task path" },
+    undefined, undefined, undefined, undefined, [rule], { admission: "auto" },
+  )));
+  applied(await runtime.runPromise(work.workTaskClaim(canvas, "tasks", task.id, author)));
+  const show = (nodeId: string) => runtime.runPromise(work.workTaskShow(canvas, nodeId, task.id, "operator"));
+  const snapshot = async (nodeId: string) => {
+    const stored = await runtime.runPromise(repository.readSnapshot(canvas, nodeId));
+    const persisted = stored.tasks.items.find((item) => item.id === task.id);
+    if (persisted === undefined) throw new Error(`Missing task ${task.id} at ${nodeId}`);
+    return persisted;
+  };
+  return { canvas, taskId: task.id, rule, author, reviewer, show, snapshot };
+};
+
 describe("crew reviews through the real WorkService", () => {
+  it("requires terminal review for a skipped-board task rule despite fork and self waivers", async () => {
+    const f = await pathFixture("crew-review-skipped-rule", "skipped");
+    const priorEvidence: CompletionEvidence = {
+      ...evidence([SHA_A]),
+      waivers: [{ ruleId: f.rule.id, reason: "The operator chose the other fork" }],
+    };
+    const originReadiness = await runtime.runPromise(work.workTaskRules(f.canvas, "tasks", f.taskId));
+    expect(originReadiness.readiness?.review.armed).toEqual([]);
+    applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "completed", undefined, priorEvidence, { next: "final" },
+    )));
+    expect((await f.show("tasks")).task.completionEvidence?.waivers).toEqual(priorEvidence.waivers);
+    expect((await runtime.runPromise(repository.readSnapshot(f.canvas, "skipped"))).tasks.items).toEqual([]);
+    applied(await runtime.runPromise(work.workTaskClaim(f.canvas, "final", f.taskId, f.author)));
+
+    const before = await f.show("final");
+    expect(before.rules).toEqual([{ rule: f.rule, provenance: { kind: "task", board: "skipped" } }]);
+    expect(before.task.rules).toEqual([f.rule]);
+    const readiness = await runtime.runPromise(work.workTaskRules(f.canvas, "final", f.taskId));
+    expect(readiness.rules).toEqual(before.rules);
+    expect(readiness.readiness).toMatchObject({
+      unanswered: [],
+      review: {
+        armed: [{ ruleId: f.rule.id, text: f.rule.text }], satisfied: false,
+        unsatisfied: [{ ruleId: f.rule.id, reason: "no-green-current-epoch" }],
+      },
+    });
+    const finalEvidence = evidence([SHA_B]);
+    const selfWaived: CompletionEvidence = {
+      ...finalEvidence,
+      claims: [{ ruleId: f.rule.id, text: "I reviewed the skipped obligation myself" }],
+      waivers: [{ ruleId: f.rule.id, reason: "The skipped fork does not need another review" }],
+    };
+    for (const completionEvidence of [finalEvidence, selfWaived]) {
+      const refused = await runtime.runPromise(work.workTaskTransition(
+        f.canvas, "final", f.taskId, "completed", undefined, completionEvidence,
+      ));
+      expect(refused).toMatchObject({ ok: false, code: "not_ready", details: { reason: "review-required" } });
+      expect(await f.snapshot("final")).toEqual(before.task);
+      expect((await f.show("final")).verdicts).toEqual([]);
+    }
+
+    applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "final", f.taskId, "working", undefined, finalEvidence,
+    )));
+    const staged = await f.show("final");
+    expect(staged.task.completionEvidence).toEqual(finalEvidence);
+    const green = applied(await runtime.runPromise(work.workVerdictPost(f.canvas, "final", {
+      subject: expectedSubject(staged), kind: "green",
+    }, f.reviewer)));
+    expect(green).toMatchObject({ epoch: staged.reviewSubject.epoch, subject: expectedSubject(staged) });
+    const approved = await runtime.runPromise(work.workTaskRules(f.canvas, "final", f.taskId));
+    expect(approved.readiness).toMatchObject({ unanswered: [], review: { satisfied: true, unsatisfied: [] } });
+    const completed = applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "final", f.taskId, "completed", undefined, finalEvidence,
+    )));
+    expect(completed).toMatchObject({ state: "completed", completionEvidence: finalEvidence });
+    expect((await f.show("final")).reviewSubject.subjectHash).toBe(staged.reviewSubject.subjectHash);
+  });
+
+  it("requires terminal review of new refs after a task rule was approved at a prior board", async () => {
+    const f = await pathFixture("crew-review-prior-board-rule", "tasks");
+    const priorEvidence = evidence([SHA_A]);
+    applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "working", undefined, priorEvidence,
+    )));
+    const prior = await f.show("tasks");
+    expect(prior.task.completionEvidence).toEqual(priorEvidence);
+    const priorGreen = applied(await runtime.runPromise(work.workVerdictPost(f.canvas, "tasks", {
+      subject: expectedSubject(prior), kind: "green",
+    }, f.reviewer)));
+    applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "completed", undefined, priorEvidence,
+    )));
+    applied(await runtime.runPromise(work.workTaskClaim(f.canvas, "final", f.taskId, f.author)));
+    const finalEvidence = evidence([SHA_B]);
+    applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "final", f.taskId, "working", undefined, finalEvidence,
+    )));
+    const current = await f.show("final");
+    expect(current.task.completionEvidence).toEqual(finalEvidence);
+    expect(current.reviewSubject.epoch).toBe(prior.reviewSubject.epoch);
+    expect(current.reviewSubject.subjectHash).not.toBe(prior.reviewSubject.subjectHash);
+    expect(current.rules).toEqual([{ rule: f.rule, provenance: { kind: "task", board: "tasks" } }]);
+    const readiness = await runtime.runPromise(work.workTaskRules(f.canvas, "final", f.taskId));
+    expect(readiness.rules).toEqual(current.rules);
+    expect(readiness.readiness).toMatchObject({
+      unanswered: [],
+      review: { armed: [{ ruleId: f.rule.id, text: f.rule.text }], satisfied: false },
+    });
+    const refused = await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "final", f.taskId, "completed", undefined, finalEvidence,
+    ));
+    expect(refused).toMatchObject({ ok: false, code: "not_ready", details: { reason: "review-required" } });
+    expect(await f.snapshot("final")).toEqual(current.task);
+    const stale = await runtime.runPromise(work.workVerdictPost(f.canvas, "final", {
+      subject: expectedSubject(prior), kind: "green",
+    }, f.reviewer));
+    expect(stale).toMatchObject({ ok: false, details: { reason: "stale-subject" } });
+    expect(await f.snapshot("final")).toEqual(current.task);
+    expect((await f.show("final")).verdicts).toEqual([]);
+    expect((await f.show("tasks")).verdicts.map((verdict) => verdict.verdictId)).toEqual([priorGreen.verdictId]);
+
+    const finalGreen = applied(await runtime.runPromise(work.workVerdictPost(f.canvas, "final", {
+      subject: expectedSubject(current), kind: "green",
+    }, f.reviewer)));
+    const completed = applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "final", f.taskId, "completed", undefined, finalEvidence,
+    )));
+    expect(completed).toMatchObject({ state: "completed", completionEvidence: finalEvidence });
+    const after = await f.show("final");
+    expect(after.reviewSubject.subjectHash).toBe(current.reviewSubject.subjectHash);
+    expect(after.verdicts.map((verdict) => verdict.verdictId)).toEqual([finalGreen.verdictId]);
+  });
+
   it("reports the current author as ReviewerIsAuthor without requiring a self-review edge", async () => {
     const f = await fixture("crew-review-self");
     const before = await f.show();
@@ -241,6 +396,12 @@ describe("crew reviews through the real WorkService", () => {
     const f = await fixture("crew-review-live-edge");
     const shown = await f.show();
     const input = { subject: expectedSubject(shown), kind: "green" as const };
+    const selfClaimOnly = await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "completed", undefined,
+      { artifacts: [], claims: [{ ruleId: REVIEW_RULE, text: "I reviewed my work" }] },
+    ));
+    expect(selfClaimOnly).toMatchObject({ ok: false, code: "not_ready", details: { reason: "review-required" } });
+    expect(await f.snapshot()).toEqual(shown.task);
     const posted = applied(await runtime.runPromise(work.workVerdictPost(f.canvas, "tasks", input, f.reviewer)));
     const working = await f.snapshot();
     const revoked: readonly [string, CanvasEdge | undefined][] = [

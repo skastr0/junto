@@ -1021,6 +1021,15 @@ export const WorkLive = Layer.effect(
       task: Task,
       installationId: string,
     ) => Effect.gen(function* () {
+      const currentRules = rulesInForce(read.doc, nodeId, task);
+      const rules: ReadonlyArray<RuleInForce> = flowDestinations(read.doc, nodeId).length > 0
+        ? currentRules
+        : [
+            ...currentRules,
+            ...(task.rules ?? [])
+              .filter((rule) => rule.kind === "requires-review" && rule.board !== nodeId)
+              .map((rule): RuleInForce => ({ rule, provenance: { kind: "task", board: rule.board } })),
+          ];
       const projection = reviewSubjectProjection({
         installationId,
         canvasName: canvas,
@@ -1041,13 +1050,13 @@ export const WorkLive = Layer.effect(
         actorRefs: read.actorRefs,
       });
       const gate = evaluateReviewGate({
-        rulesInForce: rulesInForce(read.doc, nodeId, task),
+        rulesInForce: rules,
         projection,
         verdicts,
         authorSeatId: projection.authorSeatId,
         reviewerHasCurrentEdge: (seatId) => reviewers.some((reviewer) => reviewer.seatId === seatId),
       });
-      return { projection, verdicts, gate };
+      return { projection, verdicts, gate, rules };
     });
 
     const requireNode = (
@@ -2139,7 +2148,7 @@ export const WorkLive = Layer.effect(
               name: identity.name,
             },
             visits,
-            rules: rulesInForce(read.doc, nodeId, task),
+            rules: review.rules,
             ambient: {
               regions: regionStackFor(read.doc, nodeId),
               ...(boardInstructions ? { boardInstructions } : {}),
@@ -2196,6 +2205,7 @@ export const WorkLive = Layer.effect(
           ]);
           const unanswered = rules
             .filter(({ rule, provenance }) => {
+              if (rule.kind === "requires-review") return false;
               // Task rules answer at their own board; region/board rules are
               // once per epoch, answered by any live recorded claim.
               const claimed =
@@ -2242,7 +2252,7 @@ export const WorkLive = Layer.effect(
           );
           const home = yield* itemHome("task", canvas, nodeId, task.id);
           const review = yield* reviewForTask(read, canvas, nodeId, task, home);
-          return { rules, readiness: { unanswered, checks, review: review.gate } };
+          return { rules: review.rules, readiness: { unanswered, checks, review: review.gate } };
         }),
 
       workRulingsList: (canvas, nodeId) =>
