@@ -12,9 +12,10 @@
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { transportLogDirectory } from "../../src/shared/transport-trace";
 import type { Page } from "@playwright/test";
 import { expect, launchVellum, test } from "../harness/launch";
 import {
@@ -41,6 +42,8 @@ const HOLD = process.env.ISOLATED_DEVIN_HOLD === "1";
 const HOLD_MS = Number.parseInt(process.env.ISOLATED_DEVIN_HOLD_MS ?? "90000", 10);
 const DEVIN_BINDING = "local:isolated-devin";
 const HOLD_NOTE = join("/tmp", "isolated-devin-mail-hold.json");
+const PRESERVED_PTY_TRACE = join("/tmp", "isolated-devin-pty-delivery.jsonl");
+const PRESERVED_TRANSPORT = join("/tmp", "isolated-devin-transport.jsonl");
 
 const sha256File = (path: string): string | undefined => {
   if (!existsSync(path)) return undefined;
@@ -164,6 +167,7 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
   writeFileSync(HOLD_NOTE, `${JSON.stringify({ phase: "prelaunch", ...provenance })}\n`);
   const vellum = await launchVellum({
     seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
+    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
     afterSeed: async (sandbox) => {
       const prepared = await seedIsolatedDevinAppHome(
         sandbox,
@@ -178,18 +182,30 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
     },
   });
 
+  const preserveLogs = (sandboxHome: string) => {
+    const logs = transportLogDirectory(sandboxHome);
+    const pty = join(logs, "pty-delivery.jsonl");
+    const transport = join(logs, "transport.jsonl");
+    if (existsSync(pty)) copyFileSync(pty, PRESERVED_PTY_TRACE);
+    if (existsSync(transport)) copyFileSync(transport, PRESERVED_TRANSPORT);
+    return {
+      ptyTracePath: existsSync(PRESERVED_PTY_TRACE) ? PRESERVED_PTY_TRACE : null,
+      transportPath: existsSync(PRESERVED_TRANSPORT) ? PRESERVED_TRANSPORT : null,
+      ptyTraceBytes: existsSync(PRESERVED_PTY_TRACE)
+        ? readFileSync(PRESERVED_PTY_TRACE).length
+        : 0,
+    };
+  };
+
   const writeHold = (extra: Record<string, unknown>) => {
     const electronMainPid = vellum.app.process().pid;
     const body = {
+      ...provenance,
+      ...extra,
       electronMainPid,
-      harnessPid: extra.harnessPid,
-      sandboxHome: extra.sandboxHome,
-      cwd: extra.cwd,
       canvas: ISOLATED_DEVIN_MAIL_CANVAS,
       window: HOLD ? "visible" : "offscreen",
       holdMs: HOLD ? HOLD_MS : 0,
-      ...provenance,
-      ...extra,
     };
     writeFileSync(HOLD_NOTE, `${JSON.stringify(body)}\n`);
     console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify(body)}`);
@@ -272,17 +288,34 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
       )
       .toBe(true);
 
+    const items = await projectedMessages(
+      page,
+      ISOLATED_DEVIN_MAIL_CANVAS,
+      ISOLATED_DEVIN_RECEIVER_ID,
+    );
+    const found = items.find((item) => item.messageId === messageId);
+    const readAt = found?.metadata?.readAt ?? null;
+    const fromSeat = found?.metadata?.fromSeat ?? null;
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
+    const logs = preserveLogs(sandbox.homeDir);
     writeHold({
       harnessPid: occupied.pid,
       sandboxHome: sandbox.homeDir,
       cwd: occupied.cwd,
       messageId,
+      senderFromSeat: fromSeat,
+      readAt,
+      ...logs,
     });
     if (HOLD) {
       await page.waitForTimeout(HOLD_MS);
     }
   } finally {
+    try {
+      preserveLogs(vellum.sandbox.homeDir);
+    } catch {
+      /* keep close */
+    }
     await vellum.close();
   }
 });
