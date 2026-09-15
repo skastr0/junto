@@ -25,6 +25,7 @@ import {
 } from "./regions";
 import type {
   ObserverGridSnapshot,
+  ObserverGridWindow,
   ObserverListener,
   ObserverSignals,
   SessionObserverOptions,
@@ -622,6 +623,59 @@ export class SessionObserver {
     // still sitting in the flush window.
     await this.settled();
     return this.buildAttachScreen();
+  }
+
+  /**
+   * Bounded read-only window over retained scrollback + viewport, as of the
+   * last settled write.
+   *
+   * `lines` counts back from the bottom of the viewport. A window wider than
+   * the retained buffer returns what is retained and reports the clip, so a
+   * caller can never mistake this for the whole transcript. Nothing here
+   * writes, resizes, or signals — this is the observe port's only screen
+   * access.
+   */
+  async readWindow(lines: number): Promise<ObserverGridWindow> {
+    await this.settled();
+    return this.buildWindow(lines);
+  }
+
+  private buildWindow(lines: number): ObserverGridWindow {
+    const cols = this.term.cols;
+    const rows = this.term.rows;
+    if (this.disposed) {
+      return {
+        bindingId: this.bindingId,
+        epoch: this.epoch,
+        cols,
+        rows,
+        seq: this.seq,
+        lines: [],
+        totalLines: 0,
+        truncated: false,
+      };
+    }
+    const buf = this.term.buffer.active;
+    const totalLines = buf.length;
+    const endY = Math.max(0, Math.min(totalLines - 1, buf.viewportY + rows - 1));
+    const requested = Math.max(1, Math.trunc(lines));
+    const available = endY + 1;
+    const want = Math.min(requested, available);
+    const out: string[] = [];
+    for (let y = endY - want + 1; y <= endY; y += 1) {
+      const line = buf.getLine(y);
+      out.push(line ? line.translateToString(true, 0, cols) : "");
+    }
+    return {
+      bindingId: this.bindingId,
+      epoch: this.epoch,
+      cols,
+      rows,
+      seq: this.seq,
+      lines: out,
+      totalLines,
+      truncated: want < requested,
+    };
   }
 
   attachScreenNow(): import("./types").AttachScreen {

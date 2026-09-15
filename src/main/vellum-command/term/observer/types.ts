@@ -47,6 +47,30 @@ export type ObserverGridSnapshot = {
 export type ObserverListener = (snapshot: ObserverGridSnapshot) => void;
 
 /**
+ * One bounded read-only window over a live session's retained grid: the
+ * scrollback tail plus the viewport, as of the last settled write.
+ *
+ * This is the observe port's only screen access. It carries no write, resize,
+ * or signal authority, and it is deliberately a window rather than a stream:
+ * `totalLines` and `truncated` say exactly how much of the retained grid the
+ * caller actually received.
+ */
+export type ObserverGridWindow = {
+  readonly bindingId: string;
+  /** Generation the returned grid belongs to. */
+  readonly epoch: string;
+  readonly cols: number;
+  readonly rows: number;
+  /** PTY journal sequence of the settled grid this window was read from. */
+  readonly seq: bigint;
+  readonly lines: readonly string[];
+  /** Lines the grid retained at read time. */
+  readonly totalLines: number;
+  /** The requested window exceeded what the grid retains. */
+  readonly truncated: boolean;
+};
+
+/**
  * Full-buffer VT attach payload for the renderer. Used after the exact raw
  * byte journal has truncated; survives long sessions without replaying from
  * the middle of an escape sequence or flattening terminal presentation.

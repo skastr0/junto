@@ -210,6 +210,7 @@ export type CanvasReadTag =
   | "untagged"
   | "overseer.canvas"
   | "work.control"
+  | "work.seatObservation"
   | "work.service";
 
 export type CanvasPortfolioView = {

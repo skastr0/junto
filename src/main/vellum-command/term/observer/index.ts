@@ -13,6 +13,7 @@ import type {
 export type {
   AttachScreen,
   ObserverGridSnapshot,
+  ObserverGridWindow,
   ObserverListener,
   ObserverModes,
   ObserverRegionName,
@@ -144,6 +145,33 @@ export class TerminalObserverPlane {
     bindingId: string,
   ): Promise<import("./types").AttachScreen | undefined> {
     return this.byBinding.get(bindingId)?.attachScreen();
+  }
+
+  /**
+   * Settled read-only window for a binding, or undefined when no observer is
+   * live for it — a seat with no grid has nothing to observe.
+   *
+   * The observer is re-resolved after the await: a replacement generation
+   * (resume, respawn) can detach and re-attach this binding while the read is
+   * in flight, and answering with the detached observer's epoch would pair an
+   * old generation's screen with the new generation's session. Bounded retry,
+   * because a replacement is a one-shot event and the caller is always under
+   * its own deadline.
+   */
+  async readWindow(
+    bindingId: string,
+    lines: number,
+  ): Promise<import("./types").ObserverGridWindow | undefined> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const observer = this.byBinding.get(bindingId);
+      if (observer === undefined) return undefined;
+      const window = await observer.readWindow(lines);
+      if (this.byBinding.get(bindingId) === observer) return window;
+    }
+    // Still churning after three reads: return the newest coherent window
+    // (it carries its own epoch), and let the caller see the generation it
+    // actually came from rather than inventing one.
+    return this.byBinding.get(bindingId)?.readWindow(lines);
   }
 
   subscribeAll(listener: ObserverListener): () => void {
