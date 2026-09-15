@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import type { CanvasDoc, TextNode } from "../src/shared/canvas";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
   LocalSessionHost,
 } from "../src/main/vellum-command/term/local-host";
@@ -40,6 +41,10 @@ import { setProcessEpochReaderForTests } from "../src/main/vellum-command/proces
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const submitted: ManagedPromptOutcome = {
+  status: "submitted", bindingGeneration: 0,
+  writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+};
 
 afterEach(async () => {
   while (cleanups.length > 0) {
@@ -103,7 +108,7 @@ describe("shared destination drive factory", () => {
     });
     await expect(
       drive.writePrompt("seat", "hello", { awaitTurnStart: false }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual(submitted);
     expect(writes).toHaveLength(2);
   });
 });
@@ -121,7 +126,7 @@ describe("term control managedPrompt", () => {
     bindManagedTerminalDriveForOverseer({
       writePrompt: async (bindingId: string, text: string, options?: { queueIfBusy?: boolean }) => {
         calls.push({ bindingId, text, queueIfBusy: options?.queueIfBusy ?? true });
-        return true;
+        return submitted;
       },
       interrupt: async (_bindingId: string) => true,
     } as unknown as import("../src/main/vellum-command/term/drive").ManagedTerminalDrive);
@@ -137,6 +142,29 @@ describe("term control managedPrompt", () => {
     await expect(client.managedPrompt("bind-y", "")).rejects.toThrow(
       /bindingId and text/,
     );
+  });
+
+  it.each([
+    { ...submitted, status: "unresolved" as const, reason: "no-turn-start" as const },
+    {
+      status: "refused" as const, reason: "written-unresolved" as const,
+      bindingGeneration: 0, writesBefore: 1, writesAfter: 1, pasteWrites: 0, wrotePhysicalBytes: false,
+    },
+  ])("preserves uncertainty across the socket for $status/$reason without retrying", async (outcome) => {
+    const drive = createManagedTerminalDrive({
+      write: () => { throw new Error("receipt fixture must not write"); },
+      isSeatIdle: () => false,
+      seatState: () => "unknown",
+      onAttention: () => undefined,
+      snapshot: () => undefined,
+      composerVerdict: () => "unreadable",
+      harnessFor: () => "codex",
+    });
+    const write = vi.spyOn(drive, "writePrompt").mockResolvedValue(outcome);
+    bindManagedTerminalDriveForOverseer(drive);
+    const { client } = await bootServer();
+    await expect(client.managedPrompt("bind-held", "same payload")).rejects.toBeInstanceOf(TermControlTransportUncertainError);
+    expect(write).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -430,11 +458,11 @@ describe("snapshot-unknown evidence", () => {
     await vi.advanceTimersByTimeAsync(120);
     present = false;
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(first).resolves.toBe(false);
+    await expect(first).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending", pasteWrites: 1, wrotePhysicalBytes: true });
     expect(attention).toContain("prompt-stalled");
     // Paste + recipe CR only: no chip CR, no recovery CR into the unknown.
     expect(writes).toHaveLength(2);
-    await expect(drive.writePrompt("seat", "retry")).resolves.toBe(false);
+    await expect(drive.writePrompt("seat", "retry")).resolves.toMatchObject({ status: "refused", reason: "written-unresolved", pasteWrites: 0, wrotePhysicalBytes: false });
     expect(writes).toHaveLength(2);
   });
 
@@ -450,7 +478,7 @@ describe("snapshot-unknown evidence", () => {
     const first = drive.writePrompt("seat", "hello");
     await vi.advanceTimersByTimeAsync(120);
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(first).resolves.toBe(true);
+    await expect(first).resolves.toEqual(submitted);
     expect(writes).toHaveLength(2);
   });
 });
@@ -498,13 +526,13 @@ describe("shared runtime lifecycle", () => {
     await vi.advanceTimersByTimeAsync(10);
     hostListener({ kind: "session", bindingId: "seat", exited: false, running: true });
     await vi.advanceTimersByTimeAsync(300);
-    await expect(first).resolves.toBe(false);
+    await expect(first).resolves.toMatchObject({ status: "unresolved", reason: "no-turn-start", bindingGeneration: 0, pasteWrites: 1, wrotePhysicalBytes: true });
     // Paste only: the submit CR never reaches the replacement generation.
     expect(writes).toHaveLength(1);
     const second = drive.writePrompt("seat", "new");
     await vi.advanceTimersByTimeAsync(120);
     seatListener({ bindingId: "seat", state: "working" });
-    await expect(second).resolves.toBe(true);
+    await expect(second).resolves.toMatchObject({ status: "submitted", bindingGeneration: 1, pasteWrites: 1, wrotePhysicalBytes: true });
     expect(writes).toHaveLength(3);
     dispose();
     expect(unsubscribed).toEqual({ host: true, seat: true, composer: true });
