@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
@@ -160,13 +160,10 @@ const makeHarness = (input: {
 
 const failureOf = (
   exit: Exit.Exit<unknown, { type?: string; details?: { reason?: string } }>,
-): { type?: string; details?: { reason?: string } } | undefined => {
-  if (!Exit.isFailure(exit)) return undefined;
-  const found = Cause.findFail(exit.cause);
-  if (found._tag !== "Success") return undefined;
-  const reason = found.success;
-  return reason._tag === "Fail" ? reason.error : undefined;
-};
+): { type?: string; details?: { reason?: string } } | undefined =>
+  Exit.isFailure(exit)
+    ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+    : undefined;
 
 const settle = async (ms = 40): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -312,6 +309,51 @@ describe("crew seat observation — adversarial authority and ordering", () => {
     harness.setDoc(revoked);
     harness.emitCanvas("c");
     const exit = await pending;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = failureOf(exit);
+      expect(error?.type).toBe("ScopeError");
+    }
+  });
+
+  // The narrow window between the wait's first authority read and its canvas
+  // subscription registration: a grant revoked inside it produces no change
+  // event this wait can observe, and no seat event ever arrives to trigger a
+  // revalidation. Only a post-subscribe reread catches it — without one the
+  // wait sits under a dead grant until timeout instead of failing closed.
+  it("seat.wait fails closed when the grant dies between auth read and subscribe", async () => {
+    const authorized = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [messagesEdge],
+    );
+    const revoked = docWith(
+      [agentNode("caller", "bind-caller"), agentNode("peer", "bind-peer")],
+      [],
+    );
+    let reads = 0;
+    let subscribed = false;
+    const service = makeSeatObservation({
+      readDoc: () => {
+        reads += 1;
+        return Effect.succeed(reads === 1 ? authorized : revoked);
+      },
+      subscribeCanvasChanges: () => {
+        subscribed = true;
+        return () => {};
+      },
+      seatStates: { current: () => [], subscribe: () => () => {} },
+      subscribeWorkChanges: () => () => {},
+      sessionOf: () => ({ epoch: "e1", status: "running" }),
+      readGrid: async () => undefined,
+      subscribeGrid: () => () => {},
+    });
+    const exit = await Effect.runPromiseExit(
+      service.waitSeat(
+        { target: "peer", until: "idle", timeoutMs: 400 },
+        { canvasName: "c", nodeId: "caller" },
+      ),
+    );
+    expect(subscribed).toBe(true);
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       const error = failureOf(exit);
