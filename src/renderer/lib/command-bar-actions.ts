@@ -66,16 +66,31 @@ export const filterCommandBarActions = (
 
 const FLAG_CYCLE: ReadonlyArray<EtherFlag> = ["blocker", "parked", "attention"];
 
-const openDigest = async (canvasName: string): Promise<void> => {
+const DIGEST_UNAVAILABLE = "Canvas digest is unavailable.";
+const DIGEST_FAILED = "Canvas digest failed; the panel did not open.";
+
+const digestErrorMessage = (error: unknown): string =>
+  error instanceof Error && error.message.trim()
+    ? error.message
+    : DIGEST_FAILED;
+
+/** Open the digest for the named canvas. Late results after a switch are dropped. */
+export const openCanvasDigest = async (canvasName: string): Promise<void> => {
   try {
     const result = await window.vellumCommand?.exportDigest(canvasName);
-    if (!result) return;
+    if (state$.canvasName.peek() !== canvasName) return;
+    if (result == null) {
+      state$.error.set(DIGEST_UNAVAILABLE);
+      return;
+    }
     batch(() => {
+      state$.error.set("");
       state$.digest.set(result);
       state$.digestOpen.set(true);
     });
-  } catch {
-    // Digest generation failed: stay quiet, the panel only opens with content.
+  } catch (error) {
+    if (state$.canvasName.peek() !== canvasName) return;
+    state$.error.set(digestErrorMessage(error));
   }
 };
 
@@ -143,7 +158,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     label: "Open canvas digest",
     detail: "Deterministic text projection of the board",
     icon: ScrollText,
-    run: () => void openDigest(canvasName),
+    run: () => void openCanvasDigest(canvasName),
   });
 
   // One entry per other canvas — switching stays a one-keypress jump.

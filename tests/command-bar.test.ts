@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
 import type { CanvasNode } from "../src/shared/canvas";
 
@@ -65,12 +65,15 @@ describe("command bar node ranking", () => {
 });
 
 import { Play, type LucideIcon } from "lucide-react";
+import type { DigestResult } from "../src/shared/ipc";
 import {
   commandBarActionQuery,
   commandBarMode,
   filterCommandBarActions,
+  openCanvasDigest,
   type CommandBarAction,
 } from "../src/renderer/lib/command-bar-actions";
+import { state$ } from "../src/renderer/lib/state";
 
 const action = (id: string, label: string, detail = ""): CommandBarAction => ({
   id,
@@ -112,5 +115,91 @@ describe("command bar actions mode", () => {
     expect(filterCommandBarActions(catalog, "frame").map((a) => a.id)).toEqual(["a"]);
     expect(filterCommandBarActions(catalog, ">filter").map((a) => a.id)).toEqual(["c"]);
     expect(filterCommandBarActions(catalog, "nope")).toEqual([]);
+  });
+});
+
+type DigestApi = { exportDigest: (name: string) => Promise<DigestResult | undefined> };
+
+const digestWindow = (): { vellumCommand?: DigestApi } => {
+  const g = globalThis as { window?: { vellumCommand?: DigestApi } };
+  if (g.window === undefined) g.window = {};
+  return g.window;
+};
+
+describe("openCanvasDigest", () => {
+  const prior = digestWindow().vellumCommand;
+
+  afterEach(() => {
+    digestWindow().vellumCommand = prior;
+    state$.canvasName.set("");
+    state$.digest.set(null);
+    state$.digestOpen.set(false);
+    state$.error.set("");
+  });
+
+  it("opens the panel when export succeeds", async () => {
+    state$.canvasName.set("ops");
+    digestWindow().vellumCommand = {
+      exportDigest: async () => ({ digest: "board", path: "ops.digest.txt" }),
+    };
+    await openCanvasDigest("ops");
+    expect(state$.digestOpen.peek()).toBe(true);
+    expect(state$.digest.peek()).toEqual({
+      digest: "board",
+      path: "ops.digest.txt",
+    });
+    expect(state$.error.peek()).toBe("");
+  });
+
+  it("surfaces export failure on state.error and does not open", async () => {
+    state$.canvasName.set("ops");
+    digestWindow().vellumCommand = {
+      exportDigest: async () => {
+        throw new Error("digest write failed");
+      },
+    };
+    await openCanvasDigest("ops");
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.digest.peek()).toBeNull();
+    expect(state$.error.peek()).toBe("digest write failed");
+  });
+
+  it("treats a missing result as failure", async () => {
+    state$.canvasName.set("ops");
+    digestWindow().vellumCommand = undefined;
+    await openCanvasDigest("ops");
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.error.peek()).toBe("Canvas digest is unavailable.");
+  });
+
+  it("ignores a late result after the canvas changed", async () => {
+    state$.canvasName.set("ops");
+    let release: (value: DigestResult) => void = () => undefined;
+    const pending = new Promise<DigestResult>((resolve) => {
+      release = resolve;
+    });
+    digestWindow().vellumCommand = { exportDigest: async () => pending };
+    const done = openCanvasDigest("ops");
+    state$.canvasName.set("other");
+    release({ digest: "stale", path: "ops.digest.txt" });
+    await done;
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.digest.peek()).toBeNull();
+    expect(state$.error.peek()).toBe("");
+  });
+
+  it("ignores a late failure after the canvas changed", async () => {
+    state$.canvasName.set("ops");
+    let rejectPending: (error: Error) => void = () => undefined;
+    const pending = new Promise<DigestResult>((_resolve, reject) => {
+      rejectPending = reject;
+    });
+    digestWindow().vellumCommand = { exportDigest: async () => pending };
+    const done = openCanvasDigest("ops");
+    state$.canvasName.set("other");
+    rejectPending(new Error("digest write failed"));
+    await done;
+    expect(state$.digestOpen.peek()).toBe(false);
+    expect(state$.error.peek()).toBe("");
   });
 });
