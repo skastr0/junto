@@ -502,7 +502,7 @@ const mapWorkCode = (
       return {
         type: "InputError",
         message,
-        details: { ...details, retryable: false },
+        details: { ...details, retryable: details?.retryable ?? false },
       };
   }
 };

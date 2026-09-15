@@ -15,6 +15,7 @@ import {
   decodeWorkResponse,
   encodeWorkFrame,
   workControlTokenPath,
+  type WorkErrorDetails,
 } from "../src/shared/work-control";
 import type { PreambleEvent } from "../src/shared/preamble";
 import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
@@ -416,6 +417,72 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
+  it.each([
+    {
+      reason: "stale-subject",
+      details: {
+        reason: "stale-subject", retryable: true,
+        expected: { epoch: 2, subjectHash: "a".repeat(64) },
+        received: { epoch: 1, subjectHash: "b".repeat(64) },
+        next_step: "Read the current task subject and retry the verdict",
+      },
+      retryable: true,
+    },
+    {
+      reason: "author-unresolved",
+      details: {
+        reason: "author-unresolved", retryable: true,
+        target: "tasks", missing: "current task author",
+        next_step: "Wait for an author to claim the task, then retry",
+      },
+      retryable: true,
+    },
+    {
+      reason: "subject-settled",
+      details: { reason: "subject-settled", retryable: false, received: "archived" },
+      retryable: false,
+    },
+    {
+      reason: "invalid-subject",
+      details: { reason: "invalid-subject", path: "subject", expected: "a current task subject" },
+      retryable: false,
+    },
+  ] satisfies ReadonlyArray<{
+    reason: string;
+    details: WorkErrorDetails;
+    retryable: boolean;
+  }>)("preserves $reason input-error details through the verdict socket", async ({ details, retryable }) => {
+    const runtime = runtimes[0]!;
+    const work = await runtime.runPromise(WorkService);
+    const reviewer = await projectedProcessActor();
+    const input = {
+      subject: { kind: "task" as const, taskId: "t1", epoch: 1, subjectHash: "b".repeat(64) },
+      kind: "green" as const,
+    };
+    // Stub only the domain result. Authentication, argument decoding, error
+    // mapping, framing and client response decoding all run on the real socket.
+    const post = vi.spyOn(work, "workVerdictPost").mockReturnValue(Effect.succeed({
+      ok: false, code: "invalid", message: "The review subject cannot be accepted", details,
+    }));
+    try {
+      const decoded = decodeWorkResponse(await call(servers[0]!.socketPath, {
+        token: token(), op: "verdict.post", args: { target: "tasks", ...input },
+      }));
+      expect(post).toHaveBeenCalledExactlyOnceWith("work-cli", "tasks", input, reviewer);
+      expect(decoded._tag).toBe("Success");
+      if (decoded._tag !== "Success") throw new Error("Invalid work-control response frame");
+      expect(decoded.success.ok).toBe(false);
+      if (decoded.success.ok) throw new Error("Expected the domain refusal over the socket");
+      expect(decoded.success.error).toEqual({
+        type: "InputError",
+        message: "The review subject cannot be accepted",
+        details: { ...details, retryable },
+      });
+    } finally {
+      post.mockRestore();
+    }
+  });
+
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses the Live protocol while disabled even when a handler is installed", async () => {
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
     const { server } = await startTestServer({ onOverseerLive: bridge });
