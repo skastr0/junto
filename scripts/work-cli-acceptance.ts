@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Live acceptance for the work control plane + compiled `dist/vellum-command`.
  *
@@ -8,11 +8,16 @@
  * artifact/request + 0600 token + wrong-token AuthError without fighting
  * Electron's single-instance lock.
  *
- *   bun run cli:build && bun scripts/work-cli-acceptance.ts
+ * The daemon uses node:sqlite, so run it under Node, not Bun:
+ *
+ *   bun run cli:build
+ *   bun build scripts/work-cli-acceptance.ts --target=node --format=cjs --packages=external --outfile=node_modules/.cache/work-cli-acceptance.cjs
+ *   node -e 'require("./node_modules/.cache/work-cli-acceptance.cjs").runWorkCliAcceptance().catch(error => { console.error(error); process.exitCode = 1; })'
  */
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { createConnection } from "node:net";
@@ -32,6 +37,9 @@ import {
   type WorkControlShutdownReceipt,
 } from "../src/main/vellum-command/work/control";
 import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
+import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
@@ -425,7 +433,7 @@ const log = (label: string, body: string) => {
   process.stdout.write(`\n### ${label}\n${body.trim()}\n`);
 };
 
-const main = async () => {
+export const runWorkCliAcceptance = async () => {
   if (!existsSync(CLI)) {
     throw new Error("missing dist/vellum-command — run bun run cli:build");
   }
@@ -452,11 +460,19 @@ const main = async () => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
+      CrewRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
+      makeContentServiceLive({
+        root: join(root, "content"),
+        skipInlineMediaMigration: true,
+      }),
     ),
-    makeStateEngineLive(join(root, "state", "vellum-command.db")),
+    Layer.mergeAll(
+      makeStateEngineLive(join(root, "state", "vellum-command.db")),
+      makeInstallOpsLive(join(root, "state", "install-ops.db")),
+    ),
   );
   const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
   const workLive = Layer.provideMerge(
@@ -596,25 +612,24 @@ const main = async () => {
     const req = await runCli(
       processPlane,
       [
-        "request",
-        "create",
+        "escalate",
         JSON.stringify({
           target: REQS,
           brief: "approve ship?",
+          reason: "Confirm the acceptance artifact can ship",
           metadata: { from: "acceptance" },
         }),
       ],
       env,
       outside,
     );
-    log("request create", req.stdout || req.stderr);
+    log("escalate", req.stdout || req.stderr);
 
     // Resolve request via WorkService (UI path analogue) so block would clear.
     const reqBody = JSON.parse(req.stdout || "{}");
-    const createdId =
-      reqBody?.data?.results?.[0]?.ok === true
-        ? reqBody.data.results[0].data.id
-        : undefined;
+    const createdId = reqBody?.ok === true ? reqBody.data?.request?.id : undefined;
+    const requestOk = req.code === 0 && typeof createdId === "string" && reqBody.data?.blocked === true;
+    let requestResolvedOk = false;
     if (createdId) {
       const resolved = await runtime.runPromise(
         Effect.gen(function* () {
@@ -628,6 +643,7 @@ const main = async () => {
           );
         }),
       );
+      requestResolvedOk = resolved.ok && resolved.disposition === "applied";
       log("request resolve (service)", JSON.stringify(resolved));
     }
 
@@ -639,7 +655,11 @@ const main = async () => {
         JSON.stringify({
           target: ARTS,
           name: "report",
-          parts: [{ kind: "raw", path: artifactPath }],
+          parts: [{
+            kind: "raw",
+            bytesBase64: readFileSync(artifactPath).toString("base64"),
+            mediaType: "text/plain",
+          }],
         }),
       ],
       env,
@@ -722,6 +742,8 @@ const main = async () => {
           doctor: doctorOk,
           claim: claimOk,
           batch_partial: batchOk,
+          request: requestOk,
+          request_resolve: requestResolvedOk,
           scope: scopeOk,
           artifact: artOk,
           auth: authOk,
@@ -732,7 +754,7 @@ const main = async () => {
       ),
     );
 
-    if (!doctorOk || !claimOk || !batchOk || !scopeOk || !authOk || !artOk || tokMode !== 0o600) {
+    if (!doctorOk || !claimOk || !batchOk || !requestOk || !requestResolvedOk || !scopeOk || !authOk || !artOk || tokMode !== 0o600) {
       throw new Error("work CLI acceptance verdict failed");
     }
   } catch (error) {
@@ -838,7 +860,7 @@ if (
   invokedPath !== undefined &&
   import.meta.url === pathToFileURL(resolve(invokedPath)).href
 ) {
-  void main().catch((error) => {
+  void runWorkCliAcceptance().catch((error) => {
     console.error(error);
     process.exitCode = 1;
   });
