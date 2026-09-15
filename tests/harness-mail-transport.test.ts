@@ -9,6 +9,8 @@ import {
   HARNESS_MAIL_TRANSPORT,
   buildIsolatedHarnessLaunch,
   isolatedCaptureEnv,
+  isolatedSpawnRuntimeEnv,
+  mailTransportTiers,
   templateFor,
 } from "../src/shared/managed-terminal-templates";
 import { buildSpawnEnv } from "./pty-e2e/pty-capture";
@@ -30,7 +32,11 @@ describe("harness mail transport facts", () => {
     expect(HARNESS_MAIL_TRANSPORT.kimi.typedNotice).toBe("unavailable-setup");
     expect(HARNESS_MAIL_TRANSPORT.cursor.typedNotice).toBe("unavailable-setup");
     for (const id of HARNESS_IDS) {
-      expect(HARNESS_MAIL_TRANSPORT[id].typedNoticeQualified, id).toBe(false);
+      const tiers = mailTransportTiers(HARNESS_MAIL_TRANSPORT[id]);
+      expect(tiers.t1NativeChannel, id).toBe(false);
+      expect(tiers.t2Qualified, id).toBe(false);
+      expect(tiers.t3PullOnly, id).toBe(true);
+      expect(tiers.t2Support, id).toBe(HARNESS_MAIL_TRANSPORT[id].typedNotice);
     }
   });
 
@@ -72,6 +78,8 @@ describe("isolated capture home", () => {
         CODEX_HOME: path.join(operator, ".codex"),
         PI_CODING_AGENT_DIR: path.join(operator, ".pi", "agent"),
         SECRET_HISTORY: "must-not-copy",
+        OPENAI_API_KEY: "sk-operator",
+        ANTHROPIC_API_KEY: "sk-operator",
       });
       if (spec.captureHome === "unsupported") {
         expect(result.ok, id).toBe(false);
@@ -86,6 +94,9 @@ describe("isolated capture home", () => {
       expect(result.env.HOME, id).toBe(isolated);
       expect(result.env.HOME).not.toBe(operator);
       expect(result.env.SECRET_HISTORY).toBeUndefined();
+      expect(result.env.OPENAI_API_KEY).toBeUndefined();
+      expect(result.env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(HARNESS_ISOLATION[id].credentialEnv, id).toEqual([]);
       for (const pin of spec.homePins) {
         expect(result.env[pin.envKey], `${id} ${pin.envKey}`).toBe(`${isolated}/${pin.homeRelative}`);
         expect(result.env[pin.envKey]?.startsWith(operator + path.sep) ?? false).toBe(false);
@@ -133,6 +144,21 @@ describe("isolated capture home", () => {
     expect(JSON.stringify(overseer)).not.toContain(operator);
   });
 
+  it("refuses the operator home as an isolated capture home", () => {
+    const operator = os.homedir();
+    const refused = isolatedCaptureEnv("codex", operator, {
+      HOME: operator,
+      OPENAI_API_KEY: "sk-operator",
+    });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) throw new Error("unreachable");
+    expect(refused.limitation).toContain("operator home");
+    expect("env" in refused).toBe(false);
+    expect(JSON.stringify(refused)).not.toContain("sk-operator");
+    expect(isolatedCaptureEnv("muse", "", {}).ok).toBe(false);
+    expect(isolatedCaptureEnv("muse", "~", {}).ok).toBe(false);
+  });
+
   it("capture spawn overlay relocates Claude and Pi config dirs", () => {
     const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
     const claude = buildSpawnEnv(
@@ -149,6 +175,53 @@ describe("isolated capture home", () => {
     expect(claude.HOME).toBe(isolated);
     expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(isolated, ".claude"));
   });
+
+  it("isolated spawn env does not inherit operator auth keys", () => {
+    const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
+    const previous = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      CODEX_HOME: process.env.CODEX_HOME,
+    };
+    process.env.ANTHROPIC_API_KEY = "sk-operator-anthropic";
+    process.env.OPENAI_API_KEY = "sk-operator-openai";
+    process.env.CODEX_HOME = path.join(os.homedir(), ".codex");
+    try {
+      const claude = buildSpawnEnv(
+        {
+          name: "claude",
+          displayName: "Claude Code",
+          argv: () => [],
+          promptGlyphs: [">"],
+          exitRecipe: [],
+        },
+        isolated,
+        isolated,
+      );
+      expect(claude.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(claude.OPENAI_API_KEY).toBeUndefined();
+      expect(claude.CODEX_HOME).toBeUndefined();
+      expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(isolated, ".claude"));
+      expect(claude.HOME).toBe(isolated);
+      const runtime = isolatedSpawnRuntimeEnv({
+        PATH: "/sandbox/bin",
+        ANTHROPIC_API_KEY: "sk-operator-anthropic",
+        SSH_AUTH_SOCK: "/tmp/ssh.sock",
+        HOME: os.homedir(),
+      });
+      expect(runtime.PATH).toBe("/sandbox/bin");
+      expect(runtime.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(runtime.SSH_AUTH_SOCK).toBeUndefined();
+      expect(runtime.HOME).toBeUndefined();
+    } finally {
+      if (previous.ANTHROPIC_API_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previous.ANTHROPIC_API_KEY;
+      if (previous.OPENAI_API_KEY === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous.OPENAI_API_KEY;
+      if (previous.CODEX_HOME === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previous.CODEX_HOME;
+    }
+  });
 });
 
 describe("committed capture stream provenance", () => {
@@ -156,8 +229,13 @@ describe("committed capture stream provenance", () => {
     const root = path.join(import.meta.dirname, "pty-e2e", "corpus");
     for (const id of HARNESS_IDS) {
       const hasNotice = fs.existsSync(path.join(root, id, "mail-notice.jsonl"));
+      const hasPaste = fs.existsSync(path.join(root, id, "paste-chip.jsonl"));
+      const hasIdle = fs.existsSync(path.join(root, id, "startup-idle.jsonl"));
       expect(HARNESS_MAIL_TRANSPORT[id].typedNoticeQualified, id).toBe(hasNotice);
       expect(HARNESS_MAIL_TRANSPORT[id].nativeChannel, id).toBe(false);
+      if (hasPaste || hasIdle) {
+        expect(hasNotice, `${id} corpus is not mail qualification`).toBe(false);
+      }
     }
   });
 

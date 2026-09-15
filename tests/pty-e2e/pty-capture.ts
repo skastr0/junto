@@ -57,6 +57,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   isolatedCaptureEnv,
+  isolatedSpawnRuntimeEnv,
   isHarnessId,
 } from "../../src/shared/managed-terminal-templates";
 
@@ -460,15 +461,22 @@ type RawEvent = { t: number; buf: Buffer };
  * is inherited as-is.
  */
 export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Record<string, string> {
-  const e: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v === undefined || ENV_SCRUB.includes(k)) continue;
-    e[k] = v;
-  }
   const operatorHome = process.env.PTY_CAPTURE_OPERATOR_HOME === "1";
   if (operatorHome) {
     console.warn(`[${def.name}] WARNING: PTY_CAPTURE_OPERATOR_HOME=1 — harness sees the real HOME; operator config may enter the recording`);
-  } else if (isHarnessId(def.name)) {
+    const e: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v === undefined || ENV_SCRUB.includes(k)) continue;
+      e[k] = v;
+    }
+    e.PWD = cwd;
+    delete e.OLDPWD;
+    e.TERM = "xterm-256color";
+    e.LANG = e.LANG ?? "en_US.UTF-8";
+    return e;
+  }
+  const e: Record<string, string> = isolatedSpawnRuntimeEnv(process.env);
+  if (isHarnessId(def.name)) {
     const overlay = isolatedCaptureEnv(def.name, home, process.env);
     if (!overlay.ok) {
       throw new Error(`[${def.name}] capture home unsupported: ${overlay.limitation}`);

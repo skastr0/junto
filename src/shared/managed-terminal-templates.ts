@@ -8,6 +8,7 @@
  * Zero writes to user harness configs. No MCP/ACP paths.
  */
 
+import { homedir } from "node:os";
 import { Schema } from "effect";
 import { managedHarnessEnabled } from "./features";
 
@@ -373,6 +374,21 @@ export type MailTransportSpec = {
   readonly pullOnly: true;
 };
 
+/** Exact tiers for harness list / doctor. Same facts as MailTransportSpec, not parallel keys. */
+export type MailTransportTiers = {
+  readonly t1NativeChannel: boolean;
+  readonly t2Support: MailTypedNoticeSupport;
+  readonly t2Qualified: boolean;
+  readonly t3PullOnly: true;
+};
+
+export const mailTransportTiers = (spec: MailTransportSpec): MailTransportTiers => ({
+  t1NativeChannel: spec.nativeChannel,
+  t2Support: spec.typedNotice,
+  t2Qualified: spec.typedNoticeQualified,
+  t3PullOnly: spec.pullOnly,
+});
+
 export type IsolationHomePin = {
   readonly envKey: string;
   /** Path relative to the isolated capture home. */
@@ -510,6 +526,31 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
 };
 
 /**
+ * Host process keys a caller may merge onto an isolated overlay.
+ * Auth tokens, SSH agent, and harness config dirs are not in this list.
+ */
+export const ISOLATED_SPAWN_RUNTIME_KEYS = [
+  "PATH",
+  "TERM",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+] as const;
+
+const stripTrailingSep = (value: string): string => value.replace(/[/\\]+$/, "");
+
+export const isOperatorHomePath = (
+  candidate: string,
+  operatorHome: string = homedir(),
+): boolean => {
+  if (candidate.length === 0 || operatorHome.length === 0) return false;
+  return stripTrailingSep(candidate) === stripTrailingSep(operatorHome);
+};
+
+/**
  * Overlay for a disposable capture or generated-canvas real-harness spawn.
  * `ok: true` `env` is HOME / XDG / config pins / declared credential keys
  * only — merge onto the sandbox process env. Never copy operator history
@@ -560,6 +601,15 @@ export const isolatedCaptureEnv = (
       limitation: spec.limitation ?? "capture home unsupported",
     };
   }
+  if (isolatedHome.length === 0 || isolatedHome === "~" || isolatedHome === ".") {
+    return { ok: false, limitation: "isolated home must be an absolute throwaway directory" };
+  }
+  if (isOperatorHomePath(isolatedHome)) {
+    return {
+      ok: false,
+      limitation: "isolated home must not be the operator home",
+    };
+  }
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(ambient)) {
     if (value === undefined) continue;
@@ -575,6 +625,18 @@ export const isolatedCaptureEnv = (
     env[pin.envKey] = `${isolatedHome}/${pin.homeRelative}`;
   }
   return { ok: true, env, limitation: spec.limitation };
+};
+
+/** Runtime PATH/TERM/TMP only. Never auth keys or operator HOME. */
+export const isolatedSpawnRuntimeEnv = (
+  runtime: NodeJS.Dict<string | undefined>,
+): Record<string, string> => {
+  const env: Record<string, string> = {};
+  for (const key of ISOLATED_SPAWN_RUNTIME_KEYS) {
+    const value = runtime[key];
+    if (value !== undefined && value.length > 0) env[key] = value;
+  }
+  return env;
 };
 
 /** Constructor for generated-canvas / pty-capture. `cwd` and `isolatedHome` must be throwaway. */

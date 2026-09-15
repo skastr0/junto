@@ -23,6 +23,7 @@ import {
   allTemplates,
   isHarnessId,
   isSandboxGatedPermissionMode,
+  mailTransportTiers,
   templateFor,
 } from "../src/shared/managed-terminal-templates";
 import {
@@ -150,6 +151,12 @@ describe("managed-terminal templates (data)", () => {
     expect(CLAUDE_TEMPLATE.mailTransport.pullOnly).toBe(true);
     expect(CLAUDE_TEMPLATE.mailTransport.nativeChannel).toBe(false);
     expect(CLAUDE_TEMPLATE.mailTransport.typedNoticeQualified).toBe(false);
+    expect(mailTransportTiers(CLAUDE_TEMPLATE.mailTransport)).toEqual({
+      t1NativeChannel: false,
+      t2Support: "working",
+      t2Qualified: false,
+      t3PullOnly: true,
+    });
     expect(HERMES_TEMPLATE.mailTransport.typedNotice).toBe("unavailable-setup");
     expect(HERMES_TEMPLATE.mailTransport.typedNoticeQualified).toBe(false);
     expect(CLAUDE_TEMPLATE.isolation.homePins[0]?.envKey).toBe("CLAUDE_CONFIG_DIR");
