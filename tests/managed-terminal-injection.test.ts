@@ -75,6 +75,7 @@ describe("compiled doctrine — base and slots", () => {
     // msg slot
     expect(text).toContain("### Edge contract — messages");
     expect(text).toContain("pull-only");
+    expect(text).toContain("not a live-qualified delivery channel");
     expect(text).toContain("mail from <seat>");
     expect(text).toContain("[factory mail from …]");
     expect(text).toContain("msg.prompt");

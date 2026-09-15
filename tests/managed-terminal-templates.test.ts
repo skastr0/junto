@@ -149,7 +149,9 @@ describe("managed-terminal templates (data)", () => {
     );
     expect(CLAUDE_TEMPLATE.mailTransport.pullOnly).toBe(true);
     expect(CLAUDE_TEMPLATE.mailTransport.nativeChannel).toBe(false);
+    expect(CLAUDE_TEMPLATE.mailTransport.typedNoticeQualified).toBe(false);
     expect(HERMES_TEMPLATE.mailTransport.typedNotice).toBe("unavailable-setup");
+    expect(HERMES_TEMPLATE.mailTransport.typedNoticeQualified).toBe(false);
     expect(CLAUDE_TEMPLATE.isolation.homePins[0]?.envKey).toBe("CLAUDE_CONFIG_DIR");
     expect(CODEX_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain(
       "no cold resume",

@@ -280,7 +280,7 @@ const msgSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 | intent | command |
 |---|---|
 | read / write thread | \`vellum-command msg list\` (own inbox, no target — marks listed mail read; \`sent\` shows whether peers read your mail) - \`vellum-command msg send '{"target":"${t}","text":"..."}'\` - \`vellum-command msg react '{"messageId":"<msgId>"}'\` (ack, reply later) - \`vellum-command msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |
-| peer mail | Mailbox is pull-only: at every turn boundary run \`msg list\`. Kinds are \`notice\`, \`prompt\`, and \`receipt\`. A typed notice arrives as \`mail from <seat>\` (older rows may still say \`[factory mail from …]\`). When mail arrives: \`msg list\` (own inbox). \`msg react\` if you will reply later. \`msg reply\` when you have an answer. |
+| peer mail | Mailbox is pull-only (T3): at every turn boundary run \`msg list\`. Typed-notice paste is harness support, not a live-qualified delivery channel. Kinds are \`notice\`, \`prompt\`, and \`receipt\`. A typed notice arrives as \`mail from <seat>\` (older rows may still say \`[factory mail from …]\`). When mail arrives: \`msg list\` (own inbox). \`msg react\` if you will reply later. \`msg reply\` when you have an answer. |
 | prompt | Port \`msg.prompt\` — immediate full-body turn to a peer. Independent of \`msg.send\`. |
 | wait | Port \`seat.wait\` — subscribe until idle, attention, working, or gone. |
 | observe | Port \`terminal.read\` — settled grid. Granted by default on a messages edge; a mask can only remove compiled ports. |

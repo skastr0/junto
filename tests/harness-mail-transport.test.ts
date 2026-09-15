@@ -24,11 +24,14 @@ describe("harness mail transport facts", () => {
     }
   });
 
-  it("typed-notice working is distinct from unavailable setup", () => {
+  it("typed-notice working is support, not live qualification", () => {
     expect(HARNESS_MAIL_TRANSPORT.claude.typedNotice).toBe("working");
     expect(HARNESS_MAIL_TRANSPORT.hermes.typedNotice).toBe("unavailable-setup");
     expect(HARNESS_MAIL_TRANSPORT.kimi.typedNotice).toBe("unavailable-setup");
     expect(HARNESS_MAIL_TRANSPORT.cursor.typedNotice).toBe("unavailable-setup");
+    for (const id of HARNESS_IDS) {
+      expect(HARNESS_MAIL_TRANSPORT[id].typedNoticeQualified, id).toBe(false);
+    }
   });
 
   it("does not mint message metadata keys on the template", () => {
@@ -63,19 +66,29 @@ describe("isolated capture home", () => {
     const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
     for (const id of HARNESS_IDS) {
       const spec = HARNESS_ISOLATION[id];
-      const { env } = isolatedCaptureEnv(id, isolated, {
+      const result = isolatedCaptureEnv(id, isolated, {
         HOME: operator,
         CLAUDE_CONFIG_DIR: path.join(operator, ".claude"),
         CODEX_HOME: path.join(operator, ".codex"),
         PI_CODING_AGENT_DIR: path.join(operator, ".pi", "agent"),
         SECRET_HISTORY: "must-not-copy",
       });
-      expect(env.HOME, id).toBe(isolated);
-      expect(env.HOME).not.toBe(operator);
-      expect(env.SECRET_HISTORY).toBeUndefined();
+      if (spec.captureHome === "unsupported") {
+        expect(result.ok, id).toBe(false);
+        if (result.ok) throw new Error("unreachable");
+        expect(result.limitation.length, id).toBeGreaterThan(0);
+        expect(JSON.stringify(result), id).not.toContain(operator);
+        expect("env" in result, id).toBe(false);
+        continue;
+      }
+      expect(result.ok, id).toBe(true);
+      if (!result.ok) throw new Error("unreachable");
+      expect(result.env.HOME, id).toBe(isolated);
+      expect(result.env.HOME).not.toBe(operator);
+      expect(result.env.SECRET_HISTORY).toBeUndefined();
       for (const pin of spec.homePins) {
-        expect(env[pin.envKey], `${id} ${pin.envKey}`).toBe(`${isolated}/${pin.homeRelative}`);
-        expect(env[pin.envKey]?.startsWith(operator + path.sep) ?? false).toBe(false);
+        expect(result.env[pin.envKey], `${id} ${pin.envKey}`).toBe(`${isolated}/${pin.homeRelative}`);
+        expect(result.env[pin.envKey]?.startsWith(operator + path.sep) ?? false).toBe(false);
       }
     }
   });
@@ -94,6 +107,8 @@ describe("isolated capture home", () => {
         SECRET_HISTORY: "must-not-copy",
       },
     });
+    expect(launch.ok).toBe(true);
+    if (!launch.ok) throw new Error("unreachable");
     expect(launch.harness).toBe("claude");
     expect(launch.captureHome).toBe("isolated");
     expect(launch.isolatedHome).toBe(isolatedHome);
@@ -108,9 +123,14 @@ describe("isolated capture home", () => {
       harness: "vellum-overseer",
       isolatedHome,
       cwd,
+      ambient: { HOME: operator },
     });
+    expect(overseer.ok).toBe(false);
+    if (overseer.ok) throw new Error("unreachable");
     expect(overseer.captureHome).toBe("unsupported");
-    expect(overseer.env.HOME).toBe(isolatedHome);
+    expect(overseer.limitation.length).toBeGreaterThan(0);
+    expect("env" in overseer).toBe(false);
+    expect(JSON.stringify(overseer)).not.toContain(operator);
   });
 
   it("capture spawn overlay relocates Claude and Pi config dirs", () => {
@@ -135,7 +155,8 @@ describe("committed capture stream provenance", () => {
   it("does not treat T2 working as a mail-notice corpus", () => {
     const root = path.join(import.meta.dirname, "pty-e2e", "corpus");
     for (const id of HARNESS_IDS) {
-      expect(fs.existsSync(path.join(root, id, "mail-notice.jsonl")), id).toBe(false);
+      const hasNotice = fs.existsSync(path.join(root, id, "mail-notice.jsonl"));
+      expect(HARNESS_MAIL_TRANSPORT[id].typedNoticeQualified, id).toBe(hasNotice);
       expect(HARNESS_MAIL_TRANSPORT[id].nativeChannel, id).toBe(false);
     }
   });

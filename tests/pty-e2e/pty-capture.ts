@@ -470,6 +470,9 @@ export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Recor
     console.warn(`[${def.name}] WARNING: PTY_CAPTURE_OPERATOR_HOME=1 — harness sees the real HOME; operator config may enter the recording`);
   } else if (isHarnessId(def.name)) {
     const overlay = isolatedCaptureEnv(def.name, home, process.env);
+    if (!overlay.ok) {
+      throw new Error(`[${def.name}] capture home unsupported: ${overlay.limitation}`);
+    }
     Object.assign(e, overlay.env);
     Object.assign(e, def.env?.(home) ?? {});
   } else {

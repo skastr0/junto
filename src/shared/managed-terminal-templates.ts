@@ -348,16 +348,20 @@ export type CapabilityBadges = {
 // ── Mail transport (crew mail substrate) ───────────────────────────────────
 
 /**
- * T2 typed-notice paste capability. This is not Message.metadata.mailKind
- * (`notice` | `prompt` | `receipt`). `unavailable-setup` means isolation,
- * credentials, or a model picker currently cannot prove notice acceptance.
- * Hooks that only report idle/state are not a native channel.
+ * T2 typed-notice paste *support*, not live qualification and not
+ * Message.metadata.mailKind (`notice` | `prompt` | `receipt`).
+ * `working` means a paste channel exists. `unavailable-setup` means
+ * isolation, credentials, or a picker currently cannot prove notice
+ * acceptance. Hooks that only report idle/state are not a native channel.
  */
 export type MailTypedNoticeSupport = "working" | "unavailable-setup";
 
 /**
- * Per-harness mail delivery facts. T1 `nativeChannel` is true only when an
- * implemented transport proves acceptance. Every harness is T3 pull-only.
+ * Per-harness mail delivery facts consumed by harness list / doctor.
+ * T1 `nativeChannel` is true only when an implemented transport proves
+ * acceptance — false everywhere today. T2 `typedNotice` is support;
+ * `typedNoticeQualified` is live isolated notice/prompt proof and stays
+ * false until a mail-notice corpus exists. Every harness is T3 pull-only.
  * Mail facts (queuedAt, notifiedAt, unresolvedAt, refusedAt, refusedReason,
  * readAt, repliedAt, reactedAt, generation) live on the message attempt,
  * never here. Legacy deliveredAt maps to notifiedAt only.
@@ -365,6 +369,7 @@ export type MailTypedNoticeSupport = "working" | "unavailable-setup";
 export type MailTransportSpec = {
   readonly nativeChannel: boolean;
   readonly typedNotice: MailTypedNoticeSupport;
+  readonly typedNoticeQualified: boolean;
   readonly pullOnly: true;
 };
 
@@ -389,12 +394,14 @@ export type IsolationSpec = {
 const MAIL_T2_WORKING: MailTransportSpec = {
   nativeChannel: false,
   typedNotice: "working",
+  typedNoticeQualified: false,
   pullOnly: true,
 };
 
 const MAIL_T2_UNAVAILABLE: MailTransportSpec = {
   nativeChannel: false,
   typedNotice: "unavailable-setup",
+  typedNoticeQualified: false,
   pullOnly: true,
 };
 
@@ -504,28 +511,55 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
 
 /**
  * Overlay for a disposable capture or generated-canvas real-harness spawn.
- * `env` is HOME / XDG / config pins / declared credential keys only — merge
- * onto the sandbox process env. Never copy operator history or settings.
+ * `ok: true` `env` is HOME / XDG / config pins / declared credential keys
+ * only — merge onto the sandbox process env. Never copy operator history
+ * or settings. `ok: false` is a hard refusal: no env, never operator HOME.
  */
-export type IsolatedHarnessLaunch = {
-  readonly harness: HarnessId;
-  readonly isolatedHome: string;
-  readonly cwd: string;
-  readonly env: Record<string, string>;
-  readonly captureHome: IsolationSpec["captureHome"];
-  readonly limitation?: string;
-};
+export type IsolatedCaptureEnvResult =
+  | {
+      readonly ok: true;
+      readonly env: Record<string, string>;
+      readonly limitation?: string;
+    }
+  | {
+      readonly ok: false;
+      readonly limitation: string;
+    };
+
+export type IsolatedHarnessLaunch =
+  | {
+      readonly ok: true;
+      readonly harness: HarnessId;
+      readonly isolatedHome: string;
+      readonly cwd: string;
+      readonly env: Record<string, string>;
+      readonly captureHome: "isolated";
+      readonly limitation?: string;
+    }
+  | {
+      readonly ok: false;
+      readonly harness: HarnessId;
+      readonly captureHome: "unsupported";
+      readonly limitation: string;
+    };
 
 /**
  * Build a capture/test environment that never points HOME or harness config
  * at the operator's real home. Inherits only declared credential keys.
+ * `captureHome: "unsupported"` refuses with a limitation and returns no env.
  */
 export const isolatedCaptureEnv = (
   harness: HarnessId,
   isolatedHome: string,
   ambient: NodeJS.Dict<string | undefined> = process.env,
-): { readonly env: Record<string, string>; readonly limitation?: string } => {
+): IsolatedCaptureEnvResult => {
   const spec = HARNESS_ISOLATION[harness];
+  if (spec.captureHome === "unsupported") {
+    return {
+      ok: false,
+      limitation: spec.limitation ?? "capture home unsupported",
+    };
+  }
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(ambient)) {
     if (value === undefined) continue;
@@ -540,7 +574,7 @@ export const isolatedCaptureEnv = (
   for (const pin of spec.homePins) {
     env[pin.envKey] = `${isolatedHome}/${pin.homeRelative}`;
   }
-  return { env, limitation: spec.limitation };
+  return { ok: true, env, limitation: spec.limitation };
 };
 
 /** Constructor for generated-canvas / pty-capture. `cwd` and `isolatedHome` must be throwaway. */
@@ -550,19 +584,27 @@ export const buildIsolatedHarnessLaunch = (input: {
   readonly cwd: string;
   readonly ambient?: NodeJS.Dict<string | undefined>;
 }): IsolatedHarnessLaunch => {
-  const spec = HARNESS_ISOLATION[input.harness];
-  const { env, limitation } = isolatedCaptureEnv(
+  const overlay = isolatedCaptureEnv(
     input.harness,
     input.isolatedHome,
     input.ambient,
   );
+  if (!overlay.ok) {
+    return {
+      ok: false,
+      harness: input.harness,
+      captureHome: "unsupported",
+      limitation: overlay.limitation,
+    };
+  }
   return {
+    ok: true,
     harness: input.harness,
     isolatedHome: input.isolatedHome,
     cwd: input.cwd,
-    env: { ...env, PWD: input.cwd },
-    captureHome: spec.captureHome,
-    limitation,
+    env: { ...overlay.env, PWD: input.cwd },
+    captureHome: "isolated",
+    limitation: overlay.limitation,
   };
 };
 
