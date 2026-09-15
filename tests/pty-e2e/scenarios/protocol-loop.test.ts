@@ -12,7 +12,7 @@
  * current tree IS the reproduction.
  *
  *   PROTO-1  A->B->C in one flush window -> exactly ONE notice (today: one per commit)
- *   PROTO-2  failed drive attempt must not re-paste on every idle (today: unbounded)
+ *   PROTO-2  pre-write refusals remain retryable; accepted mail never re-pastes
  *   PROTO-3  stale "Added" notice must not be pasted after the edge is removed
  *   PROTO-4  A->B->A nets to zero -> ZERO notices (today: two)
  *   PROTO-5  delivery paste is a compact one-liner with ids only (today: full contract table)
@@ -263,8 +263,8 @@ describe("PROTO-1/4/9 — edge-map notice generation over real commits", () => {
 // PROTO-2 — delivery re-drive loop
 // ---------------------------------------------------------------------------
 
-describe("PROTO-2 — failed drive attempt must not re-paste on every idle", () => {
-  it("a notice whose paste write fails stays pending and is re-attempted on EVERY idle today (expected: bounded)", async () => {
+describe("PROTO-2 — rejected calls are not accepted physical pastes", () => {
+  it("retries a refused write, delivers once when available, and never repeats accepted mail", async () => {
     const { harness, loop, advance, flush } = await setupLoop({ wedged: true, canvasName: "proto2" });
     try {
       const NAME = "proto2";
@@ -282,33 +282,51 @@ describe("PROTO-2 — failed drive attempt must not re-paste on every idle", () 
       await flush();
       expect(loop.pasteWrites().length).toBe(1); // one refused attempt
       expect((await harness.pendingEdgeNotices(NAME, "A")).length).toBe(1);
+      const notice = (await harness.pendingEdgeNotices(NAME, "A"))[0]!;
+      expect(loop.deliveredPastePayloads()).toEqual([]);
+      expect(loop.drive.pasteWriteCount(loop.bindingId)).toBe(0);
+      expect(await harness.hasReceipt(NAME, "A", notice.message.messageId)).toBe(false);
 
-      // Three real working->idle turn cycles. Each idle transition re-drives
-      // the pending notice through ipc.ts:1290 wiring. ACTUAL today: every
-      // idle re-attempts the same un-receipted notice (no attempt cap, no
-      // backoff, no duplicate-content guard) — recorded, not asserted, so
-      // the test never encodes the buggy growth as expected.
+      // Three real working->idle cycles can retry a rejection before bytes.
+      // The writer logs those calls, but the fake PTY accepts no envelope and
+      // the durable source remains pending. Failed calls are not paste proof.
       const attemptsPerIdle: number[] = [];
       for (let i = 0; i < 3; i += 1) {
         const before = loop.pasteWrites().length;
         await loop.runTurn(advance, flush);
         attemptsPerIdle.push(loop.pasteWrites().length - before);
+        expect(loop.deliveredPastePayloads()).toEqual([]);
+        expect(loop.drive.pasteWriteCount(loop.bindingId)).toBe(0);
+        expect(await harness.hasReceipt(NAME, "A", notice.message.messageId)).toBe(false);
       }
       await advance(20);
       await flush();
 
-      // PRODUCT LAW: bounded re-drive — an identical un-receipted notice
-      // must not be re-pasted on every idle event (coalesce/backoff/cap).
-      // Actual today (recorded, surfaced on failure): one fresh paste attempt
-      // per idle cycle — [1,1,1] — i.e. 4 attempts total for 3 idle cycles.
-      expect(
-        loop.pasteWrites().length,
-        `paste attempts per idle cycle: [${attemptsPerIdle.join(",")}] (1 initial + N re-drives)`,
-      ).toBe(1); // FAILS today: 4 attempts
-      // The notice itself must never be lost or receipted without a paste:
+      expect(attemptsPerIdle).toEqual([1, 1, 1]);
+      expect(loop.pasteWrites().every((write) => write.refused)).toBe(true);
       expect((await harness.pendingEdgeNotices(NAME, "A")).length).toBe(1);
-      const notice = (await harness.pendingEdgeNotices(NAME, "A"))[0]!;
       expect(await harness.hasReceipt(NAME, "A", notice.message.messageId)).toBe(false);
+
+      // A no-write refusal must not park the message forever. Once the PTY
+      // accepts writes, the next idle submits the same durable row once.
+      loop.wedged = false;
+      await loop.runTurn(advance, flush);
+      await advance(2_500);
+      await flush();
+      expect(loop.deliveredPastePayloads()).toHaveLength(1);
+      expect(loop.drive.pasteWriteCount(loop.bindingId)).toBe(1);
+      expect(await harness.hasReceipt(NAME, "A", notice.message.messageId)).toBe(true);
+      // The helper enumerates edge notices even after delivery; the durable
+      // mailbox row stays present and its projection now carries the receipt.
+      expect(await harness.pendingEdgeNotices(NAME, "A")).toMatchObject([{
+        message: { messageId: notice.message.messageId, metadata: { deliveredAt: expect.any(Number) } },
+      }]);
+
+      const callsAfterReceipt = loop.pasteWrites().length;
+      for (let i = 0; i < 3; i += 1) await loop.runTurn(advance, flush);
+      expect(loop.pasteWrites()).toHaveLength(callsAfterReceipt);
+      expect(loop.deliveredPastePayloads()).toHaveLength(1);
+      expect(loop.drive.pasteWriteCount(loop.bindingId)).toBe(1);
     } finally {
       await harness.dispose();
     }

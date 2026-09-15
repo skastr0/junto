@@ -409,7 +409,10 @@ describe("GAP-POL-2: false working→idle flips are not turns", () => {
       // …then the CR submits (codex), working frames run, idle restores.
       await advance(2_500);
       await flush();
-      await expect(p).resolves.toBe(true);
+      await expect(p).resolves.toEqual({
+        status: "submitted", bindingGeneration: 0,
+        writesBefore: i, writesAfter: i + 1, pasteWrites: 1, wrotePhysicalBytes: true,
+      });
       await advance(100);
       await flush();
     }
@@ -465,13 +468,19 @@ describe("GAP-DRV-4: paste accepted, CR write refused → preserve chip and stop
     const p = loop.drive.writePrompt(BINDING, "one\ntwo\nthree");
     await advance(40);
     await flush();
-    const ok = await p;
+    const outcome = await p;
 
     // Accepted paste bytes cannot safely be undone or repeated after a
     // refused CR. Keep the source unreceipted and request operator attention.
-    expect(ok).toBe(false);
+    expect(outcome).toEqual({
+      status: "unresolved", reason: "chip-pending", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(loop.attention.map((a) => a.reason)).toEqual(["write-failed", "prompt-stalled"]);
-    await expect(loop.drive.writePrompt(BINDING, "one\ntwo\nthree")).resolves.toBe(false);
+    await expect(loop.drive.writePrompt(BINDING, "one\ntwo\nthree")).resolves.toEqual({
+      status: "refused", reason: "written-unresolved", bindingGeneration: 0,
+      writesBefore: 1, writesAfter: 1, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     expect(ctrlC(loop)).toHaveLength(0);
     // The physical writer logs the refused CR attempt as well as the paste.
     expect(labels(loop)).toEqual(["paste", "cr"]);
@@ -560,7 +569,10 @@ describe("GAP-DRV-6: hermes chips never collapse on a 2nd CR (real E2 receipts)"
     await flush();
     const p = loop.drive.writePrompt(BINDING, "one\ntwo\nthree");
     await flush();
-    await expect(p).resolves.toBe(false);
+    await expect(p).resolves.toEqual({
+      status: "refused", reason: "multiline-refused", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     expect(loop.writes).toEqual([]);
     expect(loop.tui.chipPending()).toBe(false);
     expect(loop.attention.map((a) => a.reason)).toEqual(["multiline-refused"]);
@@ -614,7 +626,10 @@ describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", (
         pendingText: () => promptStillPending(obs.snapshotNow(), "one\ntwo"),
         pasteChip: () => promptHasPasteChip(obs.snapshotNow()),
       });
-      await expect(drive.writePrompt(BINDING, "one\ntwo")).resolves.toBe(true);
+      await expect(drive.writePrompt(BINDING, "one\ntwo")).resolves.toEqual({
+        status: "submitted", bindingGeneration: 0,
+        writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+      });
       expect(writes).toEqual([encodeBracketedPaste("one\ntwo"), CR]);
       drive.resetForTest();
     } finally {
@@ -717,7 +732,10 @@ describe("GAP-OBS-7: needsLook arms only after real work (false title flips are 
     await flush();
     await advance(2_500);
     await flush();
-    await expect(p).resolves.toBe(true);
+    await expect(p).resolves.toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     await advance(100);
     await flush();
 

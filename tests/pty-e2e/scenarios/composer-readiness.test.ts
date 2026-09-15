@@ -80,23 +80,32 @@ const replayFrames = async (
       frames.push(frame);
       if (refuseFrame(frame)) {
         writes.length = 0;
-        const accepted = await drive.writePrompt(bindingId, "review probe", {
+        const outcome = await drive.writePrompt(bindingId, "review probe", {
           queueIfBusy: false,
           awaitTurnStart: false,
           ready: true,
         });
-        expect({ accepted, writes }, receipt(frame)).toEqual({ accepted: false, writes: [] });
+        expect({ outcome, writes }, receipt(frame)).toEqual({
+          outcome: {
+            status: "refused", reason: "seat-busy", bindingGeneration: 0,
+            writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+          },
+          writes: [],
+        });
       }
     }
     if (acceptFinal) {
       writes.length = 0;
-      const accepted = await drive.writePrompt(bindingId, "review probe", {
+      const outcome = await drive.writePrompt(bindingId, "review probe", {
         queueIfBusy: false,
         awaitTurnStart: false,
         ready: true,
       });
-      expect({ accepted, writes }, receipt(frames.at(-1)!)).toEqual({
-        accepted: true,
+      expect({ outcome, writes }, receipt(frames.at(-1)!)).toEqual({
+        outcome: {
+          status: "submitted", bindingGeneration: 0,
+          writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+        },
         writes: ["\x1b[200~review probe\x1b[201~", "\r"],
       });
     }

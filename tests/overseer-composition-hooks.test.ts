@@ -102,9 +102,12 @@ describe("overseer composition origin vs target", () => {
 });
 
 describe("overseer composition absence", () => {
-  it("returns false from writePrompt when the managed drive is unbound", async () => {
+  it("refuses writePrompt without bytes when the managed drive is unbound", async () => {
     const drive = lateBoundDrive();
-    await expect(drive.writePrompt("binding", "hello")).resolves.toBe(false);
+    await expect(drive.writePrompt("binding", "hello")).resolves.toEqual({
+      status: "refused", reason: "not-ready", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
+    });
     await expect(drive.interrupt("binding")).resolves.toBe(false);
   });
 });

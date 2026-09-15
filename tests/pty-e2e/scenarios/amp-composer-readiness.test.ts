@@ -112,16 +112,27 @@ const replay = (scenario: string, mode: ChunkMode, acknowledgeText?: string) => 
       if (acknowledgeText !== undefined && event?.state === "idle") drive.onSeatIdle(bindingId);
       return current;
     },
-    async assertAdmission(frame: Frame, accepted: boolean): Promise<void> {
+    async assertAdmission(
+      frame: Frame,
+      expected: "submitted" | "not-ready" | "seat-busy" | "composer-not-empty",
+    ): Promise<void> {
       writes.length = 0;
       const result = await drive.writePrompt(bindingId, PROBE, {
         queueIfBusy: false,
         awaitTurnStart: false,
         ready: frame.ready,
       });
-      expect({ accepted: result, writes }, receipt(frame)).toEqual({
-        accepted,
-        writes: accepted ? [paste(PROBE), "\r"] : [],
+      const submitted = expected === "submitted";
+      // This call supplies recorded readiness explicitly. A false readiness
+      // input refuses before the seat/composer gate can supply its reason.
+      const reason = frame.ready ? expected : "not-ready";
+      expect({ outcome: result, writes }, receipt(frame)).toEqual({
+        outcome: {
+          ...(submitted ? { status: "submitted" } : { status: "refused", reason }),
+          bindingGeneration: 0, writesBefore: 0, writesAfter: submitted ? 1 : 0,
+          pasteWrites: submitted ? 1 : 0, wrotePhysicalBytes: submitted,
+        },
+        writes: submitted ? [paste(PROBE), "\r"] : [],
       });
     },
     dispose() {
@@ -170,11 +181,11 @@ describe("Amp standalone recorded initialization and composer readiness", () => 
             if (hasEmptyBox(frame.snapshot) && loading) {
               loadingBoxes += 1;
               expect(frame.ready, receipt(frame)).toBe(false);
-              await behavior.assertAdmission(frame, false);
+              await behavior.assertAdmission(frame, "not-ready");
             }
             if (scenario === "type-echo" && frame.composer === "draft" && promptStillPending(frame.snapshot, "hello")) {
               helloDrafts += 1;
-              await behavior.assertAdmission(frame, false);
+              await behavior.assertAdmission(frame, frame.idle ? "composer-not-empty" : "seat-busy");
             }
             if (scenario === "paste-chip") {
               // A 40-line paste can scroll its head out of the box. Identify
@@ -185,13 +196,13 @@ describe("Amp standalone recorded initialization and composer readiness", () => 
               if (frame.composer === "draft" && visiblePayload !== undefined) {
                 pasteDraftSeen = true;
                 expect(promptStillPending(frame.snapshot, visiblePayload), receipt(frame)).toBe(true);
-                await behavior.assertAdmission(frame, false);
+                await behavior.assertAdmission(frame, frame.idle ? "composer-not-empty" : "seat-busy");
               }
               const sending = frame.snapshot.lines.filter((line) => line.trim()).slice(-4)
                 .some((line) => /^\s*╰\s*[∼≈≋~]\s+Sending\b/u.test(line));
               if (pasteDraftSeen && sending) {
                 expect(frame.idle, receipt(frame)).toBe(false);
-                await behavior.assertAdmission(frame, false);
+                await behavior.assertAdmission(frame, "seat-busy");
                 if (hasEmptyBox(frame.snapshot) && frame.snapshot.signals.title.length > 0 && !SPINNER.test(frame.snapshot.signals.title)) {
                   sendingBeforeTitle += 1;
                 }
@@ -204,7 +215,7 @@ describe("Amp standalone recorded initialization and composer readiness", () => 
               if (workingPromptSeen && frame.state === "working") {
                 targetWorking += 1;
                 expect(frame.idle, receipt(frame)).toBe(false);
-                await behavior.assertAdmission(frame, false);
+                await behavior.assertAdmission(frame, "seat-busy");
               }
             }
           }
@@ -219,7 +230,7 @@ describe("Amp standalone recorded initialization and composer readiness", () => 
             }
             // This probes admission only; the ACK test below supplies the PTY
             // response to the drive's actual paste and CR callbacks.
-            await behavior.assertAdmission(final!, true);
+            await behavior.assertAdmission(final!, "submitted");
           } else if (scenario === "paste-chip") {
             expect(pasteDraftSeen, `target paste never appeared as a protected draft\n${payloadFrames.join("\n")}`).toBe(true);
             expect(sendingBeforeTitle, "target paste lacks Sending with an empty box before its title spins").toBeGreaterThan(0);
@@ -273,7 +284,10 @@ it("Amp acknowledges hello through recorded PTY output after the shared drive's 
       awaitTurnStart: true,
       ready: current!.ready,
     });
-    expect(submitted, receipt(current!)).toBe(true);
+    expect(submitted, receipt(current!)).toEqual({
+      status: "submitted", bindingGeneration: 0,
+      writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
+    });
     expect(Date.now() - startedAt, "submission must be acknowledged before the timeout's text-disappeared fallback").toBeLessThan(DEFAULT_PROMPT_STALL_MS);
     expect(run.writes).toEqual([paste("hello"), "\r"]);
     expect(run.acknowledgements, "no captured working event after CR with our text absent from the composer")
