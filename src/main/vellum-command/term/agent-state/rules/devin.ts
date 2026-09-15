@@ -13,7 +13,7 @@ import type { SeatRulePack } from "../types";
 
 export const devinRules: SeatRulePack = {
   harness: "devin",
-  version: "2026.08.06.1",
+  version: "2026.09.15.1",
   rules: [
     // Isolated --trust-hold capture (no Enter): startup-trust.jsonl
     // "✱ Do you trust the authors of this directory?"
@@ -34,16 +34,20 @@ export const devinRules: SeatRulePack = {
         ],
       },
     },
-    // Permission footer: "approve once" + "select" + "confirm" + "esc cancel".
+    // Native command approval capture: eight options plus the control footer.
+    // The bottom eight alone omit the first option's only "Approve once".
     {
       id: "permission_prompt",
       state: "attention",
       priority: 1190,
       region: "bottom_non_empty_lines",
-      regionN: 8,
+      regionN: 9,
       visibleAttention: true,
       matchers: {
         contains: ["approve once", "select", "confirm", "esc cancel"],
+        // Current chooser controls end the frame. The same captured words
+        // above a newer composer are history, not an active permission gate.
+        regex: ["(?:^|\\n)[^\\n]*select[^\\n]*confirm[^\\n]*esc cancel\\s*$"],
       },
     },
     {
