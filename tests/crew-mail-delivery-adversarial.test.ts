@@ -100,19 +100,65 @@ const makeAttemptLedger = () => {
     messageId: string;
     generation: string;
   }) => `${input.canvas}::${input.nodeId}::${input.messageId}::${input.generation}`;
+  const mint = (input: {
+    canvas: string;
+    nodeId: string;
+    messageId: string;
+    generation: string;
+    policy: "notice" | "immediate";
+    batchId?: string;
+  }): DeliveryAttempt => ({
+    messageId: input.messageId,
+    recipient: { seat: { installationId: "i1", nodeId: input.nodeId }, generation: input.generation },
+    policy: input.policy,
+    ...(input.batchId !== undefined ? { batchId: input.batchId } : {}),
+    facts: { generation: input.generation, queuedAt: new Date().toISOString() },
+  });
   const store: MessageDeliveryAttemptStore = {
     enqueueAttempt: async (input) => {
       const key = keyOf(input);
       const existing = rows.get(key);
       if (existing) return existing;
-      const row: DeliveryAttempt = {
-        messageId: input.messageId,
-        recipient: { seat: { installationId: "i1", nodeId: input.nodeId }, generation: input.generation },
-        policy: input.policy,
-        facts: { generation: input.generation, queuedAt: new Date().toISOString() },
-      };
+      const row = mint(input);
       rows.set(key, row);
       return row;
+    },
+    enqueueBatch: async (input) => {
+      // Atomic membership: stage all new rows before committing any.
+      const staged: Array<[string, DeliveryAttempt]> = [];
+      const out: DeliveryAttempt[] = [];
+      for (const member of input.members) {
+        const key = keyOf({
+          canvas: input.canvas,
+          nodeId: input.nodeId,
+          messageId: member.messageId,
+          generation: member.generation,
+        });
+        const existing = rows.get(key);
+        if (existing) {
+          out.push(existing);
+          continue;
+        }
+        const row = mint({ ...member, canvas: input.canvas, nodeId: input.nodeId, batchId: input.batchId });
+        staged.push([key, row]);
+        out.push(row);
+      }
+      for (const [key, row] of staged) rows.set(key, row);
+      return out;
+    },
+    markAttempted: async (input) => {
+      const key = keyOf(input);
+      const row = rows.get(key);
+      if (!row) throw new Error(`no attempt row for ${key}`);
+      const next: DeliveryAttempt = {
+        ...row,
+        facts: {
+          ...row.facts,
+          attemptedAt: input.at ?? new Date().toISOString(),
+        },
+      };
+      rows.set(key, next);
+      return next;
     },
     recordAttempt: async (input) => {
       const key = keyOf(input);
@@ -128,6 +174,33 @@ const makeAttemptLedger = () => {
       const next: DeliveryAttempt = { ...row, facts, ...(input.write ? { write: input.write } : {}) };
       rows.set(key, next);
       return next;
+    },
+    attempt: async (input) => rows.get(keyOf(input)),
+    hasNotifiedAcrossGenerations: async (input) => {
+      const prefix = `${input.canvas}::${input.nodeId}::${input.messageId}::`;
+      for (const [key, row] of rows) {
+        if (key.startsWith(prefix) && row.facts.notifiedAt !== undefined) {
+          return true;
+        }
+      }
+      return false;
+    },
+    reconcileUnresolvedAttempts: async (at) => {
+      // Boot reconciliation: attempted with no outcome fact → unresolved.
+      let count = 0;
+      for (const [key, row] of rows) {
+        const f = row.facts;
+        if (
+          f.attemptedAt !== undefined &&
+          f.notifiedAt === undefined &&
+          f.unresolvedAt === undefined &&
+          f.refusedAt === undefined
+        ) {
+          rows.set(key, { ...row, facts: { ...f, unresolvedAt: at } });
+          count += 1;
+        }
+      }
+      return count;
     },
   };
   return { store, rows };
@@ -234,8 +307,9 @@ const settle = async (ms = 30): Promise<void> =>
 describe("crew mail delivery — process-boundary adversarial", () => {
   // Contract: "the app durably enqueues the delivery row before any transport
   // action"; a notified prior attempt on the same generation must never
-  // paste again — only stamp the receipt it still owes.
-  it.fails(
+  // paste again — only stamp the receipt it still owes. Fixed by
+  // prepareAttempt → stampOnly (was the notifiedAt fall-through).
+  it(
     "a notified attempt does not re-paste across a process restart",
     async () => {
       const msg = userMsg("crash-1", "once only");
@@ -316,8 +390,9 @@ describe("crew mail delivery — process-boundary adversarial", () => {
 
   // Contract: "batches retain their exact membership through receipt
   // recovery." A member whose attempt already notified must not join a new
-  // payload on the next process.
-  it.fails(
+  // payload on the next process. Fixed by enqueueBatch + prior-facts
+  // partition (was batch sending all members blind).
+  it(
     "notified members do not join a new batch across a process restart",
     async () => {
       const msgs = [userMsg("rb-1", "first"), userMsg("rb-2", "second")];
@@ -523,15 +598,19 @@ describe("crew mail delivery — process-boundary adversarial", () => {
   // — never text. Two identical bodies must carry independent attempt rows
   // and independent receipts; one member's durable acceptance must not
   // settle the other, and an un-receipted member must not re-paste.
-  it.fails(
+  it(
     "identical bodies keep independent attempt identity across a restart",
     async () => {
       const msgs = [userMsg("dup-a", "same words"), userMsg("dup-b", "same words")];
+      // dup-b's receipt stamp is refused on the first process only — after
+      // the restart it must stamp cleanly without any re-paste.
+      let dupBReceiptBlocked = true;
       let docs!: Map<string, CanvasDoc>;
       const store = makeStore(
         { c: agentDoc(msgs) },
         {
-          acceptMessage: (id) => id === "dup-a",
+          acceptMessage: (id) =>
+            id === "dup-a" || (id === "dup-b" && !dupBReceiptBlocked),
           onDocs: (current) => {
             docs = current;
           },
@@ -597,6 +676,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
           timers: parkedTimers(),
         });
         second.onBooted();
+        dupBReceiptBlocked = false;
         await settle(30);
         now += 60_000;
         second.onManagedTerminalIdle("bind-profile-13");
