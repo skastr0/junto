@@ -30,10 +30,18 @@ type DecodeEntry = {
   readonly retire?: string;
 };
 
+type JournalFreeEntry = {
+  readonly path: string;
+  readonly reasons: ReadonlyArray<string>;
+  readonly reason: string;
+  readonly retire: string;
+};
+
 type Register = {
   readonly mutationSeams: ReadonlyArray<SeamEntry>;
   readonly sharedTableExceptions: ReadonlyArray<{ readonly table: string }>;
   readonly decodeBoundaries: ReadonlyArray<DecodeEntry>;
+  readonly journalFreeMutations: ReadonlyArray<JournalFreeEntry>;
 };
 
 const register = JSON.parse(readFileSync(REGISTER, "utf8")) as Register;
@@ -90,6 +98,22 @@ describe("crew boundaries in the single-write-seam register", () => {
     );
     expect(promptWire).toHaveLength(1);
     expect(promptWire[0]!.kinds).toEqual(["wire"]);
+  });
+
+  it("registers the crew repository's journal-free reasons", () => {
+    // The crew store writes Command Center-local operational state, so every
+    // write declares the reason it escapes the journal law under. The reasons
+    // live in the seam module (owner: work plane); this register is where each
+    // call-site file is declared, and the gate refuses an undeclared one.
+    const entries = register.journalFreeMutations.filter((entry) => entry.path === crewRepository);
+    expect(entries).toHaveLength(1);
+    expect([...entries[0]!.reasons].sort()).toEqual([
+      "crew.checkout-observation",
+      "crew.mail-attempt",
+      "crew.review-receipt",
+      "crew.review-verdict",
+    ]);
+    expect(entries[0]!.retire.trim().length).toBeGreaterThan(0);
   });
 
   it("points every crew entry at a file that exists", () => {

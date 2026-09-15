@@ -1253,6 +1253,17 @@
       ],
       "reason": "BACKFILL_INLINE_MEDIA_V1 rewrites parts_json across six work_* projection tables to externalize inline media. It is a one-time content move, not a work transition, and must not mint facts that replicate as one.",
       "retire": "Delete src/main/vellum-command/content/inline-media-migration.ts once the backfill has run on every install."
+    },
+    {
+      "path": "src/main/vellum-command/work/crew-repository.ts",
+      "reasons": [
+        "crew.checkout-observation",
+        "crew.mail-attempt",
+        "crew.review-receipt",
+        "crew.review-verdict"
+      ],
+      "reason": "The crew durable store writes Command Center-local operational state that must never replicate: per-generation mail delivery attempts, immutable seat-stamped review verdicts, receipt-feed dedupe rows, and coalesced checkout commit observations. None is a work transition, so each write declares the reason it escapes under at its call site.",
+      "retire": "Never while the crew stores are Command Center-homed; if any of them ever replicates, mint its fact and materialize it, then shrink this entry to the reasons that remain."
     }
   ]
 }
