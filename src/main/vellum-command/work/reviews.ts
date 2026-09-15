@@ -47,7 +47,7 @@ import type { ActorSeatId } from "@shared/actor-seat";
 import type { ActorRef } from "@shared/work-reference";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { WorkRecordId } from "@shared/work-protocol";
-import { subjectHashOf } from "./crew-repository";
+import { subjectHashOf } from "./review-subject-hash";
 
 // ---------------------------------------------------------------------------
 // Errors — WorkErrorType plus a machine `details.reason`, never a new type.
@@ -88,8 +88,8 @@ export const reviewerIsAuthorError = (seatId: ActorSeatId): WorkErrorBody =>
 // Subject identity.
 
 /**
- * The canonical subject hash. One implementation lives in the crew
- * repository so every plane hashes identical bytes; this alias keeps the
+ * The canonical subject hash. One implementation lives in the pure hash
+ * module so every plane hashes identical bytes; this alias keeps the
  * reviews vocabulary at the call sites.
  */
 export const reviewSubjectHash = subjectHashOf;
@@ -317,22 +317,12 @@ export const planVerdictPost = (input: {
     .map((finding) => finding.trim())
     .filter((finding) => finding.length > 0);
 
-  if (!input.reviewsEdgeCurrent) {
-    return {
-      ok: false,
-      error: reviewError(
-        "ScopeError",
-        REVIEW_REASON_EDGE_MISSING,
-        "no current reviews edge from your seat to the author seat",
-        {
-          retryable: false,
-          next_step:
-            "ask the operator to draw a reviews edge from your seat to the author",
-        },
-      ),
-    };
-  }
-
+  // Author identity first (root ruling): self-review refuses as
+  // ReviewerIsAuthor even when the reviewer also lacks an edge — the self-
+  // review is the more specific defect, and an author must never be told to
+  // ask for an edge to themselves. An unresolved author precedes both: the
+  // self-review question is unanswerable without one. The p15 writer re-check
+  // mirrors this exact precedence after a live claim flip.
   const authorSeatId =
     subject.kind === "task"
       ? subject.projection.authorSeatId
@@ -354,6 +344,21 @@ export const planVerdictPost = (input: {
   }
   if (authorSeatId === caller.seatId) {
     return { ok: false, error: reviewerIsAuthorError(caller.seatId) };
+  }
+  if (!input.reviewsEdgeCurrent) {
+    return {
+      ok: false,
+      error: reviewError(
+        "ScopeError",
+        REVIEW_REASON_EDGE_MISSING,
+        "no current reviews edge from your seat to the author seat",
+        {
+          retryable: false,
+          next_step:
+            "ask the operator to draw a reviews edge from your seat to the author",
+        },
+      ),
+    };
   }
   if (kind === "blocking" && cleanFindings.length === 0) {
     return {

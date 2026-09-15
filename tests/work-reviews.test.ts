@@ -292,6 +292,23 @@ describe("planVerdictPost — admission order", () => {
     expect(planned.error.details?.retryable).toBe(false);
   });
 
+  it("self-review refusal precedes the edge check (root precedence ruling)", () => {
+    const { projection } = base();
+    const planned = planVerdictPost({
+      caller: { seatId: AUTHOR, nodeId: "author-node" },
+      subject: { kind: "task", projection },
+      kind: "green",
+      findings: [],
+      refs: [],
+      reviewsEdgeCurrent: false,
+      verdictId: "v-1",
+      postedAtMs: 1,
+    });
+    expect(planned.ok).toBe(false);
+    if (planned.ok) return;
+    expect(planned.error.type).toBe("ReviewerIsAuthor");
+  });
+
   it("a blocking verdict without findings -> malformed-verdict, retryable false", () => {
     const { projection } = base();
     const planned = planVerdictPost({
