@@ -4882,41 +4882,59 @@ const writeThreadMessage = (
  * observe state — so admission drops those keys before the row is written.
  * Ingest-only: existing rows are never rewritten.
  *
- * `fromSeat` is the sender node identity the renderer trusts (actor-ledger,
- * edge-sparks). The durable sender is `sentBy` (the actor_seat_id column);
- * when a caller supplies a `fromSeat` that disagrees with the durable
- * sender's node, admission rebinds it to `sentBy.nodeId`. The msg.send /
- * msg.reply control path already stamps `fromSeat = caller.nodeId`, which
- * resolves to the same node as `sentBy` — the rebind is a no-op there.
+ * The canonical sender identity is server-derived from the admitted caller
+ * (`sentBy`), never client-supplied: `fromSeat` is the stable actor seat id
+ * (`sentBy.seatId`) and `senderNodeId` is the readable canvas node
+ * (`sentBy.nodeId`). Admission overwrites both from `sentBy`, so a client
+ * cannot spoof a sender, and a notice/ledger link resolves a real seat rather
+ * than a truncated hash.
+ *
+ * The transport delivery facts (`queuedAt`, `attemptedAt`, `notifiedAt`,
+ * `unresolvedAt`, `refusedAt`, `refusedReason`, `generation`) and the legacy
+ * projection keys (`deliveredAt`, `readAt`, `reactions`) are projection-only:
+ * the delivery projection and the crew attempt store stamp them after decode.
+ * A caller-supplied value is a forgery vector — a forged `notifiedAt` reads as
+ * "already delivered" and suppresses real delivery — so admission drops them
+ * before the row is written. Ingest-only: existing rows are never rewritten,
+ * and installed messages whose `fromSeat` is a historical node id stay
+ * readable (the projection tolerates both).
  */
+const MAILBOX_PROJECTION_ONLY_KEYS = [
+  "deliveredAt",
+  "readAt",
+  "reactions",
+  "queuedAt",
+  "attemptedAt",
+  "notifiedAt",
+  "unresolvedAt",
+  "refusedAt",
+  "refusedReason",
+  "generation",
+] as const;
+
 const admitMailboxMessage = (
   message: MessageValue,
   sentBy: ActorRef,
 ): MessageValue => {
   const metadata = message.metadata;
+  // No metadata means no crew mail extension to stamp; leave the row as is.
   if (metadata === undefined) return message;
-  const hasReserved =
-    Object.prototype.hasOwnProperty.call(metadata, "deliveredAt") ||
-    Object.prototype.hasOwnProperty.call(metadata, "readAt") ||
-    Object.prototype.hasOwnProperty.call(metadata, "reactions");
-  const forgedFromSeat =
-    Object.prototype.hasOwnProperty.call(metadata, "fromSeat") &&
-    metadata.fromSeat !== sentBy.nodeId;
-  if (!hasReserved && !forgedFromSeat) return message;
-  const {
-    deliveredAt: _deliveredAt,
-    readAt: _readAt,
-    reactions: _reactions,
-    ...rest
-  } = metadata;
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (
+      (MAILBOX_PROJECTION_ONLY_KEYS as ReadonlyArray<string>).includes(key) ||
+      key === "fromSeat" ||
+      key === "senderNodeId"
+    ) {
+      continue;
+    }
+    rest[key] = value;
+  }
   const admitted = {
     ...rest,
-    ...(forgedFromSeat ? { fromSeat: sentBy.nodeId } : {}),
+    fromSeat: sentBy.seatId,
+    senderNodeId: sentBy.nodeId,
   };
-  if (Object.keys(admitted).length === 0) {
-    const { metadata: _metadata, ...withoutMetadata } = message;
-    return withoutMetadata;
-  }
   return { ...message, metadata: admitted };
 };
 

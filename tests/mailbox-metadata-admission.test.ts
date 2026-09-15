@@ -1,12 +1,13 @@
-// Mailbox metadata admission: reserved projection keys never become durable.
+// Mailbox metadata admission: projection-only keys never become durable, and
+// the sender identity is server-stamped from the admitted caller.
 //
-// deliveredAt / readAt are projection-only — loadInbox stamps them from
-// durable delivery receipts. A caller-supplied value on an appended message
-// is a forgery vector (a forged deliveredAt suppresses real delivery; a
-// forged readAt lies about read state), so admission strips both keys before
-// the row is written. fromSeat is the sender identity the renderer trusts;
-// admission rebinds a caller-supplied value that disagrees with the durable
-// sender (sentBy) to the sender's node id.
+// deliveredAt / readAt / reactions and the transport delivery facts are
+// projection-only — the delivery projection and crew attempt store stamp them
+// from durable receipts. A caller-supplied value is a forgery vector, so
+// admission strips them before the row is written. The canonical sender is
+// derived from the admitted caller (sentBy): fromSeat is the stable seat id and
+// senderNodeId the readable node, both overwritten from sentBy so a client
+// cannot spoof a sender.
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -204,10 +205,12 @@ describe("mailbox metadata admission", () => {
       readAt: 1754990001000,
     });
 
-    // The minted fact value (drives the delivery nudge) is already clean.
+    // The minted fact value (drives the delivery nudge) is already clean, and
+    // carries the server-stamped canonical sender (seat id + readable node).
     expect(result.value.metadata).toEqual({
       factoryMail: true,
-      fromSeat: sender.nodeId,
+      fromSeat: sender.seatId,
+      senderNodeId: sender.nodeId,
       note: "keep me",
     });
 
@@ -220,7 +223,8 @@ describe("mailbox metadata admission", () => {
     >;
     expect(durable).toEqual({
       factoryMail: true,
-      fromSeat: sender.nodeId,
+      fromSeat: sender.seatId,
+      senderNodeId: sender.nodeId,
       note: "keep me",
     });
 
@@ -230,6 +234,8 @@ describe("mailbox metadata admission", () => {
     expect(before.metadata?.readAt).toBeUndefined();
     expect(before.metadata?.factoryMail).toBe(true);
     expect(before.metadata?.note).toBe("keep me");
+    expect(before.metadata?.fromSeat).toBe(sender.seatId);
+    expect(before.metadata?.senderNodeId).toBe(sender.nodeId);
 
     // Real receipts flip the projection to receipt-derived values.
     const deliveredAcceptedAt = "2026-08-12T11:00:00.000Z";
@@ -273,7 +279,7 @@ describe("mailbox metadata admission", () => {
     expect(after.metadata?.note).toBe("keep me");
   });
 
-  it("drops the metadata record entirely when only reserved keys were supplied", async () => {
+  it("stamps the canonical sender even when only reserved keys were supplied", async () => {
     const sink = { canvasName: "factory", nodeId: "reserved-only-mailbox" };
     const messageId = "reserved-only-1";
     const result = await appendMailboxMessage(sink, messageId, {
@@ -281,31 +287,46 @@ describe("mailbox metadata admission", () => {
       readAt: 1754990001000,
       reactions: [{ kind: "ack", at: 1754990002000 }],
     });
-    expect(result.value.metadata).toBeUndefined();
+    // Reserved keys are stripped; the server-stamped sender remains.
+    expect(result.value.metadata).toEqual({
+      fromSeat: sender.seatId,
+      senderNodeId: sender.nodeId,
+    });
 
     const row = await durableMetadataJson(sink, messageId);
     expect(row).toBeDefined();
-    expect(row!.metadata_json).toBeNull();
+    const durable = JSON.parse(row!.metadata_json ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    expect(durable).toEqual({
+      fromSeat: sender.seatId,
+      senderNodeId: sender.nodeId,
+    });
 
     const projected = await projectedMessage(sink, messageId);
-    expect(projected.metadata).toBeUndefined();
+    expect(projected.metadata?.fromSeat).toBe(sender.seatId);
+    expect(projected.metadata?.senderNodeId).toBe(sender.nodeId);
   });
 
-  it("rebinds a spoofed fromSeat to the durable sender node", async () => {
+  it("overwrites a spoofed fromSeat with the durable sender seat", async () => {
     const sink = { canvasName: "factory", nodeId: "spoofed-sender-mailbox" };
     const messageId = "spoofed-from-1";
     const result = await appendMailboxMessage(sink, messageId, {
       factoryMail: true,
       fromSeat: "impostor-node",
+      senderNodeId: "impostor-node",
     });
-    expect(result.value.metadata?.fromSeat).toBe(sender.nodeId);
+    expect(result.value.metadata?.fromSeat).toBe(sender.seatId);
+    expect(result.value.metadata?.senderNodeId).toBe(sender.nodeId);
 
     const projected = await projectedMessage(sink, messageId);
-    expect(projected.metadata?.fromSeat).toBe(sender.nodeId);
+    expect(projected.metadata?.fromSeat).toBe(sender.seatId);
+    expect(projected.metadata?.senderNodeId).toBe(sender.nodeId);
     expect(projected.metadata?.factoryMail).toBe(true);
   });
 
-  it("keeps a matching fromSeat and untouched metadata as supplied", async () => {
+  it("stamps the canonical seat sender and keeps other metadata", async () => {
     const sink = { canvasName: "factory", nodeId: "honest-sender-mailbox" };
     const messageId = "honest-from-1";
     const result = await appendMailboxMessage(sink, messageId, {
@@ -314,13 +335,15 @@ describe("mailbox metadata admission", () => {
     });
     expect(result.value.metadata).toEqual({
       factoryMail: true,
-      fromSeat: sender.nodeId,
+      fromSeat: sender.seatId,
+      senderNodeId: sender.nodeId,
     });
 
     const projected = await projectedMessage(sink, messageId);
     expect(projected.metadata).toEqual({
       factoryMail: true,
-      fromSeat: sender.nodeId,
+      fromSeat: sender.seatId,
+      senderNodeId: sender.nodeId,
     });
   });
 });
