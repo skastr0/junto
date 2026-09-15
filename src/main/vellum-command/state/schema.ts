@@ -39,6 +39,7 @@ import {
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
 import { OPENAI_CREDENTIAL_BINDINGS_SQL, PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
 import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
+import { CREW_STATE_SCHEMA_SQL } from "../work/crew-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -338,10 +339,20 @@ export const STATE_SCHEMA_V22_SQL = withoutProposalStorage(
 );
 
 /** Version 23 adds the Live journal and an independent OpenAI credential slot. */
-export const STATE_SCHEMA_FRAGMENTS = [
+export const STATE_SCHEMA_V23_FRAGMENTS = [
   ...STATE_SCHEMA_V22_FRAGMENTS,
   OPENAI_CREDENTIAL_BINDINGS_SQL,
   OVERSEER_LIVE_STATE_SCHEMA_SQL,
+];
+
+export const STATE_SCHEMA_V23_SQL = withoutProposalStorage(
+  STATE_SCHEMA_V23_FRAGMENTS.join("\n"),
+);
+
+/** Version 24 adds the crew mail-attempt and review-verdict tables. */
+export const STATE_SCHEMA_FRAGMENTS = [
+  ...STATE_SCHEMA_V23_FRAGMENTS,
+  CREW_STATE_SCHEMA_SQL,
 ];
 
 /**

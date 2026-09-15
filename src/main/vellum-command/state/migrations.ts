@@ -45,6 +45,7 @@ import { ENTITIES_STATE_SCHEMA_SQL } from "../entities/state-schema";
 import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../canvas/state-schema";
 import { OPENAI_CREDENTIAL_BINDINGS_SQL, PROVIDER_CREDENTIAL_BINDINGS_SQL } from "../credentials/state-schema";
 import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
+import { CREW_STATE_SCHEMA_SQL } from "../work/crew-schema";
 import {
   persistCanvas,
   writePortfolioHead,
@@ -269,7 +270,7 @@ export const STATE_SCHEMA_V20_IDENTITY = {
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 23;
+export const CURRENT_STATE_SCHEMA_VERSION = 24;
 
 /**
  * Exact witness of schema version 21 (relational canvas authority; blob
@@ -301,12 +302,21 @@ export const STATE_SCHEMA_V23_IDENTITY = {
 } as const satisfies VerifiedStateSchemaIdentity;
 
 /**
+ * Exact witness of schema 24 (crew mail-attempt and review-verdict tables).
+ * Placeholder hash is rewritten by `bun run schema:identity`.
+ */
+export const STATE_SCHEMA_V24_IDENTITY = {
+  actualSchemaSha256:
+    "df5e75f1f5cf5f2247eca5aa377e61312e0b68b76d583deb4bc1dec7433cbab5",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+/**
  * Stable alias for the head identity so tests and tooling never rename an
  * import on a schema bump. `bun run schema:identity` rewrites the constant
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V23_IDENTITY;
+  STATE_SCHEMA_V24_IDENTITY;
 
 export const STATE_SCHEMA_MIGRATIONS =
   [
@@ -758,6 +768,16 @@ export const STATE_SCHEMA_MIGRATIONS =
       migrate: (database) => {
         database.exec(OPENAI_CREDENTIAL_BINDINGS_SQL);
         database.exec(OVERSEER_LIVE_STATE_SCHEMA_SQL);
+      },
+    },
+    {
+      fromVersion: 23,
+      toVersion: 24,
+      name: "add-crew-mail-attempts-and-review-verdicts",
+      safety: STATE_SCHEMA_MIGRATION_SAFETY,
+      fromIdentity: STATE_SCHEMA_V23_IDENTITY,
+      migrate: (database) => {
+        database.exec(CREW_STATE_SCHEMA_SQL);
       },
     },
   ] as const satisfies ReadonlyArray<StateSchemaMigration>;
