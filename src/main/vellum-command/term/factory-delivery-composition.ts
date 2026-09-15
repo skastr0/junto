@@ -114,10 +114,35 @@ export type FactoryDeliveryMail = {
     ) => boolean;
   }) => void;
   readonly onManagedTerminalIdle: (bindingId: string) => void;
+  readonly onManagedTerminalTurnStart: (bindingId: string) => void;
   readonly onComposerEmpty: (bindingId: string) => void;
   readonly onResumedCanvas: (canvas: string) => void;
   readonly onBooted: () => void;
   readonly suspend: () => void;
+};
+
+/** Working flag refreshes and permission resumes do not start another turn. */
+export const makeFactoryMailTurnObserver = (
+  mail: Pick<FactoryDeliveryMail, "onManagedTerminalTurnStart">,
+): ((event: AgentSeatStateEvent) => void) => {
+  const turns = new Map<string, { epoch: string; started: boolean; idle: boolean }>();
+  return (event) => {
+    if (event.state === "gone") {
+      turns.delete(event.bindingId);
+      return;
+    }
+    let turn = turns.get(event.bindingId);
+    if (turn === undefined || turn.epoch !== event.epoch) {
+      turn = { epoch: event.epoch, started: false, idle: false };
+      turns.set(event.bindingId, turn);
+    }
+    if (event.state === "idle") turn.idle = true;
+    if (event.state === "working" && (!turn.started || turn.idle)) {
+      turn.started = true;
+      turn.idle = false;
+      mail.onManagedTerminalTurnStart(event.bindingId);
+    }
+  };
 };
 
 export type FactoryDeliveryPulse = {
@@ -400,6 +425,7 @@ export const composeFactoryDelivery = (
     });
   }
   const unsubs: Array<() => void> = [];
+  const observeMailTurn = mail === undefined ? undefined : makeFactoryMailTurnObserver(mail.service);
   unsubs.push(
     wireFactorySupervisor({
       supervisor: input.supervisor,
@@ -410,6 +436,7 @@ export const composeFactoryDelivery = (
   );
   unsubs.push(
     input.events.subscribeSeatState((event) => {
+      observeMailTurn?.(event);
       input.supervisor.noteSeatState(event);
       if (event.state === "gone") {
         input.firstTyped.clearDeliveredForBinding(event.bindingId);

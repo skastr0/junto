@@ -97,6 +97,7 @@ import {
   factoryPulseTransport,
   factorySeatPaused,
   makeFactoryFirstTypedKick,
+  makeFactoryMailTurnObserver,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
@@ -1599,7 +1600,9 @@ export const registerVellumIpc = (): void => {
           managedPulseReadyCancels.set(bindingId, { epoch, cancel });
         }
       }, { replayCurrentSessions: true });
+      const observeMailTurn = makeFactoryMailTurnObserver(messageDelivery);
       seatStateRuntime.subscribe((event) => {
+        observeMailTurn(event);
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         // Injection supervisor: event-driven re-engagement policy.
         injectionSupervisor.noteSeatState(event);
