@@ -74,6 +74,29 @@ const EVIDENCE_GLYPH = /^\s*(?:❯|›|❭|>)(?:\s+|$)/u;
 const EVIDENCE_TAIL_LINES = 10;
 
 /**
+ * Codex v0.147's recorded 15-line paste keeps its column-zero › above
+ * the bottom-ten window. Every following body/footer row is blank or
+ * indented by two spaces. Walk only that contiguous layout: intervening
+ * unindented output, or a nearer different glyph, ends the proof. Never
+ * retry an older prompt from submitted history after that boundary fails.
+ * This can prove a draft, never an empty composer or an idle seat.
+ */
+export const codexMultilineComposerEvidence = (
+  lines: readonly string[],
+): readonly string[] | undefined => {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]!;
+    if (EVIDENCE_GLYPH.test(line)) {
+      return /^›\s+\S/u.test(line) && i < lines.length - 1
+        ? lines.slice(i)
+        : undefined;
+    }
+    if (line.trim().length > 0 && !line.startsWith("  ")) return undefined;
+  }
+  return undefined;
+};
+
+/**
  * Amp's composer has labeled rounded borders, so neither a plain ─── rule
  * nor a prompt glyph anchors it. Select the bottom complete box, never its
  * echoed transcript above. A connected steering panel is still queued text.
@@ -122,6 +145,8 @@ export const pendingEvidenceLines = (
   for (let i = lines.length - 1; i >= tailStart; i -= 1) {
     if (EVIDENCE_GLYPH.test(lines[i]!)) return lines.slice(i);
   }
+  const multiline = codexMultilineComposerEvidence(lines);
+  if (multiline !== undefined) return multiline;
   return bottomNonEmptyLines(lines, 1);
 };
 
