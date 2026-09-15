@@ -29,6 +29,31 @@ describe("harness mail transport facts", () => {
     expect(HARNESS_MAIL_TRANSPORT.kimi.typedNotice).toBe("unavailable-setup");
     expect(HARNESS_MAIL_TRANSPORT.cursor.typedNotice).toBe("unavailable-setup");
   });
+
+  it("does not mint message metadata keys on the template", () => {
+    const spec = HARNESS_MAIL_TRANSPORT.claude as unknown as Record<string, unknown>;
+    for (const key of [
+      "mailKind",
+      "subject",
+      "refs",
+      "fromSeat",
+      "senderGeneration",
+      "senderHarness",
+      "queuedAt",
+      "notifiedAt",
+      "deliveredAt",
+      "unresolvedAt",
+      "refusedAt",
+      "refusedReason",
+      "refuseReason",
+      "readAt",
+      "repliedAt",
+      "reactedAt",
+      "generation",
+    ]) {
+      expect(spec[key], key).toBeUndefined();
+    }
+  });
 });
 
 describe("isolated capture home", () => {

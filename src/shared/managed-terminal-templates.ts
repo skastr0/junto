@@ -348,8 +348,9 @@ export type CapabilityBadges = {
 // ── Mail transport (crew mail substrate) ───────────────────────────────────
 
 /**
- * T2 typed-notice paste. `unavailable-setup` means isolation, credentials, or
- * a model picker currently cannot prove notice acceptance — not a missing T3.
+ * T2 typed-notice paste capability. This is not Message.metadata.mailKind
+ * (`notice` | `prompt` | `receipt`). `unavailable-setup` means isolation,
+ * credentials, or a model picker currently cannot prove notice acceptance.
  * Hooks that only report idle/state are not a native channel.
  */
 export type MailTypedNoticeSupport = "working" | "unavailable-setup";
@@ -357,6 +358,9 @@ export type MailTypedNoticeSupport = "working" | "unavailable-setup";
 /**
  * Per-harness mail delivery facts. T1 `nativeChannel` is true only when an
  * implemented transport proves acceptance. Every harness is T3 pull-only.
+ * Mail facts (queuedAt, notifiedAt, unresolvedAt, refusedAt, refusedReason,
+ * readAt, repliedAt, reactedAt, generation) live on the message attempt,
+ * never here. Legacy deliveredAt maps to notifiedAt only.
  */
 export type MailTransportSpec = {
   readonly nativeChannel: boolean;

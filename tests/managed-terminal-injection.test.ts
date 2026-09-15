@@ -76,6 +76,13 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).toContain("### Edge contract — messages");
     expect(text).toContain("pull-only");
     expect(text).toContain("mail from <seat>");
+    expect(text).toContain("[factory mail from …]");
+    expect(text).toContain("msg.prompt");
+    expect(text).toContain("seat.wait");
+    expect(text).toContain("terminal.read");
+    expect(text).toContain("`notice`");
+    expect(text).toContain("`prompt`");
+    expect(text).toContain("`receipt`");
     // NOT compiled: artifacts / board (no such edges)
     expect(text).not.toContain("### Edge contract — artifacts");
     expect(text).not.toContain("### Edge contract — board");
