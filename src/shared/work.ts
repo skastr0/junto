@@ -585,7 +585,11 @@ export type WorkTaskTransitionOptions = {
   readonly defect?: {
     readonly summary: string;
     readonly refs?: ReadonlyArray<string>;
-    /** Visited board to send the task back to; omitted = the previous board. */
+    /**
+     * Visited board to send the task back to; omitted = the previous
+     * board, or this board in place when the task has no prior visit.
+     * Naming the current board explicitly stays refused.
+     */
     readonly target?: string;
   };
   /** Per-task send-on wait stamp (ms); wins over the next board's waitMs. */
@@ -599,7 +603,10 @@ export type WorkTaskTransitionOptions = {
 export type WorkTaskTransitionResult = WorkTaskResult & {
   /** Present when completion sent the task on to its next board. */
   readonly sentOn?: { readonly nodeId: string; readonly task: Task };
-  /** Present when a defect sent the task back to an earlier board. */
+  /**
+   * Present when a defect sent the task back — to an earlier board, or
+   * in place when the task had no prior board to send back to.
+   */
   readonly sentBack?: { readonly nodeId: string; readonly task: Task };
 };
 
@@ -756,7 +763,9 @@ export const workTaskTransition = (
           normalizeCompletionEvidence(completionEvidence),
           completionEvidence,
         )
-      : undefined;
+      : state === "working" && completionEvidence !== undefined
+        ? normalizeCompletionEvidence(completionEvidence)
+        : undefined;
   const destinations =
     state === "completed" ? flowDestinations(doc, nodeId) : [];
   const nextBoardId =
@@ -962,8 +971,15 @@ export const workTaskTransition = (
       const { visits, visit } = currentVisitFor(current, nodeId, nowIso);
       const previous = visits[visits.length - 1];
       // Defect-to-target: any board the task already visited is a legal
-      // target; no target keeps today's meaning (the previous board).
-      const target = defect.target ?? previous?.board;
+      // target; no target keeps today's meaning (the previous board). A
+      // defect on a task with no prior board starts over at this same
+      // board: the defect log entry and epoch bump still land, so prior
+      // claims, checks and review verdicts go stale, and the task
+      // re-homes in place as submitted instead of dying rejected with
+      // live claims. Explicitly naming this board as target stays
+      // refused (see the guard below) — only the implicit default arms
+      // in-place re-home.
+      const target = defect.target ?? previous?.board ?? nodeId;
       if (defect.target !== undefined) {
         const visited = [...new Set(visits.map((entry) => entry.board))];
         if (defect.target === nodeId) {
@@ -1038,10 +1054,20 @@ export const workTaskTransition = (
       }
     }
 
-    if (state === "completed" && evidence !== undefined) {
+    if (
+      (state === "completed" || state === "working") &&
+      evidence !== undefined
+    ) {
+      // Staged review evidence: a working update may attach completion
+      // evidence (typed refs, claims) without completing, so an independent
+      // reviewer has durable refs to judge and the completion gate can run
+      // against exactly what was staged. The evidence is re-hashed into the
+      // review subject, so replacing the staging unblesses any prior green.
       return { ...next, completionEvidence: evidence };
     }
-    if (state !== "completed") {
+    if (state !== "completed" && state !== "working") {
+      // Rejection/cancel/release clears staged evidence with the state
+      // change; a re-home drops it again, so a bumped epoch starts clean.
       const { completionEvidence: _cleared, ...rest } = next;
       return rest;
     }
