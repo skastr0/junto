@@ -611,7 +611,7 @@ describe("MessageDeliveryService outcome policy", () => {
     expect(calls).toBe(3);
   });
 
-  it("prompt() gate deferral persists a fallback marker the notice path delivers", async () => {
+  it("plain immediate busy stays immediate with no notice marker", async () => {
     const seat = `seat_${"a".repeat(64)}`;
     const promptMsg = userMsg("p1", " please review", {
       metadata: {
@@ -646,8 +646,9 @@ describe("MessageDeliveryService outcome policy", () => {
       now: () => clock,
       timers: { set: () => ({}), clear: () => {} },
     });
-    // The seat is working: the explicit prompt defers retryable seat-busy
-    // and persists the fallback marker write-ahead.
+    // The seat is working: the plain immediate prompt refuses seat-busy and
+    // persists no fallback marker — a busy refusal never auto-degrades to
+    // notice. The row stays durable immediate, retryable under the same id.
     const deferred = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -657,7 +658,91 @@ describe("MessageDeliveryService outcome policy", () => {
       policy: "immediate",
       outcome: { status: "refused", reason: "seat-busy" },
     });
-    expect(ledger.calls).toContain("fallback:p1");
+    expect(
+      ledger.calls.some((call) => call.startsWith("fallback:")),
+    ).toBe(false);
+    expect(calls).toBe(0);
+    // The seat idles and settles: with no marker the row stays
+    // explicit-only and the automatic scans never touch the transport.
+    busy = false;
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
+      false,
+    );
+    // Explicit-only rows do not consult the automatic seat gate. The first
+    // same-id retry observes idle and starts settle, then the next submits.
+    expect(await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    })).toMatchObject({ outcome: { status: "refused", reason: "seat-busy", wrotePhysicalBytes: false } });
+    clock += 2_000;
+    const retry = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(retry).toMatchObject({
+      outcome: { status: "submitted" },
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("explicit fallback persists its marker write-ahead and the notice path delivers it", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", " please review", {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    const ledger = makeLedger();
+    let busy = true;
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      wakeManagedSeat: async () => true,
+      seatDeliverySnapshot: async () => ({
+        idle: !busy,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport,
+      store,
+      attempts: ledger,
+      now: () => clock,
+      timers: { set: () => ({}), clear: () => {} },
+    });
+    // The seat is working: the explicit notice fallback refuses seat-busy
+    // but persists its marker write-ahead — before any gate or transport —
+    // so a crash cannot lose the operator's request.
+    const deferred = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+      fallback: "notice",
+    });
+    expect(deferred).toMatchObject({
+      policy: "notice",
+      outcome: { status: "refused", reason: "seat-busy" },
+    });
+    expect(ledger.calls[0]).toBe("fallback:p1");
     expect(calls).toBe(0);
     // The seat idles: the first idle observation starts the settle clock,
     // so the notice path re-admits the marked row but cannot paste yet.
@@ -666,8 +751,7 @@ describe("MessageDeliveryService outcome policy", () => {
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
     expect(calls).toBe(0);
-    // Settled: the notice path delivers the marked row exactly once — the
-    // explicit-only rule held until the grant.
+    // Settled: the notice path delivers the marked row exactly once.
     clock += 2_000;
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();

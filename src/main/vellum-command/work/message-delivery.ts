@@ -170,8 +170,8 @@ export type ManagedTerminalPromptOptions = {
 /**
  * Explicit immediate-prompt request against one durable row. The row must
  * already exist (the caller persists first); the same message id retries
- * the same row. An explicit `"notice"` fallback downgrades this call to
- * ordinary notice policy for the same row.
+ * the same row. An explicit `"notice"` fallback persists ordinary notice
+ * policy for that row, including later automatic delivery.
  */
 export type PromptRequest = {
   readonly canvas: string;
@@ -186,7 +186,7 @@ export type PromptRequest = {
   readonly signal?: AbortSignal;
 };
 
-/** Rows the explicit path cannot attempt: nothing was touched. */
+/** Rows the explicit path cannot submit; a requested policy may be persisted. */
 export type PromptUnavailable =
   | "gone"
   | "paused"
@@ -331,7 +331,7 @@ export type MessageDeliveryAttemptStore = {
     canvas: string,
   ) => Promise<ReadonlyArray<DeliveryAttempt>>;
   /**
-   * Persist a notice-fallback marker (idempotent): an authorizing deferral
+   * Persist a notice-fallback marker (idempotent): an explicit request
    * re-admits an explicit-only prompt-kind row to the ordinary notice path.
    * Optional, as above.
    */
@@ -621,7 +621,9 @@ export class MessageDeliveryService {
   private lifecycleGeneration = 0;
 
   private seatPausedLookup: ((canvas: string, doc: CanvasDoc, nodeId: string) => boolean) | undefined;
-  private releaseSeatHold: ((bindingId: string) => void) | undefined;
+  private releaseSeatHold:
+    | ((bindingId: string, generation: string) => void)
+    | undefined;
 
   configure(input: {
     readonly transport: MessageDeliveryTransport;
@@ -641,10 +643,12 @@ export class MessageDeliveryService {
      * Same-generation resume authorization outlet: after the service grants
      * held rows on an explicit resume, it releases the drive's
      * written-unresolved hold per granted binding so the authorized retry
-     * can actually paste. The composition wires the drive's release here;
-     * the service never touches the drive directly.
+     * can actually paste. The release carries the granted generation so
+     * the composition can verify it is still current before touching the
+     * drive. The composition wires the drive's release here; the service
+     * never touches the drive directly.
      */
-    readonly releaseSeatHold?: (bindingId: string) => void;
+    readonly releaseSeatHold?: (bindingId: string, generation: string) => void;
   }): void {
     if (this.suspended) return;
     this.transport = input.transport;
@@ -893,9 +897,6 @@ export class MessageDeliveryService {
     if (!this.active(generation)) return { unavailable: "unconfigured" };
     const node = doc?.nodes.find((n) => n.id === input.nodeId);
     if (!doc || !node) return { unavailable: "gone" };
-    if (this.seatPausedLookup?.(input.canvas, doc, input.nodeId)) {
-      return { unavailable: "paused" };
-    }
     const live = node.ether?.messages?.items.find(
       (m) => m.messageId === input.messageId,
     );
@@ -925,6 +926,28 @@ export class MessageDeliveryService {
     }
     this.inFlight.add(key);
     try {
+      // Reserve this message before publishing its ordinary-notice policy:
+      // a concurrent scan must not start a second attempt while the marker
+      // write is pending. Only an explicit request changes prompt policy.
+      if (input.fallback === "notice" && extension?.mailKind === "prompt") {
+        await this.attempts?.grantNoticeFallback?.({
+          canvas: input.canvas,
+          nodeId: input.nodeId,
+          messageId: live.messageId,
+          reason: "explicit",
+        });
+        // A failed durable write throws rather than pretending the requested
+        // fallback will survive restart. Cancellation before admission never
+        // persists a marker; cancellation during the write can retain the
+        // already-authorized policy, but cannot continue this transport.
+        if (!this.active(generation)) return { unavailable: "unconfigured" };
+        if (input.signal?.aborted) {
+          return { outcome: this.refusedWithoutWrite("cancelled"), policy };
+        }
+      }
+      if (this.seatPausedLookup?.(input.canvas, doc, input.nodeId)) {
+        return { unavailable: "paused" };
+      }
       if (!(await this.checkUnresolvedHold(target.bindingId, key))) {
         // Prior attempt in this generation wrote without proof. An
         // ordinary same-id retry stays non-replayable: only a new
@@ -952,21 +975,11 @@ export class MessageDeliveryService {
         (this.transportAttempts.get(key) ?? 0) >=
         MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS
       ) {
-        // Parked after MAX prompt attempts: persist a fallback marker so a
-        // restart (which clears the RAM park) can still deliver this as
-        // notice. Same-process notice scans park on the same counter.
-        if (
-          extension?.mailKind === "prompt" &&
-          input.fallback !== "notice" &&
-          this.attempts
-        ) {
-          await this.grantPromptFallback(
-            input.canvas,
-            input.nodeId,
-            live.messageId,
-            "parked",
-          );
-        }
+        // Parked after MAX attempts. A plain immediate prompt stays
+        // immediate here — parking never auto-degrades it to notice. An
+        // explicit notice fallback already persisted its marker write-ahead
+        // at entry, so a restart (which clears the RAM park) still delivers
+        // it as notice. Same-process notice scans park on the same counter.
         return { unavailable: "parked" };
       }
       const gate = await this.evaluateSeatGate(target.bindingId);
@@ -984,25 +997,10 @@ export class MessageDeliveryService {
             : gate.reason === "unavailable"
               ? "not-ready"
               : "seat-busy";
-        // Gate deferral ("not now", not "never"): persist the operator's
-        // prompt intent as a notice-fallback marker BEFORE returning, so a
-        // crash cannot lose it and the next idle scan re-admits the row.
-        // Verdicts (over-limit/cancelled/held/gone) never grant — nor does
-        // not-settled, which is prompt()'s own pacing (the caller retries
-        // after settle; the notice path would hit the same settle wall).
-        if (
-          extension?.mailKind === "prompt" &&
-          input.fallback !== "notice" &&
-          this.attempts &&
-          gate.reason !== "not-settled"
-        ) {
-          await this.grantPromptFallback(
-            input.canvas,
-            input.nodeId,
-            live.messageId,
-            reason,
-          );
-        }
+        // Gate deferral ("not now", not "never"). A plain immediate prompt
+        // stays immediate — the deferral never auto-degrades it to notice.
+        // An explicit notice fallback already persisted its marker
+        // write-ahead at entry, so the idle scan re-admits the row.
         return { outcome: this.refusedWithoutWrite(reason), policy };
       }
       // Immediate prompts carry the full body under the server sender
@@ -1135,21 +1133,10 @@ export class MessageDeliveryService {
         return { outcome, policy };
       }
       if (outcome.status !== "submitted") {
-        // Transport-level busy: same write-ahead fallback as the gate path.
-        // Any other transport verdict stands without a marker.
-        if (
-          outcome.reason === "seat-busy" &&
-          extension?.mailKind === "prompt" &&
-          input.fallback !== "notice" &&
-          this.attempts
-        ) {
-          await this.grantPromptFallback(
-            input.canvas,
-            input.nodeId,
-            live.messageId,
-            "seat-busy",
-          );
-        }
+        // Transport verdicts stand as returned. A plain immediate prompt
+        // stays immediate — a transport busy never auto-degrades it to
+        // notice. An explicit notice fallback already persisted its marker
+        // write-ahead at entry.
         return { outcome, policy };
       }
       this.transportAccepted.add(key);
@@ -1334,6 +1321,16 @@ export class MessageDeliveryService {
    * already notified, already open, or gone from the document grant nothing.
    * A crash between grant and transport leaves an open intent that boot
    * reconciliation closes back into the hold (never a blind replay).
+   *
+   * Generation-fenced: a held row is granted only when its recorded
+   * generation equals the seat's CURRENT transport generation, read fresh
+   * before the grant — and the drive hold is released only when that
+   * equality still holds after the grant write lands, because the seat may
+   * have cut generation while the grant was in flight. Granting (or
+   * releasing) an old generation's row authorizes a paste the current
+   * ledger never opened: a duplicate physical write with no intent behind
+   * it. The release carries the granted generation so the composition can
+   * verify it against the current host before touching the drive.
    */
   private async grantResumeRetries(
     canvas: string,
@@ -1366,6 +1363,18 @@ export class MessageDeliveryService {
       // Grant only rows still live and pending: a removed or receipted row
       // owes nothing, and granting it would open a dead intent.
       if (!node || !live || !isPendingDelivery(live)) continue;
+      const bindingId = deliveryTargetOf(node)?.bindingId;
+      // Without a bound seat there is no transport generation to fence
+      // against, and no paste a grant could authorize: skip the row.
+      if (bindingId === undefined) continue;
+      // Pre-grant fence: only the seat's current generation may open a new
+      // intent. An old generation's held row must never grant — its retry
+      // would paste under a generation the ledger no longer tracks.
+      const current = await this.currentSeatGeneration(bindingId);
+      if (!this.active(generation)) return;
+      if (current === undefined || current !== row.recipient.generation) {
+        continue;
+      }
       let granted = false;
       try {
         granted = await ledger.grantHeldAttempt({
@@ -1378,11 +1387,31 @@ export class MessageDeliveryService {
         continue;
       }
       if (!granted) continue;
-      const bindingId = deliveryTargetOf(node)?.bindingId;
-      if (bindingId !== undefined && !releasedBindings.has(bindingId)) {
+      // Post-grant fence: the seat may have cut generation while the grant
+      // write was in flight. Release the drive hold only when the granted
+      // generation is still current; the release carries it so the
+      // composition can verify before touching the drive.
+      const fresh = await this.currentSeatGeneration(bindingId);
+      if (!this.active(generation)) return;
+      if (fresh === undefined || fresh !== row.recipient.generation) continue;
+      if (!releasedBindings.has(bindingId)) {
         releasedBindings.add(bindingId);
-        this.releaseSeatHold?.(bindingId);
+        this.releaseSeatHold?.(bindingId, row.recipient.generation);
       }
+    }
+  }
+
+  /**
+   * The seat's current transport generation. A missing or failed snapshot
+   * cannot authorize a grant from a previously observed generation.
+   */
+  private async currentSeatGeneration(
+    bindingId: string,
+  ): Promise<string | undefined> {
+    try {
+      return (await this.transport?.seatDeliverySnapshot?.(bindingId))?.generationKey;
+    } catch {
+      return undefined;
     }
   }
 
@@ -1749,7 +1778,7 @@ export class MessageDeliveryService {
 
   /**
    * Durable notice fallback: an explicit-only prompt-kind row rejoins the
-   * ordinary notice path once an authorizing deferral persisted its marker.
+   * ordinary notice path once an explicit request persisted its marker.
    * Marker-less rows (or a marker-less store) stay explicit-only. Never
    * throws: ledger trouble fails closed to explicit-only.
    */
@@ -1768,32 +1797,6 @@ export class MessageDeliveryService {
       );
     } catch {
       return false;
-    }
-  }
-
-  /**
-   * Durable notice-fallback grant: persist the operator's prompt intent as a
-   * notice-path marker BEFORE the deferral returns, so a crash cannot lose
-   * it and the next idle scan re-admits the row. Write-ahead, idempotent,
-   * best-effort: a grant failure still returns the refusal it was
-   * accompanying — the marker is simply absent and the row stays
-   * explicit-only.
-   */
-  private async grantPromptFallback(
-    canvas: string,
-    nodeId: string,
-    messageId: string,
-    reason: string,
-  ): Promise<void> {
-    try {
-      await this.attempts?.grantNoticeFallback?.({
-        canvas,
-        nodeId,
-        messageId,
-        reason,
-      });
-    } catch {
-      // Fall through: the refusal stands without the marker.
     }
   }
 
