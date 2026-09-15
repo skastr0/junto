@@ -18,7 +18,7 @@ export const devinRules: SeatRulePack = {
     // Isolated --trust-hold capture (no Enter): startup-trust.jsonl
     // "✱ Do you trust the authors of this directory?"
     // "... directories with untrusted content."
-    // "❭ 1 Yes, trust" / "· 2 No, exit"
+    // "❭ 1 Yes, trust" / "2 No, exit"
     {
       id: "workspace_trust_prompt",
       state: "attention",
