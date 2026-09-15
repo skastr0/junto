@@ -551,10 +551,10 @@ describe("crew mail delivery — process-boundary adversarial", () => {
   });
 
   // Contract: "at most one automatic notice is admitted per seat turn
-  // window." Mail appended while the seat sits continuously idle pastes
-  // immediately today — two notices inside one window.
-  it.fails(
-    "a second notice does not paste inside the same idle turn window",
+  // window." The window opens on an observed turn-start; a wrote-physical
+  // notice spends it; the next turn-start releases what parked.
+  it(
+    "one notice per observed turn window — the second holds until the next turn-start",
     async () => {
       const firstMsg = userMsg("win-1", "first");
       const secondMsg = userMsg("win-2", "second");
@@ -571,13 +571,21 @@ describe("crew mail delivery — process-boundary adversarial", () => {
           },
           store,
         });
+        // An observed turn-start opens the one-notice window.
+        service.onManagedTerminalTurnStart("bind-profile-13");
         service.notifyAppended("c", "agent", firstMsg);
         await waitUntil(() => sends.length === 1);
-        // The seat never left idle: whatever a turn window is, both appends
-        // fall inside the same one.
+        // Same window: the second notice parks with no ledger write even
+        // though the seat reads idle.
         service.notifyAppended("c", "agent", secondMsg);
         await settle(60);
         expect(sends).toHaveLength(1);
+        // The next observed turn-start releases the parked notice on the
+        // following idle re-drive.
+        service.onManagedTerminalTurnStart("bind-profile-13");
+        service.onManagedTerminalIdle("bind-profile-13");
+        await waitUntil(() => sends.length === 2);
+        expect(sends).toHaveLength(2);
       } finally {
         service.suspend();
       }
