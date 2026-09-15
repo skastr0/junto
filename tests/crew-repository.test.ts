@@ -16,7 +16,7 @@ import {
 } from "../src/main/vellum-command/state/engine";
 import { unjournaledWorkMutation } from "../src/main/vellum-command/work/mutation-seam";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import type { ReviewVerdict } from "../src/shared/crew";
+import { deriveMailDisplayState, type ReviewVerdict } from "../src/shared/crew";
 
 const seat = (c: string): typeof ActorSeatId.Type =>
   Schema.decodeUnknownSync(ActorSeatId)(`seat_${c.repeat(64)}`);
@@ -132,6 +132,7 @@ describe("crew delivery attempts", () => {
     expect(finalAttempt.facts.notifiedAt).toBe(iso(13));
     expect(finalAttempt.facts.refusedAt).toBe(iso(14));
     expect(finalAttempt.facts.refusedReason).toBe("seat-busy");
+    expect(deriveMailDisplayState(finalAttempt.facts)).toBe("notified");
     expect(finalAttempt.write?.writesAfter).toBe(5);
   });
 

@@ -763,10 +763,10 @@ describe("crew mail display-state ranking", () => {
     ).toBe("reacted");
   });
 
-  it("refused does not erase a prior notified fact ordering", () => {
+  it("a refusal cannot demote a proven notification", () => {
     expect(
       deriveMailDisplayState({ notifiedAt: "a", refusedAt: "b" }),
-    ).toBe("refused");
+    ).toBe("notified");
     expect(deriveMailDisplayState({ notifiedAt: "a" })).toBe("notified");
     expect(deriveMailDisplayState({ queuedAt: "a" })).toBe("queued");
   });

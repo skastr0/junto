@@ -33,14 +33,14 @@ describe("deriveMailDisplay", () => {
       generation: "g1",
     };
     expect(deriveMailDisplay(facts)).toBe("read");
-    expect(deriveMailDisplay({ ...facts, readAt: undefined })).toBe("unresolved");
+    expect(deriveMailDisplay({ ...facts, readAt: undefined })).toBe("notified");
     expect(
       deriveMailDisplay({
         ...facts,
         readAt: undefined,
         refusedAt: "2026-01-01T00:00:05.000Z",
       }),
-    ).toBe("unresolved");
+    ).toBe("notified");
     expect(deriveMailDisplay({ ...facts, unresolvedAt: undefined, readAt: undefined })).toBe(
       "notified",
     );
@@ -52,6 +52,24 @@ describe("deriveMailDisplay", () => {
         readAt: undefined,
       }),
     ).toBe("queued");
+  });
+
+  it("shows an acknowledged retry as notified while preserving prior refusal and uncertainty", () => {
+    const metadata = {
+      generation: "g1",
+      queuedAt: "2026-01-01T00:00:01.000Z",
+      refusedAt: "2026-01-01T00:00:02.000Z",
+      refusedReason: "not-settled",
+      unresolvedAt: "2026-01-01T00:00:03.000Z",
+      notifiedAt: "2026-01-01T00:00:04.000Z",
+    };
+    const view = crewMailViewOf(message(metadata), 1);
+    expect(view.display).toBe("notified");
+    expect(view.facts.refusedAt).toBe(metadata.refusedAt);
+    expect(view.facts.unresolvedAt).toBe(metadata.unresolvedAt);
+    expect(view.facts.readAt).toBeUndefined();
+    const { notifiedAt: _notifiedAt, ...unacknowledged } = metadata;
+    expect(crewMailViewOf(message(unacknowledged), 1).display).toBe("unresolved");
   });
 });
 

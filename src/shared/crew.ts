@@ -329,9 +329,10 @@ export type MailDisplayFacts = {
 };
 
 /**
- * Rank the independent facts into one display state. Recipient acknowledgement
- * outranks transport; and per the root correction, `unresolved` outranks a
- * later `refused` so a no-write refusal cannot hide a prior physical write.
+ * Rank the independent facts into one display state. Proven notification
+ * resolves earlier transport uncertainty without implying recipient read.
+ * Without that proof, unresolved outranks a no-write refusal. All historical
+ * facts remain intact regardless of the displayed state.
  */
 export const deriveMailDisplayState = (
   facts: MailDisplayFacts,
@@ -339,9 +340,9 @@ export const deriveMailDisplayState = (
   if (facts.reactedAt !== undefined) return "reacted";
   if (facts.repliedAt !== undefined) return "replied";
   if (facts.readAt !== undefined) return "read";
+  if (facts.notifiedAt !== undefined) return "notified";
   if (facts.unresolvedAt !== undefined) return "unresolved";
   if (facts.refusedAt !== undefined) return "refused";
-  if (facts.notifiedAt !== undefined) return "notified";
   return "queued";
 };
 

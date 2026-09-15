@@ -72,8 +72,10 @@ reasons. Transport state and read/reply/reaction facts must not erase one
 another: preserve their timestamps and derive the displayed state. A later
 receipt failure cannot turn an accepted notification into an eligible fresh
 paste. Equal text with distinct message ids remains distinct mail.
-Display precedence is reacted, replied, read, unresolved, refused, notified,
-queued. `refusedReason` is the reason key. Historical `deliveredAt` proves
+Display precedence is reacted, replied, read, notified, unresolved, refused,
+queued. Successful notification supersedes prior refusal or uncertainty while
+preserving those historical facts; it never implies read. `refusedReason` is
+the reason key. Historical `deliveredAt` proves
 notification only and never implies read.
 
 An unresolved attempt is not automatically retried in its generation. A new
