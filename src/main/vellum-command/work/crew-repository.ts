@@ -151,6 +151,11 @@ export const subjectHashOf = (
         readonly taskId: string;
         readonly epoch: number;
         readonly commitShas?: ReadonlyArray<string>;
+        readonly artifactRefs?: ReadonlyArray<{
+          readonly nodeId: string;
+          readonly artifactId: string;
+        }>;
+        readonly claimRefs?: ReadonlyArray<string>;
       }
     | { readonly kind: "commit"; readonly sha: string },
 ): string =>
@@ -160,6 +165,35 @@ export const subjectHashOf = (
 
 const decodeAttempt = Schema.decodeUnknownSync(DeliveryAttempt);
 const decodeVerdict = Schema.decodeUnknownSync(ReviewVerdict);
+
+/**
+ * Each reviewer's latest verdict, then true if any is green. Latest is by max
+ * postedAtMs; on a tie (same reviewer, same postedAtMs) BLOCKING WINS
+ * regardless of insertion or array order (root tie ruling). verdict id only
+ * breaks ties among same-kind rows, which never changes the outcome.
+ */
+export const anyReviewerLatestGreen = (
+  rows: ReadonlyArray<{
+    readonly reviewer_seat_id: string;
+    readonly kind: string;
+    readonly posted_at_ms: number;
+  }>,
+): boolean => {
+  const latest = new Map<string, { at: number; kind: string }>();
+  for (const row of rows) {
+    const prior = latest.get(row.reviewer_seat_id);
+    if (prior === undefined || row.posted_at_ms > prior.at) {
+      latest.set(row.reviewer_seat_id, { at: row.posted_at_ms, kind: row.kind });
+    } else if (row.posted_at_ms === prior.at && row.kind === "blocking") {
+      // Tie at the latest instant: blocking wins.
+      latest.set(row.reviewer_seat_id, { at: prior.at, kind: "blocking" });
+    }
+  }
+  for (const entry of latest.values()) {
+    if (entry.kind === "green") return true;
+  }
+  return false;
+};
 
 type AttemptRow = {
   readonly canvas_name: string;
@@ -178,6 +212,8 @@ type AttemptRow = {
   readonly writes_before: number | null;
   readonly writes_after: number | null;
   readonly write_at: string | null;
+  readonly attempt_seq: number;
+  readonly resolved_seq: number;
 };
 
 const attemptFromRow = (row: AttemptRow): typeof DeliveryAttempt.Type =>
@@ -446,6 +482,27 @@ export const CrewRepositoryLive = Layer.effect(
           const out: Array<typeof DeliveryAttempt.Type> = [];
           for (const member of input.members) {
             insertQueued(writer, member);
+            // Associate the batch id onto the row whether it was just created or
+            // already queued/refused by a prior individual attempt, so an
+            // existing member joins this batch. Other facts (queued_at, the
+            // refusal facts, intent seq) are preserved; the batch id is the
+            // current batch (latest batch wins on a re-batch).
+            if (member.batchId !== undefined) {
+              writer.run(
+                `UPDATE work_mail_attempts SET batch_id = ?, updated_at = ?
+                 WHERE canvas_name = ? AND node_id = ? AND message_id = ?
+                   AND recipient_seat_id = ? AND recipient_generation = ?`,
+                [
+                  member.batchId,
+                  member.at,
+                  member.sink.canvasName,
+                  member.sink.nodeId,
+                  member.messageId,
+                  member.recipientSeatId,
+                  member.recipientGeneration,
+                ],
+              );
+            }
             const row = readAttemptRow(writer, member);
             if (row === undefined) {
               throw new Error("batch member row missing after enqueue");
@@ -461,7 +518,9 @@ export const CrewRepositoryLive = Layer.effect(
         .transaction("crew.markAttempted", (writer) => {
           writer.run(
             `UPDATE work_mail_attempts
-               SET attempted_at = coalesce(attempted_at, ?), updated_at = ?
+               SET attempt_seq = attempt_seq + 1,
+                   attempted_at = coalesce(attempted_at, ?),
+                   updated_at = ?
              WHERE canvas_name = ? AND node_id = ? AND message_id = ?
                AND recipient_seat_id = ? AND recipient_generation = ?`,
             [
@@ -495,6 +554,7 @@ export const CrewRepositoryLive = Layer.effect(
                writes_before = coalesce(writes_before, ?),
                writes_after = coalesce(writes_after, ?),
                write_at = coalesce(write_at, ?),
+               resolved_seq = attempt_seq,
                updated_at = ?
              WHERE canvas_name = ? AND node_id = ? AND message_id = ?
                AND recipient_seat_id = ? AND recipient_generation = ?`,
@@ -573,13 +633,16 @@ export const CrewRepositoryLive = Layer.effect(
       (at) =>
         state
           .transaction("crew.reconcileUnresolvedAttempts", (writer) => {
+            // An open physical intent (attempt_seq > resolved_seq) that never
+            // recorded an outcome is a crash: reopen it as unresolved and close
+            // it, WITHOUT clearing a prior refused_at fact. A clean queued row
+            // (never attempted: attempt_seq = 0) is left alone.
             const result = writer.run(
               `UPDATE work_mail_attempts
-                 SET unresolved_at = ?, updated_at = ?
-               WHERE attempted_at IS NOT NULL
-                 AND notified_at IS NULL
-                 AND unresolved_at IS NULL
-                 AND refused_at IS NULL`,
+                 SET unresolved_at = coalesce(unresolved_at, ?),
+                     resolved_seq = attempt_seq,
+                     updated_at = ?
+               WHERE attempt_seq > resolved_seq`,
               [at, at],
             );
             return Number(result.changes ?? 0);
@@ -670,13 +733,7 @@ export const CrewRepositoryLive = Layer.effect(
               input.excludingSeatId,
             ],
           );
-          // Rows are ascending; the last per reviewer is their latest verdict.
-          const latest = new Map<string, string>();
-          for (const row of rows) latest.set(row.reviewer_seat_id, row.kind);
-          for (const kind of latest.values()) {
-            if (kind === "green") return true;
-          }
-          return false;
+          return anyReviewerLatestGreen(rows);
         })
         .pipe(
           Effect.mapError((error) =>

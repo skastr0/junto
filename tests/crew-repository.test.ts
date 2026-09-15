@@ -195,6 +195,47 @@ describe("crew delivery attempts", () => {
     expect(clean?.facts.unresolvedAt).toBeUndefined();
   });
 
+  it("recovers a retry that crashes after a prior refusal, preserving the refusal", async () => {
+    const key = {
+      sink,
+      messageId: "m-retry",
+      recipientSeatId: SEAT_RECIPIENT,
+      recipientGeneration: "gen-retry",
+    };
+    await runtime.runPromise(
+      crew.enqueueAttempt({ ...key, policy: "notice", at: iso(70) }),
+    );
+    // First physical attempt refuses.
+    await runtime.runPromise(crew.markAttempted({ ...key, at: iso(71) }));
+    await runtime.runPromise(
+      crew.recordAttempt({
+        ...key,
+        outcome: { kind: "refused", at: iso(72), reason: "seat-busy" },
+      }),
+    );
+    // An operator retry opens a SECOND physical intent, then the process crashes
+    // before recording an outcome (no new terminal fact).
+    await runtime.runPromise(crew.markAttempted({ ...key, at: iso(73) }));
+
+    const reconciled = await runtime.runPromise(
+      crew.reconcileUnresolvedAttempts(iso(80)),
+    );
+    expect(reconciled).toBeGreaterThanOrEqual(1);
+
+    const row = await runtime.runPromise(crew.attempt(key));
+    // The crashed retry is recovered as unresolved, and the earlier refusal
+    // fact is preserved (independent facts, no clearing).
+    expect(row?.facts.unresolvedAt).toBe(iso(80));
+    expect(row?.facts.refusedAt).toBe(iso(72));
+    expect(row?.facts.refusedReason).toBe("seat-busy");
+
+    // A second reconcile is a no-op: the intent is closed.
+    const again = await runtime.runPromise(
+      crew.reconcileUnresolvedAttempts(iso(81)),
+    );
+    expect(again).toBe(0);
+  });
+
   it("commits a batch membership set atomically before transport", async () => {
     const members = ["mb-1", "mb-2"].map((messageId) => ({
       sink,
@@ -209,6 +250,49 @@ describe("crew delivery attempts", () => {
     expect(attempts).toHaveLength(2);
     expect(attempts.every((a) => a.batchId === "batch-1")).toBe(true);
     expect(attempts.every((a) => a.facts.attemptedAt === undefined)).toBe(true);
+  });
+
+  it("associates an already-queued, refused row into a later batch, keeping its facts", async () => {
+    const base = {
+      sink,
+      messageId: "m-rebatch",
+      recipientSeatId: SEAT_RECIPIENT,
+      recipientGeneration: "gen-rebatch",
+    };
+    // A prior individual attempt queued then refused (not-settled), no batch.
+    await runtime.runPromise(crew.enqueueAttempt({ ...base, policy: "notice", at: iso(90) }));
+    await runtime.runPromise(crew.markAttempted({ ...base, at: iso(91) }));
+    await runtime.runPromise(
+      crew.recordAttempt({ ...base, outcome: { kind: "refused", at: iso(92), reason: "not-settled" } }),
+    );
+
+    // A later batch after settle includes the existing row plus a new one.
+    const attempts = await runtime.runPromise(
+      crew.enqueueBatch({
+        members: [
+          { ...base, policy: "notice", batchId: "batch-after-settle", at: iso(93) },
+          {
+            sink,
+            messageId: "m-rebatch-new",
+            recipientSeatId: SEAT_RECIPIENT,
+            recipientGeneration: "gen-rebatch",
+            policy: "notice",
+            batchId: "batch-after-settle",
+            at: iso(93),
+          },
+        ],
+      }),
+    );
+    // Both members carry the actual batch id (existing row was associated).
+    expect(attempts.map((a) => a.batchId)).toEqual([
+      "batch-after-settle",
+      "batch-after-settle",
+    ]);
+    // The existing row kept its queued and refusal facts.
+    const existing = attempts.find((a) => a.messageId === "m-rebatch");
+    expect(existing?.facts.queuedAt).toBe(iso(90));
+    expect(existing?.facts.refusedAt).toBe(iso(92));
+    expect(existing?.facts.refusedReason).toBe("not-settled");
   });
 
   it("suppresses across generations once a message was notified", async () => {
@@ -256,6 +340,53 @@ describe("crew review verdicts", () => {
     expect(a).toBe(b); // normalized (lowercased, sorted)
     const commit = subjectHashOf({ kind: "commit", sha: "dead" });
     expect(commit).not.toBe(a);
+  });
+
+  it("subject hash keeps commit/artifact/claim refs in distinct slots (no aliasing)", () => {
+    const base = {
+      kind: "task" as const,
+      installationId: "cc",
+      canvasName: "factory",
+      nodeId: "b1",
+      taskId: "t1",
+      epoch: 1,
+    };
+    // Artifact refs dedupe and sort, case preserved; order does not matter.
+    const artA = subjectHashOf({
+      ...base,
+      artifactRefs: [
+        { nodeId: "N2", artifactId: "A2" },
+        { nodeId: "N1", artifactId: "A1" },
+        { nodeId: "N1", artifactId: "A1" },
+      ],
+    });
+    const artB = subjectHashOf({
+      ...base,
+      artifactRefs: [
+        { nodeId: "N1", artifactId: "A1" },
+        { nodeId: "N2", artifactId: "A2" },
+      ],
+    });
+    expect(artA).toBe(artB);
+    // Case is preserved for artifacts (not folded like shas).
+    const artLower = subjectHashOf({
+      ...base,
+      artifactRefs: [{ nodeId: "n1", artifactId: "a1" }],
+    });
+    const artUpper = subjectHashOf({
+      ...base,
+      artifactRefs: [{ nodeId: "N1", artifactId: "A1" }],
+    });
+    expect(artLower).not.toBe(artUpper);
+    // A claim ref string cannot alias an artifact pair or a commit sha.
+    const claim = subjectHashOf({ ...base, claimRefs: ["N1"] });
+    const artifactOnly = subjectHashOf({
+      ...base,
+      artifactRefs: [{ nodeId: "N1", artifactId: "" }],
+    });
+    expect(claim).not.toBe(artifactOnly);
+    const commitSlot = subjectHashOf({ ...base, commitShas: ["N1"] });
+    expect(claim).not.toBe(commitSlot);
   });
 
   it("keeps the immutable chain and is idempotent by verdict id", async () => {
@@ -339,6 +470,34 @@ describe("crew review verdicts", () => {
       }),
     );
     expect(afterBlock).toBe(false);
+  });
+
+  it("a postedAtMs tie for one reviewer resolves to blocking", async () => {
+    const hash = "hash-tie";
+    // Same reviewer, same subject+epoch, identical postedAtMs: green + blocking.
+    await runtime.runPromise(
+      crew.postVerdict(
+        verdict({ verdictId: "tie-green", kind: "green", subjectHash: hash, reviewerSeatId: SEAT_REVIEWER_2, postedAtMs: 5000 }),
+      ),
+    );
+    await runtime.runPromise(
+      crew.postVerdict(
+        verdict({ verdictId: "tie-block", kind: "blocking", subjectHash: hash, reviewerSeatId: SEAT_REVIEWER_2, postedAtMs: 5000 }),
+      ),
+    );
+    const green = await runtime.runPromise(
+      crew.currentGreenExists({
+        installationId: "cc-crew",
+        canvasName: "factory",
+        nodeId: "board-1",
+        taskId: "t1",
+        epoch: 0,
+        subjectHash: hash,
+        excludingSeatId: SEAT_AUTHOR,
+      }),
+    );
+    // Blocking wins the tie regardless of insertion order.
+    expect(green).toBe(false);
   });
 
   it("a stale epoch or subject hash does not satisfy the gate", async () => {

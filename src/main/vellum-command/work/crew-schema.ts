@@ -35,6 +35,8 @@ export const CREW_STATE_SCHEMA_SQL = `
     policy TEXT NOT NULL CHECK (policy IN ('notice', 'immediate')),
     batch_id TEXT CHECK (batch_id IS NULL OR length(batch_id) BETWEEN 1 AND 256),
     queued_at TEXT NOT NULL CHECK (length(queued_at) BETWEEN 1 AND 64),
+    attempted_at TEXT
+      CHECK (attempted_at IS NULL OR length(attempted_at) BETWEEN 1 AND 64),
     notified_at TEXT
       CHECK (notified_at IS NULL OR length(notified_at) BETWEEN 1 AND 64),
     unresolved_at TEXT
@@ -58,6 +60,13 @@ export const CREW_STATE_SCHEMA_SQL = `
           'written-no-evidence'
         )
       ),
+    -- Open/close intent versioning, separate from the monotonic outcome facts.
+    -- Each physical attempt opens (attempt_seq += 1); its outcome closes
+    -- (resolved_seq = attempt_seq). Recovery reopens any attempt_seq >
+    -- resolved_seq as unresolved WITHOUT clearing a prior refused_at, so a
+    -- retry after a refusal that crashes is never lost as terminal.
+    attempt_seq INTEGER NOT NULL DEFAULT 0 CHECK (attempt_seq >= 0),
+    resolved_seq INTEGER NOT NULL DEFAULT 0 CHECK (resolved_seq >= 0),
     writes_before INTEGER
       CHECK (writes_before IS NULL OR writes_before >= 0),
     writes_after INTEGER

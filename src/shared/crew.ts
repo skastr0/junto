@@ -202,6 +202,15 @@ export type RecipientGeneration = typeof RecipientGeneration.Type;
 export const MailAttemptFacts = Schema.Struct({
   generation: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
   queuedAt: CrewTimestamp,
+  /**
+   * Stamped durably immediately BEFORE the physical transport write, as an
+   * intent witness. On recovery a row with `attemptedAt` set but no terminal
+   * outcome (notified/unresolved/refused) is a crash-after-intent: it resolves
+   * to `unresolved` (uncertain, preserved) and is never blindly replayed in the
+   * same generation. `queuedAt` without `attemptedAt` is a clean durable
+   * enqueue that no transport has touched.
+   */
+  attemptedAt: Schema.optionalKey(CrewTimestamp),
   notifiedAt: Schema.optionalKey(CrewTimestamp),
   unresolvedAt: Schema.optionalKey(CrewTimestamp),
   refusedAt: Schema.optionalKey(CrewTimestamp),
@@ -233,6 +242,7 @@ export const mailAttemptFactsMetadata = (
 ): Record<string, unknown> => ({
   generation: facts.generation,
   queuedAt: facts.queuedAt,
+  ...(facts.attemptedAt !== undefined ? { attemptedAt: facts.attemptedAt } : {}),
   ...(facts.notifiedAt !== undefined ? { notifiedAt: facts.notifiedAt } : {}),
   ...(facts.unresolvedAt !== undefined ? { unresolvedAt: facts.unresolvedAt } : {}),
   ...(facts.refusedAt !== undefined ? { refusedAt: facts.refusedAt } : {}),
@@ -381,6 +391,11 @@ export const VERDICT_SUBJECT_HASH_DOMAIN = "vellum/crew/verdict-subject/v1";
  * identical bytes. Commit shas passed for a task subject are normalized
  * (lowercased, sorted, de-duplicated) so ref order never changes the identity.
  */
+export type VerdictArtifactRef = {
+  readonly nodeId: string;
+  readonly artifactId: string;
+};
+
 export const verdictSubjectHashPayload = (
   input:
     | {
@@ -391,15 +406,36 @@ export const verdictSubjectHashPayload = (
         readonly taskId: string;
         readonly epoch: number;
         readonly commitShas?: ReadonlyArray<string>;
+        readonly artifactRefs?: ReadonlyArray<VerdictArtifactRef>;
+        readonly claimRefs?: ReadonlyArray<string>;
       }
     | { readonly kind: "commit"; readonly sha: string },
 ): string => {
   if (input.kind === "commit") {
     return JSON.stringify([VERDICT_SUBJECT_HASH_DOMAIN, "commit", input.sha]);
   }
-  const commitShas = [
-    ...new Set((input.commitShas ?? []).map((sha) => sha.toLowerCase())),
+  // Commit shas: trim, lowercase (the only case-folding), dedupe, sort.
+  const commits = [
+    ...new Set((input.commitShas ?? []).map((sha) => sha.trim().toLowerCase())),
   ].sort();
+  // Artifact refs: dedupe exact (nodeId, artifactId) pairs, sort by nodeId then
+  // artifactId, case preserved. Emitted as [nodeId, artifactId] tuples.
+  const artifactSeen = new Set<string>();
+  const artifacts: Array<readonly [string, string]> = [];
+  for (const ref of input.artifactRefs ?? []) {
+    const key = `${ref.nodeId} ${ref.artifactId}`;
+    if (artifactSeen.has(key)) continue;
+    artifactSeen.add(key);
+    artifacts.push([ref.nodeId, ref.artifactId]);
+  }
+  artifacts.sort((a, b) =>
+    a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0,
+  );
+  // Claim refs: trim, dedupe, sort, case preserved.
+  const claimRefs = [
+    ...new Set((input.claimRefs ?? []).map((ref) => ref.trim())),
+  ].sort();
+  // Three distinct slots so a claim ref can never alias a sha or artifact pair.
   return JSON.stringify([
     VERDICT_SUBJECT_HASH_DOMAIN,
     "task",
@@ -408,6 +444,8 @@ export const verdictSubjectHashPayload = (
     input.nodeId,
     input.taskId,
     input.epoch,
-    ...commitShas,
+    commits,
+    artifacts,
+    claimRefs,
   ]);
 };

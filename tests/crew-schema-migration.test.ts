@@ -29,7 +29,7 @@ const tableSql = (database: DatabaseSync, name: string): string => {
 const tableNames = (database: DatabaseSync): ReadonlySet<string> => {
   const rows = database
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-    .all() as ReadonlyArray<{ readonly name: string }>;
+    .all() as unknown as ReadonlyArray<{ readonly name: string }>;
   return new Set(rows.map((r) => r.name));
 };
 
