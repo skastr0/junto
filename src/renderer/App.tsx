@@ -46,6 +46,7 @@ import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
 import { SettingsPanel } from "./components/SettingsPanel";
+import { DigestPanel } from "./components/DigestPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
@@ -101,6 +102,8 @@ const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
 const resetCanvasView = (): void => {
   batch(() => {
     state$.commandBarOpen.set(false);
+    state$.digestOpen.set(false);
+    state$.digest.set(null);
     state$.nodePaletteOpen.set(false);
     state$.edgeFilter.set("");
     state$.flagFilter.set("");
@@ -479,6 +482,11 @@ export function App() {
           closeSettings();
           return;
         }
+        if (state$.digestOpen.peek()) {
+          event.preventDefault();
+          state$.digestOpen.set(false);
+          return;
+        }
         const front = frontBrowserSurface();
         if (front) {
           // Dismiss the page surface, keep the canvas selection intact — the
@@ -562,6 +570,7 @@ export function App() {
           <PersistentTerminalHost />
         </RendererErrorBoundary>
         <SettingsPanel />
+        <DigestPanel />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
         {FLEET_UI_ENABLED && isCommandCenterFleetUi(stationRole) && fleetOpen ? (
