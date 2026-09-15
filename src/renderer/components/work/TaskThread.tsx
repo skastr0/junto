@@ -13,7 +13,9 @@ export type TaskThreadKind =
   | "update"
   | "defect"
   | "incoming"
-  | "comment";
+  | "comment"
+  | "receipt"
+  | "verdict";
 
 export type TaskThreadEntry = {
   readonly message: Message;
@@ -43,10 +45,16 @@ export const taskThreadKind = (
     explicit === "update" ||
     explicit === "defect" ||
     explicit === "incoming" ||
-    explicit === "comment"
+    explicit === "comment" ||
+    explicit === "receipt" ||
+    explicit === "verdict"
   ) {
     return explicit;
   }
+  const mailKind = metadataText(message, "mailKind");
+  if (mailKind === "receipt") return "receipt";
+  if (mailKind === "prompt") return "comment";
+  if (message.metadata?.reviewVerdict !== undefined) return "verdict";
   const text = textOf(message);
   if (/^defect(?:\s+from)?\b/iu.test(text)) return "defect";
   if (/^sent on\s+from\b/iu.test(text)) return "incoming";
@@ -111,6 +119,8 @@ const kindTone = (kind: TaskThreadKind): ChipTone => {
   if (kind === "defect") return "crimson";
   if (kind === "incoming") return "violet";
   if (kind === "comment") return "cyan";
+  if (kind === "receipt") return "violet";
+  if (kind === "verdict") return "amber";
   return "steel";
 };
 

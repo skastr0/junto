@@ -30,6 +30,12 @@ import {
   type MailRow,
 } from "../../lib/actor-ledger";
 import {
+  mailDisplayLabel,
+  mailEvidenceLabel,
+  mailKindLabel,
+} from "../../lib/crew-mail-view";
+import "./actor-ledger-mail.css";
+import {
   artifactRowsForSeat,
   boardRowsForActor,
   claimedTaskRow,
@@ -73,22 +79,37 @@ function MailRowItem({
   const age = mailAgeLabel(nowMs, row.sentAtMs);
   const inbound = row.direction === "in";
   const unread = inbound && !row.read;
+  const deliveryTone =
+    row.delivery === "unresolved" || row.delivery === "queued"
+      ? "amber"
+      : row.delivery === "refused"
+        ? "crimson"
+        : row.delivery === "read" ||
+            row.delivery === "replied" ||
+            row.delivery === "reacted"
+          ? "green"
+          : "steel";
   return (
     <li
       className={[
         "actor-ledger__mail-item",
         unread ? "actor-ledger__mail-item--unread" : "",
+        row.unresolved ? "actor-ledger__mail-item--unresolved" : "",
+        row.delivery === "refused" ? "actor-ledger__mail-item--refused" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       data-testid="actor-ledger-mail-row"
       data-message-id={row.messageId}
+      data-delivery={row.delivery}
+      data-mail-kind={row.kind}
+      data-unresolved={row.unresolved ? "true" : undefined}
     >
       <button
         type="button"
         className="actor-ledger__mail-row"
         aria-expanded={open}
-        title={`${inbound ? `from ${row.fromLabel}` : "self note"}${age ? ` - ${age} ago` : ""}`}
+        title={`${inbound ? `from ${row.fromLabel}` : "self note"} - ${mailDisplayLabel(row.delivery)}${age ? ` - ${age} ago` : ""}`}
         onClick={onToggle}
       >
         <span className="actor-ledger__mail-head">
@@ -104,12 +125,29 @@ function MailRowItem({
             </span>
           ) : null}
         </span>
+        <span className="actor-ledger__mail-chips">
+          <Chip tone={deliveryTone}>{mailDisplayLabel(row.delivery)}</Chip>
+          {row.kind ? <Chip tone="steel">{mailKindLabel(row.kind)}</Chip> : null}
+        </span>
+        {row.subject ? (
+          <span className="actor-ledger__mail-subject">{row.subject}</span>
+        ) : null}
         <span className="actor-ledger__mail-preview">
           {row.preview || "(no text)"}
         </span>
       </button>
       {open ? (
-        <div className="actor-ledger__mail-body">{row.body || "(no text)"}</div>
+        <>
+          <div className="actor-ledger__mail-body">{row.body || "(no text)"}</div>
+          {row.deliveryReason ? (
+            <p className="actor-ledger__mail-reason">{row.deliveryReason}</p>
+          ) : null}
+          {row.refs.length > 0 ? (
+            <p className="actor-ledger__mail-refs">
+              {row.refs.map((ref) => mailEvidenceLabel(ref)).join(", ")}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </li>
   );
@@ -707,10 +745,22 @@ export function ActorLedgerPane({
                   : [
                       `${counts.total}`,
                       counts.unread > 0 ? `${counts.unread} unread` : null,
+                      counts.unresolved > 0
+                        ? `${counts.unresolved} unresolved`
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(" - ")}
               </span>
+              {counts.unresolved > 0 ? (
+                <span
+                  className="actor-ledger__count actor-ledger__count--unresolved"
+                  data-testid="actor-ledger-mail-unresolved"
+                  title={`${counts.unresolved} unresolved writes`}
+                >
+                  {counts.unresolved}
+                </span>
+              ) : null}
             </header>
             {visibleMail.rows.length > 0 ? (
               <ul id={listId} className="actor-ledger__mail-list">

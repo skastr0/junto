@@ -1,0 +1,71 @@
+.edge-port-mask {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.edge-port-mask__title {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.edge-port-mask__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.edge-port-mask__chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-inset) 86%, transparent);
+  color: var(--color-dim);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: default;
+}
+
+.edge-port-mask__chip[data-granted="true"] {
+  color: var(--color-ink);
+  border-color: color-mix(in srgb, var(--color-amber) 36%, var(--color-stroke));
+}
+
+.edge-port-mask__chip[data-granted="false"] {
+  color: var(--color-faint);
+  text-decoration: line-through;
+}
+
+.edge-port-mask__chip[data-attenuable="true"][data-editable="true"] {
+  cursor: pointer;
+}
+
+.edge-port-mask__chip[data-attenuable="true"][data-editable="true"]:hover {
+  background: color-mix(in srgb, var(--color-inset) 80%, var(--color-amber) 12%);
+}
+
+.edge-port-mask__chip:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: 1px;
+}
+
+.edge-port-mask__hint {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.edge-port-mask__empty {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 10.5px;
+}

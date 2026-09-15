@@ -85,6 +85,27 @@ describe("mailboxRows", () => {
     expect(row.body).toBe("line one\nline two");
   });
 
+  it("strips the current mail envelope and derives delivery from facts", () => {
+    const notice = mail(T0, {
+      text: "mail from bravo please read 01ARZ3NDEKTS\nbody",
+      metadata: {
+        fromSeat: "bravo",
+        mailKind: "notice",
+        subject: "Standup",
+        notifiedAt: T0 + 10,
+        unresolvedAt: T0 + 20,
+      },
+    });
+    const doc = docOf([agent("hub", "Hub", [notice])]);
+    const row = mailboxRows(doc, doc.nodes[0]!)[0]!;
+    expect(row.body).toBe("please read 01ARZ3NDEKTS\nbody");
+    expect(row.subject).toBe("Standup");
+    expect(row.kind).toBe("notice");
+    expect(row.delivery).toBe("unresolved");
+    expect(row.unresolved).toBe(true);
+    expect(row.delivered).toBe(true);
+  });
+
   it("maps delivery receipts and roles", () => {
     const unread = mail(T0, {});
     const deliveredUnread = mail(T0 + 1000, { metadata: { deliveredAt: T0 + 2000 } });
@@ -190,7 +211,7 @@ describe("mailboxCounts", () => {
     const note = mail(T0 + 3000, { role: "agent" });
     const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
     const counts = mailboxCounts(mailboxRows(doc, doc.nodes[0]!));
-    expect(counts).toEqual({ total: 4, unread: 2 });
+    expect(counts).toEqual({ total: 4, unread: 2, unresolved: 0 });
   });
 });
 

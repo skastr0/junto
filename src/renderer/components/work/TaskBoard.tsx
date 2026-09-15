@@ -62,6 +62,12 @@ import {
 import { ContentMedia } from "./ContentMedia";
 import { TaskVisits } from "./TaskVisits";
 import { TaskThread } from "./TaskThread";
+import { RequiresReviewControl } from "./RequiresReviewControl";
+import { VerdictChain } from "./VerdictChain";
+import {
+  reviewGateOf,
+  verdictsOnTask,
+} from "../../lib/crew-review-view";
 import { ApprovalMark, OutgoingGroupHeader } from "./TaskPathMarks";
 import { TaskCreationPath } from "../rules/creation";
 import { PinRulingControl, BoardSettings } from "../rules";
@@ -78,6 +84,7 @@ import {
   resolveTaskAdmission,
   type TaskAdmission,
   type TaskRule,
+  type TasksContract,
 } from "@shared/work-model";
 import { currentTaskOwner } from "@shared/task-owner";
 import {
@@ -1795,6 +1802,7 @@ function TaskDetailPanel({
   ownerLabel,
   seatName,
   nodeName,
+  contract,
   operatorPanel,
   onClose,
   onSaveTitle,
@@ -1814,6 +1822,7 @@ function TaskDetailPanel({
   readonly ownerLabel?: string;
   readonly seatName: (seatId: string) => string | undefined;
   readonly nodeName: (nodeId: string) => string | undefined;
+  readonly contract: TasksContract | undefined;
   /** Operator panel for an operator-admission board; absent elsewhere. */
   readonly operatorPanel?: ReactNode;
   readonly onClose: () => void;
@@ -1875,6 +1884,8 @@ function TaskDetailPanel({
       ];
   const queueLaneLabel =
     lanes.find((lane) => lane.state === "submitted")?.label ?? "Queue";
+  const reviewGate = reviewGateOf(task, contract, claimedByOf(task));
+  const reviewVerdicts = verdictsOnTask(task);
 
   return (
     <aside className="task-detail-panel" aria-label={`Details for ${taskTitle(task)}`}>
@@ -2029,6 +2040,13 @@ function TaskDetailPanel({
           nodeName={nodeName}
           onComment={(text) => onComment(task, text)}
         />
+
+        {reviewGate.required || reviewVerdicts.length > 0 ? (
+          <>
+            <RequiresReviewControl gate={reviewGate} />
+            <VerdictChain verdicts={reviewVerdicts} gate={reviewGate} />
+          </>
+        ) : null}
 
         <section className="task-detail-panel__section">
           <h3>Title</h3>
@@ -3243,6 +3261,7 @@ export function TaskBoard({
               ownerLabel={ownerFor(selectedTask)}
               seatName={seatName}
               nodeName={nodeName}
+              contract={node.ether?.tasks?.contract}
               operatorPanel={
                 operatorOwned &&
                 !TERMINAL_STATES.has(selectedTask.state) ? (

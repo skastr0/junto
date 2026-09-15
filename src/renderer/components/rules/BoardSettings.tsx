@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ulid } from "ulid";
 import type { CanvasNode } from "@shared/canvas";
 import type { Check, Rule, TaskAdmission, TasksContract } from "@shared/work-model";
 import { resolveTaskAdmission } from "@shared/work-model";
@@ -6,6 +7,8 @@ import { setBoardSettings } from "../../lib/mutations";
 import { admissionChoiceLabel, ADMISSION_ORDER } from "../../lib/admission-labels";
 import { ChecksEditor } from "./ChecksEditor";
 import { RuleList } from "./RuleList";
+import { RequiresReviewControl } from "../work/RequiresReviewControl";
+import { boardReviewGate, withRequiresReviewRule } from "../../lib/crew-review-view";
 import { formatWait, normalizeBoardSettings, parseWait } from "./board-settings";
 import { Select } from "../ui";
 
@@ -68,6 +71,16 @@ export function BoardSettings({
         label="This board's rules"
         hint="Answered by whoever completes work here."
         onChange={(rules: ReadonlyArray<Rule>) => write({ ...contract, rules })}
+      />
+      <RequiresReviewControl
+        gate={boardReviewGate(contract)}
+        editable
+        onChange={(required) =>
+          write({
+            ...contract,
+            rules: withRequiresReviewRule(contract?.rules ?? [], required, ulid),
+          })
+        }
       />
       {focusSide !== "outgoing" ? (
         <div className="inspector-section">

@@ -1,0 +1,117 @@
+.verdict-chain {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 8px;
+  background: var(--color-raise);
+}
+
+.verdict-chain__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border-bottom: 1px solid var(--color-stroke);
+  background:
+    linear-gradient(110deg, color-mix(in oklab, var(--color-amber) 7%, transparent), transparent 48%),
+    var(--color-raise-2);
+}
+
+.verdict-chain__heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.verdict-chain__heading span {
+  color: var(--color-faint);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.verdict-chain__heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.verdict-chain__list {
+  display: grid;
+  margin: 0;
+  padding: 4px 12px 8px;
+  list-style: none;
+}
+
+.verdict-chain__entry {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.verdict-chain__entry + .verdict-chain__entry {
+  border-top: 1px solid color-mix(in oklab, var(--color-stroke) 72%, transparent);
+}
+
+.verdict-chain__entry-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.verdict-chain__reviewer {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.verdict-chain__time {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.verdict-chain__findings,
+.verdict-chain__refs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.verdict-chain__findings li {
+  color: var(--color-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.verdict-chain__refs li {
+  color: var(--color-cyan);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.verdict-chain__empty {
+  margin: 0;
+  padding: 12px 13px;
+  color: var(--color-faint);
+  font-size: 11px;
+}
+
+.verdict-chain__stale {
+  color: var(--color-faint);
+  font-size: 9.5px;
+}

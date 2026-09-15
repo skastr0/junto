@@ -109,6 +109,16 @@
   background: var(--color-crimson);
 }
 
+.task-thread__message[data-kind="receipt"] .task-thread__timeline > span {
+  border-color: var(--color-violet);
+  background: var(--color-violet);
+}
+
+.task-thread__message[data-kind="verdict"] .task-thread__timeline > span {
+  border-color: var(--color-amber);
+  background: var(--color-amber);
+}
+
 .task-thread__message > article {
   min-width: 0;
 }

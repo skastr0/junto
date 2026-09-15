@@ -6,7 +6,7 @@
  * Mailbox facts come from `ether.messages` on the actor node itself:
  *   - sender: `metadata.fromSeat` (stamped by msg.send)
  *   - read: `metadata.readAt` (listed or marked read)
- *   - deliveredAt is an internal PTY-notify receipt, not a ledger status
+ *   - delivery display is derived from preserved attempt timestamps
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
@@ -16,7 +16,18 @@ import {
   compareMessageIdsNewestFirst,
   messageIdTimeMs,
 } from "@shared/message-delivery";
+import {
+  countMailViews,
+  crewMailViewOf,
+  stripMailEnvelope,
+  type MailCounts,
+  type MailDeliveryDisplay,
+  type MailEvidenceRef,
+  type MailKind,
+} from "./crew-mail-view";
 import { nodeTitle } from "./presentation";
+
+export type { MailCounts };
 
 export type MailRow = {
   readonly messageId: string;
@@ -27,15 +38,16 @@ export type MailRow = {
   readonly sentAtMs: number | undefined;
   readonly preview: string;
   readonly body: string;
+  readonly subject: string | undefined;
+  readonly kind: MailKind | undefined;
+  readonly delivery: MailDeliveryDisplay;
+  readonly deliveryReason: string | undefined;
+  readonly generation: string | undefined;
+  readonly refs: ReadonlyArray<MailEvidenceRef>;
   readonly delivered: boolean;
   readonly read: boolean;
+  readonly unresolved: boolean;
   readonly taskId: string | undefined;
-};
-
-export type MailCounts = {
-  readonly total: number;
-  /** Inbound mail without a read-ack from the seat. */
-  readonly unread: number;
 };
 
 const textOfParts = (parts: ReadonlyArray<Part>): string =>
@@ -45,20 +57,12 @@ const textOfParts = (parts: ReadonlyArray<Part>): string =>
     .join("\n")
     .trim();
 
-/** msg.send wraps the text as "[factory mail from <seat>] …" — strip for display. */
-const stripFactoryMailPrefix = (body: string): string => {
-  const match = /^\[factory mail from [^\]]+\]\s*/.exec(body);
-  return match ? body.slice(match[0].length) : body;
-};
+/** msg.send wraps the text as "mail from <seat> …" — strip for display. */
+const stripFactoryMailPrefix = stripMailEnvelope;
 
 const metadataString = (message: Message, key: string): string | undefined => {
   const value = message.metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-};
-
-const metadataNumber = (message: Message, key: string): number | undefined => {
-  const value = message.metadata?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 };
 
 const senderLabel = (
@@ -74,17 +78,27 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
   const fromNodeId = metadataString(message, "fromSeat");
   const rawBody = textOfParts(message.parts);
   const body = stripFactoryMailPrefix(rawBody);
-  const firstLine = body.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  const sentAtMs = messageIdTimeMs(message.messageId);
+  const view = crewMailViewOf(message, sentAtMs);
+  const firstLine =
+    (view.subject ?? body.split(/\r?\n/, 1)[0]?.trim()) || "";
   return {
     messageId: message.messageId,
     direction: message.role === "user" ? "in" : "note",
     fromNodeId,
     fromLabel: senderLabel(doc, fromNodeId),
-    sentAtMs: messageIdTimeMs(message.messageId),
+    sentAtMs,
     preview: firstLine,
     body,
-    delivered: metadataNumber(message, "deliveredAt") !== undefined,
-    read: metadataNumber(message, "readAt") !== undefined,
+    subject: view.subject,
+    kind: view.kind,
+    delivery: view.display,
+    deliveryReason: view.displayReason,
+    generation: view.facts.generation,
+    refs: view.refs,
+    delivered: view.facts.notifiedAt !== undefined,
+    read: view.facts.readAt !== undefined,
+    unresolved: view.display === "unresolved",
     taskId: message.taskId,
   };
 };
@@ -97,14 +111,8 @@ export const mailboxRows = (
     .map((message) => toMailRow(doc, message))
     .sort((a, b) => compareMessageIdsNewestFirst(a.messageId, b.messageId));
 
-export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts => {
-  let unread = 0;
-  for (const row of rows) {
-    if (row.direction !== "in") continue;
-    if (!row.read) unread += 1;
-  }
-  return { total: rows.length, unread };
-};
+export const mailboxCounts = (rows: ReadonlyArray<MailRow>): MailCounts =>
+  countMailViews(rows);
 
 /** Settled mail decays out of the pane after this long. Unread never does. */
 export const MAIL_SETTLED_WINDOW_MS = 30 * 60_000;

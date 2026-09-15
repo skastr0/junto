@@ -34,10 +34,13 @@ import {
   productNodeKindEnabled,
 } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
-import { verbsForPair, type Verb } from "@shared/physics";
+import { compileVerb, verbsForPair, type PortName, type Verb } from "@shared/physics";
 import { isTaskSinkNode } from "@shared/flow-graph";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
 import { verbSentence as formatWireSentence } from "../../lib/verb-sentence";
+import { toggleAllowedPort } from "../../lib/crew-port-mask";
+import { setEdgePortMask } from "../../lib/edge-mutations";
+import { EdgePortMask } from "./EdgePortMask";
 import {
   ADMISSION_ORDER,
   admissionLabel,
@@ -265,6 +268,15 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const liveDetail = execution?.detailByEdgeId[edgeId];
   const line = liveDetail ?? livePhase ?? view.sentence;
   const phaseHue = livePhase === "blocks" ? HUE.crimson : undefined;
+  const fromKind = doc.nodes.find((node) => node.id === edge.fromNode)?.ether
+    ?.entity?.kind;
+  const toKind = doc.nodes.find((node) => node.id === edge.toNode)?.ether
+    ?.entity?.kind;
+  const compiled =
+    view.verb === undefined
+      ? []
+      : (compileVerb(view.verb, fromKind, toKind)?.ports ?? []);
+  const allowed = edge.ether?.mask;
 
   return (
     <div className="rts-panel rts-panel--cmd">
@@ -278,6 +290,16 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
               {line}
             </div>
           </div>
+          <EdgePortMask
+            compiled={compiled}
+            allowed={allowed}
+            verb={view.verb}
+            editable
+            onToggle={(port) => {
+              const next = toggleAllowedPort(compiled, allowed, port);
+              setEdgePortMask(edgeId, next as ReadonlyArray<PortName> | undefined);
+            }}
+          />
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Relation actions">
           <KindKey label="Delete relation" danger onClick={() => deleteEdges([edgeId])}>

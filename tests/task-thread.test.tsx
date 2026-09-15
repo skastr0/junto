@@ -43,6 +43,20 @@ const task: Task = {
         "vellum.taskThread.kind": "comment",
       },
     },
+    {
+      messageId: "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+      role: "user",
+      parts: [{ kind: "text", text: "landed 3b744c2c" }],
+      taskId: "task-1",
+      metadata: { mailKind: "receipt", fromSeat: "author" },
+    },
+    {
+      messageId: "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+      role: "user",
+      parts: [{ kind: "text", text: "blocking: missing proof" }],
+      taskId: "task-1",
+      metadata: { reviewVerdict: "blocking", fromSeat: "reviewer" },
+    },
   ],
 };
 
@@ -58,12 +72,16 @@ describe("TaskThread", () => {
       "update",
       "defect",
       "comment",
+      "receipt",
+      "verdict",
     ]);
     expect(entries.map(({ author }) => author)).toEqual([
       "Operator",
       "Builder One",
       "Builder One",
       "Operator",
+      "author",
+      "reviewer",
     ]);
   });
 
@@ -81,11 +99,13 @@ describe("TaskThread", () => {
     expect(html).toContain('aria-label="Task thread"');
     expect(html).toContain('data-kind="brief"');
     expect(html).toContain('data-kind="defect"');
+    expect(html).toContain('data-kind="receipt"');
+    expect(html).toContain('data-kind="verdict"');
     expect(html).toContain("Builder One");
     expect(html).toContain("https://example.com/proof");
     expect(html).toContain('aria-label="Add a task comment"');
-    expect(html.match(/<time/g)).toHaveLength(4);
-    expect(html).toContain("4 messages");
+    expect(html.match(/<time/g)).toHaveLength(6);
+    expect(html).toContain("6 messages");
   });
 
   it("pluralizes the thread count correctly", () => {

@@ -5,6 +5,7 @@ import {
   resolveSpec,
   roleOf,
   verbsForPair,
+  type PortName,
   type Verb,
 } from "@shared/physics";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
@@ -152,6 +153,27 @@ export const deleteEdges = (ids: ReadonlyArray<string>): void => {
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
   removeEdgesFromSelection(removed);
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
+};
+
+/** Subtract-only attenuation: omitted mask restores the verb's full compile. */
+export const setEdgePortMask = (
+  id: string,
+  mask: ReadonlyArray<PortName> | undefined,
+): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    edges: doc.edges.map((edge) => {
+      if (edge.id !== id || edge.ether?.verb === undefined) return edge;
+      return {
+        ...edge,
+        ether:
+          mask === undefined
+            ? { verb: edge.ether.verb }
+            : { verb: edge.ether.verb, mask },
+      };
+    }),
+  });
 };
 
 export const setEdgeColor = (id: string, color?: string): void => {

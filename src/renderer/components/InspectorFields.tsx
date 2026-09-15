@@ -68,13 +68,17 @@ const effectivePorts = (
 };
 
 /** Human labels for port chips — never raw protocol tokens as the only text. */
-const PORT_LABEL: Partial<Record<PortName, string>> = {
+const PORT_LABEL: Record<string, string> = {
   "tasks.list": "List tasks",
   "tasks.create": "Create tasks",
   "tasks.claim": "Claim tasks",
   "tasks.update": "Update tasks",
   "msg.list": "List messages",
-  "msg.send": "Send messages",
+  "msg.send": "Send mail",
+  "msg.prompt": "Prompt immediately",
+  "seat.wait": "Wait on seat",
+  "terminal.read": "Observe terminal",
+  "verdict.post": "Post verdict",
   "request.escalate": "Raise requests",
   "artifact.publish": "Publish artifacts",
   "browser.automate": "Drive browser",
