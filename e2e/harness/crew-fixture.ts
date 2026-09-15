@@ -11,8 +11,9 @@
  * input the way a real composer does, and proxies REAL work-control
  * operations over the app's Unix control socket with the seat's own
  * injected env (process-bind admission — the same path a registered
- * harness CLI takes). Nothing here opens or writes the product database
- * while the app runs; evidence reads are read-only `DatabaseSync`.
+ * harness CLI takes). Live product evidence uses the app's readCanvas
+ * projection; physical write counts use the opt-in PTY trace journal.
+ * This fixture never opens the product database while the app runs.
  *
  * Control channel per seat (all under `<sandbox home>/.vellum-command/
  * crew-seats/<canvas>--<nodeId>/`):
@@ -24,15 +25,19 @@
  *   stdin.log     base64 raw PTY input the seat received (paste evidence)
  */
 
+import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import type { Page } from "@playwright/test";
+import type { PtyDeliveryTraceEvent } from "../../src/main/vellum-command/term/drive/pty-delivery-trace";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
 import type { GroupNode } from "../../src/shared/canvas";
+import { readMailAttemptFacts, readMailExtension, type MailAttemptFacts, type MailExtension, type ReviewVerdict } from "../../src/shared/crew";
+import { composeImmediatePromptPayload, composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import type { Port } from "../../src/shared/physics/schema";
 import type { Verb } from "../../src/shared/physics/verbs";
-import type { Rule, Task, TasksContract } from "../../src/shared/work-model";
+import { transportLogDirectory } from "../../src/shared/transport-trace";
+import type { Message, Rule, Task, TasksContract } from "../../src/shared/work-model";
 import {
   agentTextNode,
   canvasDoc,
@@ -845,114 +850,188 @@ export const crewMutateCanvas = async (
 };
 
 // ---------------------------------------------------------------------------
-// Read-only durable evidence (never writes; opens the sandbox db read-only)
+// App-owned work projections and install-local PTY trace evidence
 // ---------------------------------------------------------------------------
 
-export const crewStateDbPath = (sandbox: Sandbox): string =>
-  join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db");
+const crewCanvas = (page: Page, canvas: string): Promise<CanvasDoc> =>
+  page.evaluate(async (name) => (await window.vellumCommand!.readCanvas(name)).doc, canvas);
 
-export const crewQuery = <T>(
-  sandbox: Sandbox,
-  sql: string,
-  params: ReadonlyArray<string | number>,
-): ReadonlyArray<T> => {
-  const db = new DatabaseSync(crewStateDbPath(sandbox), { readOnly: true });
-  try {
-    return db.prepare(sql).all(...params) as T[];
-  } catch {
-    return [];
-  } finally {
-    db.close();
+const crewMessages = async (
+  page: Page,
+  canvas: string,
+  nodeId: string,
+): Promise<ReadonlyArray<Message>> => {
+  const doc = await crewCanvas(page, canvas);
+  const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+  if (node === undefined) throw new Error(`Missing projected crew sink ${canvas}/${nodeId}`);
+  return node.ether?.messages?.items ?? [];
+};
+
+export type CrewMailAttempt = MailAttemptFacts & {
+  readonly messageId: string;
+  readonly mailKind?: MailExtension["mailKind"];
+};
+
+/**
+ * Latest durably queued generation per message, as projected by main. This is
+ * not the full attempt ledger: policy, batch ids and physical counters are not
+ * exposed by readCanvas. Receipt timestamps are read independently below.
+ */
+export const crewMailAttempts = async (
+  page: Page,
+  canvas: string,
+  nodeId: string,
+): Promise<ReadonlyArray<CrewMailAttempt>> =>
+  (await crewMessages(page, canvas, nodeId)).flatMap((message) => {
+    const facts = readMailAttemptFacts(message.metadata);
+    if (facts === undefined) {
+      if (message.metadata?.generation !== undefined || message.metadata?.queuedAt !== undefined) {
+        throw new Error(`Invalid projected mail attempt for ${message.messageId}`);
+      }
+      return [];
+    }
+    const extension = readMailExtension(message.metadata);
+    return [{
+      messageId: message.messageId,
+      ...facts,
+      ...(extension === undefined ? {} : { mailKind: extension.mailKind }),
+    }];
+  });
+
+/** Task-subject chains only; standalone commit verdicts are not a canvas projection. */
+export const crewVerdicts = async (
+  page: Page,
+  canvas: string,
+): Promise<ReadonlyArray<ReviewVerdict>> =>
+  (await crewCanvas(page, canvas)).nodes
+    .flatMap((node) => (node.ether?.tasks?.items ?? []).flatMap((task) => task.verdicts ?? []))
+    .sort((left, right) => left.postedAtMs - right.postedAtMs);
+
+export const crewMessageCount = async (
+  page: Page,
+  canvas: string,
+  nodeId: string,
+): Promise<number> => (await crewMessages(page, canvas, nodeId)).length;
+
+export type CrewReceiptFacts = {
+  readonly messageId: string;
+  readonly deliveredAt?: number;
+  readonly readAt?: number;
+  readonly reactions?: ReadonlyArray<{ readonly kind: "ack"; readonly at: number }>;
+};
+
+const receiptTimestamp = (value: unknown, key: string, messageId: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Invalid projected ${key} receipt for ${messageId}`);
   }
+  return value;
 };
 
-export type MailAttemptRow = {
-  readonly canvas_name: string;
-  readonly node_id: string;
-  readonly message_id: string;
-  readonly recipient_seat_id: string;
-  readonly recipient_generation: string;
-  readonly policy: string;
-  readonly batch_id: string | null;
-  readonly queued_at: string;
-  readonly attempted_at: string | null;
-  readonly notified_at: string | null;
-  readonly unresolved_at: string | null;
-  readonly refused_at: string | null;
-  readonly refused_reason: string | null;
-  readonly writes_before: number | null;
-  readonly writes_after: number | null;
-  readonly write_at: string | null;
+/** Accepted receipt facts from main; attempt.notifiedAt never substitutes for a receipt. */
+export const crewReceipts = async (
+  page: Page,
+  canvas: string,
+  nodeId: string,
+): Promise<ReadonlyArray<CrewReceiptFacts>> =>
+  (await crewMessages(page, canvas, nodeId)).flatMap((message) => {
+    const deliveredAt = receiptTimestamp(message.metadata?.deliveredAt, "deliveredAt", message.messageId);
+    const readAt = receiptTimestamp(message.metadata?.readAt, "readAt", message.messageId);
+    const rawReactions = message.metadata?.reactions;
+    let reactions: CrewReceiptFacts["reactions"];
+    if (rawReactions !== undefined) {
+      if (!Array.isArray(rawReactions)) throw new Error(`Invalid projected reactions for ${message.messageId}`);
+      reactions = rawReactions.map((reaction: unknown) => {
+        if (reaction === null || typeof reaction !== "object" ||
+            !("kind" in reaction) || reaction.kind !== "ack" || !("at" in reaction)) {
+          throw new Error(`Invalid projected acknowledgement for ${message.messageId}`);
+        }
+        const at = receiptTimestamp(reaction.at, "ack", message.messageId);
+        if (at === undefined) throw new Error(`Missing projected acknowledgement time for ${message.messageId}`);
+        return { kind: "ack" as const, at };
+      });
+    }
+    if (deliveredAt === undefined && readAt === undefined && reactions === undefined) return [];
+    return [{
+      messageId: message.messageId,
+      ...(deliveredAt === undefined ? {} : { deliveredAt }),
+      ...(readAt === undefined ? {} : { readAt }),
+      ...(reactions === undefined ? {} : { reactions }),
+    }];
+  });
+
+/** Missing, rotated, malformed or dropped trace evidence fails the check. */
+const crewPtyTrace = async (sandbox: Sandbox): Promise<ReadonlyArray<PtyDeliveryTraceEvent>> => {
+  const directory = transportLogDirectory(sandbox.homeDir);
+  const entries = await readdir(directory);
+  if (entries.includes("pty-delivery.jsonl.1")) {
+    throw new Error("Crew PTY trace rotated; the complete physical write history is unavailable");
+  }
+  const body = await readFile(join(directory, "pty-delivery.jsonl"), "utf8");
+  return body.split("\n").filter((line) => line.length > 0).map((line, index) => {
+    const value: unknown = JSON.parse(line);
+    if (value === null || typeof value !== "object" ||
+        !("ts" in value) || typeof value.ts !== "string" ||
+        !("bindingId" in value) || typeof value.bindingId !== "string" ||
+        !("harness" in value) || typeof value.harness !== "string" ||
+        !("event" in value) || typeof value.event !== "string" ||
+        !("fields" in value) || value.fields === null || typeof value.fields !== "object" ||
+        Array.isArray(value.fields) ||
+        ("deliveryId" in value && typeof value.deliveryId !== "string")) {
+      throw new Error(`Invalid crew PTY trace row ${index + 1}`);
+    }
+    if ("dropped" in value && value.dropped !== 0) {
+      throw new Error(`Crew PTY trace dropped events at row ${index + 1}`);
+    }
+    if ((value.event === "write.end" &&
+          (!("stage" in value.fields) || typeof value.fields.stage !== "string" ||
+           !("ok" in value.fields) || typeof value.fields.ok !== "boolean")) ||
+        (value.event === "delivery.begin" &&
+          (!("textSha256" in value.fields) || typeof value.fields.textSha256 !== "string" ||
+           !/^[a-f0-9]{64}$/.test(value.fields.textSha256)))) {
+      throw new Error(`Incomplete crew PTY write evidence at row ${index + 1}`);
+    }
+    return value as PtyDeliveryTraceEvent;
+  });
 };
 
-export const crewMailAttempts = (
+/**
+ * Accepted paste writes for an isolated single-message delivery. Correlates
+ * the canonical payload hash and the live binding with trace deliveryId;
+ * unrelated startup prompts and CRs do not count. The trace has no source id
+ * or epoch, so this helper does not prove batched-mail attribution or history
+ * across recipient generation replacement. The fake stdin log separately
+ * proves the bytes reached the child process.
+ */
+export const crewMessagePasteWrites = async (
+  page: Page,
   sandbox: Sandbox,
   canvas: string,
   nodeId: string,
-): ReadonlyArray<MailAttemptRow> =>
-  crewQuery<MailAttemptRow>(
-    sandbox,
-    "SELECT * FROM work_mail_attempts WHERE canvas_name = ? AND node_id = ? ORDER BY queued_at",
-    [canvas, nodeId],
-  );
-
-export type VerdictRow = {
-  readonly verdict_id: string;
-  readonly kind: string;
-  readonly reviewer_seat_id: string;
-  readonly reviewer_node_id: string | null;
-  readonly author_seat_id: string;
-  readonly subject_kind: string;
-  readonly subject_task_canvas: string | null;
-  readonly subject_task_node: string | null;
-  readonly subject_task_item: string | null;
-  readonly subject_epoch: number | null;
-  readonly subject_sha: string | null;
-  readonly subject_hash: string;
-  readonly epoch: number;
-  readonly findings_json: string;
-  readonly refs_json: string;
-  readonly posted_at_ms: number;
+  messageId: string,
+  policy: "notice" | "immediate" = "notice",
+): Promise<number> => {
+  const message = (await crewMessages(page, canvas, nodeId))
+    .find((candidate) => candidate.messageId === messageId);
+  if (message === undefined) throw new Error(`Missing projected crew message ${messageId}`);
+  const bindings = await page.evaluate(async ([canvasName, recipient]) =>
+    (await window.vellumCommand!.terminalList()).filter((session) =>
+      session.canvasName === canvasName && session.nodeId === recipient && session.status === "running"),
+  [canvas, nodeId] as const);
+  if (bindings.length !== 1) throw new Error(`Expected one live crew binding for ${canvas}/${nodeId}; found ${bindings.length}`);
+  const bindingId = bindings[0]!.bindingId;
+  const payload = policy === "immediate"
+    ? composeImmediatePromptPayload(message)
+    : composeMessageDeliveryPayload(message);
+  const hash = createHash("sha256").update(payload).digest("hex");
+  const events = await crewPtyTrace(sandbox);
+  const deliveries = new Set(events.filter((event) =>
+    event.bindingId === bindingId && event.event === "delivery.begin" && event.fields.textSha256 === hash,
+  ).map((event) => {
+    if (event.deliveryId === undefined) throw new Error("Crew PTY delivery.begin is missing its correlation id");
+    return event.deliveryId;
+  }));
+  return events.filter((event) => event.bindingId === bindingId &&
+    event.deliveryId !== undefined && deliveries.has(event.deliveryId) &&
+    event.event === "write.end" && event.fields.stage === "paste" && event.fields.ok === true).length;
 };
-
-export const crewVerdicts = (sandbox: Sandbox): ReadonlyArray<VerdictRow> =>
-  crewQuery<VerdictRow>(
-    sandbox,
-    "SELECT * FROM work_review_verdicts ORDER BY posted_at_ms",
-    [],
-  );
-
-export const crewMessageCount = (
-  sandbox: Sandbox,
-  canvas: string,
-  nodeId: string,
-): number =>
-  crewQuery<{ n: number }>(
-    sandbox,
-    "SELECT count(*) AS n FROM work_messages WHERE canvas_name = ? AND node_id = ?",
-    [canvas, nodeId],
-  )[0]?.n ?? 0;
-
-export type ReceiptRow = {
-  readonly delivery_id: string;
-  readonly delivered_canvas_name: string;
-  readonly delivered_node_id: string;
-  readonly delivered_item_kind: string;
-  readonly accepted_at: string;
-};
-
-/** Mailbox delivery/read receipts accepted on one sink (durable truth). */
-export const crewReceipts = (
-  sandbox: Sandbox,
-  canvas: string,
-  nodeId: string,
-): ReadonlyArray<ReceiptRow> =>
-  crewQuery<ReceiptRow>(
-    sandbox,
-    `SELECT delivery_id, delivered_canvas_name, delivered_node_id,
-            delivered_item_kind, accepted_at
-       FROM work_delivery_receipts
-      WHERE delivered_canvas_name = ? AND delivered_node_id = ?
-      ORDER BY accepted_at`,
-    [canvas, nodeId],
-  );

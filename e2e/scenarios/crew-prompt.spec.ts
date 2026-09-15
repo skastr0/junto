@@ -2,8 +2,10 @@
  * Crew prompts — immediate full-body delivery over a messages edge
  * [fake-tui].
  *
- * msg.prompt appends a durable prompt row, then drives one immediate
- * attempt through the managed drive. The fake-tui seats give
+ * msg.prompt stores a prompt and requests immediate delivery through the
+ * managed drive. Evidence uses the app's projected current-generation
+ * timestamps, correlated successful paste writes in the PTY trace, and
+ * the fake's stdin log for the received payload. The fake-tui seats give
  * deterministic control over the admission classes the drive
  * distinguishes: idle+empty composer (notified), working seat
  * (retryable SeatBusy), drafted composer (retryable SeatBusy), oversize
@@ -17,8 +19,8 @@
  *      durable messageId survives the refusal and the SAME row retries;
  *   3. fallback:"notice" retains the same durable row and delivers the
  *      ordinary notice form (summary + msg-read pointer), not the body;
- *   4. a paste without turn-start evidence is unresolved — the write
- *      fact lands and the same generation never replays it;
+ *   4. a paste without turn-start evidence is unresolved — the generation
+ *      stays unchanged and the trace still counts one paste after redraw;
  *   5. a prompt retry must name this seat's own prompt for this
  *      recipient — anything else is ScopeError;
  *   6. an immediate body past the limit refuses InputError before any
@@ -29,6 +31,7 @@
 import { expect, launchVellum, test } from "../harness/launch";
 import {
   crewMailAttempts,
+  crewMessagePasteWrites,
   crewOccupySeat,
   crewPlayFactory,
   crewSeat,
@@ -57,18 +60,19 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
   return (env.data ?? {}) as Record<string, unknown>;
 };
 
-const attemptRows = (
-  sandbox: Parameters<typeof crewMailAttempts>[0],
+const attemptRows = async (
+  page: Parameters<typeof crewMailAttempts>[0],
   messageId: string,
 ) =>
-  crewMailAttempts(sandbox, CANVAS, B).filter(
-    (r) => r.message_id === messageId,
+  (await crewMailAttempts(page, CANVAS, B)).filter(
+    (r) => r.messageId === messageId,
   );
 
 const launch = () =>
   launchVellum({
     seedCanvases: { [CANVAS]: promptDoc },
     afterSeed: installCrewSeatHarness,
+    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
   });
 
 const boot = async (vellum: Awaited<ReturnType<typeof launch>>) => {
@@ -172,7 +176,7 @@ test("crew prompt [fake-tui]: idle seat takes the full body immediately", async 
   test.setTimeout(240_000);
   const vellum = await launch();
   try {
-    const { sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(vellum);
 
     const { messageId, data } = await promptUntilNotified(a, {
       target: B,
@@ -180,13 +184,17 @@ test("crew prompt [fake-tui]: idle seat takes the full body immediately", async 
     });
     expect((data.delivery as { state: string }).state).toBe("notified");
 
-    // The attempt ledger says immediate, notified, write fact landed.
-    const [attempt] = attemptRows(sandbox, messageId);
-    expect(attempt?.policy).toBe("immediate");
-    expect(attempt?.notified_at).not.toBeNull();
-    expect(attempt?.unresolved_at).toBeNull();
-    expect(attempt?.attempted_at).not.toBeNull();
-    expect(attempt?.write_at).not.toBeNull();
+    // Projected prompt facts identify the outcome; the trace independently
+    // proves one successful paste of the exact immediate payload.
+    const [attempt] = await attemptRows(page, messageId);
+    expect(attempt?.mailKind).toBe("prompt");
+    expect(attempt?.notifiedAt).toBeDefined();
+    expect(attempt?.unresolvedAt).toBeUndefined();
+    expect(attempt?.attemptedAt).toBeDefined();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
+      { timeout: 15_000 },
+    ).toBe(1);
 
     // Full-body form: "mail from <seat>" + the body, no read pointer.
     await expect
@@ -204,7 +212,7 @@ test("crew prompt [fake-tui]: busy seat refuses SeatBusy, same row retries clean
   test.setTimeout(300_000);
   const vellum = await launch();
   try {
-    const { sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(vellum);
 
     // Park the seat in Working — an immediate prompt must refuse, not queue.
     await b.control({ screen: { mode: "working" } });
@@ -230,9 +238,13 @@ test("crew prompt [fake-tui]: busy seat refuses SeatBusy, same row retries clean
     const data = opData(last);
     expect((data.delivery as { state: string }).state).toBe("notified");
 
-    const [attempt] = attemptRows(sandbox, messageId);
-    expect(attempt?.policy).toBe("immediate");
-    expect(attempt?.notified_at).not.toBeNull();
+    const [attempt] = await attemptRows(page, messageId);
+    expect(attempt?.mailKind).toBe("prompt");
+    expect(attempt?.notifiedAt).toBeDefined();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
+      { timeout: 15_000 },
+    ).toBe(1);
 
     await expect
       .poll(async () => await b.stdinLog(), { timeout: 10_000 })
@@ -285,7 +297,7 @@ test("crew prompt [fake-tui]: fallback notice delivers the pointer form on the s
   test.setTimeout(300_000);
   const vellum = await launch();
   try {
-    const { sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(vellum);
 
     // Explicit fallback: the same durable row delivers ordinary-notice
     // form — one summary line with a msg-read pointer, not the body.
@@ -296,9 +308,16 @@ test("crew prompt [fake-tui]: fallback notice delivers the pointer form on the s
     });
     expect((data.delivery as { state: string }).state).toBe("notified");
 
-    const [attempt] = attemptRows(sandbox, messageId);
-    expect(attempt?.notified_at).not.toBeNull();
-    expect(attempt?.unresolved_at).toBeNull();
+    const [attempt] = await attemptRows(page, messageId);
+    // The stored message remains a prompt; fallback chooses the notice
+    // payload form, whose exact paste is counted separately in the trace.
+    expect(attempt?.mailKind).toBe("prompt");
+    expect(attempt?.notifiedAt).toBeDefined();
+    expect(attempt?.unresolvedAt).toBeUndefined();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "notice"),
+      { timeout: 15_000 },
+    ).toBe(1);
 
     await expect
       .poll(async () => await b.stdinLog(), { timeout: 10_000 })
@@ -317,7 +336,7 @@ test("crew prompt [fake-tui]: unacknowledged paste is unresolved, never replayed
   test.setTimeout(300_000);
   const vellum = await launch();
   try {
-    const { sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(vellum);
 
     // The fake keeps the pasted text in its composer and never repaints
     // Working — the written-no-evidence class, deterministically.
@@ -345,23 +364,32 @@ test("crew prompt [fake-tui]: unacknowledged paste is unresolved, never replayed
     const deliveryState = (data.delivery as { state: string }).state;
     expect(deliveryState).toBe("unresolved");
 
-    // Ledger: written but never notified — the unresolved outcome is the
-    // durable write fact (the drive only reports unresolved after writing).
-    const [attempt] = attemptRows(sandbox, messageId);
-    expect(attempt?.unresolved_at).not.toBeNull();
-    expect(attempt?.notified_at).toBeNull();
-    expect(attempt?.attempted_at).not.toBeNull();
-    expect(attempt?.write_at).not.toBeNull();
+    const [attempt] = await attemptRows(page, messageId);
+    expect(attempt?.mailKind).toBe("prompt");
+    expect(attempt?.unresolvedAt).toBeDefined();
+    expect(attempt?.notifiedAt).toBeUndefined();
+    expect(attempt?.attemptedAt).toBeDefined();
+    expect(attempt?.generation).toBeTruthy();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
+      { timeout: 15_000 },
+    ).toBe(1);
 
-    // Same generation never replays: settle and prod the seat — exactly
-    // one attempt row and one paste may exist for this message.
+    // The current projection proves generation identity, not attempt history.
+    // After redraw and a wait, the trace must still count one physical paste.
     await b.control({ screen: { mode: "idle" }, submit: "ack" });
     await b.print("poke");
     await sleep(8_000);
-    expect(attemptRows(sandbox, messageId)).toHaveLength(1);
+    const [current] = await attemptRows(page, messageId);
+    expect(current?.generation).toBe(attempt!.generation);
+    expect(current?.unresolvedAt).toBe(attempt!.unresolvedAt);
+    expect(current?.notifiedAt).toBeUndefined();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
+      { timeout: 15_000 },
+    ).toBe(1);
     const stdin = await b.stdinLog();
-    const pastes = stdin.split("strand me in the composer").length - 1;
-    expect(pastes).toBe(1);
+    expect(stdin).toContain("strand me in the composer");
   } finally {
     await vellum.close();
   }

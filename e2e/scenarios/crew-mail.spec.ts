@@ -4,15 +4,15 @@
  * Two fake-tui seats on one generated canvas, one real messages edge
  * between them. Sends ride the real work-control socket from inside the
  * admitted seat process; delivery rides the real drive onto the seat's
- * PTY. Evidence is the durable ledger: work_messages rows (inbox truth),
- * work_mail_attempts rows (queued/notified/unresolved transport facts),
- * and the fake's own PTY stdin log (physical write truth).
+ * PTY. Evidence comes from the app's projected mailbox and current-generation
+ * transport facts, correlated successful paste writes in the PTY trace, and
+ * the fake's own stdin log for the received payload.
  *
  * Laws covered:
- *   1. a send lands a durable inbox row and a queued attempt BEFORE the
- *      physical write resolves;
- *   2. a notified attempt means bytes reached the PTY and a turn started —
- *      the fake's stdin log and repaint are the proof;
+ *   1. after a send, the projected inbox contains the message and its
+ *      queued/notified timestamps;
+ *   2. a notified message has one correlated successful PTY paste and
+ *      the fake receives the notice payload;
  *   3. a written-but-unacknowledged paste is `unresolved`, never re-pasted
  *      on the same recipient generation, and never laundered into
  *      delivered;
@@ -25,6 +25,7 @@ import { expect, launchVellum, test } from "../harness/launch";
 import {
   crewMailAttempts,
   crewMessageCount,
+  crewMessagePasteWrites,
   crewReceipts,
   crewMutateCanvas,
   crewOccupySeat,
@@ -58,6 +59,7 @@ const launch = () =>
   launchVellum({
     seedCanvases: { [CANVAS]: mailDoc },
     afterSeed: installCrewSeatHarness,
+    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
   });
 
 /** [delivery]/[wake] lines from the sandbox app's own main log. */
@@ -74,7 +76,7 @@ const mainLogOf = (vellum: Awaited<ReturnType<typeof launchVellum>>): (() => str
       .join("\n");
 };
 
-test("crew mail [fake-tui]: send receipts durable row then notified delivery", async () => {
+test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY paste", async () => {
   test.setTimeout(240_000);
   const vellum = await launch();
   const wakeLog = mainLogOf(vellum);
@@ -93,52 +95,57 @@ test("crew mail [fake-tui]: send receipts durable row then notified delivery", a
       text: "peer mail: checksum 42",
     });
     const data = opData(send);
-    const messageId = data.messageId;
+    const messageId = data.messageId as string;
     expect(typeof messageId).toBe("string");
 
-    // Law 1 — the durable row exists before the PTY write resolves.
+    // The live projection contains the sent message; this after-send read
+    // makes no claim about ordering relative to the physical paste.
     await expect
-      .poll(() => crewMessageCount(sandbox, CANVAS, B), { timeout: 15_000 })
+      .poll(() => crewMessageCount(page, CANVAS, B), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(1);
 
-    // Law 2 — the attempt ledger: queued first, then notified once the
-    // fake repaints Working (a real turn-start), never before.
+    // Current-generation transport facts are read through the app.
     await expect
       .poll(
-        () =>
-          crewMailAttempts(sandbox, CANVAS, B).filter(
+        async () =>
+          (await crewMailAttempts(page, CANVAS, B)).filter(
             (row) =>
-              row.message_id === messageId && row.notified_at !== null,
+              row.messageId === messageId && row.notifiedAt !== undefined,
           ).length,
         { timeout: 60_000, intervals: [250, 500, 1_000] },
       )
       .toBe(1)
       .catch(async (cause: unknown) => {
-        const read = await seatAHandle
-          .op("seat.read", { target: B, lines: 30 })
-          .catch((error: unknown) => ({ ok: false, error: String(error) }));
-        const events = await seatBHandle.events().catch(() => []);
-        const stdin = await seatBHandle.stdinLog().catch(() => "");
-        const receipts = crewReceipts(sandbox, CANVAS, B);
+        const sources = ["seat.read B", "events B", "stdin B", "receipts B"];
+        const evidence = await Promise.allSettled([
+          seatAHandle.op("seat.read", { target: B, lines: 30 }),
+          seatBHandle.events(),
+          seatBHandle.stdinLog(),
+          crewReceipts(page, CANVAS, B),
+        ]);
+        const diagnostics = evidence.map((result, index) => ({
+          source: sources[index],
+          ...(result.status === "fulfilled"
+            ? { status: result.status, value: result.value }
+            : { status: result.status, error: String(result.reason) }),
+        }));
         throw new Error(
           `attempt never notified.\n[delivery log]\n${wakeLog()}\n` +
-            `[seat.read B]\n${JSON.stringify(read)}\n` +
-            `[receipts B]\n${JSON.stringify(receipts)}\n` +
-            `[events B]\n${events.map((e) => JSON.stringify(e)).join("\n")}\n` +
-            `[stdin B]\n${JSON.stringify(stdin)}`,
+            `[diagnostics]\n${JSON.stringify(diagnostics, null, 2)}`,
           { cause },
         );
       });
-    const [attempt] = crewMailAttempts(sandbox, CANVAS, B).filter(
-      (row) => row.message_id === messageId,
+    const [attempt] = (await crewMailAttempts(page, CANVAS, B)).filter(
+      (row) => row.messageId === messageId,
     );
-    expect(attempt?.policy).toBe("notice");
-    expect(attempt?.unresolved_at).toBeNull();
-    // refused_at is racy by design: a settle-window gate refusal is a
-    // set-once fact that stays on the row even when a later pass notifies.
-    // The law is that notified implies the write, not that refusal never
-    // happened first.
-    expect(attempt?.recipient_generation.length).toBeGreaterThan(0);
+    expect(attempt?.mailKind).toBe("notice");
+    expect(attempt?.queuedAt).toBeDefined();
+    expect(attempt?.unresolvedAt).toBeUndefined();
+    expect(attempt?.generation).toBeTruthy();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId),
+      { timeout: 15_000 },
+    ).toBe(1);
 
     // Physical truth: the fake received the notice payload on its PTY.
     await expect
@@ -147,6 +154,14 @@ test("crew mail [fake-tui]: send receipts durable row then notified delivery", a
 
     // Law 4 — msg.sent reads sender receipts only; B's mailbox stays unread
     // until B itself lists or marks it.
+    await expect.poll(
+      async () => (await crewReceipts(page, CANVAS, B))
+        .find((row) => row.messageId === messageId)?.deliveredAt,
+      { timeout: 15_000 },
+    ).toBeDefined();
+    const beforeSent = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
+    expect(beforeSent).toBeDefined();
+    expect(beforeSent?.readAt).toBeUndefined();
     const sent = await seatAHandle.op("msg.sent", {});
     const sentData = opData(sent);
     const items = (sentData.items ?? []) as ReadonlyArray<{
@@ -155,6 +170,9 @@ test("crew mail [fake-tui]: send receipts durable row then notified delivery", a
     }>;
     expect(items.some((m) => m.messageId === messageId && m.toNodeId === B))
       .toBe(true);
+    const afterSent = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
+    expect(afterSent).toBeDefined();
+    expect(afterSent?.readAt).toBeUndefined();
   } finally {
     await vellum.close();
   }
@@ -184,44 +202,49 @@ test("crew mail [fake-tui]: unacknowledged paste is unresolved and never re-past
     const data = opData(send);
     const messageId = data.messageId as string;
 
-    // Durable row first, then a written-but-unproofed attempt.
+    // Observe the inbox and unresolved outcome through the live projection.
     await expect
-      .poll(() => crewMessageCount(sandbox, CANVAS, B), { timeout: 15_000 })
+      .poll(() => crewMessageCount(page, CANVAS, B), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(1);
     await expect
       .poll(
-        () =>
-          crewMailAttempts(sandbox, CANVAS, B).filter(
+        async () =>
+          (await crewMailAttempts(page, CANVAS, B)).filter(
             (row) =>
-              row.message_id === messageId && row.unresolved_at !== null,
+              row.messageId === messageId && row.unresolvedAt !== undefined,
           ).length,
         { timeout: 90_000, intervals: [500, 1_000, 2_000] },
       )
       .toBe(1);
-    const [attempt] = crewMailAttempts(sandbox, CANVAS, B).filter(
-      (row) => row.message_id === messageId,
+    const [attempt] = (await crewMailAttempts(page, CANVAS, B)).filter(
+      (row) => row.messageId === messageId,
     );
-    expect(attempt?.notified_at).toBeNull();
-    // The write reached the PTY: the intent witness stamped before the
-    // physical write and the outcome is unresolved — the drive only reports
-    // unresolved after writing. (Counter columns can stay 0/0 when a
-    // settle-gate refusal stamped the set-once write block first; physical
-    // byte proof is the stdin log asserted below.)
-    expect(attempt?.attempted_at).not.toBeNull();
-    expect(attempt?.write_at).not.toBeNull();
+    expect(attempt?.mailKind).toBe("notice");
+    expect(attempt?.notifiedAt).toBeUndefined();
+    expect(attempt?.attemptedAt).toBeDefined();
+    expect(attempt?.generation).toBeTruthy();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId),
+      { timeout: 15_000 },
+    ).toBe(1);
 
-    // No-replay on the same generation: settle, flip screens, wait —
-    // the ledger must still hold exactly one attempt for this message.
+    // Redraw and wait on the same generation. The projection identifies
+    // that generation; the trace counts physical pastes across the interval.
     await seatBHandle.control({ screen: { mode: "idle" } });
     await seatBHandle.print("still there");
     await new Promise((resolve) => setTimeout(resolve, 6_000));
-    const attempts = crewMailAttempts(sandbox, CANVAS, B).filter(
-      (row) => row.message_id === messageId,
+    const current = (await crewMailAttempts(page, CANVAS, B)).find(
+      (row) => row.messageId === messageId,
     );
-    expect(attempts).toHaveLength(1);
+    expect(current?.generation).toBe(attempt!.generation);
+    expect(current?.unresolvedAt).toBe(attempt!.unresolvedAt);
+    expect(current?.notifiedAt).toBeUndefined();
+    await expect.poll(
+      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId),
+      { timeout: 15_000 },
+    ).toBe(1);
     const stdin = await seatBHandle.stdinLog();
-    const pastes = stdin.split("sink this one").length - 1;
-    expect(pastes).toBe(1);
+    expect(stdin).toContain("sink this one");
   } finally {
     await vellum.close();
   }
@@ -248,10 +271,10 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     const messageId = data.messageId as string;
     await expect
       .poll(
-        () =>
-          crewMailAttempts(sandbox, CANVAS, B).filter(
+        async () =>
+          (await crewMailAttempts(page, CANVAS, B)).filter(
             (row) =>
-              row.message_id === messageId && row.notified_at !== null,
+              row.messageId === messageId && row.notifiedAt !== undefined,
           ).length,
         { timeout: 60_000 },
       )
@@ -280,6 +303,8 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     }>;
     const sentMsg = sentItems.find((m) => m.messageId === messageId);
     expect(sentMsg?.metadata?.readAt).toBeTruthy();
+    const receipt = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
+    expect(receipt?.readAt).toBe(sentMsg?.metadata?.readAt);
 
     // B replies; A's own mailbox now holds the reply addressed to A.
     const reply = await seatBHandle.op("msg.reply", {
@@ -289,7 +314,7 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     });
     expect(reply.ok, JSON.stringify(reply)).toBe(true);
     await expect
-      .poll(() => crewMessageCount(sandbox, CANVAS, A), { timeout: 15_000 })
+      .poll(() => crewMessageCount(page, CANVAS, A), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(1);
     const aList = await seatAHandle.op("msg.list", {});
     const aItems = (opData(aList).items ?? []) as ReadonlyArray<{
@@ -323,6 +348,7 @@ test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", asy
       ),
     },
     afterSeed: installCrewSeatHarness,
+    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
   });
   try {
     const { page, sandbox } = vellum;
@@ -342,7 +368,7 @@ test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", asy
     if (send.ok) return;
     expect(send.error.type).toBe("ScopeError");
     // And nothing reached the durable mailbox.
-    expect(crewMessageCount(sandbox, CANVAS, B)).toBe(0);
+    expect(await crewMessageCount(page, CANVAS, B)).toBe(0);
   } finally {
     await vellum.close();
   }
