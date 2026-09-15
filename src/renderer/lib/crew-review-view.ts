@@ -5,14 +5,12 @@
 import { Schema } from "effect";
 import {
   ReviewVerdict as SharedReviewVerdict,
+  type MailEvidenceRef,
   type ReviewVerdict as CanonicalReviewVerdict,
   type VerdictSubject,
 } from "@shared/crew";
 import type { Rule, Task, TasksContract } from "@shared/work-model";
-import {
-  parseMailEvidenceRefs,
-  type MailEvidenceRef,
-} from "./crew-mail-view";
+import { parseMailEvidenceRefs } from "./crew-mail-view";
 
 export const REVIEW_VERDICT_KINDS = ["green", "blocking"] as const;
 export type ReviewVerdictKind = (typeof REVIEW_VERDICT_KINDS)[number];
@@ -157,13 +155,8 @@ export const parseReviewVerdicts = (
   return verdicts;
 };
 
-export const isRequiresReviewRule = (rule: Rule): boolean => {
-  if (rule.kind === "requires-review") return true;
-  return (
-    (rule as Rule & { readonly requiresReview?: unknown }).requiresReview ===
-    true
-  );
-};
+export const isRequiresReviewRule = (rule: Rule): boolean =>
+  rule.kind === "requires-review";
 
 export const contractRequiresReview = (
   contract: TasksContract | undefined,
@@ -192,7 +185,6 @@ export const taskRequiresReview = (
   task: Task,
   contract: TasksContract | undefined,
 ): boolean => {
-  if (task.metadata?.requiresReview === true) return true;
   if ((task.rules ?? []).some(isRequiresReviewRule)) return true;
   return contractRequiresReview(contract);
 };

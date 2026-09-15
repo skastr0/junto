@@ -5,11 +5,17 @@
  * one another. The chip the ledger paints is derived from those facts.
  * Nothing here invents a status the document did not record.
  */
+import { Schema } from "effect";
 import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
+  MailAttemptFacts as MailAttemptFactsSchema,
+  MailEvidenceRef as MailEvidenceRefSchema,
   deriveMailDisplayState,
+  normalizeDisplayTimestamp,
   readMailExtension,
+  type MailAttemptFacts as CanonicalMailAttemptFacts,
+  type MailAttemptReason,
   type MailDisplayState,
   type MailEvidenceRef,
   type MailKind,
@@ -19,24 +25,15 @@ export type { MailEvidenceRef, MailKind };
 export type MailDeliveryDisplay = MailDisplayState;
 
 export type MailAttemptFacts = {
-  readonly queuedAt: number | undefined;
-  readonly notifiedAt: number | undefined;
-  readonly unresolvedAt: number | undefined;
-  readonly refusedAt: number | undefined;
-  readonly refusedReason: string | undefined;
-  readonly readAt: number | undefined;
-  readonly repliedAt: number | undefined;
-  readonly reactedAt: number | undefined;
+  readonly queuedAt: number | string | undefined;
+  readonly notifiedAt: number | string | undefined;
+  readonly unresolvedAt: number | string | undefined;
+  readonly refusedAt: number | string | undefined;
+  readonly refusedReason: MailAttemptReason | undefined;
+  readonly readAt: number | string | undefined;
+  readonly repliedAt: number | string | undefined;
+  readonly reactedAt: number | string | undefined;
   readonly generation: string | undefined;
-};
-
-const finiteMs = (value: unknown): number | undefined => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const ms = Date.parse(value);
-    return Number.isFinite(ms) ? ms : undefined;
-  }
-  return undefined;
 };
 
 const nonempty = (value: unknown): string | undefined =>
@@ -45,54 +42,14 @@ const nonempty = (value: unknown): string | undefined =>
 const isMailKind = (value: unknown): value is MailKind =>
   value === "notice" || value === "prompt" || value === "receipt";
 
-const isEvidenceKind = (
-  value: unknown,
-): value is MailEvidenceRef["kind"] =>
-  value === "commit" ||
-  value === "file" ||
-  value === "task" ||
-  value === "seat" ||
-  value === "session-read" ||
-  value === "url";
+const decodeEvidenceRef = Schema.decodeUnknownOption(MailEvidenceRefSchema);
+const decodeAttemptFacts = Schema.decodeUnknownOption(MailAttemptFactsSchema);
 
 export const parseMailEvidenceRef = (
   value: unknown,
 ): MailEvidenceRef | undefined => {
-  if (value === null || typeof value !== "object") return undefined;
-  const record = value as Record<string, unknown>;
-  if (!isEvidenceKind(record.kind)) return undefined;
-  switch (record.kind) {
-    case "commit": {
-      const sha = nonempty(record.sha);
-      return sha === undefined ? undefined : { kind: "commit", sha };
-    }
-    case "file": {
-      const path = nonempty(record.path);
-      if (path === undefined) return undefined;
-      const line = finiteMs(record.line);
-      return line === undefined
-        ? { kind: "file", path }
-        : { kind: "file", path, line };
-    }
-    case "task": {
-      const taskId = nonempty(record.taskId);
-      return taskId === undefined ? undefined : { kind: "task", taskId };
-    }
-    case "seat": {
-      const actorRef = nonempty(record.actorRef);
-      return actorRef === undefined ? undefined : { kind: "seat", actorRef };
-    }
-    case "session-read": {
-      const sessionId = nonempty(record.sessionId);
-      return sessionId === undefined
-        ? undefined
-        : { kind: "session-read", sessionId };
-    }
-    case "url": {
-      const url = nonempty(record.url);
-      return url === undefined ? undefined : { kind: "url", url };
-    }
-  }
+  const decoded = decodeEvidenceRef(value);
+  return decoded._tag === "Some" ? decoded.value : undefined;
 };
 
 export const parseMailEvidenceRefs = (
@@ -107,9 +64,6 @@ export const parseMailEvidenceRefs = (
   return refs;
 };
 
-const present = (value: number | undefined): string | undefined =>
-  value === undefined ? undefined : String(value);
-
 /**
  * Receipt facts outrank transport. Unresolved outranks a later refusal so a
  * physical write cannot be hidden by a no-write retry.
@@ -118,13 +72,13 @@ export const deriveMailDisplay = (
   facts: MailAttemptFacts,
 ): MailDeliveryDisplay =>
   deriveMailDisplayState({
-    queuedAt: present(facts.queuedAt),
-    notifiedAt: present(facts.notifiedAt),
-    unresolvedAt: present(facts.unresolvedAt),
-    refusedAt: present(facts.refusedAt),
-    readAt: present(facts.readAt),
-    repliedAt: present(facts.repliedAt),
-    reactedAt: present(facts.reactedAt),
+    queuedAt: normalizeDisplayTimestamp(facts.queuedAt),
+    notifiedAt: normalizeDisplayTimestamp(facts.notifiedAt),
+    unresolvedAt: normalizeDisplayTimestamp(facts.unresolvedAt),
+    refusedAt: normalizeDisplayTimestamp(facts.refusedAt),
+    readAt: normalizeDisplayTimestamp(facts.readAt),
+    repliedAt: normalizeDisplayTimestamp(facts.repliedAt),
+    reactedAt: normalizeDisplayTimestamp(facts.reactedAt),
   });
 
 export const mailDisplayLabel = (display: MailDeliveryDisplay): string => {
@@ -191,44 +145,49 @@ export const mailKindOf = (message: Message): MailKind | undefined => {
   return undefined;
 };
 
-const attemptRecordOf = (
-  metadata: Message["metadata"],
-): Record<string, unknown> | undefined => {
-  if (metadata === undefined) return undefined;
-  const facts = metadata.facts;
-  if (facts !== null && typeof facts === "object") {
-    return facts as Record<string, unknown>;
-  }
-  const attempt = metadata.attempt;
-  if (attempt !== null && typeof attempt === "object") {
-    const nested = (attempt as { readonly facts?: unknown }).facts;
-    if (nested !== null && typeof nested === "object") {
-      return nested as Record<string, unknown>;
-    }
-    return attempt as Record<string, unknown>;
-  }
-  return metadata as Record<string, unknown>;
+const stampOf = (value: unknown): number | string | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return nonempty(value);
 };
 
+const isAttemptReason = (value: unknown): value is MailAttemptReason =>
+  value === "seat-busy" ||
+  value === "composer-draft" ||
+  value === "composer-unreadable" ||
+  value === "operator-interlock" ||
+  value === "not-idle" ||
+  value === "not-settled" ||
+  value === "paused" ||
+  value === "no-lease" ||
+  value === "seat-gone" ||
+  value === "oversize" ||
+  value === "written-no-evidence";
+
+/**
+ * Transport facts use the exported MailAttemptFacts names. Receipt stamps
+ * stay on the root envelope (`readAt`, and the historical `deliveredAt`
+ * notify receipt). No parallel metadata keys.
+ */
 export const mailAttemptFactsOf = (
   message: Message,
   queuedAt: number | undefined,
 ): MailAttemptFacts => {
   const meta = message.metadata;
-  const attempt = attemptRecordOf(meta);
+  const decoded = decodeAttemptFacts(meta);
+  const transport: CanonicalMailAttemptFacts | undefined =
+    decoded._tag === "Some" ? decoded.value : undefined;
   return {
-    queuedAt,
-    notifiedAt: finiteMs(attempt?.notifiedAt) ?? finiteMs(meta?.deliveredAt),
-    unresolvedAt: finiteMs(attempt?.unresolvedAt),
-    refusedAt: finiteMs(attempt?.refusedAt),
+    queuedAt: transport?.queuedAt ?? queuedAt,
+    notifiedAt: transport?.notifiedAt ?? stampOf(meta?.notifiedAt) ?? stampOf(meta?.deliveredAt),
+    unresolvedAt: transport?.unresolvedAt ?? stampOf(meta?.unresolvedAt),
+    refusedAt: transport?.refusedAt ?? stampOf(meta?.refusedAt),
     refusedReason:
-      nonempty(attempt?.refusedReason) ??
-      nonempty(meta?.refuseReason) ??
-      nonempty(meta?.refusedReason),
-    readAt: finiteMs(meta?.readAt),
-    repliedAt: finiteMs(meta?.repliedAt),
-    reactedAt: finiteMs(meta?.reactedAt),
-    generation: nonempty(attempt?.generation) ?? nonempty(meta?.generation),
+      transport?.refusedReason ??
+      (isAttemptReason(meta?.refusedReason) ? meta.refusedReason : undefined),
+    readAt: stampOf(meta?.readAt),
+    repliedAt: stampOf(meta?.repliedAt),
+    reactedAt: stampOf(meta?.reactedAt),
+    generation: transport?.generation ?? nonempty(meta?.generation),
   };
 };
 
@@ -250,18 +209,22 @@ const metadataRecord = (
     ? (metadata as Record<string, unknown>)
     : undefined;
 
-/** Stamped sender handle: canvas node when present, else today's fromSeat. */
+/** Stamped sender handle: canvas node when present, else `fromSeat`. */
 export const resolveMailSenderStamp = (
   metadata: unknown,
 ): string | undefined => {
+  const extension = readMailExtension(metadata);
+  if (extension !== undefined) {
+    return nonempty(extension.senderNodeId) ?? extension.fromSeat;
+  }
   const record = metadataRecord(metadata);
   if (record === undefined) return undefined;
   return nonempty(record.senderNodeId) ?? nonempty(record.fromSeat);
 };
 
 /**
- * Peer maps key by canvas node. Prefer the stamped sender node; fall back to
- * `fromSeat` only when that value is still a node id (today's repository).
+ * Peer maps key by canvas node. Prefer `senderNodeId`; `fromSeat` only when
+ * that value is still a node id.
  */
 export const resolveMailSenderNodeId = (
   doc: CanvasDoc,
@@ -271,8 +234,8 @@ export const resolveMailSenderNodeId = (
   if (stamp !== undefined && doc.nodes.some((node) => node.id === stamp)) {
     return stamp;
   }
-  const record = metadataRecord(metadata);
-  const fromSeat = nonempty(record?.fromSeat);
+  const extension = readMailExtension(metadata);
+  const fromSeat = nonempty(extension?.fromSeat) ?? nonempty(metadataRecord(metadata)?.fromSeat);
   if (fromSeat !== undefined && doc.nodes.some((node) => node.id === fromSeat)) {
     return fromSeat;
   }
@@ -284,7 +247,10 @@ export const resolveMailSenderLabel = (
   fallbackStamp: string | undefined,
   titleOf: (nodeId: string) => string | undefined,
 ): string => {
-  const named = nonempty(metadataRecord(metadata)?.senderName);
+  const extension = readMailExtension(metadata);
+  const named =
+    nonempty(extension?.senderName) ??
+    nonempty(metadataRecord(metadata)?.senderName);
   const stamp = fallbackStamp ?? resolveMailSenderStamp(metadata);
   if (stamp === undefined) return named ?? "system";
   return titleOf(stamp) ?? named ?? stamp;

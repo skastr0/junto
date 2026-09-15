@@ -90,16 +90,14 @@ describe("crewMailViewOf", () => {
 });
 
 describe("mailAttemptFactsOf via crewMailViewOf", () => {
-  it("reads nested attempt facts without inventing a chip", () => {
+  it("reads flat MailAttemptFacts names and keeps unresolved above refusal", () => {
     const view = crewMailViewOf(
       message({
-        facts: {
-          generation: "gen-1",
-          queuedAt: "1",
-          unresolvedAt: "3",
-          refusedAt: "4",
-          refusedReason: "written-no-evidence",
-        },
+        generation: "gen-1",
+        queuedAt: "2026-01-01T00:00:00.000Z",
+        unresolvedAt: "2026-01-01T00:00:03.000Z",
+        refusedAt: "2026-01-01T00:00:04.000Z",
+        refusedReason: "written-no-evidence",
       }),
       1,
     );

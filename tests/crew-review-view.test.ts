@@ -27,9 +27,9 @@ describe("requires-review projection", () => {
     expect(contractRequiresReview({ rules: [typed] })).toBe(true);
     expect(
       contractRequiresReview({
-        rules: [{ id: "r3", text: "Review", requiresReview: true } as Rule],
+        rules: [{ id: "r3", text: "Review", kind: "statement" }],
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       withRequiresReviewRule([statement], true, () => "r-new").some(
         (rule) => rule.kind === "requires-review",
@@ -45,8 +45,8 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 2,
       claimedBy: author,
+      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
       metadata: {
-        requiresReview: true,
         verdicts: [
           {
             verdictId: "v1",
@@ -86,8 +86,8 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 1,
       claimedBy: author,
+      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
       metadata: {
-        requiresReview: true,
         verdicts: [
           {
             verdictId: "v3",
@@ -119,8 +119,8 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 1,
       claimedBy: author,
+      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
       metadata: {
-        requiresReview: true,
         reviewSubjectHash: "hash-current",
         verdicts: [
           {

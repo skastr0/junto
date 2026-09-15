@@ -1,6 +1,7 @@
 /**
- * Operator port-mask view — compiled ports minus an optional subtract-only
- * mask. A mask never invents a port the verb did not compile.
+ * Operator port-mask view — `ether.mask` is an allow-list over the compiled
+ * grant. Omitted grants every compiled port. Empty grants none. Extra names
+ * never expand the grant.
  */
 import type { CanvasEdge } from "@shared/canvas";
 import type { PortName } from "@shared/physics";
@@ -44,21 +45,14 @@ export const parsePortMask = (value: unknown): ReadonlyArray<CrewPortName> => {
   return ports;
 };
 
-type AuthoredPortMask = {
-  readonly portMask?: unknown;
-  readonly mask?: unknown;
-};
-
 /**
- * Allow-list on the relation. `portMask` is the live field; omitted means the
- * full compile. Empty grants none. A retired `mask` key is read only until
- * the document scrub finishes dropping it.
+ * Allow-list on the relation. `ether.mask` is the live field; omitted means
+ * the full compile. Empty grants none.
  */
 export const authoredPortMaskOf = (
   edge: CanvasEdge,
 ): ReadonlyArray<CrewPortName> | undefined => {
-  const ether = edge.ether as AuthoredPortMask | undefined;
-  const raw = ether?.portMask ?? ether?.mask;
+  const raw = edge.ether?.mask;
   if (raw === undefined) return undefined;
   return parsePortMask(raw);
 };
@@ -84,7 +78,7 @@ export type EdgePortMaskView = {
 };
 
 /**
- * `ether.portMask` is the remaining allow-list. Omitted grants every compiled
+ * `ether.mask` is the remaining allow-list. Omitted grants every compiled
  * port. Empty grants none. Names that were never compiled are dropped.
  */
 export const edgePortMaskView = (
@@ -148,11 +142,7 @@ export const toggleAllowedPort = (
   return next;
 };
 
-/**
- * Persist shape for today's canvas schema. `compileEdgeGrant` and the
- * decode scrub keep `mask`; `portMask` is still stripped. Flip this helper
- * to `portMask` when that field lands — the view already reads both.
- */
+/** Authored ether for a verb plus optional allow-list attenuation. */
 export const persistPortMaskEther = <V extends string>(
   verb: V,
   allowed: ReadonlyArray<CrewPortName> | undefined,

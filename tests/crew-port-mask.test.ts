@@ -56,30 +56,27 @@ describe("toggleAllowedPort", () => {
 });
 
 describe("authoredPortMaskOf", () => {
-  const wire = (
-    ether: CanvasEdge["ether"] | { verb: "messages"; portMask?: readonly string[] },
-  ): CanvasEdge =>
-    ({
-      id: "e1",
-      fromNode: "a",
-      toNode: "b",
-      ether,
-    }) as CanvasEdge;
+  const wire = (ether: CanvasEdge["ether"]): CanvasEdge => ({
+    id: "e1",
+    fromNode: "a",
+    toNode: "b",
+    ether,
+  });
 
-  it("prefers portMask, treats omit and empty as distinct, and still reads retired mask", () => {
+  it("reads ether.mask as the allow-list and ignores a portMask invention", () => {
     expect(authoredPortMaskOf(wire({ verb: "messages" }))).toBeUndefined();
-    expect(authoredPortMaskOf(wire({ verb: "messages", portMask: [] }))).toEqual([]);
+    expect(authoredPortMaskOf(wire({ verb: "messages", mask: [] }))).toEqual([]);
     expect(
-      authoredPortMaskOf(wire({ verb: "messages", portMask: ["msg.send", "ghost"] })),
-    ).toEqual(["msg.send", "ghost"]);
+      authoredPortMaskOf(wire({ verb: "messages", mask: ["msg.send"] })),
+    ).toEqual(["msg.send"]);
     expect(
       authoredPortMaskOf({
         id: "e1",
         fromNode: "a",
         toNode: "b",
-        ether: { verb: "messages", mask: ["seat.wait"] },
+        ether: { verb: "messages", portMask: ["msg.send"] },
       } as CanvasEdge),
-    ).toEqual(["seat.wait"]);
+    ).toBeUndefined();
   });
 });
 

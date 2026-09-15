@@ -3,7 +3,7 @@
  * Journeys live in p1H; this file is the shared contract those specs import.
  */
 import type { CanvasEdge } from "../../src/shared/canvas";
-import type { Message, Rule, Task } from "../../src/shared/work-model";
+import type { Message, Rule } from "../../src/shared/work-model";
 import { verbEdge } from "./sandbox";
 
 export const CREW_UI_SELECTORS = {
@@ -21,9 +21,10 @@ export const CREW_UI_SELECTORS = {
 export const CREW_UI_COMMITS = [
   "20b83424",
   "31315f9b",
+  "363b1bcb",
 ] as const;
 
-/** Persist field today is `mask`. The view also reads upcoming `portMask`. */
+/** `ether.mask` is the allow-list. Omitted grants the compile; empty grants none. */
 export const messagesEdgeWithMask = (
   id: string,
   fromNode: string,
