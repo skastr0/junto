@@ -13,8 +13,8 @@
  *   2. every wait is bounded — Timeout carries from/to and retryable;
  *   3. read returns a settled grid window with seq/generation and never
  *      concatenates generations;
- *   4. follow is bounded — it returns when the cursor advances or the
- *      duration elapses, and says which;
+ *   4. follow is bounded — it returns when the cursor advances, the
+ *      duration elapses, or the seat exits, and says which;
  *   5. authority is the edge: no messages edge (or a mask that drops the
  *      port) is ScopeError, and removing the edge mid-follow ends it.
  */
@@ -184,7 +184,7 @@ test("crew observe [fake-tui]: read returns the settled grid, never write author
   }
 });
 
-test("crew observe [fake-tui]: bounded follow returns on advance or duration", async () => {
+test("crew observe [fake-tui]: bounded follow returns on advance, duration, or exit", async () => {
   test.setTimeout(300_000);
   const vellum = await launch();
   try {
@@ -216,6 +216,23 @@ test("crew observe [fake-tui]: bounded follow returns on advance or duration", a
     }, { awaitMs: 60_000, timeoutMs: 60_000 });
     const timedOutData = opData(timedOut) as { stopped: string };
     expect(timedOutData.stopped).toBe("duration");
+
+    // Follow whose seat exits mid-stream: returns on the exit, not the
+    // deadline — stopped gone, generation_exited, the retired generation's
+    // last settled window as evidence.
+    const exitFollow = a.op("seat.read", {
+      target: B, follow: true, maxSeconds: 60,
+    }, { awaitMs: 45_000, timeoutMs: 45_000 });
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await b.control({ exit: 0 });
+    const exited = await exitFollow;
+    const exitedData = opData(exited) as {
+      stopped: string; state: string; reason?: string; confidence?: string;
+    };
+    expect(exitedData.stopped).toBe("gone");
+    expect(exitedData.state).toBe("gone");
+    expect(exitedData.reason).toBe("generation_exited");
+    expect(exitedData.confidence).toBe("high");
   } finally {
     await vellum.close();
   }
