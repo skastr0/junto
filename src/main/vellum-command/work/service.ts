@@ -106,7 +106,8 @@ import {
   type CheckPlanItem,
   type CheckSubmissionResult,
 } from "@shared/checks";
-import { WorkErrorDetails } from "@shared/work-control";
+import { WorkErrorDetails, type VerdictPostArgs, type WorkErrorBody } from "@shared/work-control";
+import type { MailSenderStamp, ReviewVerdict, VerdictSubject } from "@shared/crew";
 import { flowDestinations } from "@shared/flow-graph";
 import { regionStack } from "@shared/graph";
 import { taskCommentRecipient } from "@shared/task-owner";
@@ -150,6 +151,19 @@ import {
   mailboxMessageReadId,
 } from "./mailbox-receipts";
 import { messageDelivery } from "./message-delivery";
+import { CrewRepository } from "./crew-repository";
+import {
+  evaluateReviewGate,
+  planVerdictPost,
+  resolveTaskSubject,
+  reviewAuthorSeat,
+  reviewSubjectProjection,
+  reviewersOfAuthor,
+  reviewsEdgeExists,
+  type ReviewGateResult,
+  type ReviewSubjectProjection,
+  type ResolvedReviewSubject,
+} from "./reviews";
 import { tasksNodeIdentity, tasksNodeName } from "@shared/tasks-node-identity";
 import {
   WorkAuthorityError,
@@ -158,6 +172,7 @@ import {
   createAuthorialTaskDependencyScopeCapability,
   createCurrentProjectedTaskDependencyScopeCapability,
   type PendingCommand,
+  type ReviewGateWithin,
   type TaskDependencyScopeCapability,
   type TaskRecordPatch,
 } from "./repository";
@@ -180,6 +195,8 @@ export const WorkServiceErrorCode = Schema.Literals([
   "fork_choice",
   "wrong_home",
   "operator_owned",
+  "reviewer_is_author",
+  "scope_error",
 ]);
 export type WorkServiceErrorCode = typeof WorkServiceErrorCode.Type;
 
@@ -285,6 +302,17 @@ const toWorkServiceError = (error: unknown): WorkServiceError => {
   });
 };
 
+const reviewServiceError = (error: WorkErrorBody): WorkServiceError =>
+  new WorkServiceError({
+    code: error.type === "ReviewerIsAuthor"
+      ? "reviewer_is_author"
+      : error.type === "ScopeError"
+        ? "scope_error"
+        : "invalid",
+    message: error.message,
+    ...(error.details === undefined ? {} : { details: error.details }),
+  });
+
 type WorkMutationOutcome<T> = {
   readonly value: T;
   readonly disposition: "applied" | "queued";
@@ -345,6 +373,8 @@ export type WorkTaskVisitView = {
 
 export type WorkTaskShowView = {
   readonly task: Task;
+  readonly reviewSubject: ReviewSubjectProjection;
+  readonly verdicts: ReadonlyArray<ReviewVerdict>;
   readonly board: {
     readonly nodeId: string;
     readonly name: string;
@@ -378,6 +408,7 @@ export type WorkCheckReadiness = CheckPlanItem & {
 export type WorkTaskRulesView = {
   readonly rules: ReadonlyArray<RuleInForce>;
   readonly readiness?: {
+    readonly review: ReviewGateResult;
     /** Rules still lacking a live claim or waiver. */
     readonly unanswered: ReadonlyArray<{
       readonly ruleId: string;
@@ -438,6 +469,14 @@ export interface WorkServiceId {
 }
 
 export interface WorkServiceShape {
+    /** Crew operations are local to a configured Command Center in this release. */
+    readonly crewAdmission: Effect.Effect<void, WorkServiceError>;
+    readonly workVerdictPost: (
+      canvas: string,
+      target: string,
+      input: Omit<VerdictPostArgs, "target">,
+      reviewer: ActorRef,
+    ) => Effect.Effect<WorkOpResult<WorkVerdictPostResult>>;
     /** Read the canonical single home of one task through the app-owned seam. */
     readonly workTaskHome: (
       canvas: string,
@@ -471,6 +510,7 @@ export interface WorkServiceShape {
       note?: string,
       completionEvidence?: CompletionEvidence,
       path?: TaskPathArm,
+      receiptAuthor?: MailSenderStamp,
     ) => Effect.Effect<WorkOpResult<Task>>;
     /** Operator approval of an approval-admission task (epoch-scoped stamp). */
     readonly workTaskPromote: (
@@ -697,6 +737,15 @@ export interface WorkServiceShape {
 
 export type WorkService = WorkServiceId;
 
+export type WorkVerdictPostResult = {
+  readonly verdictId: string;
+  readonly subject: VerdictSubject;
+  readonly epoch: number;
+  readonly authorSeatId: ReviewVerdict["authorSeatId"];
+  readonly effect: "none" | "rejected";
+  readonly newEpoch?: number;
+};
+
 export const WorkService = Context.Service<WorkService, WorkServiceShape>("@vellum-command/WorkService");
 
 export const WorkLive = Layer.effect(
@@ -704,6 +753,7 @@ export const WorkLive = Layer.effect(
   Effect.gen(function* () {
     const canvases = yield* CanvasesService;
     const repository = yield* WorkRepository;
+    const crew = yield* CrewRepository;
     const stations = yield* StationRepository;
     const fleetTargets = yield* StationFleetTargetRepository;
     const livePeers = yield* StationLivePeerRegistry;
@@ -739,6 +789,21 @@ export const WorkLive = Layer.effect(
             configuration: configured.configuration,
           })
       ),
+    );
+
+    const crewAdmission: Effect.Effect<void, WorkServiceError> = stationContext.pipe(
+      Effect.flatMap((context) => context.configuration.role === "command-center"
+        ? Effect.void
+        : Effect.fail(new WorkServiceError({
+            code: "scope_error",
+            message: "crew operations require a configured Command Center",
+            details: { reason: "crew-command-center-only", retryable: false },
+          }))),
+      Effect.mapError((error) => error.code === "scope_error" ? error : new WorkServiceError({
+        code: "scope_error",
+        message: error.message,
+        details: { reason: "crew-command-center-only", retryable: false },
+      })),
     );
 
     const readCanvas = (canvasName: string) =>
@@ -948,6 +1013,42 @@ export const WorkLive = Layer.effect(
           revision: read.revision,
         })),
       );
+
+    const reviewForTask = (
+      read: CanvasReadResult,
+      canvas: string,
+      nodeId: string,
+      task: Task,
+      installationId: string,
+    ) => Effect.gen(function* () {
+      const projection = reviewSubjectProjection({
+        installationId,
+        canvasName: canvas,
+        nodeId,
+        task,
+      });
+      const verdicts = yield* crew.verdictsForSubject({
+        kind: "task",
+        installationId,
+        canvasName: canvas,
+        nodeId,
+        taskId: task.id,
+      }).pipe(Effect.mapError(toWorkServiceError));
+      const author = read.actorRefs.find((actor) => actor.seatId === projection.authorSeatId);
+      const reviewers = author === undefined ? [] : reviewersOfAuthor({
+        doc: read.doc,
+        authorNodeId: author.nodeId,
+        actorRefs: read.actorRefs,
+      });
+      const gate = evaluateReviewGate({
+        rulesInForce: rulesInForce(read.doc, nodeId, task),
+        projection,
+        verdicts,
+        authorSeatId: projection.authorSeatId,
+        reviewerHasCurrentEdge: (seatId) => reviewers.some((reviewer) => reviewer.seatId === seatId),
+      });
+      return { projection, verdicts, gate };
+    });
 
     const requireNode = (
       doc: CanvasDoc,
@@ -1351,6 +1452,82 @@ export const WorkLive = Layer.effect(
         ),
       );
 
+    const planWorkVerdict = (
+      canvas: string,
+      target: string,
+      input: Omit<VerdictPostArgs, "target">,
+      reviewer: ActorRef,
+    ) => Effect.gen(function* () {
+      const [context, read] = yield* Effect.all([stationContext, readCanvas(canvas)]);
+      if (reviewer.canvasName !== canvas ||
+        read.actorRefs.filter((actor) => sameActor(actor, reviewer)).length !== 1) {
+        return yield* new WorkServiceError({
+          code: "scope_error",
+          message: "reviewer no longer identifies a live actor seat on this canvas",
+          details: { reason: "reviewer-not-current", retryable: false },
+        });
+      }
+      let subject: ResolvedReviewSubject;
+      let authorNodeId: string | undefined;
+      if (input.subject.kind === "task") {
+        const expected = input.subject;
+        const node = yield* requireNode(read.doc, target);
+        const task = node.ether?.tasks?.items.find((candidate) => candidate.id === expected.taskId);
+        if (task === undefined) {
+          return yield* new WorkServiceError({
+            code: "task_not_found",
+            message: `task "${input.subject.taskId}" not found at "${target}"`,
+          });
+        }
+        const home = yield* itemHome("task", canvas, target, task.id);
+        if (home !== context.localInstallationId) {
+          return yield* new WorkServiceError({
+            code: "wrong_home",
+            message: "review verdicts execute on the task home installation",
+          });
+        }
+        const projection = reviewSubjectProjection({
+          installationId: home,
+          canvasName: canvas,
+          nodeId: target,
+          task,
+        });
+        const resolved = resolveTaskSubject({ projection, expected: input.subject });
+        if (!resolved.ok) return yield* reviewServiceError(resolved.error);
+        subject = resolved.subject;
+        authorNodeId = read.actorRefs.find((actor) => actor.seatId === projection.authorSeatId)?.nodeId;
+      } else {
+        const sha = input.subject.sha.trim().toLowerCase();
+        const authorSeatId = yield* crew.firstAuthorForSha(sha).pipe(Effect.mapError(toWorkServiceError));
+        const author = read.actorRefs.find((actor) => actor.nodeId === target);
+        if (authorSeatId !== undefined && author?.seatId !== authorSeatId) {
+          return yield* new WorkServiceError({
+            code: "scope_error",
+            message: "commit target does not match its durable author provenance",
+            details: { reason: "commit-author-mismatch", retryable: false },
+          });
+        }
+        subject = {
+          kind: "commit",
+          sha,
+          ...(authorSeatId !== undefined && author !== undefined ? { authorSeatId: author.seatId } : {}),
+        };
+        authorNodeId = author?.nodeId;
+      }
+      const plan = planVerdictPost({
+        caller: { seatId: reviewer.seatId, nodeId: reviewer.nodeId },
+        subject,
+        kind: input.kind,
+        findings: input.findings ?? [],
+        refs: input.refs ?? [],
+        reviewsEdgeCurrent: authorNodeId !== undefined && reviewsEdgeExists(read.doc, reviewer.nodeId, authorNodeId),
+        verdictId: ids.id(),
+        postedAtMs: Date.now(),
+      });
+      if (!plan.ok) return yield* reviewServiceError(plan.error);
+      return { context, read, plan };
+    });
+
     const commandStatus = repository.pendingCommands.pipe(
       Effect.mapError(toWorkServiceError),
       Effect.map((commands): WorkCommandStatus => {
@@ -1380,6 +1557,65 @@ export const WorkLive = Layer.effect(
     );
 
     return WorkService.of({
+      crewAdmission,
+      workVerdictPost: (canvas, target, input, reviewer) =>
+        asResult(
+          Effect.gen(function* () {
+            yield* crewAdmission;
+            const { context, read, plan } = yield* planWorkVerdict(canvas, target, input, reviewer);
+            const result: WorkVerdictPostResult = {
+              verdictId: plan.verdict.verdictId,
+              subject: plan.verdict.subject,
+              epoch: plan.verdict.epoch,
+              authorSeatId: plan.verdict.authorSeatId,
+              effect: "none",
+            };
+            if (plan.effect.kind === "blocking" && plan.verdict.subject.kind === "task") {
+              const subject = plan.verdict.subject;
+              const defect = plan.effect.defect;
+              const policy = yield* runPolicy(() => workTaskTransition(
+                read.doc,
+                canvas,
+                target,
+                subject.taskId,
+                "rejected",
+                undefined,
+                ids,
+                undefined,
+                { defect },
+              ));
+              if (policy.sentBack === undefined) {
+                return yield* new WorkServiceError({
+                  code: "invalid",
+                  message: "blocking review did not produce a task defect transition",
+                });
+              }
+              const before = nodeById(read.doc, target)?.ether?.tasks?.items.find((task) => task.id === subject.taskId);
+              const message = before !== undefined && policy.task.history.length > before.history.length
+                ? policy.task.history.at(-1)
+                : undefined;
+              const moved = yield* repository.sendTaskBack({
+                sink: sinkRef(canvas, target),
+                basis: intentBasis(context, read.intentWitness),
+                taskId: subject.taskId,
+                ...(message === undefined ? {} : { message }),
+                visits: policy.task.visits ?? [],
+                ...(policy.task.defects === undefined ? {} : { defects: policy.task.defects }),
+                target: sinkRef(canvas, policy.sentBack.nodeId),
+                sentBackTask: policy.sentBack.task,
+                review: { verdict: plan.verdict },
+              }).pipe(Effect.mapError(toWorkServiceError));
+              return yield* complete(canvas, {
+                value: { ...result, effect: "rejected" as const, newEpoch: taskEpoch(moved.value.sentBack) },
+                disposition: "applied",
+              });
+            }
+            yield* crew.postVerdict(plan.verdict, {
+              basis: intentBasis(context, read.intentWitness),
+            }).pipe(Effect.mapError(toWorkServiceError));
+            return yield* complete(canvas, { value: result, disposition: "applied" });
+          }),
+        ),
       workTaskHome: (canvas, nodeId, taskId) =>
         itemHome("task", canvas, nodeId, taskId),
       workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options, admin) =>
@@ -1488,7 +1724,7 @@ export const WorkLive = Layer.effect(
           }),
         ),
 
-      workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence, path) =>
+      workTaskTransition: (canvas, nodeId, taskId, state, note, completionEvidence, path, receiptAuthor) =>
         asResult(
           Effect.gen(function* () {
             const [context, read, home] = yield* Effect.all([
@@ -1498,6 +1734,17 @@ export const WorkLive = Layer.effect(
             ]);
             const before = nodeById(read.doc, nodeId)?.ether?.tasks?.items
               .find((task) => task.id === taskId);
+            if (receiptAuthor !== undefined && (completionEvidence?.git?.commits.length ?? 0) > 0) {
+              const author = read.actorRefs.find((actor) => actor.seatId === receiptAuthor.fromSeat &&
+                (receiptAuthor.senderNodeId === undefined || actor.nodeId === receiptAuthor.senderNodeId));
+              if (before === undefined || reviewAuthorSeat(before) !== receiptAuthor.fromSeat || author === undefined) {
+                return yield* new WorkServiceError({
+                  code: "scope_error",
+                  message: "commit evidence must come from the task's current claimant",
+                  details: { reason: "receipt-author-mismatch", retryable: false },
+                });
+              }
+            }
             // Finish-criteria gate is home-local only. Off-home callers enqueue
             // a command; the executor re-runs the gate against its SQLite shelf.
             // Rules/checks gates are doc-derived and run in policy always.
@@ -1530,6 +1777,44 @@ export const WorkLive = Layer.effect(
                 },
               )
             );
+            let reviewGate: ReviewGateWithin | undefined;
+            if (state === "completed" && before !== undefined) {
+              const candidate = {
+                ...before,
+                completionEvidence: policy.task.completionEvidence,
+              };
+              const review = yield* reviewForTask(read, canvas, nodeId, candidate, home);
+              if (!review.gate.satisfied) {
+                return yield* new WorkServiceError({
+                  code: "not_ready",
+                  message: "completion requires a current eligible reviewer's green verdict for these exact refs",
+                  details: {
+                    reason: "review-required",
+                    received: { subject: review.projection, unsatisfied: review.gate.unsatisfied },
+                    retryable: true,
+                    next_step: "have a distinct reviewer approve the current subject, then retry completion with the same refs",
+                  },
+                });
+              }
+              if (review.gate.armed.length > 0) {
+                if (review.projection.authorSeatId === undefined) {
+                  return yield* new WorkServiceError({
+                    code: "not_ready",
+                    message: "review-gated completion requires current author provenance",
+                    details: { reason: "author-unresolved", retryable: true },
+                  });
+                }
+                reviewGate = {
+                  installationId: home,
+                  canvasName: canvas,
+                  nodeId,
+                  taskId,
+                  epoch: review.projection.epoch,
+                  subjectHash: review.projection.subjectHash,
+                  excludingSeatId: review.projection.authorSeatId,
+                };
+              }
+            }
             const message =
               before !== undefined &&
                 policy.task.history.length > before.history.length
@@ -1566,6 +1851,8 @@ export const WorkLive = Layer.effect(
                   visits: policy.task.visits ?? [],
                   next: sinkRef(canvas, sentOn.nodeId),
                   nextTask: sentOn.task,
+                  ...(reviewGate === undefined ? {} : { reviewGate }),
+                  ...(receiptAuthor === undefined ? {} : { receiptAuthor }),
                 }),
               );
               return yield* complete(canvas, {
@@ -1629,6 +1916,8 @@ export const WorkLive = Layer.effect(
                     ? { completionEvidence }
                     : {}),
                   ...visitsPatch,
+                  ...(reviewGate === undefined ? {} : { reviewGate }),
+                  ...(receiptAuthor === undefined ? {} : { receiptAuthor }),
                 }),
               )
               : yield* enqueue(
@@ -1756,6 +2045,8 @@ export const WorkLive = Layer.effect(
               message: `task "${taskId}" not found`,
             });
           }
+          const home = yield* itemHome("task", canvas, nodeId, taskId);
+          const review = yield* reviewForTask(read, canvas, nodeId, task, home);
           // Onion visibility: prior boards surface their handoff note and the
           // refs their claims cited; full interiors (claims, waivers) travel
           // only on the operator view. The current row is onion-correct by
@@ -1821,6 +2112,8 @@ export const WorkLive = Layer.effect(
             : undefined;
           return {
             task,
+            reviewSubject: review.projection,
+            verdicts: review.verdicts,
             board: {
               nodeId,
               name: identity.name,
@@ -1927,7 +2220,9 @@ export const WorkLive = Layer.effect(
               ),
             }),
           );
-          return { rules, readiness: { unanswered, checks } };
+          const home = yield* itemHome("task", canvas, nodeId, task.id);
+          const review = yield* reviewForTask(read, canvas, nodeId, task, home);
+          return { rules, readiness: { unanswered, checks, review: review.gate } };
         }),
 
       workRulingsList: (canvas, nodeId) =>
