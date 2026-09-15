@@ -6,10 +6,13 @@
  * process-bound lists/reads. Assert readAt via readCanvas work projection
  * (no SQLite second opener). typedNoticeQualified stays false.
  *
- * Hold for Computer Use: ISOLATED_DEVIN_HOLD=1 (implies visible window).
+ * Hold for Computer Use: ISOLATED_DEVIN_HOLD=1 (visible window, bounded
+ * inspect then always close). ISOLATED_DEVIN_HOLD_MS defaults to 90000.
  * Does not write ~/.vellum-command/state/vellum-command.db.
  */
-import { existsSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -35,7 +38,38 @@ import {
 const operatorHome = homedir();
 const operatorCred = join(operatorHome, ISOLATED_DEVIN_CREDENTIAL_REL);
 const HOLD = process.env.ISOLATED_DEVIN_HOLD === "1";
+const HOLD_MS = Number.parseInt(process.env.ISOLATED_DEVIN_HOLD_MS ?? "90000", 10);
 const DEVIN_BINDING = "local:isolated-devin";
+const HOLD_NOTE = join("/tmp", "isolated-devin-mail-hold.json");
+
+const sha256File = (path: string): string | undefined => {
+  if (!existsSync(path)) return undefined;
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+};
+
+const runtimeProvenance = () => {
+  const rendererDir = join(process.cwd(), "out", "renderer", "assets");
+  const rendererIndex = existsSync(rendererDir)
+    ? readdirSync(rendererDir).find((name) => /^index-.*\.js$/.test(name))
+    : undefined;
+  let sourceCommit = "unknown";
+  try {
+    sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    /* ignore */
+  }
+  return {
+    sourceCommit,
+    outMainSha256: sha256File(join(process.cwd(), "out", "main", "index.js")),
+    outRendererSha256:
+      rendererIndex === undefined
+        ? undefined
+        : sha256File(join(rendererDir, rendererIndex)),
+    outRendererFile: rendererIndex,
+  };
+};
 
 type ProjectedMessage = {
   readonly messageId?: string;
@@ -105,7 +139,7 @@ const occupyDevin = async (page: Page): Promise<{ pid?: number; cwd?: string }> 
 };
 
 test("isolated Devin [real-harness]: process-bound list stamps projected readAt", async () => {
-  test.setTimeout(HOLD ? 600_000 : 420_000);
+  test.setTimeout((HOLD ? HOLD_MS : 0) + 240_000);
   if (!existsSync(operatorCred)) {
     test.skip(true, "no operator Devin credentials.toml to seed");
   }
@@ -115,6 +149,7 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
   expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
   if (HOLD) process.env.VELLUM_COMMAND_E2E_SHOW = "1";
 
+  const provenance = runtimeProvenance();
   const vellum = await launchVellum({
     seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
     afterSeed: async (sandbox) => {
@@ -131,26 +166,46 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
     },
   });
 
-  const holdNote = join("/tmp", "isolated-devin-mail-hold.json");
+  const writeHold = (extra: Record<string, unknown>) => {
+    const electronMainPid = vellum.app.process().pid;
+    const body = {
+      electronMainPid,
+      harnessPid: extra.harnessPid,
+      sandboxHome: extra.sandboxHome,
+      cwd: extra.cwd,
+      canvas: ISOLATED_DEVIN_MAIL_CANVAS,
+      window: HOLD ? "visible" : "offscreen",
+      holdMs: HOLD ? HOLD_MS : 0,
+      ...provenance,
+      ...extra,
+    };
+    writeFileSync(HOLD_NOTE, `${JSON.stringify(body)}\n`);
+    console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify(body)}`);
+  };
+
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox, app } = vellum;
+    if (HOLD) {
+      await app.evaluate(({ BrowserWindow }) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.show();
+            win.focus();
+          }
+        }
+      });
+    }
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
     const sender = crewSeat(sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_SENDER_ID);
     await crewOccupySeat(page, ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinSenderNode, sender);
     const occupied = await occupyDevin(page);
-    writeFileSync(
-      holdNote,
-      `${JSON.stringify({
-        pid: occupied.pid,
-        cwd: occupied.cwd,
-        home: sandbox.homeDir,
-        canvas: ISOLATED_DEVIN_MAIL_CANVAS,
-        window: HOLD ? "visible" : "offscreen",
-      })}\n`,
-    );
-    console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify({ pid: occupied.pid, home: sandbox.homeDir })}`);
+    writeHold({
+      harnessPid: occupied.pid,
+      sandboxHome: sandbox.homeDir,
+      cwd: occupied.cwd,
+    });
     const waitIdle = async (timeoutMs: number) => {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
@@ -205,37 +260,17 @@ test("isolated Devin [real-harness]: process-bound list stamps projected readAt"
       )
       .toBe(true);
 
-    const readAtOf = async () => {
-      const items = await projectedMessages(
-        page,
-        ISOLATED_DEVIN_MAIL_CANVAS,
-        ISOLATED_DEVIN_RECEIVER_ID,
-      );
-      const found = items.find((item) => item.messageId === messageId);
-      return found?.metadata?.readAt !== undefined && found.metadata.readAt !== null;
-    };
-    if (HOLD) {
-      await expect
-        .poll(readAtOf, { timeout: 180_000, intervals: [1_000, 2_000, 5_000] })
-        .toBe(true);
-    }
-
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(false);
-    writeFileSync(
-      holdNote,
-      `${JSON.stringify({
-        pid: occupied.pid,
-        cwd: occupied.cwd,
-        home: sandbox.homeDir,
-        canvas: ISOLATED_DEVIN_MAIL_CANVAS,
-        messageId,
-        window: HOLD ? "visible" : "offscreen",
-      })}\n`,
-    );
+    writeHold({
+      harnessPid: occupied.pid,
+      sandboxHome: sandbox.homeDir,
+      cwd: occupied.cwd,
+      messageId,
+    });
     if (HOLD) {
-      await page.waitForTimeout(300_000);
+      await page.waitForTimeout(HOLD_MS);
     }
   } finally {
-    if (!HOLD) await vellum.close();
+    await vellum.close();
   }
 });
