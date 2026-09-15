@@ -44,8 +44,8 @@ export const MESSAGE_DELIVERY_SETTLE_MS = 1_500;
  * Ceiling for the backed-off gate re-poll. Defense in depth only: the cadence
  * was never the cost, the per-attempt world read was. Every refusal reason
  * that backs off here also has a real state-change trigger
- * (`onManagedTerminalIdle` / `onTerminalAttached` / `onResumed`), so the
- * ceiling bounds the worst case where NOTHING changes — never the normal case.
+ * (`onManagedTerminalIdle` / `onTerminalAttached` / `onResumedCanvas`), so
+ * the ceiling bounds the worst case where NOTHING changes — never the normal case.
  */
 export const MESSAGE_DELIVERY_GATE_RETRY_MAX_MS = 12_000;
 
@@ -468,6 +468,19 @@ export class MessageDeliveryService {
    */
   private readonly transportUnresolved = new Map<string, string>();
   /**
+   * One-notice-per-turn budget. A window runs from boot (epoch 0) or an
+   * observed working/turn-start transition to the next turn-start; only
+   * onManagedTerminalTurnStart opens a new window, and a terminal generation
+   * cut resets it (back to no observed turn). The epoch counts observed
+   * turns per binding; the spent map records the epoch in which a notice
+   * already went out. Spends charge the epoch captured at admission, never
+   * the epoch current when the async outcome resolves. Refused pre-write
+   * attempts spend nothing — no byte, no budget. The explicit prompt()
+   * path is exempt.
+   */
+  private readonly turnEpochByBinding = new Map<string, number>();
+  private readonly noticeSpentByBinding = new Map<string, number>();
+  /**
    * Immutable membership of each batch whose transport was accepted. A later
    * recovery may see newer pending mail on the same seat, but that mail was not
    * part of the accepted payload and must never receive its receipt here.
@@ -614,6 +627,8 @@ export class MessageDeliveryService {
     this.wakeRefusalLogged.clear();
     this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
+    this.turnEpochByBinding.clear();
+    this.noticeSpentByBinding.clear();
     this.clearGateRetries();
     this.clearPendingIndex();
     this.transport = undefined;
@@ -945,10 +960,18 @@ export class MessageDeliveryService {
       const stampOnly = prep === "stampOnly";
       if (
         policy === "immediate" &&
+        // Stamp-only replays an already accepted row: no new write, so the
+        // cap never applies.
+        !stampOnly &&
         admitImmediatePrompt({
           idle: true,
           composerEmpty: true,
-          bodyChars: payload.length,
+          // The 160 cap counts BODY characters only: strip the server
+          // sender envelope (the payload's first line) before counting.
+          bodyChars:
+            payload.indexOf("\n") < 0
+              ? payload.length
+              : payload.length - payload.indexOf("\n") - 1,
         }).admitted === false
       ) {
         // Over-limit bodies never type: refuse with the durable oversize
@@ -1123,26 +1146,124 @@ export class MessageDeliveryService {
     this.onSeatStateChanged(bindingId);
   }
 
-  /** Pause released — re-drive everything held pending while paused. */
-  onResumed(): void {
+  /**
+   * The seat observably started a turn (working/turn-start transition on the
+   * runtime state event sequence). Opens a fresh one-notice-per-turn window:
+   * one notice may go out before the next observed turn-start. Idle
+   * callbacks, gate retries, and resets NEVER open a window — only this
+   * signal does. A terminal generation cut RESETS the window (back to no
+   * observed turn) instead of opening one. The composition must wire this to
+   * actual state transitions, never synthesize it from idle, polling, or
+   * admission checks.
+   */
+  onManagedTerminalTurnStart(bindingId: string): void {
     if (this.suspended) return;
-    // Operator action: release the bounded re-drive marks so every held
-    // notice gets one fresh attempt (re-validated against the current doc).
-    // NOTE: clearing RAM cannot release the DURABLE unresolved hold — the
-    // next prepareAttempt re-reads the ledger row and holds again. A durable
-    // retry grant (operator-authorized new attempt per held message) is an
-    // open storage-lane item; until it lands, resume re-arms refused and
-    // parked mail, not ledger-held uncertainty.
-    this.transportUnresolved.clear();
-    this.attemptedClaims.clear();
-    this.transportAttempts.clear();
-    this.wakeRetryCounts.clear();
-    this.wakeRefusalLogged.clear();
-    // Re-settle after pause so mail does not fire mid-resume paint.
-    this.idleSinceByGeneration.clear();
-    this.clearGateRetries();
-    void this.retryRequestResponses();
-    void this.sweepAllCanvases(() => true);
+    this.turnEpochByBinding.set(
+      bindingId,
+      (this.turnEpochByBinding.get(bindingId) ?? 0) + 1,
+    );
+    this.noticeSpentByBinding.delete(bindingId);
+  }
+
+  /**
+   * Explicit resume transition (or operator retry) for ONE canvas — re-drive
+   * only what pause held on that canvas. Narrow by construction: callers must
+   * invoke this solely on a real resume transition, never on every
+   * pause-state change while playing; other canvases are untouched. The
+   * DURABLE unresolved hold is never cleared here — the next prepareAttempt
+   * re-reads the ledger row and holds again until a durable retry grant
+   * lands (open storage-lane item).
+   */
+  onResumedCanvas(canvas: string): void {
+    if (this.suspended) return;
+    // Operator action: release this canvas's bounded re-drive marks so held
+    // notices get one fresh attempt (re-validated against the current doc,
+    // re-derived from the ledger).
+    this.clearResumeMarks(`${canvas}::`);
+    // Gate-retry timers are binding-keyed and keep their bounded schedules;
+    // the sweep below re-drives this canvas immediately.
+    void this.resumeCanvasSweep(canvas);
+  }
+
+  /**
+   * Release bounded re-drive marks for one scope (a canvas prefix, or every
+   * key when the prefix is undefined). Held uncertainty drops its accepted
+   * mark ALONGSIDE the hold: the next attempt must re-derive from the ledger
+   * (hold again without a durable retry grant), never skip the transport on
+   * a stale accepted mark and stamp a delivery receipt for bytes that were
+   * never acknowledged. Accepted-but-unreceipted marks outside a hold are
+   * kept, preserving stamp-only recovery.
+   */
+  private clearResumeMarks(prefix?: string): void {
+    const scoped = (key: string): boolean =>
+      prefix === undefined || key.startsWith(prefix);
+    for (const key of [...this.transportUnresolved.keys()]) {
+      if (!scoped(key)) continue;
+      this.transportUnresolved.delete(key);
+      this.transportAccepted.delete(key);
+    }
+    const dropScoped = (
+      keys: Iterable<string>,
+      drop: (key: string) => void,
+    ): void => {
+      for (const key of [...keys]) {
+        if (scoped(key)) drop(key);
+      }
+    };
+    dropScoped(this.attemptedClaims.keys(), (key) => {
+      this.attemptedClaims.delete(key);
+    });
+    dropScoped(this.transportAttempts.keys(), (key) => {
+      this.transportAttempts.delete(key);
+    });
+    dropScoped(this.wakeRetryCounts.keys(), (key) => {
+      this.wakeRetryCounts.delete(key);
+    });
+    dropScoped(this.wakeRefusalLogged, (key) => {
+      this.wakeRefusalLogged.delete(key);
+    });
+    for (const [key, handle] of [...this.wakeRetryTimers]) {
+      if (scoped(key)) {
+        this.timers.clear(handle);
+        this.wakeRetryTimers.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Re-settle this canvas's seats (so mail does not fire mid-resume paint),
+   * then re-drive the canvas alone. Generation-keyed settle state cannot be
+   * scoped synchronously, so this canvas's bindings resolve from the
+   * document first.
+   */
+  private async resumeCanvasSweep(canvas: string): Promise<void> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return;
+    try {
+      const doc = await this.store?.readDoc(canvas, "scan");
+      if (this.active(generation) && doc) {
+        for (const node of doc.nodes) {
+          const bindingId = deliveryTargetOf(node)?.bindingId;
+          if (bindingId === undefined) continue;
+          const seatGeneration = this.lastGenerationKey.get(bindingId);
+          if (seatGeneration !== undefined) {
+            this.idleSinceByGeneration.delete(seatGeneration);
+          }
+          this.gateRefusalStreak.delete(bindingId);
+          const timer = this.gateRetryTimers.get(bindingId);
+          if (timer !== undefined) {
+            this.timers.clear(timer);
+            this.gateRetryTimers.delete(bindingId);
+          }
+        }
+      }
+    } catch {
+      // Best-effort: the sweep below still re-validates against the doc.
+    }
+    if (!this.active(generation)) return;
+    await this.retryRequestResponses(undefined, canvas);
+    if (!this.active(generation)) return;
+    await this.sweepAllCanvases(() => true, canvas);
   }
 
   /**
@@ -1177,10 +1298,16 @@ export class MessageDeliveryService {
    * whose filter went stale can only skip work — it can never mint a process
    * against a node that has since moved or gone.
    */
-  private async retryRequestResponses(bindingId?: string): Promise<void> {
+  private async retryRequestResponses(
+    bindingId?: string,
+    onlyCanvas?: string,
+  ): Promise<void> {
     const store = this.store;
     if (bindingId === undefined) {
       for (const [key, pending] of this.pendingRequestResponses) {
+        if (onlyCanvas !== undefined && pending.canvas !== onlyCanvas) {
+          continue;
+        }
         await this.attemptRequestResponse(key, pending);
       }
       return;
@@ -1292,6 +1419,7 @@ export class MessageDeliveryService {
    */
   private async sweepAllCanvases(
     match: (target: SurfaceDeliveryTarget) => boolean,
+    onlyCanvas?: string,
   ): Promise<void> {
     const generation = this.lifecycleGeneration;
     if (!this.active(generation)) return;
@@ -1309,10 +1437,12 @@ export class MessageDeliveryService {
     }
     if (!this.active(generation)) return;
     // Only a read that saw every canvas may reset the floor — a partial world
-    // is not a reconcile, and must not suppress the next one.
+    // is not a reconcile, and must not suppress the next one. A canvas-scoped
+    // pass never resets it.
     let reconciled = true;
     for (const canvas of names) {
       if (!this.active(generation)) return;
+      if (onlyCanvas !== undefined && canvas !== onlyCanvas) continue;
       let doc: CanvasDoc | undefined;
       try {
         doc = await store.readDoc(canvas, "scan");
@@ -1362,8 +1492,10 @@ export class MessageDeliveryService {
         await this.deliverGroup(generation, canvas, group.nodeId, group.messages);
       }
     }
-    if (reconciled) this.lastReconcileAtMs = this.now();
-    await this.retryPendingReadStamps(generation, match);
+    if (reconciled && onlyCanvas === undefined) {
+      this.lastReconcileAtMs = this.now();
+    }
+    await this.retryPendingReadStamps(generation, match, onlyCanvas);
   }
 
   /**
@@ -1460,11 +1592,13 @@ export class MessageDeliveryService {
   private async retryPendingReadStamps(
     generation: number,
     match: (target: SurfaceDeliveryTarget) => boolean,
+    onlyCanvas?: string,
   ): Promise<void> {
     const store = this.store;
     if (!store || this.pendingReadStamps.size === 0) return;
     for (const [key, pending] of [...this.pendingReadStamps]) {
       if (!this.active(generation)) return;
+      if (onlyCanvas !== undefined && pending.canvas !== onlyCanvas) continue;
       // Routing only — `attemptOne` re-reads the full document behind this and
       // is what decides anything about the message itself.
       let found: MessageDeliveryNodeStructure | undefined;
@@ -1520,6 +1654,9 @@ export class MessageDeliveryService {
       this.idleSinceByGeneration.delete(snap.generationKey);
       // New generation is a real state change — start polling fresh.
       this.gateRefusalStreak.delete(bindingId);
+      // A generation cut resets the one-notice-per-turn window; it never
+      // opens one. Gate retries and resets never touch this state.
+      if (prevKey !== undefined) this.resetTurnWindow(bindingId);
     }
 
     if (!snap.idle) {
@@ -1795,6 +1932,24 @@ export class MessageDeliveryService {
               }
             : undefined;
         const seatGeneration = gate.generationKey;
+        // One-notice-per-turn: a spent window leaves the message pending
+        // for the next observed turn-start — no ledger write, no refusal
+        // fact, no spend. Post-gate on purpose: the gate is what detects a
+        // generation cut and resets the window. The explicit prompt() path
+        // is exempt.
+        if (
+          policy === "notice" &&
+          this.isTurnBudgetSpent(target.bindingId)
+        ) {
+          return;
+        }
+        // Charge window, captured at admission: the drive may emit
+        // turn-start (opening a new window) before the async outcome
+        // resolves, and the spend must hit THIS window, never the new one.
+        const chargeEpoch =
+          policy === "notice"
+            ? (this.turnEpochByBinding.get(target.bindingId) ?? 0)
+            : undefined;
         const prep = await this.prepareAttempt(
           canvas,
           nodeId,
@@ -1868,6 +2023,16 @@ export class MessageDeliveryService {
           }
         }
           if (outcome === undefined) return;
+          // A wrote-physical notice attempt spends its captured charge
+          // window whatever the acknowledgement outcome. Clean pre-write
+          // refusals spend nothing.
+          if (
+            policy === "notice" &&
+            outcome.wrotePhysicalBytes &&
+            chargeEpoch !== undefined
+          ) {
+            this.spendTurnBudget(target.bindingId, chargeEpoch, seatGeneration);
+          }
           if (outcome.status !== "submitted") {
             // Unresolved stays receiptless and pending with the no-replay
             // marks below: neither transport nor receipt on the next idle —
@@ -2113,6 +2278,14 @@ export class MessageDeliveryService {
         : undefined;
       const seatGeneration = gate.generationKey;
 
+      // One-notice-per-turn: one batched payload is one notice. A spent
+      // window leaves the members pending — checked before the durable
+      // enqueue, so no ledger write is burned on a deferred batch. The
+      // finally below releases the reservations this return skips.
+      if (this.isTurnBudgetSpent(target.bindingId)) return;
+      // Charge window, captured at admission (see attemptOne).
+      const chargeEpoch = this.turnEpochByBinding.get(target.bindingId) ?? 0;
+
       // Durable membership before any member transport: atomic commit,
       // then partition out held (same-generation uncertainty) and
       // already-accepted members so neither joins a fresh payload.
@@ -2241,6 +2414,11 @@ export class MessageDeliveryService {
         }
       }
       if (outcome === undefined) return;
+      // One batched payload is one notice: a wrote-physical batch spends
+      // its captured charge window whatever the acknowledgement outcome.
+      if (outcome.wrotePhysicalBytes) {
+        this.spendTurnBudget(target.bindingId, chargeEpoch, seatGeneration);
+      }
       if (outcome.status !== "submitted") {
         for (const message of members) {
           await this.recordAttemptOutcome(
@@ -2668,6 +2846,42 @@ export class MessageDeliveryService {
       pasteWrites: 0,
       wrotePhysicalBytes: false,
     };
+  }
+
+  /** True when a notice already went out in this binding's current window. */
+  private isTurnBudgetSpent(bindingId: string): boolean {
+    const epoch = this.turnEpochByBinding.get(bindingId) ?? 0;
+    // The initial epoch is a real budget: at most one notice per continuous
+    // idle window from boot, until the first observed turn-start opens the
+    // next window.
+    return this.noticeSpentByBinding.get(bindingId) === epoch;
+  }
+
+  /**
+   * A terminal generation cut RESETS the one-notice-per-turn window: the new
+   * seat has no observed turn, so the budget is inapplicable until its first
+   * turn-start. Called from the seat gate, which already detects the cut.
+   */
+  private resetTurnWindow(bindingId: string): void {
+    this.turnEpochByBinding.delete(bindingId);
+    this.noticeSpentByBinding.delete(bindingId);
+  }
+
+  /**
+   * Spend a captured charge window after a wrote-physical attempt. The epoch
+   * is captured at admission (post-gate), never read after the async drive
+   * outcome: the drive emits working/turn-start BEFORE resolving submitted,
+   * so charging the current epoch would burn the NEW window and strand the
+   * next fresh mail. A generation cut mid-flight retires the charge with the
+   * old seat — a spend never crosses seats.
+   */
+  private spendTurnBudget(
+    bindingId: string,
+    chargeEpoch: number,
+    generation: string | undefined,
+  ): void {
+    if (this.lastGenerationKey.get(bindingId) !== generation) return;
+    this.noticeSpentByBinding.set(bindingId, chargeEpoch);
   }
 
   /** Pre-write refusals worth a bounded gate re-drive (a wait may clear them). */

@@ -189,6 +189,20 @@ const waitUntil = async (
   throw new Error("waitUntil timed out");
 };
 
+/**
+ * Drain every pending async delivery chain. A wrongful transport hit
+ * surfaces within microtasks, so negative assertions (nothing sent) need no
+ * wall-clock sleep — one macrotask yield drains the full microtask queue
+ * including chained continuations; several rounds cover chains that hop
+ * through resolved promises. Real-timer retries (settle/gate backoff) never
+ * fire inside a flush.
+ */
+const flushDelivery = async (rounds = 5): Promise<void> => {
+  for (let i = 0; i < rounds; i += 1) {
+    await new Promise((r) => setTimeout(r, 0));
+  }
+};
+
 describe("MessageDeliveryService", () => {
   it("pushes an operator response to the exact requesting actor", async () => {
     const store = makeStore({ c: agentDoc([]) });
@@ -454,6 +468,413 @@ describe("MessageDeliveryService", () => {
     expect(payloads).toHaveLength(2);
   });
 
+  it("spends one notice per observed turn and re-opens on turn-start", async () => {
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
+      onDocs: (current) => {
+        docs = current;
+      },
+    });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return submittedOutcome();
+        },
+      },
+      store,
+    });
+    const append = (id: string): void => {
+      const msg = userMsg(id, id);
+      const doc = docs.get("c")!;
+      const node = doc.nodes.find((n) => n.id === "agent")!;
+      docs.set("c", {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === "agent"
+            ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [...(node.ether?.messages?.items ?? []), msg],
+                },
+              },
+            }
+            : n,
+        ),
+      });
+      service.notifyAppended("c", "agent", msg);
+    };
+
+    // Boot backlog goes out with no observed turn (no window, no budget).
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+
+    // First observed turn opens window 1; the next notice spends it.
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    append("m2");
+    await waitUntil(() => payloads.length === 2);
+
+    // Same window: a further notice stays pending with no transport hit.
+    append("m3");
+    await flushDelivery();
+    expect(payloads).toHaveLength(2);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m3")).toBe(
+      false,
+    );
+
+    // Next observed turn re-opens: the held notice goes out on idle.
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 3);
+    expect(payloads[2]).toContain("m3");
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m3")).toBe(
+      true,
+    );
+  });
+
+  it("budgets the initial window: one pre-turn notice, the next waits for turn-start", async () => {
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
+      onDocs: (current) => {
+        docs = current;
+      },
+    });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return submittedOutcome();
+        },
+      },
+      store,
+    });
+    const append = (id: string, text: string): void => {
+      const msg = userMsg(id, text);
+      const doc = docs.get("c")!;
+      const node = doc.nodes.find((n) => n.id === "agent")!;
+      docs.set("c", {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === "agent"
+            ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [...(node.ether?.messages?.items ?? []), msg],
+                },
+              },
+            }
+            : n,
+        ),
+      });
+      service.notifyAppended("c", "agent", msg);
+    };
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+
+    // Epoch 0 is a real budget: the second pre-turn notice stays pending.
+    append("m2", "two");
+    await flushDelivery();
+    expect(payloads).toHaveLength(1);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m2")).toBe(
+      false,
+    );
+
+    // The first observed turn-start opens the next window: it goes out.
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 2);
+    expect(payloads[1]).toContain("two");
+  });
+
+  it("a working event during initialization opens the first window intact", async () => {
+    // The seat is already working when the service first sees it: the
+    // turn-start opens epoch 1 before any gate consult, and the first
+    // sighting of the initial generation must not reset it.
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
+      onDocs: (current) => {
+        docs = current;
+      },
+    });
+    let clock = 100_000;
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: async () => ({
+          idle: true,
+          generationKey: "g1",
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return submittedOutcome();
+        },
+      },
+      store,
+      now: () => clock,
+    });
+    const append = (id: string): void => {
+      const msg = userMsg(id, id);
+      const doc = docs.get("c")!;
+      const node = doc.nodes.find((n) => n.id === "agent")!;
+      docs.set("c", {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === "agent"
+            ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [...(node.ether?.messages?.items ?? []), msg],
+                },
+              },
+            }
+            : n,
+        ),
+      });
+      service.notifyAppended("c", "agent", msg);
+    };
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    service.notifyAppended("c", "agent", userMsg("m1", "one"));
+    await flushDelivery();
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 1);
+    // Epoch 1 spent by m1: m2 waits for the next turn-start.
+    append("m2");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(payloads).toHaveLength(1);
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 2);
+    expect(payloads[1]).toContain("m2");
+  });
+
+  it("charges the admission window when turn-start fires mid-flight", async () => {
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
+      onDocs: (current) => {
+        docs = current;
+      },
+    });
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        sendManagedTerminalPrompt: async (bindingId, text) => {
+          payloads.push(text);
+          // The real drive emits working/turn-start BEFORE resolving
+          // submitted. The spend must hit the admission window (epoch 0),
+          // never the window this opens (epoch 1). Only the first send
+          // opens a window, so the test also pins the normal spend below.
+          if (payloads.length === 1) {
+            service.onManagedTerminalTurnStart(bindingId);
+          }
+          return submittedOutcome();
+        },
+      },
+      store,
+    });
+    const append = (id: string): void => {
+      const msg = userMsg(id, id);
+      const doc = docs.get("c")!;
+      const node = doc.nodes.find((n) => n.id === "agent")!;
+      docs.set("c", {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === "agent"
+            ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [...(node.ether?.messages?.items ?? []), msg],
+                },
+              },
+            }
+            : n,
+        ),
+      });
+      service.notifyAppended("c", "agent", msg);
+    };
+    service.onBooted();
+    await waitUntil(() => payloads.length === 1);
+
+    // Fresh mail in the window the mid-flight turn-start opened goes out
+    // exactly once on the next idle — the spend stayed on epoch 0.
+    append("m2");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 2);
+    expect(payloads[1]).toContain("m2");
+
+    // And window 1 is now spent by m2: a third notice waits for turn 2.
+    append("m3");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(payloads).toHaveLength(2);
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 3);
+  });
+
+  it("resets the turn window on a terminal generation cut", async () => {
+    let docs!: Map<string, CanvasDoc>;
+    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
+      onDocs: (current) => {
+        docs = current;
+      },
+    });
+    let generationKey = "g1";
+    let clock = 100_000;
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => true,
+        seatDeliverySnapshot: async () => ({
+          idle: true,
+          generationKey,
+          operatorDraft: false,
+        }),
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return submittedOutcome();
+        },
+      },
+      store,
+      now: () => clock,
+    });
+    const append = (id: string): void => {
+      const msg = userMsg(id, id);
+      const doc = docs.get("c")!;
+      const node = doc.nodes.find((n) => n.id === "agent")!;
+      docs.set("c", {
+        ...doc,
+        nodes: doc.nodes.map((n) =>
+          n.id === "agent"
+            ? {
+              ...node,
+              ether: {
+                ...(node.ether ?? {}),
+                messages: {
+                  items: [...(node.ether?.messages?.items ?? []), msg],
+                },
+              },
+            }
+            : n,
+        ),
+      });
+      service.notifyAppended("c", "agent", msg);
+    };
+
+    // Settle, then deliver m1 and spend window 1 on m2. The flush lets the
+    // fire-and-forget first consult start the settle clock BEFORE it is
+    // advanced — without the drain both consults see the same fake time and
+    // settle never elapses.
+    service.notifyAppended("c", "agent", userMsg("m1", "one"));
+    await flushDelivery();
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 1);
+    service.onManagedTerminalTurnStart("bind-profile-13");
+    append("m2");
+    await waitUntil(() => payloads.length === 2);
+    append("m3");
+    await flushDelivery();
+    expect(payloads).toHaveLength(2);
+
+    // The seat restarts (generation cut): the window resets, so the held
+    // notice goes out once the new generation settles — no turn-start needed.
+    generationKey = "g2";
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(payloads).toHaveLength(2);
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await waitUntil(() => payloads.length === 3);
+    expect(payloads[2]).toContain("m3");
+  });
+
+  it("onResumedCanvas re-drives only the named canvas", async () => {
+    const docFor = (bindingId: string, msg: Message): CanvasDoc => ({
+      nodes: [
+        {
+          id: "agent",
+          type: "text",
+          text: "profile",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 80,
+          ether: {
+            entity: { kind: "agent", name: "local:profile" },
+            terminal: { bindingId, harness: "claude" },
+            messages: { items: [msg] },
+          },
+        },
+      ],
+      edges: [],
+    });
+    const store = makeStore({
+      c: docFor("bind-one", userMsg("m-c1", "mail-c1")),
+      c2: docFor("bind-two", userMsg("m-c2", "mail-c2")),
+    });
+    let wake = false;
+    const payloads: string[] = [];
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport: {
+        wakeManagedSeat: async () => wake,
+        sendManagedTerminalPrompt: async (_bindingId, text) => {
+          payloads.push(text);
+          return submittedOutcome();
+        },
+      },
+      store,
+    });
+
+    // Both canvases hold pending mail while the seats refuse wake.
+    service.onBooted();
+    await flushDelivery();
+    expect(payloads).toHaveLength(0);
+
+    // Resuming one canvas delivers its mail and leaves the other pending.
+    wake = true;
+    service.onResumedCanvas("c");
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c", "agent", "m-c1"),
+    );
+    await flushDelivery();
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toContain("mail-c1");
+    expect(await store.hasAcceptedMessageDelivery("c2", "agent", "m-c2")).toBe(
+      false,
+    );
+
+    service.onResumedCanvas("c2");
+    await waitUntil(() =>
+      store.hasAcceptedMessageDelivery("c2", "agent", "m-c2"),
+    );
+    expect(payloads).toHaveLength(2);
+    expect(payloads[1]).toContain("mail-c2");
+  });
+
   it("does not re-paste a partial batch when only its failed member remains", async () => {
     const msgs = [userMsg("b-one", "first"), userMsg("b-two", "second")];
     let acceptSecond = false;
@@ -508,7 +929,10 @@ describe("MessageDeliveryService", () => {
       ),
     });
     acceptSecond = true;
-    service.onResumed();
+    service.onResumedCanvas("c");
+    // Budget law: the batch spent the window; the turn the paste started
+    // opens the next one for the post-batch message.
+    service.onManagedTerminalTurnStart("bind-profile-13");
 
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "b-two"),
@@ -974,7 +1398,7 @@ describe("MessageDeliveryService", () => {
     service.notifyAppended("c", "agent", msg);
     service.onTerminalAttached("bind-profile-13");
     service.onManagedTerminalIdle("bind-profile-13");
-    service.onResumed();
+    service.onResumedCanvas("c");
 
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(sendCount).toBe(0);
@@ -1410,7 +1834,10 @@ describe("MessageDeliveryService", () => {
     });
 
     acceptOk = true;
-    service.onResumed();
+    service.onResumedCanvas("c");
+    // Budget law: the batch spent the window; the turn the paste started
+    // opens the next one for the post-batch message.
+    service.onManagedTerminalTurnStart("bind-profile-13");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
@@ -2354,13 +2781,15 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
     expect(sent).toHaveLength(1);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "u1")).toBe(false);
 
-    // Fresh mail on the same seat batches on its own budget; the held
-    // members are left out of the payload rather than pasted again.
+    // Fresh mail on the same seat batches on the next window's budget — the
+    // turn the unacked paste started — while the held members are left out
+    // of the payload rather than pasted again.
     appendItems(docs, "c", "agent", (items) => [
       ...items,
       userMsg("u3", "third"),
       userMsg("u4", "fourth"),
     ]);
+    service.onManagedTerminalTurnStart("bind-profile-13");
     service.onBooted();
     await waitUntil(() => sent.length === 2);
     expect(sent[1]).toContain("2 unread");
@@ -2409,12 +2838,14 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
     expect(payloads).toHaveLength(1);
 
     // Later mail on the same seat must still batch: the accepted batch is
-    // fully receipted, so its marker owes nothing.
+    // fully receipted, so its marker owes nothing, and the turn the paste
+    // started opens the next window's budget.
     appendItems(docs, "c", "agent", (items) => [
       ...items,
       userMsg("b3", "third"),
       userMsg("b4", "fourth"),
     ]);
+    service.onManagedTerminalTurnStart("bind-profile-13");
     service.onBooted();
     await waitUntil(() => payloads.length === 2);
     expect(payloads[1]).toContain("2 unread");
@@ -2472,6 +2903,9 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
       userMsg("e3", "third"),
       userMsg("e4", "fourth"),
     ]);
+    // Budget law: the first batch spent the window; the turn it started
+    // opens the next one for the fresh batch.
+    service.onManagedTerminalTurnStart("bind-profile-13");
     service.onBooted();
     await waitUntil(() => sent.length === 2);
     expect(sent[1]).toContain("2 unread");
@@ -2515,7 +2949,10 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
       userMsg("same-3", "same text"),
     ]);
     acceptOk = true;
-    service.onResumed();
+    service.onResumedCanvas("c");
+    // Budget law: the batch spent the window; the turn the paste started
+    // opens the next one for the look-alike message.
+    service.onManagedTerminalTurnStart("bind-profile-13");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "same-1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "same-2")),

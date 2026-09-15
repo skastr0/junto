@@ -29,6 +29,17 @@ const submittedOutcome = (
   wrotePhysicalBytes: true,
 });
 
+/**
+ * Drain every pending async delivery chain. A wrongful transport hit
+ * surfaces within microtasks, so negative assertions need no wall-clock
+ * sleep; real-timer retries never fire inside a flush.
+ */
+const flushDelivery = async (rounds = 5): Promise<void> => {
+  for (let i = 0; i < rounds; i += 1) {
+    await new Promise((r) => setTimeout(r, 0));
+  }
+};
+
 const refusedOutcome = (
   reason: "seat-busy" = "seat-busy",
 ): ManagedPromptOutcome => ({
@@ -344,9 +355,12 @@ const makeStore = (
 const makeLedger = (): MessageDeliveryAttemptStore & {
   calls: Array<string>;
   records: Array<{ messageId: string; set: object }>;
+  setNotified: (messageId: string) => void;
 } => {
   const calls: Array<string> = [];
   const records: Array<{ messageId: string; set: object }> = [];
+  const notified = new Set<string>();
+  const unresolved = new Set<string>();
   const rowFor = (
     canvas: string,
     nodeId: string,
@@ -357,11 +371,23 @@ const makeLedger = (): MessageDeliveryAttemptStore & {
     messageId,
     recipient: { seat: { seatId: `seat_${"b".repeat(64)}` as ActorSeatId, canvasName: canvas, nodeId }, generation },
     policy,
-    facts: { generation, queuedAt: new Date(0).toISOString() },
+    facts: {
+      generation,
+      queuedAt: new Date(0).toISOString(),
+      ...(notified.has(messageId)
+        ? { notifiedAt: new Date(1).toISOString() }
+        : {}),
+      ...(unresolved.has(messageId) && !notified.has(messageId)
+        ? { unresolvedAt: new Date(2).toISOString() }
+        : {}),
+    },
   });
   return {
     calls,
     records,
+    setNotified: (messageId: string) => {
+      notified.add(messageId);
+    },
     enqueueAttempt: async (input) => {
       calls.push(`enqueue:${input.messageId}`);
       return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, input.policy);
@@ -379,6 +405,14 @@ const makeLedger = (): MessageDeliveryAttemptStore & {
     recordAttempt: async (input) => {
       calls.push(`record:${input.messageId}`);
       records.push({ messageId: input.messageId, set: input.set });
+      // Faithful double: a recorded unresolved fact persists, so a later
+      // enqueueAttempt in the same generation re-reads the hold.
+      if (
+        "unresolvedAt" in (input.set as Record<string, unknown>) &&
+        (input.set as Record<string, unknown>).unresolvedAt !== undefined
+      ) {
+        unresolved.add(input.messageId);
+      }
       return rowFor(input.canvas, input.nodeId, input.messageId, input.generation, "notice");
     },
     attempt: async () => undefined,
@@ -413,6 +447,61 @@ describe("MessageDeliveryService outcome policy", () => {
     await new Promise((r) => setTimeout(r, 25));
     service.onComposerEmpty("bind-profile-13");
     await new Promise((r) => setTimeout(r, 25));
+    expect(calls).toBe(1);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m1")).toBe(
+      false,
+    );
+  });
+
+  it("scoped resume never releases ledger-held uncertainty without a durable grant", async () => {
+    const store = makeStore({ c: agentDoc([userMsg("m1")]) });
+    const ledger = makeLedger();
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return {
+          status: "unresolved",
+          reason: "no-turn-start",
+          bindingGeneration: 0,
+          writesBefore: 0,
+          writesAfter: 1,
+          pasteWrites: 1,
+          wrotePhysicalBytes: true,
+        };
+      },
+      seatDeliverySnapshot: async () => ({
+        idle: true,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store, attempts: ledger, now: () => clock });
+    // One wrote-physical attempt with no acknowledgement: the ledger holds
+    // the uncertainty durably. The flush lets the first consult start the
+    // settle clock before it is advanced.
+    service.notifyAppended("c", "agent", userMsg("m1"));
+    await flushDelivery();
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(1);
+    expect(
+      ledger.records.some(
+        (record) =>
+          record.messageId === "m1" &&
+          "unresolvedAt" in (record.set as Record<string, unknown>),
+      ),
+    ).toBe(true);
+    // A scoped resume clears process-local marks, but the next attempt
+    // re-reads the ledger row and holds again — no second paste without a
+    // durable retry grant (open storage-lane item).
+    service.onResumedCanvas("c");
+    await flushDelivery();
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
     expect(calls).toBe(1);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "m1")).toBe(
       false,
@@ -629,6 +718,112 @@ describe("MessageDeliveryService outcome policy", () => {
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
       false,
     );
+  });
+
+  it.each([
+    { bodyLen: 160, admitted: true },
+    { bodyLen: 161, admitted: false },
+  ])(
+    "counts the 160 cap on body characters only (body $bodyLen)",
+    async ({ bodyLen, admitted }) => {
+      const seat = `seat_${"a".repeat(64)}`;
+      const promptMsg = userMsg("p1", "x".repeat(bodyLen), {
+        metadata: {
+          mailKind: "prompt",
+          fromSeat: seat,
+          senderGeneration: "g1",
+          senderHarness: "claude",
+        },
+      });
+      const store = makeStore({ c: agentDoc([promptMsg]) });
+      const ledger = makeLedger();
+      let calls = 0;
+      let seenPayload = "";
+      const transport: MessageDeliveryTransport = {
+        sendManagedTerminalPrompt: async (_bindingId, payload) => {
+          calls += 1;
+          seenPayload = payload;
+          return submittedOutcome();
+        },
+        seatDeliverySnapshot: async () => ({
+          idle: true,
+          generationKey: "gen-7",
+          operatorDraft: false,
+        }),
+      };
+      let clock = 100_000;
+      const service = new MessageDeliveryService();
+      service.configure({ transport, store, attempts: ledger, now: () => clock });
+      // First call starts the settle clock and refuses retryable SeatBusy.
+      await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
+      clock += 2_000;
+      const result = await service.prompt({
+        canvas: "c",
+        nodeId: "agent",
+        messageId: "p1",
+      });
+      if (admitted) {
+        // The composed payload carries the sender envelope on top of the
+        // body, so payload.length is well over 160 — the cap must ignore it.
+        expect(seenPayload.length).toBeGreaterThan(160);
+        expect(result).toMatchObject({
+          policy: "immediate",
+          outcome: { status: "submitted" },
+        });
+        expect(calls).toBe(1);
+      } else {
+        expect(result).toMatchObject({
+          policy: "immediate",
+          outcome: { status: "refused", reason: "over-limit" },
+        });
+        expect(calls).toBe(0);
+      }
+    },
+  );
+
+  it("stamp-only replays bypass the immediate cap with no new write", async () => {
+    const seat = `seat_${"a".repeat(64)}`;
+    const promptMsg = userMsg("p1", "x".repeat(200), {
+      metadata: {
+        mailKind: "prompt",
+        fromSeat: seat,
+        senderGeneration: "g1",
+        senderHarness: "claude",
+      },
+    });
+    const store = makeStore({ c: agentDoc([promptMsg]) });
+    const ledger = makeLedger();
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+      seatDeliverySnapshot: async () => ({
+        idle: true,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store, attempts: ledger, now: () => clock });
+    // First call starts the settle clock and refuses retryable SeatBusy.
+    await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
+    clock += 2_000;
+    // A durable acceptance from an earlier process turns this call into a
+    // stamp-only replay: the over-limit body must not refuse it.
+    ledger.setNotified("p1");
+    const result = await service.prompt({
+      canvas: "c",
+      nodeId: "agent",
+      messageId: "p1",
+    });
+    expect(result).toMatchObject({
+      policy: "immediate",
+      outcome: { status: "submitted", wrotePhysicalBytes: false },
+    });
+    expect(calls).toBe(0);
   });
 
   it("never wakes a stopped seat for immediate policy", async () => {
