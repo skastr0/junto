@@ -8,7 +8,7 @@ import {
   renderSchemaContract,
 } from "../src/cli/core/discovery";
 import { loadJsonInput } from "../src/cli/core/json";
-import { MsgPromptArgs, MsgSentArgs } from "../src/shared/work-control";
+import { MsgPromptArgs, MsgSentArgs, VerdictPostArgs } from "../src/shared/work-control";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../src/shared/seat-control";
 import { MANAGED_PROMPT_IMMEDIATE_MAX } from "../src/shared/managed-prompt";
 
@@ -18,6 +18,7 @@ const crewSchemas = [
   ["seat.wait", SeatWaitArgs],
   ["seat.read", SeatReadArgs],
   ["tasks.wait", TaskWaitArgs],
+  ["verdict.post", VerdictPostArgs],
 ] as const;
 
 describe("crew CLI discovery", () => {
@@ -28,7 +29,7 @@ describe("crew CLI discovery", () => {
     expect(contract.schema).toBe(schema);
     const rendered = renderSchemaContract(contract);
     expect(rendered.input_modes).toEqual(["inline-json", "@file", "stdin"]);
-    expect(rendered.accepts_batch).toBe(false);
+    expect(rendered.accepts_batch).toBe(id === "verdict.post");
     expect(rendered.schema).toEqual(Schema.toJsonSchemaDocument(schema).schema);
 
     const capabilities = commandCapabilities.filter((entry) => entry.command_id === id);
@@ -99,7 +100,7 @@ describe("crew CLI discovery", () => {
       { ...connected[0], invocations: [{ port: "msg.prompt", command: "vellum-command msg prompt", discover: "vellum-command schema show msg.prompt" }] },
       { ...connected[1], invocations: [{ port: "seat.wait", command: "vellum-command seat wait", discover: "vellum-command schema show seat.wait" }] },
       { ...connected[2], invocations: [{ port: "terminal.read", command: "vellum-command seat read", discover: "vellum-command schema show seat.read" }] },
-      { ...connected[3], invocations: [{ port: "verdict.post", command: "vellum-command verdict post", discover: "vellum-command verdict post --help" }] },
+      { ...connected[3], invocations: [{ port: "verdict.post", command: "vellum-command verdict post", discover: "vellum-command schema show verdict.post" }] },
       connected[4],
       connected[5],
     ];

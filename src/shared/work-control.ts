@@ -560,6 +560,27 @@ export const MsgSentArgs = Schema.Struct({
 });
 export type MsgSentArgs = typeof MsgSentArgs.Type;
 
+/** Review the exact subject previously read; identity is supplied by process bind. */
+export const VerdictPostArgs = Schema.Struct({
+  target: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  subject: Schema.Union([
+    Schema.Struct({
+      kind: Schema.Literal("task"),
+      taskId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+      epoch: Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+      subjectHash: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
+    }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+    Schema.Struct({
+      kind: Schema.Literal("commit"),
+      sha: Schema.String.pipe(Schema.check(Schema.isPattern(/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/))),
+    }).annotate({ parseOptions: { onExcessProperty: "error" } }),
+  ]),
+  kind: Schema.Literals(["green", "blocking"]),
+  findings: Schema.optionalKey(Schema.Array(Schema.String)),
+  refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type VerdictPostArgs = typeof VerdictPostArgs.Type;
+
 /** Mark a mailbox message read. Target must be the caller's own seat. */
 export const MsgReadArgs = Schema.Struct({
   target: Schema.optionalKey(Schema.String),

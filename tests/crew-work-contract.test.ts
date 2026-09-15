@@ -1,12 +1,27 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  MsgPromptArgs, MsgSendArgs, WorkErrorBody, decodeWorkRequest,
+  MsgPromptArgs, MsgSendArgs, VerdictPostArgs, WorkErrorBody, decodeWorkRequest,
 } from "../src/shared/work-control";
 import { admitWorkTarget } from "../src/main/vellum-command/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 describe("crew work wire contract", () => {
+  it("requires exact review subject expectations and rejects asserted reviewer identity", () => {
+    const decode = Schema.decodeUnknownResult(VerdictPostArgs);
+    const valid = {
+      target: "task-board", kind: "green",
+      subject: { kind: "task", taskId: "task-1", epoch: 2, subjectHash: "a".repeat(64) },
+    };
+    expect(Result.isSuccess(decode(valid))).toBe(true);
+    for (const args of [
+      { ...valid, reviewerSeatId: "forged" },
+      { ...valid, subject: { kind: "task", taskId: "task-1" } },
+      { ...valid, subject: { ...valid.subject, epoch: -1 } },
+      { ...valid, subject: { ...valid.subject, subjectHash: "latest" } },
+      { ...valid, subject: { kind: "commit", sha: "a".repeat(41) } },
+    ]) expect(Result.isFailure(decode(args))).toBe(true);
+  });
   it("keeps prompt creation distinct from same-id retry and rejects identity forgery", () => {
     const decode = Schema.decodeUnknownResult(MsgPromptArgs, { onExcessProperty: "error" });
     expect(Result.isSuccess(decode({ target: "peer", text: "Review now" }))).toBe(true);

@@ -16,6 +16,7 @@ import {
 import { overseerCommand } from "./commands/overseer";
 import { padCommand } from "./commands/pad";
 import { sheetCommand } from "./commands/sheet";
+import { seatCommand } from "./commands/seat";
 import {
   artifactCommand,
   boardCommand,
@@ -24,6 +25,7 @@ import {
   preambleCommand,
   rulingsCommand,
   tasksCommand,
+  verdictCommand,
 } from "./commands/work";
 import { contentCommand } from "./commands/content";
 import { docsCommand } from "./commands/docs";
@@ -70,6 +72,8 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     tasksCommand,
     rulingsCommand,
     msgCommand,
+    seatCommand,
+    verdictCommand,
     escalateCommand,
     artifactCommand,
     contentCommand,

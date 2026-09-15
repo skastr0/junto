@@ -13,6 +13,9 @@ import {
   MsgReadArgs,
   MsgReplyArgs,
   MsgSendArgs,
+  MsgPromptArgs,
+  MsgSentArgs,
+  VerdictPostArgs,
   PreambleArgs,
   RequestEscalateArgs,
   RulingsArgs,
@@ -25,12 +28,14 @@ import {
   type WorkOpName,
 } from "../../shared/work-control";
 import { tasksCheckCommand } from "./board";
+import { tasksWaitCommand } from "./seat";
 import { toTasksCreateArgs, toTasksUpdateArgs } from "../core/duration";
 import { InputError } from "../core/errors";
 import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
+import { mailSendInput } from "../core/mail-input";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
 
@@ -201,6 +206,7 @@ const tasksRulesCommand = Command.make(
 export const tasksCommand = Command.make("tasks").pipe(
   Command.withDescription("Task work-plane ops"),
   Command.withSubcommands([
+    tasksWaitCommand,
     tasksListCommand,
     tasksShowCommand,
     tasksCreateCommand,
@@ -254,6 +260,25 @@ export const preambleCommand = Command.make(
 
 // --- msg ---
 
+const verdictPostCommand = Command.make(
+  "post",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) => executeJsonCommand(
+    "verdict post",
+    runMutationBatch({
+      input,
+      concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+      itemSchema: VerdictPostArgs,
+      run: (item) => callDomain("verdict.post", item, toUndefined(timeout)),
+    }),
+  ),
+).pipe(Command.withDescription("Post a green or blocking verdict for an exact review subject"));
+
+export const verdictCommand = Command.make("verdict").pipe(
+  Command.withDescription("Post durable reviews through a current reviews edge"),
+  Command.withSubcommands([verdictPostCommand]),
+);
+
 const msgListCommand = Command.make(
   "list",
   { input: optionalJsonInputArg, timeout: timeoutOption },
@@ -277,18 +302,66 @@ const msgListCommand = Command.make(
 
 const msgSendCommand = Command.make(
   "send",
-  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
-  ({ input, concurrency, timeout }) =>
+  {
+    input: jsonInputArg,
+    text: Argument.string("text").pipe(Argument.optional),
+    prompt: Flag.boolean("prompt"),
+    fallback: Flag.string("fallback").pipe(Flag.optional),
+    retry: Flag.string("retry").pipe(Flag.optional),
+    concurrency: concurrencyOption,
+    timeout: timeoutOption,
+  },
+  ({ input, text, prompt, fallback, retry, concurrency, timeout }) =>
     executeJsonCommand(
       "msg send",
-      runMutationBatch({
-        input,
-        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-        itemSchema: MsgSendArgs,
-        run: (item) => callDomain("msg.send", item, toUndefined(timeout)),
+      Effect.gen(function* () {
+        const payload = yield* mailSendInput({
+          input, prompt, text: toUndefined(text), retry: toUndefined(retry),
+          fallback: toUndefined(fallback),
+        });
+        if (prompt) {
+          return yield* runMutationBatch({
+            input: payload,
+            concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+            itemSchema: MsgPromptArgs,
+            run: (item) => callDomain("msg.prompt", item, toUndefined(timeout)),
+          });
+        }
+        return yield* runMutationBatch({
+          input: payload,
+          concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+          itemSchema: MsgSendArgs,
+          run: (item) => callDomain("msg.send", item, toUndefined(timeout)),
+        });
       }),
     ),
-).pipe(Command.withDescription("Send a message (batch-capable)"));
+).pipe(Command.withDescription("Send durable mail; --prompt attempts an immediate turn (batch-capable)"));
+
+const msgPromptCommand = Command.make(
+  "prompt",
+  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
+  ({ input, concurrency, timeout }) => executeJsonCommand(
+    "msg prompt",
+    runMutationBatch({
+      input,
+      concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+      itemSchema: MsgPromptArgs,
+      run: (item) => callDomain("msg.prompt", item, toUndefined(timeout)),
+    }),
+  ),
+).pipe(Command.withDescription("Attempt an immediate prompt, or retry its durable messageId"));
+
+const msgSentCommand = Command.make(
+  "sent",
+  { input: optionalJsonInputArg, timeout: timeoutOption },
+  ({ input, timeout }) => executeJsonCommand(
+    "msg sent",
+    Effect.gen(function* () {
+      const item = yield* loadJsonInput(MsgSentArgs, toUndefined(input) ?? "{}");
+      return yield* callDomain("msg.sent", item, toUndefined(timeout));
+    }),
+  ),
+).pipe(Command.withDescription("Read sent mail and recipient receipts without marking their mailbox read"));
 
 const msgReadCommand = Command.make(
   "read",
@@ -297,7 +370,7 @@ const msgReadCommand = Command.make(
     executeJsonCommand(
       "msg read",
       runMutationBatch({
-        input,
+        input: /^[\[{\s@-]/.test(input) ? input : JSON.stringify({ messageId: input }),
         concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
         itemSchema: MsgReadArgs,
         run: (item) => callDomain("msg.read", item, toUndefined(timeout)),
@@ -305,7 +378,7 @@ const msgReadCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Mark a mailbox message read (own seat only; batch-capable)",
+    "Read a complete mailbox message and mark it read (own seat; batch-capable)",
   ),
 );
 
@@ -352,6 +425,8 @@ export const msgCommand = Command.make("msg").pipe(
   Command.withSubcommands([
     msgListCommand,
     msgSendCommand,
+    msgPromptCommand,
+    msgSentCommand,
     msgReadCommand,
     msgReplyCommand,
     msgReactCommand,
