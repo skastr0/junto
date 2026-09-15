@@ -2,10 +2,9 @@
  * Operator review projection. Verdicts are immutable facts from p15/p1F;
  * this module only decodes the exported ReviewVerdict and Rule.kind.
  *
- * WorkService tasks.show exposes `reviewSubject` + `verdicts` as siblings
- * of `task`. The same overlay is what p1F must project onto CanvasDoc
- * ether items. `metadata.verdicts` is a legacy fallback only. Bare
- * `task.subjectHash` is not a store.
+ * Canvas projection is `task.verdicts` + `task.subjectHash`. WorkTaskShow
+ * still carries sibling `reviewSubject` / `verdicts` until p15 stamps those
+ * fields onto the ether item. There is no metadata.verdicts store.
  */
 import type { CanvasDoc } from "@shared/canvas";
 import {
@@ -69,6 +68,16 @@ export const reviewShowOf = (
   return {
     reviewSubject: overlay?.reviewSubject ?? record?.reviewSubject,
     verdicts: overlay?.verdicts ?? record?.verdicts,
+  };
+};
+
+const canvasTaskReviewOf = (
+  task: Task,
+): { readonly verdicts: unknown; readonly subjectHash: unknown } => {
+  const record = recordOf(task);
+  return {
+    verdicts: record?.verdicts,
+    subjectHash: record?.subjectHash,
   };
 };
 
@@ -192,9 +201,11 @@ export const verdictsOnTask = (
   task: Task,
   overlay?: TaskReviewShow,
 ): ReadonlyArray<ReviewVerdict> => {
-  const show = reviewShowOf(task, overlay);
-  if (Array.isArray(show.verdicts)) return parseReviewVerdicts(show.verdicts);
-  return parseReviewVerdicts(task.metadata?.verdicts);
+  const canvas = canvasTaskReviewOf(task).verdicts;
+  if (Array.isArray(canvas)) return parseReviewVerdicts(canvas);
+  const show = reviewShowOf(task, overlay).verdicts;
+  if (Array.isArray(show)) return parseReviewVerdicts(show);
+  return [];
 };
 
 const subjectMatches = (
@@ -210,8 +221,20 @@ const subjectMatches = (
 export const currentReviewSubjectProjection = (
   task: Task,
   overlay?: TaskReviewShow,
-): ReviewSubjectProjectionView | undefined =>
-  parseReviewSubjectProjection(reviewShowOf(task, overlay).reviewSubject);
+): ReviewSubjectProjectionView | undefined => {
+  const subjectHash = nonempty(canvasTaskReviewOf(task).subjectHash);
+  if (subjectHash !== undefined) {
+    return {
+      epoch: taskEpochOf(task),
+      subjectHash,
+      taskId: task.id,
+      authorSeatId: task.claimedBy,
+    };
+  }
+  return parseReviewSubjectProjection(
+    reviewShowOf(task, overlay).reviewSubject,
+  );
+};
 
 export const currentReviewSubjectHash = (
   task: Task,

@@ -100,11 +100,22 @@ export const crewMailMessage = (input: {
 });
 
 /**
- * WorkService tasks.show overlay. p1H generated-canvas must attach these
- * extra keys on the ether task item until p1F projects them onto CanvasDoc.
- * Requires-review save is BoardSettings → contract.rules kind=requires-review.
- * Masks save is RTS EdgePortMask → ether.mask.
+ * Canvas task projection: `task.verdicts` + `task.subjectHash`.
+ * p15 repository must stamp these on ether.tasks.items. WorkTaskShow still
+ * has sibling reviewSubject/verdicts — do not seed metadata.verdicts.
  */
+export const taskReviewProjection = (input: {
+  readonly subjectHash: string;
+  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
+}): {
+  readonly subjectHash: string;
+  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
+} => ({
+  subjectHash: input.subjectHash,
+  verdicts: input.verdicts,
+});
+
+/** WorkTaskShow siblings — only until p15 stamps the canvas item. */
 export const taskReviewShow = (input: {
   readonly subjectHash: string;
   readonly epoch: number;
@@ -135,18 +146,6 @@ export const taskReviewShow = (input: {
   },
   verdicts: input.verdicts,
 });
-
-/** @deprecated use taskReviewShow — WorkService siblings, not task.subjectHash. */
-export const taskReviewProjection = (input: {
-  readonly subjectHash: string;
-  readonly verdicts: ReadonlyArray<Record<string, unknown>>;
-}): ReturnType<typeof taskReviewShow> =>
-  taskReviewShow({
-    subjectHash: input.subjectHash,
-    epoch: 0,
-    taskId: "task-1",
-    verdicts: input.verdicts,
-  });
 
 /** Canonical ReviewVerdict rows for `task.verdicts` (ascending postedAtMs). */
 export const compactReviewVerdict = (input: {

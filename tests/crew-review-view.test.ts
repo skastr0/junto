@@ -13,12 +13,19 @@ import {
 const seat = (n: string): Task["claimedBy"] =>
   `seat_${n.repeat(64)}` as Task["claimedBy"];
 
-const taskOf = (overrides: Partial<Task> = {}): Task => ({
-  id: "task-1",
-  state: "working",
-  history: [],
-  ...overrides,
-});
+/** Canvas projection: task.verdicts + task.subjectHash. Not metadata. */
+const projectedTask = (
+  overrides: Partial<Task> & {
+    readonly verdicts?: unknown;
+    readonly subjectHash?: string;
+  } = {},
+): Task =>
+  ({
+    id: "task-1",
+    state: "working",
+    history: [],
+    ...overrides,
+  }) as Task;
 
 const hash = "subject-hash-current";
 
@@ -27,24 +34,6 @@ const reviewTaskRule = (id = "r-review"): TaskRule => ({
   text: "Review",
   kind: "requires-review",
   board: "tasks",
-});
-
-const reviewShow = (
-  subjectHash: string,
-  epoch: number,
-  verdicts: ReadonlyArray<unknown>,
-): TaskReviewShow => ({
-  reviewSubject: {
-    installationId: "inst-1",
-    canvasName: "ops",
-    nodeId: "tasks",
-    taskId: "task-1",
-    state: "working",
-    epoch,
-    subjectHash,
-    refs: [],
-  },
-  verdicts,
 });
 
 const canonicalVerdict = (input: {
@@ -103,56 +92,58 @@ describe("reviewGateOf", () => {
   it("refuses to treat an old green as current, and refuses author self-green", () => {
     const author = seat("a");
     const reviewer = seat("b");
-    const task = taskOf({
+    const task = projectedTask({
       epoch: 2,
       claimedBy: author,
       rules: [reviewTaskRule()],
+      subjectHash: hash,
+      verdicts: [
+        canonicalVerdict({
+          verdictId: "v1",
+          kind: "green",
+          reviewerSeatId: reviewer,
+          authorSeatId: author,
+          epoch: 1,
+          subjectHash: "subject-hash-old",
+        }),
+        canonicalVerdict({
+          verdictId: "v2",
+          kind: "green",
+          reviewerSeatId: author,
+          authorSeatId: author,
+          epoch: 2,
+          subjectHash: hash,
+        }),
+      ],
     });
-    const show = reviewShow(hash, 2, [
-      canonicalVerdict({
-        verdictId: "v1",
-        kind: "green",
-        reviewerSeatId: reviewer,
-        authorSeatId: author,
-        epoch: 1,
-        subjectHash: "subject-hash-old",
-      }),
-      canonicalVerdict({
-        verdictId: "v2",
-        kind: "green",
-        reviewerSeatId: author,
-        authorSeatId: author,
-        epoch: 2,
-        subjectHash: hash,
-      }),
-    ]);
-    const gate = reviewGateOf(task, undefined, author, { show });
+    const gate = reviewGateOf(task, undefined, author);
     expect(gate.required).toBe(true);
     expect(gate.currentEpoch).toBe(2);
     expect(gate.satisfied).toBe(false);
-    expect(verdictsOnTask(task, show)).toHaveLength(2);
+    expect(verdictsOnTask(task)).toHaveLength(2);
   });
 
   it("satisfies only a distinct reviewer green on the current subject hash", () => {
     const author = seat("a");
     const reviewer = seat("b");
-    const task = taskOf({
+    const task = projectedTask({
       epoch: 1,
       claimedBy: author,
       rules: [reviewTaskRule()],
+      subjectHash: hash,
+      verdicts: [
+        canonicalVerdict({
+          verdictId: "v3",
+          kind: "green",
+          reviewerSeatId: reviewer,
+          authorSeatId: author,
+          epoch: 1,
+          subjectHash: hash,
+          reviewerNodeId: "reviewer",
+        }),
+      ],
     });
-    const show = reviewShow(hash, 1, [
-      canonicalVerdict({
-        verdictId: "v3",
-        kind: "green",
-        reviewerSeatId: reviewer,
-        authorSeatId: author,
-        epoch: 1,
-        subjectHash: hash,
-        reviewerNodeId: "reviewer",
-      }),
-    ]);
-    const gate = reviewGateOf(task, undefined, author, { show });
+    const gate = reviewGateOf(task, undefined, author);
     expect(gate.satisfied).toBe(true);
     expect(gate.latestGreen?.verdictId).toBe("v3");
   });
@@ -174,32 +165,33 @@ describe("reviewGateOf", () => {
   it("binds on subject hash, never a bare task id", () => {
     const author = seat("a");
     const reviewer = seat("b");
-    const task = taskOf({
+    const task = projectedTask({
       epoch: 1,
       claimedBy: author,
       rules: [reviewTaskRule()],
+      subjectHash: hash,
+      verdicts: [
+        canonicalVerdict({
+          verdictId: "v-canonical",
+          kind: "green",
+          reviewerSeatId: reviewer,
+          authorSeatId: author,
+          epoch: 1,
+          subjectHash: "hash-other",
+          reviewerNodeId: "reviewer",
+        }),
+      ],
     });
-    const show = reviewShow(hash, 1, [
-      canonicalVerdict({
-        verdictId: "v-canonical",
-        kind: "green",
-        reviewerSeatId: reviewer,
-        authorSeatId: author,
-        epoch: 1,
-        subjectHash: "hash-other",
-        reviewerNodeId: "reviewer",
-      }),
-    ]);
-    expect(verdictsOnTask(task, show)[0]?.subject).toEqual({
+    expect(verdictsOnTask(task)[0]?.subject).toEqual({
       kind: "task",
       taskId: "task-1",
       epoch: 1,
       subjectHash: "hash-other",
     });
-    expect(reviewGateOf(task, undefined, author, { show }).satisfied).toBe(false);
+    expect(reviewGateOf(task, undefined, author).satisfied).toBe(false);
   });
 
-  it("reads show.verdicts first and keeps metadata.verdicts as a fallback", () => {
+  it("ignores metadata.verdicts and empty task.verdicts", () => {
     const author = seat("a");
     const reviewer = seat("b");
     const composed = canonicalVerdict({
@@ -210,42 +202,53 @@ describe("reviewGateOf", () => {
       epoch: 1,
       subjectHash: hash,
     });
-    const legacy = canonicalVerdict({
-      verdictId: "v-legacy",
+    const invented = canonicalVerdict({
+      verdictId: "v-metadata",
       kind: "blocking",
       reviewerSeatId: reviewer,
       authorSeatId: author,
       epoch: 1,
       subjectHash: hash,
     });
-    const fromField = taskOf({ epoch: 1, claimedBy: author });
-    expect(
-      verdictsOnTask(fromField, reviewShow(hash, 1, [composed])).map(
-        (row) => row.verdictId,
-      ),
-    ).toEqual(["v-composed"]);
-    const fromLegacy = taskOf({
+    const fromField = projectedTask({
       epoch: 1,
       claimedBy: author,
-      metadata: { verdicts: [legacy] },
+      subjectHash: hash,
+      verdicts: [composed],
+      metadata: { verdicts: [invented] },
     });
-    expect(verdictsOnTask(fromLegacy).map((row) => row.verdictId)).toEqual([
-      "v-legacy",
+    expect(verdictsOnTask(fromField).map((row) => row.verdictId)).toEqual([
+      "v-composed",
     ]);
     expect(
-      verdictsOnTask(fromLegacy, reviewShow(hash, 1, [])),
+      verdictsOnTask(
+        projectedTask({
+          epoch: 1,
+          claimedBy: author,
+          metadata: { verdicts: [invented] },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      verdictsOnTask(
+        projectedTask({
+          epoch: 1,
+          claimedBy: author,
+          subjectHash: hash,
+          verdicts: [],
+          metadata: { verdicts: [invented] },
+        }),
+      ),
     ).toEqual([]);
   });
 
-  it("fails closed when reviewSubject is omitted", () => {
+  it("fails closed when task.subjectHash is omitted", () => {
     const author = seat("a");
     const reviewer = seat("b");
-    const task = taskOf({
+    const task = projectedTask({
       epoch: 1,
       claimedBy: author,
       rules: [reviewTaskRule()],
-    });
-    const show: TaskReviewShow = {
       verdicts: [
         canonicalVerdict({
           verdictId: "v-green",
@@ -256,39 +259,67 @@ describe("reviewGateOf", () => {
           subjectHash: hash,
         }),
       ],
-    };
-    expect(reviewGateOf(task, undefined, author, { show }).satisfied).toBe(false);
+    });
+    expect(reviewGateOf(task, undefined, author).satisfied).toBe(false);
   });
 
   it("refuses a green once the current reviews edge is gone", () => {
     const author = seat("a");
     const reviewer = seat("b");
-    const task = taskOf({
+    const task = projectedTask({
       epoch: 1,
       claimedBy: author,
       rules: [reviewTaskRule()],
+      subjectHash: hash,
+      verdicts: [
+        canonicalVerdict({
+          verdictId: "v-edge",
+          kind: "green",
+          reviewerSeatId: reviewer,
+          authorSeatId: author,
+          epoch: 1,
+          subjectHash: hash,
+        }),
+      ],
     });
-    const show = reviewShow(hash, 1, [
-      canonicalVerdict({
-        verdictId: "v-edge",
-        kind: "green",
-        reviewerSeatId: reviewer,
-        authorSeatId: author,
-        epoch: 1,
-        subjectHash: hash,
-      }),
-    ]);
     expect(
       reviewGateOf(task, undefined, author, {
-        show,
         reviewerHasCurrentEdge: () => false,
       }).satisfied,
     ).toBe(false);
     expect(
       reviewGateOf(task, undefined, author, {
-        show,
         reviewerHasCurrentEdge: (seatId) => seatId === reviewer,
       }).satisfied,
     ).toBe(true);
+  });
+
+  it("still reads a WorkTaskShow overlay until the canvas item is stamped", () => {
+    const author = seat("a");
+    const reviewer = seat("b");
+    const task = projectedTask({
+      epoch: 1,
+      claimedBy: author,
+      rules: [reviewTaskRule()],
+    });
+    const show: TaskReviewShow = {
+      reviewSubject: {
+        epoch: 1,
+        subjectHash: hash,
+        taskId: "task-1",
+      },
+      verdicts: [
+        canonicalVerdict({
+          verdictId: "v-show",
+          kind: "green",
+          reviewerSeatId: reviewer,
+          authorSeatId: author,
+          epoch: 1,
+          subjectHash: hash,
+        }),
+      ],
+    };
+    expect(reviewGateOf(task, undefined, author, { show }).satisfied).toBe(true);
+    expect(verdictsOnTask(task, show)[0]?.verdictId).toBe("v-show");
   });
 });
