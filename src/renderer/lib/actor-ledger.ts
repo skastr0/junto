@@ -43,6 +43,7 @@ export type MailRow = {
   readonly body: string;
   readonly subject: string | undefined;
   readonly kind: MailKind | undefined;
+  readonly display: MailDeliveryDisplay;
   readonly delivery: MailDeliveryDisplay;
   readonly deliveryReason: string | undefined;
   readonly generation: string | undefined;
@@ -86,6 +87,7 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
     body,
     subject: view.subject,
     kind: view.kind,
+    display: view.display,
     delivery: view.display,
     deliveryReason: view.displayReason,
     generation: view.facts.generation,

@@ -3,6 +3,7 @@
  * Journeys live in p1H; this file is the shared contract those specs import.
  */
 import type { CanvasEdge } from "../../src/shared/canvas";
+import type { Port } from "../../src/shared/physics/schema";
 import type { Message, Rule } from "../../src/shared/work-model";
 import { verbEdge } from "./sandbox";
 
@@ -36,7 +37,7 @@ export const messagesEdgeWithMask = (
   fromNode: string,
   toNode: string,
   kinds: Parameters<typeof verbEdge>[4],
-  allowed: ReadonlyArray<string> | undefined,
+  allowed: ReadonlyArray<Port> | undefined,
 ): CanvasEdge => {
   const edge = verbEdge(id, fromNode, toNode, "messages", kinds);
   return allowed === undefined

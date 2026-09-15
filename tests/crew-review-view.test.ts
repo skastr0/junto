@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Rule, Task } from "../src/shared/work-model";
+import type { Rule, Task, TaskRule } from "../src/shared/work-model";
 import {
   boardReviewGate,
   contractRequiresReview,
@@ -26,6 +26,13 @@ const taskOf = (
   }) as Task;
 
 const hash = "subject-hash-current";
+
+const reviewTaskRule = (id = "r-review"): TaskRule => ({
+  id,
+  text: "Review",
+  kind: "requires-review",
+  board: "tasks",
+});
 
 const canonicalVerdict = (input: {
   readonly verdictId: string;
@@ -85,7 +92,7 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 2,
       claimedBy: author,
-      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
+      rules: [reviewTaskRule()],
       subjectHash: hash,
       verdicts: [
         canonicalVerdict({
@@ -119,7 +126,7 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 1,
       claimedBy: author,
-      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
+      rules: [reviewTaskRule()],
       subjectHash: hash,
       verdicts: [
         canonicalVerdict({
@@ -158,7 +165,7 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 1,
       claimedBy: author,
-      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
+      rules: [reviewTaskRule()],
       subjectHash: hash,
       verdicts: [
         canonicalVerdict({
@@ -235,7 +242,7 @@ describe("reviewGateOf", () => {
     const task = taskOf({
       epoch: 1,
       claimedBy: author,
-      rules: [{ id: "r-review", text: "Review", kind: "requires-review" }],
+      rules: [reviewTaskRule()],
       verdicts: [
         canonicalVerdict({
           verdictId: "v-green",
