@@ -103,8 +103,8 @@ describe("mailboxRows", () => {
     expect(row.body).toBe("please read 01ARZ3NDEKTS\nbody");
     expect(row.subject).toBe("Standup");
     expect(row.kind).toBe("notice");
-    expect(row.delivery).toBe("unresolved");
-    expect(row.unresolved).toBe(true);
+    expect(row.delivery).toBe("notified");
+    expect(row.unresolved).toBe(false);
     expect(row.delivered).toBe(true);
   });
 
