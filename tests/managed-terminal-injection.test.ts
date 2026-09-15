@@ -14,21 +14,25 @@ import {
 } from "../src/shared/managed-terminal-injection";
 import { BROWSER_ENABLED } from "../src/shared/features";
 import type { CanvasDoc } from "../src/shared/canvas";
+import { compileVerb } from "../src/shared/physics/verbs";
 import {
   resolveManagedLaunch,
   resolveManagedLaunchPlan,
 } from "../src/main/vellum-command/term/templates/resolve-launch";
 
 const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
+const taskPorts = compileVerb("contributes", "agent", "task")!.ports;
+const requestPorts = compileVerb("escalates", "agent", "requests")!.ports;
+const peerPorts = compileVerb("messages", "agent", "agent")!.ports;
 
 const connectedCtx = {
   seatBound: true as const,
   connected: true as const,
   seatRef: "canvas-a::worker-1",
   connectedTargets: [
-    { id: "tasks-main", kind: "task", summary: "pull queue" },
-    { id: "req-1", kind: "requests" },
-    { id: "peer-2", kind: "agent", summary: "Grok seat" },
+    { id: "tasks-main", kind: "task", summary: "pull queue", ports: taskPorts },
+    { id: "req-1", kind: "requests", ports: requestPorts },
+    { id: "peer-2", kind: "agent", summary: "Grok seat", ports: peerPorts },
   ],
 };
 
@@ -110,17 +114,17 @@ describe("compiled doctrine — base and slots", () => {
     expect(firstSlot).toBeGreaterThan(intro);
   });
 
-  it("targetsBySlot groups by physics-mirrored kind", () => {
+  it("targetsBySlot groups by held command-family ports", () => {
     const grouped = targetsBySlot(connectedCtx.connectedTargets);
     expect(grouped.get("tasks")?.map((t) => t.id)).toEqual(["tasks-main"]);
     expect(grouped.get("escalate")?.map((t) => t.id)).toEqual(["req-1"]);
-    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["peer-2"]);
+    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["tasks-main", "req-1", "peer-2"]);
     expect(grouped.has("artifacts")).toBe(false);
     expect(grouped.has("pad")).toBe(false);
   });
 
   it("compiles the pad edge contract when a pad is connected", () => {
-    const slots = compileEdgeSlots([{ id: "pad-1", kind: "pad" }]);
+    const slots = compileEdgeSlots([{ id: "pad-1", kind: "pad", ports: ["pad.read", "pad.patch"] }]);
     expect(slots.join("\n")).toContain("### Edge contract — pad");
     expect(slots.join("\n")).toContain(`vellum-command pad read '{"target":"pad-1"}'`);
     expect(slots.join("\n")).toContain("vellum-command pad look-here");
@@ -130,16 +134,16 @@ describe("compiled doctrine — base and slots", () => {
   });
 
   it("compiles the sheet edge contract, and it names no write command", () => {
-    const slots = compileEdgeSlots([{ id: "sheet-1", kind: "sheet" }]).join("\n");
+    const slots = compileEdgeSlots([{ id: "sheet-1", kind: "sheet", ports: ["sheet.read"] }]).join("\n");
     expect(slots).toContain("### Edge contract — sheet");
     expect(slots).toContain(`vellum-command sheet read '{"target":"sheet-1"}'`);
     expect(slots).not.toContain("sheet patch");
     expect(slots).not.toContain("sheet write");
   });
 
-  it("compileEdgeSlots emits one section per present slot kind", () => {
+  it("compileEdgeSlots separates targets with different held ports", () => {
     const slots = compileEdgeSlots(connectedCtx.connectedTargets);
-    expect(slots.length).toBe(3);
+    expect(slots.length).toBe(4);
     expect(slots.join("\n")).toContain("### Edge contract — tasks");
     expect(slots.join("\n")).toContain("### Edge contract — requests / escalate");
     expect(slots.join("\n")).toContain("### Edge contract — messages");
@@ -222,9 +226,9 @@ describe("ONE doctrine — tiers are delivery method only", () => {
         connected: true as const,
         seatRef: "s2",
         connectedTargets: [
-          { id: "a", kind: "artifacts" },
-          { id: "b", kind: "board" },
-          { id: "p", kind: "agent" },
+          { id: "a", kind: "artifacts", ports: compileVerb("publishes", "agent", "artifacts")!.ports },
+          { id: "b", kind: "board", ports: compileVerb("participates", "agent", "board")!.ports },
+          { id: "p", kind: "agent", ports: peerPorts },
         ],
       },
     ]) {
@@ -357,7 +361,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
         seatBound: true,
         connected: true,
         seatRef: "s1",
-        connectedTargets: [{ id: "page-1", kind: "page" }],
+        connectedTargets: [{ id: "page-1", kind: "page", ports: ["browser.automate"] }],
       })!;
       expect(text).toContain("### Edge contract — browser");
       expect(text).toContain("vellum-command browser pages");
@@ -386,7 +390,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       seatBound: true,
       connected: true,
       seatRef: "n3",
-      connectedTargets: [{ id: "n7", kind: "tasks", summary: "Sprint board" }],
+      connectedTargets: [{ id: "n7", kind: "tasks", summary: "Sprint board", ports: taskPorts }],
     });
     expect(tasksOnly).toContain("## Worked examples");
     expect(tasksOnly).toContain('tasks claim {"target":"n7","task":"t1"}');
@@ -397,7 +401,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       seatBound: true,
       connected: true,
       seatRef: "n3",
-      connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests" }],
+      connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests", ports: requestPorts }],
     });
     expect(requestsOnly).toContain('vellum-command escalate {"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}');
     // The worker-loop doctrine names `tasks claim` in prose for every seat;

@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive, subjectHashOf } from "../src/main/vellum-command/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2112,13 +2112,23 @@ describe("Station work authority survives Command Center downtime", () => {
       command: command.id,
       commandSha256: command.contentSha256,
     });
-    expect(
-      (
-        await commandCenter.runtime.runPromise(
-          commandCenter.work.readSnapshot("factory", "shared-tasks"),
-        )
-      ).tasks.items,
-    ).toEqual([commandedTask]);
+    const projectedTasks = (
+      await commandCenter.runtime.runPromise(
+        commandCenter.work.readSnapshot("factory", "shared-tasks"),
+      )
+    ).tasks.items;
+    expect(projectedTasks).toHaveLength(1);
+    const { subjectHash, verdicts, ...persistedTask } = projectedTasks[0]!;
+    expect(persistedTask).toEqual(commandedTask);
+    expect(verdicts).toEqual([]);
+    expect(subjectHash).toBe(subjectHashOf({
+      kind: "task",
+      installationId: commandCenterId,
+      canvasName: "factory",
+      nodeId: "shared-tasks",
+      taskId,
+      epoch: commandedTask.epoch ?? 0,
+    }));
 
     const revoked: CanvasDoc = {
       nodes: document.nodes.filter((node) => node.id === "shared-tasks"),

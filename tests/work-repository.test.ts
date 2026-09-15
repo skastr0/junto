@@ -24,6 +24,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/vellum-command/work/repository";
+import { subjectHashOf } from "../src/main/vellum-command/work/review-subject-hash";
 import {
   makeStateEngineLive,
   StateEngine,
@@ -644,7 +645,17 @@ describe("WorkRepository v2 local authority", () => {
     const snapshot = await runtime.runPromise(
       repository.readSnapshot(sink.canvasName, sink.nodeId),
     );
-    expect(snapshot.tasks.items).toEqual([completed.value]);
+    expect(snapshot.tasks.items).toHaveLength(1);
+    const { subjectHash, verdicts, ...persisted } = snapshot.tasks.items[0]!;
+    expect(persisted).toEqual(completed.value);
+    expect(verdicts).toEqual([]);
+    expect(subjectHash).toBe(subjectHashOf({
+      kind: "task",
+      installationId: cc,
+      ...sink,
+      taskId: completed.value.id,
+      epoch: completed.value.epoch ?? 0,
+    }));
     expect(
       await runtime.runPromise(
         repository.itemHome("task", sink.canvasName, sink.nodeId, "task-local"),

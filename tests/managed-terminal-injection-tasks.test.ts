@@ -8,7 +8,7 @@ const seatWithTasks = {
   seatBound: true,
   connected: true,
   seatRef: "agent-1",
-  connectedTargets: [{ id: "tasks-main", kind: "task" }],
+  connectedTargets: [{ id: "tasks-main", kind: "task", ports: ["tasks.list", "tasks.update", "tasks.claim"] }],
 } as const;
 
 describe("doctrine — task path verbs", () => {

@@ -169,7 +169,7 @@ describe("durable Live journal", () => {
     } finally { version22.close(); }
     const { runtime, state } = await open(path);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(23);
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(24);
     const after = await runtime.runPromise(state.read("test.live-migration-preservation", (reader) => Object.fromEntries(
       Object.keys(before).map((table) => [table, reader.all(`SELECT * FROM "${table.replaceAll('"', '""')}"`)]))));
     expect(after).toEqual(before);

@@ -10,6 +10,7 @@ import {
   createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
 } from "../src/main/vellum-command/work/repository";
+import { subjectHashOf } from "../src/main/vellum-command/work/review-subject-hash";
 import {
   makeStateEngineLive,
   StateEngine,
@@ -213,6 +214,19 @@ const taskAt = async (
   return found;
 };
 
+const expectTaskProjection = (actual: Task, sink: TestSink, expected: Task): void => {
+  const { subjectHash, verdicts, ...persisted } = actual;
+  expect(persisted).toEqual(expected);
+  expect(verdicts).toEqual([]);
+  expect(subjectHash).toBe(subjectHashOf({
+    kind: "task",
+    installationId,
+    ...sink,
+    taskId: expected.id,
+    epoch: expected.epoch ?? 0,
+  }));
+};
+
 const persistChain = async (slug: string, raisedBy: ActorRef) => {
   const sink = { canvasName: "factory", nodeId: `tasks-${slug}` };
   const a = task(`task-a-${slug}`, raisedBy);
@@ -250,8 +264,8 @@ describe("approval-admission Task dependency persistence", () => {
       const worker = actor(actorDigit);
       const chain = await persistChain(slug, worker);
 
-      expect(await taskAt(chain.sink, chain.a.id)).toEqual(chain.a);
-      expect(await taskAt(chain.sink, chain.b.id)).toEqual(chain.b);
+      expectTaskProjection(await taskAt(chain.sink, chain.a.id), chain.sink, chain.a);
+      expectTaskProjection(await taskAt(chain.sink, chain.b.id), chain.sink, chain.b);
       const edgesBeforeApproval = await runtime.runPromise(
         state.read("test.dep-before-approval", (reader) =>
           reader.all<{
@@ -400,7 +414,7 @@ describe("approval-admission Task dependency persistence", () => {
         receivedAt: observedAt,
       }),
     );
-    expect(await taskAt(sameRegionSink, sameRegion.id)).toEqual(sameRegion);
+    expectTaskProjection(await taskAt(sameRegionSink, sameRegion.id), sameRegionSink, sameRegion);
 
     const crossRegion = task(
       "task-scope-cross-region",

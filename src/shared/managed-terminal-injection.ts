@@ -10,12 +10,12 @@
  * - Canvas seat → base doctrine ALWAYS (Vellum Command intro, seat doctrine,
  *   worker loop, base CLI contract, laws). Isolated seats get no edge contracts.
  * - Edge contracts are COMPILED from the node's edge reality at spawn: each
- *   connected kind adds the exact CLI contract for the ports that kind offers
+ *   target's held ports select its CLI contracts, including operator masks
  *   (task → tasks ops; requests → escalate; artifacts → publish; board → board;
- *   actor/task/requests → msg). The agent is never taught a command its edges
- *   do not authorize.
- * - Rising edges mid-session inject the new slot via mailbox notice + drive
- *   (composeEdgeSlotInjectionText / planEdgeSlotInjections).
+ *   messages → mail; directed reviews → verdict). The agent is never taught
+ *   a target command without the corresponding held port.
+ * - Mid-session map changes send a compact notice pointing at live grants
+ *   (composeEdgeMapChangeNotice / planEdgeMapChanges).
  *
  * Never writes ~/.claude, ~/.codex, ~/.grok, ~/.hermes.
  */
@@ -27,6 +27,7 @@ import {
 } from "./managed-terminal-templates";
 import { BROWSER_ENABLED } from "./features";
 import type { CanvasDoc } from "./canvas";
+import type { Port } from "./physics/schema";
 import {
   FEW_SHOT_CLAIM,
   FEW_SHOT_COMPLETE_EVIDENCE,
@@ -41,6 +42,8 @@ export type InjectionConnectedTarget = {
   readonly id: string;
   readonly kind?: string;
   readonly summary?: string;
+  /** Canonical held grants at spawn. Missing or empty grants teach no actions. */
+  readonly ports?: readonly Port[];
 };
 
 /**
@@ -69,27 +72,19 @@ export type InjectionContext = {
 
 // ── Slot kinds ─────────────────────────────────────────────────────────────
 
-/**
- * Kind → prompt slot. Mirrors the physics port table (kinds.ts) so the prompt
- * only teaches what the edge actually grants:
- * - task offers tasks.list/create/claim/update + msg.list/msg.send
- * - requests offers request.escalate + msg.list/msg.send
- * - artifacts offers artifact.publish
- * - board offers board.*
- * - pad offers pad.read / pad.patch
- * - agent offers msg.list/msg.send/msg.prompt, seat.wait, terminal.read
- * - page offers browser.automate (feature-gated)
- */
+/** Command families; membership comes from held ports, not target kind. */
 export type EdgeSlotKind =
   | "tasks"
   | "escalate"
   | "msg"
+  | "reviews"
   | "artifacts"
   | "board"
   | "pad"
   | "sheet"
   | "browser";
 
+/** Kind labels for neighbor-change notices; these are not permission grants. */
 export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = {
   task: "tasks",
   tasks: "tasks",
@@ -115,7 +110,7 @@ export const SEAT_DOCTRINE = `## Seats
 
 A **seat** is your identity on the factory floor: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
 
-- **Grants** come from edges: each edge hands you the ports that node offers (a tasks edge grants \`tasks.list\` / \`tasks.claim\` / \`tasks.update\` / \`tasks.rules\` / \`tasks.check\`; a requests edge grants \`request.escalate\`; an artifacts edge grants \`artifact.publish\`). No edge, no grant — \`ScopeError\` is the factory saying so.
+- **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads; a directed reviews edge grants \`verdict.post\` only from reviewer to author. Task verbs differ on claiming and authoring. \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets with grants and their board contracts, and co-members. Re-run it whenever your view may be stale.
 - **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`vellum-command rulings\`.\n\n**Map-change notices are informational.** \`[factory - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
@@ -222,6 +217,14 @@ Never leak board tokens, node refs, or seat ids into public copy.`;
 
 // ── Edge contracts (compiled per connected kind) ───────────────────────────
 
+const hasPort = (targets: readonly InjectionConnectedTarget[], port: Port): boolean =>
+  targets[0]?.ports?.includes(port) === true;
+
+const rowsFor = (
+  targets: readonly InjectionConnectedTarget[],
+  rows: ReadonlyArray<readonly [Port, string]>,
+): string => rows.filter(([port]) => hasPort(targets, port)).map(([, row]) => row).join("\n");
+
 const tasksSlot = (targets: readonly InjectionConnectedTarget[]): string => {
   const t = targets[0]?.id ?? "<id>";
   const all = targets.map((x) => `\`${x.id}\``).join(", ");
@@ -229,18 +232,24 @@ const tasksSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 
 | intent | command |
 |---|---|
-| list queue | \`vellum-command tasks list '{"target":"${t}"}'\` |
-| read one task + its visits | \`vellum-command tasks show '{"target":"${t}","task":"<taskId>"}'\` |
-| author a task | \`vellum-command tasks create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'\` |
-| claim | \`vellum-command tasks claim '{"target":"${t}","task":"<taskId>"}'\` |
-| rules + readiness | \`vellum-command tasks rules '{"target":"${t}","task":"<taskId>"}'\` |
-| run this move's checks | \`vellum-command tasks check '{"target":"${t}","task":"<taskId>"}'\` — add \`"next":"<board>"\` when the board has more than one Next |
-| progress / settle / block task | \`vellum-command tasks update '{"target":"${t}","task":"<taskId>","state":"<state>"}'\` — states: \`working\`, \`completed\`, \`failed\`, \`canceled\`, \`input-required\` |
-| task content | \`vellum-command content path|stat|materialize\` (ContentRefs attached to your tasks) |
-
-Batch: \`tasks create/claim/update\` accept a JSON array; add \`--concurrency <n>\`.
+${rowsFor(targets, [
+  ["tasks.list", `| list queue | \`vellum-command tasks list '{"target":"${t}"}'\` |`],
+  ["tasks.list", `| read task + review subject | \`vellum-command tasks show '{"target":"${t}","task":"<taskId>"}'\` |`],
+  ["tasks.list", `| wait for task state | \`vellum-command tasks wait <taskId> --target ${t} --until completed --timeout 30s\` — configured Command Center only; also supports input-required or rejected |`],
+  ["tasks.create", `| author a task | \`vellum-command tasks create '{"target":"${t}","brief":"...","metadata":{"title":"...","details":"..."}}'\` |`],
+  ["tasks.claim", `| claim | \`vellum-command tasks claim '{"target":"${t}","task":"<taskId>"}'\` |`],
+  ["tasks.list", `| rules + readiness | \`vellum-command tasks rules '{"target":"${t}","task":"<taskId>"}'\` |`],
+  ["tasks.update", `| run this move's checks | \`vellum-command tasks check '{"target":"${t}","task":"<taskId>"}'\` — add \`"next":"<board>"\` when the board has more than one Next |`],
+  ["tasks.update", `| progress / settle / block task | \`vellum-command tasks update '{"target":"${t}","task":"<taskId>","state":"<state>"}'\` — states: working, completed, failed, canceled, input-required |`],
+  ["tasks.list", "| task content | `vellum-command content path|stat|materialize` (ContentRefs attached to your tasks) |"],
+])}
+${hasPort(targets, "tasks.update") ? `
 
 Finish criteria are **hard gates**: \`completed\` is rejected unless evidence is attached (artifacts linked to the task, real git SHAs). A rejection names the missing pieces — read it, fix, retry.
+
+### Stage evidence before review
+
+On a configured Command Center, a requires-review task stays \`working\` while you submit real refs: \`vellum-command tasks update '{"target":"${t}","task":"<taskId>","state":"working","completionEvidence":{"artifacts":[],"git":{"commits":["<real-sha>"]}}}'\`. This stages evidence without completing the task. Reviewers receive the exact subject through receipt mail. Use the current epoch and subjectHash; a changed ref or epoch invalidates prior approval. After a qualifying reviewer posts green on that exact subject, complete with the same evidence. A blocking review sends work back with a defect and a new epoch. Requires-review completion is Command Center only.
 
 ### Rules in force
 
@@ -261,7 +270,7 @@ Where the operator drew a task path, completing does not close the task: it hand
 - Sending work back is \`state: "rejected"\` with \`"defect":{"summary":"what is wrong","refs":["..."]}\` — it returns the task to the board before yours.
 - \`"waitFor":"12h"\` (or \`"7d"\`, or milliseconds) delays the first claim at the next board.
 
-A task that arrives back with an epoch bump was sent back to you: prior claims and check results are stale, so answer the rules again and re-run the checks.`;
+A task that arrives back with an epoch bump was sent back to you: prior claims and check results are stale, so answer the rules again and re-run the checks.` : ""}`;
 };
 
 const escalateSlot = (targets: readonly InjectionConnectedTarget[]): string => {
@@ -279,13 +288,32 @@ const msgSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 
 | intent | command |
 |---|---|
-| read / write thread | \`vellum-command msg list\` (own inbox, no target — marks listed mail read; \`sent\` shows whether peers read your mail) - \`vellum-command msg send '{"target":"${t}","text":"..."}'\` - \`vellum-command msg react '{"messageId":"<msgId>"}'\` (ack, reply later) - \`vellum-command msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |
-| peer mail | Mailbox is pull-only (T3): at every turn boundary run \`msg list\`. Typed-notice paste is harness support, not a live-qualified delivery channel. Kinds are \`notice\`, \`prompt\`, and \`receipt\`. A typed notice arrives as \`mail from <seat>\` (older rows may still say \`[factory mail from …]\`). When mail arrives: \`msg list\` (own inbox). \`msg react\` if you will reply later. \`msg reply\` when you have an answer. |
-| prompt | Port \`msg.prompt\` — immediate full-body turn to a peer. Independent of \`msg.send\`. |
-| wait | Port \`seat.wait\` — subscribe until idle, attention, working, or gone. |
-| observe | Port \`terminal.read\` — settled grid. Granted by default on a messages edge; a mask can only remove compiled ports. |
+${rowsFor(targets, [
+  ["msg.list", `| read target thread | \`vellum-command msg list '{"target":"${t}"}'\` |`],
+  ["msg.send", `| send durable mail | \`vellum-command msg send '{"target":"${t}","text":"..."}'\` |`],
+  ["msg.send", `| reply | \`vellum-command msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |`],
+  ["msg.prompt", `| immediate turn (port msg.prompt) | \`vellum-command msg prompt '{"target":"${t}","text":"..."}'\` — requires a local idle peer with an empty composer; never interrupts |`],
+  ["seat.wait", `| wait (port seat.wait) | \`vellum-command seat wait ${t} --until idle --timeout 30s\` — also supports attention, working, or gone |`],
+  ["terminal.read", `| observe (port terminal.read) | \`vellum-command seat read ${t} --lines 40\` — settled grid, with state, reason, confidence and generation; output activity alone is not readiness |`],
+])}
 
-Batch: \`msg send/read/reply\` accept a JSON array; add \`--concurrency <n>\`.`;
+Own inbox: \`vellum-command msg list\` marks listed mail read; \`vellum-command msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mailbox delivery is pull-only (T3): check it at turn boundaries. Typed-notice paste is harness support, not a live-qualified delivery channel. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\` (older rows may say \`[factory mail from …]\`). Avoid acknowledgement loops.
+
+Crew prompt, sent receipts, seat wait and seat read require a configured Command Center. Prompt/wait/read require a local peer, and are unavailable for Remote seats. Ordinary durable mail remains available through its own grants.
+${hasPort(targets, "msg.send") || hasPort(targets, "msg.prompt") ? "\nInspect sent delivery/read/reply facts with `vellum-command msg sent`; notification, read and reply are separate evidence. A successful enqueue is not proof of submission." : ""}
+${hasPort(targets, "msg.prompt") ? `
+Prompt outcomes are named: submitted, refused, or unresolved. After a pre-write refusal, wait for readiness and retry the returned messageId with \`vellum-command msg prompt '{"target":"${t}","messageId":"<messageId>"}'\`. An unresolved write is uncertain: inspect the peer and sent facts; never create a replacement prompt or repaste automatically. Notice fallback is explicit: add \`"fallback":"notice"\` only when durable mail is acceptable.` : ""}`;
+};
+
+const reviewsSlot = (targets: readonly InjectionConnectedTarget[]): string => {
+  const authors = targets.map((target) => `\`${target.id}\``).join(", ");
+  return `### Edge contract — reviews (authors: ${authors})
+
+The directed \`verdict.post\` grant lets you review these authors on a configured Command Center. It grants no peer message, prompt, wait or terminal-read permission by itself. Read \`vellum-command msg list\` for review receipt mail, then inspect the cited work. Use the receipt's target board, task id, epoch and subjectHash exactly; \`tasks show\` is available only with a separate task-list grant.
+
+\`vellum-command verdict post '{"target":"<task-board>","subject":{"kind":"task","taskId":"<taskId>","epoch":0,"subjectHash":"<subjectHash>"},"kind":"green","findings":[]}'\`
+
+Use \`"kind":"blocking"\` with concrete nonempty findings when changes are needed. A blocking task review records the verdict and sends the task back with a defect and new epoch. Commit review uses \`"subject":{"kind":"commit","sha":"<full-sha>"}\`; it does not move a task. The server stamps your identity, refuses self-review, and rechecks the live reviews edge and exact subject. Stale-subject refusal requires a fresh receipt or authorized task read, never rebinding your old verdict to newer work.`;
 };
 
 const artifactSlot = (targets: readonly InjectionConnectedTarget[]): string => {
@@ -307,10 +335,12 @@ const boardSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 
 | intent | command |
 |---|---|
-| list | \`vellum-command board list '{"target":"${t}"}'\` |
-| create topic | \`vellum-command board topic '{"target":"${t}","title":"...","body":"..."}'\` |
-| post | \`vellum-command board post '{"target":"${t}","topicId":"<topicId>","text":"..."}'\` |
-| mark read | \`vellum-command board read '{"target":"${t}","topicId":"<topicId>"}'\` |
+${rowsFor(targets, [
+  ["board.list", `| list | \`vellum-command board list '{"target":"${t}"}'\` |`],
+  ["board.create_topic", `| create topic | \`vellum-command board topic '{"target":"${t}","title":"...","body":"..."}'\` |`],
+  ["board.post", `| post | \`vellum-command board post '{"target":"${t}","topicId":"<topicId>","text":"..."}'\` |`],
+  ["board.mark_read", `| mark read | \`vellum-command board read '{"target":"${t}","topicId":"<topicId>"}'\` |`],
+])}
 
 Optional shared context — never a decision inbox. \`read\` is enough to clear attention.`;
 };
@@ -322,15 +352,17 @@ const padSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 
 | intent | command |
 |---|---|
-| read page | \`vellum-command pad read '{"target":"${t}"}'\` |
-| text IR | \`vellum-command pad digest '{"target":"${t}"}'\` |
-| picture | \`vellum-command pad svg '{"target":"${t}"}'\` |
-| focused item | \`vellum-command pad get '{"target":"${t}","id":"<id>"}'\` |
-| look-here crop | \`vellum-command pad look-here '{"target":"${t}","pinId":"<pinId>"}'\` |
-| pins tagging you | \`vellum-command pad tagged '{"target":"${t}"}'\` |
-| patch shapes | \`vellum-command pad patch '{"target":"${t}","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'\` |
+${rowsFor(targets, [
+  ["pad.read", `| read page | \`vellum-command pad read '{"target":"${t}"}'\` |`],
+  ["pad.read", `| text IR | \`vellum-command pad digest '{"target":"${t}"}'\` |`],
+  ["pad.read", `| picture | \`vellum-command pad svg '{"target":"${t}"}'\` |`],
+  ["pad.read", `| focused item | \`vellum-command pad get '{"target":"${t}","id":"<id>"}'\` |`],
+  ["pad.read", `| look-here crop | \`vellum-command pad look-here '{"target":"${t}","pinId":"<pinId>"}'\` |`],
+  ["pad.read", `| pins tagging you | \`vellum-command pad tagged '{"target":"${t}"}'\` |`],
+  ["pad.patch", `| patch shapes | \`vellum-command pad patch '{"target":"${t}","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'\` |`],
+])}
 
-Grant is \`pad.read\` / \`pad.patch\` via the edge. Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the factory canvas.`;
+With \`pad.patch\`, agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the factory canvas.`;
 };
 
 const sheetSlot = (targets: readonly InjectionConnectedTarget[]): string => {
@@ -362,6 +394,7 @@ export const EDGE_SLOT_BUILDERS: Readonly<
   tasks: tasksSlot,
   escalate: escalateSlot,
   msg: msgSlot,
+  reviews: reviewsSlot,
   artifacts: artifactSlot,
   board: boardSlot,
   pad: padSlot,
@@ -369,18 +402,31 @@ export const EDGE_SLOT_BUILDERS: Readonly<
   browser: () => browserSlot(),
 };
 
-/** Group connected targets by their slot kind (physics-mirrored). */
+const SLOT_PORTS: Readonly<Record<EdgeSlotKind, readonly Port[]>> = {
+  tasks: ["tasks.list", "tasks.create", "tasks.claim", "tasks.update"],
+  escalate: ["request.escalate"],
+  msg: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"],
+  reviews: ["verdict.post"],
+  artifacts: ["artifact.publish"],
+  board: ["board.list", "board.create_topic", "board.post", "board.mark_read"],
+  pad: ["pad.read", "pad.patch"],
+  sheet: ["sheet.read"],
+  browser: ["browser.automate"],
+};
+
+/** Group targets by the command families their canonical held ports permit. */
 export const targetsBySlot = (
   targets: readonly InjectionConnectedTarget[] | undefined,
 ): Map<EdgeSlotKind, InjectionConnectedTarget[]> => {
   const out = new Map<EdgeSlotKind, InjectionConnectedTarget[]>();
   for (const t of targets ?? []) {
-    const slot = t.kind ? KIND_TO_SLOT[t.kind] : undefined;
-    if (slot === undefined) continue;
-    if (!BROWSER_ENABLED && slot === "browser") continue;
-    const list = out.get(slot);
-    if (list) list.push(t);
-    else out.set(slot, [t]);
+    for (const slot of Object.keys(SLOT_PORTS) as EdgeSlotKind[]) {
+      if (!BROWSER_ENABLED && slot === "browser") continue;
+      if (!SLOT_PORTS[slot].some((port) => t.ports?.includes(port))) continue;
+      const list = out.get(slot);
+      if (list) list.push(t);
+      else out.set(slot, [t]);
+    }
   }
   return out;
 };
@@ -390,9 +436,18 @@ export const compileEdgeSlots = (
   targets: readonly InjectionConnectedTarget[] | undefined,
 ): readonly string[] => {
   const grouped = targetsBySlot(targets);
-  return [...grouped.entries()].map(([slot, list]) =>
-    EDGE_SLOT_BUILDERS[slot](list),
-  );
+  return [...grouped.entries()].flatMap(([slot, list]) => {
+    // Only share a command example across targets that hold the same ports.
+    // A wait-only peer must never become the example target for a send grant.
+    const sameGrants = new Map<string, InjectionConnectedTarget[]>();
+    for (const target of list) {
+      const key = SLOT_PORTS[slot].filter((port) => target.ports?.includes(port)).join(",");
+      const peers = sameGrants.get(key);
+      if (peers) peers.push(target);
+      else sameGrants.set(key, [target]);
+    }
+    return [...sameGrants.values()].map((peers) => EDGE_SLOT_BUILDERS[slot](peers));
+  });
 };
 
 // ── Seat context block ─────────────────────────────────────────────────────
@@ -451,13 +506,11 @@ const fewShotsForTargets = (
 ): readonly DoctrineFewShotPayload[] => {
   if (!targets) return [];
   const out: DoctrineFewShotPayload[] = [];
-  const kinds = new Set(targets.map((t) => t.kind));
-  if (kinds.has("tasks")) {
-    out.push(FEW_SHOT_CLAIM, FEW_SHOT_PROGRESS, FEW_SHOT_COMPLETE_EVIDENCE);
+  if (targets.some((target) => target.ports?.includes("tasks.claim"))) out.push(FEW_SHOT_CLAIM);
+  if (targets.some((target) => target.ports?.includes("tasks.update"))) {
+    out.push(FEW_SHOT_PROGRESS, FEW_SHOT_COMPLETE_EVIDENCE);
   }
-  if (kinds.has("requests")) {
-    out.push(FEW_SHOT_ESCALATE);
-  }
+  if (targets.some((target) => target.ports?.includes("request.escalate"))) out.push(FEW_SHOT_ESCALATE);
   return out;
 };
 

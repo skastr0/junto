@@ -31,9 +31,8 @@ import {
   SEAT_DOCTRINE,
   WORKER_DOCTRINE,
   BASE_CONTRACT,
-  EDGE_SLOT_BUILDERS,
+  compileEdgeSlots,
   buildInjectionText,
-  type EdgeSlotKind,
 } from "./managed-terminal-injection";
 
 // ── Port descriptions (single source) ──────────────────────────────────────
@@ -250,22 +249,13 @@ export const buildNodeKindDoc = (kind: string): string | undefined => {
     "The seat's CLI contract for this kind is injected when the seat holds an edge to it:",
     "",
   ];
-  const slotKind: EdgeSlotKind | undefined =
-    kind === "task"
-      ? "tasks"
-      : kind === "requests"
-        ? "escalate"
-        : kind === "artifacts"
-          ? "artifacts"
-          : kind === "board"
-            ? "board"
-            : kind === "pad"
-              ? "pad"
-              : kind === "agent"
-                ? "msg"
-                : undefined;
-  if (slotKind !== undefined) {
-    lines.push("```", EDGE_SLOT_BUILDERS[slotKind]([{ id: `<${kind}-node-id>`, kind }]), "```");
+  const contracts = compileEdgeSlots([{
+    id: `<${kind}-node-id>`,
+    kind,
+    ports: ALL_PORTS.filter((port) => doc.offers.includes(port)),
+  }]);
+  if (contracts.length > 0) {
+    lines.push("These examples cover the offered ports; your live edge may grant fewer.", "```", ...contracts, "```");
   } else {
     lines.push("_No edge contract is injected for this kind in v1._");
   }
@@ -285,7 +275,12 @@ export const buildDoctrineDoc = (): string => {
       { id: "<artifacts-node>", kind: "artifacts" },
       { id: "<board-node>", kind: "board" },
       { id: "<peer-agent>", kind: "agent" },
-    ],
+    ].map((target) => ({
+      ...target,
+      ports: ALL_PORTS.filter((port) =>
+        NODE_DOCS.find((doc) => doc.kind === target.kind)?.offers.includes(port),
+      ),
+    })),
   });
   return [
     "# Vellum Command — full doctrine",

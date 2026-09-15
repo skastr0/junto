@@ -10,6 +10,7 @@ import {
   createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
 } from "../src/main/vellum-command/work/repository";
+import { subjectHashOf } from "../src/main/vellum-command/work/review-subject-hash";
 import {
   makeStateEngineLive,
   StateEngine,
@@ -240,6 +241,20 @@ const taskAt = async (nodeId: string, taskId: string): Promise<Task | undefined>
   return snapshot.tasks.items.find((item) => item.id === taskId);
 };
 
+const expectTaskProjection = (actual: Task | undefined, nodeId: string, expected: Task): void => {
+  expect(actual).toBeDefined();
+  const { subjectHash, verdicts, ...persisted } = actual!;
+  expect(persisted).toEqual(expected);
+  expect(verdicts).toEqual([]);
+  expect(subjectHash).toBe(subjectHashOf({
+    kind: "task",
+    installationId,
+    ...sink(nodeId),
+    taskId: expected.id,
+    epoch: expected.epoch ?? 0,
+  }));
+};
+
 const taskCreateCount = (nodeId: string, taskId: string) =>
   runtime.runPromise(
     state.read("test.task-create-count", (reader) =>
@@ -446,8 +461,8 @@ describe("WorkRepository transaction hardening", () => {
       ),
     ).rejects.toThrow(/not claimable before/);
 
-    expect(await taskAt(nodeId, gated.id)).toEqual(gated);
-    expect(await taskAt(nodeId, held.id)).toEqual(held);
+    expectTaskProjection(await taskAt(nodeId, gated.id), nodeId, gated);
+    expectTaskProjection(await taskAt(nodeId, held.id), nodeId, held);
     expect(await pendingCommandCount()).toBe(beforePending);
   });
 
@@ -499,7 +514,7 @@ describe("WorkRepository transaction hardening", () => {
       ),
     ).rejects.toThrow(/unresolved Remote claim reservation/);
     expect(await pendingCommandCount()).toBe(before + 1);
-    expect(await taskAt(nodeId, value.id)).toEqual(value);
+    expectTaskProjection(await taskAt(nodeId, value.id), nodeId, value);
   });
 
   it("enforces inherited board admission floors and canonical finite waits", async () => {

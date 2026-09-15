@@ -12,6 +12,7 @@ import {
 import type { ManagedSpawnIntent } from "./managed-terminal-launch";
 import type { TerminalLaunch, TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
+import { ALL_PORTS } from "./physics/schema";
 
 /** Independent unreleased terminal-control contract. */
 export const TERM_CONTROL_PROTOCOL = remoteStationContractVersion(
@@ -294,10 +295,15 @@ const isInjectionContext = (value: unknown): boolean => {
   return value.connectedTargets.every((target) => {
     if (!isRecord(target)) return false;
     return (
-      hasOnlyKeys(target, new Set(["id", "kind", "summary"])) &&
+      hasOnlyKeys(target, new Set(["id", "kind", "summary", "ports"])) &&
       typeof target.id === "string" &&
       optionalString(target.kind) &&
-      optionalString(target.summary)
+      optionalString(target.summary) &&
+      (target.ports === undefined ||
+        (Array.isArray(target.ports) &&
+          target.ports.every((port) =>
+            typeof port === "string" && ALL_PORTS.some((known) => known === port),
+          )))
     );
   });
 };

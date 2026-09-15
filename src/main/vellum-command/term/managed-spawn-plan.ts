@@ -19,14 +19,18 @@ import {
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
 import { usableVellumCommandHome } from "@shared/vellum-home";
-import { planManagedInjection } from "@shared/managed-terminal-injection";
+import {
+  planManagedInjection,
+  targetsBySlot,
+  type InjectionConnectedTarget,
+} from "@shared/managed-terminal-injection";
 import { writeAgentRulesDir } from "./agent-rules-dir";
 import { writeAgentFileSpec } from "./agent-file-spec";
 import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
 } from "./session-existence";
-import { containingRegion } from "../work/authz";
+import { connectedCapabilities, containingRegion } from "../work/authz";
 
 /**
  * Official `bun run dev` sets `VELLUM_COMMAND_HOME` (e.g. ~/.vellum-command-dev) while leaving
@@ -39,60 +43,22 @@ export const shouldAvoidSharedHarnessResume = (
   vellumHomeEnv: string | undefined = process.env.VELLUM_COMMAND_HOME,
 ): boolean => usableVellumCommandHome(vellumHomeEnv) !== undefined;
 
-// Capability sinks that make an actor seat operational. Browser automation is
-// a factory tool even though it uses the browser-control socket rather than the
-// work-control socket, so a page-only seat still receives the tool briefing.
-const ACTIONABLE_FACTORY_KINDS = new Set([
-  "task",
-  "tasks",
-  "requests",
-  "request",
-  "artifacts",
-  "page",
-]);
-
-/** True when the node has an undirected edge to an actionable factory sink. */
+/** True when the live compiled grants have an actionable doctrine section. */
 export const nodeHasActionableFactoryEdge = (
   doc: CanvasDoc,
   nodeId: string,
-): boolean => {
-  const neighbors = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode === nodeId) neighbors.add(edge.toNode);
-    if (edge.toNode === nodeId) neighbors.add(edge.fromNode);
-  }
-  for (const id of neighbors) {
-    const n = doc.nodes.find((x) => x.id === id);
-    const kind = n?.ether?.entity?.kind;
-    if (kind && ACTIONABLE_FACTORY_KINDS.has(kind)) return true;
-  }
-  return false;
-};
+): boolean => targetsBySlot(connectedTargetsForNode(doc, nodeId)).size > 0;
 
 export const connectedTargetsForNode = (
   doc: CanvasDoc,
   nodeId: string,
-): ReadonlyArray<{ id: string; kind?: string; summary?: string }> => {
-  const neighbors = new Set<string>();
-  for (const edge of doc.edges) {
-    if (edge.fromNode === nodeId) neighbors.add(edge.toNode);
-    if (edge.toNode === nodeId) neighbors.add(edge.fromNode);
-  }
-  const out: Array<{ id: string; kind?: string; summary?: string }> = [];
-  for (const id of neighbors) {
-    const n = doc.nodes.find((x) => x.id === id);
-    if (!n) continue;
-    const kind = n.ether?.entity?.kind;
-    const summary =
-      n.type === "text" ? n.text.split("\n")[0]?.trim() : undefined;
-    out.push({
-      id,
-      ...(kind ? { kind } : {}),
-      ...(summary ? { summary } : {}),
-    });
-  }
-  return out;
-};
+): ReadonlyArray<InjectionConnectedTarget> =>
+  connectedCapabilities(doc, nodeId).map((target) => ({
+    id: target.id,
+    ...(target.kind ? { kind: target.kind } : {}),
+    ...(target.title ? { summary: target.title } : {}),
+    ports: target.grants,
+  }));
 
 export type SpawnPlanInput = {
   readonly doc?: CanvasDoc;
@@ -131,17 +97,16 @@ const injectionForSpawn = (
 ): ManagedSpawnIntent["injection"] => {
   if (input.injection) return input.injection;
   const seatBound = Boolean(input.doc && input.nodeId);
-  const connected =
+  const connectedTargets =
     input.doc && input.nodeId
-      ? nodeHasActionableFactoryEdge(input.doc, input.nodeId)
-      : false;
+      ? connectedTargetsForNode(input.doc, input.nodeId)
+      : [];
+  const connected = targetsBySlot(connectedTargets).size > 0;
   return {
     seatBound,
     connected,
     ...(input.nodeId ? { seatRef: input.nodeId } : {}),
-    ...(input.doc && input.nodeId
-      ? { connectedTargets: connectedTargetsForNode(input.doc, input.nodeId) }
-      : {}),
+    ...(input.doc && input.nodeId ? { connectedTargets } : {}),
     ...(input.doc && input.nodeId
       ? (() => {
           const region = containingRegion(input.doc, input.nodeId);

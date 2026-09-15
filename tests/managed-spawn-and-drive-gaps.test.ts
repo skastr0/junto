@@ -204,7 +204,7 @@ describe("managed spawn plan", () => {
         ether: { entity: { kind: "task" }, tasks: { items: [] } },
       },
     ],
-    edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "tasks" }] : [],
+    edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "tasks", ether: { verb: "contributes" } }] : [],
   });
 
   it("detects work edges", () => {
@@ -231,7 +231,7 @@ describe("managed spawn plan", () => {
       ],
       edges: [
         ...base.edges,
-        { id: "artifact-edge", fromNode: "worker", toNode: "artifacts" },
+        { id: "artifact-edge", fromNode: "worker", toNode: "artifacts", ether: { verb: "publishes" } },
       ],
     };
     expect(nodeHasActionableFactoryEdge(artifacts, "worker")).toBe(true);
@@ -253,7 +253,7 @@ describe("managed spawn plan", () => {
       ],
       edges: [
         ...base.edges,
-        { id: "page-edge", fromNode: "worker", toNode: "page" },
+        { id: "page-edge", fromNode: "worker", toNode: "page", ether: { verb: "navigates" } },
       ],
     };
     expect(nodeHasActionableFactoryEdge(page, "worker")).toBe(true);
@@ -674,7 +674,7 @@ describe("managed spawn plan", () => {
 });
 
 describe("writePrompt queue timeout", () => {
-  it("resolves false when never idle before timeout", async () => {
+  it("refuses without writing when never idle before timeout", async () => {
     vi.useFakeTimers();
     try {
       const drive = new ManagedTerminalDrive({
@@ -686,7 +686,14 @@ describe("writePrompt queue timeout", () => {
       });
       const p = drive.writePrompt("b1", "hello");
       await vi.advanceTimersByTimeAsync(60);
-      await expect(p).resolves.toBe(false);
+      await expect(p).resolves.toMatchObject({
+        status: "refused",
+        reason: "queue-timeout",
+        wrotePhysicalBytes: false,
+        pasteWrites: 0,
+        writesBefore: 0,
+        writesAfter: 0,
+      });
       drive.resetForTest();
     } finally {
       vi.useRealTimers();
