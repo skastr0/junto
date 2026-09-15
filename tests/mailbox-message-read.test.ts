@@ -2,6 +2,7 @@
  * L2 mail nits: durable read-ack idempotency (stable readAt).
  * Control-plane foreign-mailbox refusal lives in work-control-transport.
  */
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,6 +52,7 @@ const makeRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
+      CrewRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,

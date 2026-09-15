@@ -6,6 +6,7 @@
  * Guard: WorkService.workTaskClaim with ContentService + InstallOps in a warm
  * ManagedRuntime must claim a ContentRef task when receipts+files are verified.
  */
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,6 +56,7 @@ const makeClaimContentRuntime = (root: string) => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
+      CrewRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
@@ -249,6 +251,7 @@ describe("S3 - WorkService claim + ContentRef media", () => {
     const repositoriesLive = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
+        CrewRepositoryLive,
         StationRepositoryLive,
         StationFleetTargetRepositoryLive,
         SettingsLive,

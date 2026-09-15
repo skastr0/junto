@@ -1,3 +1,4 @@
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -111,6 +112,7 @@ describe("CanvasesService SQLite authority", () => {
     const repositories = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
+        CrewRepositoryLive,
         StationRepositoryLive,
         StationFleetTargetRepositoryLive,
         SettingsLive,

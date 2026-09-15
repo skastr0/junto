@@ -1,3 +1,4 @@
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -151,6 +152,7 @@ const makeRuntime = () => {
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
+      CrewRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       makeSettingsLive({ ensureDefaultCommandCenter: false }),

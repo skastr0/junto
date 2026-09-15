@@ -1,3 +1,4 @@
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ import { managedAgentEther } from "./helpers/managed-agent-ether";
 const caller = { canvasName: "origin", nodeId: "boss" };
 const layers = (root: string) => {
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
+    CrewRepositoryLive, WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
     SettingsLive, makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(
     makeStateEngineLive(join(root, "state.db")),

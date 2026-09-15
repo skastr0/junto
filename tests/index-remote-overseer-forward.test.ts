@@ -1,3 +1,4 @@
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -96,7 +97,7 @@ const layers = (root: string) => {
   // the only identity this test seeds.
   const settings = makeSettingsLive({ ensureDefaultCommandCenter: false });
   const repositories = Layer.provideMerge(Layer.mergeAll(
-    WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
+    CrewRepositoryLive, WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
     settings, makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(
     makeStateEngineLive(join(root, "state.db")),

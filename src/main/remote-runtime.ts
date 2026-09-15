@@ -37,6 +37,7 @@ import { FactoryPauseRepositoryLive } from "./vellum-command/pause/repository";
 import { SchedulerRepositoryLive } from "./vellum-command/scheduler/repository";
 import { WorkLive } from "./vellum-command/work/service";
 import { WorkRepositoryLive } from "./vellum-command/work/repository";
+import { CrewRepositoryLive } from "./vellum-command/work/crew-repository";
 import { makeContentServiceLive } from "./vellum-command/content/service";
 import { InstallOpsLive } from "./vellum-command/install-ops/engine";
 import { RegionRollupLive } from "./vellum-command/region-rollup";
@@ -135,6 +136,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     KernelStateRepositoryLive,
     FactoryPauseRepositoryLive,
     WorkRepositoryLive,
+    CrewRepositoryLive,
     Layer.provideMerge(UsageLive, RemoteSettingsLive),
     RemoteSettingsLive,
     SchedulerRepositoryLive,

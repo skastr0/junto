@@ -1,3 +1,4 @@
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -118,6 +119,7 @@ describe("overseer composition canvas hook with live grant", () => {
     const repositories = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
+        CrewRepositoryLive,
         StationRepositoryLive,
         StationFleetTargetRepositoryLive,
         SettingsLive,

@@ -8,6 +8,7 @@
  * admission nor pending evidence can inspect the model's private state.
  * This is a deterministic integration regression, not a visual app E2E.
  */
+import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,7 +82,7 @@ const factoryDoc = (): CanvasDoc => ({
 const makeRuntime = (root: string) => {
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
-      WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
+      CrewRepositoryLive, WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,
       SettingsLive, FactoryPauseRepositoryLive, SchedulerRepositoryLive,
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
     ),
