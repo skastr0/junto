@@ -25,6 +25,16 @@ export type CheckoutBinding = {
   readonly seatId: ActorSeatId;
   readonly taskId: string;
   readonly via: CheckoutBindingVia;
+  /**
+   * The observed sender process identity at bind time (seat delivery
+   * snapshot generationKey / harness). Copied verbatim onto observations —
+   * never re-read later — so a re-emitted observation keeps the provenance
+   * of the process that was bound when the commit was attributed, and two
+   * generations of one seat can never mix upstream. Optional only so pure
+   * fixtures stay valid; production composition always supplies both.
+   */
+  readonly generation?: string;
+  readonly harness?: string;
 };
 
 /**
@@ -85,6 +95,9 @@ export type CheckoutObservation = {
   readonly seatId?: ActorSeatId;
   readonly taskId?: string;
   readonly attributedVia?: CheckoutBindingVia;
+  /** The bound process identity at observation time, verbatim from the binding. */
+  readonly generation?: string;
+  readonly harness?: string;
 };
 
 export type HeadSnapshot = {
@@ -184,6 +197,12 @@ export class CheckoutWatcher {
                   seatId: binding.seatId,
                   taskId: binding.taskId,
                   attributedVia: binding.via,
+                  ...(binding.generation !== undefined
+                    ? { generation: binding.generation }
+                    : {}),
+                  ...(binding.harness !== undefined
+                    ? { harness: binding.harness }
+                    : {}),
                 }
               : {}),
           });
