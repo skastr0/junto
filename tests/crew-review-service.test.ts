@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
 import { readMailExtension, type MailSenderStamp } from "../src/shared/crew";
 import type { CompletionEvidence } from "../src/shared/work-model";
@@ -17,6 +17,7 @@ import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/sta
 import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
 import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
 import { CrewRepository, CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { messageDelivery } from "../src/main/vellum-command/work/message-delivery";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 import { reviewSubjectProjection } from "../src/main/vellum-command/work/reviews";
 import { WorkLive, WorkService, type WorkOpResult, type WorkTaskShowView } from "../src/main/vellum-command/work/service";
@@ -70,6 +71,8 @@ afterAll(async () => {
   await runtime.dispose();
   await rm(root, { recursive: true, force: true });
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 const REVIEW_RULE = "independent-review";
 const SHA_A = "a".repeat(40);
@@ -176,6 +179,17 @@ const expectedSubject = (shown: WorkTaskShowView) => ({
 });
 
 describe("crew reviews through the real WorkService", () => {
+  it("reports the current author as ReviewerIsAuthor without requiring a self-review edge", async () => {
+    const f = await fixture("crew-review-self");
+    const before = await f.show();
+    const refused = await runtime.runPromise(work.workVerdictPost(f.canvas, "tasks", {
+      subject: expectedSubject(before), kind: "green",
+    }, f.author));
+    expect(refused).toMatchObject({ ok: false, code: "reviewer_is_author", details: { reason: "reviewer-is-author" } });
+    expect(await f.snapshot()).toEqual(before.task);
+    expect((await f.show()).verdicts).toEqual([]);
+  });
+
   it("commits first-board blocking and its epoch together, then refuses the stale verdict", async () => {
     const f = await fixture("crew-review-atomic");
     const before = await f.show();
@@ -324,6 +338,7 @@ describe("crew reviews through the real WorkService", () => {
     const originalRows = await durableRows();
     expect(originalInbox).toEqual([]);
     expect(originalRows.receipts).toEqual([]);
+    const notify = vi.spyOn(messageDelivery, "notifyAppended");
 
     const wrongClaimant = await runtime.runPromise(work.workTaskTransition(
       f.canvas, "tasks", f.taskId, "working", undefined, staged, undefined,
@@ -333,6 +348,7 @@ describe("crew reviews through the real WorkService", () => {
     expect(await f.snapshot()).toEqual(originalTask);
     expect(await reviewerInbox()).toEqual(originalInbox);
     expect(await durableRows()).toEqual(originalRows);
+    expect(notify).not.toHaveBeenCalled();
 
     await runtime.runPromise(state.transaction("test.crew-review-receipt-abort-install", (writer) => {
       writer.run(`CREATE TRIGGER crew_review_abort_receipt_insert
@@ -350,6 +366,7 @@ describe("crew reviews through the real WorkService", () => {
       expect(await f.snapshot()).toEqual(originalTask);
       expect(await reviewerInbox()).toEqual(originalInbox);
       expect(await durableRows()).toEqual(originalRows);
+      expect(notify).not.toHaveBeenCalled();
     } finally {
       await runtime.runPromise(state.transaction("test.crew-review-receipt-abort-remove", (writer) => {
         writer.run("DROP TRIGGER crew_review_abort_receipt_insert");
@@ -369,6 +386,7 @@ describe("crew reviews through the real WorkService", () => {
     expect(persisted.reviewSubject.subjectHash).not.toBe(before.reviewSubject.subjectHash);
     const mail = await reviewerInbox();
     expect(mail).toHaveLength(1);
+    expect(notify).toHaveBeenCalledExactlyOnceWith(f.canvas, "reviewer", mail[0]);
     expect(mail[0]?.taskId).toBe(f.taskId);
     expect(readMailExtension(mail[0]?.metadata)).toMatchObject({
       mailKind: "receipt", refs: [{ kind: "task", taskId: f.taskId }, { kind: "commit", sha: SHA_A }],
@@ -394,6 +412,15 @@ describe("crew reviews through the real WorkService", () => {
     expect((await f.show()).reviewSubject).toEqual(expected);
     expect(await reviewerInbox()).toEqual(mail);
     expect(await durableRows()).toEqual(committedRows);
+    expect(notify).toHaveBeenCalledTimes(1);
+
+    applied(await runtime.runPromise(work.workTaskTransition(
+      f.canvas, "tasks", f.taskId, "working", "More progress, no new refs", undefined, undefined, sender,
+    )));
+    expect((await f.show()).reviewSubject).toEqual(expected);
+    expect(await reviewerInbox()).toEqual(mail);
+    expect((await durableRows()).receipts).toEqual(committedRows.receipts);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 
   it("rejects an old-epoch blocking write after the winning send-back is reclaimed", async () => {
@@ -467,8 +494,8 @@ describe("crew reviews through the real WorkService", () => {
       barrierTimer = setTimeout(() => reject(new Error("Green verdict preflight did not reach postVerdict")), 3_000);
     });
     const released = new Promise<void>((resolve) => { release = resolve; });
-    const original = crew.postVerdict.bind(crew);
-    const scheduling = vi.spyOn(crew, "postVerdict").mockImplementation((...args) => {
+    const original = repository.postReviewVerdict.bind(repository);
+    const scheduling = vi.spyOn(repository, "postReviewVerdict").mockImplementation((...args) => {
       const write = original(...args);
       return Effect.promise(async () => {
         reachedWriter();

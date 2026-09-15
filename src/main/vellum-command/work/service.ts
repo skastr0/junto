@@ -1610,9 +1610,21 @@ export const WorkLive = Layer.effect(
                 disposition: "applied",
               });
             }
-            yield* crew.postVerdict(plan.verdict, {
+            const posted = yield* repository.postReviewVerdict(plan.verdict, {
               basis: intentBasis(context, read.intentWitness),
+              canvasName: canvas,
             }).pipe(Effect.mapError(toWorkServiceError));
+            if ("rejected" in posted) {
+              return yield* new WorkServiceError({
+                code: posted.rejected === "reviewer-is-author"
+                  ? "reviewer_is_author"
+                  : posted.rejected === "reviews-edge-missing"
+                    ? "scope_error"
+                    : "invalid",
+                message: `review verdict refused at write: ${posted.rejected}`,
+                details: { reason: posted.rejected, retryable: posted.rejected === "stale-subject" },
+              });
+            }
             return yield* complete(canvas, { value: result, disposition: "applied" });
           }),
         ),
@@ -1734,16 +1746,24 @@ export const WorkLive = Layer.effect(
             ]);
             const before = nodeById(read.doc, nodeId)?.ether?.tasks?.items
               .find((task) => task.id === taskId);
-            if (receiptAuthor !== undefined && (completionEvidence?.git?.commits.length ?? 0) > 0) {
-              const author = read.actorRefs.find((actor) => actor.seatId === receiptAuthor.fromSeat &&
-                (receiptAuthor.senderNodeId === undefined || actor.nodeId === receiptAuthor.senderNodeId));
-              if (before === undefined || reviewAuthorSeat(before) !== receiptAuthor.fromSeat || author === undefined) {
+            const localReceiptAuthor = context.configuration.role === "command-center" &&
+              (completionEvidence?.git?.commits.length ?? 0) > 0
+              ? receiptAuthor
+              : undefined;
+            if (localReceiptAuthor !== undefined) {
+              const author = read.actorRefs.find((actor) => actor.seatId === localReceiptAuthor.fromSeat &&
+                (localReceiptAuthor.senderNodeId === undefined || actor.nodeId === localReceiptAuthor.senderNodeId));
+              if (before === undefined || reviewAuthorSeat(before) !== localReceiptAuthor.fromSeat || author === undefined) {
                 return yield* new WorkServiceError({
                   code: "scope_error",
                   message: "commit evidence must come from the task's current claimant",
                   details: { reason: "receipt-author-mismatch", retryable: false },
                 });
               }
+            }
+            if (state === "completed" && before !== undefined && context.configuration.role !== "command-center") {
+              const review = yield* reviewForTask(read, canvas, nodeId, before, home);
+              if (review.gate.armed.length > 0) yield* crewAdmission;
             }
             // Finish-criteria gate is home-local only. Off-home callers enqueue
             // a command; the executor re-runs the gate against its SQLite shelf.
@@ -1778,7 +1798,7 @@ export const WorkLive = Layer.effect(
               )
             );
             let reviewGate: ReviewGateWithin | undefined;
-            if (state === "completed" && before !== undefined) {
+            if (state === "completed" && before !== undefined && context.configuration.role === "command-center") {
               const candidate = {
                 ...before,
                 completionEvidence: policy.task.completionEvidence,
@@ -1852,7 +1872,7 @@ export const WorkLive = Layer.effect(
                   next: sinkRef(canvas, sentOn.nodeId),
                   nextTask: sentOn.task,
                   ...(reviewGate === undefined ? {} : { reviewGate }),
-                  ...(receiptAuthor === undefined ? {} : { receiptAuthor }),
+                  ...(localReceiptAuthor === undefined ? {} : { receiptAuthor: localReceiptAuthor }),
                 }),
               );
               return yield* complete(canvas, {
@@ -1917,7 +1937,7 @@ export const WorkLive = Layer.effect(
                     : {}),
                   ...visitsPatch,
                   ...(reviewGate === undefined ? {} : { reviewGate }),
-                  ...(receiptAuthor === undefined ? {} : { receiptAuthor }),
+                  ...(localReceiptAuthor === undefined ? {} : { receiptAuthor: localReceiptAuthor }),
                 }),
               )
               : yield* enqueue(
