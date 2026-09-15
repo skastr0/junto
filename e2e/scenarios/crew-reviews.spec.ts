@@ -74,9 +74,16 @@ const receiptSubject = async (
 
 test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the live verdict chain", async ({}, testInfo) => {
   test.setTimeout(240_000);
-  const app = await launchVellum({ seedCanvases: { [CANVAS]: doc }, afterSeed: installCrewSeatHarness });
+  const app = await launchVellum({
+    seedCanvases: { [CANVAS]: doc },
+    afterSeed: installCrewSeatHarness,
+    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+  });
   try {
     const { page, sandbox } = app;
+    const runtime = { mainPid: app.app.process().pid, home: sandbox.homeDir, canvas: CANVAS };
+    console.log("CREW_REVIEW_RUNTIME", JSON.stringify(runtime));
+    await testInfo.attach("runtime", { body: JSON.stringify(runtime), contentType: "application/json" });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
     const author = crewSeat(sandbox, CANVAS, AUTHOR);
@@ -158,6 +165,7 @@ test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the liv
     const digestScreenshot = testInfo.outputPath("crew-review-digest.png");
     await page.getByTestId("canvas-digest").screenshot({ path: digestScreenshot });
     await testInfo.attach("review-digest", { path: digestScreenshot, contentType: "image/png" });
+    if (process.env.CREW_REVIEW_VISUAL_HOLD === "1") await page.waitForTimeout(60_000);
   } finally {
     await app.close();
   }
