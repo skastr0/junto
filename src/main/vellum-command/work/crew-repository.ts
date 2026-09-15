@@ -359,6 +359,34 @@ export const applyVerdictWrite = (
   );
 };
 
+/**
+ * Insert one review receipt via a caller-owned StateWriter, so the receipt
+ * dedupe row commits in the same transaction as the task mutation that minted
+ * it. Insert-once by the receipt's unique key.
+ */
+export const applyReviewReceiptWrite = (
+  writer: StateWriter,
+  input: ReviewReceiptInput,
+): void => {
+  writer.run(
+    `INSERT OR IGNORE INTO work_review_receipts(
+       canvas_name, source_kind, source_id, ref_sha, reviewer_seat_id,
+       task_id, author_seat_id, message_id, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.canvasName,
+      input.sourceKind,
+      input.sourceId,
+      input.refSha,
+      input.reviewerSeatId,
+      input.taskId ?? null,
+      input.authorSeatId,
+      input.messageId ?? null,
+      input.createdAt,
+    ],
+  );
+};
+
 export type CrewRepositoryShape = {
   /** Durable queued row before any transport action. Idempotent per key. */
   readonly enqueueAttempt: (
@@ -746,24 +774,20 @@ export const CrewRepositoryLive = Layer.effect(
     ) =>
       state
         .transaction("crew.recordReviewReceipt", (writer) => {
-          const result = writer.run(
-            `INSERT OR IGNORE INTO work_review_receipts(
-               canvas_name, source_kind, source_id, ref_sha, reviewer_seat_id,
-               task_id, author_seat_id, message_id, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          const before = writer.get<{ readonly n: number }>(
+            `SELECT count(*) AS n FROM work_review_receipts
+             WHERE canvas_name = ? AND source_kind = ? AND source_id = ?
+               AND ref_sha = ? AND reviewer_seat_id = ?`,
             [
               input.canvasName,
               input.sourceKind,
               input.sourceId,
               input.refSha,
               input.reviewerSeatId,
-              input.taskId ?? null,
-              input.authorSeatId,
-              input.messageId ?? null,
-              input.createdAt,
             ],
           );
-          return Number(result.changes ?? 0) > 0;
+          applyReviewReceiptWrite(writer, input);
+          return (before?.n ?? 0) === 0;
         })
         .pipe(
           Effect.mapError((error) =>

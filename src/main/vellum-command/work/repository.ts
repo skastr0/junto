@@ -151,6 +151,12 @@ import {
   mailboxMessageReactId,
   mailboxMessageReadId,
 } from "./mailbox-receipts";
+import {
+  applyReviewReceiptWrite,
+  applyVerdictWrite,
+  type ReviewReceiptInput,
+} from "./crew-repository";
+import type { ReviewVerdict } from "../../../shared/crew";
 import { unjournaledWorkMutation } from "./mutation-seam";
 import { canonicalJson } from "./canonical-json";
 import {
@@ -985,6 +991,16 @@ export type SendBackTaskInput = LocalWorkInput & {
   readonly target: SinkRefValue;
   /** Policy-built submitted epoch-bumped task re-homed at `target`. */
   readonly sentBackTask: TaskValue;
+  /**
+   * Blocking review, written in the SAME transaction as the send-back so the
+   * rejection and the immutable verdict (and its optional receipt) commit
+   * atomically. The verdict is bound to the epoch it judged; the send-back
+   * bumps the epoch, so a stale concurrent verdict cannot bless the new one.
+   */
+  readonly review?: {
+    readonly verdict: ReviewVerdict;
+    readonly receipt?: ReviewReceiptInput;
+  };
 };
 
 /** Operator approval of a task waiting at an `approval`-admission board. */
@@ -8514,6 +8530,14 @@ export const WorkRepositoryLive = Layer.effect(
           originAt,
           receivedAt,
         });
+        if (input.review !== undefined) {
+          // Immutable blocking verdict in the same transaction as the reject.
+          applyVerdictWrite(writer, input.review.verdict);
+          const receipt = input.review.receipt;
+          if (receipt !== undefined) {
+            applyReviewReceiptWrite(writer, receipt);
+          }
+        }
         return {
           value: { rejected, sentBack: sentBackTask },
           record: rejectedFact.record,
