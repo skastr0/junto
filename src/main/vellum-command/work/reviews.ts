@@ -727,10 +727,16 @@ export const planReceiptMail = (input: {
   readonly alreadySent: (dedupeKey: string) => boolean;
   readonly messageId: () => string;
 }): ReceiptMailPlan => {
-  const commitRefs = input.refs.filter(
-    (ref): ref is Extract<MailEvidenceRef, { kind: "commit" }> =>
-      ref.kind === "commit",
-  );
+  // Canonicalize at the boundary: the within-batch fresh comparison and the
+  // emitted dedupe keys must see the same bytes (normalizeSha), or one key
+  // ships twice in a single mail. Empty shas never reach a reviewer.
+  const commitRefs = input.refs
+    .filter(
+      (ref): ref is Extract<MailEvidenceRef, { kind: "commit" }> =>
+        ref.kind === "commit",
+    )
+    .map((ref) => ({ kind: "commit" as const, sha: normalizeSha(ref.sha) }))
+    .filter((ref) => ref.sha.length > 0);
   const mail: ReceiptMail[] = [];
   let coalesced = 0;
   for (const reviewer of input.reviewers) {

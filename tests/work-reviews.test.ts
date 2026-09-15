@@ -690,6 +690,26 @@ describe("receipt feed — exact source/ref dedupe", () => {
     expect(planned.mail[0]?.dedupeKeys).toHaveLength(1);
   });
 
+  it("within a batch, case variants of one sha ship ONE ref and one key", () => {
+    const planned = plan({
+      refs: [
+        { kind: "commit", sha: "ABC123" },
+        { kind: "commit", sha: "abc123" },
+      ],
+    });
+    expect(planned.coalesced).toBe(0);
+    expect(planned.mail).toHaveLength(1);
+    const mail = planned.mail[0]!;
+    expect(mail.dedupeKeys).toHaveLength(1);
+    expect(new Set(mail.dedupeKeys).size).toBe(1);
+    const metadata = mail.message.metadata as Record<string, unknown>;
+    const refs = metadata.refs as ReadonlyArray<{ kind: string; sha?: string }>;
+    expect(refs.filter((r) => r.kind === "commit")).toEqual([
+      { kind: "commit", sha: "abc123" },
+    ]);
+    expect(metadata.subject).toContain("1 commit ref");
+  });
+
   it("sha case never defeats the dedupe", () => {
     const sentKey = receiptDedupeKey({
       canvasName: "alpha",
