@@ -4890,12 +4890,14 @@ const writeThreadMessage = (
  * than a truncated hash.
  *
  * The transport delivery facts (`queuedAt`, `attemptedAt`, `notifiedAt`,
- * `unresolvedAt`, `refusedAt`, `refusedReason`, `generation`) and the legacy
- * projection keys (`deliveredAt`, `readAt`, `reactions`) are projection-only:
- * the delivery projection and the crew attempt store stamp them after decode.
- * A caller-supplied value is a forgery vector — a forged `notifiedAt` reads as
- * "already delivered" and suppresses real delivery — so admission drops them
- * before the row is written. Ingest-only: existing rows are never rewritten,
+ * `unresolvedAt`, `refusedAt`, `refusedReason`, `generation`) and the
+ * independently projected ack facts (`deliveredAt`, `readAt`, `reactions`,
+ * `repliedAt`, `reactedAt`) are projection-only: the delivery projection and
+ * the crew attempt store stamp them after decode from durable receipts. A
+ * caller-supplied value is a forgery vector — a forged `notifiedAt` reads as
+ * "already delivered" and suppresses real delivery, a forged `readAt` or
+ * `reactedAt` lies about acknowledgement — so admission drops them (including
+ * the legacy `refuseReason` misspelling) before the row is written. Ingest-only: existing rows are never rewritten,
  * and installed messages whose `fromSeat` is a historical node id stay
  * readable (the projection tolerates both).
  */
@@ -4903,12 +4905,16 @@ const MAILBOX_PROJECTION_ONLY_KEYS = [
   "deliveredAt",
   "readAt",
   "reactions",
+  "repliedAt",
+  "reactedAt",
   "queuedAt",
   "attemptedAt",
   "notifiedAt",
   "unresolvedAt",
   "refusedAt",
   "refusedReason",
+  // Legacy misspelling: never let a caller-authored reason survive under it.
+  "refuseReason",
   "generation",
 ] as const;
 
