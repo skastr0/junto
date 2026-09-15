@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, ManagedRuntime, Result } from "effect";
 import type { CanvasDoc, CanvasNode, TextNode } from "../src/shared/canvas";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
   INTERRUPT_BYTE,
@@ -34,6 +35,35 @@ import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page
 
 
 const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+
+const submittedPrompt = (): ManagedPromptOutcome => ({
+  status: "submitted",
+  bindingGeneration: 2,
+  writesBefore: 3,
+  writesAfter: 4,
+  pasteWrites: 1,
+  wrotePhysicalBytes: true,
+});
+
+const refusedPrompt = (
+  reason: "seat-busy" | "written-unresolved" = "seat-busy",
+): ManagedPromptOutcome => ({
+  status: "refused",
+  reason,
+  bindingGeneration: 2,
+  writesBefore: 4,
+  writesAfter: 4,
+  pasteWrites: 0,
+  wrotePhysicalBytes: false,
+});
+
+const unresolvedPrompt = (
+  reason: "no-turn-start" | "chip-pending",
+): ManagedPromptOutcome => ({
+  ...submittedPrompt(),
+  status: "unresolved",
+  reason,
+});
 
 const agent = (
   id: string,
@@ -233,16 +263,54 @@ describe("overseer native adapters", () => {
   });
 
   it("prompts through managedDrive without a renderer control lease", async () => {
-    const writePrompt = vi.fn(async () => true);
+    const writePrompt = vi.fn(async () => submittedPrompt());
     const native = live([{ name: "factory", doc: board }], {
       managedDrive: { writePrompt, interrupt: vi.fn(async () => true) },
     });
     const result = await run(native, "agent.prompt", { nodeId: "a1", text: "hello" });
-    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({
+      ok: true,
+      data: { delivered: true, bindingId: "bind-a1" },
+    });
     expect(writePrompt).toHaveBeenCalledWith("bind-a1", "hello", {
       queueIfBusy: false,
       signal: expect.any(AbortSignal),
     });
+  });
+
+  it("returns a refusal when the managed drive writes no prompt bytes", async () => {
+    const writePrompt = vi.fn(async () => refusedPrompt());
+    const native = live([{ name: "factory", doc: board }], {
+      managedDrive: { writePrompt, interrupt: vi.fn(async () => true) },
+    });
+    const result = await run(native, "agent.prompt", { nodeId: "a1", text: "hello" });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { type: "RuntimeDown" },
+    });
+    expect(writePrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    unresolvedPrompt("no-turn-start"),
+    unresolvedPrompt("chip-pending"),
+    refusedPrompt("written-unresolved"),
+  ])("surfaces $status/$reason as uncertain without retrying", async (outcome) => {
+    const writePrompt = vi.fn(async () => outcome);
+    const native = live([{ name: "factory", doc: board }], {
+      managedDrive: { writePrompt, interrupt: vi.fn(async () => true) },
+    });
+    const result = await run(native, "agent.prompt", { nodeId: "a1", text: "hello" });
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        delivered: false,
+        uncertain: true,
+        bindingId: "bind-a1",
+        message: expect.stringContaining("do not repaste automatically"),
+      },
+    });
+    expect(writePrompt).toHaveBeenCalledTimes(1);
   });
 
   it("interrupts via Ctrl+C on the managed seat when no drive is bound", async () => {
@@ -259,7 +327,7 @@ describe("overseer native adapters", () => {
     let granted = true;
     const writePrompt = vi.fn(async () => {
       granted = false;
-      return true;
+      return submittedPrompt();
     });
     const native = live([{ name: "factory", doc: board }], {
       managedDrive: { writePrompt, interrupt: vi.fn(async () => true) },
@@ -573,7 +641,7 @@ describe("overseer native adapters", () => {
       releaseGrant = resolve;
     });
     let grantChecks = 0;
-    const writePrompt = vi.fn(async () => true);
+    const writePrompt = vi.fn(async () => submittedPrompt());
     const native = live([{ name: "factory", doc: board }], {
       managedDrive: { writePrompt, interrupt: vi.fn(async () => true) },
       liveOverseerGrant: async () => {
