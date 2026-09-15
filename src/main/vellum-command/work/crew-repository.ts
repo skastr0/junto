@@ -19,7 +19,6 @@
  * withdraws that reviewer's approval.
  */
 
-import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Schema } from "effect";
 import { StateEngine } from "../state/engine";
 import type { StateReader, StateWriter } from "../state/service";
@@ -33,8 +32,9 @@ import {
   MailDeliveryPolicy,
   ReviewVerdict,
   VERDICT_SUBJECT_HASH_DOMAIN,
-  verdictSubjectHashPayload,
 } from "../../../shared/crew";
+
+export { subjectHashOf } from "./review-subject-hash";
 
 export class CrewRepositoryError extends Schema.TaggedError<CrewRepositoryError>()(
   "CrewRepositoryError",
@@ -139,33 +139,6 @@ export type CheckoutObservationInput = {
   readonly attributedVia?: "claim-context" | "update-context";
   readonly observedAt: string;
 };
-
-/**
- * Canonical subject hash. Every lane derives it here so the gate compares
- * identical bytes; the payload (domain-separated, commit shas normalized) lives
- * in the shared module.
- */
-export const subjectHashOf = (
-  input:
-    | {
-        readonly kind: "task";
-        readonly installationId: string;
-        readonly canvasName: string;
-        readonly nodeId: string;
-        readonly taskId: string;
-        readonly epoch: number;
-        readonly commitShas?: ReadonlyArray<string>;
-        readonly artifactRefs?: ReadonlyArray<{
-          readonly nodeId: string;
-          readonly artifactId: string;
-        }>;
-        readonly claimRefs?: ReadonlyArray<string>;
-      }
-    | { readonly kind: "commit"; readonly sha: string },
-): string =>
-  createHash("sha256")
-    .update(verdictSubjectHashPayload(input), "utf8")
-    .digest("hex");
 
 const decodeAttempt = Schema.decodeUnknownSync(DeliveryAttempt);
 const decodeVerdict = Schema.decodeUnknownSync(ReviewVerdict);
