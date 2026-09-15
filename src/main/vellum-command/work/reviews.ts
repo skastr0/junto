@@ -47,7 +47,7 @@ import type { ActorSeatId } from "@shared/actor-seat";
 import type { ActorRef } from "@shared/work-reference";
 import type { WorkErrorBody } from "@shared/work-control";
 import type { WorkRecordId } from "@shared/work-protocol";
-import { subjectHashOf } from "./review-subject-hash";
+import { subjectHashOf, taskReviewSubjectHash } from "./review-subject-hash";
 
 // ---------------------------------------------------------------------------
 // Errors — WorkErrorType plus a machine `details.reason`, never a new type.
@@ -159,17 +159,6 @@ export const reviewSubjectProjection = (input: {
   const { installationId, canvasName, nodeId, task } = input;
   const epoch = taskEpoch(task);
   const authorSeatId = reviewAuthorSeat(task);
-  const evidence = input.evidenceOverride ?? task.completionEvidence;
-  const commitShas = (evidence?.git?.commits ?? [])
-    .map(normalizeSha)
-    .filter((sha) => sha.length > 0);
-  const artifactRefs = (evidence?.artifacts ?? []).map((artifact) => ({
-    nodeId: artifact.nodeId,
-    artifactId: artifact.artifactId,
-  }));
-  const claimRefs = (evidence?.claims ?? []).flatMap((claim) =>
-    (claim.refs ?? []).map((ref) => ref.trim()),
-  );
   return {
     installationId,
     canvasName,
@@ -177,17 +166,7 @@ export const reviewSubjectProjection = (input: {
     taskId: task.id,
     state: task.state,
     epoch,
-    subjectHash: reviewSubjectHash({
-      kind: "task",
-      installationId,
-      canvasName,
-      nodeId,
-      taskId: task.id,
-      epoch,
-      commitShas,
-      artifactRefs,
-      claimRefs,
-    }),
+    subjectHash: taskReviewSubjectHash(input),
     refs: completionCommitRefs(
       input.evidenceOverride !== undefined
         ? { ...task, completionEvidence: input.evidenceOverride }
