@@ -222,9 +222,9 @@ describe("stripMailEnvelope", () => {
       stripMailEnvelope("mail from the future is here", stamped),
     ).toBe("mail from the future is here");
     expect(stripMailEnvelope("plain", stamped)).toBe("plain");
-    expect(stripMailEnvelope("[factory mail from planner] leftover")).toBe(
-      "leftover",
-    );
+    expect(
+      stripMailEnvelope("[factory mail from planner] leftover", stamped),
+    ).toBe("leftover");
   });
 });
 

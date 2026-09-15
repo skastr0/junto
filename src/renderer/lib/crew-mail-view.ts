@@ -7,14 +7,14 @@
  */
 import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
-import { stripFactoryEnvelope } from "@shared/message-delivery";
+import {
+  mailDisplayFactsOf,
+  stripFactoryEnvelope,
+} from "@shared/message-delivery";
 import {
   deriveMailDisplayState,
-  normalizeDisplayTimestamp,
-  readMailAttemptFacts,
   readMailEvidenceRef,
   readMailExtension,
-  type MailAttemptFacts as CanonicalMailAttemptFacts,
   type MailAttemptReason,
   type MailDisplayFacts,
   type MailDisplayState,
@@ -127,11 +127,9 @@ export const mailEvidenceLabel = (ref: MailEvidenceRef): string => {
   }
 };
 
-/** Compact notices name the sender. Stamp-aware — ordinary body is left alone. */
-export const stripMailEnvelope = (body: string, message?: Message): string =>
-  message === undefined
-    ? body.replace(/^\[factory mail from [^\]]*\]\s*/i, "")
-    : stripFactoryEnvelope(body, message);
+/** Compact notices name the sender. Always pass the actual message. */
+export const stripMailEnvelope = (body: string, message: Message): string =>
+  stripFactoryEnvelope(body, message);
 
 export const mailKindOf = (message: Message): MailKind | undefined => {
   const extension = readMailExtension(message.metadata);
@@ -141,53 +139,25 @@ export const mailKindOf = (message: Message): MailKind | undefined => {
   return undefined;
 };
 
-const receiptStamp = (value: unknown): string | undefined =>
-  typeof value === "number" || typeof value === "string"
-    ? normalizeDisplayTimestamp(value)
-    : undefined;
-
-/** loadInbox stamps react as `reactions: [{ kind: "ack", at }]`. */
-const reactedReceiptOf = (meta: Message["metadata"]): string | undefined => {
-  const reactions = meta?.reactions;
-  if (Array.isArray(reactions)) {
-    for (const entry of reactions) {
-      if (
-        entry !== null &&
-        typeof entry === "object" &&
-        "kind" in entry &&
-        entry.kind === "ack" &&
-        "at" in entry
-      ) {
-        const stamp = receiptStamp(entry.at);
-        if (stamp !== undefined) return stamp;
-      }
-    }
-  }
-  return receiptStamp(meta?.reactedAt);
-};
-
 /**
- * Transport facts come from readMailAttemptFacts. Legacy loadInbox
- * `deliveredAt` maps to `notifiedAt` only when the attempt row omitted it.
- * Receipt stamps stay on the loadInbox plane. Read is never inferred.
+ * UI labels over the shared projection. Rank and stamps live in
+ * mailDisplayFactsOf — not a second renderer authority.
  */
 export const mailAttemptFactsOf = (
   message: Message,
   _queuedAt: number | undefined,
 ): MailViewFacts => {
-  const meta = message.metadata;
-  const transport: CanonicalMailAttemptFacts | undefined =
-    readMailAttemptFacts(meta);
+  const facts = mailDisplayFactsOf(message);
   return {
-    queuedAt: transport?.queuedAt,
-    notifiedAt: transport?.notifiedAt ?? receiptStamp(meta?.deliveredAt),
-    unresolvedAt: transport?.unresolvedAt,
-    refusedAt: transport?.refusedAt,
-    refusedReason: transport?.refusedReason,
-    readAt: receiptStamp(meta?.readAt),
-    repliedAt: receiptStamp(meta?.repliedAt),
-    reactedAt: reactedReceiptOf(meta),
-    generation: transport?.generation,
+    queuedAt: facts.queuedAt,
+    notifiedAt: facts.notifiedAt,
+    unresolvedAt: facts.unresolvedAt,
+    refusedAt: facts.refusedAt,
+    refusedReason: facts.refusedReason,
+    readAt: facts.readAt,
+    repliedAt: facts.repliedAt,
+    reactedAt: facts.reactedAt,
+    generation: facts.generation,
   };
 };
 
