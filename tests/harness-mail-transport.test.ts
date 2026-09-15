@@ -72,14 +72,19 @@ describe("isolated capture home", () => {
     const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
     for (const id of HARNESS_IDS) {
       const spec = HARNESS_ISOLATION[id];
-      const result = isolatedCaptureEnv(id, isolated, {
-        HOME: operator,
-        CLAUDE_CONFIG_DIR: path.join(operator, ".claude"),
-        CODEX_HOME: path.join(operator, ".codex"),
-        PI_CODING_AGENT_DIR: path.join(operator, ".pi", "agent"),
-        SECRET_HISTORY: "must-not-copy",
-        OPENAI_API_KEY: "sk-operator",
-        ANTHROPIC_API_KEY: "sk-operator",
+      const result = isolatedCaptureEnv({
+        harness: id,
+        isolatedHome: isolated,
+        operatorHome: operator,
+        ambient: {
+          HOME: operator,
+          CLAUDE_CONFIG_DIR: path.join(operator, ".claude"),
+          CODEX_HOME: path.join(operator, ".codex"),
+          PI_CODING_AGENT_DIR: path.join(operator, ".pi", "agent"),
+          SECRET_HISTORY: "must-not-copy",
+          OPENAI_API_KEY: "sk-operator",
+          ANTHROPIC_API_KEY: "sk-operator",
+        },
       });
       if (spec.captureHome === "unsupported") {
         expect(result.ok, id).toBe(false);
@@ -112,6 +117,7 @@ describe("isolated capture home", () => {
       harness: "claude",
       isolatedHome,
       cwd,
+      operatorHome: operator,
       ambient: {
         HOME: operator,
         CLAUDE_CONFIG_DIR: path.join(operator, ".claude"),
@@ -134,6 +140,7 @@ describe("isolated capture home", () => {
       harness: "vellum-overseer",
       isolatedHome,
       cwd,
+      operatorHome: operator,
       ambient: { HOME: operator },
     });
     expect(overseer.ok).toBe(false);
@@ -146,17 +153,56 @@ describe("isolated capture home", () => {
 
   it("refuses the operator home as an isolated capture home", () => {
     const operator = os.homedir();
-    const refused = isolatedCaptureEnv("codex", operator, {
-      HOME: operator,
-      OPENAI_API_KEY: "sk-operator",
+    const refused = isolatedCaptureEnv({
+      harness: "codex",
+      isolatedHome: operator,
+      operatorHome: operator,
+      ambient: {
+        HOME: operator,
+        OPENAI_API_KEY: "sk-operator",
+      },
     });
     expect(refused.ok).toBe(false);
     if (refused.ok) throw new Error("unreachable");
     expect(refused.limitation).toContain("operator home");
     expect("env" in refused).toBe(false);
     expect(JSON.stringify(refused)).not.toContain("sk-operator");
-    expect(isolatedCaptureEnv("muse", "", {}).ok).toBe(false);
-    expect(isolatedCaptureEnv("muse", "~", {}).ok).toBe(false);
+    expect(
+      isolatedCaptureEnv({
+        harness: "muse",
+        isolatedHome: "/tmp/iso",
+        operatorHome: "",
+      }).ok,
+    ).toBe(false);
+    expect(
+      isolatedCaptureEnv({
+        harness: "muse",
+        isolatedHome: "",
+        operatorHome: operator,
+      }).ok,
+    ).toBe(false);
+    expect(
+      isolatedCaptureEnv({
+        harness: "muse",
+        isolatedHome: "~",
+        operatorHome: operator,
+      }).ok,
+    ).toBe(false);
+    const injected = isolatedCaptureEnv({
+      harness: "codex",
+      isolatedHome: "/tmp/not-a-real-operator",
+      operatorHome: "/tmp/not-a-real-operator",
+    });
+    expect(injected.ok).toBe(false);
+  });
+
+  it("does not import node:os in the renderer-shared templates module", () => {
+    const source = fs.readFileSync(
+      path.join(import.meta.dirname, "../src/shared/managed-terminal-templates.ts"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/from ["']node:os["']/);
+    expect(source).not.toMatch(/\bhomedir\s*\(/);
   });
 
   it("capture spawn overlay relocates Claude and Pi config dirs", () => {

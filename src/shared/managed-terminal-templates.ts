@@ -8,7 +8,6 @@
  * Zero writes to user harness configs. No MCP/ACP paths.
  */
 
-import { homedir } from "node:os";
 import { Schema } from "effect";
 import { managedHarnessEnabled } from "./features";
 
@@ -544,7 +543,7 @@ const stripTrailingSep = (value: string): string => value.replace(/[/\\]+$/, "")
 
 export const isOperatorHomePath = (
   candidate: string,
-  operatorHome: string = homedir(),
+  operatorHome: string,
 ): boolean => {
   if (candidate.length === 0 || operatorHome.length === 0) return false;
   return stripTrailingSep(candidate) === stripTrailingSep(operatorHome);
@@ -584,45 +583,62 @@ export type IsolatedHarnessLaunch =
       readonly limitation: string;
     };
 
+export type IsolatedCaptureRequest = {
+  readonly harness: HarnessId;
+  readonly isolatedHome: string;
+  /** Injected by the Node launch/capture boundary. Never read from node:os here. */
+  readonly operatorHome: string;
+  readonly ambient?: NodeJS.Dict<string | undefined>;
+};
+
 /**
  * Build a capture/test environment that never points HOME or harness config
  * at the operator's real home. Inherits only declared credential keys.
  * `captureHome: "unsupported"` refuses with a limitation and returns no env.
+ * `operatorHome` is required and compared to `isolatedHome`.
  */
 export const isolatedCaptureEnv = (
-  harness: HarnessId,
-  isolatedHome: string,
-  ambient: NodeJS.Dict<string | undefined> = process.env,
+  input: IsolatedCaptureRequest,
 ): IsolatedCaptureEnvResult => {
-  const spec = HARNESS_ISOLATION[harness];
+  const spec = HARNESS_ISOLATION[input.harness];
   if (spec.captureHome === "unsupported") {
     return {
       ok: false,
       limitation: spec.limitation ?? "capture home unsupported",
     };
   }
-  if (isolatedHome.length === 0 || isolatedHome === "~" || isolatedHome === ".") {
+  if (input.operatorHome.length === 0) {
+    return {
+      ok: false,
+      limitation: "operator home must be injected by the Node launch/capture boundary",
+    };
+  }
+  if (
+    input.isolatedHome.length === 0 ||
+    input.isolatedHome === "~" ||
+    input.isolatedHome === "."
+  ) {
     return { ok: false, limitation: "isolated home must be an absolute throwaway directory" };
   }
-  if (isOperatorHomePath(isolatedHome)) {
+  if (isOperatorHomePath(input.isolatedHome, input.operatorHome)) {
     return {
       ok: false,
       limitation: "isolated home must not be the operator home",
     };
   }
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(ambient)) {
+  for (const [key, value] of Object.entries(input.ambient ?? {})) {
     if (value === undefined) continue;
     if (spec.credentialEnv.includes(key)) env[key] = value;
   }
-  env.HOME = isolatedHome;
-  env.USERPROFILE = isolatedHome;
-  env.XDG_CONFIG_HOME = `${isolatedHome}/.config`;
-  env.XDG_DATA_HOME = `${isolatedHome}/.local/share`;
-  env.XDG_CACHE_HOME = `${isolatedHome}/.cache`;
-  env.XDG_STATE_HOME = `${isolatedHome}/.local/state`;
+  env.HOME = input.isolatedHome;
+  env.USERPROFILE = input.isolatedHome;
+  env.XDG_CONFIG_HOME = `${input.isolatedHome}/.config`;
+  env.XDG_DATA_HOME = `${input.isolatedHome}/.local/share`;
+  env.XDG_CACHE_HOME = `${input.isolatedHome}/.cache`;
+  env.XDG_STATE_HOME = `${input.isolatedHome}/.local/state`;
   for (const pin of spec.homePins) {
-    env[pin.envKey] = `${isolatedHome}/${pin.homeRelative}`;
+    env[pin.envKey] = `${input.isolatedHome}/${pin.homeRelative}`;
   }
   return { ok: true, env, limitation: spec.limitation };
 };
@@ -640,17 +656,10 @@ export const isolatedSpawnRuntimeEnv = (
 };
 
 /** Constructor for generated-canvas / pty-capture. `cwd` and `isolatedHome` must be throwaway. */
-export const buildIsolatedHarnessLaunch = (input: {
-  readonly harness: HarnessId;
-  readonly isolatedHome: string;
+export const buildIsolatedHarnessLaunch = (input: IsolatedCaptureRequest & {
   readonly cwd: string;
-  readonly ambient?: NodeJS.Dict<string | undefined>;
 }): IsolatedHarnessLaunch => {
-  const overlay = isolatedCaptureEnv(
-    input.harness,
-    input.isolatedHome,
-    input.ambient,
-  );
+  const overlay = isolatedCaptureEnv(input);
   if (!overlay.ok) {
     return {
       ok: false,

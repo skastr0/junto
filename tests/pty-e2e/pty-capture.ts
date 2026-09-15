@@ -477,7 +477,12 @@ export function buildSpawnEnv(def: HarnessDef, cwd: string, home: string): Recor
   }
   const e: Record<string, string> = isolatedSpawnRuntimeEnv(process.env);
   if (isHarnessId(def.name)) {
-    const overlay = isolatedCaptureEnv(def.name, home, process.env);
+    const overlay = isolatedCaptureEnv({
+      harness: def.name,
+      isolatedHome: home,
+      operatorHome: os.homedir(),
+      ambient: process.env,
+    });
     if (!overlay.ok) {
       throw new Error(`[${def.name}] capture home unsupported: ${overlay.limitation}`);
     }
